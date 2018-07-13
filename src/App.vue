@@ -71,14 +71,14 @@
       menuItems () {
         if (this.$store.state.isAuthenticated) {
           return [
-            { title: 'Config', path: '/config', icon: 'list' },
+            { title: 'Stone', path: '/stone', icon: 'gem' },
             { title: 'Gems', path: '/gems', icon: 'users' },
             { title: 'Stats', path: '/stats', icon: 'chart-line' },
             { title: 'Gem', path: '/gem', icon: 'gem' }
           ]
         } else {
           return [
-            { title: 'Config', path: '/config', icon: 'list' },
+            { title: 'Stone', path: '/stone', icon: 'gem' },
             { title: 'Gems', path: '/gems', icon: 'users' },
             { title: 'Stats', path: '/stats', icon: 'chart-line' },
 //          { title: 'Sign Up', path: '/signup', icon: 'user-plus' },

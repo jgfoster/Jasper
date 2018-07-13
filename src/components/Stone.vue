@@ -1,8 +1,11 @@
 <template>
   <v-container fluid>
     <v-layout row wrap>
-      <v-flex xs12 class="text-xs-center" mt-5>
-        <h1>Stone Configuration</h1>
+      <v-flex xs6 text-xs-left>
+        left
+      </v-flex>
+      <v-flex xs6 text-xs-right>
+        right
       </v-flex>
     </v-layout>
   </v-container>

@@ -4,13 +4,13 @@ import { store } from '../store'
 
 const routerOptions = [
   { path: '/', component: 'Home', meta: {'title': 'Home'} },
-  { path: '/config', component: 'Config', meta: {'title': 'Config'} },
   { path: '/gem', component: 'Gem', meta: {'title': 'Gem', requiresAuth: true} },
   { path: '/gems', component: 'Gems', meta: {'title': 'Gems'} },
   { path: '/landing', component: 'Landing', meta: {'title': 'Landing'} },
   { path: '/signin', component: 'Signin', meta: {'title': 'Sign In'} },
 //  { path: '/signup', component: 'Signup', meta: {'title': 'Sign Up'} },
   { path: '/stats', component: 'Stats', meta: {'title': 'Stats'} },
+  { path: '/stone', component: 'Stone', meta: {'title': 'Stone'} },
   { path: '*', component: 'NotFound', meta: {'title': 'Page Not Found'} }
 ]
 
