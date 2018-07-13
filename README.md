@@ -18,4 +18,4 @@ npm run build
 npm run build --report
 ```
 
-Note that node_modules has *not* been included in the Git checkout based primarily on the fact that this was started based on a sample that excluded it and I haven't bothered to edit .gitignore (but see [here](https://web.archive.org/posts/nodemodules-in-git.html)).
+Note that node_modules *is* included in the Git checkout. This adds about 200 MB to the checkout, but it is needed and otherwise you would have to build it. An [argument](https://web.archive.org/posts/nodemodules-in-git.html) for this approach is that a required package might [disappear](https://eslint.org/blog/2018/07/postmortem-for-malicious-package-publishes).
