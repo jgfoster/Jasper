@@ -54,7 +54,7 @@ after packing it up into a tarball (b).
     With the `--production` flag (or when the `NODE_ENV` environment variable
     is set to `production`), npm will not install modules listed in
     `devDependencies`.
-    
+
     > NOTE: The `--production` flag has no particular meaning when adding a
     dependency to a project.
 
@@ -69,8 +69,13 @@ after packing it up into a tarball (b).
 
     Install a package that is sitting on the filesystem.  Note: if you just want
     to link a dev directory into your npm root, you can do this more easily by
-    using `npm link`. The filename *must* use `.tar`, `.tar.gz`, or `.tgz` as
+    using `npm link`.
+
+    Tarball requirements:
+    * The filename *must* use `.tar`, `.tar.gz`, or `.tgz` as
     the extension.
+    * The package contents should reside in a subfolder inside the tarball (usually it is called `package/`). npm strips one directory layer when installing the package (an equivalent of `tar x --strip-components=1` is run).
+    * The package must contain a `package.json` file with `name` and `version` properties.
 
     Example:
 
@@ -218,11 +223,11 @@ after packing it up into a tarball (b).
 
     Examples:
 
-          npm install git+ssh://git@github.com:npm/npm.git#v1.0.27
-          npm install git+ssh://git@github.com:npm/npm#semver:^5.0
-          npm install git+https://isaacs@github.com/npm/npm.git
-          npm install git://github.com/npm/npm.git#v1.0.27
-          GIT_SSH_COMMAND='ssh -i ~/.ssh/custom_ident' npm install git+ssh://git@github.com:npm/npm.git
+          npm install git+ssh://git@github.com:npm/cli.git#v1.0.27
+          npm install git+ssh://git@github.com:npm/cli#semver:^5.0
+          npm install git+https://isaacs@github.com/npm/cli.git
+          npm install git://github.com/npm/cli.git#v1.0.27
+          GIT_SSH_COMMAND='ssh -i ~/.ssh/custom_ident' npm install git+ssh://git@github.com:npm/cli.git
 
 * `npm install <githubname>/<githubrepo>[#<commit-ish>]`:
 * `npm install github:<githubname>/<githubrepo>[#<commit-ish>]`:
