@@ -3,7 +3,7 @@
     <v-expansion-panel-content>
       <div slot="header">Version</div>
       <v-data-table
-        :items="this.$store.state.stoneVersion"
+        :items="this.version"
         class="elevation-1"
         hide-actions
         hide-headers
@@ -17,7 +17,7 @@
     <v-expansion-panel-content>
       <div slot="header">Config</div>
             <v-data-table
-        :items="this.$store.state.stoneConfig"
+        :items="this.config"
         class="elevation-1"
         hide-actions
         hide-headers
@@ -32,7 +32,7 @@
       <div slot="header">History</div>
       <v-card>
         <v-card-text>
-          {{ this.$store.state.stoneHistory }}
+          {{ this.history }}
         </v-card-text>
       </v-card>
     </v-expansion-panel-content>
@@ -41,4 +41,29 @@
 
 <script>
   export default {}
+</script>
+
+
+<script>
+  import axios from 'axios'
+
+  export default {
+    data () {
+      return {
+        config: [],
+        history: '',
+        version: []
+      }
+    },
+    mounted () {
+      axios({ method: 'GET', 'url': 'https://localhost:8888/stone' }).then(result => {
+        this.config = result.data.config
+        this.history = result.data.history
+        this.version = result.data.version
+      }, error => {
+        console.error(error)
+      })
+    },
+    methods: { }
+  }
 </script>
