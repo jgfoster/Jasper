@@ -85,7 +85,7 @@ gems
 			anArray size: keys size.
 			anArray at: 1 put: (anArray at: 1) userId.
 			#(5 14 15) do: [:i |
-				(anArray at: i) ifNotNil: [:value | anArray at: i put: timeGmt - value].
+				(anArray at: i) ifNotNil: [:value | anArray at: i put: (self stringFromSeconds: timeGmt - value)].
 			].
 			(anArray at: 22) ifNotNil: [:value | anArray at: 22 put: value name].
 			dict := Dictionary new.
@@ -121,4 +121,16 @@ stone
 		at: 'version'	put: version;
 		yourself.
 	response content: dict asJson.
+%
+category: 'other'
+method: Jasper
+stringFromSeconds: anInteger
+
+	| x |
+	(x := anInteger) ifNil: [^''].
+	x < 120 ifTrue: [^x printString , ' secs'].
+	(x := x // 60) < 120 ifTrue: [^x printString , ' mins'].
+	(x := x // 60) < 48 ifTrue: [^x printString , ' hrs'].
+	x := x // 24.
+	^x printString , ' days'.
 %
