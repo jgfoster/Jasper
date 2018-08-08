@@ -56,7 +56,7 @@
       }
     },
     mounted () {
-      axios({ method: 'GET', 'url': 'https://localhost:8888/stone' }).then(result => {
+      axios({ method: 'GET', 'url': 'stone' }).then(result => {
         this.config = result.data.config
         this.history = result.data.history
         this.version = result.data.version
