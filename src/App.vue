@@ -81,7 +81,7 @@
             { title: 'Stone', path: '/stone', icon: 'gem' },
             { title: 'Gems', path: '/gems', icon: 'users' },
             { title: 'Stats', path: '/stats', icon: 'chart-line' },
-//          { title: 'Sign Up', path: '/signup', icon: 'user-plus' },
+            { title: 'Sign Up', path: '/signup', icon: 'user-plus' },
             { title: 'Sign In', path: '/signin', icon: 'sign-in-alt' }
           ]
         }

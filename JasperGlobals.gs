@@ -10,6 +10,7 @@ names := userProfile symbolList names.
 	userProfile insertDictionary: symbolDictionary at: names size + 1.
 ].
 %
+set compile_env: 0
 ! ------------------- Class definition for Jasper
 expectvalue /Class
 doit
@@ -30,11 +31,17 @@ Jasper category: 'Kernel'
 ! ------------------- Remove existing behavior from Jasper
 expectvalue /Metaclass3
 doit
-Jasper removeAllMethods .
-Jasper class  removeAllMethods .
+Jasper removeAllMethods.
+Jasper class removeAllMethods.
 %
 ! ------------------- Class methods for Jasper
 set compile_env: 0
+category: 'other'
+classmethod: Jasper
+htdocs
+
+	^System gemEnvironmentVariable: 'HTDOCS'
+%
 category: 'other'
 classmethod: Jasper
 httpServerClass

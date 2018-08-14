@@ -147,7 +147,7 @@
       fetchGemList () {
         if (!this.callInProgress) {
           this.callInProgress = true
-          axios({ method: 'GET', 'url': 'gems' }).then(result => {
+          axios({ method: 'GET', 'url': process.env.URL + 'gems' }).then(result => {
             this.gems = result.data
             this.slept = 0
             this.callInProgress = false
