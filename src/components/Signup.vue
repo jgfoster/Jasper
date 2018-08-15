@@ -14,11 +14,11 @@
             </v-flex>
             <v-flex>
               <v-text-field
-                name="email"
-                label="Email"
-                id="email"
-                type="email"
-                v-model="email"
+                name="userID"
+                label="User ID"
+                id="userID"
+                type="text"
+                v-model="userID"
                 required></v-text-field>
             </v-flex>
             <v-flex>
@@ -40,6 +40,15 @@
                 v-model="passwordConfirm"
                 :rules="[comparePasswords]"
                 ></v-text-field>
+            </v-flex>
+            <v-flex>
+              <v-text-field
+                name="email"
+                label="Email (optional)"
+                id="email"
+                type="email"
+                v-model="email"
+                required></v-text-field>
             </v-flex>
             <v-flex class="text-xs-center" mt-5>
               <v-btn color="primary" type="submit" :disabled="loading">Sign Up</v-btn>
@@ -77,7 +86,7 @@ export default {
       if (this.comparePasswords !== true) {
         return
       }
-      this.$store.commit('userSignUp', { email: this.email, password: this.password })
+      this.$store.commit('userSignUp', { userID: this.userID, password: this.password, email: this.email })
       this.$router.push('/')
     }
   },

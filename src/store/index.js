@@ -27,6 +27,8 @@ export const store = new Vuex.Store({
       state.gemVersion = payload
     },
     userSignIn (state, payload) {
+      console.log(state)
+      console.log(payload)
       state.isAuthenticated = true
     },
     userSignOut (state, payload) {

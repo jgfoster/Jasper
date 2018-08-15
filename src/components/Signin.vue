@@ -14,11 +14,12 @@
             </v-flex>
             <v-flex>
               <v-text-field
-                name="email"
-                label="Email"
-                id="email"
-                type="email"
-                v-model="email"
+                name="userID"
+                label="User ID"
+                id="userID"
+                type="text"
+                v-model="userID"
+                autocomplete="username"
                 required></v-text-field>
             </v-flex>
             <v-flex>
@@ -28,6 +29,7 @@
                 id="password"
                 type="password"
                 v-model="password"
+                autocomplete="current-password"
                 required></v-text-field>
             </v-flex>
             <v-flex class="text-xs-center" mt-5>
@@ -44,14 +46,14 @@
 export default {
   data () {
     return {
-      email: '',
+      userID: '',
       password: '',
       alert: false
     }
   },
   methods: {
     userSignIn () {
-      this.$store.commit('userSignIn', { email: this.email, password: this.password })
+      this.$store.commit('userSignIn', { userID: this.userID, password: this.password })
       this.$router.push('/')
     }
   },
