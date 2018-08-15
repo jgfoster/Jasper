@@ -43,6 +43,7 @@
 </template>
 
 <script>
+import axios from 'axios'
 export default {
   data () {
     return {
@@ -53,6 +54,22 @@ export default {
   },
   methods: {
     userSignIn () {
+      if (!this.callInProgress) {
+        this.callInProgress = true
+        var data = {
+          userID: this.userID,
+          password: this.password
+        }
+        axios.post(process.env.URL + 'signIn', data).then(result => {
+          console.log(result)
+          this.callInProgress = false
+        }, error => {
+          console.error(error)
+          this.callInProgress = false
+        })
+      }
+    },
+    userSignInA () {
       this.$store.commit('userSignIn', { userID: this.userID, password: this.password })
       this.$router.push('/')
     }

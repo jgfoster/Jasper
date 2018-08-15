@@ -18,6 +18,7 @@
                 label="User ID"
                 id="userID"
                 type="text"
+                autocomplete="username"
                 v-model="userID"
                 required></v-text-field>
             </v-flex>
@@ -27,6 +28,7 @@
                 label="Password"
                 id="password"
                 type="password"
+                autocomplete="new-password"
                 v-model="password"
                 required></v-text-field>
             </v-flex>
@@ -36,6 +38,7 @@
                 label="Confirm Password"
                 id="confirmPassword"
                 type="password"
+                autocomplete="new-password"
                 required
                 v-model="passwordConfirm"
                 :rules="[comparePasswords]"
@@ -67,6 +70,7 @@ export default {
       email: '',
       password: '',
       passwordConfirm: '',
+      userID: '',
       alert: false
     }
   },
