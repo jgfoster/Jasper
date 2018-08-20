@@ -1,5 +1,7 @@
 import Vue from 'vue'
 import Vuex from 'vuex'
+import axios from 'axios'
+import router from '@/router'
 
 Vue.use(Vuex)
 
@@ -7,16 +9,29 @@ export const store = new Vuex.Store({
   strict: process.env.NODE_ENV !== 'production',
   state: {
     appTitle: 'Jasper',
+    session: null,
+    error: null,
+    loading: false
+/*
     gemConfig: [],
     gemUser: [],
     gemVersion: [],
     stats: 'statistics',
-    user: null,
-    error: null,
-    loading: false,
-    isAuthenticated: false
+*/
   },
   mutations: {
+    setSession (state, payload) {
+      console.log(payload)
+      state.session = payload
+    },
+    setError (state, payload) {
+      console.log(payload)
+      state.error = payload
+    },
+    setLoading (state, payload) {
+      state.loading = payload
+    }
+/*    ,
     gemConfig (state, payload) {
       state.gemConfig = payload
     },
@@ -26,24 +41,43 @@ export const store = new Vuex.Store({
     gemVersion (state, payload) {
       state.gemVersion = payload
     },
-    userSignIn (state, payload) {
-      console.log(state)
-      console.log(payload)
-      state.isAuthenticated = true
-    },
-    userSignOut (state, payload) {
-      state.isAuthenticated = false
-    },
-    userSignUp (state, payload) {
-      state.isAuthenticated = true
-    }
+*/
   },
   actions: {
+    userSignUp ({commit}, payload) {
+    },
+    userSignIn ({commit}, payload) {
+      commit('setLoading', true)
+      axios.post(process.env.URL + 'signIn', payload)
+      .then(result => {
+        console.log(result)
+        commit('setLoading', false)
+        if (result.data.success) {
+          commit('setSession', result.data.session)
+          router.push('/home')
+        } else {
+          commit('setError', result.data.error)
+        }
+      })
+      .catch(error => {
+        commit('setError', error.message)
+        commit('setLoading', false)
+      })
+    },
+    userSignOut (state, payload) {
+      console.log(state)
+      console.log(payload)
+//        router.push('/home')
+    }
   },
   getters: {
+    isAuthenticated (state) {
+      return state.session !== null && state.session !== undefined
+    }
   }
 })
 
+/*
 store.commit('gemUser', [
   ['userId', 'DataCurator'],
   ['stoneHost', 'localhost'],
@@ -148,3 +182,4 @@ store.commit('gemConfig', [
   ['SHR_TARGET_FREE_FRAME_COUNT', -1],
   ['SHR_WELL_KNOWN_PORT_NUMBER', 0]
 ])
+*/

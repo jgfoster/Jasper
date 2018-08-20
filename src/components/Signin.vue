@@ -43,7 +43,6 @@
 </template>
 
 <script>
-import axios from 'axios'
 export default {
   data () {
     return {
@@ -54,22 +53,7 @@ export default {
   },
   methods: {
     userSignIn () {
-      if (!this.callInProgress) {
-        this.callInProgress = true
-        var data = {
-          userID: this.userID,
-          password: this.password
-        }
-        axios.post(process.env.URL + 'signIn', data).then(result => {
-//          alert(result.data.error)
-          this.watch.alert(result.data.error)
-          console.log(result)
-          this.callInProgress = false
-        }, error => {
-          console.error(error)
-          this.callInProgress = false
-        })
-      }
+      this.$store.dispatch('userSignIn', { userID: this.userID, password: this.password })
     }
   },
   computed: {
