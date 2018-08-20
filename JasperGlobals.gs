@@ -1,4 +1,4 @@
-﻿! ------- Create dictionary if it is not present
+! ------- Create dictionary if it is not present
 run
 | aSymbol names userProfile |
 aSymbol := #'JasperGlobals'.
@@ -29,7 +29,7 @@ Jasper category: 'Kernel'
 %
 
 ! ------------------- Remove existing behavior from Jasper
-expectvalue /Metaclass3       
+expectvalue /Metaclass3
 doit
 Jasper removeAllMethods.
 Jasper class removeAllMethods.
@@ -74,6 +74,7 @@ buildResponse
 		accessControlAllowHeaders: 'X-PINGOTHER, Content-Type';
 		contentType: 'text/json';
 		yourself.
+	request method = 'OPTIONS' ifTrue: [^self].
 	super buildResponse.
 %
 category: 'other'
@@ -110,13 +111,30 @@ gems
 %
 category: 'other'
 method: Jasper
+sessions
+
+	^SessionTemps at: 'sessions' ifAbsentPut: [IntegerKeyValueDictionary new]
+%
+category: 'other'
+method: Jasper
 signIn
 
-	| data |
-	data := '{"userID":"DataCurator","password":"swordfish"}'.
-	data := request bodyContents.	
+	| data session |
+	[
+		| id |
+		data := JsonParser parse: request bodyContents.
+		session := GsExternalSession newDefault
+			username: (data at: 'userID');
+			password: (data at: 'password');
+			login.
+		id := Random new smallInteger.
+		data := Dictionary with: 'session' -> id.
+		session logout.
+	] on: Error do: [:ex |
+		data := Dictionary with: 'error' -> ex description.
+	].
 	response
-		content: #('signIn') asJson;
+		content: data asJson;
 		yourself.
 %
 category: 'other'

@@ -61,6 +61,8 @@ export default {
           password: this.password
         }
         axios.post(process.env.URL + 'signIn', data).then(result => {
+//          alert(result.data.error)
+          this.watch.alert(result.data.error)
           console.log(result)
           this.callInProgress = false
         }, error => {
@@ -68,10 +70,6 @@ export default {
           this.callInProgress = false
         })
       }
-    },
-    userSignInA () {
-      this.$store.commit('userSignIn', { userID: this.userID, password: this.password })
-      this.$router.push('/')
     }
   },
   computed: {

@@ -1,3 +1,7 @@
+/*
+ * Based on https://github.com/oleg-agapov/basic-spa-vue-firebase
+ */
+
 import Vue from 'vue'
 import App from './App'
 import router from './router'
