@@ -128,10 +128,16 @@ signIn
 			password: (data at: 'password');
 			login.
 		id := Random new smallInteger.
-		data := Dictionary with: 'session' -> id.
+		data := Dictionary new
+			at: 'success' put: true;
+			at: 'session' put: id;
+			yourself.
 		session logout.
 	] on: Error do: [:ex |
-		data := Dictionary with: 'error' -> ex description.
+		data := Dictionary new
+			at: 'success' put: false;
+			at: 'error' put: ex description;
+			yourself.
 	].
 	response
 		content: data asJson;
