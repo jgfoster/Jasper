@@ -25,6 +25,15 @@ WebApp subclass: 'Jasper'
 %
 expectvalue /Class
 doit
+Jasper comment:
+'No class-specific documentation for Jasper, hierarchy is:
+Object
+  WebApp( begin end exception html request response)
+    Jasper
+'
+%
+expectvalue /Class
+doit
 Jasper category: 'Kernel'
 %
 
@@ -81,11 +90,12 @@ gem
 %
 ! ------------------- Instance methods for Jasper
 set compile_env: 0
+set compile_env: 0
 category: 'private'
 method: Jasper
 allowedSelectors
 
-	^#('home' 'gem' 'gems' 'signIn' 'signOut' 'stone')
+	^#('home' 'gem' 'gems' 'signIn' 'signOut' 'stats' 'stone' 'workspace')
 %
 category: 'private'
 method: Jasper
@@ -248,7 +258,47 @@ signOut
 %
 category: 'public'
 method: Jasper
+stats
+
+	| data dict layout options |
+	data 		:= Dictionary new
+		at: 'x'		put: {1. 3};
+		at: 'y'		put: {2. 4};
+		yourself.
+	layout 	:= Dictionary new.
+	options 	:= Dictionary new.
+	dict 		:= Dictionary new
+		at: 'data'		put: (Array with: data);
+		at: 'layout'		put: layout;
+		at: 'options'	put: options;
+		yourself.
+	response content: dict asJson.
+%
+category: 'public'
+method: Jasper
 stone
+
+	| config dict version |
+	config := {}.
+	version := {}.
+	dict := System stoneConfigurationReport.
+	dict keys asSortedCollection do: [:each |
+		config add: { each. dict at: each }.
+	].
+	dict := System stoneVersionReport.
+	dict keys asSortedCollection do: [:each |
+		version add: { each. dict at: each }.
+	].
+	dict := Dictionary new
+		at: 'config'		put: config;
+		at: 'history'		put: DbfHistory;
+		at: 'version'	put: version;
+		yourself.
+	response content: dict asJson.
+%
+category: 'public'
+method: Jasper
+workspace
 
 	| config dict version |
 	config := {}.

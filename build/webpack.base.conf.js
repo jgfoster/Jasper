@@ -48,7 +48,12 @@ module.exports = {
       },
       {
         test: /\.js$/,
-        loader: 'babel-loader',
+//        loader: 'babel-loader',
+        use: [
+          'babel-loader',
+          'ify-loader',
+          'transform-loader?plotly.js/tasks/util/compress_attributes.js'
+        ],
         include: [resolve('src'), resolve('test'), resolve('node_modules/webpack-dev-server/client')]
       },
       {

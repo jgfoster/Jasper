@@ -1,13 +1,36 @@
 <template>
   <v-container fluid>
     <v-layout row wrap>
-      <v-flex xs12 class="text-xs-center" mt-5>
-        <h1>Statistics</h1>
-      </v-flex>
+       <vue-plotly :data="data" :layout="layout" :options="options"/>
     </v-layout>
   </v-container>
 </template>
 
 <script>
-  export default {}
+  import axios from 'axios'
+  import VuePlotly from '@statnett/vue-plotly'
+
+  export default {
+    components: {
+      VuePlotly
+    },
+    data: function () {
+      return {
+        data: [],
+        layout: {},
+        options: {}
+      }
+    },
+    mounted () {
+      axios.get(process.env.URL + 'stats').then(result => {
+        console.log('stats', result)
+        this.data = result.data.data
+        this.layout = result.data.layout
+        this.options = result.data.options
+      }, error => {
+        console.error(error)
+      })
+    },
+    methods: { }
+  }
 </script>
