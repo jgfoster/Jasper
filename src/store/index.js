@@ -22,7 +22,11 @@ export const store = new Vuex.Store({
     },
     setSession (state, payload) {
       state.session = payload
-      window.sessionStorage.setItem('session', payload)
+      if (payload !== null) {
+        window.sessionStorage.setItem('session', payload)
+      } else {
+        window.sessionStorage.removeItem('session')
+      }
     }
   },
   actions: {

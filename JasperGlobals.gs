@@ -36,34 +36,58 @@ Jasper class removeAllMethods.
 %
 ! ------------------- Class methods for Jasper
 set compile_env: 0
-category: 'other'
+category: 'overrides'
 classmethod: Jasper
 htdocs
 
 	^System gemEnvironmentVariable: 'HTDOCS'
 %
-category: 'other'
+category: 'overrides'
 classmethod: Jasper
 httpServerClass
 
 	^HttpsServer
 %
-category: 'other'
+category: 'overrides'
 classmethod: Jasper
 workerCount
 	"generate primary responses from the main server gem"
 
 	^0
 %
+set compile_env: 0
+category: 'services'
+classmethod: Jasper
+gem
+
+	| config dict version |
+	config := {}.
+	version := {}.
+	dict := System gemConfigurationReport.
+	dict keys asSortedCollection do: [:each |
+		config add: { each. dict at: each }.
+	].
+	dict := System gemVersionReport.
+	dict keys asSortedCollection do: [:each |
+		version add: { each. dict at: each }.
+	].
+	dict := Dictionary new
+		at: 'config'		put: config;
+		at: 'user'		put: System myUserProfile userId;
+		at: 'session'	put: System session;
+		at: 'version'	put: version;
+		yourself.
+	^dict asJson.
+%
 ! ------------------- Instance methods for Jasper
 set compile_env: 0
-category: 'other'
+category: 'private'
 method: Jasper
 allowedSelectors
 
-	^#('gems' 'signIn' 'stone')
+	^#('home' 'gem' 'gems' 'signIn' 'signOut' 'stone')
 %
-category: 'other'
+category: 'private'
 method: Jasper
 buildResponse
 	"We are willing to be called from any application.
@@ -72,12 +96,57 @@ buildResponse
 	response
 		accessControlAllowOrigin: '*';
 		accessControlAllowHeaders: 'X-PINGOTHER, Content-Type';
-		contentType: 'text/json';
+		contentType: 'application/json; charset=utf-8';
 		yourself.
 	request method = 'OPTIONS' ifTrue: [^self].
 	super buildResponse.
 %
-category: 'other'
+category: 'private'
+method: Jasper
+sessions
+
+	^SessionTemps current
+		at: #'sessions'
+		ifAbsentPut: [Dictionary new]
+%
+category: 'private'
+method: Jasper
+stringFromSeconds: anInteger
+
+	| x |
+	(x := anInteger) ifNil: [^''].
+	x < 120 ifTrue: [^x printString , ' secs'].
+	(x := x // 60) < 120 ifTrue: [^x printString , ' mins'].
+	(x := x // 60) < 48 ifTrue: [^x printString , ' hrs'].
+	x := x // 24.
+	^x printString , ' days'.
+%
+set compile_env: 0
+category: 'public'
+method: Jasper
+gem
+
+	| data |
+	[
+		| remoteData session |
+		data := JsonParser parse: request bodyContents.
+		data isPetitFailure ifTrue: [self error: data message].
+		session := self sessions at: (data at: 'session').
+		remoteData := session send: #'gem' to: self class asOop.
+		data := (JsonParser parse: remoteData)
+			at: 'success' put: true;
+			yourself.
+	] on: Error do: [:ex |
+		data := Dictionary new
+			at: 'success' put: false;
+			at: 'error' put: ex description;
+			yourself.
+	].
+	response
+		content: data asJson;
+		yourself.
+%
+category: 'public'
 method: Jasper
 gems
 
@@ -109,13 +178,23 @@ gems
 		content: list asJson;
 		yourself.
 %
-category: 'other'
+category: 'public'
 method: Jasper
-sessions
+home
 
-	^SessionTemps at: 'sessions' ifAbsentPut: [IntegerKeyValueDictionary new]
+	| data |
+	data := Dictionary new
+		at: 'stoneName' put: (System stoneName subStrings: $!) last;
+		at: 'stoneVersion' put: (System stoneVersionAt: #'gsVersion');
+		at: 'userID' put: System myUserProfile userId;
+		at: 'sessionCount' put: System currentSessions size;
+		at: 'repositorySizeMB' put: (SystemRepository fileSize / 1024 / 1024) ceiling;
+		at: 'freeSpaceMB' put: (SystemRepository freeSpace / 1024 / 1024) floor;
+		at: 'commitRecordBacklog' put: (System stoneCacheStatisticWithName: 'CommitRecordCount');
+		yourself.
+	response content: data asJson.
 %
-category: 'other'
+category: 'public'
 method: Jasper
 signIn
 
@@ -127,12 +206,12 @@ signIn
 			username: (data at: 'userID');
 			password: (data at: 'password');
 			login.
-		id := Random new smallInteger.
+		id := Random new smallInteger abs printStringRadix: 36.
+		self sessions at: id put: session.
 		data := Dictionary new
 			at: 'success' put: true;
 			at: 'session' put: id;
 			yourself.
-		session logout.
 	] on: Error do: [:ex |
 		data := Dictionary new
 			at: 'success' put: false;
@@ -143,7 +222,31 @@ signIn
 		content: data asJson;
 		yourself.
 %
-category: 'other'
+category: 'public'
+method: Jasper
+signOut
+
+	| data |
+	[
+		| session |
+		data := JsonParser parse: request bodyContents.
+		data isPetitFailure ifTrue: [self error: data message].
+		session := self sessions removeKey: (data at: 'session').
+		session forceLogout.
+		data := Dictionary new
+			at: 'success' put: true;
+			yourself.
+	] on: Error do: [:ex |
+		data := Dictionary new
+			at: 'success' put: false;
+			at: 'error' put: ex description;
+			yourself.
+	].
+	response
+		content: data asJson;
+		yourself.
+%
+category: 'public'
 method: Jasper
 stone
 
@@ -164,16 +267,4 @@ stone
 		at: 'version'	put: version;
 		yourself.
 	response content: dict asJson.
-%
-category: 'other'
-method: Jasper
-stringFromSeconds: anInteger
-
-	| x |
-	(x := anInteger) ifNil: [^''].
-	x < 120 ifTrue: [^x printString , ' secs'].
-	(x := x // 60) < 120 ifTrue: [^x printString , ' mins'].
-	(x := x // 60) < 48 ifTrue: [^x printString , ' hrs'].
-	x := x // 24.
-	^x printString , ' days'.
 %

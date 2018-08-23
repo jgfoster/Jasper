@@ -40,11 +40,6 @@
 </template>
 
 <script>
-  export default {}
-</script>
-
-
-<script>
   import axios from 'axios'
 
   export default {
