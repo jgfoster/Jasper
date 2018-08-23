@@ -74,7 +74,8 @@
             { title: 'Stone', path: '/stone', icon: 'gem' },
             { title: 'Gems', path: '/gems', icon: 'users' },
             { title: 'Stats', path: '/stats', icon: 'chart-line' },
-            { title: 'Gem', path: '/gem', icon: 'gem' }
+            { title: 'Gem', path: '/gem', icon: 'gem' },
+            { title: 'Workspace', path: '/workspace', icon: 'edit' }
           ]
         } else {
           return [

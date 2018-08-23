@@ -12,6 +12,7 @@ const routerOptions = [
   { path: '/signup', component: 'Signup', meta: {'title': 'Sign Up'} },
   { path: '/stats', component: 'Stats', meta: {'title': 'Stats'} },
   { path: '/stone', component: 'Stone', meta: {'title': 'Stone'} },
+  { path: '/workspace', component: 'Workspace', meta: {'title': 'Workspace', requiresAuth: true} },
   { path: '*', component: 'NotFound', meta: {'title': 'Page Not Found'} }
 ]
 

@@ -14,6 +14,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 
 library.add(
   faIcons.faChartLine,
+  faIcons.faEdit,
   faIcons.faGem,
   faIcons.faSignInAlt,
   faIcons.faSignOutAlt,
