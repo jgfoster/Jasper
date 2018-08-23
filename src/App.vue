@@ -66,10 +66,10 @@
         return this.$store.state.appTitle
       },
       isAuthenticated () {
-        return this.$store.state.isAuthenticated
+        return this.$store.getters.isAuthenticated
       },
       menuItems () {
-        if (this.$store.state.isAuthenticated) {
+        if (this.isAuthenticated) {
           return [
             { title: 'Stone', path: '/stone', icon: 'gem' },
             { title: 'Gems', path: '/gems', icon: 'users' },
@@ -89,7 +89,7 @@
     },
     methods: {
       userSignOut () {
-        this.$store.commit('userSignOut')
+        this.$store.dispatch('userSignOut')
         this.$router.push('/')
       }
     }
