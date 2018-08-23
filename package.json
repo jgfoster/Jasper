@@ -1,5 +1,5 @@
 {
-  "name": "demo-app",
+  "name": "Jasper",
   "version": "1.0.0",
   "description": "A Vue.js project to interact with GemStone/S",
   "author": "James Foster <github@jgfoster.net>",
@@ -16,7 +16,7 @@
     "@fortawesome/vue-fontawesome": "^0.1.1",
     "axios": "^0.18.0",
     "i": "^0.3.6",
-    "npm": "^6.3.0",
+    "npm": "^6.4.0",
     "vue": "^2.5.2",
     "vue-fontawesome": "0.0.2",
     "vue-router": "^3.0.1",
