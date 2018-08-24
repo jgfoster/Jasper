@@ -1,7 +1,5 @@
 //  http://cwestblog.com/2018/08/04/ace-editor-vue-component/
 
-/* eslint-disable */
-
 /* START: <ace-editor> Vue component */
 (function () {
   console.log('ace-vue.js - 1')
