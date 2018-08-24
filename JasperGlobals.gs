@@ -90,7 +90,6 @@ gem
 %
 ! ------------------- Instance methods for Jasper
 set compile_env: 0
-set compile_env: 0
 category: 'private'
 method: Jasper
 allowedSelectors
@@ -260,12 +259,32 @@ category: 'public'
 method: Jasper
 stats
 
-	| data dict layout options |
+	| data dict duration layout options random time |
 	data 		:= Dictionary new
-		at: 'x'		put: {1. 3};
-		at: 'y'		put: {2. 4};
+		at: 'name'	put: 'Commit Record Backlog';
+		at: 'type'	put: 'candlestick';
+		at: 'x'		put: Array new;
+		at: 'close'	put: Array new;
+		at: 'high'	put: Array new;
+		at: 'low'		put: Array new;
+		at: 'open'	put: Array new;
 		yourself.
-	layout 	:= Dictionary new.
+	time := DateAndTime now - (Duration seconds: 100 * 6).
+	duration := Duration seconds: 6.
+	random := Random new.
+	100 timesRepeat: [
+		| values |
+		values := (random integers: 4 between: 1 and: 100) asSortedCollection.
+		(data at: 'low') 	add: (values at: 1).
+		(data at: 'open') 	add: (values at: 2).
+		(data at: 'close') 	add: (values at: 3).
+		(data at: 'high') 	add: (values at: 4).
+		(data at: 'x')		add: time printStringWithRoundedSeconds.
+		time := time + duration.
+	].
+	layout 	:= Dictionary new
+		at: 'title'			put: 'Commit Record Backlog';
+		yourself.
 	options 	:= Dictionary new.
 	dict 		:= Dictionary new
 		at: 'data'		put: (Array with: data);
