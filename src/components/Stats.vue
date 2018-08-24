@@ -23,7 +23,6 @@
     },
     mounted () {
       axios.get(process.env.URL + 'stats').then(result => {
-        console.log('stats', result)
         this.data = result.data.data
         this.layout = result.data.layout
         this.options = result.data.options
