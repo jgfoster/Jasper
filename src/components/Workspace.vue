@@ -1,27 +1,26 @@
 <template>
   <v-container fluid>
     <v-layout row wrap>
-      <vue-plotly :data="data" :layout="layout" :options="options"/>
+      Workspace
     </v-layout>
   </v-container>
 </template>
 
 <script>
-//  import axios from 'axios'
-  import VuePlotly from '@statnett/vue-plotly'
-
+  import * as Ace from 'ace-builds/src-noconflict/ace'
+//  var Ace = require('ace-builds/src-noconflict/ace')
+//  var TextMode = Ace.require('ace/mode/text').Mode
+  console.log(Ace)
   export default {
     components: {
-      VuePlotly
+      Ace
     },
     data: function () {
       return {
-        data: [{ x: [1, 3], y: [2, 4] }],
-        layout: {},
-        options: {}
+        code: 'Transcript cr; show: \'Hello world!\''
       }
     },
-//    mounted () {},
+    mounted () {},
     methods: { }
   }
 </script>
