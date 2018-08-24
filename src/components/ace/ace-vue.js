@@ -105,7 +105,6 @@ import 'ace-builds/webpack-resolver'
     },
     methods: {
       setOption(key, value) {
-        console.log('ace-vue.js - setOption - ', key, value)
         let { f: func } = PROPS[key];
 
         value = /^(theme|mode)$/.test(key)
@@ -142,7 +141,6 @@ import 'ace-builds/webpack-resolver'
     })(),
     mounted() {
       this.editor = window.ace.edit(this.$refs.root, { value: this.value });
-
       Object.entries(PROPS).forEach(
         ([propName, prop]) => {
           let value = this.$props[propName];
@@ -191,7 +189,6 @@ import 'ace-builds/webpack-resolver'
         }
         this.isShowingWarning = !!warnings.length;
       });
-      console.log('aceEditor.mounted() - end')
     }
   });
 })();
