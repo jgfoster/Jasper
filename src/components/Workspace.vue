@@ -9,13 +9,10 @@
 </template>
 
 <script>
-//  import axios from 'axios'
-  import './ace/ace.js'
-//  import './ace/mode-smalltalk_code.js'
-//  import './ace/ace-vue.js'
+//  import { ace } from 'ace-builds/src-noconflict/ace'
   export default {
     components: {
-//      Ace
+//      ace
     },
     data: function () {
       return {

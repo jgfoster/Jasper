@@ -1,8 +1,13 @@
 //  http://cwestblog.com/2018/08/04/ace-editor-vue-component/
 
 /* START: <ace-editor> Vue component */
+import Vue from 'vue'
+import 'ace-builds/src-noconflict/ace'
+import 'ace-builds/src-noconflict/theme-chrome'
+import 'ace-builds/src-noconflict/mode-javascript'
+import 'ace-builds/webpack-resolver'
+
 (function () {
-  console.log('ace-vue.js - 1')
   const PROPS = {
     selectionStyle: {},
     highlightActiveLine: { f: toBool },
@@ -53,12 +58,10 @@
     value: {},
   };
 
-  console.log('ace-vue.js - 2')
   const EDITOR_EVENTS = ['blur', 'change', 'changeSelectionStyle', 'changeSession', 'copy', 'focus', 'paste'];
 
   const INPUT_EVENTS = ['keydown', 'keypress', 'keyup'];
 
-  console.log('ace-vue.js - 3')
   function toBool(value, opt_ignoreNum) {
     let result = value;
     if (result != null) {
@@ -86,12 +89,10 @@
     }
   }
 
-  console.log('ace-vue.js - 4')
   Vue.component('aceEditor', {
     template: '<div ref="root"></div>',
     props: Object.keys(PROPS),
     data() {
-      console.log('ace-vue.js - 5')
       return {
         editor: null,
         isShowingError: false,
@@ -104,7 +105,7 @@
     },
     methods: {
       setOption(key, value) {
-        console.log('ace-vue.js - 6')
+        console.log('ace-vue.js - setOption - ', key, value)
         let { f: func } = PROPS[key];
 
         value = /^(theme|mode)$/.test(key)
@@ -117,7 +118,6 @@
       }
     },
     watch: (function () {
-      console.log('ace-vue.js - 7')
       let watch = {
         value(value) {
           if (this.lastValue !== value) {
@@ -128,7 +128,6 @@
         }
       };
 
-      console.log('ace-vue.js - 8')
       return Object.entries(PROPS).reduce(
         (watch, [propName, prop]) => {
           if (propName !== 'value') {
@@ -142,10 +141,8 @@
       );
     })(),
     mounted() {
-      console.log('ace-vue.js - 9')
       this.editor = window.ace.edit(this.$refs.root, { value: this.value });
 
-      console.log('ace-vue.js - 10')
       Object.entries(PROPS).forEach(
         ([propName, prop]) => {
           let value = this.$props[propName];
@@ -155,7 +152,6 @@
         }
       );
 
-      console.log('ace-vue.js - 11')
       this.editor.on('change', e => {
         this.lastValue = this.editor.getValue();
         if (this.allowInputEvent) {
@@ -163,17 +159,14 @@
         }
       });
 
-      console.log('ace-vue.js - 12')
       INPUT_EVENTS.forEach(
         eName => this.editor.textInput.getElement().addEventListener(
           eName, e => emit(this, eName, e)
         )
       );
 
-      console.log('ace-vue.js - 13')
       EDITOR_EVENTS.forEach(eName => this.editor.on(eName, e => emit(this, eName, e)));
 
-      console.log('ace-vue.js - 14')
       let session = this.editor.getSession();
       session.on('changeAnnotation', () => {
         let annotations = session.getAnnotations();
@@ -198,7 +191,7 @@
         }
         this.isShowingWarning = !!warnings.length;
       });
-      console.log('ace-vue.js - 15')
+      console.log('aceEditor.mounted() - end')
     }
   });
 })();
