@@ -1,26 +1,21 @@
 <template>
   <v-container fluid>
     <v-layout row wrap>
-      <div>
+      <div style='width: 100%'>
         <ace-editor v-model="code" min-lines="3" max-lines="30"></ace-editor>
-        <pre><code>{{ code }}</code></pre>
-        <textarea style="width: 100%;" rows="5" v-model="code"></textarea>
       </div>
     </v-layout>
   </v-container>
 </template>
 
 <script>
-  import 'vue'
-  import 'ace-builds/src-noconflict/ace'
-  import './ace/ace-vue.js'
   export default {
     data () {
       return {
-        code: 'Now is the time for all good men to come to the aid of their party.'
+        code: '| x |\nx := 5.\n^x * 3'
       }
     },
-    mounted () { this.code = 'abcde;\nfghij;\n' },
+    mounted () { },
     methods: { }
   }
 </script>

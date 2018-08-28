@@ -4,7 +4,7 @@
 import Vue from 'vue'
 import 'ace-builds/src-noconflict/ace'
 import 'ace-builds/src-noconflict/theme-chrome'
-import 'ace-builds/src-noconflict/mode-javascript'
+import 'ace-builds/src-noconflict/mode-smalltalk_code'
 import 'ace-builds/webpack-resolver'
 
 (function () {
@@ -54,7 +54,7 @@ import 'ace-builds/webpack-resolver'
     tabSize: { f: toNum, v: 2 },
     wrap: { f: toBoolOrNum },
     foldStyle: { v: 'markbegin' },
-    mode: { v: 'javascript' },
+    mode: { v: 'smalltalk_code' },
     value: {},
   };
 

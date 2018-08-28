@@ -11,6 +11,8 @@ import { store } from './store'
 import { library } from '@fortawesome/fontawesome-svg-core'
 import * as faIcons from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import 'ace-builds/src-noconflict/ace'
+import './components/ace/ace-vue.js'
 
 library.add(
   faIcons.faChartLine,
