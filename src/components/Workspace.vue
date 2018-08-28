@@ -9,18 +9,16 @@
 </template>
 
 <script>
-  import { ace } from 'ace-builds/src-noconflict/ace'
+  import 'vue'
+  import 'ace-builds/src-noconflict/ace'
   import './ace/ace-vue.js'
   export default {
-    components: {
-      ace
-    },
-    data: function () {
+    data () {
       return {
         code: 'Now is the time for all good men to come to the aid of their party.'
       }
     },
-    mounted () {},
+    mounted () { this.code = 'abcde;\nfghij;\n' },
     methods: { }
   }
 </script>
