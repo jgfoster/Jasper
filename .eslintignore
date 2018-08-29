@@ -1,5 +1,1 @@
-/build/
-/config/
-/dist/
-/src/components/ace/
-/*.js
+src/ace-builds

@@ -15,7 +15,6 @@
     "@fortawesome/free-solid-svg-icons": "^5.1.0",
     "@fortawesome/vue-fontawesome": "^0.1.1",
     "@statnett/vue-plotly": "^0.2.0",
-    "ace-builds": "^1.4.1",
     "axios": "^0.18.0",
     "i": "^0.3.6",
     "npm": "^6.4.0",
