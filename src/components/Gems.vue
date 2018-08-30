@@ -127,7 +127,7 @@
         if (!this.callInProgress) {
           this.callInProgress = true
           axios.get(process.env.URL + 'gems').then(result => {
-            this.gems = result.data
+            this.gems = result.data.gems
             this.slept = 0
             this.callInProgress = false
           }, error => {

@@ -5,9 +5,10 @@
         <v-btn small v-on:click='evaluate'>Evaluate</v-btn>
         <v-btn small v-on:click='display'>Display</v-btn>
         <v-btn small v-on:click='inspect' disabled>Inspect</v-btn>
+        <v-btn small v-on:click='softBreak'>Soft Break</v-btn>
       </div>
       <div style='width: 100%'>
-        <ace-editor v-model='code' min-lines='3' max-lines='30'></ace-editor>
+        <ace-editor v-model='code' min-lines='20' max-lines='50'></ace-editor>
       </div>
     </v-layout>
   </v-container>
@@ -20,11 +21,23 @@
     name: 'workspace',
     data () {
       return {
-        code: '| x |\nx := 5.\n^x * 3'
+        code: '2 + 3'
       }
     },
     mounted () {},
     methods: {
+      softBreak () {
+        axios.post(
+          process.env.URL + 'softBreak',
+          {
+            session: this.$store.state.session
+          })
+        .then(result => {
+          this.editor.focus()
+        }, error => {
+          console.error(error)
+        })
+      },
       display () { console.log('display') },
       evaluate () {
         var string = this.editor.getSelectedText()
@@ -44,15 +57,25 @@
             string: string
           })
         .then(result => {
+          this.editor.focus()
+          var point
+          var end
           if (result.data.success) {
-            console.log(result)
+            point = this.editor.selection.getRange().end
+            this.editor.selection.moveCursorTo(point.row, point.column)
+            this.editor.selection.clearSelection()
+            end = this.editor.session.insert(point, ' ' + result.data.result)
+            this.editor.selection.setRange({ start: point, end: end })
           } else {
-            console.log(result)
+            point = this.editor.selection.getRange().end
+            this.editor.selection.moveCursorTo(point.row, point.column)
+            this.editor.selection.clearSelection()
+            end = this.editor.session.insert(point, ' ' + result.data.error)
+            this.editor.selection.setRange({ start: point, end: end })
           }
         }, error => {
           console.error(error)
         })
-        console.log('evaluate', string)
       },
       inspect () { console.log('inspect') }
     }

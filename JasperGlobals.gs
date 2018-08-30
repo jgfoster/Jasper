@@ -15,7 +15,7 @@ set compile_env: 0
 expectvalue /Class
 doit
 WebApp subclass: 'Jasper'
-  instVarNames: #()
+  instVarNames: #( data result session)
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
@@ -94,7 +94,7 @@ category: 'private'
 method: Jasper
 allowedSelectors
 
-	^#('evaluate' 'home' 'gem' 'gems' 'signIn' 'signOut' 'stats' 'stone' 'workspace')
+	^#('evaluate' 'home' 'gem' 'gems' 'signIn' 'signOut' 'softBreak' 'stats' 'stone')
 %
 category: 'private'
 method: Jasper
@@ -109,6 +109,29 @@ buildResponse
 		yourself.
 	request method = 'OPTIONS' ifTrue: [^self].
 	super buildResponse.
+%
+category: 'private'
+method: Jasper
+buildResponseFor: aString
+
+	result := Dictionary new.
+	[
+		data := request bodyContents 
+			ifNil: [Dictionary new]
+			ifNotNil: [:value | JsonParser parse: value].
+		data isPetitFailure ifTrue: [self error: data message].
+		session := self sessions at: (data at: 'session' ifAbsent: [nil]) ifAbsent: [nil].
+		super buildResponseFor: aString.
+		result at: 'success' put: true.
+	] on: Error do: [:ex |
+		result
+			at: 'success' put: false;
+			at: 'error' put: ex description;
+			yourself.
+	].
+	response
+		content: result asJson;
+		yourself.
 %
 category: 'private'
 method: Jasper
@@ -135,51 +158,23 @@ category: 'public'
 method: Jasper
 evaluate
 
-	| data |
-	[
-		| result session string |
-		data := JsonParser parse: request bodyContents.
-		data isPetitFailure ifTrue: [self error: data message].
-		session := self sessions at: (data at: 'session').
-		string := data at: 'string'.
-		result := session executeString: string.
-		data := Dictionary new
-			at: 'success' put: true;
-			at: 'result' put: result;
-			yourself.
-	] on: Error do: [:ex |
-		data := Dictionary new
-			at: 'success' put: false;
-			at: 'error' put: ex description;
-			yourself.
-	].
-	response
-		content: data asJson;
-		yourself.
+	| myResult string |
+	string := data at: 'string'.
+	myResult := session executeString: string.
+	myResult := (myResult isKindOf: Array)
+		ifTrue: ['(Object _objectForOop: ' , myResult first printString , ')']
+		ifFalse: [myResult printString].
+	result
+		at: 'result'
+		put: myResult
 %
 category: 'public'
 method: Jasper
 gem
 
-	| data |
-	[
-		| remoteData session |
-		data := JsonParser parse: request bodyContents.
-		data isPetitFailure ifTrue: [self error: data message].
-		session := self sessions at: (data at: 'session').
-		remoteData := session send: #'gem' to: self class asOop.
-		data := (JsonParser parse: remoteData)
-			at: 'success' put: true;
-			yourself.
-	] on: Error do: [:ex |
-		data := Dictionary new
-			at: 'success' put: false;
-			at: 'error' put: ex description;
-			yourself.
-	].
-	response
-		content: data asJson;
-		yourself.
+	| remoteData |
+	remoteData := session send: #'gem' to: self class asOop.
+	result := JsonParser parse: remoteData.
 %
 category: 'public'
 method: Jasper
@@ -209,16 +204,15 @@ gems
 			list add: dict.
 		].
 	].
-	response
-		content: list asJson;
-		yourself.
+	result
+		at: 'gems'
+		put: list.
 %
 category: 'public'
 method: Jasper
 home
 
-	| data |
-	data := Dictionary new
+	result
 		at: 'stoneName' put: (System stoneName subStrings: $!) last;
 		at: 'stoneVersion' put: (System stoneVersionAt: #'gsVersion');
 		at: 'userID' put: System myUserProfile userId;
@@ -227,66 +221,40 @@ home
 		at: 'freeSpaceMB' put: (SystemRepository freeSpace / 1024 / 1024) floor;
 		at: 'commitRecordBacklog' put: (System stoneCacheStatisticWithName: 'CommitRecordCount');
 		yourself.
-	response content: data asJson.
 %
 category: 'public'
 method: Jasper
 signIn
 
-	| data session |
-	[
-		| id |
-		data := JsonParser parse: request bodyContents.
-		session := GsExternalSession newDefault
-			username: (data at: 'userID');
-			password: (data at: 'password');
-			login.
-		id := Random new smallInteger abs printStringRadix: 36.
-		self sessions at: id put: session.
-		data := Dictionary new
-			at: 'success' put: true;
-			at: 'session' put: id;
-			yourself.
-	] on: Error do: [:ex |
-		data := Dictionary new
-			at: 'success' put: false;
-			at: 'error' put: ex description;
-			yourself.
-	].
-	response
-		content: data asJson;
-		yourself.
+	| id |
+	session := GsExternalSession newDefault
+		username: (data at: 'userID');
+		password: (data at: 'password');
+		login.
+	id := Random new smallInteger abs printStringRadix: 36.
+	self sessions at: id put: session.
+	result
+		at: 'session'
+		put: id.
 %
 category: 'public'
 method: Jasper
 signOut
 
-	| data |
-	[
-		| session |
-		data := JsonParser parse: request bodyContents.
-		data isPetitFailure ifTrue: [self error: data message].
-		session := self sessions removeKey: (data at: 'session').
-		session forceLogout.
-		data := Dictionary new
-			at: 'success' put: true;
-			yourself.
-	] on: Error do: [:ex |
-		data := Dictionary new
-			at: 'success' put: false;
-			at: 'error' put: ex description;
-			yourself.
-	].
-	response
-		content: data asJson;
-		yourself.
+	session forceLogout.
+%
+category: 'public'
+method: Jasper
+softBreak
+
+	session softBreak.
 %
 category: 'public'
 method: Jasper
 stats
 
-	| data dict duration layout options random time |
-	data 		:= Dictionary new
+	| myData duration layout options random time |
+	myData := Dictionary new
 		at: 'name'	put: 'Commit Record Backlog';
 		at: 'type'	put: 'candlestick';
 		at: 'x'		put: Array new;
@@ -301,23 +269,22 @@ stats
 	100 timesRepeat: [
 		| values |
 		values := (random integers: 4 between: 1 and: 100) asSortedCollection.
-		(data at: 'low') 	add: (values at: 1).
-		(data at: 'open') 	add: (values at: 2).
-		(data at: 'close') 	add: (values at: 3).
-		(data at: 'high') 	add: (values at: 4).
-		(data at: 'x')		add: time printStringWithRoundedSeconds.
+		(myData at: 'low') 	add: (values at: 1).
+		(myData at: 'open') 	add: (values at: 2).
+		(myData at: 'close') 	add: (values at: 3).
+		(myData at: 'high') 	add: (values at: 4).
+		(myData at: 'x')		add: time printStringWithRoundedSeconds.
 		time := time + duration.
 	].
-	layout 	:= Dictionary new
-		at: 'title'			put: 'Commit Record Backlog';
+	layout := Dictionary new
+		at: 'title'			put: 'Commit Record Backlog (Simulated Data)';
 		yourself.
-	options 	:= Dictionary new.
-	dict 		:= Dictionary new
-		at: 'data'		put: (Array with: data);
+	options := Dictionary new.
+	result
+		at: 'data'		put: (Array with: myData);
 		at: 'layout'		put: layout;
 		at: 'options'	put: options;
 		yourself.
-	response content: dict asJson.
 %
 category: 'public'
 method: Jasper
@@ -334,32 +301,9 @@ stone
 	dict keys asSortedCollection do: [:each |
 		version add: { each. dict at: each }.
 	].
-	dict := Dictionary new
+	result
 		at: 'config'		put: config;
 		at: 'history'		put: DbfHistory;
 		at: 'version'	put: version;
 		yourself.
-	response content: dict asJson.
-%
-category: 'public'
-method: Jasper
-workspace
-
-	| config dict version |
-	config := {}.
-	version := {}.
-	dict := System stoneConfigurationReport.
-	dict keys asSortedCollection do: [:each |
-		config add: { each. dict at: each }.
-	].
-	dict := System stoneVersionReport.
-	dict keys asSortedCollection do: [:each |
-		version add: { each. dict at: each }.
-	].
-	dict := Dictionary new
-		at: 'config'		put: config;
-		at: 'history'		put: DbfHistory;
-		at: 'version'	put: version;
-		yourself.
-	response content: dict asJson.
 %
