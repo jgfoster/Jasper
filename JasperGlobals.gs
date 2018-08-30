@@ -1,4 +1,4 @@
-! ------- Create dictionary if it is not present
+﻿! ------- Create dictionary if it is not present
 run
 | aSymbol names userProfile |
 aSymbol := #'JasperGlobals'.
@@ -25,7 +25,7 @@ WebApp subclass: 'Jasper'
 %
 expectvalue /Class
 doit
-Jasper comment:
+Jasper comment: 
 'No class-specific documentation for Jasper, hierarchy is:
 Object
   WebApp( begin end exception html request response)
@@ -38,7 +38,7 @@ Jasper category: 'Kernel'
 %
 
 ! ------------------- Remove existing behavior from Jasper
-expectvalue /Metaclass3
+expectvalue /Metaclass3       
 doit
 Jasper removeAllMethods.
 Jasper class removeAllMethods.
@@ -94,7 +94,7 @@ category: 'private'
 method: Jasper
 allowedSelectors
 
-	^#('home' 'gem' 'gems' 'signIn' 'signOut' 'stats' 'stone' 'workspace')
+	^#('evaluate' 'home' 'gem' 'gems' 'signIn' 'signOut' 'stats' 'stone' 'workspace')
 %
 category: 'private'
 method: Jasper
@@ -131,6 +131,32 @@ stringFromSeconds: anInteger
 	^x printString , ' days'.
 %
 set compile_env: 0
+category: 'public'
+method: Jasper
+evaluate
+
+	| data |
+	[
+		| result session string |
+		data := JsonParser parse: request bodyContents.
+		data isPetitFailure ifTrue: [self error: data message].
+		session := self sessions at: (data at: 'session').
+		string := data at: 'string'.
+		result := session executeString: string.
+		data := Dictionary new
+			at: 'success' put: true;
+			at: 'result' put: result;
+			yourself.
+	] on: Error do: [:ex |
+		data := Dictionary new
+			at: 'success' put: false;
+			at: 'error' put: ex description;
+			yourself.
+	].
+	response
+		content: data asJson;
+		yourself.
+%
 category: 'public'
 method: Jasper
 gem

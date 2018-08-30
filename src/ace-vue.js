@@ -141,6 +141,7 @@ import './ace-builds/webpack-resolver'
     })(),
     mounted () {
       this.editor = window.ace.edit(this.$refs.root, { value: this.value })
+      this.$parent.editor = this.editor
       Object.entries(PROPS).forEach(
         ([propName, prop]) => {
           let value = this.$props[propName]
