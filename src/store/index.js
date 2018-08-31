@@ -12,11 +12,16 @@ export const store = new Vuex.Store({
     error: null,
     isCallInProgress: false,
     loading: false,
-    session: null
+    session: null,
+    stone: '(no stone)',
+    user: '(no user)'
   },
   mutations: {
     setError (state, payload) {
       state.error = payload
+    },
+    setIsCallInProgress (state, payload) {
+      state.isCallInProgress = payload
     },
     setLoading (state, payload) {
       state.loading = payload
@@ -28,18 +33,24 @@ export const store = new Vuex.Store({
       } else {
         window.sessionStorage.removeItem('session')
       }
+    },
+    setStone (state, payload) {
+      state.stone = payload
+    },
+    setUser (state, payload) {
+      state.user = payload
     }
   },
   actions: {
     server ({commit}, payload) {
       payload.args.session = this.state.session
-      this.isCallInProgress = true
+      this.commit('setIsCallInProgress', true)
       axios.post(process.env.URL + payload.path, payload.args)
       .then(result => {
-        this.isCallInProgress = false
+        this.commit('setIsCallInProgress', false)
         payload.result(result)
       }, error => {
-        this.isCallInProgress = false
+        this.commit('setIsCallInProgress', false)
         if (payload.error) {
           payload.error(error)
         } else {
@@ -55,6 +66,8 @@ export const store = new Vuex.Store({
         commit('setLoading', false)
         if (result.data.success) {
           commit('setSession', result.data.session)
+          commit('setStone', result.data.stone)
+          commit('setUser', result.data.user)
           router.push('/')
         } else {
           commit('setError', result.data.error)
@@ -79,6 +92,8 @@ export const store = new Vuex.Store({
         console.log(error)
       })
       commit('setSession', null)
+      commit('setStone', '(no stone)')
+      commit('setUser', '(no user)')
       router.push('/')
     }
   },
@@ -86,14 +101,8 @@ export const store = new Vuex.Store({
     isAuthenticated (state) {
       return state.session !== null
     },
-    isCallInProgress (state) {
-      return state.isCallInProgress
-    },
     session (state) {
       return state.session
-    },
-    sessionOrNone (state) {
-      return state.session ? state.session : 'none'
     }
   }
 })
