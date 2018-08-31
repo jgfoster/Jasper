@@ -40,8 +40,6 @@
 </template>
 
 <script>
-  import axios from 'axios'
-
   export default {
     data () {
       return {
@@ -51,7 +49,7 @@
       }
     },
     mounted () {
-      axios.get(process.env.URL + 'stone').then(result => {
+      this.$axios.get(process.env.URL + 'stone').then(result => {
         this.config = result.data.config
         this.history = result.data.history
         this.version = result.data.version

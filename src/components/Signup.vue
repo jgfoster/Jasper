@@ -17,6 +17,7 @@
                 name="userID"
                 label="User ID"
                 id="userID"
+                ref="userID"
                 type="text"
                 autocomplete="username"
                 v-model="userID"
@@ -94,6 +95,7 @@ export default {
       this.$router.push('/')
     }
   },
+  mounted () { this.$nextTick(() => this.$refs.userID.focus()) },
   watch: {
     error (value) {
       if (value) {

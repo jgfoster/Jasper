@@ -11,8 +11,6 @@
 </template>
 
 <script>
-  import axios from 'axios'
-
   export default {
     data () {
       return {
@@ -28,7 +26,7 @@
       }
     },
     mounted () {
-      axios.get(process.env.URL + 'home')
+      this.$axios.get(process.env.URL + 'home')
       .then(result => {
         this.info = result.data
       }, error => {

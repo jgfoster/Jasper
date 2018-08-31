@@ -2,7 +2,7 @@
   <v-container fluid>
     <v-layout row wrap>
       <v-flex xs12 class="text-xs-center" mt-5>
-        <h1>Sign In</h1>
+        <h1>GemStone Sign In</h1>
       </v-flex>
       <v-flex xs12 sm6 offset-sm3 mt-3>
         <form @submit.prevent="userSignIn">
@@ -18,6 +18,7 @@
                 label="User ID"
                 id="userID"
                 type="text"
+                ref="userID"
                 v-model="userID"
                 autocomplete="username"
                 required></v-text-field>
@@ -64,6 +65,7 @@ export default {
       return this.$store.state.loading
     }
   },
+  mounted () { this.$nextTick(() => this.$refs.userID.focus()) },
   watch: {
     error (value) {
       if (value) {

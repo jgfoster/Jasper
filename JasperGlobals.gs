@@ -114,6 +114,8 @@ category: 'private'
 method: Jasper
 buildResponseFor: aString
 
+	| endTime startTime |
+	startTime := Time millisecondClockValue.
 	result := Dictionary new.
 	[
 		data := request bodyContents 
@@ -129,6 +131,8 @@ buildResponseFor: aString
 			at: 'error' put: ex description;
 			yourself.
 	].
+	endTime := Time millisecondClockValue.
+	result at: 'time' put: endTime - startTime.
 	response
 		content: result asJson;
 		yourself.

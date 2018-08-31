@@ -69,15 +69,13 @@
         ></v-text-field>
       </v-flex>
       <v-flex xs1 mt-2>
-        <v-btn small v-on:click.native="fetchGemList">Refresh</v-btn>
+        <v-btn small ref="refresh" v-on:click.native="fetchGemList">Refresh</v-btn>
       </v-flex>
     </v-layout>
   </v-container>
 </template>
 
 <script>
-  import axios from 'axios'
-
   export default {
     data () {
       return {
@@ -118,6 +116,7 @@
     mounted () {
       this.fetchGemList()
       this.timer = setInterval(this.timerTick, 1000) // milliseconds
+      this.$nextTick(() => this.$refs.refresh.$el.focus())
     },
     beforeDestroy () {
       clearInterval(this.timer)
@@ -126,7 +125,7 @@
       fetchGemList () {
         if (!this.callInProgress) {
           this.callInProgress = true
-          axios.get(process.env.URL + 'gems').then(result => {
+          this.$axios.get(process.env.URL + 'gems').then(result => {
             this.gems = result.data.gems
             this.slept = 0
             this.callInProgress = false

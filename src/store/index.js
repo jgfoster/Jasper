@@ -30,8 +30,7 @@ export const store = new Vuex.Store({
     }
   },
   actions: {
-    userSignUp ({commit}, payload) {
-    },
+    userSignUp ({commit}, payload) { },
     userSignIn ({commit}, payload) {
       commit('setLoading', true)
       axios.post(process.env.URL + 'signIn', payload)

@@ -44,8 +44,6 @@
 </template>
 
 <script>
-  import axios from 'axios'
-
   export default {
     data () {
       return {
@@ -56,7 +54,7 @@
       }
     },
     mounted () {
-      axios.post(process.env.URL + 'gem', {session: this.$store.state.session})
+      this.$axios.post(process.env.URL + 'gem', {session: this.$store.state.session})
       .then(result => {
         this.config = result.data.config
         this.session = result.data.session

@@ -13,6 +13,9 @@ import * as faIcons from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import './ace-builds/src-noconflict/ace'
 import './ace-vue.js'
+import axios from 'axios'
+
+Object.defineProperty(Vue.prototype, '$axios', { value: axios })
 
 library.add(
   faIcons.faChartLine,
