@@ -54,14 +54,15 @@
       }
     },
     mounted () {
-      this.$axios.post(process.env.URL + 'gem', {session: this.$store.state.session})
-      .then(result => {
-        this.config = result.data.config
-        this.session = result.data.session
-        this.user = result.data.user
-        this.version = result.data.version
-      }, error => {
-        console.error(error)
+      this.$store.dispatch('server', {
+        path: 'gem',
+        args: {},
+        result: result => {
+          this.config = result.data.config
+          this.session = result.data.session
+          this.user = result.data.user
+          this.version = result.data.version
+        }
       })
     },
     methods: { }

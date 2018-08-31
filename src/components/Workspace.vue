@@ -2,10 +2,10 @@
   <v-container fluid>
     <v-layout row wrap>
       <div>
-        <v-btn small v-on:click='evaluate' :disabled='isCallInProgress'>Evaluate</v-btn>
-        <v-btn small v-on:click='display' :disabled='isCallInProgress'>Display</v-btn>
+        <v-btn small v-on:click='evaluate' :disabled='isCallInProgress()'>Evaluate</v-btn>
+        <v-btn small v-on:click='display' :disabled='isCallInProgress()'>Display</v-btn>
         <v-btn small v-on:click='inspect' disabled>Inspect</v-btn>
-        <v-btn small v-on:click='softBreak' :disabled='!isCallInProgress'>Soft Break</v-btn>
+        <v-btn small v-on:click='softBreak' :disabled='!isCallInProgress()'>Soft Break</v-btn>
       </div>
       <div style='width: 100%'>
         <ace-editor v-model='code' min-lines='20' max-lines='50'></ace-editor>
@@ -25,6 +25,7 @@
     },
     mounted () { this.editor.focus() },
     methods: {
+      isCallInProgress () { return this.$store.getters.isCallInProgress() },
       softBreak () {
         this.$axios.post(
           process.env.URL + 'softBreak',
@@ -53,28 +54,26 @@
         this.isCallInProgress = true
         this.editor.setReadOnly(true)
         var point = this.editor.selection.getRange().end
-        this.$axios.post(
-          process.env.URL + 'evaluate',
-          {
-            session: this.$store.state.session,
-            string: string
-          })
-        .then(result => {
-          this.editor.focus()
-          this.editor.selection.moveCursorTo(point.row, point.column)
-          this.editor.selection.clearSelection()
-          var end
-          if (result.data.success) {
-            if (aBoolean) {
-              end = this.editor.session.insert(point, ' ' + result.data.result)
+        this.$store.dispatch('server', {
+          path: 'evaluate',
+          args: { string },
+          result: result => {
+            this.editor.focus()
+            this.editor.selection.moveCursorTo(point.row, point.column)
+            this.editor.selection.clearSelection()
+            var end
+            if (result.data.success) {
+              if (aBoolean) {
+                end = this.editor.session.insert(point, ' ' + result.data.result)
+                this.editor.selection.setRange({ start: point, end: end })
+              }
+            } else {
+              end = this.editor.session.insert(point, ' ' + result.data.error)
               this.editor.selection.setRange({ start: point, end: end })
             }
-          } else {
-            end = this.editor.session.insert(point, ' ' + result.data.error)
-            this.editor.selection.setRange({ start: point, end: end })
+            this.isCallInProgress = false
+            this.editor.setReadOnly(false)
           }
-          this.isCallInProgress = false
-          this.editor.setReadOnly(false)
         }, error => {
           console.error(error)
           this.isCallInProgress = false

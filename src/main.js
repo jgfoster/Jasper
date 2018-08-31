@@ -12,10 +12,7 @@ import { library } from '@fortawesome/fontawesome-svg-core'
 import * as faIcons from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import './ace-builds/src-noconflict/ace'
-import './ace-vue.js'
-import axios from 'axios'
-
-Object.defineProperty(Vue.prototype, '$axios', { value: axios })
+import './ace-vue'
 
 library.add(
   faIcons.faChartLine,

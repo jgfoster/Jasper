@@ -125,13 +125,14 @@
       fetchGemList () {
         if (!this.callInProgress) {
           this.callInProgress = true
-          this.$axios.get(process.env.URL + 'gems').then(result => {
-            this.gems = result.data.gems
-            this.slept = 0
-            this.callInProgress = false
-          }, error => {
-            console.error(error)
-            this.callInProgress = false
+          this.$store.dispatch('server', {
+            path: 'gems',
+            args: {},
+            result: result => {
+              this.gems = result.data.gems
+              this.slept = 0
+              this.callInProgress = false
+            }
           })
         }
       },

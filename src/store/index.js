@@ -10,6 +10,7 @@ export const store = new Vuex.Store({
   state: {
     appTitle: 'Jasper',
     error: null,
+    isCallInProgress: false,
     loading: false,
     session: null
   },
@@ -30,6 +31,22 @@ export const store = new Vuex.Store({
     }
   },
   actions: {
+    server ({commit}, payload) {
+      payload.args.session = this.state.session
+      this.isCallInProgress = true
+      axios.post(process.env.URL + payload.path, payload.args)
+      .then(result => {
+        this.isCallInProgress = false
+        payload.result(result)
+      }, error => {
+        this.isCallInProgress = false
+        if (payload.error) {
+          payload.error(error)
+        } else {
+          console.error(error)
+        }
+      })
+    },
     userSignUp ({commit}, payload) { },
     userSignIn ({commit}, payload) {
       commit('setLoading', true)
@@ -67,10 +84,16 @@ export const store = new Vuex.Store({
   },
   getters: {
     isAuthenticated (state) {
-      return state.session !== null && state.session !== undefined
+      return state.session !== null
+    },
+    isCallInProgress (state) {
+      return state.isCallInProgress
     },
     session (state) {
       return state.session
+    },
+    sessionOrNone (state) {
+      return state.session ? state.session : 'none'
     }
   }
 })

@@ -1,6 +1,7 @@
 <template>
+  <!--  https://vuetifyjs.com/en/layout/pre-defined  -->
   <v-app>
-    <v-navigation-drawer v-model="sidebar" app>
+    <v-navigation-drawer app v-model="sidebar">
       <v-list>
         <v-list-tile
           v-for="item in menuItems"
@@ -19,8 +20,7 @@
         </v-list-tile>
       </v-list>
     </v-navigation-drawer>
-
-    <v-toolbar dense app>
+    <v-toolbar app dense>
       <span class="hidden-sm-and-up">
         <v-toolbar-side-icon @click="sidebar = !sidebar">
         </v-toolbar-side-icon>
@@ -46,15 +46,17 @@
         </v-btn>
       </v-toolbar-items>
     </v-toolbar>
-
     <v-content>
-      <router-view></router-view>
+      <router-view>
+        <!-- contents replaced by router/index.js (https://router.vuejs.org/) -->
+      </router-view>
     </v-content>
-
+    <jasper-footer app></jasper-footer>
   </v-app>
 </template>
 
 <script>
+  import './Components/Footer'
   export default {
     data () {
       return {
@@ -71,18 +73,22 @@
       menuItems () {
         if (this.isAuthenticated) {
           return [
+            //  common
             { title: 'Stone', path: '/stone', icon: 'gem' },
             { title: 'Gems', path: '/gems', icon: 'users' },
             { title: 'Stats', path: '/stats', icon: 'chart-line' },
+            //  available when signed in
             { title: 'Gem', path: '/gem', icon: 'gem' },
             { title: 'Workspace', path: '/workspace', icon: 'edit' }
           ]
         } else {
           return [
+            //  common
             { title: 'Stone', path: '/stone', icon: 'gem' },
             { title: 'Gems', path: '/gems', icon: 'users' },
             { title: 'Stats', path: '/stats', icon: 'chart-line' },
-//            { title: 'Sign Up', path: '/signup', icon: 'user-plus' },
+            //  available when not signed in
+//          { title: 'Sign Up', path: '/signup', icon: 'user-plus' },
             { title: 'Sign In', path: '/signin', icon: 'sign-in-alt' }
           ]
         }

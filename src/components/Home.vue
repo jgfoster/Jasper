@@ -26,11 +26,12 @@
       }
     },
     mounted () {
-      this.$axios.get(process.env.URL + 'home')
-      .then(result => {
-        this.info = result.data
-      }, error => {
-        console.error(error)
+      this.$store.dispatch('server', {
+        path: 'home',
+        args: {},
+        result: result => {
+          this.info = result.data
+        }
       })
     },
     methods: { }
