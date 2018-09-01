@@ -54,10 +54,10 @@
       this.$store.dispatch('server', {
         path: 'stone',
         args: {},
-        result: result => {
-          this.config = result.data.config
-          this.history = result.data.history
-          this.version = result.data.version
+        result: data => {
+          this.config = data.config
+          this.history = data.history
+          this.version = data.version
         }
       })
     },

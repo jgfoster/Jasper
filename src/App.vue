@@ -46,7 +46,8 @@
         </v-btn>
       </v-toolbar-items>
     </v-toolbar>
-    <v-content>
+    <v-content
+      :disabled='this.$store.state.isCallInProgress'>
       <router-view>
         <!-- contents replaced by router/index.js (https://router.vuejs.org/) -->
       </router-view>

@@ -29,8 +29,8 @@
       this.$store.dispatch('server', {
         path: 'home',
         args: {},
-        result: result => {
-          this.info = result.data
+        result: data => {
+          this.info = data
         }
       })
     },

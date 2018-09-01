@@ -33,12 +33,14 @@ const router = new Router({
 router.beforeEach((to, from, next) => {
   const requiresAuth = to.matched.some(record => record.meta.requiresAuth)
   const isAuthenticated = store.getters.isAuthenticated
-  if (requiresAuth && !isAuthenticated) {
-    document.title = 'Signin - Jasper'
-    next('/signin')
-  } else {
-    document.title = to.meta.title + ' - Jasper'
-    next()
+  if (!store.state.isCallInProgress) {
+    if (requiresAuth && !isAuthenticated) {
+      document.title = 'Signin - Jasper'
+      next('/signin')
+    } else {
+      document.title = to.meta.title + ' - Jasper'
+      next()
+    }
   }
 })
 

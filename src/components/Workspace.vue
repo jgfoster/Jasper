@@ -19,7 +19,7 @@
     name: 'workspace',
     data () {
       return {
-        code: ''
+        code: '(Delay forSeconds: 3) wait'
       }
     },
     mounted () { this.editor.focus() },
@@ -28,7 +28,7 @@
         this.$store.dispatch('server', {
           path: 'softBreak',
           args: { },
-          result: result => { this.editor.focus() },
+          result: data => { this.editor.focus() },
           error: error => { console.error(error) }
         })
       },
@@ -50,18 +50,18 @@
         this.$store.dispatch('server', {
           path: 'evaluate',
           args: { string },
-          result: result => {
+          result: data => {
             this.editor.focus()
             this.editor.selection.moveCursorTo(point.row, point.column)
             this.editor.selection.clearSelection()
             var end
-            if (result.data.success) {
+            if (data.success) {
               if (aBoolean) {
-                end = this.editor.session.insert(point, ' ' + result.data.result)
+                end = this.editor.session.insert(point, ' ' + data.result)
                 this.editor.selection.setRange({ start: point, end: end })
               }
             } else {
-              end = this.editor.session.insert(point, ' ' + result.data.error)
+              end = this.editor.session.insert(point, ' ' + data.error)
               this.editor.selection.setRange({ start: point, end: end })
             }
             this.editor.setReadOnly(false)

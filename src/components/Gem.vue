@@ -57,11 +57,11 @@
       this.$store.dispatch('server', {
         path: 'gem',
         args: {},
-        result: result => {
-          this.config = result.data.config
-          this.session = result.data.session
-          this.user = result.data.user
-          this.version = result.data.version
+        result: data => {
+          this.config = data.config
+          this.session = data.session
+          this.user = data.user
+          this.version = data.version
         }
       })
     },

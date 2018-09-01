@@ -12,6 +12,8 @@ export const store = new Vuex.Store({
     error: null,
     isCallInProgress: false,
     loading: false,
+    msInLastCall: null,
+    secondsInCall: null,
     session: null,
     stone: '(no stone)',
     user: '(no user)'
@@ -25,6 +27,12 @@ export const store = new Vuex.Store({
     },
     setLoading (state, payload) {
       state.loading = payload
+    },
+    setMsInLastCall (state, payload) {
+      state.msInLastCall = payload
+    },
+    setSecondsInCall (state, payload) {
+      state.secondsInCall = payload
     },
     setSession (state, payload) {
       state.session = payload
@@ -43,13 +51,24 @@ export const store = new Vuex.Store({
   },
   actions: {
     server ({commit}, payload) {
+      console.log(this)
+      var timer = setInterval(() => {
+        console.log('timerTick', this.secondsInCall)
+        this.commit('setSecondsInCall', (this.secondsInCall ? this.secondsInCall : 0) + 1)
+      }, 1000) // milliseconds
       payload.args.session = this.state.session
       this.commit('setIsCallInProgress', true)
       axios.post(process.env.URL + payload.path, payload.args)
       .then(result => {
+        clearInterval(timer)
+        this.commit('setSecondsInCall', null)
         this.commit('setIsCallInProgress', false)
-        payload.result(result)
+        this.commit('setMsInLastCall', result.data.time)
+        delete result.time
+        payload.result(result.data)
       }, error => {
+        clearInterval(timer)
+        this.commit('setSecondsInCall', null)
         this.commit('setIsCallInProgress', false)
         if (payload.error) {
           payload.error(error)
@@ -58,6 +77,7 @@ export const store = new Vuex.Store({
         }
       })
     },
+    timerTick () { },
     userSignUp ({commit}, payload) { },
     userSignIn ({commit}, payload) {
       commit('setLoading', true)

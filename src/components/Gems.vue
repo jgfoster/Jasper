@@ -128,8 +128,8 @@
           this.$store.dispatch('server', {
             path: 'gems',
             args: {},
-            result: result => {
-              this.gems = result.data.gems
+            result: data => {
+              this.gems = data.gems
               this.slept = 0
               this.callInProgress = false
             }
