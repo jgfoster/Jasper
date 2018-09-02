@@ -47,9 +47,20 @@
       </v-toolbar-items>
     </v-toolbar>
     <v-content>
-      <router-view>
-        <!-- contents replaced by router/index.js (https://router.vuejs.org/) -->
-      </router-view>
+      <v-container fluid>
+        <v-layout column>
+          <v-flex xs-12>
+            <v-alert type="error" dismissible v-model="alert">
+              {{ error }}
+            </v-alert>
+          </v-flex>
+          <v-flex xs-12>
+            <router-view>
+              <!-- contents replaced by router/index.js (https://router.vuejs.org/) -->
+            </router-view>
+          </v-flex>
+        </v-layout>
+      </v-container>
     </v-content>
     <jasper-footer app></jasper-footer>
   </v-app>
@@ -60,10 +71,14 @@
   export default {
     data () {
       return {
+        alert: false,
         sidebar: false
       }
     },
     computed: {
+      error () {
+        return this.$store.state.error
+      },
       isAuthenticated () {
         return this.$store.getters.isAuthenticated
       },
@@ -95,6 +110,18 @@
       userSignOut () {
         this.$store.dispatch('userSignOut')
         this.$router.push('/')
+      }
+    },
+    watch: {
+      error (value) {
+        if (value) {
+          this.alert = true
+        }
+      },
+      alert (value) {
+        if (!value) {
+          this.$store.commit('setError', null)
+        }
       }
     }
   }

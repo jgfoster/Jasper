@@ -45,7 +45,8 @@ export const store = new Vuex.Store({
         seconds = seconds + 1
         this.commit('setThisCall', payload.path + ' (' + seconds + ')')
       }, 1000) // milliseconds
-      payload.args.session = this.state.session
+      var args = payload.args ? payload.args : { }
+      args.session = this.state.session
       this.commit('setIsCallInProgress', true)
       var after = (data) => {
         clearInterval(timer)
@@ -58,7 +59,7 @@ export const store = new Vuex.Store({
         console.log(string)
         this.commit('setLastCall', string)
       }
-      axios.post(process.env.URL + payload.path, payload.args)
+      axios.post(process.env.URL + payload.path, args)
       .then(result => {
         after(result.data)
         var flag = result.data.success

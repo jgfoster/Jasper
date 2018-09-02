@@ -8,11 +8,6 @@
         <form @submit.prevent="userSignIn">
           <v-layout column>
             <v-flex>
-              <v-alert type="error" dismissible v-model="alert">
-                {{ error }}
-              </v-alert>
-            </v-flex>
-            <v-flex>
               <v-text-field
                 name="userID"
                 label="User ID"
@@ -48,8 +43,7 @@ export default {
   data () {
     return {
       userID: '',
-      password: '',
-      alert: false
+      password: ''
     }
   },
   methods: {
@@ -64,24 +58,7 @@ export default {
       })
     }
   },
-  computed: {
-    error () {
-      return this.$store.state.error
-    }
-  },
   // https://vuejs.org/v2/guide/custom-directive.html has a focus but it didn't work
-  mounted () { this.$nextTick(() => this.$refs.userID.focus()) },
-  watch: {
-    error (value) {
-      if (value) {
-        this.alert = true
-      }
-    },
-    alert (value) {
-      if (!value) {
-        this.$store.commit('setError', null)
-      }
-    }
-  }
+  mounted () { this.$nextTick(() => this.$refs.userID.focus()) }
 }
 </script>
