@@ -9,23 +9,15 @@ var footer = {
     }
   },
   methods: { },
-  mounted () {
-    this.$store.dispatch('server', {
-      path: 'footer',
-      result: data => {
-        this.stone = data.stone
-        this.user = data.user
-      }
-    })
-  },
+  mounted () { },
   template: `<div>
   <v-container fluid my-1 py-0>
     <v-layout>
       <v-flex xs-3 pt-2>
-        {{ this.stone }}
+        {{ this.$store.state.stone }}
       </v-flex>
       <v-flex xs-3 pt-2>
-        {{ this.user }}
+        {{ this.$store.state.user }}
       </v-flex>
       <v-flex xs-3 pt-2>
         {{ this.$store.state.lastCall }}

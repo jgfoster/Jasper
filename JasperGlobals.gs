@@ -1,4 +1,4 @@
-﻿! ------- Create dictionary if it is not present
+! ------- Create dictionary if it is not present
 run
 | aSymbol names userProfile |
 aSymbol := #'JasperGlobals'.
@@ -15,7 +15,8 @@ set compile_env: 0
 expectvalue /Class
 doit
 WebApp subclass: 'Jasper'
-  instVarNames: #( data result session)
+  instVarNames: #( data result jasper
+                    session)
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
@@ -88,13 +89,27 @@ gem
 		yourself.
 	^dict asJson.
 %
+category: 'services'
+classmethod: Jasper
+home
+
+	^Dictionary new
+		at: 'stone' put: (System stoneName subStrings: $!) last;
+		at: 'version' put: (System stoneVersionAt: #'gsVersion');
+		at: 'user' put: System myUserProfile userId;
+		at: 'sessions' put: System currentSessions size;
+		at: 'repositorySizeMB' put: (SystemRepository fileSize / 1024 / 1024) ceiling;
+		at: 'freeSpaceMB' put: (SystemRepository freeSpace / 1024 / 1024) floor;
+		at: 'commitRecordBacklog' put: (System stoneCacheStatisticWithName: 'CommitRecordCount');
+		asJson
+%
 ! ------------------- Instance methods for Jasper
 set compile_env: 0
 category: 'private'
 method: Jasper
 allowedSelectors
 
-	^#('evaluate' 'home' 'gem' 'gems' 'signIn' 'signOut' 'softBreak' 'stats' 'stone')
+	^#('evaluate' 'footer' 'home' 'gem' 'gems' 'signIn' 'signOut' 'softBreak' 'stats' 'stone')
 %
 category: 'private'
 method: Jasper
@@ -118,7 +133,7 @@ buildResponseFor: aString
 	startTime := Time millisecondClockValue.
 	result := Dictionary new.
 	[
-		data := request bodyContents 
+		data := request bodyContents
 			ifNil: [Dictionary new]
 			ifNotNil: [:value | JsonParser parse: value].
 		data isPetitFailure ifTrue: [self error: data message].
@@ -166,7 +181,7 @@ evaluate
 	string := data at: 'string'.
 	myResult := session executeString: string.
 	myResult := (myResult isKindOf: Array)
-		ifTrue: ['(Object _objectForOop: ' , myResult first printString , ')']
+		ifTrue: ['(Object _objectForOop: ' , myResult first printString , ') "' , (session send: #'printString' to: myResult first) , '"']
 		ifFalse: [myResult printString].
 	result
 		at: 'result'
@@ -178,7 +193,7 @@ gem
 
 	| remoteData |
 	remoteData := session send: #'gem' to: self class asOop.
-	result := JsonParser parse: remoteData.
+	(JsonParser parse: remoteData) keysAndValuesDo: [:eachKey :eachValue | result at: eachKey put: eachValue].
 %
 category: 'public'
 method: Jasper
@@ -230,22 +245,25 @@ category: 'public'
 method: Jasper
 signIn
 
-	| id |
+	| id remoteData |
 	session := GsExternalSession newDefault
 		username: (data at: 'userID');
 		password: (data at: 'password');
 		login.
 	id := Random new smallInteger abs printStringRadix: 36.
 	self sessions at: id put: session.
-	result
-		at: 'session'
-		put: id.
+	jasper := session _gciLibrary GciResolveSymbol_: 'Jasper' _: 20 "OOP_NILL".
+	remoteData := session send: #'home' to: jasper.
+	(JsonParser parse: remoteData) keysAndValuesDo: [:eachKey :eachValue | result at: eachKey put: eachValue].
+	result at: 'session' put: id.
 %
 category: 'public'
 method: Jasper
 signOut
 
 	session forceLogout.
+	session := nil.
+	jasper := nil.
 %
 category: 'public'
 method: Jasper

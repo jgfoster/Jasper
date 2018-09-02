@@ -12,7 +12,7 @@
           </v-list-tile-action>
           <v-list-tile-content>{{ item.title }}</v-list-tile-content>
         </v-list-tile>
-        <v-list-tile v-if="isAuthenticated" @click="userSignOut">
+        <v-list-tile v-if="isAuthenticated" @click="signOut">
           <v-list-tile-action>
             <font-awesome-icon icon="sign-out-alt" />
           </v-list-tile-action>
@@ -40,21 +40,21 @@
           <font-awesome-icon :icon="item.icon" />&nbsp;
           {{ item.title }}
         </v-btn>
-        <v-btn flat v-if="isAuthenticated" @click="userSignOut">
+        <v-btn flat v-if="isAuthenticated" @click="signOut">
           <font-awesome-icon icon="sign-out-alt" />&nbsp;
           Sign Out
         </v-btn>
       </v-toolbar-items>
     </v-toolbar>
     <v-content>
-      <v-container fluid>
+      <v-container fluid pa-1>
         <v-layout column>
-          <v-flex xs-12>
+          <v-flex xs-12 j-error>
             <v-alert type="error" dismissible v-model="alert">
-              {{ error }}
+              <pre>{{ error }}</pre>
             </v-alert>
           </v-flex>
-          <v-flex xs-12 >
+          <v-flex xs-12 j-alert>
             <v-dialog
               v-model="this.$store.state.isCallInProgress"
               persistent
@@ -84,7 +84,7 @@
               </v-container>
             </v-dialog>
           </v-flex>
-          <v-flex xs-12>
+          <v-flex xs-12 j-router>
             <router-view>
               <!-- contents replaced by router/index.js (https://router.vuejs.org/) -->
             </router-view>
@@ -138,13 +138,18 @@
     },
     methods: {
       softBreak () {
-        this.$store.dispatch('server', {
-          path: 'softBreak'
-        })
+        this.$store.dispatch('server', { path: 'softBreak' })
       },
-      userSignOut () {
-        this.$store.dispatch('userSignOut')
-        this.$router.push('/')
+      signOut () {
+        this.$store.dispatch('server', {
+          path: 'signOut',
+          result: data => {
+            this.$store.commit('setSession', null)
+            this.$store.commit('setStone', null)
+            this.$store.commit('setUser', null)
+            this.$router.push('/')
+          }
+        })
       }
     },
     watch: {

@@ -53,6 +53,8 @@ export default {
         args: { userID: this.userID, password: this.password },
         result: data => {
           this.$store.commit('setSession', data.session)
+          this.$store.commit('setStone', data.stone)
+          this.$store.commit('setUser', data.user)
           this.$router.push('/')
         }
       })

@@ -1,13 +1,13 @@
 <template>
-  <v-container fluid>
+  <v-container fluid pa-1 j-workspace>
     <v-layout row wrap>
-      <div>
+      <div j-buttons>
         <v-btn small v-on:click='evaluate' :disabled='this.$store.state.isCallInProgress'>Evaluate</v-btn>
         <v-btn small v-on:click='display' :disabled='this.$store.state.isCallInProgress'>Display</v-btn>
         <v-btn small v-on:click='inspect' disabled>Inspect</v-btn>
         <v-btn small v-on:click='debug' disabled>Debug</v-btn>
       </div>
-      <div style='width: 100%'>
+      <div style='width: 100%' j-ace-editor>
         <ace-editor v-model='code' min-lines='20' max-lines='50'></ace-editor>
       </div>
     </v-layout>
@@ -19,7 +19,7 @@
     name: 'workspace',
     data () {
       return {
-        code: '(Delay forSeconds: 1) wait'
+        code: '(Delay forSeconds: 5) wait'
       }
     },
     mounted () { this.editor.focus() },
@@ -38,7 +38,6 @@
           }
           string = this.editor.getSelectedText()
         }
-        this.editor.setReadOnly(true)
         var point = this.editor.selection.getRange().end
         this.$store.dispatch('server', {
           path: 'evaluate',
@@ -51,11 +50,6 @@
               var end = this.editor.session.insert(point, ' ' + data.result)
               this.editor.selection.setRange({ start: point, end: end })
             }
-            this.editor.setReadOnly(false)
-          },
-          error: error => {
-            console.error(error)
-            this.editor.setReadOnly(false)
           }
         })
       },

@@ -1,7 +1,7 @@
 import Vue from 'vue'
 import Vuex from 'vuex'
 import axios from 'axios'
-import router from '@/router'
+// import router from '@/router'
 
 Vue.use(Vuex)
 
@@ -12,7 +12,9 @@ export const store = new Vuex.Store({
     isCallInProgress: false,
     lastCall: null,
     thisCall: null,
-    session: null
+    session: null,
+    stone: null,
+    user: null
   },
   mutations: {
     setError (state, payload) {
@@ -34,6 +36,12 @@ export const store = new Vuex.Store({
     },
     setThisCall (state, payload) {
       state.thisCall = payload
+    },
+    setStone (state, payload) {
+      state.stone = payload
+    },
+    setUser (state, payload) {
+      state.user = payload
     }
   },
   actions: {
@@ -61,7 +69,6 @@ export const store = new Vuex.Store({
       }
       axios.post(process.env.URL + payload.path, args)
       .then(result => {
-        console.log(payload.path, result)
         after(result.data)
         var flag = result.data.success
         delete result.data.success
@@ -85,29 +92,6 @@ export const store = new Vuex.Store({
           commit('setError', error)
         }
       })
-    },
-    timerTick () { },
-    userSignUp ({commit}, payload) { },
-    userSignIn ({commit}, payload) { debugger },
-    userSignOut ({commit}, payload) {
-      store.dispatch('server', {
-        path: 'signOut',
-        args: { },
-        session: this.state.session,
-        result: data => {
-          if (data.success) {
-            commit('setSession', null)
-            router.push('/')
-          } else {
-            commit('setError', data.error)
-          }
-        },
-        error: error => {
-          console.log(error)
-        }
-      })
-      commit('setSession', null)
-      router.push('/')
     }
   },
   getters: {
