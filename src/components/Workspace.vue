@@ -5,7 +5,7 @@
         <v-btn small v-on:click='evaluate' :disabled='this.$store.state.isCallInProgress'>Evaluate</v-btn>
         <v-btn small v-on:click='display' :disabled='this.$store.state.isCallInProgress'>Display</v-btn>
         <v-btn small v-on:click='inspect' disabled>Inspect</v-btn>
-        <v-btn small v-on:click='softBreak' :disabled='!this.$store.state.isCallInProgress'>Soft Break</v-btn>
+        <v-btn small v-on:click='debug' disabled>Debug</v-btn>
       </div>
       <div style='width: 100%'>
         <ace-editor v-model='code' min-lines='20' max-lines='50'></ace-editor>
@@ -19,19 +19,12 @@
     name: 'workspace',
     data () {
       return {
-        code: '(Delay forSeconds: 3) wait'
+        code: '(Delay forSeconds: 1) wait'
       }
     },
     mounted () { this.editor.focus() },
     methods: {
-      softBreak () {
-        this.$store.dispatch('server', {
-          path: 'softBreak',
-          args: { },
-          result: data => { this.editor.focus() },
-          error: error => { console.error(error) }
-        })
-      },
+      debug () { console.log('debug') },
       display () { this.evaluateAndDisplay(true) },
       evaluate () { this.evaluateAndDisplay(false) },
       evaluateAndDisplay (aBoolean) {
@@ -54,14 +47,8 @@
             this.editor.focus()
             this.editor.selection.moveCursorTo(point.row, point.column)
             this.editor.selection.clearSelection()
-            var end
-            if (data.success) {
-              if (aBoolean) {
-                end = this.editor.session.insert(point, ' ' + data.result)
-                this.editor.selection.setRange({ start: point, end: end })
-              }
-            } else {
-              end = this.editor.session.insert(point, ' ' + data.error)
+            if (aBoolean) {
+              var end = this.editor.session.insert(point, ' ' + data.result)
               this.editor.selection.setRange({ start: point, end: end })
             }
             this.editor.setReadOnly(false)

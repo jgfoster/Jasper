@@ -61,12 +61,15 @@ export const store = new Vuex.Store({
       }
       axios.post(process.env.URL + payload.path, args)
       .then(result => {
+        console.log(payload.path, result)
         after(result.data)
         var flag = result.data.success
         delete result.data.success
         delete result.data.time
         if (flag) {
-          payload.result(result.data)
+          if (payload.result) {
+            payload.result(result.data)
+          }
         } else {
           if (payload.error) {
             payload.error(result.data.error)

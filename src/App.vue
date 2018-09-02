@@ -54,6 +54,36 @@
               {{ error }}
             </v-alert>
           </v-flex>
+          <v-flex xs-12 >
+            <v-dialog
+              v-model="this.$store.state.isCallInProgress"
+              persistent
+            >
+              <v-container fill-height fluid>
+                <v-layout row wrap align-center>
+                  <v-flex xs-12 text-xs-center>
+                    <v-card>
+                      <img
+                        :src="require('@/assets/GemStone.jpg')"
+                        height="128px"
+                      ></img>
+                      <v-card-text>
+                        {{ this.$store.state.thisCall }}
+                        <v-progress-linear
+                          indeterminate
+                          color="white"
+                          class="mb-0"
+                        ></v-progress-linear>
+                      </v-card-text>
+                      <v-card-actions text-xs-center>
+                        <v-btn small v-on:click='softBreak' color="red">Soft Break</v-btn>
+                      </v-card-actions>
+                    </v-card>
+                  </v-flex>
+                </v-layout>
+              </v-container>
+            </v-dialog>
+          </v-flex>
           <v-flex xs-12>
             <router-view>
               <!-- contents replaced by router/index.js (https://router.vuejs.org/) -->
@@ -107,6 +137,11 @@
       }
     },
     methods: {
+      softBreak () {
+        this.$store.dispatch('server', {
+          path: 'softBreak'
+        })
+      },
       userSignOut () {
         this.$store.dispatch('userSignOut')
         this.$router.push('/')

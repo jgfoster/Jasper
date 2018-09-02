@@ -8,25 +8,14 @@ var footer = {
       user: null
     }
   },
-  methods: {
-    softBreak () {
-      this.$store.dispatch('server', {
-        path: 'softBreak',
-        args: { },
-        result: result => { },
-        error: error => { console.log(error) }
-      })
-    }
-  },
+  methods: { },
   mounted () {
     this.$store.dispatch('server', {
       path: 'footer',
-      args: {},
       result: data => {
         this.stone = data.stone
         this.user = data.user
-      },
-      error: error => { console.log(error) }
+      }
     })
   },
   template: `<div>
@@ -40,13 +29,6 @@ var footer = {
       </v-flex>
       <v-flex xs-3 pt-2>
         {{ this.$store.state.lastCall }}
-      </v-flex>
-      <v-flex xs-3>
-        {{ this.$store.state.thisCall }}
-        <v-btn
-          small
-          v-on:click='softBreak'
-          :disabled='!this.$store.state.isCallInProgress'>Soft Break</v-btn>
       </v-flex>
     </v-layout>
   </v-container>
