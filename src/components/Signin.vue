@@ -60,9 +60,6 @@ export default {
   computed: {
     error () {
       return this.$store.state.error
-    },
-    loading () {
-      return this.$store.state.loading
     }
   },
   // https://vuejs.org/v2/guide/custom-directive.html has a focus but it didn't work

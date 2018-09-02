@@ -27,7 +27,7 @@
       </span>
       <v-toolbar-title>
         <router-link to="/" tag="span" style="cursor: pointer">
-          {{ appTitle }}
+          Jasper
         </router-link>
       </v-toolbar-title>
       <v-spacer></v-spacer>
@@ -65,9 +65,6 @@
       }
     },
     computed: {
-      appTitle () {
-        return this.$store.state.appTitle
-      },
       isAuthenticated () {
         return this.$store.getters.isAuthenticated
       },

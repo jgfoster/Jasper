@@ -8,10 +8,8 @@ Vue.use(Vuex)
 export const store = new Vuex.Store({
   strict: process.env.NODE_ENV !== 'production',
   state: {
-    appTitle: 'Jasper',
     error: null,
     isCallInProgress: false,
-    loading: false,
     lastCall: null,
     thisCall: null,
     session: null
@@ -22,9 +20,6 @@ export const store = new Vuex.Store({
     },
     setIsCallInProgress (state, payload) {
       state.isCallInProgress = payload
-    },
-    setLoading (state, payload) {
-      state.loading = payload
     },
     setLastCall (state, payload) {
       state.lastCall = payload
@@ -80,18 +75,18 @@ export const store = new Vuex.Store({
     timerTick () { },
     userSignUp ({commit}, payload) { },
     userSignIn ({commit}, payload) {
-      commit('setLoading', true)
+      commit('setIsCallInProgress', true)
       store.dispatch('server', {
         path: 'signIn',
         args: payload,
         result: data => {
-          commit('setLoading', false)
+          commit('setIsCallInProgress', false)
           commit('setSession', data.session)
           router.push('/')
         },
         error: error => {
           commit('setError', error.message)
-          commit('setLoading', false)
+          commit('setIsCallInProgress', false)
         }
       })
     },
