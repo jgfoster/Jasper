@@ -12,11 +12,9 @@ export const store = new Vuex.Store({
     error: null,
     isCallInProgress: false,
     loading: false,
-    msInLastCall: null,
-    secondsInCall: null,
-    session: null,
-    stone: '(no stone)',
-    user: '(no user)'
+    lastCall: null,
+    thisCall: null,
+    session: null
   },
   mutations: {
     setError (state, payload) {
@@ -28,11 +26,11 @@ export const store = new Vuex.Store({
     setLoading (state, payload) {
       state.loading = payload
     },
-    setMsInLastCall (state, payload) {
-      state.msInLastCall = payload
+    setLastCall (state, payload) {
+      state.lastCall = payload
     },
-    setSecondsInCall (state, payload) {
-      state.secondsInCall = payload
+    setThisCall (state, payload) {
+      state.thisCall = payload
     },
     setSession (state, payload) {
       state.session = payload
@@ -41,34 +39,36 @@ export const store = new Vuex.Store({
       } else {
         window.sessionStorage.removeItem('session')
       }
-    },
-    setStone (state, payload) {
-      state.stone = payload
-    },
-    setUser (state, payload) {
-      state.user = payload
     }
   },
   actions: {
     server ({commit}, payload) {
-      console.log(this)
+      var seconds = 0
+      var msStart = (new Date()).getTime()
+      this.commit('setThisCall', payload.path + ' (0)')
       var timer = setInterval(() => {
-        console.log('timerTick', this.secondsInCall)
-        this.commit('setSecondsInCall', (this.secondsInCall ? this.secondsInCall : 0) + 1)
+        seconds = seconds + 1
+        this.commit('setThisCall', payload.path + ' (' + seconds + ')')
       }, 1000) // milliseconds
       payload.args.session = this.state.session
       this.commit('setIsCallInProgress', true)
       axios.post(process.env.URL + payload.path, payload.args)
       .then(result => {
         clearInterval(timer)
-        this.commit('setSecondsInCall', null)
+        this.commit('setThisCall', null)
         this.commit('setIsCallInProgress', false)
-        this.commit('setMsInLastCall', result.data.time)
-        delete result.time
+        var msStop = (new Date()).getTime()
+        var string = payload.path +
+          ' (' + result.data.time + 'ms server + ' +
+          (msStop - msStart - result.data.time) + 'ms network)'
+        console.log(string)
+        this.commit('setLastCall', string)
+        delete result.data.success
+        delete result.data.time
         payload.result(result.data)
       }, error => {
         clearInterval(timer)
-        this.commit('setSecondsInCall', null)
+        this.commit('setThisCall', null)
         this.commit('setIsCallInProgress', false)
         if (payload.error) {
           payload.error(error)
@@ -81,39 +81,38 @@ export const store = new Vuex.Store({
     userSignUp ({commit}, payload) { },
     userSignIn ({commit}, payload) {
       commit('setLoading', true)
-      axios.post(process.env.URL + 'signIn', payload)
-      .then(result => {
-        commit('setLoading', false)
-        if (result.data.success) {
-          commit('setSession', result.data.session)
-          commit('setStone', result.data.stone)
-          commit('setUser', result.data.user)
+      store.dispatch('server', {
+        path: 'signIn',
+        args: payload,
+        result: data => {
+          commit('setLoading', false)
+          commit('setSession', data.session)
           router.push('/')
-        } else {
-          commit('setError', result.data.error)
+        },
+        error: error => {
+          commit('setError', error.message)
+          commit('setLoading', false)
         }
-      })
-      .catch(error => {
-        commit('setError', error.message)
-        commit('setLoading', false)
       })
     },
     userSignOut ({commit}, payload) {
-      axios.post(process.env.URL + 'signOut', {session: this.state.session})
-      .then(result => {
-        if (result.data.success) {
-          commit('setSession', null)
-          router.push('/')
-        } else {
-          commit('setError', result.data.error)
+      store.dispatch('server', {
+        path: 'signOut',
+        args: { },
+        session: this.state.session,
+        result: data => {
+          if (data.success) {
+            commit('setSession', null)
+            router.push('/')
+          } else {
+            commit('setError', data.error)
+          }
+        },
+        error: error => {
+          console.log(error)
         }
       })
-      .catch(error => {
-        console.log(error)
-      })
       commit('setSession', null)
-      commit('setStone', '(no stone)')
-      commit('setUser', '(no user)')
       router.push('/')
     }
   },

@@ -65,10 +65,11 @@
               this.editor.selection.setRange({ start: point, end: end })
             }
             this.editor.setReadOnly(false)
+          },
+          error: error => {
+            console.error(error)
+            this.editor.setReadOnly(false)
           }
-        }, error => {
-          console.error(error)
-          this.editor.setReadOnly(false)
         })
       },
       inspect () { console.log('inspect') }

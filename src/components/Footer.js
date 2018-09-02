@@ -4,6 +4,8 @@ var footer = {
   name: 'JasperFooter',
   data: function () {
     return {
+      stone: null,
+      user: null
     }
   },
   methods: {
@@ -16,21 +18,31 @@ var footer = {
       })
     }
   },
-  mounted () { console.log('footer') },
+  mounted () {
+    this.$store.dispatch('server', {
+      path: 'footer',
+      args: {},
+      result: data => {
+        this.stone = data.stone
+        this.user = data.user
+      },
+      error: error => { console.log(error) }
+    })
+  },
   template: `<div>
   <v-container fluid my-1 py-0>
     <v-layout>
       <v-flex xs-3 pt-2>
-        {{ this.$store.state.stone }}
+        {{ this.stone }}
       </v-flex>
       <v-flex xs-3 pt-2>
-        {{ this.$store.state.user }}
+        {{ this.user }}
       </v-flex>
       <v-flex xs-3 pt-2>
-        {{ this.$store.state.msInLastCall }}
+        {{ this.$store.state.lastCall }}
       </v-flex>
       <v-flex xs-3>
-        {{ this.$store.state.secondsInCall }}
+        {{ this.$store.state.thisCall }}
         <v-btn
           small
           v-on:click='softBreak'
