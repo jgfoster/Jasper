@@ -54,7 +54,14 @@ export default {
   },
   methods: {
     userSignIn () {
-      this.$store.dispatch('userSignIn', { userID: this.userID, password: this.password })
+      this.$store.dispatch('server', {
+        path: 'signIn',
+        args: { userID: this.userID, password: this.password },
+        result: data => {
+          this.$store.commit('setSession', data.session)
+          this.$router.push('/')
+        }
+      })
     }
   },
   computed: {

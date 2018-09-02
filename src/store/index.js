@@ -24,9 +24,6 @@ export const store = new Vuex.Store({
     setLastCall (state, payload) {
       state.lastCall = payload
     },
-    setThisCall (state, payload) {
-      state.thisCall = payload
-    },
     setSession (state, payload) {
       state.session = payload
       if (payload !== null) {
@@ -34,6 +31,9 @@ export const store = new Vuex.Store({
       } else {
         window.sessionStorage.removeItem('session')
       }
+    },
+    setThisCall (state, payload) {
+      state.thisCall = payload
     }
   },
   actions: {
@@ -47,49 +47,44 @@ export const store = new Vuex.Store({
       }, 1000) // milliseconds
       payload.args.session = this.state.session
       this.commit('setIsCallInProgress', true)
-      axios.post(process.env.URL + payload.path, payload.args)
-      .then(result => {
+      var after = (data) => {
         clearInterval(timer)
         this.commit('setThisCall', null)
         this.commit('setIsCallInProgress', false)
         var msStop = (new Date()).getTime()
         var string = payload.path +
-          ' (' + result.data.time + 'ms server + ' +
-          (msStop - msStart - result.data.time) + 'ms network)'
+          ' (' + data.time + 'ms server + ' +
+          (msStop - msStart - data.time) + 'ms network)'
         console.log(string)
         this.commit('setLastCall', string)
+      }
+      axios.post(process.env.URL + payload.path, payload.args)
+      .then(result => {
+        after(result.data)
+        var flag = result.data.success
         delete result.data.success
         delete result.data.time
-        payload.result(result.data)
+        if (flag) {
+          payload.result(result.data)
+        } else {
+          if (payload.error) {
+            payload.error(result.data.error)
+          } else {
+            commit('setError', result.data.error)
+          }
+        }
       }, error => {
-        clearInterval(timer)
-        this.commit('setThisCall', null)
-        this.commit('setIsCallInProgress', false)
+        after(error)
         if (payload.error) {
           payload.error(error)
         } else {
-          console.error(error)
+          commit('setError', error)
         }
       })
     },
     timerTick () { },
     userSignUp ({commit}, payload) { },
-    userSignIn ({commit}, payload) {
-      commit('setIsCallInProgress', true)
-      store.dispatch('server', {
-        path: 'signIn',
-        args: payload,
-        result: data => {
-          commit('setIsCallInProgress', false)
-          commit('setSession', data.session)
-          router.push('/')
-        },
-        error: error => {
-          commit('setError', error.message)
-          commit('setIsCallInProgress', false)
-        }
-      })
-    },
+    userSignIn ({commit}, payload) { debugger },
     userSignOut ({commit}, payload) {
       store.dispatch('server', {
         path: 'signOut',
