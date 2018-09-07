@@ -19,7 +19,7 @@
     name: 'workspace',
     data () {
       return {
-        code: '(Delay forSeconds: 5) wait'
+        code: '(Delay forSeconds: 5) wait.\nSystem commit.\n'
       }
     },
     mounted () { this.editor.focus() },
