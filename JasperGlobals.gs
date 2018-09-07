@@ -78,7 +78,7 @@ browser: aString
 		dictionaries add: (Dictionary new
 			at: 'name' put: each name;
 			at: 'oop' put: each asOop;
-			at: 'color' put: (each == selectedOop ifTrue: ['red'] ifFalse: []); yourself).
+			at: 'color' put: (each asOop == selectedOop ifTrue: ['red'] ifFalse: []); yourself).
 	].
 	classCategories := Array new.
 	classes := Array new.
@@ -89,7 +89,7 @@ browser: aString
 			global := dictionary at: eachKey.
 			global isBehavior ifTrue: [
 				global asOop == selectedOop ifTrue: [class := global].
-				classes size < 10 ifTrue: [
+				classes size < 20 ifTrue: [
 					classes add: (Dictionary new
 						at: 'name' put: eachKey;
 						at: 'oop' put: global asOop;
@@ -162,24 +162,19 @@ buildResponse
 	"We are willing to be called from any application.
 	We always respond with JSON content."
 
-	HttpServer log: #'debug' string: 'Jasper>>buildResponse - 1'.
 	response
 		accessControlAllowOrigin: '*';
 		accessControlAllowHeaders: 'X-PINGOTHER, Content-Type';
 		contentType: 'application/json; charset=utf-8';
 		yourself.
-	HttpServer log: #'debug' string: 'Jasper>>buildResponse - 2'.
 	request method = 'OPTIONS' ifTrue: [^self].
-	HttpServer log: #'debug' string: 'Jasper>>buildResponse - 3'.
 	super buildResponse.
-	HttpServer log: #'debug' string: 'Jasper>>buildResponse - 4'.
 %
 category: 'private'
 method: Jasper
 buildResponseFor: aString
 
 	| endTime startTime |
-	HttpServer log: #'debug' string: 'Jasper>>buildResponseFor: ' , aString printString.
 	startTime := Time millisecondClockValue.
 	result := Dictionary new
 		at: 'success' put: true;
@@ -189,11 +184,9 @@ buildResponseFor: aString
 			ifNil: [Dictionary new]
 			ifNotNil: [:value | JsonParser parse: value].
 		data isPetitFailure ifTrue: [self error: data message].
-		HttpServer log: #'debug' string: 'Jasper>>buildResponseFor: - 2 - ' , data class name.
 		session := self sessions at: (data removeKey: 'session' ifAbsent: [nil]) ifAbsent: [nil].
 		super buildResponseFor: aString.
 	] on: Admonition, Error do: [:ex |
-		HttpServer log: #'debug' string: 'Jasper>>buildResponseFor: - 3 - ' , ex description.
 		result
 			at: 'success' put: false;
 			at: 'error' put: ex description;
@@ -248,9 +241,27 @@ category: 'public'
 method: Jasper
 browser
 
-	| remoteData string |
+	| remoteData string  |
 	string := data asJson.
-	string := session abort; executeString: 'Jasper browser: ' , string printString.
+	(session executeString: 'System session') == System session ifTrue: [self error: 'Execute! - ' , System session printString , ' - ' , session printString].
+	session abort.
+	string := session executeString: 'Jasper browser: ' , string printString.
+	session commit.
+	remoteData := JsonParser parse: string.
+	remoteData  keysAndValuesDo: [:eachKey :eachValue | result at: eachKey put: eachValue].
+%
+category: 'public'
+method: Jasper
+browserBad
+
+	| remoteData string object |
+	string := data asJson.
+	object := UserGlobals at: #'James'.
+	UserGlobals at: #'James' put: DateAndTime now.
+	(UserGlobals at: #'James') == object ifTrue: [self error: 'Pre-abort - ' , System session printString , ' - ' , session printString].
+	session abort.
+	(UserGlobals at: #'James') == object ifTrue: [self error: 'ABORT! ' , System session printString , ' - ' , session printString].
+	string := session executeString: 'Jasper browser: ' , string printString.
 	session commit.
 	remoteData := JsonParser parse: string.
 	remoteData  keysAndValuesDo: [:eachKey :eachValue | result at: eachKey put: eachValue].
