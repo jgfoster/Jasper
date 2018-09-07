@@ -2,10 +2,10 @@
 
 /* START: <ace-editor> Vue component */
 import Vue from 'vue'
-import './ace-builds/src-noconflict/ace'
-import './ace-builds/src-noconflict/theme-chrome'
-import './ace-builds/src-noconflict/mode-smalltalk_code'
-import './ace-builds/webpack-resolver'
+import './ace-builds/src-min-noconflict/ace'
+import './ace-builds/src-min-noconflict/theme-chrome'
+import './ace-builds/src-min-noconflict/mode-smalltalk_code'
+// import './ace-builds/webpack-resolver'
 
 (function () {
   const PROPS = {
