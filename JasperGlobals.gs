@@ -1,4 +1,4 @@
-! ------- Create dictionary if it is not present
+﻿! ------- Create dictionary if it is not present
 run
 | aSymbol names userProfile |
 aSymbol := #'JasperGlobals'.
@@ -10,7 +10,6 @@ names := userProfile symbolList names.
 	userProfile insertDictionary: symbolDictionary at: names size + 1.
 ].
 %
-set compile_env: 0
 ! ------------------- Class definition for Jasper
 expectvalue /Class
 doit
@@ -68,6 +67,53 @@ workerCount
 set compile_env: 0
 category: 'services'
 classmethod: Jasper
+browser: aString
+
+	| class classCategories classes dict dictionary dictionaries methodCategories methods selectedOop selections |
+	selections := JsonParser parse: aString.
+	dictionaries := Array new.
+	selectedOop := selections at: 'dictionary' ifAbsent: [nil].
+	System myUserProfile symbolList do: [:each |
+		each asOop == selectedOop ifTrue: [dictionary := each].
+		dictionaries add: (Dictionary new 
+			at: 'name' put: each name; 
+			at: 'oop' put: each asOop; 
+			at: 'color' put: (each == selectedOop ifTrue: ['red'] ifFalse: []); yourself).
+	].
+	classCategories := Array new.
+	classes := Array new.
+	selectedOop := selections at: 'class' ifAbsent: [nil].
+"
+[
+	dictionary ifNotNil: [
+		dictionary keys asSortedCollection do: [:eachKey | 
+			| global |
+			global := dictionary at: eachKey.
+			global isBehavior ifTrue: [
+				global asOop == selectedOop ifTrue: [class := global].
+				classes add: (Dictionary new
+					at: 'name' put: eachKey;
+					at: 'oop' put: global asOop;
+					at: 'color' put: (global == class ifTrue: ['red'] ifFalse: []);
+					yourself).
+			].
+		].
+	].
+] on: Error do: [:ex | James add: ex. ex return].
+"
+	methodCategories := Array new.
+	methods := Array new.
+	dict := Dictionary new
+		at: 'dictionaries'			put: dictionaries;
+		at: 'classCategories'		put: classCategories;
+		at: 'classes'				put: classes;
+		at: 'methodCategories'	put: methodCategories;
+		at: 'methods'				put: methods;
+		yourself.
+	^dict asJson.
+%
+category: 'services'
+classmethod: Jasper
 gem
 
 	| config dict version |
@@ -97,6 +143,7 @@ home
 		at: 'stone' put: (System stoneName subStrings: $!) last;
 		at: 'version' put: (System stoneVersionAt: #'gsVersion');
 		at: 'user' put: System myUserProfile userId;
+		at: 'session' put: System session;
 		at: 'sessions' put: System currentSessions size;
 		at: 'repositorySizeMB' put: (SystemRepository fileSize / 1024 / 1024) ceiling;
 		at: 'freeSpaceMB' put: (SystemRepository freeSpace / 1024 / 1024) floor;
@@ -109,7 +156,7 @@ category: 'private'
 method: Jasper
 allowedSelectors
 
-	^#('evaluate' 'footer' 'home' 'gem' 'gems' 'signIn' 'signOut' 'softBreak' 'stats' 'stone')
+	^#('browser' 'evaluate' 'footer' 'home' 'gem' 'gems' 'signIn' 'signOut' 'softBreak' 'stats' 'stone')
 %
 category: 'private'
 method: Jasper
@@ -117,29 +164,35 @@ buildResponse
 	"We are willing to be called from any application.
 	We always respond with JSON content."
 
+	HttpServer log: #'debug' string: 'Jasper>>buildResponse - 1'.
 	response
 		accessControlAllowOrigin: '*';
 		accessControlAllowHeaders: 'X-PINGOTHER, Content-Type';
 		contentType: 'application/json; charset=utf-8';
 		yourself.
+	HttpServer log: #'debug' string: 'Jasper>>buildResponse - 2'.
 	request method = 'OPTIONS' ifTrue: [^self].
+	HttpServer log: #'debug' string: 'Jasper>>buildResponse - 3'.
 	super buildResponse.
+	HttpServer log: #'debug' string: 'Jasper>>buildResponse - 4'.
 %
 category: 'private'
 method: Jasper
 buildResponseFor: aString
 
 	| endTime startTime |
+	HttpServer log: #'debug' string: 'Jasper>>buildResponseFor: ' , aString printString.
 	startTime := Time millisecondClockValue.
-	result := Dictionary new.
+	result := Dictionary new
+		at: 'success' put: true;
+		yourself.
 	[
 		data := request bodyContents
 			ifNil: [Dictionary new]
 			ifNotNil: [:value | JsonParser parse: value].
 		data isPetitFailure ifTrue: [self error: data message].
-		session := self sessions at: (data at: 'session' ifAbsent: [nil]) ifAbsent: [nil].
+		session := self sessions at: (data removeKey: 'session' ifAbsent: [nil]) ifAbsent: [nil].
 		super buildResponseFor: aString.
-		result at: 'success' put: true.
 	] on: Error do: [:ex |
 		result
 			at: 'success' put: false;
@@ -151,6 +204,30 @@ buildResponseFor: aString
 	response
 		content: result asJson;
 		yourself.
+%
+category: 'private'
+method: Jasper
+responseForRequest: anHttpRequest
+
+	^super responseForRequest: anHttpRequest
+%
+category: 'private'
+method: Jasper
+serverSend: aSymbol
+
+	| remoteData |
+	session abort.
+	[
+		remoteData := session send: aSymbol to: self class asOop.
+	] on: Error do: [:ex |
+		result
+			at: 'success' put: false;
+			at: 'error' put: ex description;
+			yourself.
+		remoteData := ''.
+	].
+	session commit.
+	(JsonParser parse: remoteData) keysAndValuesDo: [:eachKey :eachValue | result at: eachKey put: eachValue].
 %
 category: 'private'
 method: Jasper
@@ -175,6 +252,21 @@ stringFromSeconds: anInteger
 set compile_env: 0
 category: 'public'
 method: Jasper
+browser
+
+[
+	| remoteData |
+	HttpServer log: #'debug' string: 'Jasper>>browser - 1'.
+	remoteData := session executeString: 'Jasper browser: ' , Dictionary new asJson printString.
+	HttpServer log: #'debug' string: 'Jasper>>browser - 2'.
+	(JsonParser parse: remoteData) keysAndValuesDo: [:eachKey :eachValue | result at: eachKey put: eachValue].
+] on: Error do: [:ex | 
+	James add: ex.
+	ex return.
+].
+%
+category: 'public'
+method: Jasper
 evaluate
 
 	| myResult string |
@@ -191,9 +283,7 @@ category: 'public'
 method: Jasper
 gem
 
-	| remoteData |
-	remoteData := session send: #'gem' to: self class asOop.
-	(JsonParser parse: remoteData) keysAndValuesDo: [:eachKey :eachValue | result at: eachKey put: eachValue].
+	self serverSend: #'gem'.
 %
 category: 'public'
 method: Jasper
@@ -231,15 +321,20 @@ category: 'public'
 method: Jasper
 home
 
-	result
-		at: 'stoneName' put: (System stoneName subStrings: $!) last;
-		at: 'stoneVersion' put: (System stoneVersionAt: #'gsVersion');
-		at: 'userID' put: System myUserProfile userId;
-		at: 'sessionCount' put: System currentSessions size;
-		at: 'repositorySizeMB' put: (SystemRepository fileSize / 1024 / 1024) ceiling;
-		at: 'freeSpaceMB' put: (SystemRepository freeSpace / 1024 / 1024) floor;
-		at: 'commitRecordBacklog' put: (System stoneCacheStatisticWithName: 'CommitRecordCount');
-		yourself.
+	session ifNil: [
+		result
+			at: 'stoneName' put: (System stoneName subStrings: $!) last;
+			at: 'stoneVersion' put: (System stoneVersionAt: #'gsVersion');
+			at: 'userID' put: System myUserProfile userId;
+			at: 'session' put: System session;
+			at: 'sessionCount' put: System currentSessions size;
+			at: 'repositorySizeMB' put: (SystemRepository fileSize / 1024 / 1024) ceiling;
+			at: 'freeSpaceMB' put: (SystemRepository freeSpace / 1024 / 1024) floor;
+			at: 'commitRecordBacklog' put: (System stoneCacheStatisticWithName: 'CommitRecordCount');
+			yourself.
+	] ifNotNil: [
+		self serverSend: #'home'.
+	]
 %
 category: 'public'
 method: Jasper

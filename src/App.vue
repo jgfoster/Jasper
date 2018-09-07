@@ -121,7 +121,8 @@
             { title: 'Stats', path: '/stats', icon: 'chart-line' },
             //  available when signed in
             { title: 'Gem', path: '/gem', icon: 'gem' },
-            { title: 'Workspace', path: '/workspace', icon: 'edit' }
+            { title: 'Workspace', path: '/workspace', icon: 'edit' },
+            { title: 'Browser', path: '/browser', icon: 'edit' }
           ]
         } else {
           return [
