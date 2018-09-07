@@ -7,12 +7,11 @@
             <v-flex xs-12 j-top>
               <v-container pa-0 fluid>
                 <v-layout row wrap>
-                  <v-flex xs-2 j-dictionaries>
+                  <v-flex xs-4 j-dictionaries>
                     <v-list dense subheader>
                       <v-list-tile
                         v-for="item in browser.dictionaries"
                         :key="item.name"
-                        :color="item.color"
                         @click="selectedDictionary(item)"
                       >
                         <v-list-tile-content>
@@ -21,19 +20,7 @@
                       </v-list-tile>
                     </v-list>
                   </v-flex>
-                  <v-flex xs-2 j-class-categories>
-                    <v-list dense subheader>
-                      <v-list-tile
-                        v-for="item in browser.classCategories"
-                        :key="item"
-                      >
-                        <v-list-tile-content>
-                          <v-list-tile-title v-text="item"></v-list-tile-title>
-                        </v-list-tile-content>
-                      </v-list-tile>
-                    </v-list>
-                  </v-flex>
-                  <v-flex xs-2 j-classes>
+                  <v-flex xs-4 j-classes>
                     <v-list dense subheader>
                       <v-list-tile
                         v-for="item in browser.classes"
@@ -46,19 +33,7 @@
                       </v-list-tile>
                     </v-list>
                   </v-flex>
-                  <v-flex xs-2 j-method-categories>
-                    <v-list dense subheader>
-                      <v-list-tile
-                        v-for="item in browser.methodCategories"
-                        :key="item"
-                      >
-                        <v-list-tile-content>
-                          <v-list-tile-title v-text="item"></v-list-tile-title>
-                        </v-list-tile-content>
-                      </v-list-tile>
-                    </v-list>
-                  </v-flex>
-                  <v-flex xs-2 j-methods>
+                  <v-flex xs-4 j-methods>
                     <v-list dense subheader>
                       <v-list-tile
                         v-for="item in browser.methods"
@@ -107,8 +82,9 @@
       this.update()
     },
     methods: {
-      selectedClass (x) {
-        console.log(x)
+      selectedClass (item) {
+        this.selections.class = item.oop
+        this.update()
       },
       selectedDictionary (item) {
         this.selections.dictionary = item.oop
@@ -119,6 +95,7 @@
           path: 'browser',
           args: this.selections,
           result: data => {
+            console.log(data)
             this.browser = data
           }
         })

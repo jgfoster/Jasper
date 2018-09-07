@@ -25,7 +25,7 @@ WebApp subclass: 'Jasper'
 %
 expectvalue /Class
 doit
-Jasper comment:
+Jasper comment: 
 'No class-specific documentation for Jasper, hierarchy is:
 Object
   WebApp( begin end exception html request response)
@@ -38,7 +38,7 @@ Jasper category: 'Kernel'
 %
 
 ! ------------------- Remove existing behavior from Jasper
-expectvalue /Metaclass3
+expectvalue /Metaclass3       
 doit
 Jasper removeAllMethods.
 Jasper class removeAllMethods.
@@ -69,22 +69,60 @@ category: 'services'
 classmethod: Jasper
 browser: aString
 
+	| class dictionary oop selections stream |
+	selections := JsonParser parse: aString.
+	stream := WriteStream on: String new.
+	oop := selections at: 'dictionary' ifAbsent: [nil].
+	System myUserProfile symbolList do: [:each |
+		each asOop == oop ifTrue: [dictionary := each].
+		stream nextPutAll: each name; tab; print: each asOop; lf.
+	].
+	stream lf.
+	dictionary ifNotNil: [
+		oop := selections at: 'class' ifAbsent: [nil].
+		dictionary keys asSortedCollection do: [:eachKey | 
+			| global |
+			global := dictionary at: eachKey.
+			global isBehavior ifTrue: [
+				global asOop == oop ifTrue: [class := global].
+				stream nextPutAll: eachKey; tab; print: global asOop; lf.
+			].
+		].
+	].
+	stream lf.
+	class ifNotNil: [
+		class selectors asSortedCollection do: [:each | 
+			stream nextPutAll: each; lf.
+		].
+	].
+	stream lf.
+	(selections at: 'method' ifAbsent: [nil]) ifNotNil: [:selector | 
+		(class compiledMethodAt: selector otherwise: nil) ifNotNil: [:method | 
+			stream print: method asOop; nextPutAll: method sourceString.
+		].
+	].
+	^stream contents
+%
+category: 'services'
+classmethod: Jasper
+browserA: aString
+
 	| class classCategories classes dict dictionary dictionaries methodCategories methods selectedOop selections |
 	selections := JsonParser parse: aString.
 	dictionaries := Array new.
 	selectedOop := selections at: 'dictionary' ifAbsent: [nil].
 	System myUserProfile symbolList do: [:each |
 		each asOop == selectedOop ifTrue: [dictionary := each].
-		dictionaries add: (Dictionary new
-			at: 'name' put: each name;
-			at: 'oop' put: each asOop;
+		dictionaries add: (Dictionary new 
+			at: 'name' put: each name; 
+			at: 'oop' put: each asOop; 
 			at: 'color' put: (each asOop == selectedOop ifTrue: ['red'] ifFalse: []); yourself).
 	].
 	classCategories := Array new.
 	classes := Array new.
 	selectedOop := selections at: 'class' ifAbsent: [nil].
 	dictionary ifNotNil: [
-		dictionary keys asSortedCollection do: [:eachKey |
+		dictionary keys asSortedCollection do: [:eachKey | 
 			| global |
 			global := dictionary at: eachKey.
 			global isBehavior ifTrue: [
@@ -241,14 +279,42 @@ category: 'public'
 method: Jasper
 browser
 
-	| remoteData string  |
+	| line list stream string |
 	string := data asJson.
-	(session executeString: 'System session') == System session ifTrue: [self error: 'Execute! - ' , System session printString , ' - ' , session printString].
+	session executeString: 'System session'.	"This appears to be necessary to prevent following abort from aborting our session!"
 	session abort.
 	string := session executeString: 'Jasper browser: ' , string printString.
 	session commit.
-	remoteData := JsonParser parse: string.
-	remoteData  keysAndValuesDo: [:eachKey :eachValue | result at: eachKey put: eachValue].
+
+	"JSON isn't very compact and our parser isn't very efficient, so we have a proprietary format."
+	stream := ReadStream on: string.
+	list := Array new.
+	[(line := stream nextLine) notEmpty] whileTrue: [
+		| pieces |
+		pieces := line subStrings: Character tab.
+		list add: (Dictionary new
+			at: 'name' put: (pieces at: 1);
+			at: 'oop' put: (pieces at: 2) asNumber;
+			yourself).
+	].
+	result at: 'dictionaries' put: list.
+
+	list := Array new.
+	[(line := stream nextLine) notEmpty] whileTrue: [
+		| pieces |
+		pieces := stream nextLine subStrings: Character tab.
+		list add: (Dictionary new
+			at: 'name' put: (pieces at: 1);
+			at: 'oop' put: (pieces at: 2) asNumber;
+			yourself).
+	].
+	result at: 'classes' put: list.
+
+	list := Array new.
+	[(line := stream nextLine) notEmpty] whileTrue: [
+		list add: line.
+	].
+	result at: 'methods' put: list.
 %
 category: 'public'
 method: Jasper
