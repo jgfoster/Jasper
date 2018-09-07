@@ -18,7 +18,6 @@ export const store = new Vuex.Store({
   },
   mutations: {
     setError (state, payload) {
-      debugger
       state.error = payload
     },
     setIsCallInProgress (state, payload) {
@@ -80,20 +79,16 @@ export const store = new Vuex.Store({
           }
         } else {
           if (payload.error) {
-            debugger
             payload.error(result.data.error)
           } else {
-            debugger
             commit('setError', result.data.error)
           }
         }
       }, error => {
         after(error)
         if (payload.error) {
-          debugger
           payload.error(error)
         } else {
-          debugger
           commit('setError', error)
         }
       })

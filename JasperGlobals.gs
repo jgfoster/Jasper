@@ -1,4 +1,4 @@
-﻿! ------- Create dictionary if it is not present
+! ------- Create dictionary if it is not present
 run
 | aSymbol names userProfile |
 aSymbol := #'JasperGlobals'.
@@ -25,7 +25,7 @@ WebApp subclass: 'Jasper'
 %
 expectvalue /Class
 doit
-Jasper comment: 
+Jasper comment:
 'No class-specific documentation for Jasper, hierarchy is:
 Object
   WebApp( begin end exception html request response)
@@ -38,7 +38,7 @@ Jasper category: 'Kernel'
 %
 
 ! ------------------- Remove existing behavior from Jasper
-expectvalue /Metaclass3       
+expectvalue /Metaclass3
 doit
 Jasper removeAllMethods.
 Jasper class removeAllMethods.
@@ -75,32 +75,30 @@ browser: aString
 	selectedOop := selections at: 'dictionary' ifAbsent: [nil].
 	System myUserProfile symbolList do: [:each |
 		each asOop == selectedOop ifTrue: [dictionary := each].
-		dictionaries add: (Dictionary new 
-			at: 'name' put: each name; 
-			at: 'oop' put: each asOop; 
+		dictionaries add: (Dictionary new
+			at: 'name' put: each name;
+			at: 'oop' put: each asOop;
 			at: 'color' put: (each == selectedOop ifTrue: ['red'] ifFalse: []); yourself).
 	].
 	classCategories := Array new.
 	classes := Array new.
 	selectedOop := selections at: 'class' ifAbsent: [nil].
-"
-[
 	dictionary ifNotNil: [
-		dictionary keys asSortedCollection do: [:eachKey | 
+		dictionary keys asSortedCollection do: [:eachKey |
 			| global |
 			global := dictionary at: eachKey.
 			global isBehavior ifTrue: [
 				global asOop == selectedOop ifTrue: [class := global].
-				classes add: (Dictionary new
-					at: 'name' put: eachKey;
-					at: 'oop' put: global asOop;
-					at: 'color' put: (global == class ifTrue: ['red'] ifFalse: []);
-					yourself).
+				classes size < 10 ifTrue: [
+					classes add: (Dictionary new
+						at: 'name' put: eachKey;
+						at: 'oop' put: global asOop;
+						at: 'color' put: (global == class ifTrue: ['red'] ifFalse: []);
+						yourself).
+				].
 			].
 		].
 	].
-] on: Error do: [:ex | James add: ex. ex return].
-"
 	methodCategories := Array new.
 	methods := Array new.
 	dict := Dictionary new
@@ -191,9 +189,11 @@ buildResponseFor: aString
 			ifNil: [Dictionary new]
 			ifNotNil: [:value | JsonParser parse: value].
 		data isPetitFailure ifTrue: [self error: data message].
+		HttpServer log: #'debug' string: 'Jasper>>buildResponseFor: - 2 - ' , data class name.
 		session := self sessions at: (data removeKey: 'session' ifAbsent: [nil]) ifAbsent: [nil].
 		super buildResponseFor: aString.
-	] on: Error do: [:ex |
+	] on: Admonition, Error do: [:ex |
+		HttpServer log: #'debug' string: 'Jasper>>buildResponseFor: - 3 - ' , ex description.
 		result
 			at: 'success' put: false;
 			at: 'error' put: ex description;
@@ -207,24 +207,18 @@ buildResponseFor: aString
 %
 category: 'private'
 method: Jasper
-responseForRequest: anHttpRequest
-
-	^super responseForRequest: anHttpRequest
-%
-category: 'private'
-method: Jasper
 serverSend: aSymbol
 
 	| remoteData |
 	session abort.
 	[
 		remoteData := session send: aSymbol to: self class asOop.
-	] on: Error do: [:ex |
+	] on: Admonition , Error do: [:ex |
 		result
 			at: 'success' put: false;
 			at: 'error' put: ex description;
 			yourself.
-		remoteData := ''.
+		remoteData := '{}'.
 	].
 	session commit.
 	(JsonParser parse: remoteData) keysAndValuesDo: [:eachKey :eachValue | result at: eachKey put: eachValue].
@@ -254,16 +248,12 @@ category: 'public'
 method: Jasper
 browser
 
-[
-	| remoteData |
-	HttpServer log: #'debug' string: 'Jasper>>browser - 1'.
-	remoteData := session executeString: 'Jasper browser: ' , Dictionary new asJson printString.
-	HttpServer log: #'debug' string: 'Jasper>>browser - 2'.
-	(JsonParser parse: remoteData) keysAndValuesDo: [:eachKey :eachValue | result at: eachKey put: eachValue].
-] on: Error do: [:ex | 
-	James add: ex.
-	ex return.
-].
+	| remoteData string |
+	string := data asJson.
+	string := session abort; executeString: 'Jasper browser: ' , string printString.
+	session commit.
+	remoteData := JsonParser parse: string.
+	remoteData  keysAndValuesDo: [:eachKey :eachValue | result at: eachKey put: eachValue].
 %
 category: 'public'
 method: Jasper
@@ -271,7 +261,8 @@ evaluate
 
 	| myResult string |
 	string := data at: 'string'.
-	myResult := session executeString: string.
+	myResult := session abort; executeString: string.
+	session commit.
 	myResult := (myResult isKindOf: Array)
 		ifTrue: ['(Object _objectForOop: ' , myResult first printString , ') "' , (session send: #'printString' to: myResult first) , '"']
 		ifFalse: [myResult printString].
