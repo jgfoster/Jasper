@@ -25,7 +25,7 @@ WebApp subclass: 'Jasper'
 %
 expectvalue /Class
 doit
-Jasper comment: 
+Jasper comment:
 'No class-specific documentation for Jasper, hierarchy is:
 Object
   WebApp( begin end exception html request response)
@@ -38,7 +38,7 @@ Jasper category: 'Kernel'
 %
 
 ! ------------------- Remove existing behavior from Jasper
-expectvalue /Metaclass3       
+expectvalue /Metaclass3
 doit
 Jasper removeAllMethods.
 Jasper class removeAllMethods.
@@ -69,36 +69,64 @@ category: 'services'
 classmethod: Jasper
 browser: aString
 
-	| class dictionary oop selections stream |
+	| categories class dictionary oop selections stream |
 	selections := JsonParser parse: aString.
 	stream := WriteStream on: String new.
+	"dictionaries"
 	oop := selections at: 'dictionary' ifAbsent: [nil].
 	System myUserProfile symbolList do: [:each |
 		each asOop == oop ifTrue: [dictionary := each].
 		stream nextPutAll: each name; tab; print: each asOop; lf.
 	].
 	stream lf.
+
+	"classes"
+	categories := Set new.
 	dictionary ifNotNil: [
-		oop := selections at: 'class' ifAbsent: [nil].
-		dictionary keys asSortedCollection do: [:eachKey | 
+		oop := selections at: 'aClass' ifAbsent: [nil].
+		dictionary keys asSortedCollection do: [:eachKey |
 			| global |
 			global := dictionary at: eachKey.
 			global isBehavior ifTrue: [
-				global asOop == oop ifTrue: [class := global].
-				stream nextPutAll: eachKey; tab; print: global asOop; lf.
+				| category |
+				categories add: global category.
+				category := selections at: 'classCategory' ifAbsent: [nil].
+				(category isNil or: [global category = category]) ifTrue: [
+					global asOop == oop ifTrue: [class := global].
+					stream nextPutAll: eachKey; tab; print: global asOop; lf.
+				].
 			].
 		].
 	].
 	stream lf.
+
+	"class categories are displayed to the left of classes, but are found by iterating over the classes"
+	categories asSortedCollection do: [:each | stream nextPutAll: each; lf].
+	stream lf.
+
+	"method categories"
 	class ifNotNil: [
-		class selectors asSortedCollection do: [:each | 
+		class categoryNames asSortedCollection do: [:each | stream nextPutAll: each; lf].
+	].
+	stream lf.
+
+	"methods"
+	class ifNotNil: [
+		| category list |
+		category := selections at: 'methodCategory' ifAbsent: [nil].
+		list := category
+			ifNil: [class selectors asSortedCollection]
+			ifNotNil: [class sortedSelectorsIn: category asSymbol].
+		list do: [:each |
 			stream nextPutAll: each; lf.
 		].
 	].
 	stream lf.
-	(selections at: 'method' ifAbsent: [nil]) ifNotNil: [:selector | 
-		(class compiledMethodAt: selector otherwise: nil) ifNotNil: [:method | 
-			stream print: method asOop; nextPutAll: method sourceString.
+
+	"method"
+	(selections at: 'method' ifAbsent: [nil]) ifNotNil: [:selector |
+		(class compiledMethodAt: selector otherwise: nil) ifNotNil: [:method |
+			stream print: method asOop; lf; nextPutAll: method sourceString.
 		].
 	].
 	^stream contents
@@ -113,16 +141,16 @@ browserA: aString
 	selectedOop := selections at: 'dictionary' ifAbsent: [nil].
 	System myUserProfile symbolList do: [:each |
 		each asOop == selectedOop ifTrue: [dictionary := each].
-		dictionaries add: (Dictionary new 
-			at: 'name' put: each name; 
-			at: 'oop' put: each asOop; 
+		dictionaries add: (Dictionary new
+			at: 'name' put: each name;
+			at: 'oop' put: each asOop;
 			at: 'color' put: (each asOop == selectedOop ifTrue: ['red'] ifFalse: []); yourself).
 	].
 	classCategories := Array new.
 	classes := Array new.
 	selectedOop := selections at: 'class' ifAbsent: [nil].
 	dictionary ifNotNil: [
-		dictionary keys asSortedCollection do: [:eachKey | 
+		dictionary keys asSortedCollection do: [:eachKey |
 			| global |
 			global := dictionary at: eachKey.
 			global isBehavior ifTrue: [
@@ -288,6 +316,8 @@ browser
 
 	"JSON isn't very compact and our parser isn't very efficient, so we have a proprietary format."
 	stream := ReadStream on: string.
+
+	"dictionaries"
 	list := Array new.
 	[(line := stream nextLine) notEmpty] whileTrue: [
 		| pieces |
@@ -299,10 +329,11 @@ browser
 	].
 	result at: 'dictionaries' put: list.
 
+	"classes"
 	list := Array new.
 	[(line := stream nextLine) notEmpty] whileTrue: [
 		| pieces |
-		pieces := stream nextLine subStrings: Character tab.
+		pieces := line subStrings: Character tab.
 		list add: (Dictionary new
 			at: 'name' put: (pieces at: 1);
 			at: 'oop' put: (pieces at: 2) asNumber;
@@ -310,11 +341,37 @@ browser
 	].
 	result at: 'classes' put: list.
 
+	"class categories"
 	list := Array new.
 	[(line := stream nextLine) notEmpty] whileTrue: [
-		list add: line.
+		list add: (Dictionary new
+			at: 'name' put: line;
+			yourself).
 	].
-	result at: 'methods' put: list.
+	result at: 'classCategories' put: list.
+
+	"method categories"
+	list := Array new.
+	[(line := stream nextLine) notEmpty] whileTrue: [
+		list add: (Dictionary new
+			at: 'name' put: line;
+			yourself).
+	].
+	result at: 'methodCategories' put: list.
+
+	"methods"
+	list := Array new.
+	[(line := stream nextLine) notEmpty] whileTrue: [
+		list add: (Dictionary new
+			at: 'name' put: line;
+			yourself).
+	].
+	line := stream nextLine.
+	result
+		at: 'methods' put: list;
+		at: 'method' put: stream upToEnd;
+		at: 'methodOop' put: ((line isNil or: [line isEmpty]) ifTrue: [nil] ifFalse: [line asNumber]);
+		yourself.
 %
 category: 'public'
 method: Jasper

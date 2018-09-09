@@ -46,7 +46,7 @@
         </v-btn>
       </v-toolbar-items>
     </v-toolbar>
-    <v-content>
+    <v-content app>
       <v-container fluid pa-1>
         <v-layout column>
           <v-flex xs-12 j-error>
