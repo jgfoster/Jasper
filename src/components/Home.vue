@@ -1,5 +1,5 @@
 <template>
-  <v-container fluid>
+  <v-container fluid fill-height>
     <v-layout row wrap>
       <v-flex xs12>
         <div v-for="(value, key) in this.info">

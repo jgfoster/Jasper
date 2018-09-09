@@ -1,10 +1,14 @@
+<style scoped>
+  .j-style { height:100%; max-height:100%; overflow-y:auto; }
+</style>
+
 <template>
-  <v-container pa-1 fluid j-browser>
-    <v-layout column wrap>
-      <v-flex xs12 j-top>
-        <v-container pa-0 fluid>
-          <v-layout row wrap>
-            <v-flex xs-4 j-dictionaries>
+  <v-container pa-1 fluid fill-height j-browser>
+    <v-layout column fill-height>
+      <v-flex xs12 style="flex: 0 0 50%; max-height:50%;" j-top>
+        <v-container pa-0 fluid j-style>
+          <v-layout row style="height:100%; max-height:100%;">
+            <v-flex xs-2 j-style j-dictionaries>
               <v-list dense subheader>
                 <v-list-tile
                   v-for="item in browser.dictionaries"
@@ -18,7 +22,7 @@
                 </v-list-tile>
               </v-list>
             </v-flex>
-            <v-flex xs-4 j-classCategories>
+            <v-flex xs-2 j-style j-classCategories>
               <v-list dense subheader>
                 <v-list-tile
                   v-for="item in browser.classCategories"
@@ -32,11 +36,11 @@
                 </v-list-tile>
               </v-list>
             </v-flex>
-            <v-flex xs-4 j-classes>
+            <v-flex xs-3 j-style j-classes>
               <v-list dense subheader>
                 <v-list-tile
                   v-for="item in browser.classes"
-                  :key="item.oop"
+                  :key="item.name"
                   :color="item.color"
                   @click="selectedClass(item)"
                 >
@@ -46,7 +50,7 @@
                 </v-list-tile>
               </v-list>
             </v-flex>
-            <v-flex xs-4 j-methodCategories>
+            <v-flex xs-2 j-style j-methodCategories>
               <v-list dense subheader>
                 <v-list-tile
                   v-for="item in browser.methodCategories"
@@ -60,7 +64,7 @@
                 </v-list-tile>
               </v-list>
             </v-flex>
-            <v-flex xs-4 j-methods>
+            <v-flex xs-3 j-style j-methods>
               <v-list dense subheader>
                 <v-list-tile
                   v-for="item in browser.methods"
@@ -77,9 +81,9 @@
           </v-layout>
         </v-container>
       </v-flex>
-      <v-flex xs-12 j-bottom>
-        <div style='width: 100%' j-ace-editor>
-          <ace-editor v-model='browser.code' min-lines='20' max-lines='50'></ace-editor>
+      <v-flex xs-12 style="max-height:50%; overflow-y:auto;" sj-bottom>
+        <div style="width: 100%" j-style j-ace-editor>
+          <ace-editor v-model="browser.code" j-style min-lines=10 max-lines=999></ace-editor>
         </div>
       </v-flex>
     </v-layout>

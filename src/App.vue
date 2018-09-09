@@ -1,6 +1,6 @@
 <template>
   <!--  https://vuetifyjs.com/en/layout/pre-defined  -->
-  <v-app>
+  <v-app j-app-1>
     <v-navigation-drawer app v-model="sidebar">
       <v-list>
         <v-list-tile
@@ -46,9 +46,9 @@
         </v-btn>
       </v-toolbar-items>
     </v-toolbar>
-    <v-content app>
-      <v-container fluid pa-1>
-        <v-layout column>
+    <v-content app j-app-2>
+      <v-container fluid fill-height pa-1 style="position:fixed;" j-app-3>
+        <v-layout column xfill-height j-app-4>
           <v-flex xs-12 j-error>
             <v-alert type="error" dismissible v-model="alert">
               <pre>{{ error }}</pre>
@@ -84,7 +84,7 @@
               </v-container>
             </v-dialog>
           </v-flex>
-          <v-flex xs-12 j-router>
+          <v-flex xs-12 fill-height j-router>
             <router-view>
               <!-- contents replaced by router/index.js (https://router.vuejs.org/) -->
             </router-view>

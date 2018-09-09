@@ -8,7 +8,7 @@
         <v-btn small v-on:click='debug' disabled>Debug</v-btn>
       </div>
       <div style='width: 100%' j-ace-editor>
-        <ace-editor v-model='code' min-lines='20' max-lines='50'></ace-editor>
+        <ace-editor v-model='code' min-lines='20' max-lines='999'></ace-editor>
       </div>
     </v-layout>
   </v-container>

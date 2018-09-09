@@ -63,7 +63,7 @@ export const store = new Vuex.Store({
         var msStop = (new Date()).getTime()
         var string = payload.path +
           ' (' + data.time + 'ms server + ' +
-          (msStop - msStart - data.time) + 'ms network)'
+          (msStop - msStart - data.time) + 'ms other)'
         console.log(string)
         this.commit('setLastCall', string)
       }
