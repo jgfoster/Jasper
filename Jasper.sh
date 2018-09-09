@@ -1,4 +1,3 @@
-export HTDOCS=/Users/jfoster/Jasper/dist
 topaz -l << EOF
 iferr 1 stk
 iferr 2 output pop
@@ -8,12 +7,12 @@ iferr 5 logout
 iferr 6 exit
 errorCount
 output push WebGS.out only
-input /Users/jfoster/WebGS/WebGS.gs
-input /Users/jfoster/WebGS/JSON.gs
+input WebGS.gs
+input JSON.gs
 output pop
 errorCount
 output push Jasper.out only
-input /Users/jfoster/Jasper/JasperGlobals.gs
+input JasperGlobals.gs
 output pop
 errorCount
 commit

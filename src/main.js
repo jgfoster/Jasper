@@ -27,7 +27,7 @@ library.add(
 Vue.component('font-awesome-icon', FontAwesomeIcon)
 
 Vue.use(Vuetify, {
-  iconfont: 'md'  // 'fa4'
+  iconfont: 'fa4'
 })
 
 Vue.config.productionTip = false

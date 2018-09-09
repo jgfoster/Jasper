@@ -125,8 +125,10 @@ browser: aString
 
 	"method"
 	(selections at: 'method' ifAbsent: [nil]) ifNotNil: [:selector |
-		(class compiledMethodAt: selector otherwise: nil) ifNotNil: [:method |
-			stream print: method asOop; lf; nextPutAll: method sourceString.
+		class ifNotNil: [
+			(class compiledMethodAt: selector otherwise: nil) ifNotNil: [:method |
+				stream print: method asOop; lf; nextPutAll: method sourceString.
+			].
 		].
 	].
 	^stream contents
