@@ -28,10 +28,10 @@ export const store = new Vuex.Store({
     },
     setSession (state, payload) {
       state.session = payload
-      if (payload !== null) {
-        window.sessionStorage.setItem('session', payload)
-      } else {
+      if (payload === null) {
         window.sessionStorage.removeItem('session')
+      } else {
+        window.sessionStorage.setItem('session', payload)
       }
     },
     setThisCall (state, payload) {
@@ -39,9 +39,19 @@ export const store = new Vuex.Store({
     },
     setStone (state, payload) {
       state.stone = payload
+      if (payload === null) {
+        window.sessionStorage.removeItem('stone')
+      } else {
+        window.sessionStorage.setItem('stone', payload)
+      }
     },
     setUser (state, payload) {
       state.user = payload
+      if (payload === null) {
+        window.sessionStorage.removeItem('user')
+      } else {
+        window.sessionStorage.setItem('user', payload)
+      }
     }
   },
   actions: {
@@ -105,3 +115,5 @@ export const store = new Vuex.Store({
 })
 
 store.commit('setSession', window.sessionStorage.getItem('session'))
+store.commit('setStone', window.sessionStorage.getItem('stone'))
+store.commit('setUser', window.sessionStorage.getItem('user'))

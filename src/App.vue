@@ -47,8 +47,8 @@
       </v-toolbar-items>
     </v-toolbar>
     <v-content app j-app-2>
-      <v-container fluid fill-height pa-1 style="position:fixed;" j-app-3>
-        <v-layout column xfill-height j-app-4>
+      <v-container fluid pa-0 style="position:fixed; top:52px; bottom:-20px" j-app-3>
+        <v-layout column fill-height j-app-4>
           <v-flex xs-12 j-error>
             <v-alert type="error" dismissible v-model="alert">
               <pre>{{ error }}</pre>
