@@ -78,8 +78,10 @@
         </v-container>
       </v-flex>
       <v-flex xs-12 j-bottom>
-          {{ browser.method }}
-        </v-flex>
+        <div style='width: 100%' j-ace-editor>
+          <ace-editor v-model='browser.code' min-lines='20' max-lines='50'></ace-editor>
+        </div>
+      </v-flex>
     </v-layout>
   </v-container>
 </template>
@@ -92,8 +94,8 @@
           dictionaries: [],
           classCategories: [],
           classes: [],
+          code: '',
           methodCategories: [],
-          method: '',
           methods: []
         },
         selections: {
@@ -110,32 +112,50 @@
     },
     methods: {
       selectedClass (item) {
-        this.selections.aClass = item.oop
+        if (this.selections.aClass === item.oop) {
+          this.selections.aClass = null
+        } else {
+          this.selections.aClass = item.oop
+        }
         this.update()
       },
       selectedClassCategory (item) {
-        this.selections.classCategory = item.name
+        if (this.selections.classCategory === item.name) {
+          this.selections.classCategory = null
+        } else {
+          this.selections.classCategory = item.name
+        }
         this.update()
       },
       selectedDictionary (item) {
-        this.selections.dictionary = item.oop
+        if (this.selections.dictionary === item.oop) {
+          this.selections.dictionary = null
+        } else {
+          this.selections.dictionary = item.oop
+        }
         this.update()
       },
       selectedMethod (item) {
-        this.selections.method = item.name
+        if (this.selections.method === item.name) {
+          this.selections.method = null
+        } else {
+          this.selections.method = item.name
+        }
         this.update()
       },
       selectedMethodCategory (item) {
-        this.selections.methodCategory = item.name
+        if (this.selections.methodCategory === item.name) {
+          this.selections.methodCategory = null
+        } else {
+          this.selections.methodCategory = item.name
+        }
         this.update()
       },
       update () {
-//      console.log(this.selections)
         this.$store.dispatch('server', {
           path: 'browser',
           args: this.selections,
           result: data => {
-//          console.log(data)
             this.browser = data
             // selected dictionary
             var x = data.dictionaries.find(obj => {
@@ -162,6 +182,11 @@
               return obj.name === this.selections.method
             })
             if (x) { x.color = 'red' } else { this.selections.method = null }
+            // method code
+            this.$nextTick(() => {
+              this.editor.moveCursorTo(0, 0)
+              this.editor.focus()
+            })
           }
         })
       }

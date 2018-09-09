@@ -369,7 +369,7 @@ browser
 	line := stream nextLine.
 	result
 		at: 'methods' put: list;
-		at: 'method' put: stream upToEnd;
+		at: 'code' put: stream upToEnd;
 		at: 'methodOop' put: ((line isNil or: [line isEmpty]) ifTrue: [nil] ifFalse: [line asNumber]);
 		yourself.
 %
