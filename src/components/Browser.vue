@@ -50,19 +50,31 @@
                 </v-list-tile>
               </v-list>
             </v-flex>
-            <v-flex xs-2 j-style j-methodCategories>
-              <v-list dense subheader>
-                <v-list-tile
-                  v-for="item in browser.methodCategories"
-                  :key="item.name"
-                  :color="item.color"
-                  @click="selectedMethodCategory(item)"
-                >
-                  <v-list-tile-content>
-                    <v-list-tile-title v-text="item.name"></v-list-tile-title>
-                  </v-list-tile-content>
-                </v-list-tile>
-              </v-list>
+            <v-flex xs-2 j-style j-methodFilters>
+              <v-container pa-0 fluid fill-height >
+                <v-layout column>
+                  <v-flex j-classInstance>
+                    <v-btn-toggle v-model="selections.isMeta" mandatory>
+                      <v-btn flat v-on:click="update" value="true">Class</v-btn>
+                      <v-btn flat v-on:click="update" value="false">Instance</v-btn>
+                    </v-btn-toggle>
+                  </v-flex>
+                  <v-flex j-methodCategories>
+                    <v-list dense subheader>
+                      <v-list-tile
+                        v-for="item in browser.methodCategories"
+                        :key="item.name"
+                        :color="item.color"
+                        @click="selectedMethodCategory(item)"
+                      >
+                        <v-list-tile-content>
+                          <v-list-tile-title v-text="item.name"></v-list-tile-title>
+                        </v-list-tile-content>
+                      </v-list-tile>
+                    </v-list>
+                  </v-flex>
+                </v-layout>
+              </v-container>
             </v-flex>
             <v-flex xs-3 j-style j-methods>
               <v-list dense subheader>
@@ -103,9 +115,10 @@
           methods: []
         },
         selections: {
+          aClass: null,
           dictionary: null,
           classCategory: null,
-          aClass: null,
+          isMeta: 'false',
           methodCategory: null,
           method: null
         }
@@ -137,6 +150,10 @@
         } else {
           this.selections.dictionary = item.oop
         }
+        this.update()
+      },
+      selectedIsMeta (aBoolean) {
+        this.selections.isMeta = aBoolean
         this.update()
       },
       selectedMethod (item) {

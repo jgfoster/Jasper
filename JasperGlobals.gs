@@ -1,4 +1,4 @@
-! ------- Create dictionary if it is not present
+﻿! ------- Create dictionary if it is not present
 run
 | aSymbol names userProfile |
 aSymbol := #'JasperGlobals'.
@@ -25,7 +25,7 @@ WebApp subclass: 'Jasper'
 %
 expectvalue /Class
 doit
-Jasper comment:
+Jasper comment: 
 'No class-specific documentation for Jasper, hierarchy is:
 Object
   WebApp( begin end exception html request response)
@@ -38,7 +38,7 @@ Jasper category: 'Kernel'
 %
 
 ! ------------------- Remove existing behavior from Jasper
-expectvalue /Metaclass3
+expectvalue /Metaclass3       
 doit
 Jasper removeAllMethods.
 Jasper class removeAllMethods.
@@ -104,6 +104,7 @@ browser: aString
 	categories asSortedCollection do: [:each | stream nextPutAll: each; lf].
 	stream lf.
 
+	(class notNil and: [(selections at: 'isMeta') = 'true']) ifTrue: [class := class class].
 	"method categories"
 	class ifNotNil: [
 		class categoryNames asSortedCollection do: [:each | stream nextPutAll: each; lf].
