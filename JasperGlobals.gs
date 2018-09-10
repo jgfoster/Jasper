@@ -1,4 +1,4 @@
-﻿! ------- Create dictionary if it is not present
+! ------- Create dictionary if it is not present
 run
 | aSymbol names userProfile |
 aSymbol := #'JasperGlobals'.
@@ -25,7 +25,7 @@ WebApp subclass: 'Jasper'
 %
 expectvalue /Class
 doit
-Jasper comment: 
+Jasper comment:
 'No class-specific documentation for Jasper, hierarchy is:
 Object
   WebApp( begin end exception html request response)
@@ -38,7 +38,7 @@ Jasper category: 'Kernel'
 %
 
 ! ------------------- Remove existing behavior from Jasper
-expectvalue /Metaclass3       
+expectvalue /Metaclass3
 doit
 Jasper removeAllMethods.
 Jasper class removeAllMethods.

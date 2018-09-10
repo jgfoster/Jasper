@@ -1,5 +1,6 @@
 .DS_Store
-/dist/
+dist/
+src/ace-builds/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
