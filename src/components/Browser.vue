@@ -5,7 +5,7 @@
 <template>
   <v-container pa-0 fluid fill-height j-browser>
     <v-layout column fill-height>
-      <v-flex xs12 style="flex: 0 0 50%; max-height: calc(50% - 24px);" j-top>
+      <v-flex xs12 style="flex: 0 0 50%; max-height: calc(50% - 0px);" j-top>
         <v-container pa-0 fluid grid-list-xs j-style style="overflow-x:hidden">
           <v-layout row style="height:100%; max-height:100%;">
             <v-flex xs-2 j-style j-dictionaries>
@@ -93,7 +93,7 @@
           </v-layout>
         </v-container>
       </v-flex>
-      <v-flex xs-12 style="height:50%; max-height: calc(50% - 24px); overflow-y:auto;" j-bottom>
+      <v-flex xs-12 style="height:50%; max-height: calc(50% - 0px); overflow-y:auto;" j-bottom>
         <div style="height:100%; width:100%;" j-style j-ace-editor>
           <ace-editor v-model="browser.code" j-style min-lines=10 max-lines=999></ace-editor>
         </div>
