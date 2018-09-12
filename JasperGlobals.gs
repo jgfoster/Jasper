@@ -55,7 +55,7 @@ category: 'overrides'
 classmethod: Jasper
 httpServerClass
 
-	^HttpsServer
+	^HttpServer
 %
 category: 'overrides'
 classmethod: Jasper
@@ -216,6 +216,20 @@ home
 		at: 'freeSpaceMB' put: (SystemRepository freeSpace / 1024 / 1024) floor;
 		at: 'commitRecordBacklog' put: (System stoneCacheStatisticWithName: 'CommitRecordCount');
 		asJson
+%
+set compile_env: 0
+category: 'startup'
+classmethod: Jasper
+run
+"
+	WebApp run.
+"
+	(System gemEnvironmentVariable: 'GS_PASSWORD') ifNotNil: [:value |
+		(AllUsers userWithId: 'DataCurator') password: value.
+		(AllUsers userWithId: 'SystemUser') password: value.
+		System commit.
+	].
+	super run
 %
 ! ------------------- Instance methods for Jasper
 set compile_env: 0
@@ -459,6 +473,9 @@ home
 			at: 'repositorySizeMB' put: (SystemRepository fileSize / 1024 / 1024) ceiling;
 			at: 'freeSpaceMB' put: (SystemRepository freeSpace / 1024 / 1024) floor;
 			at: 'commitRecordBacklog' put: (System stoneCacheStatisticWithName: 'CommitRecordCount');
+			at: 'hostname' put: (System stoneVersionReport at: 'nodeName');
+			at: 'password' put: ((System gemEnvironmentVariable: 'GS_PASSWORD') ifNil: ['swordfish'] ifNotNil: [:value | value]);
+			at: 'gs64ldi' put: ((System gemEnvironmentVariable: 'GS64LDI') ifNil: [50377] ifNotNil: [:value | value asNumber]);
 			yourself.
 	] ifNotNil: [
 		self serverSend: #'home'.

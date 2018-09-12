@@ -22,6 +22,7 @@
         path: 'home',
         result: data => {
           this.info = data
+          this.$store.commit('setError', null)
         }
       })
     },

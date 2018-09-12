@@ -50,7 +50,7 @@
       <v-container fluid pa-0 style="position:fixed; top:52px; bottom:-20px" j-app-3>
         <v-layout column fill-height j-app-4>
           <v-flex xs-12 j-error>
-            <v-alert type="error" dismissible v-model="alert">
+            <v-alert type="error" dismissible="true" v-model="alert">
               <pre>{{ error }}</pre>
             </v-alert>
           </v-flex>
