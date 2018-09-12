@@ -263,6 +263,7 @@ buildResponseFor: aString
 		at: 'success' put: true;
 		yourself.
 	[
+		self isOriginalClient ifFalse: [^self].	"Redirect and hope that another server gets the client"
 		data := request bodyContents
 			ifNil: [Dictionary new]
 			ifNotNil: [:value | JsonParser parse: value].
@@ -280,6 +281,29 @@ buildResponseFor: aString
 	response
 		content: result asJson;
 		yourself.
+%
+category: 'private'
+method: Jasper
+isOriginalClient
+
+	| actualClientId expectedClientId |
+	actualClientId := request cookie at: 'JASPER' ifAbsent: [nil].
+	expectedClientId := SessionTemps current at: #'client' ifAbsent: [nil].
+	(actualClientId isNil and: [expectedClientId isNil]) ifTrue: [
+		expectedClientId := self randomId.
+		response setCookie: 'JASPER' value: expectedClientId.
+		SessionTemps current at: #'client' put: expectedClientId.
+		^true
+	].
+	actualClientId = expectedClientId ifTrue: [^true].
+	response redirectTo: '/'.
+	^false
+%
+category: 'private'
+method: Jasper
+randomId
+
+	^Random new smallInteger abs printStringRadix: 36
 %
 category: 'private'
 method: Jasper
@@ -490,7 +514,7 @@ signIn
 		username: (data at: 'userID');
 		password: (data at: 'password');
 		login.
-	id := Random new smallInteger abs printStringRadix: 36.
+	id := self randomId.
 	self sessions at: id put: session.
 	jasper := session _gciLibrary GciResolveSymbol_: 'Jasper' _: 20 "OOP_NILL".
 	remoteData := session send: #'home' to: jasper.
