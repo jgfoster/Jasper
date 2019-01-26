@@ -7,6 +7,7 @@ iferr 5 logout
 iferr 6 exit
 errorCount
 output push WebGS.out only
+fileformat utf8
 input WebGS.gs
 input JSON.gs
 output pop
