@@ -33,7 +33,7 @@ function parse (str, opts) {
 
 			ids.push(refId)
 
-			return escape + refId
+			return escape + refId + escape
 		}
 
 		res.forEach(function (str, i) {
@@ -54,13 +54,13 @@ function parse (str, opts) {
 		ids = ids.reverse()
 		res = res.map(function (str) {
 			ids.forEach(function (id) {
-				str = str.replace(new RegExp('(\\' + escape + id + '(?![0-9]))', 'g'), bracket[0] + '$1' + bracket[1])
+				str = str.replace(new RegExp('(\\' + escape + id + '\\' + escape + ')', 'g'), bracket[0] + '$1' + bracket[1])
 			})
 			return str
 		})
 	})
 
-	var re = new RegExp('\\' + escape + '([0-9]+)')
+	var re = new RegExp('\\' + escape + '([0-9]+)' + '\\' + escape)
 
 	// transform references to tree
 	function nest (str, refs, escape) {
@@ -95,7 +95,7 @@ function stringify (arg, opts) {
 		if (!str) return ''
 
 
-		var re = new RegExp('\\' + escape + '([0-9]+)')
+		var re = new RegExp('\\' + escape + '([0-9]+)' + '\\' + escape)
 
 		var a = 0
 		while (str != prevStr) {

@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -18,7 +18,7 @@ exports.getSubplot = function getSubplot(trace) {
 
 // is trace in given list of subplots?
 // does handle splom case
-exports.isTraceInSubplots = function isTraceInSubplot(trace, subplots) {
+exports.isTraceInSubplots = function isTraceInSubplots(trace, subplots) {
     if(trace.type === 'splom') {
         var xaxes = trace.xaxes || [];
         var yaxes = trace.yaxes || [];
@@ -62,10 +62,8 @@ exports.getClosest = function getClosest(cd, distfn, pointData) {
     if(pointData.index !== false) {
         if(pointData.index >= 0 && pointData.index < cd.length) {
             pointData.distance = 0;
-        }
-        else pointData.index = false;
-    }
-    else {
+        } else pointData.index = false;
+    } else {
         // apply the distance function to each data point
         // this is the longest loop... if this bogs down, we may need
         // to create pre-sorted data (by x or y), not sure how to
@@ -95,8 +93,8 @@ exports.inbox = function inbox(v0, v1, passVal) {
 
 exports.quadrature = function quadrature(dx, dy) {
     return function(di) {
-        var x = dx(di),
-            y = dy(di);
+        var x = dx(di);
+        var y = dy(di);
         return Math.sqrt(x * x + y * y);
     };
 };
@@ -223,7 +221,8 @@ var pointKeyMap = {
     locations: 'location',
     labels: 'label',
     values: 'value',
-    'marker.colors': 'color'
+    'marker.colors': 'color',
+    parents: 'parent'
 };
 
 function getPointKey(astr) {

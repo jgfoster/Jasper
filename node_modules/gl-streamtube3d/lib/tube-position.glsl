@@ -1,3 +1,5 @@
+precision highp float;
+
 vec3 getOrthogonalVector(vec3 v) {
   // Return up-vector for only-z vector.
   // Return ax + by + cz = 0, a point that lies on the plane that has v as a normal and that isn't (0,0,0).

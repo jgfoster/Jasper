@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -15,7 +15,7 @@ var isPlainObject = Lib.isPlainObject;
 var traceOpts = {
     valType: 'flaglist',
     extras: ['none'],
-    flags: ['calc', 'clearAxisTypes', 'plot', 'style', 'colorbars'],
+    flags: ['calc', 'clearAxisTypes', 'plot', 'style', 'markerSize', 'colorbars'],
     description: [
         'trace attributes should include an `editType` string matching this flaglist.',
         '*calc* is the most extensive: a full `Plotly.plot` starting by clearing `gd.calcdata`',
@@ -24,7 +24,8 @@ var traceOpts = {
         'cause the automatic axis type detection to change. Log type will not be cleared, as that',
         'is never automatically chosen so must have been user-specified.',
         '*plot* calls `Plotly.plot` but without first clearing `gd.calcdata`.',
-        '*style* only calls `module.style` for all trace modules and redraws the legend.',
+        '*style* only calls `module.style` (or module.editStyle) for all trace modules and redraws the legend.',
+        '*markerSize* is like *style*, but propagate axis-range changes due to scatter `marker.size`',
         '*colorbars* only redraws colorbars.'
     ].join(' ')
 };
@@ -34,7 +35,7 @@ var layoutOpts = {
     extras: ['none'],
     flags: [
         'calc', 'plot', 'legend', 'ticks', 'axrange',
-        'layoutstyle', 'modebar', 'camera', 'arraydraw'
+        'layoutstyle', 'modebar', 'camera', 'arraydraw', 'colorbars'
     ],
     description: [
         'layout attributes should include an `editType` string matching this flaglist.',
@@ -48,7 +49,8 @@ var layoutOpts = {
         '*modebar* just updates the modebar.',
         '*camera* just updates the camera settings for gl3d scenes.',
         '*arraydraw* allows component arrays to invoke the redraw routines just for the',
-        'component(s) that changed.'
+        'component(s) that changed.',
+        '*colorbars* only redraws colorbars.'
     ].join(' ')
 };
 
@@ -138,8 +140,7 @@ function overrideOne(attr, editTypeOverride, overrideContainers, key) {
             }
         }
         return out;
-    }
-    else {
+    } else {
         // don't provide an editType for the _deprecated container
         return overrideAll(attr, editTypeOverride,
             (key.charAt(0) === '_') ? 'nested' : 'from-root');

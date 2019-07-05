@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -9,8 +9,8 @@
 'use strict';
 
 var scatterAttrs = require('../scatter/attributes');
-var colorscaleAttrs = require('../../components/colorscale/attributes');
-var colorbarAttrs = require('../../components/colorbar/attributes');
+var hovertemplateAttrs = require('../../components/fx/hovertemplate_attributes');
+var colorScaleAttrs = require('../../components/colorscale/attributes');
 
 var extendFlat = require('../../lib/extend').extendFlat;
 
@@ -31,6 +31,11 @@ module.exports = extendFlat({
         valType: 'data_array',
         editType: 'calc',
         description: 'Sets the text elements associated with each z value.'
+    },
+    hovertext: {
+        valType: 'data_array',
+        editType: 'calc',
+        description: 'Same as `text`.'
     },
     transpose: {
         valType: 'boolean',
@@ -111,10 +116,9 @@ module.exports = extendFlat({
             'https://github.com/d3/d3-format/blob/master/README.md#locale_format'
         ].join(' ')
     },
+    hovertemplate: hovertemplateAttrs()
+}, {
+    transforms: undefined
 },
-    colorscaleAttrs('', {
-        cLetter: 'z',
-        autoColorDflt: false
-    }),
-    { colorbar: colorbarAttrs }
+    colorScaleAttrs('', {cLetter: 'z', autoColorDflt: false})
 );

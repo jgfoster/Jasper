@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -67,6 +67,9 @@ function drawOne(gd, index) {
     var xa = Axes.getFromId(gd, options.xref);
     var ya = Axes.getFromId(gd, options.yref);
 
+    if(xa) xa.setScale();
+    if(ya) ya.setScale();
+
     drawRaw(gd, options, index, false, xa, ya);
 }
 
@@ -117,8 +120,8 @@ function drawRaw(gd, options, index, subplotId, xa, ya) {
 
     // calculated pixel positions
     // x & y each will get text, head, and tail as appropriate
-    var annPosPx = {x: {}, y: {}},
-        textangle = +options.textangle || 0;
+    var annPosPx = {x: {}, y: {}};
+    var textangle = +options.textangle || 0;
 
     // create the components
     // made a single group to contain all, so opacity can work right
@@ -185,9 +188,9 @@ function drawRaw(gd, options, index, subplotId, xa, ya) {
         });
     }
 
-    var borderwidth = options.borderwidth,
-        borderpad = options.borderpad,
-        borderfull = borderwidth + borderpad;
+    var borderwidth = options.borderwidth;
+    var borderpad = options.borderpad;
+    var borderfull = borderwidth + borderpad;
 
     var annTextBG = annTextGroupInner.append('rect')
         .attr('class', 'bg')
@@ -209,9 +212,13 @@ function drawRaw(gd, options, index, subplotId, xa, ya) {
 
     var font = options.font;
 
+    var text = fullLayout._meta ?
+        Lib.templateString(options.text, fullLayout._meta) :
+        options.text;
+
     var annText = annTextGroupInner.append('text')
         .classed('annotation-text', true)
-        .text(options.text);
+        .text(text);
 
     function textLayout(s) {
         s.call(Drawing.font, font)
@@ -270,24 +277,24 @@ function drawRaw(gd, options, index, subplotId, xa, ya) {
         var letters = ['x', 'y'];
 
         for(var i = 0; i < letters.length; i++) {
-            var axLetter = letters[i],
-                axRef = options[axLetter + 'ref'] || axLetter,
-                tailRef = options['a' + axLetter + 'ref'],
-                ax = {x: xa, y: ya}[axLetter],
-                dimAngle = (textangle + (axLetter === 'x' ? 0 : -90)) * Math.PI / 180,
-                // note that these two can be either positive or negative
-                annSizeFromWidth = outerWidth * Math.cos(dimAngle),
-                annSizeFromHeight = outerHeight * Math.sin(dimAngle),
-                // but this one is the positive total size
-                annSize = Math.abs(annSizeFromWidth) + Math.abs(annSizeFromHeight),
-                anchor = options[axLetter + 'anchor'],
-                overallShift = options[axLetter + 'shift'] * (axLetter === 'x' ? 1 : -1),
-                posPx = annPosPx[axLetter],
-                basePx,
-                textPadShift,
-                alignPosition,
-                autoAlignFraction,
-                textShift;
+            var axLetter = letters[i];
+            var axRef = options[axLetter + 'ref'] || axLetter;
+            var tailRef = options['a' + axLetter + 'ref'];
+            var ax = {x: xa, y: ya}[axLetter];
+            var dimAngle = (textangle + (axLetter === 'x' ? 0 : -90)) * Math.PI / 180;
+            // note that these two can be either positive or negative
+            var annSizeFromWidth = outerWidth * Math.cos(dimAngle);
+            var annSizeFromHeight = outerHeight * Math.sin(dimAngle);
+            // but this one is the positive total size
+            var annSize = Math.abs(annSizeFromWidth) + Math.abs(annSizeFromHeight);
+            var anchor = options[axLetter + 'anchor'];
+            var overallShift = options[axLetter + 'shift'] * (axLetter === 'x' ? 1 : -1);
+            var posPx = annPosPx[axLetter];
+            var basePx;
+            var textPadShift;
+            var alignPosition;
+            var autoAlignFraction;
+            var textShift;
 
             /*
              * calculate the *primary* pixel position
@@ -309,13 +316,11 @@ function drawRaw(gd, options, index, subplotId, xa, ya) {
                 }
                 basePx = ax._offset + ax.r2p(options[axLetter]);
                 autoAlignFraction = 0.5;
-            }
-            else {
+            } else {
                 if(axLetter === 'x') {
                     alignPosition = options[axLetter];
                     basePx = gs.l + gs.w * alignPosition;
-                }
-                else {
+                } else {
                     alignPosition = 1 - options[axLetter];
                     basePx = gs.t + gs.h * alignPosition;
                 }
@@ -337,8 +342,7 @@ function drawRaw(gd, options, index, subplotId, xa, ya) {
                     posPx.tail = ax._offset + ax.r2p(arrowLength);
                     // tail is data-referenced: autorange pads the text in px from the tail
                     textPadShift = textShift;
-                }
-                else {
+                } else {
                     posPx.tail = basePx + arrowLength;
                     // tail is specified in px from head, so autorange also pads vs head
                     textPadShift = textShift + arrowLength;
@@ -353,13 +357,12 @@ function drawRaw(gd, options, index, subplotId, xa, ya) {
                     posPx.head = Lib.constrain(posPx.head, 1, maxPx - 1);
                 }
                 if(tailRef === 'pixel') {
-                    var shiftPlus = -Math.max(posPx.tail - 3, posPx.text),
-                        shiftMinus = Math.min(posPx.tail + 3, posPx.text) - maxPx;
+                    var shiftPlus = -Math.max(posPx.tail - 3, posPx.text);
+                    var shiftMinus = Math.min(posPx.tail + 3, posPx.text) - maxPx;
                     if(shiftPlus > 0) {
                         posPx.tail += shiftPlus;
                         posPx.text += shiftPlus;
-                    }
-                    else if(shiftMinus > 0) {
+                    } else if(shiftMinus > 0) {
                         posPx.tail -= shiftMinus;
                         posPx.text -= shiftMinus;
                     }
@@ -367,8 +370,7 @@ function drawRaw(gd, options, index, subplotId, xa, ya) {
 
                 posPx.tail += overallShift;
                 posPx.head += overallShift;
-            }
-            else {
+            } else {
                 // with no arrow, the text rotates and *then* we put the anchor
                 // relative to the new bounding box
                 textShift = annSize * shiftFraction(autoAlignFraction, anchor);
@@ -411,14 +413,13 @@ function drawRaw(gd, options, index, subplotId, xa, ya) {
                 x: borderfull + xShift - 1,
                 y: borderfull + yShift
             })
-            .call(Drawing.setClipUrl, isSizeConstrained ? annClipID : null);
-        }
-        else {
+            .call(Drawing.setClipUrl, isSizeConstrained ? annClipID : null, gd);
+        } else {
             var texty = borderfull + yShift - anntextBB.top;
             var textx = borderfull + xShift - anntextBB.left;
 
             annText.call(svgTextUtils.positionText, textx, texty)
-                .call(Drawing.setClipUrl, isSizeConstrained ? annClipID : null);
+                .call(Drawing.setClipUrl, isSizeConstrained ? annClipID : null, gd);
         }
 
         annTextClip.select('rect').call(Drawing.setRect, borderfull, borderfull,
@@ -451,32 +452,32 @@ function drawRaw(gd, options, index, subplotId, xa, ya) {
                 .selectAll('.annotation-arrow-g')
                 .remove();
 
-            var headX = annPosPx.x.head,
-                headY = annPosPx.y.head,
-                tailX = annPosPx.x.tail + dx,
-                tailY = annPosPx.y.tail + dy,
-                textX = annPosPx.x.text + dx,
-                textY = annPosPx.y.text + dy,
+            var headX = annPosPx.x.head;
+            var headY = annPosPx.y.head;
+            var tailX = annPosPx.x.tail + dx;
+            var tailY = annPosPx.y.tail + dy;
+            var textX = annPosPx.x.text + dx;
+            var textY = annPosPx.y.text + dy;
 
-                // find the edge of the text box, where we'll start the arrow:
-                // create transform matrix to rotate the text box corners
-                transform = Lib.rotationXYMatrix(textangle, textX, textY),
-                applyTransform = Lib.apply2DTransform(transform),
-                applyTransform2 = Lib.apply2DTransform2(transform),
+            // find the edge of the text box, where we'll start the arrow:
+            // create transform matrix to rotate the text box corners
+            var transform = Lib.rotationXYMatrix(textangle, textX, textY);
+            var applyTransform = Lib.apply2DTransform(transform);
+            var applyTransform2 = Lib.apply2DTransform2(transform);
 
-                // calculate and transform bounding box
-                width = +annTextBG.attr('width'),
-                height = +annTextBG.attr('height'),
-                xLeft = textX - 0.5 * width,
-                xRight = xLeft + width,
-                yTop = textY - 0.5 * height,
-                yBottom = yTop + height,
-                edges = [
-                    [xLeft, yTop, xLeft, yBottom],
-                    [xLeft, yBottom, xRight, yBottom],
-                    [xRight, yBottom, xRight, yTop],
-                    [xRight, yTop, xLeft, yTop]
-                ].map(applyTransform2);
+            // calculate and transform bounding box
+            var width = +annTextBG.attr('width');
+            var height = +annTextBG.attr('height');
+            var xLeft = textX - 0.5 * width;
+            var xRight = xLeft + width;
+            var yTop = textY - 0.5 * height;
+            var yBottom = yTop + height;
+            var edges = [
+                [xLeft, yTop, xLeft, yBottom],
+                [xLeft, yBottom, xRight, yBottom],
+                [xRight, yBottom, xRight, yTop],
+                [xRight, yTop, xLeft, yTop]
+            ].map(applyTransform2);
 
             // Remove the line if it ends inside the box.  Use ray
             // casting for rotated boxes: see which edges intersect a
@@ -500,9 +501,9 @@ function drawRaw(gd, options, index, subplotId, xa, ya) {
                 }
             });
 
-            var strokewidth = options.arrowwidth,
-                arrowColor = options.arrowcolor,
-                arrowSide = options.arrowside;
+            var strokewidth = options.arrowwidth;
+            var arrowColor = options.arrowcolor;
+            var arrowSide = options.arrowside;
 
             var arrowGroup = annGroup.append('g')
                 .style({opacity: Color.opacity(arrowColor)})
@@ -557,9 +558,9 @@ function drawRaw(gd, options, index, subplotId, xa, ya) {
                         }
                     },
                     moveFn: function(dx, dy) {
-                        var annxy0 = applyTransform(annx0, anny0),
-                            xcenter = annxy0[0] + dx,
-                            ycenter = annxy0[1] + dy;
+                        var annxy0 = applyTransform(annx0, anny0);
+                        var xcenter = annxy0[0] + dx;
+                        var ycenter = annxy0[1] + dy;
                         annTextGroupInner.call(Drawing.setTranslate, xcenter, ycenter);
 
                         modifyItem('x', xa ?
@@ -584,7 +585,7 @@ function drawRaw(gd, options, index, subplotId, xa, ya) {
                         });
                     },
                     doneFn: function() {
-                        Registry.call('relayout', gd, getUpdateObj());
+                        Registry.call('_guiRelayout', gd, getUpdateObj());
                         var notesBox = document.querySelector('.js-notes-box-panel');
                         if(notesBox) notesBox.redraw(notesBox.selectedObj);
                     }
@@ -622,16 +623,13 @@ function drawRaw(gd, options, index, subplotId, xa, ya) {
                         }
 
                         drawArrow(dx, dy);
-                    }
-                    else if(!subplotId) {
+                    } else if(!subplotId) {
                         var xUpdate, yUpdate;
                         if(xa) {
                             xUpdate = xa.p2r(xa.r2p(options.x) + dx);
-
                         } else {
-                            var widthFraction = options._xsize / gs.w,
-                                xLeft = options.x + (options._xshift - options.xshift) / gs.w -
-                                    widthFraction / 2;
+                            var widthFraction = options._xsize / gs.w;
+                            var xLeft = options.x + (options._xshift - options.xshift) / gs.w - widthFraction / 2;
 
                             xUpdate = dragElement.align(xLeft + dx / gs.w,
                                 widthFraction, 0, 1, options.xanchor);
@@ -640,9 +638,8 @@ function drawRaw(gd, options, index, subplotId, xa, ya) {
                         if(ya) {
                             yUpdate = ya.p2r(ya.r2p(options.y) + dy);
                         } else {
-                            var heightFraction = options._ysize / gs.h,
-                                yBottom = options.y - (options._yshift + options.yshift) / gs.h -
-                                    heightFraction / 2;
+                            var heightFraction = options._ysize / gs.h;
+                            var yBottom = options.y - (options._yshift + options.yshift) / gs.h - heightFraction / 2;
 
                             yUpdate = dragElement.align(yBottom - dy / gs.h,
                                 heightFraction, 0, 1, options.yanchor);
@@ -656,8 +653,7 @@ function drawRaw(gd, options, index, subplotId, xa, ya) {
                                 options.xanchor, options.yanchor
                             );
                         }
-                    }
-                    else return;
+                    } else return;
 
                     annTextGroup.attr({
                         transform: 'translate(' + dx + ',' + dy + ')' + baseTextTransform
@@ -667,7 +663,7 @@ function drawRaw(gd, options, index, subplotId, xa, ya) {
                 },
                 doneFn: function() {
                     setCursor(annTextGroupInner);
-                    Registry.call('relayout', gd, getUpdateObj());
+                    Registry.call('_guiRelayout', gd, getUpdateObj());
                     var notesBox = document.querySelector('.js-notes-box-panel');
                     if(notesBox) notesBox.redraw(notesBox.selectedObj);
                 }
@@ -680,6 +676,7 @@ function drawRaw(gd, options, index, subplotId, xa, ya) {
             .call(textLayout)
             .on('edit', function(_text) {
                 options.text = _text;
+
                 this.call(textLayout);
 
                 modifyItem('text', _text);
@@ -691,8 +688,7 @@ function drawRaw(gd, options, index, subplotId, xa, ya) {
                     modifyBase(ya._name + '.autorange', true);
                 }
 
-                Registry.call('relayout', gd, getUpdateObj());
+                Registry.call('_guiRelayout', gd, getUpdateObj());
             });
-    }
-    else annText.call(textLayout);
+    } else annText.call(textLayout);
 }

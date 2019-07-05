@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -16,8 +16,7 @@ exports.name = 'pie';
 exports.plot = function(gd) {
     var Pie = Registry.getModule('pie');
     var cdPie = getModuleCalcData(gd.calcdata, Pie)[0];
-
-    if(cdPie.length) Pie.plot(gd, cdPie);
+    Pie.plot(gd, cdPie);
 };
 
 exports.clean = function(newFullData, newFullLayout, oldFullData, oldFullLayout) {

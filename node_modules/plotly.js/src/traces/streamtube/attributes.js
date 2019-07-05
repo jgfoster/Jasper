@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -8,8 +8,8 @@
 
 'use strict';
 
-var colorscaleAttrs = require('../../components/colorscale/attributes');
-var colorbarAttrs = require('../../components/colorbar/attributes');
+var colorScaleAttrs = require('../../components/colorscale/attributes');
+var hovertemplateAttrs = require('../../components/fx/hovertemplate_attributes');
 var mesh3dAttrs = require('../mesh3d/attributes');
 var baseAttrs = require('../../plots/attributes');
 
@@ -130,16 +130,28 @@ var attrs = {
             'this text element will be seen in all hover labels.',
             'Note that streamtube traces do not support array `text` values.'
         ].join(' ')
-    }
+    },
+    hovertext: {
+        valType: 'string',
+        role: 'info',
+        dflt: '',
+        editType: 'calc',
+        description: 'Same as `text`.'
+    },
+    hovertemplate: hovertemplateAttrs({editType: 'calc'}, {
+        keys: [
+            'tubex', 'tubey', 'tubez',
+            'tubeu', 'tubev', 'tubew',
+            'norm', 'divergence'
+        ]
+    })
 };
 
-extendFlat(attrs, colorscaleAttrs('', {
+extendFlat(attrs, colorScaleAttrs('', {
     colorAttr: 'u/v/w norm',
     showScaleDflt: true,
     editTypeOverride: 'calc'
-}), {
-    colorbar: colorbarAttrs
-});
+}));
 
 var fromMesh3d = ['opacity', 'lightposition', 'lighting'];
 fromMesh3d.forEach(function(k) {
@@ -151,5 +163,7 @@ attrs.hoverinfo = extendFlat({}, baseAttrs.hoverinfo, {
     flags: ['x', 'y', 'z', 'u', 'v', 'w', 'norm', 'divergence', 'text', 'name'],
     dflt: 'x+y+z+norm+text+name'
 });
+
+attrs.transforms = undefined;
 
 module.exports = attrs;

@@ -1,11 +1,10 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
 * LICENSE file in the root directory of this source tree.
 */
-
 
 'use strict';
 
@@ -15,7 +14,6 @@ var Lib = require('../../lib');
 var colorscaleDefaults = require('../../components/colorscale/defaults');
 var attributes = require('./attributes');
 
-
 module.exports = function supplyDefaults(traceIn, traceOut, defaultColor, layout) {
     var i, j;
 
@@ -23,14 +21,17 @@ module.exports = function supplyDefaults(traceIn, traceOut, defaultColor, layout
         return Lib.coerce(traceIn, traceOut, attributes, attr, dflt);
     }
 
+    var x = coerce('x');
+    var y = coerce('y');
+
     var z = coerce('z');
-    if(!z) {
+    if(!z || !z.length ||
+       (x ? (x.length < 1) : false) ||
+       (y ? (y.length < 1) : false)
+    ) {
         traceOut.visible = false;
         return;
     }
-
-    var x = coerce('x');
-    coerce('y');
 
     traceOut._xlength = (Array.isArray(x) && Lib.isArrayOrTypedArray(x[0])) ? z.length : z[0].length;
     traceOut._ylength = z.length;
@@ -39,6 +40,8 @@ module.exports = function supplyDefaults(traceIn, traceOut, defaultColor, layout
     handleCalendarDefaults(traceIn, traceOut, ['x', 'y', 'z'], layout);
 
     coerce('text');
+    coerce('hovertext');
+    coerce('hovertemplate');
 
     // Coerce remaining properties
     [
@@ -51,16 +54,14 @@ module.exports = function supplyDefaults(traceIn, traceOut, defaultColor, layout
         'lightposition.y',
         'lightposition.z',
         'hidesurface',
+        'connectgaps',
         'opacity'
     ].forEach(function(x) { coerce(x); });
 
     var surfaceColor = coerce('surfacecolor');
 
-    coerce('colorscale');
-
     var dims = ['x', 'y', 'z'];
     for(i = 0; i < 3; ++i) {
-
         var contourDim = 'contours.' + dims[i];
         var show = coerce(contourDim + '.show');
         var highlight = coerce(contourDim + '.highlight');
@@ -81,6 +82,10 @@ module.exports = function supplyDefaults(traceIn, traceOut, defaultColor, layout
             coerce(contourDim + '.highlightcolor');
             coerce(contourDim + '.highlightwidth');
         }
+
+        coerce(contourDim + '.start');
+        coerce(contourDim + '.end');
+        coerce(contourDim + '.size');
     }
 
     // backward compatibility block

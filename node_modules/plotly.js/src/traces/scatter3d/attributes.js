@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -10,6 +10,7 @@
 
 var scatterAttrs = require('../scatter/attributes');
 var colorAttributes = require('../../components/colorscale/attributes');
+var hovertemplateAttrs = require('../../components/fx/hovertemplate_attributes');
 var baseAttrs = require('../../plots/attributes');
 var DASHES = require('../../constants/gl3d_dashes');
 
@@ -31,9 +32,6 @@ var lineAttrs = extendFlat({
         description: 'Sets the dash style of the lines.'
     }
 }, colorAttributes('line'));
-// not yet implemented
-delete lineAttrs.showscale;
-delete lineAttrs.colorbar;
 
 function makeProjectionAttr(axLetter) {
     return {
@@ -97,6 +95,7 @@ var attrs = module.exports = overrideAll({
             'To be seen, trace `hoverinfo` must contain a *text* flag.'
         ].join(' ')
     }),
+    hovertemplate: hovertemplateAttrs(),
 
     mode: extendFlat({}, scatterAttrs.mode,  // shouldn't this be on-par with 2D?
         {dflt: 'lines+markers'}),
@@ -160,7 +159,7 @@ var attrs = module.exports = overrideAll({
         colorAttributes('marker')
     ),
 
-    textposition: extendFlat({}, scatterAttrs.textposition, {dflt: 'top center', arrayOk: false}),
+    textposition: extendFlat({}, scatterAttrs.textposition, {dflt: 'top center'}),
     textfont: {
         color: scatterAttrs.textfont.color,
         size: scatterAttrs.textfont.size,

@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -62,20 +62,20 @@ module.exports = function interp2d(z, emptyPoints) {
 };
 
 function iterateInterp2d(z, emptyPoints, overshoot) {
-    var maxFractionalChange = 0,
-        thisPt,
-        i,
-        j,
-        p,
-        q,
-        neighborShift,
-        neighborRow,
-        neighborVal,
-        neighborCount,
-        neighborSum,
-        initialVal,
-        minNeighbor,
-        maxNeighbor;
+    var maxFractionalChange = 0;
+    var thisPt;
+    var i;
+    var j;
+    var p;
+    var q;
+    var neighborShift;
+    var neighborRow;
+    var neighborVal;
+    var neighborCount;
+    var neighborSum;
+    var initialVal;
+    var minNeighbor;
+    var maxNeighbor;
 
     for(p = 0; p < emptyPoints.length; p++) {
         thisPt = emptyPoints[p];
@@ -93,8 +93,7 @@ function iterateInterp2d(z, emptyPoints, overshoot) {
             if(neighborVal !== undefined) {
                 if(neighborSum === 0) {
                     minNeighbor = maxNeighbor = neighborVal;
-                }
-                else {
+                } else {
                     minNeighbor = Math.min(minNeighbor, neighborVal);
                     maxNeighbor = Math.max(maxNeighbor, neighborVal);
                 }
@@ -116,8 +115,7 @@ function iterateInterp2d(z, emptyPoints, overshoot) {
 
         if(initialVal === undefined) {
             if(neighborCount < 4) maxFractionalChange = 1;
-        }
-        else {
+        } else {
             // we can make large empty regions converge faster
             // if we overshoot the change vs the previous value
             z[i][j] = (1 + overshoot) * z[i][j] - overshoot * initialVal;

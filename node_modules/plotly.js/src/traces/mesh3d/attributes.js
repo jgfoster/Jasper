@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -8,8 +8,8 @@
 
 'use strict';
 
-var colorscaleAttrs = require('../../components/colorscale/attributes');
-var colorbarAttrs = require('../../components/colorbar/attributes');
+var colorScaleAttrs = require('../../components/colorscale/attributes');
+var hovertemplateAttrs = require('../../components/fx/hovertemplate_attributes');
 var surfaceAtts = require('../surface/attributes');
 var baseAttrs = require('../../plots/attributes');
 
@@ -89,6 +89,15 @@ module.exports = extendFlat({
             'these elements will be seen in the hover labels.'
         ].join(' ')
     },
+    hovertext: {
+        valType: 'string',
+        role: 'info',
+        dflt: '',
+        arrayOk: true,
+        editType: 'calc',
+        description: 'Same as `text`.'
+    },
+    hovertemplate: hovertemplateAttrs({editType: 'calc'}),
 
     delaunayaxis: {
         valType: 'enumerated',
@@ -153,7 +162,10 @@ module.exports = extendFlat({
         editType: 'calc',
         description: [
             'Sets the color of each vertex',
-            'Overrides *color*.'
+            'Overrides *color*. While Red, green and blue colors',
+            'are in the range of 0 and 255; in the case of having',
+            'vertex color data in RGBA format, the alpha color',
+            'should be normalized to be between 0 and 1.'
         ].join(' ')
     },
     facecolor: {
@@ -165,16 +177,14 @@ module.exports = extendFlat({
             'Overrides *color* and *vertexcolor*.'
         ].join(' ')
     },
+    transforms: undefined
 },
 
-colorscaleAttrs('', {
+colorScaleAttrs('', {
     colorAttr: '`intensity`',
     showScaleDflt: true,
     editTypeOverride: 'calc'
 }), {
-
-    colorbar: colorbarAttrs,
-
     opacity: surfaceAtts.opacity,
 
     // Flat shaded mode

@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -22,6 +22,10 @@ module.exports = {
     },
     calc: require('./calc'),
     plot: require('./convert'),
+    eventData: function(out, pt) {
+        out.norm = pt.traceCoordinate[6];
+        return out;
+    },
 
     meta: {
         description: [

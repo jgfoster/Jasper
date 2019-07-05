@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -59,8 +59,7 @@ module.exports = function style(gd) {
         if(isConstraintType) {
             c.selectAll('g.contourfill path')
                 .style('fill', trace.fillcolor);
-        }
-        else if(colorFills) {
+        } else if(colorFills) {
             var firstFill;
 
             c.selectAll('g.contourfill path')

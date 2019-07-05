@@ -1,11 +1,10 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
 * LICENSE file in the root directory of this source tree.
 */
-
 
 'use strict';
 
@@ -15,7 +14,7 @@ var rgba = require('color-normalize');
 
 var Colorscale = require('../components/colorscale');
 var colorDflt = require('../components/color/attributes').defaultLine;
-var isArrayOrTypedArray = require('./is_array').isArrayOrTypedArray;
+var isArrayOrTypedArray = require('./array').isArrayOrTypedArray;
 
 var colorDfltRgba = rgba(colorDflt);
 var opacityDflt = 1;
@@ -42,20 +41,14 @@ function formatColor(containerIn, opacityIn, len) {
     var colorIn = containerIn.color;
     var isArrayColorIn = isArrayOrTypedArray(colorIn);
     var isArrayOpacityIn = isArrayOrTypedArray(opacityIn);
+    var cOpts = Colorscale.extractOpts(containerIn);
     var colorOut = [];
 
     var sclFunc, getColor, getOpacity, colori, opacityi;
 
-    if(containerIn.colorscale !== undefined) {
-        sclFunc = Colorscale.makeColorScaleFunc(
-            Colorscale.extractScale(
-                containerIn.colorscale,
-                containerIn.cmin,
-                containerIn.cmax
-            )
-        );
-    }
-    else {
+    if(cOpts.colorscale !== undefined) {
+        sclFunc = Colorscale.makeColorScaleFuncFromTrace(containerIn);
+    } else {
         sclFunc = validateColor;
     }
 
@@ -64,15 +57,13 @@ function formatColor(containerIn, opacityIn, len) {
             // FIXME: there is double work, considering that sclFunc does the opposite
             return c[i] === undefined ? colorDfltRgba : rgba(sclFunc(c[i]));
         };
-    }
-    else getColor = validateColor;
+    } else getColor = validateColor;
 
     if(isArrayOpacityIn) {
         getOpacity = function(o, i) {
             return o[i] === undefined ? opacityDflt : validateOpacity(o[i]);
         };
-    }
-    else getOpacity = validateOpacity;
+    } else getOpacity = validateOpacity;
 
     if(isArrayColorIn || isArrayOpacityIn) {
         for(var i = 0; i < len; i++) {
@@ -80,14 +71,19 @@ function formatColor(containerIn, opacityIn, len) {
             opacityi = getOpacity(opacityIn, i);
             colorOut[i] = calculateColor(colori, opacityi);
         }
-    }
-    else colorOut = calculateColor(rgba(colorIn), opacityIn);
+    } else colorOut = calculateColor(rgba(colorIn), opacityIn);
 
     return colorOut;
 }
 
-function parseColorScale(colorscale, alpha) {
+function parseColorScale(cont, alpha) {
     if(alpha === undefined) alpha = 1;
+
+    var cOpts = Colorscale.extractOpts(cont);
+
+    var colorscale = cOpts.reversescale ?
+        Colorscale.flipScale(cOpts.colorscale) :
+        cOpts.colorscale;
 
     return colorscale.map(function(elem) {
         var index = elem[0];

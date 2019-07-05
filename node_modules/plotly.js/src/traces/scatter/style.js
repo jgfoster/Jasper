@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -26,6 +26,12 @@ function style(gd, cd) {
         stylePoints(sel, trace, gd);
     });
 
+    s.selectAll('g.text').each(function(d) {
+        var sel = d3.select(this);
+        var trace = d.trace || d[0].trace;
+        styleText(sel, trace, gd);
+    });
+
     s.selectAll('g.trace path.js-line')
         .call(Drawing.lineGroupStyle);
 
@@ -37,6 +43,9 @@ function style(gd, cd) {
 
 function stylePoints(sel, trace, gd) {
     Drawing.pointStyle(sel.selectAll('path.point'), trace, gd);
+}
+
+function styleText(sel, trace, gd) {
     Drawing.textPointStyle(sel.selectAll('text'), trace, gd);
 }
 
@@ -49,11 +58,13 @@ function styleOnSelect(gd, cd) {
         Drawing.selectedTextStyle(s.selectAll('text'), trace);
     } else {
         stylePoints(s, trace, gd);
+        styleText(s, trace, gd);
     }
 }
 
 module.exports = {
     style: style,
     stylePoints: stylePoints,
+    styleText: styleText,
     styleOnSelect: styleOnSelect
 };

@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -15,7 +15,7 @@ var PlotSchema = require('./plot_schema');
 var Plots = require('../plots/plots');
 var plotAttributes = require('../plots/attributes');
 var Template = require('./plot_template');
-var dfltConfig = require('./plot_config');
+var dfltConfig = require('./plot_config').dfltConfig;
 
 /**
  * Plotly.makeTemplate: create a template off an existing figure to reuse
@@ -24,14 +24,15 @@ var dfltConfig = require('./plot_config');
  * Note: separated from the rest of templates because otherwise we get circular
  * references due to PlotSchema.
  *
- * @param {object|DOM element} figure: The figure to base the template on
+ * @param {object|DOM element|string} figure: The figure to base the template on
  *     should contain a trace array `figure.data`
  *     and a layout object `figure.layout`
  * @returns {object} template: the extracted template - can then be used as
  *     `layout.template` in another figure.
  */
 exports.makeTemplate = function(figure) {
-    figure = Lib.extendDeep({_context: dfltConfig}, figure);
+    figure = Lib.isPlainObject(figure) ? figure : Lib.getGraphDiv(figure);
+    figure = Lib.extendDeep({_context: dfltConfig}, {data: figure.data, layout: figure.layout});
     Plots.supplyDefaults(figure);
     var data = figure.data || [];
     var layout = figure.layout || {};
@@ -132,8 +133,7 @@ function mergeTemplates(oldTemplate, newTemplate) {
     function mergeOne(oldVal, newVal, key) {
         if(isPlainObject(newVal) && isPlainObject(oldVal)) {
             mergeTemplates(oldVal, newVal);
-        }
-        else if(Array.isArray(newVal) && Array.isArray(oldVal)) {
+        } else if(Array.isArray(newVal) && Array.isArray(oldVal)) {
             // Note: omitted `inclusionAttr` from arrayTemplater here,
             // it's irrelevant as we only want the resulting `_template`.
             var templater = Template.arrayTemplater({_template: oldTemplate}, key);
@@ -155,8 +155,7 @@ function mergeTemplates(oldTemplate, newTemplate) {
         var oldVal = oldTemplate[key];
         if(key in newTemplate) {
             mergeOne(oldVal, newTemplate[key], key);
-        }
-        else newTemplate[key] = oldVal;
+        } else newTemplate[key] = oldVal;
 
         // if this is a base key from the old template (eg xaxis), look for
         // extended keys (eg xaxis2) in the new template to merge into
@@ -203,8 +202,7 @@ function walkStyleKeys(parent, templateOut, getAttributeInfo, path, basePath) {
 
         if(!attr.valType && isPlainObject(child)) {
             walkStyleKeys(child, templateOut, getAttributeInfo, nextPath, nextBasePath);
-        }
-        else if(attr._isLinkedToArray && Array.isArray(child)) {
+        } else if(attr._isLinkedToArray && Array.isArray(child)) {
             var dfltDone = false;
             var namedIndex = 0;
             var usedNames = {};
@@ -221,8 +219,7 @@ function walkStyleKeys(parent, templateOut, getAttributeInfo, path, basePath) {
                             namedIndex++;
                             usedNames[name] = 1;
                         }
-                    }
-                    else if(!dfltDone) {
+                    } else if(!dfltDone) {
                         var dfltKey = Template.arrayDefaultKey(key);
                         var dfltPath = getNextPath(parent, dfltKey, path);
 
@@ -241,8 +238,7 @@ function walkStyleKeys(parent, templateOut, getAttributeInfo, path, basePath) {
                     }
                 }
             }
-        }
-        else {
+        } else {
             var templateProp = Lib.nestedProperty(templateOut, nextPath);
             templateProp.set(child);
         }
@@ -332,8 +328,7 @@ exports.validateTemplate = function(figureIn, template) {
                 var nextPath = getNextPath(obj, key, path);
                 if(layoutPaths[nextPath]) {
                     crawlLayoutTemplateForContainers(obj[key], nextPath);
-                }
-                else {
+                } else {
                     errorList.push({code: 'unused', path: nextPath});
                 }
             }
@@ -342,16 +337,14 @@ exports.validateTemplate = function(figureIn, template) {
 
     if(!isPlainObject(layoutTemplate)) {
         errorList.push({code: 'layout'});
-    }
-    else {
+    } else {
         crawlLayoutForContainers(fullLayout, ['layout']);
         crawlLayoutTemplateForContainers(layoutTemplate, 'layout');
     }
 
     if(!isPlainObject(dataTemplate)) {
         errorList.push({code: 'data'});
-    }
-    else {
+    } else {
         var typeCount = {};
         var traceType;
         for(var i = 0; i < fullData.length; i++) {
@@ -378,8 +371,7 @@ exports.validateTemplate = function(figureIn, template) {
                     templateCount: templateCount,
                     dataCount: dataCount
                 });
-            }
-            else if(dataCount > templateCount) {
+            } else if(dataCount > templateCount) {
                 errorList.push({
                     code: 'reused',
                     traceType: traceType,
@@ -406,8 +398,7 @@ exports.validateTemplate = function(figureIn, template) {
                     });
                 }
                 crawlForMissingTemplates(val, nextPath);
-            }
-            else if(Array.isArray(val) && hasPlainObject(val)) {
+            } else if(Array.isArray(val) && hasPlainObject(val)) {
                 crawlForMissingTemplates(val, nextPath);
             }
         }
@@ -436,8 +427,7 @@ function format(opts) {
             if(opts.path) {
                 msg = 'There are no templates for item ' + opts.path +
                     ' with name ' + opts.templateitemname;
-            }
-            else {
+            } else {
                 msg = 'There are no templates for trace ' + opts.index +
                     ', of type ' + opts.traceType + '.';
             }
@@ -446,14 +436,12 @@ function format(opts) {
             if(opts.path) {
                 msg = 'The template item at ' + opts.path +
                     ' was not used in constructing the plot.';
-            }
-            else if(opts.dataCount) {
+            } else if(opts.dataCount) {
                 msg = 'Some of the templates of type ' + opts.traceType +
                     ' were not used. The template has ' + opts.templateCount +
                     ' traces, the data only has ' + opts.dataCount +
                     ' of this type.';
-            }
-            else {
+            } else {
                 msg = 'The template has ' + opts.templateCount +
                     ' traces of type ' + opts.traceType +
                     ' but there are none in the data.';

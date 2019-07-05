@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -16,7 +16,6 @@ var EventEmitter = require('events').EventEmitter;
 var Events = {
 
     init: function(plotObj) {
-
         /*
          * If we have already instantiated an emitter for this plot
          * return early.

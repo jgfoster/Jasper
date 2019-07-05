@@ -5,7 +5,10 @@ import removeTrailingComma from '../../utils/removeTrailingComma.js';
 export default class FunctionExpression extends Node {
 	initialise(transforms) {
 		if (this.generator && transforms.generator) {
-			throw new CompileError('Generators are not supported', this);
+			CompileError.missingTransform("generators", "generator", this);
+		}
+		if (this.async && transforms.asyncAwait) {
+			CompileError.missingTransform("async functions", "asyncAwait", this);
 		}
 
 		this.body.createScope();

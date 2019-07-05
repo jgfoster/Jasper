@@ -1,7 +1,7 @@
 'use strict'
 
 
-const createScatter = require('regl-scatter2d/scatter')
+const createScatter = require('regl-scatter2d')
 const pick = require('pick-by-alias')
 const getBounds = require('array-bounds')
 const raf = require('raf')

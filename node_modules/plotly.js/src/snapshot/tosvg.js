@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -100,8 +100,7 @@ module.exports = function toSVG(gd, format, scale) {
             if(this.style.visibility === 'hidden' || this.style.display === 'none') {
                 txt.remove();
                 return;
-            }
-            else {
+            } else {
                 // clear other visibility/display values to default
                 // to not potentially confuse non-browser SVG implementations
                 txt.style({visibility: null, display: null});

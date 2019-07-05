@@ -18,9 +18,9 @@ const lifecycle = BB.promisify(require('./utils/lifecycle'))
 const log = require('npmlog')
 const move = require('move-concurrently')
 const npm = require('./npm')
+const npmConfig = require('./config/figgy-config.js')
 const output = require('./utils/output')
 const pacote = require('pacote')
-const pacoteOpts = require('./config/pacote')
 const path = require('path')
 const PassThrough = require('stream').PassThrough
 const pathIsInside = require('path-is-inside')
@@ -32,7 +32,7 @@ const tar = require('tar')
 const packlist = require('npm-packlist')
 const ssri = require('ssri')
 
-pack.usage = 'npm pack [[<@scope>/]<pkg>...]'
+pack.usage = 'npm pack [[<@scope>/]<pkg>...] [--dry-run]'
 
 // if it can be installed, it can be packed.
 pack.completion = install.completion
@@ -68,22 +68,13 @@ function pack_ (pkg, dir) {
       : mani.name
     const target = `${name}-${mani.version}.tgz`
     return pinflight(target, () => {
+      const dryRun = npm.config.get('dry-run')
       if (mani._requested.type === 'directory') {
-        return cacache.tmp.withTmp(npm.tmp, {tmpPrefix: 'packing'}, (tmp) => {
-          const tmpTarget = path.join(tmp, path.basename(target))
-          return prepareDirectory(mani._resolved)
-            .then(() => {
-              return packDirectory(mani, mani._resolved, tmpTarget, target, true)
-            })
-            .tap(() => {
-              if (npm.config.get('dry-run')) {
-                log.verbose('pack', '--dry-run mode enabled. Skipping write.')
-              } else {
-                return move(tmpTarget, target, {Promise: BB, fs})
-              }
-            })
-        })
-      } else if (npm.config.get('dry-run')) {
+        return prepareDirectory(mani._resolved)
+          .then(() => {
+            return packDirectory(mani, mani._resolved, target, target, true, dryRun)
+          })
+      } else if (dryRun) {
         log.verbose('pack', '--dry-run mode enabled. Skipping write.')
         return cacache.tmp.withTmp(npm.tmp, {tmpPrefix: 'packing'}, (tmp) => {
           const tmpTarget = path.join(tmp, path.basename(target))
@@ -97,8 +88,8 @@ function pack_ (pkg, dir) {
 }
 
 function packFromPackage (arg, target, filename) {
-  const opts = pacoteOpts()
-  return pacote.tarball.toFile(arg, target, pacoteOpts())
+  const opts = npmConfig()
+  return pacote.tarball.toFile(arg, target, opts)
     .then(() => cacache.tmp.withTmp(npm.tmp, {tmpPrefix: 'unpacking'}, (tmp) => {
       const tmpTarget = path.join(tmp, filename)
       return pacote.extract(arg, tmpTarget, opts)
@@ -137,7 +128,7 @@ function prepareDirectory (dir) {
 }
 
 module.exports.packDirectory = packDirectory
-function packDirectory (mani, dir, target, filename, logIt) {
+function packDirectory (mani, dir, target, filename, logIt, dryRun) {
   deprCheck(mani)
   return readJson(path.join(dir, 'package.json')).then((pkg) => {
     return lifecycle(pkg, 'prepack', dir)
@@ -165,7 +156,13 @@ function packDirectory (mani, dir, target, filename, logIt) {
         .then((files) => tar.create(tarOpt, files.map((f) => `./${f}`)))
         .then(() => getContents(pkg, tmpTarget, filename, logIt))
         // thread the content info through
-        .tap(() => move(tmpTarget, target, {Promise: BB, fs}))
+        .tap(() => {
+          if (dryRun) {
+            log.verbose('pack', '--dry-run mode enabled. Skipping write.')
+          } else {
+            return move(tmpTarget, target, {Promise: BB, fs})
+          }
+        })
         .tap(() => lifecycle(pkg, 'postpack', dir))
     })
   })

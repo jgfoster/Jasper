@@ -296,8 +296,12 @@ function _commit (version, localData, cb) {
   const message = npm.config.get('message').replace(/%s/g, version)
   const signTag = npm.config.get('sign-git-tag')
   const signCommit = npm.config.get('sign-git-commit')
-  const commitArgs = buildCommitArgs([ 'commit', signCommit ? '-S -m' : '-m', message ])
-  const flagForTag = signTag ? '-sm' : '-am'
+  const commitArgs = buildCommitArgs([
+    'commit',
+    ...(signCommit ? ['-S', '-m'] : ['-m']),
+    message
+  ])
+  const flagForTag = signTag ? '-sm' : '-m'
 
   stagePackageFiles(localData, options).then(() => {
     return git.exec(commitArgs, options)

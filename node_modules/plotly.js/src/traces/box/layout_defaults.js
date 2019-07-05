@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -13,10 +13,13 @@ var Lib = require('../../lib');
 var layoutAttributes = require('./layout_attributes');
 
 function _supply(layoutIn, layoutOut, fullData, coerce, traceType) {
-    var hasTraceType;
     var category = traceType + 'Layout';
+    var hasTraceType = false;
+
     for(var i = 0; i < fullData.length; i++) {
-        if(Registry.traceIs(fullData[i], category)) {
+        var trace = fullData[i];
+
+        if(Registry.traceIs(trace, category)) {
             hasTraceType = true;
             break;
         }

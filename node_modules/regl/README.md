@@ -1,5 +1,5 @@
 <div align="center">
-  :crown:
+  👑
 </div>
 <h1 align="center">
   regl
@@ -28,7 +28,7 @@
       Docs
     </a>
     <span> | </span>
-    <a href="https://gitter.im/regl-project/regl">
+    <a href="https://gitter.im/mikolalysenko/regl">
       Chat
     </a>
     <span> | </span>

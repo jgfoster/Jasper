@@ -18,7 +18,8 @@ const events = [
   'deselect',
   'doubleclick',
   'redraw',
-  'animated'
+  'animated',
+  'afterplot'
 ]
 
 const functions = [
@@ -56,15 +57,22 @@ export default {
   },
   data() {
     return {
-      internalLayout: this.layout
+      internalLayout: {
+        ...this.layout,
+        datarevision: 1
+      }
     }
   },
   mounted() {
-    this.newPlot()
+    this.react()
     this.initEvents()
 
-    this.$watch('data', this.newPlot, { deep: !this.watchShallow })
-    this.$watch('options', this.newPlot, { deep: !this.watchShallow })
+    this.$watch('data', () => {
+      this.internalLayout.datarevision++
+      this.react()
+    }, { deep: !this.watchShallow })
+
+    this.$watch('options', this.react, { deep: !this.watchShallow })
     this.$watch('layout', this.relayout, { deep: !this.watchShallow })
   },
   beforeDestroy() {
@@ -75,7 +83,10 @@ export default {
   methods: {
     initEvents() {
       if (this.autoResize) {
-        this.__resizeListener = debounce(this.newPlot, 200)
+        this.__resizeListener = () => {
+          this.internalLayout.datarevision++
+          debounce(this.react, 200)
+        }
         window.addEventListener('resize', this.__resizeListener)
       }
 
@@ -94,8 +105,8 @@ export default {
     },
     ...methods,
     toImage(options) {
-      var el = this.$refs.container
-      var opts = defaults(options, {
+      let el = this.$refs.container
+      let opts = defaults(options, {
         format: 'png',
         width: el.clientWidth,
         height: el.clientHeight
@@ -104,8 +115,8 @@ export default {
       return Plotly.toImage(this.$refs.container, opts)
     },
     downloadImage(options) {
-      var el = this.$refs.container
-      var opts = defaults(options, {
+      let el = this.$refs.container
+      let opts = defaults(options, {
         format: 'png',
         width: el.clientWidth,
         height: el.clientHeight,
@@ -115,10 +126,24 @@ export default {
       return Plotly.downloadImage(this.$refs.container, opts)
     },
     plot() {
-      return Plotly.plot(this.$refs.container, this.data, this.internalLayout, this.options)
+      return Plotly.plot(this.$refs.container, this.data, this.internalLayout, this.getOptions())
+    },
+    getOptions() {
+      let el = this.$refs.container
+      let opts = this.options
+
+      // if width/height is not specified for toImageButton, default to el.clientWidth/clientHeight
+      if (!opts) opts = {}
+      if (!opts.toImageButtonOptions) opts.toImageButtonOptions = {}
+      if (!opts.toImageButtonOptions.width) opts.toImageButtonOptions.width = el.clientWidth
+      if (!opts.toImageButtonOptions.height) opts.toImageButtonOptions.height = el.clientHeight
+      return opts
     },
     newPlot() {
-      return Plotly.newPlot(this.$refs.container, this.data, this.internalLayout, this.options)
+      return Plotly.newPlot(this.$refs.container, this.data, this.internalLayout, this.getOptions())
+    },
+    react() {
+      return Plotly.react(this.$refs.container, this.data, this.internalLayout, this.getOptions())
     }
   }
 }

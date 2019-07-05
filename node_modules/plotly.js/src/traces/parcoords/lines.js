@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -62,11 +62,9 @@ function clear(regl, x, y, width, height) {
 }
 
 function renderBlock(regl, glAes, renderState, blockLineCount, sampleCount, item) {
-
     var rafKey = item.key;
 
     function render(blockNumber) {
-
         var count;
 
         count = Math.min(blockLineCount, sampleCount - blockNumber * blockLineCount);
@@ -384,8 +382,7 @@ module.exports = function(canvasGL, d) {
                     var lim;
                     if(dimP < initialDims.length) {
                         lim = initialDims[dimP].brush.filter.getBounds()[loHi];
-                    }
-                    else lim = loHi;
+                    } else lim = loHi;
                     lims[loHi][abcd][d] = lim + (2 * loHi - 1) * filterEpsilon;
                 }
             }
@@ -450,7 +447,10 @@ module.exports = function(canvasGL, d) {
         var panelCount = panels.length;
         var I;
 
-        var leftmost, rightmost, lowestX = Infinity, highestX = -Infinity;
+        var leftmost;
+        var rightmost;
+        var lowestX = Infinity;
+        var highestX = -Infinity;
 
         for(I = 0; I < panelCount; I++) {
             if(panels[I].dim2.canvasX > highestX) {

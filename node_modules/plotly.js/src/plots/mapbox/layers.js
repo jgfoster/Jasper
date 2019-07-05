@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -97,6 +97,8 @@ proto.updateLayer = function(opts) {
             source: this.idSource,
             'source-layer': opts.sourcelayer || '',
             type: opts.type,
+            minzoom: opts.minzoom,
+            maxzoom: opts.maxzoom,
             layout: convertedOpts.layout,
             paint: convertedOpts.paint
         }, opts.below);
@@ -134,11 +136,10 @@ function isVisible(opts) {
 }
 
 function convertOpts(opts) {
-    var layout = {},
-        paint = {};
+    var layout = {};
+    var paint = {};
 
     switch(opts.type) {
-
         case 'circle':
             Lib.extendFlat(paint, {
                 'circle-radius': opts.circle.radius,
@@ -151,7 +152,8 @@ function convertOpts(opts) {
             Lib.extendFlat(paint, {
                 'line-width': opts.line.width,
                 'line-color': opts.color,
-                'line-opacity': opts.opacity
+                'line-opacity': opts.opacity,
+                'line-dasharray': opts.line.dash
             });
             break;
 
@@ -166,8 +168,8 @@ function convertOpts(opts) {
             break;
 
         case 'symbol':
-            var symbol = opts.symbol,
-                textOpts = convertTextOpts(symbol.textposition, symbol.iconsize);
+            var symbol = opts.symbol;
+            var textOpts = convertTextOpts(symbol.textposition, symbol.iconsize);
 
             Lib.extendFlat(layout, {
                 'icon-image': symbol.icon + '-15',
@@ -176,7 +178,8 @@ function convertOpts(opts) {
                 'text-field': symbol.text,
                 'text-size': symbol.textfont.size,
                 'text-anchor': textOpts.anchor,
-                'text-offset': textOpts.offset
+                'text-offset': textOpts.offset,
+                'symbol-placement': symbol.placement,
 
                 // TODO font family
                 // 'text-font': symbol.textfont.family.split(', '),

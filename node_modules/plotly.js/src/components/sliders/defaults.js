@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -26,7 +26,6 @@ module.exports = function slidersDefaults(layoutIn, layoutOut) {
 };
 
 function sliderDefaults(sliderIn, sliderOut, layoutOut) {
-
     function coerce(attr, dflt) {
         return Lib.coerce(sliderIn, sliderOut, attributes, attr, dflt);
     }
@@ -102,8 +101,7 @@ function stepDefaults(valueIn, valueOut) {
     var visible;
     if(valueIn.method !== 'skip' && !Array.isArray(valueIn.args)) {
         visible = valueOut.visible = false;
-    }
-    else visible = coerce('visible');
+    } else visible = coerce('visible');
 
     if(visible) {
         coerce('method');

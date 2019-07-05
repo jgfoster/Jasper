@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -11,7 +11,7 @@
 var Lib = require('../../lib');
 var Registry = require('../../registry');
 var Color = require('../../components/color');
-
+var handleGroupingDefaults = require('../bar/defaults').handleGroupingDefaults;
 var attributes = require('./attributes');
 
 function supplyDefaults(traceIn, traceOut, defaultColor, layout) {
@@ -28,6 +28,7 @@ function supplyDefaults(traceIn, traceOut, defaultColor, layout) {
 
     coerce('whiskerwidth');
     coerce('boxmean');
+    coerce('width');
 
     var notched = coerce('notched', traceIn.notchwidth !== undefined);
     if(notched) coerce('notchwidth');
@@ -45,16 +46,15 @@ function handleSampleDefaults(traceIn, traceOut, coerce, layout) {
     if(y && y.length) {
         defaultOrientation = 'v';
         if(hasX) {
-            len = Math.min(x.length, y.length);
-        }
-        else {
+            len = Math.min(Lib.minRowLength(x), Lib.minRowLength(y));
+        } else {
             coerce('x0');
-            len = y.length;
+            len = Lib.minRowLength(y);
         }
     } else if(hasX) {
         defaultOrientation = 'h';
         coerce('y0');
-        len = x.length;
+        len = Lib.minRowLength(x);
     } else {
         traceOut.visible = false;
         return;
@@ -100,17 +100,43 @@ function handlePointsDefaults(traceIn, traceOut, coerce, opts) {
         coerce('unselected.marker.size');
 
         coerce('text');
+        coerce('hovertext');
     } else {
         delete traceOut.marker;
     }
 
-    coerce('hoveron');
+    var hoveron = coerce('hoveron');
+    if(hoveron === 'all' || hoveron.indexOf('points') !== -1) {
+        coerce('hovertemplate');
+    }
 
     Lib.coerceSelectionMarkerOpacity(traceOut, coerce);
 }
 
+function crossTraceDefaults(fullData, fullLayout) {
+    var traceIn, traceOut;
+
+    function coerce(attr) {
+        return Lib.coerce(traceOut._input, traceOut, attributes, attr);
+    }
+
+    for(var i = 0; i < fullData.length; i++) {
+        traceOut = fullData[i];
+        var traceType = traceOut.type;
+
+        if(traceType === 'box' || traceType === 'violin') {
+            traceIn = traceOut._input;
+            if(fullLayout[traceType + 'mode'] === 'group') {
+                handleGroupingDefaults(traceIn, traceOut, fullLayout, coerce);
+            }
+        }
+    }
+}
+
 module.exports = {
     supplyDefaults: supplyDefaults,
+    crossTraceDefaults: crossTraceDefaults,
+
     handleSampleDefaults: handleSampleDefaults,
     handlePointsDefaults: handlePointsDefaults
 };

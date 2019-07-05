@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -8,21 +8,25 @@
 
 'use strict';
 
-var lineLayerMaker = require('./lines');
-var c = require('./constants');
-var Lib = require('../../lib');
 var d3 = require('d3');
+var rgba = require('color-rgba');
+
+var Lib = require('../../lib');
 var Drawing = require('../../components/drawing');
+var Colorscale = require('../../components/colorscale');
+
 var gup = require('../../lib/gup');
 var keyFun = gup.keyFun;
 var repeat = gup.repeat;
 var unwrap = gup.unwrap;
+
+var c = require('./constants');
 var brush = require('./axisbrush');
+var lineLayerMaker = require('./lines');
 
 function visible(dimension) { return !('visible' in dimension) || dimension.visible; }
 
 function dimensionExtent(dimension) {
-
     var lo = dimension.range ? dimension.range[0] : Lib.aggNums(Math.min, null, dimension.values, dimension._length);
     var hi = dimension.range ? dimension.range[1] : Lib.aggNums(Math.max, null, dimension.values, dimension._length);
 
@@ -98,9 +102,11 @@ function ordinalScale(dimension) {
 }
 
 function unitToColorScale(cscale) {
-
     var colorStops = cscale.map(function(d) { return d[0]; });
-    var colorTuples = cscale.map(function(d) { return d3.rgb(d[1]); });
+    var colorTuples = cscale.map(function(d) {
+        var RGBA = rgba(d[1]);
+        return d3.rgb('rgb(' + RGBA[0] + ',' + RGBA[1] + ',' + RGBA[2] + ')');
+    });
     var prop = function(n) { return function(o) { return o[n]; }; };
 
     // We can't use d3 color interpolation as we may have non-uniform color palette raster
@@ -126,22 +132,23 @@ function someFiltersActive(view) {
 }
 
 function model(layout, d, i) {
-    var cd0 = unwrap(d),
-        trace = cd0.trace,
-        lineColor = cd0.lineColor,
-        cscale = cd0.cscale,
-        line = trace.line,
-        domain = trace.domain,
-        dimensions = trace.dimensions,
-        width = layout.width,
-        labelFont = trace.labelfont,
-        tickFont = trace.tickfont,
-        rangeFont = trace.rangefont;
+    var cd0 = unwrap(d);
+    var trace = cd0.trace;
+    var lineColor = cd0.lineColor;
+    var line = trace.line;
+    var cOpts = Colorscale.extractOpts(line);
+    var cscale = cOpts.reversescale ? Colorscale.flipScale(cd0.cscale) : cd0.cscale;
+    var domain = trace.domain;
+    var dimensions = trace.dimensions;
+    var width = layout.width;
+    var labelFont = trace.labelfont;
+    var tickFont = trace.tickfont;
+    var rangeFont = trace.rangefont;
 
     var lines = Lib.extendDeepNoArrays({}, line, {
         color: lineColor.map(d3.scale.linear().domain(dimensionExtent({
             values: lineColor,
-            range: [line.cmin, line.cmax],
+            range: [cOpts.min, cOpts.max],
             _length: trace._length
         }))),
         blockLineCount: c.blockLineCount,
@@ -180,7 +187,6 @@ function model(layout, d, i) {
 }
 
 function viewModel(state, callbacks, model) {
-
     var width = model.width;
     var height = model.height;
     var dimensions = model.dimensions;
@@ -241,11 +247,9 @@ function viewModel(state, callbacks, model) {
             // ensure ticktext and tickvals have same length
             if(!Array.isArray(ticktext) || !ticktext.length) {
                 ticktext = tickvals.map(d3.format(dimension.tickformat));
-            }
-            else if(ticktext.length > tickvals.length) {
+            } else if(ticktext.length > tickvals.length) {
                 ticktext = ticktext.slice(0, tickvals.length);
-            }
-            else if(tickvals.length > ticktext.length) {
+            } else if(tickvals.length > ticktext.length) {
                 tickvals = tickvals.slice(0, ticktext.length);
             }
 
@@ -260,8 +264,7 @@ function viewModel(state, callbacks, model) {
                     break;
                 }
             }
-        }
-        else tickvals = undefined;
+        } else tickvals = undefined;
 
         return {
             key: key,
@@ -334,7 +337,6 @@ function parcoordsInteractionState() {
 }
 
 module.exports = function(root, svg, parcoordsLineLayers, styledData, layout, callbacks) {
-
     var state = parcoordsInteractionState();
 
     var vm = styledData
@@ -457,11 +459,16 @@ module.exports = function(root, svg, parcoordsLineLayers, styledData, layout, ca
     parcoordsLineLayer
         .each(function(d) {
             if(d.viewModel) {
-                if(d.lineLayer) d.lineLayer.update(d);
-                else d.lineLayer = lineLayerMaker(this, d);
+                if(!d.lineLayer || callbacks) { // recreate in case of having callbacks e.g. restyle. Should we test for callback to be a restyle?
+                    d.lineLayer = lineLayerMaker(this, d);
+                } else d.lineLayer.update(d);
 
-                d.viewModel[d.key] = d.lineLayer;
-                d.lineLayer.render(d.viewModel.panels, !d.context);
+                if(d.key || d.key === 0) d.viewModel[d.key] = d.lineLayer;
+
+                var setChanged = (!d.context || // don't update background
+                                  callbacks);   // unless there is a callback on the context layer. Should we test the callback?
+
+                d.lineLayer.render(d.viewModel.panels, setChanged);
             }
         });
 

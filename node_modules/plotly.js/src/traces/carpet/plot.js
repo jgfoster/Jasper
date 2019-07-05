@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -173,8 +173,13 @@ function drawAxisLabels(gd, xaxis, yaxis, trace, t, layer, labels, labelClass) {
 function drawAxisTitles(gd, layer, trace, t, xa, ya, labelOrientationA, labelOrientationB) {
     var a, b, xy, dxy;
 
-    a = 0.5 * (trace.a[0] + trace.a[trace.a.length - 1]);
-    b = trace.b[0];
+    var aMin = Lib.aggNums(Math.min, null, trace.a);
+    var aMax = Lib.aggNums(Math.max, null, trace.a);
+    var bMin = Lib.aggNums(Math.min, null, trace.b);
+    var bMax = Lib.aggNums(Math.max, null, trace.b);
+
+    a = 0.5 * (aMin + aMax);
+    b = bMin;
     xy = trace.ab2xy(a, b, true);
     dxy = trace.dxyda_rough(a, b);
     if(labelOrientationA.angle === undefined) {
@@ -182,8 +187,8 @@ function drawAxisTitles(gd, layer, trace, t, xa, ya, labelOrientationA, labelOri
     }
     drawAxisTitle(gd, layer, trace, t, xy, dxy, trace.aaxis, xa, ya, labelOrientationA, 'a-title');
 
-    a = trace.a[0];
-    b = 0.5 * (trace.b[0] + trace.b[trace.b.length - 1]);
+    a = aMin;
+    b = 0.5 * (bMin + bMax);
     xy = trace.ab2xy(a, b, true);
     dxy = trace.dxydb_rough(a, b);
     if(labelOrientationB.angle === undefined) {
@@ -197,7 +202,7 @@ var midShift = ((1 - alignmentConstants.MID_SHIFT) / lineSpacing) + 1;
 
 function drawAxisTitle(gd, layer, trace, t, xy, dxy, axis, xa, ya, labelOrientation, labelClass) {
     var data = [];
-    if(axis.title) data.push(axis.title);
+    if(axis.title.text) data.push(axis.title.text);
     var titleJoin = layer.selectAll('text.' + labelClass).data(data);
     var offset = labelOrientation.maxExtent;
 
@@ -213,8 +218,8 @@ function drawAxisTitle(gd, layer, trace, t, xy, dxy, axis, xa, ya, labelOrientat
         }
 
         // In addition to the size of the labels, add on some extra padding:
-        var titleSize = axis.titlefont.size;
-        offset += titleSize + axis.titleoffset;
+        var titleSize = axis.title.font.size;
+        offset += titleSize + axis.title.offset;
 
         var labelNorm = labelOrientation.angle + (labelOrientation.flip < 0 ? 180 : 0);
         var angleDiff = (labelNorm - orientation.angle + 450) % 360;
@@ -222,7 +227,7 @@ function drawAxisTitle(gd, layer, trace, t, xy, dxy, axis, xa, ya, labelOrientat
 
         var el = d3.select(this);
 
-        el.text(axis.title || '')
+        el.text(axis.title.text)
             .call(svgTextUtils.convertToTspans, gd);
 
         if(reverseTitle) {
@@ -236,7 +241,7 @@ function drawAxisTitle(gd, layer, trace, t, xy, dxy, axis, xa, ya, labelOrientat
             )
             .classed('user-select-none', true)
             .attr('text-anchor', 'middle')
-            .call(Drawing.font, axis.titlefont);
+            .call(Drawing.font, axis.title.font);
     });
 
     titleJoin.exit().remove();

@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -58,8 +58,6 @@ exports.manageCommandObserver = function(gd, container, commandList, onchange) {
             // table should have been updated and check is already attached,
             // so there's nothing to be done:
             return ret;
-
-
         }
     }
 

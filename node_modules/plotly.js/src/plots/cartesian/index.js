@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -108,8 +108,7 @@ exports.finalizeSubplots = function(layoutIn, layoutOut) {
                     if(!xi || (+ki.substr(5) < +xi.substr(5))) {
                         xi = ki;
                     }
-                }
-                else if(!yi || (+ki.substr(5) < +yi.substr(5))) {
+                } else if(!yi || (+ki.substr(5) < +yi.substr(5))) {
                     yi = ki;
                 }
             }
@@ -126,10 +125,9 @@ exports.finalizeSubplots = function(layoutIn, layoutOut) {
  * Cartesian.plot
  *
  * @param {DOM div | object} gd
- * @param {array | null} (optional) traces
+ * @param {array (optional)} traces
  *  array of traces indices to plot
  *  if undefined, plots all cartesian traces,
- *  if null, plots no traces
  * @param {object} (optional) transitionOpts
  *  transition option object
  * @param {function} (optional) makeOnCompleteCallback
@@ -141,11 +139,7 @@ exports.plot = function(gd, traces, transitionOpts, makeOnCompleteCallback) {
     var calcdata = gd.calcdata;
     var i;
 
-    if(traces === null) {
-        // this means no updates required, must return here
-        // so that plotOne doesn't remove the trace layers
-        return;
-    } else if(!Array.isArray(traces)) {
+    if(!Array.isArray(traces)) {
         // If traces is not provided, then it's a complete replot and missing
         // traces are removed
         traces = [];
@@ -261,8 +255,8 @@ function plotOne(gd, plotinfo, cdSubplot, transitionOpts, makeOnCompleteCallback
         );
 
         // layers that allow `cliponaxis: false`
-        if(className !== 'scatterlayer' && className !== 'barlayer') {
-            Drawing.setClipUrl(sel, plotinfo.layerClipId);
+        if(constants.clipOnAxisFalseQuery.indexOf('.' + className) === -1) {
+            Drawing.setClipUrl(sel, plotinfo.layerClipId, gd);
         }
     });
 
@@ -277,7 +271,7 @@ function plotOne(gd, plotinfo, cdSubplot, transitionOpts, makeOnCompleteCallback
     if(!gd._context.staticPlot) {
         if(plotinfo._hasClipOnAxisFalse) {
             plotinfo.clipOnAxisFalseTraces = plotinfo.plot
-                .selectAll('.scatterlayer, .barlayer')
+                .selectAll(constants.clipOnAxisFalseQuery.join(','))
                 .selectAll('.trace');
         }
 
@@ -331,17 +325,18 @@ exports.clean = function(newFullData, newFullLayout, oldFullData, oldFullLayout)
         }
     }
 
-    // if we've gotten rid of all cartesian traces, remove all the subplot svg items
     var hadCartesian = (oldFullLayout._has && oldFullLayout._has('cartesian'));
     var hasCartesian = (newFullLayout._has && newFullLayout._has('cartesian'));
 
     if(hadCartesian && !hasCartesian) {
+        // if we've gotten rid of all cartesian traces, remove all the subplot svg items
+
         purgeSubplotLayers(oldFullLayout._cartesianlayer.selectAll('.subplot'), oldFullLayout);
         oldFullLayout._defs.selectAll('.axesclip').remove();
         delete oldFullLayout._axisConstraintGroups;
-    }
-    // otherwise look for subplots we need to remove
-    else if(oldSubplotList.cartesian) {
+    } else if(oldSubplotList.cartesian) {
+        // otherwise look for subplots we need to remove
+
         for(i = 0; i < oldSubplotList.cartesian.length; i++) {
             var oldSubplotId = oldSubplotList.cartesian[i];
             if(!newPlots[oldSubplotId]) {
@@ -464,13 +459,11 @@ function makeSubplotLayer(gd, plotinfo) {
             //   and other places
             // - we don't (x|y)lines and (x|y)axislayer for most subplots
             //   usually just the bottom x and left y axes.
-            plotinfo.plot = ensureSingle(plotgroup, 'g', 'plot');
             plotinfo.xlines = ensureSingle(plotgroup, 'path', 'xlines-above');
             plotinfo.ylines = ensureSingle(plotgroup, 'path', 'ylines-above');
             plotinfo.xaxislayer = ensureSingle(plotgroup, 'g', 'xaxislayer-above');
             plotinfo.yaxislayer = ensureSingle(plotgroup, 'g', 'yaxislayer-above');
-        }
-        else {
+        } else {
             var backLayer = ensureSingle(plotgroup, 'g', 'layer-subplot');
             plotinfo.shapelayer = ensureSingle(backLayer, 'g', 'shapelayer');
             plotinfo.imagelayer = ensureSingle(backLayer, 'g', 'imagelayer');
@@ -503,8 +496,7 @@ function makeSubplotLayer(gd, plotinfo) {
             plotinfo.xaxislayer = plotgroup.select('.xaxislayer-' + xLayer);
             plotinfo.yaxislayer = plotgroup.select('.yaxislayer-' + yLayer);
         }
-    }
-    else {
+    } else {
         var mainplotinfo = plotinfo.mainplotinfo;
         var mainplotgroup = mainplotinfo.plotgroup;
         var xId = id + '-x';

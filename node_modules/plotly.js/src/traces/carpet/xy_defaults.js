@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -26,8 +26,7 @@ module.exports = function handleXYDefaults(traceIn, traceOut, coerce) {
         if(traceOut.a && traceOut.a.length) len = Math.min(len, traceOut.a.length);
         if(traceOut.b && traceOut.b.length) len = Math.min(len, traceOut.b.length);
         traceOut._length = len;
-    }
-    else traceOut._length = null;
+    } else traceOut._length = null;
 
     return true;
 };

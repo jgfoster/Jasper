@@ -1,7 +1,6 @@
 "use strict";
 
 var V = require('gl-vec3');
-var V4 = require('gl-vec4');
 
 var vec3 = function(x, y, z) {
 	var v = V.create();

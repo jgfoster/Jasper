@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -56,6 +56,7 @@ function calcCommon(gd, trace, x, ya, ptFunc) {
     var c = ya.makeCalcdata(trace, 'close');
 
     var hasTextArray = Array.isArray(trace.text);
+    var hasHovertextArray = Array.isArray(trace.hovertext);
 
     // we're optimists - before we have any changing data, assume increasing
     var increasing = true;
@@ -74,8 +75,7 @@ function calcCommon(gd, trace, x, ya, ptFunc) {
                 // if open == close, look for a change from the previous close
                 if(cPrev !== null && ci !== cPrev) increasing = ci > cPrev;
                 // else (c === cPrev or cPrev is null) no change
-            }
-            else increasing = ci > oi;
+            } else increasing = ci > oi;
 
             cPrev = ci;
 
@@ -86,13 +86,20 @@ function calcCommon(gd, trace, x, ya, ptFunc) {
             pt.i = i;
             pt.dir = increasing ? 'increasing' : 'decreasing';
 
+            // For categoryorder, store low and high
+            pt.x = pt.pos;
+            pt.y = [li, hi];
+
             if(hasTextArray) pt.tx = trace.text[i];
+            if(hasHovertextArray) pt.htx = trace.hovertext[i];
 
             cd.push(pt);
+        } else {
+            cd.push({pos: xi, empty: true});
         }
     }
 
-    trace._extremes[ya._id] = Axes.findExtremes(ya, l.concat(h), {padded: true});
+    trace._extremes[ya._id] = Axes.findExtremes(ya, Lib.concat(l, h), {padded: true});
 
     if(cd.length) {
         cd[0].t = {
@@ -120,8 +127,8 @@ function convertTickWidth(gd, xa, trace) {
     var minDiff = trace._minDiff;
 
     if(!minDiff) {
-        var fullData = gd._fullData,
-            ohlcTracesOnThisXaxis = [];
+        var fullData = gd._fullData;
+        var ohlcTracesOnThisXaxis = [];
 
         minDiff = Infinity;
 

@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -16,7 +16,6 @@ var Color = require('../color');
 var Drawing = require('../drawing');
 var Lib = require('../../lib');
 var svgTextUtils = require('../../lib/svg_text_utils');
-var anchorUtils = require('../legend/anchor_utils');
 var arrayEditor = require('../../plot_api/plot_template').arrayEditor;
 
 var LINE_SPACING = require('../../constants/alignment').LINE_SPACING;
@@ -25,8 +24,8 @@ var constants = require('./constants');
 var ScrollBox = require('./scrollbox');
 
 module.exports = function draw(gd) {
-    var fullLayout = gd._fullLayout,
-        menuData = Lib.filterVisible(fullLayout[constants.name]);
+    var fullLayout = gd._fullLayout;
+    var menuData = Lib.filterVisible(fullLayout[constants.name]);
 
     /* Update menu data is bound to the header-group.
      * The items in the header group are always present.
@@ -100,8 +99,8 @@ module.exports = function draw(gd) {
     }
 
     // setup scrollbox
-    var scrollBoxId = 'updatemenus' + fullLayout._uid,
-        scrollBox = new ScrollBox(gd, gButton, scrollBoxId);
+    var scrollBoxId = 'updatemenus' + fullLayout._uid;
+    var scrollBox = new ScrollBox(gd, gButton, scrollBoxId);
 
     // remove exiting header, remove dropped buttons and reset margins
     if(headerGroups.enter().size()) {
@@ -134,7 +133,6 @@ module.exports = function draw(gd) {
         } else {
             drawButtons(gd, gHeader, null, null, menuOpts);
         }
-
     });
 };
 
@@ -164,8 +162,7 @@ function setActive(gd, menuOpts, buttonOpts, gHeader, gButton, scrollBox, button
 
     if(menuOpts.type === 'buttons') {
         drawButtons(gd, gHeader, null, null, menuOpts);
-    }
-    else if(menuOpts.type === 'dropdown') {
+    } else if(menuOpts.type === 'dropdown') {
         // fold up buttons and redraw header
         gButton.attr(constants.menuIndexAttrName, '-1');
 
@@ -333,8 +330,7 @@ function drawButtons(gd, gHeader, gButton, scrollBox, menuOpts) {
     if(isVertical) {
         scrollBoxPosition.w = Math.max(dims.openWidth, dims.headerWidth);
         scrollBoxPosition.h = posOpts.y - scrollBoxPosition.t;
-    }
-    else {
+    } else {
         scrollBoxPosition.w = posOpts.x - scrollBoxPosition.l;
         scrollBoxPosition.h = Math.max(dims.openHeight, dims.headerHeight);
     }
@@ -344,8 +340,7 @@ function drawButtons(gd, gHeader, gButton, scrollBox, menuOpts) {
     if(scrollBox) {
         if(buttons.size()) {
             drawScrollBox(gd, gHeader, gButton, scrollBox, menuOpts, scrollBoxPosition);
-        }
-        else {
+        } else {
             hideScrollBox(scrollBox);
         }
     }
@@ -357,16 +352,15 @@ function drawScrollBox(gd, gHeader, gButton, scrollBox, menuOpts, position) {
     var isVertical = (direction === 'up' || direction === 'down');
     var dims = menuOpts._dims;
 
-    var active = menuOpts.active,
-        translateX, translateY,
-        i;
+    var active = menuOpts.active;
+    var translateX, translateY;
+    var i;
     if(isVertical) {
         translateY = 0;
         for(i = 0; i < active; i++) {
             translateY += dims.heights[i] + constants.gapButton;
         }
-    }
-    else {
+    } else {
         translateX = 0;
         for(i = 0; i < active; i++) {
             translateX += dims.widths[i] + constants.gapButton;
@@ -391,8 +385,8 @@ function drawScrollBox(gd, gHeader, gButton, scrollBox, menuOpts, position) {
 }
 
 function hideScrollBox(scrollBox) {
-    var hasHBar = !!scrollBox.hbar,
-        hasVBar = !!scrollBox.vbar;
+    var hasHBar = !!scrollBox.hbar;
+    var hasVBar = !!scrollBox.vbar;
 
     if(hasHBar) {
         scrollBox.hbar
@@ -443,8 +437,12 @@ function drawItemText(item, menuOpts, itemOpts, gd) {
             });
     });
 
+    var tx = itemOpts.label;
+    var _meta = gd._fullLayout._meta;
+    if(_meta) tx = Lib.templateString(tx, _meta);
+
     text.call(Drawing.font, menuOpts.font)
-        .text(itemOpts.label)
+        .text(tx)
         .call(svgTextUtils.convertToTspans, gd);
 }
 
@@ -566,21 +564,21 @@ function findDimensions(gd, menuOpts) {
     dims.ly = graphSize.t + graphSize.h * (1 - menuOpts.y);
 
     var xanchor = 'left';
-    if(anchorUtils.isRightAnchor(menuOpts)) {
+    if(Lib.isRightAnchor(menuOpts)) {
         dims.lx -= paddedWidth;
         xanchor = 'right';
     }
-    if(anchorUtils.isCenterAnchor(menuOpts)) {
+    if(Lib.isCenterAnchor(menuOpts)) {
         dims.lx -= paddedWidth / 2;
         xanchor = 'center';
     }
 
     var yanchor = 'top';
-    if(anchorUtils.isBottomAnchor(menuOpts)) {
+    if(Lib.isBottomAnchor(menuOpts)) {
         dims.ly -= paddedHeight;
         yanchor = 'bottom';
     }
-    if(anchorUtils.isMiddleAnchor(menuOpts)) {
+    if(Lib.isMiddleAnchor(menuOpts)) {
         dims.ly -= paddedHeight / 2;
         yanchor = 'middle';
     }

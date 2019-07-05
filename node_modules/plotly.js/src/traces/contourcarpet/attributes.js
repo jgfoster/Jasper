@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -12,8 +12,7 @@ var heatmapAttrs = require('../heatmap/attributes');
 var contourAttrs = require('../contour/attributes');
 var contourContourAttrs = contourAttrs.contours;
 var scatterAttrs = require('../scatter/attributes');
-var colorscaleAttrs = require('../../components/colorscale/attributes');
-var colorbarAttrs = require('../../components/colorbar/attributes');
+var colorScaleAttrs = require('../../components/colorscale/attributes');
 
 var extendFlat = require('../../lib/extend').extendFlat;
 
@@ -36,6 +35,7 @@ module.exports = extendFlat({
     b0: heatmapAttrs.y0,
     db: heatmapAttrs.dy,
     text: heatmapAttrs.text,
+    hovertext: heatmapAttrs.hovertext,
     transpose: heatmapAttrs.transpose,
     atype: heatmapAttrs.xtype,
     btype: heatmapAttrs.ytype,
@@ -90,12 +90,12 @@ module.exports = extendFlat({
             ].join(' ')
         }),
         editType: 'plot'
-    }
+    },
+    transforms: undefined
 },
 
-    colorscaleAttrs('', {
+    colorScaleAttrs('', {
         cLetter: 'z',
         autoColorDflt: false
-    }),
-    { colorbar: colorbarAttrs }
+    })
 );

@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -13,6 +13,7 @@ var createTubeMesh = tube2mesh.createTubeMesh;
 
 var Lib = require('../../lib');
 var parseColorScale = require('../../lib/gl_format_color').parseColorScale;
+var extractOpts = require('../../components/colorscale').extractOpts;
 var zip3 = require('../../plots/gl3d/zip3');
 
 var axisName2scaleIndex = {xaxis: 0, yaxis: 1, zaxis: 2};
@@ -55,7 +56,7 @@ proto.handlePick = function(selection) {
             selection.data.divergence
         ];
 
-        selection.textLabel = this.data.text;
+        selection.textLabel = this.data.hovertext || this.data.text;
 
         return true;
     }
@@ -153,7 +154,7 @@ function convert(scene, trace) {
         tubeOpts.startingPositions = startingPositions;
     }
 
-    tubeOpts.colormap = parseColorScale(trace.colorscale);
+    tubeOpts.colormap = parseColorScale(trace);
     tubeOpts.tubeSize = trace.sizeref;
     tubeOpts.maxLength = trace.maxdisplayed;
 
@@ -177,7 +178,8 @@ function convert(scene, trace) {
     // N.B. cmin/cmax correspond to the min/max vector norm
     // in the u/v/w arrays, which in general is NOT equal to max
     // intensity that colors the tubes.
-    meshData.vertexIntensityBounds = [trace.cmin / trace._normMax, trace.cmax / trace._normMax];
+    var cOpts = extractOpts(trace);
+    meshData.vertexIntensityBounds = [cOpts.min / trace._normMax, cOpts.max / trace._normMax];
 
     // pass gl-mesh3d lighting attributes
     var lp = trace.lightposition;

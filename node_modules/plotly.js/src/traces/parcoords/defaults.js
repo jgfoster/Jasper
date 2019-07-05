@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -9,7 +9,7 @@
 'use strict';
 
 var Lib = require('../../lib');
-var hasColorscale = require('../../components/colorscale/has_colorscale');
+var hasColorscale = require('../../components/colorscale/helpers').hasColorscale;
 var colorscaleDefaults = require('../../components/colorscale/defaults');
 var handleDomainDefaults = require('../../plots/domain').defaults;
 var handleArrayContainerDefaults = require('../../plots/array_container_defaults');
@@ -30,8 +30,7 @@ function handleLineDefaults(traceIn, traceOut, defaultColor, layout, coerce) {
             // but I'm not sure what color to give these lines - probably black or white
             // depending on the background color?
             return lineColor.length;
-        }
-        else {
+        } else {
             traceOut.line.color = defaultColor;
         }
     }

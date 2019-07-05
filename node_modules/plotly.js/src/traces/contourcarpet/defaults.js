@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -44,7 +44,6 @@ module.exports = function supplyDefaults(traceIn, traceOut, defaultColor, layout
     // attribute name to match the property name -- except '_a' !== 'a' so that is not
     // straightforward.
     if(traceIn.a && traceIn.b) {
-
         var len = handleXYZDefaults(traceIn, traceOut, coerce, layout, 'a', 'b');
 
         if(!len) {

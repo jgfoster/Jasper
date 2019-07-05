@@ -171,7 +171,7 @@ function Error2D (regl, options) {
 		`,
 
 		frag: `
-		precision mediump float;
+		precision highp float;
 
 		varying vec4 fragColor;
 

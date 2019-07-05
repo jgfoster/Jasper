@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -8,31 +8,28 @@
 
 'use strict';
 
-var Pie = {};
+module.exports = {
+    attributes: require('./attributes'),
+    supplyDefaults: require('./defaults'),
+    supplyLayoutDefaults: require('./layout_defaults'),
+    layoutAttributes: require('./layout_attributes'),
 
-Pie.attributes = require('./attributes');
-Pie.supplyDefaults = require('./defaults');
-Pie.supplyLayoutDefaults = require('./layout_defaults');
-Pie.layoutAttributes = require('./layout_attributes');
+    calc: require('./calc').calc,
+    crossTraceCalc: require('./calc').crossTraceCalc,
 
-var calcModule = require('./calc');
-Pie.calc = calcModule.calc;
-Pie.crossTraceCalc = calcModule.crossTraceCalc;
+    plot: require('./plot').plot,
+    style: require('./style'),
+    styleOne: require('./style_one'),
 
-Pie.plot = require('./plot');
-Pie.style = require('./style');
-Pie.styleOne = require('./style_one');
-
-Pie.moduleType = 'trace';
-Pie.name = 'pie';
-Pie.basePlotModule = require('./base_plot');
-Pie.categories = ['pie', 'showLegend'];
-Pie.meta = {
-    description: [
-        'A data visualized by the sectors of the pie is set in `values`.',
-        'The sector labels are set in `labels`.',
-        'The sector colors are set in `marker.colors`'
-    ].join(' ')
+    moduleType: 'trace',
+    name: 'pie',
+    basePlotModule: require('./base_plot'),
+    categories: ['pie-like', 'pie', 'showLegend'],
+    meta: {
+        description: [
+            'A data visualized by the sectors of the pie is set in `values`.',
+            'The sector labels are set in `labels`.',
+            'The sector colors are set in `marker.colors`'
+        ].join(' ')
+    }
 };
-
-module.exports = Pie;

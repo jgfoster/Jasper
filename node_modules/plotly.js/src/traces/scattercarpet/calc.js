@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -40,8 +40,7 @@ module.exports = function calc(gd, trace) {
             var visible = carpet.isVisible(+a, +b);
             if(!visible) needsCull = true;
             cd[i] = {x: xy[0], y: xy[1], a: a, b: b, vis: visible};
-        }
-        else cd[i] = {x: false, y: false};
+        } else cd[i] = {x: false, y: false};
     }
 
     trace._needsCull = needsCull;
@@ -50,7 +49,7 @@ module.exports = function calc(gd, trace) {
     cd[0].trace = trace;
 
     calcMarkerSize(trace, serieslen);
-    calcColorscale(trace);
+    calcColorscale(gd, trace);
     arraysToCalcdata(cd, trace);
     calcSelection(cd, trace);
 

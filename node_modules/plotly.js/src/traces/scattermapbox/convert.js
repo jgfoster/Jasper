@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -23,7 +23,7 @@ var convertTextOpts = require('../../plots/mapbox/convert_text_opts');
 module.exports = function convert(calcTrace) {
     var trace = calcTrace[0].trace;
 
-    var isVisible = (trace.visible === true);
+    var isVisible = (trace.visible === true && trace._length !== 0);
     var hasFill = (trace.fill !== 'none');
     var hasLines = subTypes.hasLines(trace);
     var hasMarkers = subTypes.hasMarkers(trace);
@@ -109,8 +109,8 @@ module.exports = function convert(calcTrace) {
         }
 
         if(hasText) {
-            var iconSize = (trace.marker || {}).size,
-                textOpts = convertTextOpts(trace.textposition, iconSize);
+            var iconSize = (trace.marker || {}).size;
+            var textOpts = convertTextOpts(trace.textposition, iconSize);
 
             // all data-driven below !!
 
@@ -157,9 +157,7 @@ function makeCircleOpts(calcTrace) {
     var colorFn;
     if(arrayColor) {
         if(Colorscale.hasColorscale(trace, 'marker')) {
-            colorFn = Colorscale.makeColorScaleFunc(
-                 Colorscale.extractScale(marker.colorscale, marker.cmin, marker.cmax)
-             );
+            colorFn = Colorscale.makeColorScaleFuncFromTrace(marker);
         } else {
             colorFn = Lib.identity;
         }
@@ -234,17 +232,17 @@ function makeCircleOpts(calcTrace) {
 function makeSymbolGeoJSON(calcTrace) {
     var trace = calcTrace[0].trace;
 
-    var marker = trace.marker || {},
-        symbol = marker.symbol,
-        text = trace.text;
+    var marker = trace.marker || {};
+    var symbol = marker.symbol;
+    var text = trace.text;
 
     var fillSymbol = (symbol !== 'circle') ?
-            getFillFunc(symbol) :
-            blankFillFunc;
+        getFillFunc(symbol) :
+        blankFillFunc;
 
     var fillText = subTypes.hasText(trace) ?
-            getFillFunc(text) :
-            blankFillFunc;
+        getFillFunc(text) :
+        blankFillFunc;
 
     var features = [];
 
@@ -275,11 +273,9 @@ function makeSymbolGeoJSON(calcTrace) {
 function getFillFunc(attr) {
     if(Lib.isArrayOrTypedArray(attr)) {
         return function(v) { return v; };
-    }
-    else if(attr) {
+    } else if(attr) {
         return function() { return attr; };
-    }
-    else {
+    } else {
         return blankFillFunc;
     }
 }

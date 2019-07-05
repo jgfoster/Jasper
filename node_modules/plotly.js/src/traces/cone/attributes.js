@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -8,8 +8,8 @@
 
 'use strict';
 
-var colorscaleAttrs = require('../../components/colorscale/attributes');
-var colorbarAttrs = require('../../components/colorbar/attributes');
+var colorScaleAttrs = require('../../components/colorscale/attributes');
+var hovertemplateAttrs = require('../../components/fx/hovertemplate_attributes');
 var mesh3dAttrs = require('../mesh3d/attributes');
 var baseAttrs = require('../../plots/attributes');
 
@@ -157,16 +157,23 @@ var attrs = {
             'If trace `hoverinfo` contains a *text* flag and *hovertext* is not set,',
             'these elements will be seen in the hover labels.'
         ].join(' ')
-    }
+    },
+    hovertext: {
+        valType: 'string',
+        role: 'info',
+        dflt: '',
+        arrayOk: true,
+        editType: 'calc',
+        description: 'Same as `text`.'
+    },
+    hovertemplate: hovertemplateAttrs({editType: 'calc'}, {keys: ['norm']})
 };
 
-extendFlat(attrs, colorscaleAttrs('', {
+extendFlat(attrs, colorScaleAttrs('', {
     colorAttr: 'u/v/w norm',
     showScaleDflt: true,
     editTypeOverride: 'calc'
-}), {
-    colorbar: colorbarAttrs
-});
+}));
 
 var fromMesh3d = ['opacity', 'lightposition', 'lighting'];
 
@@ -179,5 +186,7 @@ attrs.hoverinfo = extendFlat({}, baseAttrs.hoverinfo, {
     flags: ['x', 'y', 'z', 'u', 'v', 'w', 'norm', 'text', 'name'],
     dflt: 'x+y+z+norm+text+name'
 });
+
+attrs.transforms = undefined;
 
 module.exports = attrs;

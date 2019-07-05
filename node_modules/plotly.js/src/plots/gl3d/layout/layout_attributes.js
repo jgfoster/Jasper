@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -72,6 +72,21 @@ module.exports = {
                 'of this scene.'
             ].join(' ')
         }),
+        projection: {
+            type: {
+                valType: 'enumerated',
+                role: 'info',
+                values: ['perspective', 'orthographic'],
+                dflt: 'perspective',
+                editType: 'calc',
+                description: [
+                    'Sets the projection type. The projection type could be',
+                    'either *perspective* or *orthographic*. The default is',
+                    '*perspective*.'
+                ].join(' ')
+            },
+            editType: 'calc'
+        },
         editType: 'camera'
     },
     domain: domainAttrs({name: 'scene', editType: 'plot'}),
@@ -140,7 +155,6 @@ module.exports = {
         valType: 'enumerated',
         role: 'info',
         values: ['orbit', 'turntable', 'zoom', 'pan', false],
-        dflt: 'turntable',
         editType: 'plot',
         description: [
             'Determines the mode of drag interactions for this scene.'
@@ -154,6 +168,15 @@ module.exports = {
         editType: 'modebar',
         description: [
             'Determines the mode of hover interactions for this scene.'
+        ].join(' ')
+    },
+    uirevision: {
+        valType: 'any',
+        role: 'info',
+        editType: 'none',
+        description: [
+            'Controls persistence of user-driven changes in camera attributes.',
+            'Defaults to `layout.uirevision`.'
         ].join(' ')
     },
     editType: 'plot',

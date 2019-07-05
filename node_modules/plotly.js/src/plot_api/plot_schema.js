@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -16,6 +16,7 @@ var baseAttributes = require('../plots/attributes');
 var baseLayoutAttributes = require('../plots/layout_attributes');
 var frameAttributes = require('../plots/frame_attributes');
 var animationAttributes = require('../plots/animation_attributes');
+var configAttributes = require('./plot_config').configAttributes;
 
 // polar attributes are not part of the Registry yet
 var polarAreaAttrs = require('../plots/polar/legacy/area_attributes');
@@ -26,6 +27,9 @@ var editTypes = require('./edit_types');
 var extendFlat = Lib.extendFlat;
 var extendDeepAll = Lib.extendDeepAll;
 var isPlainObject = Lib.isPlainObject;
+var isArrayOrTypedArray = Lib.isArrayOrTypedArray;
+var nestedProperty = Lib.nestedProperty;
+var valObjectMeta = Lib.valObjectMeta;
 
 var IS_SUBPLOT_OBJ = '_isSubplotObj';
 var IS_LINKED_TO_ARRAY = '_isLinkedToArray';
@@ -47,7 +51,7 @@ exports.UNDERSCORE_ATTRS = UNDERSCORE_ATTRS;
  *  - transforms
  *  - frames
  *  - animations
- *  - config (coming soon ...)
+ *  - config
  */
 exports.get = function() {
     var traces = {};
@@ -64,7 +68,7 @@ exports.get = function() {
 
     return {
         defs: {
-            valObjects: Lib.valObjectMeta,
+            valObjects: valObjectMeta,
             metaKeys: UNDERSCORE_ATTRS.concat(['description', 'role', 'editType', 'impliedEdits']),
             editType: {
                 traces: editTypes.traces,
@@ -96,7 +100,9 @@ exports.get = function() {
         transforms: transforms,
 
         frames: getFramesAttributes(),
-        animation: formatAttributes(animationAttributes)
+        animation: formatAttributes(animationAttributes),
+
+        config: formatAttributes(configAttributes)
     };
 };
 
@@ -112,6 +118,7 @@ exports.get = function() {
  *          @param {String} attrName name string
  *          @param {object[]} attrs all the attributes
  *          @param {Number} level the recursion level, 0 at the root
+ *          @param {String} fullAttrString full attribute name (ie 'marker.line')
  * @param {Number} [specifiedLevel]
  *  The level in the tree, in order to let the callback function detect descend or backtrack,
  *  typically unsupplied (implied 0), just used by the self-recursive call.
@@ -200,21 +207,19 @@ exports.findArrayAttributes = function(trace) {
         var item = container[stack[i]];
         var newAstrPartial = astrPartial + stack[i];
         if(i === stack.length - 1) {
-            if(Lib.isArrayOrTypedArray(item)) {
+            if(isArrayOrTypedArray(item)) {
                 arrayAttributes.push(baseAttrName + newAstrPartial);
             }
-        }
-        else {
+        } else {
             if(isArrayStack[i]) {
                 if(Array.isArray(item)) {
                     for(var j = 0; j < item.length; j++) {
-                        if(Lib.isPlainObject(item[j])) {
+                        if(isPlainObject(item[j])) {
                             crawlIntoTrace(item[j], i + 1, newAstrPartial + '[' + j + '].');
                         }
                     }
                 }
-            }
-            else if(Lib.isPlainObject(item)) {
+            } else if(isPlainObject(item)) {
                 crawlIntoTrace(item, i + 1, newAstrPartial + '.');
             }
         }
@@ -278,11 +283,9 @@ exports.getTraceValObject = function(trace, parts) {
         moduleAttrs = (Registry.transformsRegistry[transforms[tNum].type] || {}).attributes;
         valObject = moduleAttrs && moduleAttrs[parts[2]];
         i = 3; // start recursing only inside the transform
-    }
-    else if(trace.type === 'area') {
+    } else if(trace.type === 'area') {
         valObject = polarAreaAttrs[head];
-    }
-    else {
+    } else {
         // first look in the module for this trace
         // components have already merged their trace attributes in here
         var _module = trace._module;
@@ -373,7 +376,9 @@ function layoutHeadAttr(fullLayout, head) {
      */
     for(key in Registry.componentsRegistry) {
         _module = Registry.componentsRegistry[key];
-        if(!_module.schema && (head === _module.name)) {
+        if(_module.name === 'colorscale' && head.indexOf('coloraxis') === 0) {
+            return _module.layoutAttributes[head];
+        } else if(!_module.schema && (head === _module.name)) {
             return _module.layoutAttributes;
         }
     }
@@ -410,8 +415,7 @@ function recurseIntoValObject(valObject, parts, i) {
         if(valObject._isLinkedToArray) {
             i++;
             if(!isIndex(parts[i])) return false;
-        }
-        else if(valObject.valType === 'info_array') {
+        } else if(valObject.valType === 'info_array') {
             i++;
             var index = parts[i];
             if(!isIndex(index)) return false;
@@ -425,10 +429,8 @@ function recurseIntoValObject(valObject, parts, i) {
                     var index2 = parts[i];
                     if(!isIndex(index2)) return false;
                     valObject = items[index][index2];
-                }
-                else valObject = items[index];
-            }
-            else {
+                } else valObject = items[index];
+            } else {
                 valObject = items;
             }
         }
@@ -449,8 +451,7 @@ function getTraceAttributes(type) {
     if(type === 'area') {
         _module = { attributes: polarAreaAttrs };
         basePlotModule = {};
-    }
-    else {
+    } else {
         _module = Registry.modules[type]._module,
         basePlotModule = _module.basePlotModule;
     }
@@ -460,11 +461,37 @@ function getTraceAttributes(type) {
     // make 'type' the first attribute in the object
     attributes.type = null;
 
+    var copyBaseAttributes = extendDeepAll({}, baseAttributes);
+    var copyModuleAttributes = extendDeepAll({}, _module.attributes);
+
+    // prune global-level trace attributes that are already defined in a trace
+    exports.crawl(copyModuleAttributes, function(attr, attrName, attrs, level, fullAttrString) {
+        nestedProperty(copyBaseAttributes, fullAttrString).set(undefined);
+        // Prune undefined attributes
+        if(attr === undefined) nestedProperty(copyModuleAttributes, fullAttrString).set(undefined);
+    });
+
     // base attributes (same for all trace types)
-    extendDeepAll(attributes, baseAttributes);
+    extendDeepAll(attributes, copyBaseAttributes);
+
+    // prune-out base attributes based on trace module categories
+    if(Registry.traceIs(type, 'noOpacity')) {
+        delete attributes.opacity;
+    }
+    if(!Registry.traceIs(type, 'showLegend')) {
+        delete attributes.showlegend;
+        delete attributes.legendgroup;
+    }
+    if(Registry.traceIs(type, 'noHover')) {
+        delete attributes.hoverinfo;
+        delete attributes.hoverlabel;
+    }
+    if(!_module.selectPoints) {
+        delete attributes.selectedpoints;
+    }
 
     // module attributes
-    extendDeepAll(attributes, _module.attributes);
+    extendDeepAll(attributes, copyModuleAttributes);
 
     // subplot attributes
     if(basePlotModule.attributes) {
@@ -476,6 +503,8 @@ function getTraceAttributes(type) {
 
     var out = {
         meta: _module.meta || {},
+        categories: _module.categories || {},
+        type: type,
         attributes: formatAttributes(attributes),
     };
 
@@ -521,24 +550,27 @@ function getLayoutAttributes() {
         _module = Registry.componentsRegistry[key];
         var schema = _module.schema;
 
-        /*
-         * Components with defined schema have already been merged in at register time
-         * but a few components define attributes that apply only to xaxis
-         * not yaxis (rangeselector, rangeslider) - delete from y schema.
-         * Note that the input attributes for xaxis/yaxis are the same object
-         * so it's not possible to only add them to xaxis from the start.
-         * If we ever have such asymmetry the other way, or anywhere else,
-         * we will need to extend both this code and mergeComponentAttrsToSubplot
-         * (which will not find yaxis only for example)
-         */
         if(schema && (schema.subplots || schema.layout)) {
+            /*
+             * Components with defined schema have already been merged in at register time
+             * but a few components define attributes that apply only to xaxis
+             * not yaxis (rangeselector, rangeslider) - delete from y schema.
+             * Note that the input attributes for xaxis/yaxis are the same object
+             * so it's not possible to only add them to xaxis from the start.
+             * If we ever have such asymmetry the other way, or anywhere else,
+             * we will need to extend both this code and mergeComponentAttrsToSubplot
+             * (which will not find yaxis only for example)
+             */
             var subplots = schema.subplots;
             if(subplots && subplots.xaxis && !subplots.yaxis) {
-                for(var xkey in subplots.xaxis) delete layoutAttributes.yaxis[xkey];
+                for(var xkey in subplots.xaxis) {
+                    delete layoutAttributes.yaxis[xkey];
+                }
             }
-        }
-        // older style without schema need to be explicitly merged in now
-        else if(_module.layoutAttributes) {
+        } else if(_module.name === 'colorscale') {
+            extendDeepAll(layoutAttributes, _module.layoutAttributes);
+        } else if(_module.layoutAttributes) {
+            // older style without schema need to be explicitly merged in now
             insertAttrs(layoutAttributes, _module.layoutAttributes, _module.name);
         }
     }
@@ -570,7 +602,7 @@ function getTransformAttributes(type) {
 
 function getFramesAttributes() {
     var attrs = {
-        frames: Lib.extendDeepAll({}, frameAttributes)
+        frames: extendDeepAll({}, frameAttributes)
     };
 
     formatAttributes(attrs);
@@ -587,7 +619,6 @@ function formatAttributes(attrs) {
 }
 
 function mergeValTypeAndRole(attrs) {
-
     function makeSrcAttr(attrName) {
         return {
             valType: 'string',
@@ -607,13 +638,11 @@ function mergeValTypeAndRole(attrs) {
                 attr.role = 'data';
                 // all 'data_array' attrs have a corresponding 'src' attr
                 attrs[attrName + 'src'] = makeSrcAttr(attrName);
-            }
-            else if(attr.arrayOk === true) {
+            } else if(attr.arrayOk === true) {
                 // all 'arrayOk' attrs have a corresponding 'src' attr
                 attrs[attrName + 'src'] = makeSrcAttr(attrName);
             }
-        }
-        else if(isPlainObject(attr)) {
+        } else if(isPlainObject(attr)) {
             // all attrs container objects get role 'object'
             attr.role = 'object';
         }
@@ -623,7 +652,6 @@ function mergeValTypeAndRole(attrs) {
 }
 
 function formatArrayContainers(attrs) {
-
     function callback(attr, attrName, attrs) {
         if(!attr) return;
 
@@ -676,15 +704,15 @@ function assignPolarLayoutAttrs(layoutAttributes) {
 }
 
 function handleBasePlotModule(layoutAttributes, _module, astr) {
-    var np = Lib.nestedProperty(layoutAttributes, astr),
-        attrs = extendDeepAll({}, _module.layoutAttributes);
+    var np = nestedProperty(layoutAttributes, astr);
+    var attrs = extendDeepAll({}, _module.layoutAttributes);
 
     attrs[IS_SUBPLOT_OBJ] = true;
     np.set(attrs);
 }
 
 function insertAttrs(baseAttrs, newAttrs, astr) {
-    var np = Lib.nestedProperty(baseAttrs, astr);
+    var np = nestedProperty(baseAttrs, astr);
 
     np.set(extendDeepAll(np.get() || {}, newAttrs));
 }

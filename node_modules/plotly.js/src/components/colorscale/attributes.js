@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -8,7 +8,10 @@
 
 'use strict';
 
-var palettes = require('./scales.js');
+var colorbarAttrs = require('../colorbar/attributes');
+var counterRegex = require('../../lib/regex').counter;
+
+var palettes = require('./scales.js').scales;
 var paletteStr = Object.keys(palettes);
 
 function code(s) {
@@ -54,6 +57,8 @@ function code(s) {
  *     most of these attributes already require a recalc, but the ones that do not
  *     have editType *style* or *plot* unless you override (presumably with *calc*)
  *
+ *   - anim {boolean) (dflt: undefined): is 'color' animatable?
+ *
  * @return {object}
  */
 module.exports = function colorScaleAttrs(context, opts) {
@@ -85,6 +90,8 @@ module.exports = function colorScaleAttrs(context, opts) {
     var auto = cLetter + 'auto';
     var min = cLetter + 'min';
     var max = cLetter + 'max';
+    var mid = cLetter + 'mid';
+    var autoFull = code(contextHead + auto);
     var minFull = code(contextHead + min);
     var maxFull = code(contextHead + max);
     var minmaxFull = minFull + ' and ' + maxFull;
@@ -109,6 +116,10 @@ module.exports = function colorScaleAttrs(context, opts) {
                 ' ' + minmaxFull + ' if set.'
             ].join('')
         };
+
+        if(opts.anim) {
+            attrs.color.anim = true;
+        }
     }
 
     attrs[auto] = {
@@ -151,6 +162,21 @@ module.exports = function colorScaleAttrs(context, opts) {
             effectDesc,
             ' Value should have the same units as ', colorAttrFull,
             ' and if set, ', minFull, ' must be set as well.'
+        ].join('')
+    };
+
+    attrs[mid] = {
+        valType: 'number',
+        role: 'info',
+        dflt: null,
+        editType: 'calc',
+        impliedEdits: autoImpliedEdits,
+        description: [
+            'Sets the mid-point of the color domain by scaling ', minFull,
+            ' and/or ', maxFull, ' to be equidistant to this point.',
+            effectDesc,
+            ' Value should have the same units as ', colorAttrFull, '. ',
+            'Has no effect when ', autoFull, ' is `false`.'
         ].join('')
     };
 
@@ -197,7 +223,7 @@ module.exports = function colorScaleAttrs(context, opts) {
         valType: 'boolean',
         role: 'style',
         dflt: false,
-        editType: 'calc',
+        editType: 'plot',
         description: [
             'Reverses the color mapping if true.',
             effectDesc,
@@ -216,6 +242,25 @@ module.exports = function colorScaleAttrs(context, opts) {
                 'Determines whether or not a colorbar is displayed for this trace.',
                 effectDesc
             ].join('')
+        };
+
+        attrs.colorbar = colorbarAttrs;
+    }
+
+    if(!opts.noColorAxis) {
+        attrs.coloraxis = {
+            valType: 'subplotid',
+            role: 'info',
+            regex: counterRegex('coloraxis'),
+            dflt: null,
+            editType: 'calc',
+            description: [
+                'Sets a reference to a shared color axis.',
+                'References to these shared color axes are *coloraxis*, *coloraxis2*, *coloraxis3*, etc.',
+                'Settings for these shared color axes are set in the layout, under',
+                '`layout.coloraxis`, `layout.coloraxis2`, etc.',
+                'Note that multiple color scales can be linked to the same color axis.'
+            ].join(' ')
         };
     }
 

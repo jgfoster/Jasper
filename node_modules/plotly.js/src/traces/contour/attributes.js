@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -10,8 +10,7 @@
 
 var heatmapAttrs = require('../heatmap/attributes');
 var scatterAttrs = require('../scatter/attributes');
-var colorscaleAttrs = require('../../components/colorscale/attributes');
-var colorbarAttrs = require('../../components/colorbar/attributes');
+var colorScaleAttrs = require('../../components/colorscale/attributes');
 var dash = require('../../components/drawing/attributes').dash;
 var fontAttrs = require('../../plots/font_attributes');
 var extendFlat = require('../../lib/extend').extendFlat;
@@ -31,10 +30,12 @@ module.exports = extendFlat({
     y0: heatmapAttrs.y0,
     dy: heatmapAttrs.dy,
     text: heatmapAttrs.text,
+    hovertext: heatmapAttrs.hovertext,
     transpose: heatmapAttrs.transpose,
     xtype: heatmapAttrs.xtype,
     ytype: heatmapAttrs.ytype,
     zhoverformat: heatmapAttrs.zhoverformat,
+    hovertemplate: heatmapAttrs.hovertemplate,
 
     connectgaps: heatmapAttrs.connectgaps,
 
@@ -249,10 +250,9 @@ module.exports = extendFlat({
         editType: 'plot'
     }
 },
-    colorscaleAttrs('', {
+    colorScaleAttrs('', {
         cLetter: 'z',
         autoColorDflt: false,
         editTypeOverride: 'calc'
-    }),
-    { colorbar: colorbarAttrs }
+    })
 );

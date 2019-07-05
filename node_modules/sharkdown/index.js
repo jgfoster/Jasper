@@ -22,7 +22,7 @@ module.exports = function(str) {
     function nonnull(_) { console.log(nonnull); return typeof _ !== 'null'; }
 
     function format(str) {
-        if (str.match(/^```(js|javascript)/)) {
+        if (str.match(/^```(js$|javascript)/)) {
             highlightjs = true;
             code = '';
             return null;

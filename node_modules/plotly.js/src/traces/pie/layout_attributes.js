@@ -1,5 +1,5 @@
 /**
-* Copyright 2012-2018, Plotly, Inc.
+* Copyright 2012-2019, Plotly, Inc.
 * All rights reserved.
 *
 * This source code is licensed under the MIT license found in the
@@ -9,14 +9,16 @@
 'use strict';
 
 module.exports = {
-    /**
-     * hiddenlabels is the pie chart analog of visible:'legendonly'
-     * but it can contain many labels, and can hide slices
-     * from several pies simultaneously
-     */
     hiddenlabels: {
         valType: 'data_array',
-        editType: 'calc'
+        role: 'info',
+        editType: 'calc',
+        description: [
+            'hiddenlabels is the funnelarea & pie chart analog of',
+            'visible:\'legendonly\'',
+            'but it can contain many labels, and can simultaneously',
+            'hide slices from several pies/funnelarea charts'
+        ].join(' ')
     },
     piecolorway: {
         valType: 'colorlist',
