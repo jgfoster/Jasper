@@ -1,4 +1,3 @@
-import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as os from 'os';
@@ -9,43 +8,38 @@ import { ActiveSession } from './sessionManager';
 import { registerMcpTools } from './mcpTools';
 import { appendSysadmin } from './sysadminChannel';
 
+/**
+ * Single, user-scoped server name. Every MCP client (Claude Code, Claude
+ * Desktop, etc.) sees the same `gemstone` entry; whichever Jasper window owns
+ * the socket at any moment answers the tool calls.
+ */
+export const MCP_SERVER_NAME = 'gemstone';
+
+/**
+ * Fixed socket / named-pipe path. Stable across reboots and shared across
+ * every VS Code window, so the path baked into Claude clients' config files
+ * stays valid forever — no per-launch registration required.
+ *
+ * The first Jasper window to activate becomes the listening owner; later
+ * windows detect a live listener and run in passive mode. If the owner exits,
+ * the next Jasper to start finds a stale socket file (or no pipe) and claims
+ * ownership cleanly.
+ */
+export function defaultSocketPath(): string {
+  if (process.platform === 'win32') {
+    return '\\\\.\\pipe\\jasper-mcp';
+  }
+  return path.join(os.homedir(), '.jasper', 'mcp.sock');
+}
+
 export interface McpSocketServerOptions {
   /** Returns the user's currently selected GemStone session, or undefined. */
   getSession: () => ActiveSession | undefined;
   /**
-   * Stable identifier for the workspace. Used to derive a socket path so
-   * multiple windows/workspaces don't collide. Falls back to a random value
-   * if not provided.
+   * Override the socket path. Production code should let this default to
+   * {@link defaultSocketPath}; tests use it to avoid the shared global path.
    */
-  workspaceKey?: string;
-}
-
-function workspaceHash(workspaceKey: string): string {
-  return crypto.createHash('sha1').update(workspaceKey).digest('hex').slice(0, 10);
-}
-
-/**
- * Derive the socket / named-pipe path for a given workspace. Stable across
- * restarts so registered MCP entries (written into `~/.claude.json` by
- * `claude mcp add` and into `claude_desktop_config.json` by this module)
- * keep working without re-configuration.
- */
-export function socketPathFor(workspaceKey: string): string {
-  const hash = workspaceHash(workspaceKey);
-  if (process.platform === 'win32') {
-    // Named pipe
-    return `\\\\.\\pipe\\jasper-mcp-${hash}`;
-  }
-  return path.join(os.tmpdir(), `jasper-mcp-${hash}.sock`);
-}
-
-/**
- * Name under which the MCP server is registered with Claude Desktop. Desktop
- * has a single global config file, so we namespace by workspace to let
- * multiple open VS Code windows coexist without clobbering each other.
- */
-export function mcpServerNameFor(workspaceKey: string): string {
-  return `gemstone-${workspaceHash(workspaceKey)}`;
+  socketPath?: string;
 }
 
 /**
@@ -53,40 +47,81 @@ export function mcpServerNameFor(workspaceKey: string): string {
  * incoming connection gets its own McpServer instance bound to Jasper's
  * current selected session via {@link registerMcpTools}.
  *
- * The spawned thin proxy (in mcp-server/out/index.js --proxy-socket …)
- * connects here; Claude Code's stdio is piped through the proxy into this
- * socket. Tools therefore run inside the extension host against the user's
- * live GCI session.
+ * The spawned thin proxy (mcp-server/out/index.js --proxy-socket …) connects
+ * here; Claude clients' stdio is piped through the proxy into this socket.
+ * Tools therefore run inside the extension host against the user's live GCI
+ * session.
  */
 export class McpSocketServer {
   private server: net.Server | undefined;
+  private _isOwner = false;
   readonly socketPath: string;
 
   constructor(private options: McpSocketServerOptions) {
-    const key = options.workspaceKey ?? crypto.randomBytes(8).toString('hex');
-    this.socketPath = socketPathFor(key);
+    this.socketPath = options.socketPath ?? defaultSocketPath();
   }
 
-  async start(): Promise<void> {
-    // Remove any stale socket from a previous run (Unix only; named pipes are
-    // automatically cleaned up by the OS when the owning process exits).
-    if (process.platform !== 'win32' && fs.existsSync(this.socketPath)) {
-      try { fs.unlinkSync(this.socketPath); } catch { /* ignore */ }
+  /** True after {@link start} has successfully claimed the listening socket. */
+  get isOwner(): boolean {
+    return this._isOwner;
+  }
+
+  /**
+   * Try to claim the socket as the listening owner.
+   *
+   * - No other Jasper running → bind and listen (unlinking any stale file).
+   * - Another Jasper already listening → return `false`; this window is
+   *   passive. Configs already point at the right socket, so MCP clients keep
+   *   working through whichever window does own it.
+   */
+  async start(): Promise<boolean> {
+    if (process.platform !== 'win32') {
+      const dir = path.dirname(this.socketPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      if (fs.existsSync(this.socketPath)) {
+        // Distinguish a live owner from a leftover file (crash, kill -9).
+        const live = await isSocketLive(this.socketPath);
+        if (live) {
+          appendSysadmin(
+            `MCP socket at ${this.socketPath} is owned by another Jasper window; this window is passive.`,
+          );
+          return false;
+        }
+        try {
+          fs.unlinkSync(this.socketPath);
+        } catch {
+          /* ignore — bind will error below if the file truly can't be removed */
+        }
+      }
     }
 
-    this.server = net.createServer((socket) => {
-      this.handleConnection(socket);
-    });
-
-    await new Promise<void>((resolve, reject) => {
-      this.server!.once('error', reject);
-      this.server!.listen(this.socketPath, () => {
-        this.server!.removeListener('error', reject);
-        resolve();
+    const server = net.createServer((socket) => this.handleConnection(socket));
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(this.socketPath, () => {
+          server.removeListener('error', reject);
+          resolve();
+        });
       });
-    });
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'EADDRINUSE') {
+        // Windows named pipes (and a tight race on Unix) can land here.
+        appendSysadmin(
+          `MCP socket at ${this.socketPath} is owned by another Jasper window; this window is passive.`,
+        );
+        return false;
+      }
+      throw err;
+    }
 
+    this.server = server;
+    this._isOwner = true;
     appendSysadmin(`MCP socket listening at ${this.socketPath}`);
+    return true;
   }
 
   private handleConnection(socket: net.Socket): void {
@@ -94,8 +129,6 @@ export class McpSocketServer {
     const mcpServer = new McpServer({ name: 'gemstone', version: '1.0.0' });
     registerMcpTools(mcpServer, this.options.getSession);
 
-    // StdioServerTransport reads from an input stream and writes to an output
-    // stream. net.Socket is both, so we use it as both ends.
     const transport = new StdioServerTransport(socket, socket);
     mcpServer.connect(transport).catch((err) => {
       appendSysadmin(`MCP connection error: ${(err as Error).message}`);
@@ -114,20 +147,53 @@ export class McpSocketServer {
   async dispose(): Promise<void> {
     const server = this.server;
     this.server = undefined;
+    const wasOwner = this._isOwner;
+    this._isOwner = false;
     if (!server) return;
     await new Promise<void>((resolve) => {
       server.close(() => resolve());
     });
-    if (process.platform !== 'win32' && fs.existsSync(this.socketPath)) {
-      try { fs.unlinkSync(this.socketPath); } catch { /* ignore */ }
+    if (wasOwner && process.platform !== 'win32' && fs.existsSync(this.socketPath)) {
+      try {
+        fs.unlinkSync(this.socketPath);
+      } catch {
+        /* ignore */
+      }
     }
   }
+}
+
+/**
+ * Probe whether the given socket file has a live listener.
+ * - `connect` succeeds → live (another Jasper owns it).
+ * - `ECONNREFUSED` / other connect error → stale file (the previous owner
+ *   crashed or was force-quit without cleaning up).
+ *
+ * A short hard timeout guards against hung kernel state.
+ */
+async function isSocketLive(socketPath: string): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const probe = net.createConnection(socketPath);
+    let settled = false;
+    const finish = (live: boolean) => {
+      if (settled) return;
+      settled = true;
+      probe.removeAllListeners();
+      probe.destroy();
+      resolve(live);
+    };
+    probe.once('connect', () => finish(true));
+    probe.once('error', () => finish(false));
+    setTimeout(() => finish(false), 500);
+  });
 }
 
 /** Absolute path to the stdio proxy script shipped in the extension. */
 export function proxyScriptPath(extensionPath: string): string {
   return path.join(extensionPath, 'mcp-server', 'out', 'index.js');
 }
+
+// ── Claude Desktop config writer ────────────────────────────────────────────
 
 /**
  * Platform-specific path for Claude Desktop's MCP config. Desktop has a
@@ -171,14 +237,15 @@ function writeDesktopSettings(configPath: string, settings: ClaudeDesktopSetting
   fs.writeFileSync(configPath, JSON.stringify(settings, null, 2) + '\n');
 }
 
+const LEGACY_PER_WORKSPACE_KEY = /^gemstone-[a-f0-9]{10}$/;
+
 /**
- * Merge a per-workspace `gemstone-<hash>` entry into Claude Desktop's global
- * config, pointing at the proxy script with the given socket path. Preserves
- * other entries (including gemstone-<hash> entries from other workspaces).
- * Returns the config path that was written (or would have been written).
+ * Write the single global `gemstone` entry into Claude Desktop's config and
+ * clean up any legacy per-workspace `gemstone-<hash>` entries left over from
+ * older Jasper versions. Idempotent — only writes the file when something
+ * actually changes.
  */
 export function writeClaudeDesktopMcpConfig(
-  workspaceKey: string,
   extensionPath: string,
   socketPath: string,
 ): string {
@@ -190,32 +257,22 @@ export function writeClaudeDesktopMcpConfig(
     args: [proxyScriptPath(extensionPath), '--proxy-socket', socketPath],
   };
 
-  const name = mcpServerNameFor(workspaceKey);
   const mcpServers = (settings.mcpServers ?? {}) as Record<string, unknown>;
-  const current = mcpServers[name];
-  if (JSON.stringify(current) !== JSON.stringify(desired)) {
-    mcpServers[name] = desired;
+  let dirty = false;
+  if (JSON.stringify(mcpServers[MCP_SERVER_NAME]) !== JSON.stringify(desired)) {
+    mcpServers[MCP_SERVER_NAME] = desired;
+    dirty = true;
+  }
+  for (const key of Object.keys(mcpServers)) {
+    if (LEGACY_PER_WORKSPACE_KEY.test(key)) {
+      delete mcpServers[key];
+      dirty = true;
+    }
+  }
+
+  if (dirty) {
     settings.mcpServers = mcpServers;
     writeDesktopSettings(configPath, settings);
   }
   return configPath;
-}
-
-/**
- * Remove this workspace's `gemstone-<hash>` entry from Claude Desktop's
- * config. Called on extension deactivation so Desktop doesn't keep trying to
- * launch a proxy against a dead socket. No-ops if the file or entry is
- * absent.
- */
-export function removeClaudeDesktopMcpConfig(workspaceKey: string): void {
-  const configPath = claudeDesktopConfigPath();
-  if (!fs.existsSync(configPath)) return;
-  const settings = readDesktopSettings(configPath);
-  const mcpServers = settings.mcpServers as Record<string, unknown> | undefined;
-  if (!mcpServers) return;
-  const name = mcpServerNameFor(workspaceKey);
-  if (!(name in mcpServers)) return;
-  delete mcpServers[name];
-  settings.mcpServers = mcpServers;
-  writeDesktopSettings(configPath, settings);
 }

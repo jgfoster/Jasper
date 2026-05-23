@@ -58,6 +58,8 @@ vi.mock('../pythonQueries', () => ({
 
 import * as net from 'net';
 import * as crypto from 'crypto';
+import * as os from 'os';
+import * as path from 'path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
@@ -137,8 +139,8 @@ describe('McpSocketServer integration', () => {
     session = makeMockSession();
     server = new McpSocketServer({
       getSession: () => session,
-      // Randomize per test so parallel runs don't collide on a socket file.
-      workspaceKey: `jasper-test-${crypto.randomBytes(6).toString('hex')}`,
+      // Randomize per test so parallel runs don't collide on the fixed socket path.
+      socketPath: path.join(os.tmpdir(), `jasper-mcp-test-${crypto.randomBytes(6).toString('hex')}.sock`),
     });
     await server.start();
     vi.clearAllMocks();

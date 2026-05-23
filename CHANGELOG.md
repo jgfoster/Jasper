@@ -4,11 +4,22 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.4.5] - 2026-05-23
+
+### Changed
+
+- **Claude Code MCP registration switched from CLI shell-out to direct user-scope file write.** Earlier versions invoked `claude mcp add` in each workspace, which wrote a *per-project* `gemstone-<hash>` entry into `~/.claude.json`'s `projects.<cwd>.mcpServers` section and required the `claude` CLI on PATH. Jasper now writes a single user-scope `mcpServers.gemstone` entry at the top level of `~/.claude.json`, so the tools are visible in every Claude Code session regardless of working directory — same model as Anthropic's hosted Gmail / Drive / Calendar connectors. Any stale per-project `gemstone` entries from earlier versions are stripped on activation. The removed `claudeCodeMcpLifecycle.ts` / `claudeCodeMcpRegistration.ts` modules (and their tests) go away with the CLI dependency.
+
 ### Added
 
+- **One-time "Reload Window" prompt when Jasper first registers with Claude Code in a window.** Claude Code snapshots its MCP server list at session start, so the session already running in the VS Code window where Jasper just wrote the entry won't see it via `/mcp` until it re-activates. Jasper now offers a one-click reload in that exact case. Subsequent VS Code launches are silent because the entry is already in place when Claude Code starts. Suppressible via "Don't show again"; re-fires only when the entry's contents actually change (e.g. extension upgrade changing the proxy script path).
 - **Regression guards for the two thinnest spots in the MCP shared-query test suite**, prompted by external feedback from a downstream Grail (GemStone-Python) project that uses Jasper's MCP server as its primary edit-test surface:
   - Multi-line `eval_python` input now has a round-trip test in `structuredQueries.test.ts` that confirms a `def`/multi-line Python source embeds verbatim into the Smalltalk `src := '...'.` literal with its real LFs preserved, and asserts no `\n`-escape mutation appears. Guards against a future "improvement" to `escapeString` that would convert newlines into `\` + `n` and SyntaxError every multi-line eval.
   - `runFailingTests`'s `MAX_MSG = 1024` per-message cap now has a *mechanism* test in addition to the existing magic-number assertion: the full `s copyFrom: 1 to: (s size min: 1024)` slice form is pinned (a bare `min:` returns the integer size — no trim would happen), and the clip is positioned before the outer `ws contents encodeAsUTF8` so 1024 remains a character-count budget rather than a byte-count budget.
+
+### Documentation
+
+- **README "How the MCP server starts" section** documents the activation flow end-to-end: which window claims the socket, what gets written where, and why the first-launch reload exists.
 
 ## [1.4.4] - 2026-05-11
 

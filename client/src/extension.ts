@@ -41,11 +41,14 @@ import { DatabaseManager } from './databaseManager';
 import { DatabaseTreeProvider, DatabaseNode } from './databaseTreeProvider';
 import { ProcessManager } from './processManager';
 import { openMcpInspector } from './openMcpInspector';
-import { McpSocketServer, proxyScriptPath, removeClaudeDesktopMcpConfig, writeClaudeDesktopMcpConfig } from './mcpSocketServer';
+import { McpSocketServer, writeClaudeDesktopMcpConfig } from './mcpSocketServer';
+import { writeClaudeCodeUserMcpConfig } from './claudeCodeUserMcpConfig';
+import {
+  buildRefreshPromptDeps,
+  promptClaudeCodeRefresh,
+} from './claudeCodeRefreshPrompt';
 import { DEFAULT_MCP_HTTP_PORT, McpHttpServer } from './mcpHttpServer';
 import { ensureSelfSignedCert, trustCertCommand } from './tlsCert';
-import { ClaudeCliRegistrar } from './claudeCodeMcpRegistration';
-import { ClaudeCodeMcpLifecycle } from './claudeCodeMcpLifecycle';
 import { ProcessTreeProvider, ProcessItem } from './processTreeProvider';
 import { OsConfigTreeProvider } from './sharedMemoryTreeProvider';
 import { runQuickSetup } from './quickSetup';
@@ -1139,52 +1142,61 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   // ── Claude Code & Claude Desktop MCP integration ─────────────────────────
-  // Open the socket and register the MCP server at activation. The server
-  // stays registered for the extension's lifetime; tool calls made without an
-  // active GemStone session surface a clean error message (see mcpTools.ts),
-  // rather than the server disappearing from the client's view.
+  // Jasper exposes a single global MCP server at a fixed socket path. The
+  // first VS Code window to activate claims the socket; later windows run
+  // passively. The server name (`gemstone`) and socket path are written once
+  // into each client's user-scope config and never per-workspace — same model
+  // as Anthropic's hosted Gmail/Drive/Calendar connectors.
   //
-  // Claude Code: registered via `claude mcp add` (project-local scope of
-  //              `~/.claude.json`), handled by ClaudeCodeMcpLifecycle.
-  // Claude Desktop: has no CLI and no project scope; we write its global
-  //              `claude_desktop_config.json` directly, keyed per-workspace
-  //              as `gemstone-<hash>` so multiple windows can coexist.
+  // Claude Code:    user-scope `mcpServers.gemstone` in `~/.claude.json`.
+  // Claude Desktop: `mcpServers.gemstone` in `claude_desktop_config.json`.
+  //
+  // We don't remove these entries on deactivate — the registration is meant
+  // to outlive any individual Jasper run, just like other MCP integrations.
   const workspaceRoots = vscode.workspace.workspaceFolders;
   if (workspaceRoots && workspaceRoots.length > 0) {
-    const workspaceRoot = workspaceRoots[0].uri.fsPath;
-    let desktopSocketPath: string | undefined;
+    const mcpSocketServer = new McpSocketServer({
+      getSession: () => sessionManager.getSelectedSession(),
+    });
     const registerDesktop = vscode.workspace.getConfiguration('gemstone')
       .get<boolean>('mcp.registerWithClaudeDesktop', true);
-    const lifecycle = new ClaudeCodeMcpLifecycle({
-      serverName: 'gemstone',
-      proxyCommand: 'node',
-      proxyArgs: [proxyScriptPath(context.extensionPath)],
-      startSocket: async () => {
-        const server = new McpSocketServer({
-          getSession: () => sessionManager.getSelectedSession(),
-          workspaceKey: workspaceRoot,
-        });
-        await server.start();
+    (async () => {
+      try {
+        const isOwner = await mcpSocketServer.start();
+        if (!isOwner) return; // passive window: configs already point at the live socket
+        try {
+          const result = writeClaudeCodeUserMcpConfig(
+            context.extensionPath,
+            mcpSocketServer.socketPath,
+          );
+          if (result.skipped === 'missing') {
+            appendSysadmin(`Claude Code config not found at ${result.path}; skipping user-scope MCP registration.`);
+          } else if (result.skipped === 'unreadable') {
+            appendSysadmin(`Claude Code config at ${result.path} is unreadable; skipping user-scope MCP registration.`);
+          } else {
+            appendSysadmin(`Claude Code MCP config: ${result.path}${result.updated ? ' (updated)' : ' (unchanged)'}`);
+            if (result.updated) {
+              void promptClaudeCodeRefresh(buildRefreshPromptDeps(context));
+            }
+          }
+        } catch (err) {
+          appendSysadmin(`Failed to write Claude Code MCP config: ${(err as Error).message}`);
+        }
         if (registerDesktop) {
           try {
             const desktopPath = writeClaudeDesktopMcpConfig(
-              workspaceRoot,
               context.extensionPath,
-              server.socketPath,
+              mcpSocketServer.socketPath,
             );
-            desktopSocketPath = server.socketPath;
             appendSysadmin(`Claude Desktop MCP config: ${desktopPath}`);
           } catch (err) {
             appendSysadmin(`Failed to write Claude Desktop MCP config: ${(err as Error).message}`);
           }
         }
-        return server;
-      },
-      registrar: new ClaudeCliRegistrar(workspaceRoot),
-    });
-    lifecycle.start().catch((err) => {
-      appendSysadmin(`Claude Code MCP lifecycle error: ${(err as Error).message}`);
-    });
+      } catch (err) {
+        appendSysadmin(`MCP socket startup error: ${(err as Error).message}`);
+      }
+    })();
 
     // HTTPS/SSE surface for clients whose connector UI takes a URL (e.g.
     // Claude Desktop's "Add custom connector" dialog, which rejects http URLs).
@@ -1262,11 +1274,8 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push({
       dispose: () => {
-        void lifecycle.dispose();
+        void mcpSocketServer.dispose();
         if (httpServer) void httpServer.dispose();
-        if (desktopSocketPath !== undefined) {
-          try { removeClaudeDesktopMcpConfig(workspaceRoot); } catch { /* ignore */ }
-        }
       },
     });
   }

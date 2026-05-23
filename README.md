@@ -240,12 +240,25 @@ Two transports are served in parallel:
 
 | Transport | Endpoint | Used by |
 |-----------|----------|---------|
-| stdio (proxy) | local socket / named pipe | Claude Code (via `claude mcp add`) |
+| stdio (proxy) | local socket / named pipe | Claude Code (via `~/.claude.json` user-scope) |
 | HTTPS/SSE | `https://127.0.0.1:27101/sse` | Claude Desktop "Add custom connector", MCP Inspector, any URL-based MCP client |
+
+### How the MCP server starts
+
+Both surfaces are started by the extension's `activate()` function:
+
+1. The first VS Code window to activate **claims a fixed local socket** (`~/.jasper/mcp.sock` on macOS/Linux, a named pipe on Windows) and binds the HTTPS port. Later windows detect the existing socket and stay passive, sharing the running server.
+2. The owning window **writes a single user-scope `gemstone` entry into `~/.claude.json`** under the top-level `mcpServers` key — same model as Anthropic's hosted Gmail / Drive / Calendar connectors. The entry points at a thin Node proxy that forwards MCP traffic over the socket. User-scope means the tools are visible to every Claude Code session regardless of working directory, not just the project that happened to open VS Code.
+3. Any stale per-project `gemstone` entries from earlier Jasper versions (which used `claude mcp add`) are stripped on the way through.
+4. The Claude Desktop config is updated in parallel (see below).
+
+All tools proxy through the socket to the **currently selected GemStone session** in the owning VS Code window. There are no separate MCP credentials.
 
 ### Claude Code
 
-Registered automatically on extension activation by invoking `claude mcp add gemstone -- node <proxy> --proxy-socket <path>` in the workspace folder. The CLI writes the entry into `~/.claude.json`'s per-project scope. If the `claude` CLI isn't on PATH the registration is skipped silently.
+Registered automatically on every activation by writing the user-scope `mcpServers.gemstone` entry directly to `~/.claude.json`. No `claude` CLI dependency.
+
+Claude Code snapshots its MCP server list when each session starts. The very first time Jasper writes the entry, any Claude Code session already running in that VS Code window won't see it via `/mcp` until it re-activates — Jasper detects this case and pops a one-time **"Reload Window"** prompt to take care of it in a single click. Every subsequent VS Code launch is silent because the entry is already in place when Claude Code starts.
 
 ### Claude Desktop
 
