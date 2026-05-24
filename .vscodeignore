@@ -6,6 +6,11 @@ gemstone
 .gemstone/**
 TODO.md
 
+docs/**
+!docs/mcp-server.md
+!docs/windows-wsl.md
+!docs/formatter.md
+
 node_modules/**
 client/node_modules/**
 server/node_modules/**
