@@ -6,6 +6,75 @@ import { GemStoneDatabase, GemStoneProcess } from './sysadminTypes';
 import { appendSysadmin, showSysadmin } from './sysadminChannel';
 import { needsWsl, windowsPathToWsl, wslSpawn, wslExecSync } from './wslBridge';
 
+export interface StaleLockReport {
+  /** Path to the .LCK file on the host filesystem (a WSL path under Windows). */
+  lockPath: string;
+  /** True when we believe the lock is orphaned and safe to remove. */
+  safe: boolean;
+  /** One-line explanation suitable for a confirmation dialog. */
+  reason: string;
+  /** Current command line `ps` reports for the recorded PID, when known. */
+  currentPidOwner?: string;
+}
+
+/** Classify what `ps -p <pid> -o command=` returned. Exported so the safety
+ *  rule can be tested without spawning a shell.
+ *
+ *  Inputs:
+ *   - psOutput: trimmed stdout from `ps -p <pid> -o command= 2>/dev/null || echo GONE`
+ *   - stoneName: process name from gslist; used as a corroborating signal
+ *               (it appears as the last arg of the stoned/netldid command line). */
+export function classifyPidOwnership(
+  psOutput: string,
+  stoneName: string,
+): { pidGone: boolean; isGemStoneServer: boolean; command: string } {
+  const command = psOutput.trim();
+  if (command === '' || command === 'GONE') {
+    return { pidGone: true, isGemStoneServer: false, command: '' };
+  }
+  // Real stoned/netldid processes have one of those tokens as the executable
+  // basename (matched at a word boundary so unrelated apps like
+  // "ssh-agent" or "iTunesHelper" do not get a false positive).
+  const lowered = command.toLowerCase();
+  const looksLikeServer = /(?:^|[\/\s])(?:stoned|netldid)(?:\s|$)/.test(lowered);
+  return { pidGone: false, isGemStoneServer: looksLikeServer, command };
+}
+
+/** Parse `gslist -cvl` output into structured process records.
+ *  Exported for testing. Lines that don't match the data-row format
+ *  (header, separator, info lines, blanks) are silently skipped. */
+export function parseGslist(output: string): GemStoneProcess[] {
+  const processes: GemStoneProcess[] = [];
+  for (const line of output.split('\n')) {
+    // Data row: {status}  {version}  {owner}  {pid} {port} {month} {day} {time} {type}  {name}
+    // Status can be one word ("OK", "frozen", "killed", "exists", "unknown(EPERM)")
+    // or two ("exe deleted"). We anchor on the version, which always starts with a digit,
+    // so the non-greedy first capture absorbs the status without eating into version.
+    const match = line.match(
+      /^\s*(\S+(?: \S+)?)\s+(\d[\d.]*)\s+\S+\s+(\d+)\s+(\d+)\s+(\w+\s+\d+\s+[\d:]+)\s+(Stone|Netldi)\s+(.+)$/i,
+    );
+    if (!match) continue;
+    const typeLower = match[6].toLowerCase();
+    if (typeLower !== 'stone' && typeLower !== 'netldi') continue;
+    const type = typeLower === 'stone' ? 'stone' : 'netldi';
+    const status = match[1].trim();
+    const proc: GemStoneProcess = {
+      type,
+      version: match[2],
+      pid: parseInt(match[3], 10),
+      name: match[7].trim(),
+      startTime: match[5],
+      status,
+      responding: status.toUpperCase() === 'OK',
+    };
+    if (type === 'netldi') {
+      proc.port = parseInt(match[4], 10);
+    }
+    processes.push(proc);
+  }
+  return processes;
+}
+
 export class ProcessManager {
   private cachedProcesses: GemStoneProcess[] = [];
 
@@ -36,38 +105,67 @@ export class ProcessManager {
         env.LD_LIBRARY_PATH = `${gsPath}/lib`;
       }
       const output = wslExecSync(`"${gslistPath}" -cvl`, env);
-      this.cachedProcesses = this.parseGslist(output);
+      this.cachedProcesses = parseGslist(output);
     } catch {
       this.cachedProcesses = [];
     }
     return this.cachedProcesses;
   }
 
-  private parseGslist(output: string): GemStoneProcess[] {
-    const processes: GemStoneProcess[] = [];
-    for (const line of output.split('\n')) {
-      // Format: OK  {version}  {owner}  {pid} {port} {month} {day} {time} {type}  {name}
-      const match = line.match(
-        /^OK\s+([\d.]+)\s+\S+\s+(\d+)\s+(\d+)\s+(\w+\s+\d+\s+[\d:]+)\s+(Stone|Netldi)\s+(.+)$/i,
-      );
-      if (match) {
-        const typeLower = match[5].toLowerCase();
-        if (typeLower !== 'stone' && typeLower !== 'netldi') continue;
-        const type = typeLower === 'stone' ? 'stone' : 'netldi';
-        const proc: GemStoneProcess = {
-          type,
-          version: match[1],
-          pid: parseInt(match[2], 10),
-          name: match[6].trim(),
-          startTime: match[4],
-        };
-        if (type === 'netldi') {
-          proc.port = parseInt(match[3], 10);
-        }
-        processes.push(proc);
-      }
+  /** Determine whether the .LCK file for a stale process appears safe to remove.
+   *  Safe = recorded PID is gone, or has been reused by some non-GemStone process.
+   *  Unsafe = a real stoned/netldid is still running under that PID (a genuinely
+   *  hung server that the operator should investigate, not auto-clean). */
+  inspectStaleLock(proc: GemStoneProcess): StaleLockReport {
+    const rootPath = needsWsl() ? this.storage.getWslRootPath() : this.storage.getRootPath();
+    const lockPath = `${rootPath}/locks/${proc.name}..LCK`;
+    let psOutput = '';
+    try {
+      // `|| echo GONE` collapses the "no such pid" exit into stdout so we get
+      // one branch to parse instead of catching and decoding errno strings.
+      psOutput = wslExecSync(`ps -p ${proc.pid} -o command= 2>/dev/null || echo GONE`).trim();
+    } catch {
+      // execSync threw before producing output — likely no shell or ps. Treat
+      // as inconclusive; the safer default is to refuse.
+      return {
+        lockPath,
+        safe: false,
+        reason: `Could not check PID ${proc.pid} (ps unavailable). Refusing to delete the lock.`,
+      };
     }
-    return processes;
+    const ownership = classifyPidOwnership(psOutput, proc.name);
+    if (ownership.pidGone) {
+      return {
+        lockPath,
+        safe: true,
+        reason: `PID ${proc.pid} no longer exists. The lock file is orphaned.`,
+      };
+    }
+    if (ownership.isGemStoneServer) {
+      return {
+        lockPath,
+        safe: false,
+        reason: `PID ${proc.pid} is still a running GemStone server (${ownership.command}). Use stopstone instead.`,
+        currentPidOwner: ownership.command,
+      };
+    }
+    return {
+      lockPath,
+      safe: true,
+      reason: `PID ${proc.pid} has been reused by an unrelated process (${ownership.command}). The lock file is orphaned.`,
+      currentPidOwner: ownership.command,
+    };
+  }
+
+  /** Delete the .LCK file at `lockPath`. Returns true on success.
+   *  Callers must inspect safety first; this method does not re-check. */
+  deleteStaleLock(lockPath: string): boolean {
+    try {
+      wslExecSync(`rm -f "${lockPath.replace(/"/g, '\\"')}"`);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private findGslist(): string | undefined {

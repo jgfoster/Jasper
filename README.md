@@ -43,37 +43,9 @@ To install, manage, and run a GemStone server locally:
 
 Alternatively, run **Quick Setup** (button in the Versions view) to do all of the above in one step.
 
-## Windows Usage
+## Windows usage
 
-Jasper supports two Windows configurations:
-
-### Windows without WSL — Client IDE only
-
-Connect to a GemStone server running on a remote host (or in a VM). No WSL installation is required.
-
-1. Create a login with the remote host, stone name, and NetLDI.
-2. On first login, Jasper offers to download the **Windows client distribution** for your GemStone version. This is a small download (~15 MB) containing only the native GCI DLL.
-3. After the download, Jasper auto-detects the library and connects.
-
-You can also download client libraries ahead of time using the **Download Windows Client** button in the **Versions** view.
-
-The Versions, Databases, and Processes sections are hidden when WSL is not available, since server management requires a Linux environment.
-
-### Windows with WSL — Full server management
-
-With WSL installed and a Linux distribution configured, Jasper can manage GemStone servers running inside WSL while the VS Code extension runs natively on Windows. The GemStone server distribution is downloaded and extracted inside WSL, while the Windows client distribution provides the native DLL for VS Code to communicate with the server.
-
-#### Reaching WSL from Windows
-
-The Windows extension connects to GemStone services (NetLDI) that run inside WSL, so a GemStone login needs a host and a port that Windows can route to. There are three paths, presented in the **OS Configuration** view under **WSL networking**:
-
-1. **Mirrored networking (recommended, Windows 11 22H2 + WSL core 2.0+)** — `localhost` on Windows reaches services bound inside WSL with no further setup. Jasper detects the state and, when NAT is active, offers a one-click **Enable mirrored networking** action that writes `networkingMode=mirrored` to `%USERPROFILE%\.wslconfig` and prompts to restart WSL.
-2. **Stable name via hosts file (Windows 10 fallback)** — Jasper can write `<wsl-ip> wsl-linux` to `C:\Windows\System32\drivers\etc\hosts`. Logins then use `wsl-linux` instead of a raw IP. Because WSL2 assigns a new IP after `wsl --shutdown` or reboot, the action is idempotent and meant to be re-run after any WSL restart. The script self-elevates via UAC.
-3. **Copy the IP** — running NetLDI items expose a **Copy Host** context action. Under mirrored networking this copies `localhost`; otherwise it copies the current WSL IP (shown in the item's tooltip). Paste into the login's Host field.
-
-#### NetLDI port naming (`gs64ldi`)
-
-Jasper also detects whether `gs64ldi 50377/tcp` is present in `/etc/services` on both sides. With the entry in place, `startnetldi` binds to the conventional port 50377 (instead of picking a random one) and logins can name the port as `gs64ldi`. The **Services** row under OS Configuration offers separate write actions for the Windows and WSL sides — the Windows write needs admin (UAC), the WSL write needs `sudo`.
+Jasper runs on Windows in two modes: as a client-only IDE talking to a remote GemStone server, or as a full local server manager backed by WSL. The full Windows/WSL guide — picking a networking mode, writing the hosts file, naming the NetLDI port, the works — lives in **[docs/windows-wsl.md](docs/windows-wsl.md)**.
 
 ## Infrastructure Management
 
@@ -129,6 +101,12 @@ Inline buttons on each database provide:
 ### Process List
 
 The **Processes** view shows all running GemStone processes (stones and NetLDIs) detected via `gslist`, including version, PID, and port information.
+
+Stale processes — where `gslist` reports a `frozen`, `killed`, or `exe deleted` status — are rendered with a red icon and the status prefixed onto the description. A **Delete Stale Lock File** inline action lets you remove the orphaned `*.LCK` after Jasper confirms the recorded PID is either gone or has been reused by an unrelated process. (On macOS, `gslist -c` can't detect a recycled PID on its own, so this manual step is sometimes necessary; see [docs/mcp-server.md](docs/mcp-server.md#limitations) for context.)
+
+### MCP Server view
+
+The **MCP Server** view shows which Jasper window is currently serving MCP tool calls, the active session it's bound to, the socket path, and the HTTPS URL when available. Click **Socket:** or **HTTPS:** to copy the value to the clipboard. See the [MCP Server design doc](docs/mcp-server.md) for the full picture.
 
 ## IDE Features
 
@@ -228,57 +206,32 @@ The extension integrates with VS Code's native Test Explorer:
 
 ### File Export
 
-Export classes from a GemStone session to local `.gs` files in Topaz format. Exported files are organized by host, stone, user, and dictionary (or use a custom per-login export path template). Editing an exported file and saving compiles it back into GemStone.
+Export classes from a GemStone session to local `.gs` files in Topaz format. Files land in `{workspaceRoot}/.gemstone/{sessionId}/{index}-{dictName}/` by default — a hidden directory so the exported tree doesn't clutter Quick Open or your repo. Override the layout with the `gemstone.exportPath` template setting (variables: `{workspaceRoot}`, `{session}`, `{host}`, `{stone}`, `{user}`, `{index}`, `{dictName}`).
 
-The `gemstone.userManagedDictionaries` setting lists dictionary names that the extension will never overwrite during export.
+Exported `.gs` files are **read-only on disk** (`chmod 0o444`). They exist so VS Code's search, Go to Definition, and find-in-files have something to work with — not for editing. Edit methods through the **System Browser**, which round-trips through the `gemstone://` virtual filesystem and compiles on save. Creating a new `.gs` file under a dictionary directory does still file in a class template; deleting one deletes the class in GemStone.
 
 ## Claude / MCP Integration
 
-Jasper exposes its GemStone tools to MCP-aware AI clients (Claude Code, Claude Desktop, MCP Inspector). All tools run against the user's **currently active session** — there are no separate credentials, no per-database subprocesses, and no off-host exposure.
+Jasper exposes its GemStone IDE surface to MCP-aware AI clients (Claude Code, Claude Desktop, MCP Inspector, and any other client that speaks the protocol). All tools run against the **currently active session** in the window the user is actually working in — no separate credentials, no per-database subprocesses, no off-host exposure.
 
 Two transports are served in parallel:
 
 | Transport | Endpoint | Used by |
 |-----------|----------|---------|
-| stdio (proxy) | local socket / named pipe | Claude Code (via `~/.claude.json` user-scope) |
-| HTTPS/SSE | `https://127.0.0.1:27101/sse` | Claude Desktop "Add custom connector", MCP Inspector, any URL-based MCP client |
+| stdio (proxy) | local socket / named pipe | Claude Code, Claude Desktop |
+| HTTPS/SSE | `https://127.0.0.1:27101/sse` | "Add custom connector" UIs, MCP Inspector, any URL-based client |
 
-### How the MCP server starts
+Both Claude Code (`~/.claude.json`) and Claude Desktop (`claude_desktop_config.json`) are registered automatically when the extension activates, on macOS, Linux, and Windows. The **MCP Server** view in the GemStone sidebar shows which Jasper window is currently serving requests and which GemStone session it's bound to.
 
-Both surfaces are started by the extension's `activate()` function:
-
-1. The first VS Code window to activate **claims a fixed local socket** (`~/.jasper/mcp.sock` on macOS/Linux, a named pipe on Windows) and binds the HTTPS port. Later windows detect the existing socket and stay passive, sharing the running server.
-2. The owning window **writes a single user-scope `gemstone` entry into `~/.claude.json`** under the top-level `mcpServers` key — same model as Anthropic's hosted Gmail / Drive / Calendar connectors. The entry points at a thin Node proxy that forwards MCP traffic over the socket. User-scope means the tools are visible to every Claude Code session regardless of working directory, not just the project that happened to open VS Code.
-3. Any stale per-project `gemstone` entries from earlier Jasper versions (which used `claude mcp add`) are stripped on the way through.
-4. The Claude Desktop config is updated in parallel (see below).
-
-All tools proxy through the socket to the **currently selected GemStone session** in the owning VS Code window. There are no separate MCP credentials.
-
-### Claude Code
-
-Registered automatically on every activation by writing the user-scope `mcpServers.gemstone` entry directly to `~/.claude.json`. No `claude` CLI dependency.
-
-Claude Code snapshots its MCP server list when each session starts. The very first time Jasper writes the entry, any Claude Code session already running in that VS Code window won't see it via `/mcp` until it re-activates — Jasper detects this case and pops a one-time **"Reload Window"** prompt to take care of it in a single click. Every subsequent VS Code launch is silent because the entry is already in place when Claude Code starts.
-
-### Claude Desktop
-
-Jasper writes a per-workspace `gemstone-<hash>` entry into Claude Desktop's global `claude_desktop_config.json` on activation and removes it on deactivation. Disable with `gemstone.mcp.registerWithClaudeDesktop: false` in your settings.
-
-To use the HTTPS/SSE surface from Claude Desktop's "Add custom connector" dialog you must first trust the self-signed certificate Jasper generates on first run:
+To use the HTTPS/SSE surface from Claude Desktop's "Add custom connector" dialog (or any URL-based client), trust the self-signed cert Jasper generates on first run:
 
 1. Run **`GemStone: Install MCP TLS Certificate`** from the Command Palette.
 2. Choose **Run in Terminal** (macOS will prompt for an admin password) or copy the command and run it yourself.
 3. Run **`GemStone: Copy MCP Server URL`** and paste it into the connector dialog.
 
-The cert is valid for `127.0.0.1` and `localhost` only, lives in the extension's global storage directory, and is shared across workspaces — you only have to trust it once.
+For the full architecture (ownership model, multi-window behavior, tool catalogue, limitations, how to wire up other MCP clients), see **[docs/mcp-server.md](docs/mcp-server.md)**.
 
-### MCP Inspector
-
-Run **`GemStone: Open MCP Inspector`** from the Command Palette. The terminal it spawns picks up `NODE_EXTRA_CA_CERTS` pointing at Jasper's cert so Node's TLS stack accepts the connection (OS keychain trust does not apply to Node).
-
-### Multiple VS Code windows
-
-The HTTPS port is global, so the first window to activate wins. Subsequent windows log an `EADDRINUSE` note to **GemStone Admin** and skip the HTTPS surface (Claude Code's stdio surface still works in every window). To run two windows simultaneously, override `gemstone.mcp.httpPort` in each workspace's `.vscode/settings.json`.
+Disable Claude Desktop registration with `gemstone.mcp.registerWithClaudeDesktop: false`. Override the HTTPS port per-workspace with `gemstone.mcp.httpPort` to run multiple MCP-serving windows simultaneously.
 
 ## Language Support
 
@@ -300,23 +253,7 @@ All formats include:
 - Diagnostics
 - Code folding
 
-### Formatter Settings
-
-Fine-tune the Smalltalk formatter under `gemstoneSmalltalk.formatter.*`:
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `spacesInsideParens` | false | `( x )` vs `(x)` |
-| `spacesInsideBrackets` | false | `[ x ]` vs `[x]` |
-| `spacesInsideBraces` | false | `{ x }` vs `{x}` |
-| `spacesAroundAssignment` | true | `x := y` vs `x:=y` |
-| `spacesAroundBinarySelectors` | true | `a + b` vs `a+b` |
-| `spaceAfterCaret` | false | `^ x` vs `^x` |
-| `blankLineAfterMethodPattern` | true | Blank line between pattern and body |
-| `maxLineLength` | 0 | Line wrapping (0 = off) |
-| `continuationIndent` | 2 | Indent for continuation lines |
-| `multiKeywordThreshold` | 2 | Keywords before splitting across lines |
-| `removeUnnecessaryParens` | true | Remove based on Smalltalk precedence |
+The Smalltalk formatter has eleven knobs under `gemstoneSmalltalk.formatter.*` (spacing, line wrapping, continuation indent, etc.). The VS Code Settings UI shows every option live; the full reference is in **[docs/formatter.md](docs/formatter.md)**.
 
 ## Settings
 
@@ -325,7 +262,6 @@ Fine-tune the Smalltalk formatter under `gemstoneSmalltalk.formatter.*`:
 | `gemstone.rootPath` | `~/Documents/GemStone` | Root directory for GemStone installations and databases |
 | `gemstone.gciLibraries` | `{}` | Map of GemStone versions to GCI library paths |
 | `gemstone.exportPath` | `""` | Root path for class file export (supports `{workspaceRoot}`) |
-| `gemstone.userManagedDictionaries` | `[]` | Dictionary names excluded from export |
 | `gemstone.maxEnvironment` | 0 | Method environments to display in browser |
 | `gemstone.mcp.httpPort` | 27101 | Port on 127.0.0.1 where Jasper serves the MCP HTTPS/SSE surface |
 | `gemstone.mcp.registerWithClaudeDesktop` | true | Auto-register the gemstone MCP server in Claude Desktop's global config |
@@ -342,48 +278,14 @@ The extension communicates with GemStone databases using the GemStone C Interfac
 
 The Windows client distribution exports a subset of the full GCI interface — non-blocking login and debug-attach functions are not available, but all standard session operations work normally.
 
-## Development
+## Documentation
 
-### Setting up NVM and Node.js
-
-This project uses Node Version Manager (NVM) to ensure developers use a consistent Node.js version. The project includes a `.nvmrc` file that specifies the Node version to use.
-
-1. Install NVM (if not already installed): https://github.com/nvm-sh/nvm
-
-2. Run `nvm use` in the project root to activate the correct version.
-
-### Build and Development
-
-- Build: `npm run compile`
-- Watch: `npm run watch`
-- Test: `npm test`
-- Test GCI: `GCI_LIBRARY_PATH=/path/to/libgcits npm run test:gci`
-- Package: `npm run package`
-
-### Continuous Integration
-
-A GitHub Actions workflow (`branch-health.yml`) ensures branch health on all pushes and pull requests. It runs on both Ubuntu and macOS and performs:
-
-- Node.js version verification (using `.nvmrc`)
-- Dependency installation
-- TypeScript compilation for all packages (client, server, mcp-server)
-- Full test suite
-- Build artifact validation
-
-Before pushing changes, ensure `npm run compile && npm test` passes locally.
-
-### Publishing
-
-1. Update the version in `package.json` and add a changelog entry.
-2. Build and test: `npm run compile && npm test`
-3. Package: `npx @vscode/vsce package`
-4. Publish: `npx @vscode/vsce publish`
-
-You must be logged in with a Personal Access Token for the `gemtalksystems` publisher. To set up credentials:
-
-```sh
-npx @vscode/vsce login gemtalksystems
-```
+| Topic | Where |
+|-------|-------|
+| Windows / WSL networking, hosts file, NetLDI port naming | [docs/windows-wsl.md](docs/windows-wsl.md) |
+| MCP server architecture, ownership model, client registration, tool catalog | [docs/mcp-server.md](docs/mcp-server.md) |
+| Smalltalk formatter reference (all options) | [docs/formatter.md](docs/formatter.md) |
+| Building, testing, releasing | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ## License
 

@@ -7,6 +7,11 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { ActiveSession } from './sessionManager';
 import { registerMcpTools } from './mcpTools';
 import { appendSysadmin } from './sysadminChannel';
+import {
+  defaultSidecarPath,
+  deleteOwnerSidecar,
+  writeOwnerSidecar,
+} from './mcpOwnerSidecar';
 
 /**
  * Single, user-scoped server name. Every MCP client (Claude Code, Claude
@@ -40,6 +45,23 @@ export interface McpSocketServerOptions {
    * {@link defaultSocketPath}; tests use it to avoid the shared global path.
    */
   socketPath?: string;
+  /**
+   * Workspace path written into the owner sidecar so passive Jasper windows
+   * can display "MCP server is owned by /path/to/other/workspace". Falls back
+   * to "(no workspace)" if not provided.
+   */
+  workspacePath?: string;
+  /**
+   * Override the owner sidecar path. Tests use this to avoid touching the
+   * shared global path; production code lets it default.
+   */
+  sidecarPath?: string;
+  /**
+   * Formatter for the selected session's human-readable label, written into
+   * the sidecar so passive windows can show which session the owner is
+   * currently serving. Return `undefined` when no session is selected.
+   */
+  getSessionLabel?: () => string | undefined;
 }
 
 /**
@@ -55,10 +77,21 @@ export interface McpSocketServerOptions {
 export class McpSocketServer {
   private server: net.Server | undefined;
   private _isOwner = false;
+  private claimedAtIso = '';
+  /**
+   * Caller-provided formatter: returns a human-readable label for the active
+   * session (or `undefined` if none). Lets the socket server keep its sidecar
+   * up to date as the owning window switches sessions, without dragging
+   * `loginTypes`/`sessionManager` formatting into this file.
+   */
+  private getSessionLabel: () => string | undefined;
   readonly socketPath: string;
+  readonly sidecarPath: string;
 
   constructor(private options: McpSocketServerOptions) {
     this.socketPath = options.socketPath ?? defaultSocketPath();
+    this.sidecarPath = options.sidecarPath ?? defaultSidecarPath();
+    this.getSessionLabel = options.getSessionLabel ?? (() => undefined);
   }
 
   /** True after {@link start} has successfully claimed the listening socket. */
@@ -120,8 +153,40 @@ export class McpSocketServer {
 
     this.server = server;
     this._isOwner = true;
+    this.claimedAtIso = new Date().toISOString();
+    this.writeSidecarSnapshot();
     appendSysadmin(`MCP socket listening at ${this.socketPath}`);
     return true;
+  }
+
+  /**
+   * Re-write the sidecar with the current session label. Call after a session
+   * selection change in the owning window so passive Jasper windows see the
+   * new session in their MCP Server panel. No-op when not owner.
+   */
+  refreshSidecar(): void {
+    if (!this._isOwner) return;
+    this.writeSidecarSnapshot();
+  }
+
+  private writeSidecarSnapshot(): void {
+    const label = this.getSessionLabel();
+    try {
+      writeOwnerSidecar(
+        {
+          pid: process.pid,
+          workspacePath: this.options.workspacePath ?? '(no workspace)',
+          socketPath: this.socketPath,
+          claimedAt: this.claimedAtIso,
+          ...(label !== undefined ? { selectedSession: label } : {}),
+        },
+        this.sidecarPath,
+      );
+    } catch (err) {
+      appendSysadmin(
+        `Failed to write MCP owner sidecar at ${this.sidecarPath}: ${(err as Error).message}`,
+      );
+    }
   }
 
   private handleConnection(socket: net.Socket): void {
@@ -159,6 +224,9 @@ export class McpSocketServer {
       } catch {
         /* ignore */
       }
+    }
+    if (wasOwner) {
+      deleteOwnerSidecar(process.pid, this.sidecarPath);
     }
   }
 }

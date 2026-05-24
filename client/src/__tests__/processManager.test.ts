@@ -3,10 +3,22 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 vi.mock('vscode', () => import('../__mocks__/vscode'));
 vi.mock('child_process');
 vi.mock('../sysadminChannel', () => ({ appendSysadmin: vi.fn(), showSysadmin: vi.fn() }));
+vi.mock('../wslBridge', async () => {
+  // Keep wslSpawn / windowsPathToWsl real so the existing startStone tests
+  // continue to drive the child_process mock; only override wslExecSync and
+  // needsWsl, which the new stale-lock tests need to control.
+  const actual = await vi.importActual<typeof import('../wslBridge')>('../wslBridge');
+  return {
+    ...actual,
+    needsWsl: vi.fn(() => false),
+    wslExecSync: vi.fn(),
+  };
+});
 
 import { spawn } from 'child_process';
-import { ProcessManager } from '../processManager';
-import { GemStoneDatabase } from '../sysadminTypes';
+import { ProcessManager, parseGslist, classifyPidOwnership } from '../processManager';
+import { GemStoneDatabase, GemStoneProcess } from '../sysadminTypes';
+import * as wslBridge from '../wslBridge';
 
 // ── Helpers ────────────────────────────────────────────────
 
@@ -62,6 +74,19 @@ function makeChildProcess(exitCode = 0) {
 
 function setPlatform(platform: string) {
   Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+}
+
+function staleStone(overrides: Partial<GemStoneProcess> = {}): GemStoneProcess {
+  return {
+    type: 'stone',
+    name: 'gs64stone',
+    version: '3.7.5',
+    pid: 4106,
+    startTime: 'May 17 19:57',
+    status: 'frozen',
+    responding: false,
+    ...overrides,
+  };
 }
 
 // ── Suite ──────────────────────────────────────────────────
@@ -205,6 +230,72 @@ describe('ProcessManager', () => {
     });
   });
 
+  // ── parseGslist ───────────────────────────────────────────
+
+  describe('parseGslist', () => {
+    // Header and dashes appear in real gslist output and must not be parsed
+    // as data rows; the trailing OK / frozen lines are the actual processes.
+    const sampleOutput = [
+      'Status        Version    Owner       Pid   Port   Started     Type       Name',
+      '-------      --------- --------- -------- ----- ------------ ------      ----',
+      'OK           3.7.5     jfoster      10923 50377 May 24 07:06 Netldi      gs64ldi',
+      'frozen       3.7.5     jfoster       4106 49677 May 17 19:57 Stone       gs64stone',
+    ].join('\n');
+
+    it('parses both responding and frozen processes from a mixed gslist run', () => {
+      const procs = parseGslist(sampleOutput);
+      expect(procs).toHaveLength(2);
+    });
+
+    it('marks an "OK" netldi as responding and preserves its port', () => {
+      const procs = parseGslist(sampleOutput);
+      const netldi = procs.find(p => p.type === 'netldi')!;
+      expect(netldi.status).toBe('OK');
+      expect(netldi.responding).toBe(true);
+      expect(netldi.port).toBe(50377);
+      expect(netldi.pid).toBe(10923);
+      expect(netldi.name).toBe('gs64ldi');
+    });
+
+    it('marks a "frozen" stone as not responding so the UI can flag it', () => {
+      const procs = parseGslist(sampleOutput);
+      const stone = procs.find(p => p.type === 'stone')!;
+      expect(stone.status).toBe('frozen');
+      expect(stone.responding).toBe(false);
+      expect(stone.pid).toBe(4106);
+      expect(stone.name).toBe('gs64stone');
+    });
+
+    it('recognizes the two-word "exe deleted" status without bleeding into version', () => {
+      const line = 'exe deleted  3.7.5     jfoster       4106 49677 May 17 19:57 Stone       gs64stone';
+      const procs = parseGslist(line);
+      expect(procs).toHaveLength(1);
+      expect(procs[0].status).toBe('exe deleted');
+      expect(procs[0].responding).toBe(false);
+      expect(procs[0].version).toBe('3.7.5');
+    });
+
+    it('recognizes "unknown(EPERM)" as a stale (non-responding) status', () => {
+      const line = 'unknown(EPERM)  3.7.5     jfoster       4106 49677 May 17 19:57 Stone       gs64stone';
+      const procs = parseGslist(line);
+      expect(procs).toHaveLength(1);
+      expect(procs[0].status).toBe('unknown(EPERM)');
+      expect(procs[0].responding).toBe(false);
+    });
+
+    it('skips the header row and separator line', () => {
+      const onlyHeaders = [
+        'Status        Version    Owner       Pid   Port   Started     Type       Name',
+        '-------      --------- --------- -------- ----- ------------ ------      ----',
+      ].join('\n');
+      expect(parseGslist(onlyHeaders)).toEqual([]);
+    });
+
+    it('returns an empty list for the "No GemStone servers" info message', () => {
+      expect(parseGslist('gslist[Info]: No GemStone servers.')).toEqual([]);
+    });
+  });
+
   // ── startNetldi spawn behaviour ───────────────────────────
 
   describe('runCommand (via startNetldi)', () => {
@@ -235,6 +326,129 @@ describe('ProcessManager', () => {
 
       const [cmd] = vi.mocked(spawn).mock.calls[0];
       expect(cmd).toContain('startnetldi');
+    });
+  });
+
+  // ── classifyPidOwnership (pure) ───────────────────────────
+
+  describe('classifyPidOwnership', () => {
+    it('reports the PID gone when ps fell back to the "GONE" sentinel', () => {
+      const r = classifyPidOwnership('GONE', 'gs64stone');
+      expect(r.pidGone).toBe(true);
+      expect(r.isGemStoneServer).toBe(false);
+    });
+
+    it('reports the PID gone when ps produced nothing', () => {
+      const r = classifyPidOwnership('', 'gs64stone');
+      expect(r.pidGone).toBe(true);
+    });
+
+    it('recognizes a real stoned command line as a GemStone server', () => {
+      const cmd = '/Users/jfoster/Documents/GemStone/GemStone64Bit3.7.5/sys/stoned -l /log/x.log -e /conf/x.conf -z /conf/system.conf gs64stone';
+      const r = classifyPidOwnership(cmd, 'gs64stone');
+      expect(r.pidGone).toBe(false);
+      expect(r.isGemStoneServer).toBe(true);
+    });
+
+    it('recognizes a real netldid command line as a GemStone server', () => {
+      const r = classifyPidOwnership('/gs/sys/netldid gs64ldi', 'gs64ldi');
+      expect(r.isGemStoneServer).toBe(true);
+    });
+
+    it('does NOT mistake a recycled-PID unrelated process for a GemStone server', () => {
+      const r = classifyPidOwnership('/usr/bin/ssh-agent', 'gs64stone');
+      expect(r.pidGone).toBe(false);
+      expect(r.isGemStoneServer).toBe(false);
+    });
+
+    it('does NOT match substrings like "stoned-arm" or "netldid_helper" that share a prefix only', () => {
+      // Regression: word-boundary anchors prevent a substring like
+      // "/opt/stoned-arm/binary" from falsely triggering the server check.
+      const r = classifyPidOwnership('/opt/stoned-arm/binary', 'gs64stone');
+      expect(r.isGemStoneServer).toBe(false);
+    });
+  });
+
+  // ── inspectStaleLock / deleteStaleLock ────────────────────
+
+  describe('inspectStaleLock', () => {
+    beforeEach(() => {
+      vi.mocked(wslBridge.wslExecSync).mockReset();
+      vi.mocked(wslBridge.needsWsl).mockReturnValue(false);
+    });
+
+    it('returns safe=true and the expected lock path when the PID is gone', () => {
+      vi.mocked(wslBridge.wslExecSync).mockReturnValue('GONE');
+      const manager = new ProcessManager(makeStorage() as any);
+      const report = manager.inspectStaleLock(staleStone());
+      expect(report.safe).toBe(true);
+      expect(report.lockPath).toBe('/home/user/gemstone/locks/gs64stone..LCK');
+      expect(report.reason).toMatch(/no longer exists/);
+    });
+
+    it('refuses when the recorded PID is still a running stoned', () => {
+      vi.mocked(wslBridge.wslExecSync).mockReturnValue('/gs/sys/stoned -l /log gs64stone');
+      const manager = new ProcessManager(makeStorage() as any);
+      const report = manager.inspectStaleLock(staleStone());
+      expect(report.safe).toBe(false);
+      expect(report.reason).toMatch(/still a running GemStone server/);
+    });
+
+    it('marks safe=true when the PID has been reused by an unrelated process', () => {
+      // This is the exact scenario from the user's bug: PID 4106 is now ssh-agent.
+      vi.mocked(wslBridge.wslExecSync).mockReturnValue('/usr/bin/ssh-agent');
+      const manager = new ProcessManager(makeStorage() as any);
+      const report = manager.inspectStaleLock(staleStone());
+      expect(report.safe).toBe(true);
+      expect(report.currentPidOwner).toBe('/usr/bin/ssh-agent');
+      expect(report.reason).toMatch(/reused by an unrelated process/);
+    });
+
+    it('refuses (rather than risk a wrong delete) when the ps call throws', () => {
+      vi.mocked(wslBridge.wslExecSync).mockImplementation(() => {
+        throw new Error('ps: not found');
+      });
+      const manager = new ProcessManager(makeStorage() as any);
+      const report = manager.inspectStaleLock(staleStone());
+      expect(report.safe).toBe(false);
+      expect(report.reason).toMatch(/Could not check PID/);
+    });
+
+    it('uses the WSL root path when running under WSL', () => {
+      vi.mocked(wslBridge.needsWsl).mockReturnValue(true);
+      vi.mocked(wslBridge.wslExecSync).mockReturnValue('GONE');
+      const storage = {
+        ...makeStorage(),
+        getWslRootPath: vi.fn(() => '/mnt/c/gemstone'),
+      };
+      const manager = new ProcessManager(storage as any);
+      const report = manager.inspectStaleLock(staleStone());
+      expect(report.lockPath).toBe('/mnt/c/gemstone/locks/gs64stone..LCK');
+    });
+  });
+
+  describe('deleteStaleLock', () => {
+    beforeEach(() => {
+      vi.mocked(wslBridge.wslExecSync).mockReset();
+    });
+
+    it('shells out an rm -f for the lock path and reports success', () => {
+      vi.mocked(wslBridge.wslExecSync).mockReturnValue('');
+      const manager = new ProcessManager(makeStorage() as any);
+      const ok = manager.deleteStaleLock('/home/user/gemstone/locks/gs64stone..LCK');
+      expect(ok).toBe(true);
+      const cmd = vi.mocked(wslBridge.wslExecSync).mock.calls[0][0];
+      expect(cmd).toContain('rm -f');
+      expect(cmd).toContain('gs64stone..LCK');
+    });
+
+    it('returns false when rm throws (e.g. permission denied)', () => {
+      vi.mocked(wslBridge.wslExecSync).mockImplementation(() => {
+        throw new Error('rm: permission denied');
+      });
+      const manager = new ProcessManager(makeStorage() as any);
+      const ok = manager.deleteStaleLock('/home/user/gemstone/locks/gs64stone..LCK');
+      expect(ok).toBe(false);
     });
   });
 });

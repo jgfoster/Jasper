@@ -44,4 +44,8 @@ export interface GemStoneProcess {
   pid: number;
   port?: number;
   startTime?: string;
+  /** gslist Status column — "OK" when responding; otherwise stale (e.g. "frozen", "killed", "exe deleted", "exists"). */
+  status: string;
+  /** True when status is "OK". */
+  responding: boolean;
 }

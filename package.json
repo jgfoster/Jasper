@@ -2,7 +2,7 @@
   "name": "gemstone-ide",
   "displayName": "Jasper: A GemStone Smalltalk IDE",
   "description": "GemStone/S IDE for Visual Studio Code",
-  "version": "1.4.5",
+  "version": "1.5.0",
   "publisher": "gemtalksystems",
   "license": "MIT",
   "author": "James Foster",
@@ -111,14 +111,6 @@
             "default": "",
             "description": "Root path for exported class files. Variables: {workspaceRoot}, {session}, {host}, {stone}, {user}, {index}, {dictName}. Defaults to {workspaceRoot}/.gemstone/{session}/{index}-{dictName}"
           },
-          "gemstone.userManagedDictionaries": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "default": [],
-            "description": "Dictionary names managed by the user. These are never overwritten by export from GemStone. All other dictionaries are exported normally."
-          },
           "gemstone.rootPath": {
             "type": "string",
             "default": "~/Documents/GemStone",
@@ -127,7 +119,7 @@
           "gemstone.mcp.registerWithClaudeDesktop": {
             "type": "boolean",
             "default": true,
-            "description": "Automatically register the gemstone MCP server with Claude Desktop. When enabled, Jasper writes a per-workspace gemstone-<hash> entry into Claude Desktop's global config on activation and removes it on deactivation. (Claude Code registration happens separately via `claude mcp add` and is not controlled by this setting.)"
+            "description": "Automatically register the gemstone MCP server with Claude Desktop. When enabled, Jasper writes a single user-scope `gemstone` entry into Claude Desktop's global `claude_desktop_config.json` on activation (macOS: ~/Library/Application Support/Claude/, Windows: %APPDATA%\\Claude\\, Linux: ~/.config/Claude/). The entry stays put across VS Code restarts. Claude Code registration writes to `~/.claude.json` and is always on."
           },
           "gemstone.mcp.httpPort": {
             "type": "integer",
@@ -296,6 +288,13 @@
           "icon": "$(plug)"
         },
         {
+          "id": "gemstoneMcpServer",
+          "name": "MCP Server",
+          "type": "tree",
+          "icon": "$(remote-explorer)",
+          "visibility": "collapsed"
+        },
+        {
           "id": "gemstoneInspector",
           "name": "Inspector",
           "type": "tree",
@@ -341,8 +340,18 @@
     ],
     "commands": [
       {
+        "command": "gemstone.claimMcpServer",
+        "title": "Claim MCP Server",
+        "category": "GemStone"
+      },
+      {
         "command": "gemstone.copyMcpUrl",
         "title": "Copy MCP Server URL",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.copyMcpSocketPath",
+        "title": "Copy MCP Socket Path",
         "category": "GemStone"
       },
       {
@@ -612,6 +621,12 @@
         "icon": "$(copy)"
       },
       {
+        "command": "gemstone.deleteStaleLock",
+        "title": "Delete Stale Lock File",
+        "category": "GemStone Admin",
+        "icon": "$(trash)"
+      },
+      {
         "command": "gemstone.createDatabase",
         "title": "Create Database",
         "category": "GemStone Admin",
@@ -732,6 +747,11 @@
         {
           "command": "gemstone.copyNetldiHost",
           "when": "view == gemstoneProcesses && viewItem == gemstoneProcessNetldi && gemstone.isWindows && gemstone.wslAvailable",
+          "group": "inline@1"
+        },
+        {
+          "command": "gemstone.deleteStaleLock",
+          "when": "view == gemstoneProcesses && (viewItem == gemstoneProcessStoneStale || viewItem == gemstoneProcessNetldiStale)",
           "group": "inline@1"
         },
         {

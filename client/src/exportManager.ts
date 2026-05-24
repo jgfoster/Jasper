@@ -25,13 +25,6 @@ export class ExportManager {
     return this.writing;
   }
 
-  private getUserManagedDictionaries(): Set<string> {
-    const list = vscode.workspace
-      .getConfiguration('gemstone')
-      .get<string[]>('userManagedDictionaries', []);
-    return new Set(list);
-  }
-
   /**
    * Resolved export path template for a session.
    * Uses the `gemstone.exportPath` setting with variable substitution.
@@ -114,12 +107,10 @@ export class ExportManager {
         const dictNames = queries.getDictionaryNames(session);
         if (token.isCancellationRequested) return;
 
-        // 2. Gather all classes per dictionary, skipping user-managed ones
-        const managed = this.getUserManagedDictionaries();
+        // 2. Gather all classes per dictionary
         const plan: { dictIndex: number; dictLabel: string; dirPath: string; classes: string[] }[] = [];
         let totalClasses = 0;
         for (let i = 0; i < dictNames.length; i++) {
-          if (managed.has(dictNames[i])) continue;
           const dictIndex = i + 1; // Smalltalk 1-based
           const dirPath = this.getDictPath(session, dictIndex, dictNames[i])!;
           const dictLabel = path.basename(dirPath);
@@ -131,7 +122,7 @@ export class ExportManager {
         if (token.isCancellationRequested) return;
 
         // 3. Make existing files writable so we can overwrite them
-        this.setPermissions(sessionRoot, 0o644, managed);
+        this.setPermissions(sessionRoot, 0o644);
 
         // 4. Create all dictionary directories (even empty ones) and export classes
         const newFiles = new Set<string>();
@@ -171,7 +162,7 @@ export class ExportManager {
         }
 
         // 5. Mark all exported files read-only (files are for search/navigation only)
-        this.setPermissions(sessionRoot, 0o444, managed);
+        this.setPermissions(sessionRoot, 0o444);
 
         // 6. Remove stale files (classes that no longer exist)
         const previousFiles = this.exportedFiles.get(session.id);
@@ -187,7 +178,7 @@ export class ExportManager {
         }
 
         // 7. Remove stale dictionary directories (dictionaries that no longer exist)
-        this.removeStaleDictDirs(sessionRoot, currentDictDirs, managed);
+        this.removeStaleDictDirs(sessionRoot, currentDictDirs);
 
         // 8. Track exported files
         this.exportedFiles.set(session.id, newFiles);
@@ -234,9 +225,8 @@ export class ExportManager {
 
   /**
    * Recursively set file permissions on all .gs files under a directory.
-   * Skips user-managed dictionary directories at the top level.
    */
-  private setPermissions(dir: string, mode: number, managed?: Set<string>): void {
+  private setPermissions(dir: string, mode: number): void {
     if (!fs.existsSync(dir)) return;
     const stat = fs.statSync(dir);
     if (!stat.isDirectory()) return;
@@ -245,12 +235,6 @@ export class ExportManager {
       const full = path.join(dir, entry);
       const entryStat = fs.statSync(full);
       if (entryStat.isDirectory()) {
-        // Skip user-managed dictionary directories
-        if (managed) {
-          const dictMatch = entry.match(/^\d+-(.*)/);
-          const dictName = dictMatch ? dictMatch[1] : entry;
-          if (managed.has(dictName)) continue;
-        }
         this.setPermissions(full, mode);
       } else if (entry.endsWith('.gs')) {
         try {
@@ -262,21 +246,13 @@ export class ExportManager {
 
   /**
    * Remove dictionary directories under sessionRoot that are not in the current set.
-   * Preserves user-managed dictionary directories.
    */
-  private removeStaleDictDirs(sessionRoot: string, currentDirs: Set<string>, managed?: Set<string>): void {
+  private removeStaleDictDirs(sessionRoot: string, currentDirs: Set<string>): void {
     if (!fs.existsSync(sessionRoot)) return;
     for (const entry of fs.readdirSync(sessionRoot)) {
       const full = path.join(sessionRoot, entry);
       if (!fs.statSync(full).isDirectory()) continue;
       if (currentDirs.has(full)) continue;
-
-      // Preserve user-managed dictionary directories
-      if (managed) {
-        const dictMatch = entry.match(/^\d+-(.*)/);
-        const dictName = dictMatch ? dictMatch[1] : entry;
-        if (managed.has(dictName)) continue;
-      }
 
       try {
         fs.rmSync(full, { recursive: true, force: true });

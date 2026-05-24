@@ -298,85 +298,6 @@ describe('ExportManager', () => {
     });
   });
 
-  describe('userManagedDictionaries', () => {
-    it('skips exporting user-managed dictionaries', async () => {
-      const mockVscode = vscode as unknown as { __setConfigValue: (key: string, value: unknown) => void };
-      mockVscode.__setConfigValue('userManagedDictionaries', ['UserGlobals']);
-
-      const session = createMockSession();
-      await manager.exportSession(session);
-
-      const sessionRoot = manager.getSessionRoot(session)!;
-      // UserGlobals should NOT be exported
-      expect(fs.existsSync(path.join(sessionRoot, '1-UserGlobals'))).toBe(false);
-      // Globals should still be exported
-      expect(fs.existsSync(path.join(sessionRoot, '2-Globals', 'Array.gs'))).toBe(true);
-      expect(fs.existsSync(path.join(sessionRoot, '2-Globals', 'String.gs'))).toBe(true);
-    });
-
-    it('does not call getClassNames for user-managed dictionaries', async () => {
-      const mockVscode = vscode as unknown as { __setConfigValue: (key: string, value: unknown) => void };
-      mockVscode.__setConfigValue('userManagedDictionaries', ['UserGlobals']);
-
-      const session = createMockSession();
-      await manager.exportSession(session);
-
-      // getClassNames should only be called for Globals (dictIndex 2), not UserGlobals (dictIndex 1)
-      expect(queries.getClassNames).not.toHaveBeenCalledWith(session, 1);
-      expect(queries.getClassNames).toHaveBeenCalledWith(session, 2);
-    });
-
-    it('preserves user-managed directories during stale cleanup', async () => {
-      const session = createMockSession();
-      const sessionRoot = manager.getSessionRoot(session)!;
-
-      // Pre-create a user-managed directory
-      const managedDir = path.join(sessionRoot, '1-UserGlobals');
-      fs.mkdirSync(managedDir, { recursive: true });
-      fs.writeFileSync(path.join(managedDir, 'MyClass.gs'), 'user content');
-
-      const mockVscode = vscode as unknown as { __setConfigValue: (key: string, value: unknown) => void };
-      mockVscode.__setConfigValue('userManagedDictionaries', ['UserGlobals']);
-
-      // Export with UserGlobals managed — it should not be deleted
-      await manager.exportSession(session);
-
-      expect(fs.existsSync(managedDir)).toBe(true);
-      expect(fs.readFileSync(path.join(managedDir, 'MyClass.gs'), 'utf-8')).toBe('user content');
-    });
-
-    it('does not change permissions on user-managed directories during export', async () => {
-      const session = createMockSession();
-      const sessionRoot = manager.getSessionRoot(session)!;
-
-      // Pre-create a user-managed directory with a file
-      const managedDir = path.join(sessionRoot, '3-MyApp');
-      fs.mkdirSync(managedDir, { recursive: true });
-      const filePath = path.join(managedDir, 'Widget.gs');
-      fs.writeFileSync(filePath, 'user content');
-      fs.chmodSync(filePath, 0o644);
-
-      const mockVscode = vscode as unknown as { __setConfigValue: (key: string, value: unknown) => void };
-      mockVscode.__setConfigValue('userManagedDictionaries', ['MyApp']);
-
-      await manager.exportSession(session);
-
-      const stat = fs.statSync(filePath);
-      // Owner write bit should still be set (user-managed dir not touched)
-      expect(stat.mode & 0o200).not.toBe(0);
-    });
-
-    it('exports all dictionaries when list is empty', async () => {
-      // Default: empty list
-      const session = createMockSession();
-      await manager.exportSession(session);
-
-      const sessionRoot = manager.getSessionRoot(session)!;
-      expect(fs.existsSync(path.join(sessionRoot, '1-UserGlobals', 'MyClass.gs'))).toBe(true);
-      expect(fs.existsSync(path.join(sessionRoot, '2-Globals', 'Array.gs'))).toBe(true);
-    });
-  });
-
   describe('all files read-only regardless of user', () => {
     it('marks all files read-only for DataCurator', async () => {
       const session = createMockSession({ gs_user: 'DataCurator' });
@@ -480,24 +401,6 @@ describe('ExportManager', () => {
       expect(fs.existsSync(path.join(root, 'Globals', 'String.gs'))).toBe(true);
     });
 
-    it('preserves user-managed directories with plain dict names', async () => {
-      const mockVscode = vscode as unknown as { __setConfigValue: (key: string, value: unknown) => void };
-      mockVscode.__setConfigValue('exportPath', '{workspaceRoot}/smalltalk/{dictName}');
-      const session = createMockSession();
-      const root = manager.getSessionRoot(session)!;
-
-      // Pre-create a user-managed directory
-      const managedDir = path.join(root, 'UserGlobals');
-      fs.mkdirSync(managedDir, { recursive: true });
-      fs.writeFileSync(path.join(managedDir, 'MyClass.gs'), 'user content');
-
-      mockVscode.__setConfigValue('userManagedDictionaries', ['UserGlobals']);
-
-      await manager.exportSession(session);
-
-      expect(fs.existsSync(managedDir)).toBe(true);
-      expect(fs.readFileSync(path.join(managedDir, 'MyClass.gs'), 'utf-8')).toBe('user content');
-    });
   });
 
   describe('deleteSessionFiles', () => {

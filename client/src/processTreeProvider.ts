@@ -15,8 +15,10 @@ export class ProcessItem extends vscode.TreeItem {
   ) {
     super(process.name, vscode.TreeItemCollapsibleState.None);
     const portInfo = process.port ? ` port ${process.port}` : '';
-    this.description = `${process.version} | PID ${process.pid}${portInfo}`;
+    const stalePrefix = process.responding ? '' : `${process.status} | `;
+    this.description = `${stalePrefix}${process.version} | PID ${process.pid}${portInfo}`;
     let tooltip = `${process.type === 'stone' ? 'Stone' : 'NetLDI'}: ${process.name}\n` +
+      `Status: ${process.status}${process.responding ? '' : ' (not responding — stale lock)'}\n` +
       `Version: ${process.version}\nPID: ${process.pid}` +
       (process.port ? `\nPort: ${process.port}` : '') +
       (process.startTime ? `\nStarted: ${process.startTime}` : '');
@@ -33,9 +35,10 @@ export class ProcessItem extends vscode.TreeItem {
     this.tooltip = tooltip;
     this.iconPath = new vscode.ThemeIcon(
       process.type === 'stone' ? 'database' : 'radio-tower',
-      new vscode.ThemeColor('testing.iconPassed'),
+      new vscode.ThemeColor(process.responding ? 'testing.iconPassed' : 'testing.iconErrored'),
     );
-    this.contextValue = `gemstoneProcess${process.type === 'stone' ? 'Stone' : 'Netldi'}`;
+    const staleSuffix = process.responding ? '' : 'Stale';
+    this.contextValue = `gemstoneProcess${process.type === 'stone' ? 'Stone' : 'Netldi'}${staleSuffix}`;
   }
 }
 

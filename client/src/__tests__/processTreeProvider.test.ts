@@ -19,6 +19,8 @@ function stoneProcess(overrides: Partial<GemStoneProcess> = {}): GemStoneProcess
     version: '3.7.4',
     pid: 1000,
     startTime: 'Apr 22 10:00:00',
+    status: 'OK',
+    responding: true,
     ...overrides,
   };
 }
@@ -31,6 +33,8 @@ function netldiProcess(overrides: Partial<GemStoneProcess> = {}): GemStoneProces
     pid: 2000,
     port: 50377,
     startTime: 'Apr 22 10:00:05',
+    status: 'OK',
+    responding: true,
     ...overrides,
   };
 }
@@ -78,6 +82,34 @@ describe('ProcessItem tooltip', () => {
       wslCoreVersion: undefined, supportsMirrored: false,
     });
     expect(String(item.tooltip)).not.toContain('Host:');
+  });
+
+  it('responding process tooltip shows Status: OK without the stale warning', () => {
+    const item = new ProcessItem(stoneProcess());
+    expect(String(item.tooltip)).toContain('Status: OK');
+    expect(String(item.tooltip)).not.toContain('stale lock');
+  });
+
+  it('stale stone tooltip flags the not-responding state and surfaces the gslist status', () => {
+    const item = new ProcessItem(stoneProcess({ status: 'frozen', responding: false }));
+    expect(String(item.tooltip)).toContain('Status: frozen (not responding — stale lock)');
+  });
+
+  it('stale stone description leads with the gslist status', () => {
+    const item = new ProcessItem(stoneProcess({ status: 'frozen', responding: false, pid: 4106 }));
+    expect(item.description).toBe('frozen | 3.7.4 | PID 4106');
+  });
+
+  it('responding stone description omits the status prefix', () => {
+    const item = new ProcessItem(stoneProcess({ pid: 4106 }));
+    expect(item.description).toBe('3.7.4 | PID 4106');
+  });
+
+  it('stale process uses a distinct contextValue suffix so menus can target it', () => {
+    const responding = new ProcessItem(stoneProcess());
+    const stale = new ProcessItem(stoneProcess({ status: 'frozen', responding: false }));
+    expect(responding.contextValue).toBe('gemstoneProcessStone');
+    expect(stale.contextValue).toBe('gemstoneProcessStoneStale');
   });
 });
 

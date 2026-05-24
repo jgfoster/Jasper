@@ -4,7 +4,6 @@
 .claude/**
 gemstone
 .gemstone/**
-docs/**
 TODO.md
 
 node_modules/**

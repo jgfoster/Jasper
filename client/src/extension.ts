@@ -47,6 +47,7 @@ import {
   buildRefreshPromptDeps,
   promptClaudeCodeRefresh,
 } from './claudeCodeRefreshPrompt';
+import { McpServerTreeProvider } from './mcpServerTreeProvider';
 import { DEFAULT_MCP_HTTP_PORT, McpHttpServer } from './mcpHttpServer';
 import { ensureSelfSignedCert, trustCertCommand } from './tlsCert';
 import { ProcessTreeProvider, ProcessItem } from './processTreeProvider';
@@ -1143,100 +1144,189 @@ export function activate(context: vscode.ExtensionContext) {
 
   // ── Claude Code & Claude Desktop MCP integration ─────────────────────────
   // Jasper exposes a single global MCP server at a fixed socket path. The
-  // first VS Code window to activate claims the socket; later windows run
-  // passively. The server name (`gemstone`) and socket path are written once
-  // into each client's user-scope config and never per-workspace — same model
-  // as Anthropic's hosted Gmail/Drive/Calendar connectors.
+  // server name (`gemstone`) and socket path are written into each client's
+  // user-scope config on every activation — the configs always point at the
+  // same well-known socket, regardless of which Jasper window owns it.
+  //
+  // Ownership of the live socket (and the HTTPS port) is claimed on the
+  // first GemStone login in this window, not on activation. That way the
+  // window MCP talks to is the one actually working with GemStone — a window
+  // that opens but never logs in stays passive.
+  //
+  // Once claimed, the socket stays bound for the rest of this VS Code run,
+  // even if the user logs out. That keeps Claude Code's MCP connection alive
+  // across logout/login cycles — tools just return "no session selected"
+  // during the gap and resume working when the user logs back in.
   //
   // Claude Code:    user-scope `mcpServers.gemstone` in `~/.claude.json`.
   // Claude Desktop: `mcpServers.gemstone` in `claude_desktop_config.json`.
-  //
-  // We don't remove these entries on deactivate — the registration is meant
-  // to outlive any individual Jasper run, just like other MCP integrations.
   const workspaceRoots = vscode.workspace.workspaceFolders;
   if (workspaceRoots && workspaceRoots.length > 0) {
+    const workspacePath = workspaceRoots[0].uri.fsPath;
     const mcpSocketServer = new McpSocketServer({
       getSession: () => sessionManager.getSelectedSession(),
+      getSessionLabel: () => {
+        const session = sessionManager.getSelectedSession();
+        return session ? `${loginLabel(session.login)} (id ${session.id})` : undefined;
+      },
+      workspacePath,
     });
     const registerDesktop = vscode.workspace.getConfiguration('gemstone')
       .get<boolean>('mcp.registerWithClaudeDesktop', true);
-    (async () => {
-      try {
-        const isOwner = await mcpSocketServer.start();
-        if (!isOwner) return; // passive window: configs already point at the live socket
-        try {
-          const result = writeClaudeCodeUserMcpConfig(
-            context.extensionPath,
-            mcpSocketServer.socketPath,
-          );
-          if (result.skipped === 'missing') {
-            appendSysadmin(`Claude Code config not found at ${result.path}; skipping user-scope MCP registration.`);
-          } else if (result.skipped === 'unreadable') {
-            appendSysadmin(`Claude Code config at ${result.path} is unreadable; skipping user-scope MCP registration.`);
-          } else {
-            appendSysadmin(`Claude Code MCP config: ${result.path}${result.updated ? ' (updated)' : ' (unchanged)'}`);
-            if (result.updated) {
-              void promptClaudeCodeRefresh(buildRefreshPromptDeps(context));
-            }
-          }
-        } catch (err) {
-          appendSysadmin(`Failed to write Claude Code MCP config: ${(err as Error).message}`);
+
+    // Write the well-known configs unconditionally — they point at the fixed
+    // socket path, which is correct regardless of which window owns it.
+    try {
+      const result = writeClaudeCodeUserMcpConfig(
+        context.extensionPath,
+        mcpSocketServer.socketPath,
+      );
+      if (result.skipped === 'missing') {
+        appendSysadmin(`Claude Code config not found at ${result.path}; skipping user-scope MCP registration.`);
+      } else if (result.skipped === 'unreadable') {
+        appendSysadmin(`Claude Code config at ${result.path} is unreadable; skipping user-scope MCP registration.`);
+      } else {
+        appendSysadmin(`Claude Code MCP config: ${result.path}${result.updated ? ' (updated)' : ' (unchanged)'}`);
+        if (result.updated) {
+          void promptClaudeCodeRefresh(buildRefreshPromptDeps(context));
         }
-        if (registerDesktop) {
-          try {
-            const desktopPath = writeClaudeDesktopMcpConfig(
-              context.extensionPath,
-              mcpSocketServer.socketPath,
-            );
-            appendSysadmin(`Claude Desktop MCP config: ${desktopPath}`);
-          } catch (err) {
-            appendSysadmin(`Failed to write Claude Desktop MCP config: ${(err as Error).message}`);
-          }
-        }
-      } catch (err) {
-        appendSysadmin(`MCP socket startup error: ${(err as Error).message}`);
       }
-    })();
+    } catch (err) {
+      appendSysadmin(`Failed to write Claude Code MCP config: ${(err as Error).message}`);
+    }
+    if (registerDesktop) {
+      try {
+        const desktopPath = writeClaudeDesktopMcpConfig(
+          context.extensionPath,
+          mcpSocketServer.socketPath,
+        );
+        appendSysadmin(`Claude Desktop MCP config: ${desktopPath}`);
+      } catch (err) {
+        appendSysadmin(`Failed to write Claude Desktop MCP config: ${(err as Error).message}`);
+      }
+    }
 
     // HTTPS/SSE surface for clients whose connector UI takes a URL (e.g.
     // Claude Desktop's "Add custom connector" dialog, which rejects http URLs).
-    // First-come-first-served across VS Code windows — override the port
-    // per-workspace in .vscode/settings.json to run more than one
-    // simultaneously.
+    // Tied to socket ownership: the same window owns both, so MCP behavior is
+    // consistent across stdio and SSE clients. Override the port per-workspace
+    // via `gemstone.mcp.httpPort` to run multiple Jasper windows simultaneously.
     const httpPort = vscode.workspace.getConfiguration('gemstone')
       .get<number>('mcp.httpPort', DEFAULT_MCP_HTTP_PORT);
     let httpServer: McpHttpServer | undefined;
     let httpStarted = false;
-    (async () => {
-      const tls = await ensureSelfSignedCert(context.globalStorageUri.fsPath);
-      certPathForTrust = tls.certPath;
-      if (tls.generated) {
-        appendSysadmin(`Generated self-signed MCP TLS cert at ${tls.certPath}`);
-        appendSysadmin(`Trust it once with: ${trustCertCommand(tls.certPath)}`);
-        appendSysadmin(`Or run the "GemStone: Install MCP TLS Certificate" command.`);
-      }
-      httpServer = new McpHttpServer({
-        getSession: () => sessionManager.getSelectedSession(),
-        port: httpPort,
-        tls: { cert: tls.cert, key: tls.key },
-      });
-      try {
-        await httpServer.start();
-        httpStarted = true;
-        appendSysadmin(`MCP HTTPS listening at ${httpServer.url}`);
-      } catch (err) {
-        const e = err as NodeJS.ErrnoException;
-        if (e.code === 'EADDRINUSE') {
-          appendSysadmin(`MCP HTTPS port ${httpPort} in use; skipping (another Jasper window may own it). Override gemstone.mcp.httpPort per-workspace to run two windows simultaneously.`);
-        } else {
-          appendSysadmin(`MCP HTTPS server failed to start: ${e.message}`);
-        }
-      }
-    })().catch((err) => {
-      appendSysadmin(`MCP HTTPS setup failed: ${(err as Error).message}`);
+
+    // Tree view that exposes who owns the MCP server right now. Reads its
+    // state on demand from the socket server + sidecar file, so a refresh is
+    // all that's needed when ownership or session selection changes.
+    const mcpTreeProvider = new McpServerTreeProvider({
+      isOwner: () => mcpSocketServer.isOwner,
+      socketPath: mcpSocketServer.socketPath,
+      httpsUrl: () => (httpStarted && httpServer ? httpServer.url : undefined),
+      getSession: () => sessionManager.getSelectedSession(),
+      sidecarPath: mcpSocketServer.sidecarPath,
     });
+    const mcpTreeView = vscode.window.createTreeView('gemstoneMcpServer', {
+      treeDataProvider: mcpTreeProvider,
+      showCollapseAll: false,
+    });
+    context.subscriptions.push(mcpTreeView);
+    context.subscriptions.push(
+      sessionManager.onDidChangeSelection(() => mcpTreeProvider.refresh()),
+    );
+    // Watch the sidecar file so passive windows pick up ownership changes
+    // from elsewhere without polling.
+    const sidecarWatcher = fs.watch(
+      path.dirname(mcpSocketServer.sidecarPath),
+      (_event, filename) => {
+        if (!filename || filename === path.basename(mcpSocketServer.sidecarPath)) {
+          mcpTreeProvider.refresh();
+        }
+      },
+    );
+    // The watcher target may not exist yet on first run; mkdirSync from the
+    // sidecar write covers that, but guard the close in dispose anyway.
+    context.subscriptions.push({ dispose: () => sidecarWatcher.close() });
+
+    // Eager claim at activation: the first Jasper window to activate owns the
+    // MCP socket regardless of whether it has a session yet. Claude Code's
+    // MCP client fails the proxy on a short timeout, so the socket needs to
+    // be live by the time Claude Code spawns the proxy on the same window
+    // reload — deferring until first login lost that race. Tradeoff: if you
+    // open a non-GemStone workspace first, that window will own the socket
+    // and serve "no session selected" until you log in there or hand off
+    // ownership (disable Jasper in that workspace; click "Claim MCP Server"
+    // in the workspace you actually want).
+    let claimAttemptInFlight = false;
+    const tryClaimMcpOwnership = async () => {
+      if (mcpSocketServer.isOwner || claimAttemptInFlight) return;
+      claimAttemptInFlight = true;
+      try {
+        const claimed = await mcpSocketServer.start();
+        mcpTreeProvider.refresh();
+        if (!claimed) return;
+
+        const tls = await ensureSelfSignedCert(context.globalStorageUri.fsPath);
+        certPathForTrust = tls.certPath;
+        if (tls.generated) {
+          appendSysadmin(`Generated self-signed MCP TLS cert at ${tls.certPath}`);
+          appendSysadmin(`Trust it once with: ${trustCertCommand(tls.certPath)}`);
+          appendSysadmin(`Or run the "GemStone: Install MCP TLS Certificate" command.`);
+        }
+        httpServer = new McpHttpServer({
+          getSession: () => sessionManager.getSelectedSession(),
+          port: httpPort,
+          tls: { cert: tls.cert, key: tls.key },
+        });
+        try {
+          await httpServer.start();
+          httpStarted = true;
+          appendSysadmin(`MCP HTTPS listening at ${httpServer.url}`);
+        } catch (err) {
+          const e = err as NodeJS.ErrnoException;
+          if (e.code === 'EADDRINUSE') {
+            appendSysadmin(`MCP HTTPS port ${httpPort} in use; skipping (another Jasper window may own it). Override gemstone.mcp.httpPort per-workspace to run two windows simultaneously.`);
+          } else {
+            appendSysadmin(`MCP HTTPS server failed to start: ${e.message}`);
+          }
+        }
+        mcpTreeProvider.refresh();
+      } catch (err) {
+        appendSysadmin(`MCP claim failed: ${(err as Error).message}`);
+      } finally {
+        claimAttemptInFlight = false;
+      }
+    };
+
+    // Session changes have two effects when we're the owner: tools see the
+    // new session immediately (via getSession), and the sidecar needs an
+    // update so passive Jasper windows can show what's currently selected.
+    // When we're not owner, the change still triggers a re-render of the
+    // local panel (which displays "(none)") and a re-claim attempt for the
+    // case where a prior owner released ownership while we were idle.
+    context.subscriptions.push(
+      sessionManager.onDidChangeSelection(() => {
+        mcpSocketServer.refreshSidecar();
+        mcpTreeProvider.refresh();
+        void tryClaimMcpOwnership();
+      }),
+    );
+    void tryClaimMcpOwnership();
 
     context.subscriptions.push(
+      vscode.commands.registerCommand('gemstone.claimMcpServer', async () => {
+        if (mcpSocketServer.isOwner) {
+          vscode.window.showInformationMessage('This window already owns the MCP server.');
+          return;
+        }
+        await tryClaimMcpOwnership();
+        if (!mcpSocketServer.isOwner) {
+          vscode.window.showWarningMessage(
+            'Could not claim the MCP server — another Jasper window still owns it. ' +
+            'Close or disable Jasper in that window, then try again.',
+          );
+        }
+      }),
       vscode.commands.registerCommand('gemstone.copyMcpUrl', async () => {
         if (!httpStarted || !httpServer) {
           vscode.window.showWarningMessage(`Jasper MCP HTTPS surface is not running on port ${httpPort}. Check the GemStone Admin output channel for the reason.`);
@@ -1244,6 +1334,14 @@ export function activate(context: vscode.ExtensionContext) {
         }
         await vscode.env.clipboard.writeText(httpServer.url);
         vscode.window.showInformationMessage(`Copied MCP URL: ${httpServer.url}`);
+      }),
+      vscode.commands.registerCommand('gemstone.copyMcpSocketPath', async (socketPath?: string) => {
+        if (!socketPath) {
+          vscode.window.showWarningMessage('No MCP socket path available.');
+          return;
+        }
+        await vscode.env.clipboard.writeText(socketPath);
+        vscode.window.showInformationMessage(`Copied MCP socket path: ${socketPath}`);
       }),
       vscode.commands.registerCommand('gemstone.installMcpTlsCertificate', async () => {
         if (!certPathForTrust) {
@@ -1623,6 +1721,27 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('gemstone.refreshProcesses', () => {
       processProvider.refresh();
+    }),
+
+    vscode.commands.registerCommand('gemstone.deleteStaleLock', async (item: ProcessItem) => {
+      if (!item || item.process.responding) return;
+      const report = processManager.inspectStaleLock(item.process);
+      if (!report.safe) {
+        vscode.window.showWarningMessage(report.reason);
+        return;
+      }
+      const confirm = await vscode.window.showWarningMessage(
+        `${report.reason}\n\nDelete ${report.lockPath}?`,
+        { modal: true },
+        'Delete Lock',
+      );
+      if (confirm !== 'Delete Lock') return;
+      if (processManager.deleteStaleLock(report.lockPath)) {
+        vscode.window.showInformationMessage(`Removed stale lock for ${item.process.name}.`);
+        processProvider.refresh();
+      } else {
+        vscode.window.showErrorMessage(`Failed to remove ${report.lockPath}. Check filesystem permissions.`);
+      }
     }),
 
     vscode.commands.registerCommand('gemstone.copyNetldiHost', async (item: ProcessItem) => {

@@ -141,6 +141,7 @@ describe('McpSocketServer integration', () => {
       getSession: () => session,
       // Randomize per test so parallel runs don't collide on the fixed socket path.
       socketPath: path.join(os.tmpdir(), `jasper-mcp-test-${crypto.randomBytes(6).toString('hex')}.sock`),
+      sidecarPath: path.join(os.tmpdir(), `jasper-mcp-owner-${crypto.randomBytes(6).toString('hex')}.json`),
     });
     await server.start();
     vi.clearAllMocks();

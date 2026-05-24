@@ -1,0 +1,23 @@
+image: node:24.15.0
+
+stages:
+  - build
+  - test
+
+compile:
+  stage: build
+  script:
+    - npm ci
+    - npm run compile
+  artifacts:
+    paths:
+      - client/out/
+      - server/out/
+      - mcp-server/out/
+    expire_in: 1 hour
+
+test:
+  stage: test
+  script:
+    - npm ci
+    - npm test

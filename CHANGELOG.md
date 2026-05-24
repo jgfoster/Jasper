@@ -4,6 +4,27 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-05-24
+
+### Added
+
+- **"MCP Server" view in the GemStone sidebar.** Tells you at a glance whether *this* Jasper window is the MCP owner, points at the owning workspace if a different window has the role, or marks the state as "no owner yet" when no window has logged in. When this window owns it, the view also surfaces the active GemStone session label (which can change as you switch sessions — that's the session MCP tools will act on), the socket path, and the HTTPS/SSE URL (click to copy). Backed by a `~/.jasper/mcp.owner.json` sidecar so other windows can answer "if not me, who?" without IPC.
+- **Stale-process detection in the Processes view.** `gslist` rows with a non-OK status (`frozen`, `killed`, `exe deleted`, …) now render with a red icon and the status prefixed onto the description. A **Delete Stale Lock File** inline action is offered on stale rows; Jasper checks that the recorded PID is either gone or has been reused by some non-`stoned`/`netldid` process before removing the `*.LCK`. Required because on macOS GemStone's own `gslist -c` can't distinguish a recycled PID from a hung server.
+
+### Changed
+
+- **MCP ownership is now claimed on first GemStone login, not on extension activation.** Previously the first Jasper window to activate captured the socket regardless of whether it ever logged in — leaving Claude Code talking to a window with no GemStone session. Now the window the user actually works in is the one MCP talks to. Once a window owns the socket it keeps it bound for the lifetime of the VS Code run, including across logout/login cycles: tool calls during a logged-out gap return "no session selected" and resume working the moment the user logs back in. Claude Code's MCP connection stays alive throughout.
+- **Configs (Claude Code + Desktop) are written on every activation regardless of ownership.** The entries point at the fixed well-known socket path, so they're correct no matter which Jasper window ends up owning the live socket. This decouples "is the gemstone server registered with Claude Code?" from "which window happens to be serving it?"
+
+### Removed
+
+- **`gemstone.userManagedDictionaries` setting.** It told the exporter to skip specific dictionary names (no write, no chmod, no stale-file cleanup) and dated from an earlier layout where exports lived alongside user code. Since exports now go to a hidden `.gemstone/` directory and exported `.gs` files are marked read-only on disk (editing is via the System Browser / `gemstone://` filesystem), there's no longer a reason to mix user-managed code into the export tree. **Breaking change for users with non-empty `gemstone.userManagedDictionaries`**: those dictionaries will be exported on the next run; if you have writable code in matching paths under a custom `gemstone.exportPath`, move it elsewhere first.
+
+### Documentation
+
+- **New `docs/mcp-server.md`** with the MCP architecture, ownership model, per-client registration paths (Claude Code, Claude Desktop on macOS/Linux/Windows, MCP Inspector, generic stdio clients), TLS, multi-window behavior, tool catalog, and limitations. The README MCP section now points at this doc instead of carrying the deep dive.
+- **README split:** Windows/WSL detail moved to `docs/windows-wsl.md`, formatter reference to `docs/formatter.md`, contributor/release instructions to `CONTRIBUTING.md`. The README becomes a tighter pitch + sidebar tour + Documentation index. Out-of-date claims fixed along the way (exported `.gs` files are read-only, not edit-to-compile; CI runs on GitLab, not GitHub Actions).
+
 ## [1.4.5] - 2026-05-23
 
 ### Changed
