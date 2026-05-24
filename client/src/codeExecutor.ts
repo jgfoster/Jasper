@@ -154,12 +154,12 @@ export class CodeExecutor {
           editBuilder.insert(selection.end, ` ${resultString}`);
         });
 
-        // Place cursor after the inserted result
+        // Select the inserted result so a single backspace removes it
         const resultStart = selection.end.translate(0, 1);
         const resultEnd = editor.document.positionAt(
           editor.document.offsetAt(selection.end) + 1 + resultString.length
         );
-        editor.selection = new vscode.Selection(resultEnd, resultEnd);
+        editor.selection = new vscode.Selection(selection.end, resultEnd);
 
         // Apply decoration so the result is visually distinct (Cmd+Z to undo)
         const decoRange = new vscode.Range(resultStart, resultEnd);

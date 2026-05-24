@@ -4,6 +4,19 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+### Changed
+
+- **Display It now auto-selects the inserted result** so a single Backspace removes it — the Smalltalk workspace convention from Pharo / Squeak / VAST / VisualWorks. Previously the result stayed unselected and required either Cmd+Z or manually selecting the text before deleting; users new to Smalltalk who had typed past the result lost their cursor position when backspacing through it. The selection covers the leading space + `printString`, so one keystroke restores the editor to its pre-execution state. Execute It is unchanged (no result is inserted).
+- **CI migrated from GitHub Actions to GitLab.** `.github/workflows/health-check.yml` is replaced by `.gitlab-ci.yml`; the upstream repo now lives on GitLab and the pipeline runs there.
+
+### Fixed
+
+- **VSIX packaging:** restored `vsce package` after 1.5.0's `.vscodeignore` rewrite excluded `docs/**` wholesale. That broke packaging because `docs/MCP_Server_Feedback.md` is a symlink into an external (Grail) repo. Switched to an allow-list — `docs/**` is ignored, then `docs/mcp-server.md`, `docs/windows-wsl.md`, and `docs/formatter.md` are unignored — so only the three user-facing docs the README links to ship in the VSIX.
+
+### Documentation
+
+- **README now advertises both marketplaces** (VS Code Marketplace and Open VSX) with direct links, matching the 1.4.5 dual-publish change.
+
 ## [1.5.0] - 2026-05-24
 
 ### Added

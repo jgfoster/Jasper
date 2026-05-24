@@ -96,8 +96,72 @@ function makeEditor(text: string, selection?: vscode.Selection) {
   };
 }
 
-function setActiveEditor(editor: ReturnType<typeof makeEditor>): void {
+function setActiveEditor(editor: ReturnType<typeof makeEditor> | ReturnType<typeof makeMutableEditor>): void {
   (vscode.window as unknown as Record<string, unknown>).activeTextEditor = editor;
+}
+
+/**
+ * An editor whose underlying document text grows when `edit()` inserts.
+ * Use this when a test depends on `offsetAt` / `positionAt` reflecting the
+ * post-insertion document — e.g. assertions about the selection placed over
+ * inserted Display It output.
+ */
+function makeMutableEditor(initialText: string, selection?: vscode.Selection) {
+  let text = initialText;
+  const linesOf = (s: string) => s.split('\n');
+
+  const document = {
+    uri: vscode.Uri.file('/workspace/test.st'),
+    getText: vi.fn(() => text),
+    lineAt: vi.fn((line: number) => {
+      const lines = linesOf(text);
+      return {
+        range: {
+          start: new vscode.Position(line, 0),
+          end: new vscode.Position(line, (lines[line] || '').length),
+        },
+        text: lines[line] || '',
+      };
+    }),
+    get lineCount() { return linesOf(text).length; },
+    offsetAt: vi.fn((pos: vscode.Position) => {
+      const lines = linesOf(text);
+      let offset = 0;
+      for (let i = 0; i < pos.line && i < lines.length; i++) {
+        offset += lines[i].length + 1;
+      }
+      return offset + pos.character;
+    }),
+    positionAt: vi.fn((offset: number) => {
+      const lines = linesOf(text);
+      let remaining = offset;
+      for (let i = 0; i < lines.length; i++) {
+        if (remaining <= lines[i].length) {
+          return new vscode.Position(i, remaining);
+        }
+        remaining -= lines[i].length + 1;
+      }
+      return new vscode.Position(lines.length - 1, (lines[lines.length - 1] || '').length);
+    }),
+  };
+
+  return {
+    document,
+    selection: selection ?? new vscode.Selection(
+      new vscode.Position(0, 0),
+      new vscode.Position(0, initialText.length),
+    ),
+    edit: vi.fn(async (cb: (builder: { insert: (pos: vscode.Position, newText: string) => void }) => void) => {
+      cb({
+        insert: (pos: vscode.Position, newText: string) => {
+          const off = document.offsetAt(pos);
+          text = text.slice(0, off) + newText + text.slice(off);
+        },
+      });
+      return true;
+    }),
+    setDecorations: vi.fn(),
+  };
 }
 
 /** Return the most recently created mock DiagnosticCollection. */
@@ -350,6 +414,141 @@ describe('CodeExecutor', () => {
 
       const wrappedCode = (gci.GciTsNbExecute as Mock).mock.calls[0][1] as string;
       expect(wrappedCode).toContain("'hello' reversed");
+    });
+  });
+
+  // ── Display It: select inserted result so backspace removes it ───
+  //
+  // After Display It, the inserted ` ${result}` text should be the editor's
+  // active selection so that a single Backspace press (Smalltalk workspace
+  // convention) deletes the result. The selection anchor is placed at the
+  // end of the user code; the active position is past the inserted result.
+
+  describe('displayIt result selection', () => {
+    it('selects the inserted result (including leading space)', async () => {
+      (gci.GciTsPerformFetchBytes as Mock).mockReturnValue({
+        data: '42', err: { number: 0 },
+      });
+
+      const userCode = '3 + 4';
+      const sel = new vscode.Selection(
+        new vscode.Position(0, 0),
+        new vscode.Position(0, userCode.length),
+      );
+      const editor = makeMutableEditor(userCode, sel);
+      setActiveEditor(editor);
+
+      await executor.displayIt();
+
+      // Selection anchor stays at end of user code; active extends past " 42"
+      expect(editor.selection.anchor.line).toBe(0);
+      expect(editor.selection.anchor.character).toBe(userCode.length);
+      expect(editor.selection.active.line).toBe(0);
+      expect(editor.selection.active.character).toBe(userCode.length + ' 42'.length);
+
+      // And the document was actually mutated to include the result
+      expect(editor.document.getText()).toBe('3 + 4 42');
+    });
+
+    it('selection spans exactly the inserted text so backspace removes it cleanly', async () => {
+      (gci.GciTsPerformFetchBytes as Mock).mockReturnValue({
+        data: "'hello'", err: { number: 0 },
+      });
+
+      const userCode = "'hi'";
+      const editor = makeMutableEditor(userCode);
+      setActiveEditor(editor);
+
+      await executor.displayIt();
+
+      // The text covered by the selection should be exactly ` ${result}`
+      const doc = editor.document.getText();
+      const startOff = editor.document.offsetAt(editor.selection.start);
+      const endOff = editor.document.offsetAt(editor.selection.end);
+      expect(doc.slice(startOff, endOff)).toBe(" 'hello'");
+    });
+
+    it('places selection correctly when user code is on a non-first line', async () => {
+      (gci.GciTsPerformFetchBytes as Mock).mockReturnValue({
+        data: '7', err: { number: 0 },
+      });
+
+      const text = 'line0\n3 + 4\nline2';
+      const sel = new vscode.Selection(
+        new vscode.Position(1, 0),
+        new vscode.Position(1, 5),
+      );
+      const editor = makeMutableEditor(text, sel);
+      // Real VSCode's getText(selection) returns only the selected substring
+      editor.document.getText = vi.fn(() => '3 + 4') as unknown as typeof editor.document.getText;
+      setActiveEditor(editor);
+
+      await executor.displayIt();
+
+      expect(editor.selection.anchor.line).toBe(1);
+      expect(editor.selection.anchor.character).toBe(5);
+      expect(editor.selection.active.line).toBe(1);
+      expect(editor.selection.active.character).toBe(5 + ' 7'.length);
+    });
+
+    it('does not modify selection on Execute It (no result inserted)', async () => {
+      const userCode = '3 + 4';
+      const originalSel = new vscode.Selection(
+        new vscode.Position(0, 0),
+        new vscode.Position(0, userCode.length),
+      );
+      const editor = makeMutableEditor(userCode, originalSel);
+      setActiveEditor(editor);
+
+      await executor.executeIt();
+
+      // Execute It must NOT touch the selection
+      expect(editor.selection).toBe(originalSel);
+      // And must not mutate the document
+      expect(editor.document.getText()).toBe(userCode);
+    });
+
+    it('does not change selection when Display It fails with a compile error', async () => {
+      (gci.GciTsNbExecute as Mock).mockReturnValue({
+        success: false,
+        err: { number: 1001, message: 'a CompileError occurred' },
+      });
+
+      const userCode = 'bad syntax';
+      const originalSel = new vscode.Selection(
+        new vscode.Position(0, 0),
+        new vscode.Position(0, userCode.length),
+      );
+      const editor = makeMutableEditor(userCode, originalSel);
+      setActiveEditor(editor);
+
+      await executor.displayIt();
+
+      expect(editor.selection).toBe(originalSel);
+      expect(editor.document.getText()).toBe(userCode);
+    });
+
+    it('applies the result decoration to the inserted result range', async () => {
+      (gci.GciTsPerformFetchBytes as Mock).mockReturnValue({
+        data: '42', err: { number: 0 },
+      });
+
+      const userCode = '3 + 4';
+      const editor = makeMutableEditor(userCode);
+      setActiveEditor(editor);
+
+      await executor.displayIt();
+
+      // setDecorations is called for: dim-on, dim-off, and result-decoration.
+      // Find the call whose range covers exactly the inserted result string
+      // (without the leading space — the decoration highlights the value).
+      const calls = editor.setDecorations.mock.calls as [unknown, vscode.Range[]][];
+      const decoCall = calls.find(([, ranges]) =>
+        ranges.length === 1
+          && ranges[0].start.character === userCode.length + 1
+          && ranges[0].end.character === userCode.length + 1 + '42'.length,
+      );
+      expect(decoCall).toBeDefined();
     });
   });
 
