@@ -2,6 +2,11 @@
 
 A full-featured GemStone/S 64 Bit development environment for Visual Studio Code. Write, browse, debug, and test GemStone Smalltalk code — and manage your GemStone infrastructure — all from a single editor.
 
+Install from either marketplace:
+
+- **VS Code Marketplace:** https://marketplace.visualstudio.com/items?itemName=GemTalkSystems.gemstone-ide
+- **Open VSX** (VSCodium, Gitpod, code-server, etc.): https://open-vsx.org/extension/gemtalksystems/gemstone-ide
+
 Jasper works on **macOS**, **Linux**, and **Windows**:
 
 | Platform | Server management | Client IDE (connect to remote GemStone) |
@@ -17,7 +22,7 @@ Jasper works on **macOS**, **Linux**, and **Windows**:
 
 If you already have a GemStone server running on another machine (or locally), you only need a login configuration and the native GCI client library for your version of GemStone.
 
-1. Install the extension from the VS Code Marketplace.
+1. Install the extension from the VS Code Marketplace or Open VSX (links above).
 2. Open the **GemStone** sidebar (gem icon in the activity bar).
 3. Click the **+** button in the **Logins** section to create a new login.
 4. Fill in the connection details: GemStone version, host, stone name, NetLDI, and credentials.
@@ -32,7 +37,7 @@ The first time you log in with a given GemStone version, Jasper needs the native
 
 To install, manage, and run a GemStone server locally:
 
-1. Install the extension from the VS Code Marketplace.
+1. Install the extension from the VS Code Marketplace or Open VSX (links above).
 2. Open the **GemStone** sidebar (gem icon in the activity bar).
 3. Check the **OS Configuration** section: on macOS/Linux run the shared-memory setup if it warns; on Windows+WSL Jasper also surfaces WSL networking and services-file configuration here.
 4. Use the **Versions** section to download and extract a GemStone release.
