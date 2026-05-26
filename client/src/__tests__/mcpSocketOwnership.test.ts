@@ -19,7 +19,7 @@ const tmpSocketPath = () =>
   path.join(os.tmpdir(), `jasper-mcp-test-${crypto.randomBytes(6).toString('hex')}.sock`);
 
 // Each test gets its own sidecar path so parallel runs (and a real Jasper on
-// the same machine) don't collide on the default `~/.jasper/mcp.owner.json`.
+// the same machine) don't collide on the default `EXTENSION_FOLDER/mcp.owner.json`.
 const tmpSidecarPath = () =>
   path.join(os.tmpdir(), `jasper-mcp-owner-${crypto.randomBytes(6).toString('hex')}.json`);
 

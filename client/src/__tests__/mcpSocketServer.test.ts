@@ -14,6 +14,7 @@ import {
   proxyScriptPath,
   writeClaudeDesktopMcpConfig,
 } from '../mcpSocketServer';
+import {extensionPathFrom} from "../extensionPath";
 
 function withPlatform(platform: string, fn: () => void) {
   const orig = process.platform;
@@ -26,15 +27,15 @@ function withPlatform(platform: string, fn: () => void) {
 }
 
 describe('defaultSocketPath', () => {
-  it('returns ~/.jasper/mcp.sock on darwin', () => {
+  it('returns mcp.sock in the extension folder on darwin', () => {
     withPlatform('darwin', () => {
-      expect(defaultSocketPath()).toBe(path.join(os.homedir(), '.jasper', 'mcp.sock'));
+      expect(defaultSocketPath()).toBe(extensionPathFrom('mcp.sock'));
     });
   });
 
-  it('returns ~/.jasper/mcp.sock on linux', () => {
+  it('returns mcp.sock in the extension folder on linux', () => {
     withPlatform('linux', () => {
-      expect(defaultSocketPath()).toBe(path.join(os.homedir(), '.jasper', 'mcp.sock'));
+      expect(defaultSocketPath()).toBe(extensionPathFrom('mcp.sock'));
     });
   });
 
