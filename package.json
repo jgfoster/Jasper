@@ -971,38 +971,38 @@
     "keybindings": [
       {
         "command": "gemstone.displayIt",
-        "key": "ctrl+; d",
-        "mac": "cmd+; d",
+        "key": "ctrl+k d",
+        "mac": "cmd+k d",
         "when": "editorTextFocus && gemstone.hasActiveSession && !gemstone.executing"
       },
       {
         "command": "gemstone.executeIt",
-        "key": "ctrl+; e",
-        "mac": "cmd+; e",
+        "key": "ctrl+k e",
+        "mac": "cmd+k e",
         "when": "editorTextFocus && gemstone.hasActiveSession && !gemstone.executing"
       },
       {
         "command": "gemstone.inspectIt",
-        "key": "ctrl+; i",
-        "mac": "cmd+; i",
+        "key": "ctrl+k i",
+        "mac": "cmd+k i",
         "when": "editorTextFocus && gemstone.hasActiveSession && !gemstone.executing"
       },
       {
         "command": "gemstone.openBrowser",
-        "key": "ctrl+; b",
-        "mac": "cmd+; b",
+        "key": "ctrl+k b",
+        "mac": "cmd+k b",
         "when": "gemstone.hasActiveSession"
       },
       {
         "command": "gemstone.findClass",
-        "key": "ctrl+; c",
-        "mac": "cmd+; c",
+        "key": "ctrl+k c",
+        "mac": "cmd+k c",
         "when": "gemstone.hasActiveSession"
       },
       {
         "command": "gemstone.findMethod",
-        "key": "ctrl+; m",
-        "mac": "cmd+; m",
+        "key": "ctrl+k m",
+        "mac": "cmd+k m",
         "when": "gemstone.hasActiveSession"
       }
     ]

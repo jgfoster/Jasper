@@ -12,18 +12,18 @@ const keybindings: Array<{
 }> = pkg.contributes.keybindings;
 
 describe('keybindings', () => {
-  it('should all use the ctrl+; chord prefix (Windows/Linux)', () => {
+  it('should all use the ctrl+k chord prefix (Windows/Linux)', () => {
     for (const kb of keybindings) {
       expect(kb.key, `${kb.command} has unexpected key: "${kb.key}"`).toMatch(
-        /^ctrl\+; [a-z]$/,
+        /^ctrl\+k [a-z]$/,
       );
     }
   });
 
-  it('should all use the cmd+; chord prefix (macOS)', () => {
+  it('should all use the cmd+k chord prefix (macOS)', () => {
     for (const kb of keybindings) {
       expect(kb.mac, `${kb.command} has unexpected mac key: "${kb.mac}"`).toMatch(
-        /^cmd\+; [a-z]$/,
+        /^cmd\+k [a-z]$/,
       );
     }
   });

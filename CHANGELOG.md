@@ -234,8 +234,8 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ### Added
 
-- **Find Class command** (`Cmd+; C` / `Ctrl+; C`) — quick-pick search across all classes in all dictionaries; selecting a class navigates the System Browser to it (or opens the class definition if no browser is open)
-- **Find Method command** (`Cmd+; M` / `Ctrl+; M`) — quick-pick search across all methods (instance and class side) of the currently selected class in the System Browser; if no class is selected, prompts for a class name; selecting a method navigates the browser and opens the method editor
+- **Find Class command** (`Cmd+K C` / `Ctrl+K C`) — quick-pick search across all classes in all dictionaries; selecting a class navigates the System Browser to it (or opens the class definition if no browser is open)
+- **Find Method command** (`Cmd+K M` / `Ctrl+K M`) — quick-pick search across all methods (instance and class side) of the currently selected class in the System Browser; if no class is selected, prompts for a class name; selecting a method navigates the browser and opens the method editor
 - **FileSystem provider logging** — `gemstone://` file operations (`stat`, `readFile`, `writeFile`) now log to the GemStone output channel, making it easier to diagnose save/compile issues; entries show the URI, read-only status, and success/failure of each operation
 - **Register local GemStone versions** — "Register Local Version…" button in the Versions view lets you point to an existing GemStone installation directory without downloading or extracting; registered versions appear alongside downloaded ones and can be used for databases and logins; "Unregister" removes the registration without deleting files
 - **Login editor version picker** — the login editor now shows a dropdown of available GemStone versions (from extracted installations and configured GCI library paths) instead of a free-text field
