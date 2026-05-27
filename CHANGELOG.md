@@ -4,13 +4,17 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-05-26
+
 ### Changed
 
+- **Keybinding chord prefix moved from `Cmd+;` / `Ctrl+;` to `Cmd+K` / `Ctrl+K`** for Display It, Execute It, Inspect It, Open Browser, Find Class, and Find Method. The `;` prefix didn't fire reliably on non-US keyboard layouts (German QWERTZ, French AZERTY, Spanish, Nordic), where the semicolon lives on a shifted key and VS Code's matcher on Linux/X11 couldn't agree with the OS about what the user actually pressed. Letter-key chord prefixes are layout-stable on every Latin keyboard. The one collision — `Ctrl+K M` ("change language mode") — is scoped to GemStone editors only via `when: "gemstone.hasActiveSession"`, and a GemStone editor's language is fixed anyway. ([#66](https://github.com/jgfoster/Jasper/issues/66), [#70](https://github.com/jgfoster/Jasper/pull/70))
 - **Display It now auto-selects the inserted result** so a single Backspace removes it — the Smalltalk workspace convention from Pharo / Squeak / VAST / VisualWorks. Previously the result stayed unselected and required either Cmd+Z or manually selecting the text before deleting; users new to Smalltalk who had typed past the result lost their cursor position when backspacing through it. The selection covers the leading space + `printString`, so one keystroke restores the editor to its pre-execution state. Execute It is unchanged (no result is inserted).
 - **CI migrated from GitHub Actions to GitLab.** `.github/workflows/health-check.yml` is replaced by `.gitlab-ci.yml`; the upstream repo now lives on GitLab and the pipeline runs there.
 
 ### Fixed
 
+- **Extension folder (`~/.jasper`) is now created on activation** if it doesn't already exist. Previously, on a fresh install the folder was assumed to exist, so the first subsystem to write into it — the MCP Unix socket at `~/.jasper/mcp.sock`, the owner sidecar at `~/.jasper/mcp.owner.json`, or any other artifact resolved via `extensionPathFrom(...)` — would fail with `ENOENT`. Activation now calls `initializeExtensionFolder()` first, and a failure (e.g. permission denied) is surfaced as a VS Code error notification with a **Show Details** action that opens a dedicated "Jasper" output channel. Folder-path construction is also encapsulated behind `extensionPathFrom(...)` instead of being open-coded as `path.join(os.homedir(), '.jasper', ...)` in three places. ([#69](https://github.com/jgfoster/Jasper/pull/69))
 - **VSIX packaging:** restored `vsce package` after 1.5.0's `.vscodeignore` rewrite excluded `docs/**` wholesale. That broke packaging because `docs/MCP_Server_Feedback.md` is a symlink into an external (Grail) repo. Switched to an allow-list — `docs/**` is ignored, then `docs/mcp-server.md`, `docs/windows-wsl.md`, and `docs/formatter.md` are unignored — so only the three user-facing docs the README links to ship in the VSIX.
 
 ### Documentation
