@@ -143,15 +143,15 @@ With an active session, execute Smalltalk code from any editor:
 
 | Command | macOS | Windows/Linux | Description |
 |---------|-------|---------------|-------------|
-| Display It | Cmd+; D | Ctrl+; D | Evaluate selection and insert result inline |
-| Execute It | Cmd+; E | Ctrl+; E | Evaluate selection silently |
-| Inspect It | Cmd+; I | Ctrl+; I | Evaluate selection and show result in Inspector |
+| Display It | Cmd+K D | Ctrl+K D | Evaluate selection and insert result inline |
+| Execute It | Cmd+K E | Ctrl+K E | Evaluate selection silently |
+| Inspect It | Cmd+K I | Ctrl+K I | Evaluate selection and show result in Inspector |
 
 Long-running expressions show a progress notification with soft-break and hard-break options. The **GemStone Transcript** output channel captures transcript output from the session.
 
 ### System Browser
 
-Open with **Cmd+; B** (Ctrl+; B) or from a session's inline button. The browser provides a five-column layout:
+Open with **Cmd+K B** (Ctrl+K B) or from a session's inline button. The browser provides a five-column layout:
 
 - **Dictionaries** — your symbol list dictionaries
 - **Class Categories** — classes grouped by category

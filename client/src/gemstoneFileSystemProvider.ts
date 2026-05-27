@@ -114,7 +114,7 @@ function parseUri(uri: vscode.Uri): ParsedUri {
 
 const MOD_KEY = process.platform === 'darwin' ? 'Cmd' : 'Ctrl';
 export const WORKSPACE_TEMPLATE =
-  `"Workspace\nPlace cursor anywhere on a line with code\nand press [<${MOD_KEY}>+<;> followed by <D>]\n(note that this is a two-keypress chord) to display"\n6 * 7\n`;
+  `"Workspace\nPlace cursor anywhere on a line with code\nand press [<${MOD_KEY}>+<K> followed by <D>]\n(note that this is a two-keypress chord) to display"\n6 * 7\n`;
 
 export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
   private _onDidChangeFile = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
