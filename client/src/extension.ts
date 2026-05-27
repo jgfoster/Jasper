@@ -62,13 +62,42 @@ import {
   refreshWslNetworkInfo,
 } from './wslBridge';
 import { wslExistsSync, wslSymlinkSync } from './wslFs';
+import type {OutputChannel} from "vscode";
+import {initializeExtensionFolder} from "./extensionPath";
 
 let client: LanguageClient;
 let sessionManager: SessionManager;
 let exportManager: ExportManager;
 let fileInManager: FileInManager;
+let jasperChannel:OutputChannel;
+
+function logLine(level: "ERROR", scope: string, message: string, data: unknown) {
+  jasperChannel.appendLine(`${new Date().toISOString()} [${level}] [${scope}] ${message} | ${data && JSON.stringify(data)}`);
+}
+
+export async function logJasperError(message: string, scope: string, error: unknown) {
+  logLine("ERROR", scope, message, { error: error instanceof Error ? error.message : String(error) });
+
+  await vscode.window
+      .showErrorMessage(message, 'Show Details')
+      .then((choice) => {
+        if (choice === 'Show Details') {
+          jasperChannel.show(true);
+        }
+      });
+}
 
 export function activate(context: vscode.ExtensionContext) {
+  jasperChannel = vscode.window.createOutputChannel('Jasper');
+  context.subscriptions.push(jasperChannel);
+
+  try {
+    initializeExtensionFolder();
+  } catch (error) {
+    void logJasperError(`Jasper could not set up its local folder. Please check folder permissions and reload VS Code.`, "initialization", error);
+    throw error;
+  }
+  
   // Populated by the async cert-generation step below; read by the
   // `gemstone.openMcpInspector` command so Node trusts our self-signed cert
   // (macOS keychain trust doesn't extend to Node's TLS stack).

@@ -1,6 +1,6 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
+import {extensionPathFrom} from "./extensionPath";
 
 // Lives next to the MCP socket so every Jasper window can answer
 // "if not me, who owns the MCP server?" without IPC. Written by the owning
@@ -22,7 +22,7 @@ export interface McpOwnerInfo {
 }
 
 export function defaultSidecarPath(): string {
-  return path.join(os.homedir(), '.jasper', 'mcp.owner.json');
+  return extensionPathFrom('mcp.owner.json');
 }
 
 export function writeOwnerSidecar(

@@ -12,6 +12,7 @@ import {
   deleteOwnerSidecar,
   writeOwnerSidecar,
 } from './mcpOwnerSidecar';
+import {extensionPathFrom} from "./extensionPath";
 
 /**
  * Single, user-scoped server name. Every MCP client (Claude Code, Claude
@@ -34,7 +35,7 @@ export function defaultSocketPath(): string {
   if (process.platform === 'win32') {
     return '\\\\.\\pipe\\jasper-mcp';
   }
-  return path.join(os.homedir(), '.jasper', 'mcp.sock');
+  return extensionPathFrom('mcp.sock');
 }
 
 export interface McpSocketServerOptions {
