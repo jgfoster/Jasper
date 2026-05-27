@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { SessionManager, ActiveSession } from './sessionManager';
+import { SessionManager } from './sessionManager';
 import { OOP_NIL } from './gciConstants';
 import * as debug from './debugQueries';
 
@@ -24,16 +24,45 @@ export class InspectorTreeProvider implements vscode.TreeDataProvider<InspectorN
   private _onDidChangeTreeData = new vscode.EventEmitter<InspectorNode | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
   private roots: InspectorNode[] = [];
+  private _treeView: vscode.TreeView<InspectorNode> | undefined;
+  private _badgeTimer: ReturnType<typeof setTimeout> | undefined;
+  private _statusBarItem: vscode.StatusBarItem;
 
-  constructor(private sessionManager: SessionManager) {}
+  constructor(private sessionManager: SessionManager) {
+    this._statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
+    this._statusBarItem.text = '$(eye) Inspector updated';
+    this._statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+  }
+
+  setView(view: vscode.TreeView<InspectorNode>): void {
+    this._treeView = view;
+  }
 
   findRootByLabel(label: string): InspectorNode | undefined {
     return this.roots.find(r => r.label === label);
   }
 
   addRoot(sessionId: number, oop: bigint, label: string): void {
-    this.roots.push({ sessionId, oop, label, isRoot: true, kind: 'root' });
+    const newRoot: InspectorNode = { sessionId, oop, label, isRoot: true, kind: 'root' };
+    this.roots.push(newRoot);
     this._onDidChangeTreeData.fire(undefined);
+    if (this._treeView) {
+      vscode.commands.executeCommand('gemstoneInspector.focus').then(() => {
+        vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+      });
+      if (this._badgeTimer !== undefined) clearTimeout(this._badgeTimer);
+      this._treeView.badge = { value: 1, tooltip: 'Inspector updated' };
+      this._statusBarItem.show();
+      this._badgeTimer = setTimeout(() => {
+        if (this._treeView) this._treeView.badge = undefined;
+        this._statusBarItem.hide();
+        this._badgeTimer = undefined;
+      }, 5000);
+    }
+  }
+
+  dispose(): void {
+    this._statusBarItem.dispose();
   }
 
   removeRoot(node: InspectorNode): void {

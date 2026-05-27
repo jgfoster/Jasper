@@ -179,7 +179,8 @@ export function activate(context: vscode.ExtensionContext) {
     treeDataProvider: inspectorProvider,
     showCollapseAll: true,
   });
-  context.subscriptions.push(inspectorView);
+  inspectorProvider.setView(inspectorView);
+  context.subscriptions.push(inspectorView, inspectorProvider);
 
   // ── GemStone FileSystem Provider ─────────────────────────
   const gemstoneFs = new GemStoneFileSystemProvider(sessionManager);
