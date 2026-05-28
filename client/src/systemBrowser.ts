@@ -2,12 +2,12 @@ import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import * as path from 'path';
 import * as fs from 'fs';
-import { ActiveSession } from './sessionManager';
-import { ExportManager } from './exportManager';
-import { parseTopazDocument } from './topazFileIn';
+import {ActiveSession} from './sessionManager';
+import {ExportManager} from './exportManager';
+import {parseTopazDocument} from './topazFileIn';
 import * as queries from './browserQueries';
-import { GlobalsBrowser } from './globalsBrowser';
-import { ClassBrowser } from './classBrowser';
+import {GlobalsBrowser} from './globalsBrowser';
+import {ClassBrowser} from './classBrowser';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -451,6 +451,9 @@ export class SystemBrowser {
           break;
         case 'ctxRunTests':
           this.handleRunTests();
+          break;
+        case 'ctxRunCategoryTests':
+          this.handleRunCategoryTests().catch(e => this.postError(e));
           break;
         case 'ctxNewMethod':
           this.handleNewMethod().catch(e => this.postError(e));
@@ -1155,6 +1158,13 @@ export class SystemBrowser {
     const className = this.state.selectedClass;
     if (!className) return;
     vscode.commands.executeCommand('gemstone.runSunitClass', { className });
+  }
+
+  private async handleRunCategoryTests() {
+    const categoryName = this.state.selectedCategory;
+    if (!categoryName) return;
+    
+    await vscode.commands.executeCommand('gemstone.runSunitClasses', this.state.classes);
   }
 
 
@@ -2075,6 +2085,8 @@ export class SystemBrowser {
       e.preventDefault();
       showContextMenu(e.clientX, e.clientY, [
         { label: 'New Class Category\\u2026', action: () => vscode.postMessage({ command: 'ctxNewClassCategory' }) },
+        { separator: true },
+        { label: 'Run SUnit Tests', action: () => vscode.postMessage({ command: 'ctxRunCategoryTests' }) }
       ]);
     });
 

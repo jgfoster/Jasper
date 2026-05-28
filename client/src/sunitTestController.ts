@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-import { SessionManager, ActiveSession } from './sessionManager';
+import {ActiveSession, SessionManager} from './sessionManager';
 import * as sunit from './sunitQueries';
+import type {TestItem, CancellationToken} from "vscode";
 
 /**
  * Integrates GemStone SUnit tests with VS Code's Test Explorer.
@@ -109,7 +110,15 @@ export class SunitTestController implements vscode.Disposable {
     run.end();
   }
 
-  // ── Discovery ──────────────────────────────────────────────
+  /** Run all tests in the provided class names using a single TestRun. */
+  async runClassesByName(classNames: string[]): Promise<void> {
+    await this.discoverTests();
+    const classItems: TestItem[] = this.itemsForClassesNamed(classNames);
+
+    await this.runTestItems(classItems);
+  }
+  
+// ── Discovery ──────────────────────────────────────────────
 
   private async discoverTests(): Promise<void> {
     const session = this.sessionManager.getSelectedSession();
@@ -313,5 +322,29 @@ export class SunitTestController implements vscode.Disposable {
         run.errored(item, new vscode.TestMessage(result.message), result.durationMs);
         break;
     }
+  }
+
+  private itemsForClassesNamed(classNames: string[]): TestItem[] {
+    const result: TestItem[] = [];
+    
+    this.controller.items.forEach(testItem => {
+      if (classNames.includes(testItem.label)){
+        result.push(testItem);
+      }
+    });
+    
+   return result;
+  }
+  
+  private async runTestItems(testItems: TestItem[]) {
+    await this.runTests({
+      include: testItems,
+      exclude: undefined,
+      preserveFocus: false,
+      profile: undefined,
+      continuous: false
+    }, {
+      isCancellationRequested: false
+    } as CancellationToken);
   }
 }
