@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 
 vi.mock('vscode', () => import('../__mocks__/vscode'));
 
@@ -247,6 +247,48 @@ describe('SunitTestController', () => {
 
       expect(sunit.runTestClass).not.toHaveBeenCalled()
       ctrl.dispose();
+    });
+  });
+
+  describe('runTestsByName', () => {
+    let sunitTestController: SunitTestController;
+    
+    beforeEach(() => {
+      const sm = makeSessionManager(true);
+      sunitTestController = new SunitTestController(sm);
+    })
+    
+    afterEach(() => {
+      sunitTestController.dispose();
+    })
+    
+    it('runs a single test', async () => {
+      await sunitTestController.runTestsByName('MyTestCase', ['testAdd']);
+
+      expect(sunit.runTestMethod).toHaveBeenCalledTimes(1);
+      expect(sunit.runTestMethod).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 1 }),
+        'MyTestCase',
+        'testAdd',
+      );
+    });
+
+    it('does not run tests when a class is not a test class', async () => {
+      await sunitTestController.runTestsByName('NoSuchClass', ['']);
+
+      expect(window.showWarningMessage).toHaveBeenCalledWith(
+         sunitTestController.notATestClassErrorMessage('NoSuchClass')
+      );
+      expect(sunit.runTestMethod).not.toHaveBeenCalled();
+    });
+    
+    it('does not run tests when no tests methods were found', async () => {
+      await sunitTestController.runTestsByName('MyTestCase', ['noSuchSelector']);
+
+      expect(window.showWarningMessage).toHaveBeenCalledWith(
+         sunitTestController.noTestsFoundErrorMessage()
+      );
+      expect(sunit.runTestMethod).not.toHaveBeenCalled();
     });
   });
 
