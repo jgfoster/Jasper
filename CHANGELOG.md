@@ -54,6 +54,11 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 - **Regression guards for the two thinnest spots in the MCP shared-query test suite**, prompted by external feedback from a downstream Grail (GemStone-Python) project that uses Jasper's MCP server as its primary edit-test surface:
   - Multi-line `eval_python` input now has a round-trip test in `structuredQueries.test.ts` that confirms a `def`/multi-line Python source embeds verbatim into the Smalltalk `src := '...'.` literal with its real LFs preserved, and asserts no `\n`-escape mutation appears. Guards against a future "improvement" to `escapeString` that would convert newlines into `\` + `n` and SyntaxError every multi-line eval.
   - `runFailingTests`'s `MAX_MSG = 1024` per-message cap now has a *mechanism* test in addition to the existing magic-number assertion: the full `s copyFrom: 1 to: (s size min: 1024)` slice form is pinned (a bare `min:` returns the integer size — no trim would happen), and the clip is positioned before the outer `ws contents encodeAsUTF8` so 1024 remains a character-count budget rather than a byte-count budget.
+- **System Browser: Run SUnit Tests context menus.** Right-clicking in any of the following columns now offers a "Run SUnit Tests" action that scopes the test run to exactly what you clicked:
+  - **Dictionary column** — runs every test class belonging to the selected dictionary.
+  - **Class category column** — runs every test class belonging to the selected category.
+  - **Method category column** — runs only the test methods grouped under the selected category within the currently selected class.
+  - **Method column** — runs the single selected test method.
 
 ### Documentation
 
