@@ -837,6 +837,34 @@ describe('SystemBrowser', () => {
     });
   });
 
+  describe('class category context menu', () => {
+    beforeEach(() => {
+      SystemBrowser.show(session, exportManager);
+      messageHandler({ command: 'ready' });
+      messageHandler({ command: 'selectDictionary', index: 1 });
+    });
+
+    it('runs SUnit tests for all classes in the selected category', () => {
+      messageHandler({ command: 'selectCategory', name: 'Kernel' });
+      vi.mocked(commands.executeCommand).mockClear();
+
+      messageHandler({ command: 'ctxRunCategoryTests' });
+
+      expect(commands.executeCommand).toHaveBeenCalledWith(
+          'gemstone.runSunitClasses',
+          ['Array', 'Set'],
+      );
+    });
+
+    it('does nothing when no category is selected', () => {
+      vi.mocked(commands.executeCommand).mockClear();
+
+      messageHandler({ command: 'ctxRunCategoryTests' });
+
+      expect(commands.executeCommand).not.toHaveBeenCalledWith('gemstone.runSunitClasses', expect.anything());
+    });
+  });
+  
   describe('class context menu', () => {
     beforeEach(() => {
       SystemBrowser.show(session, exportManager);

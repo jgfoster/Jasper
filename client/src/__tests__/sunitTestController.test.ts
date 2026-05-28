@@ -218,6 +218,38 @@ describe('SunitTestController', () => {
     });
   });
 
+  describe('runClassesByName', () => {
+    it('runs all provided classes in a single test run', async () => {
+      const sm = makeSessionManager(true);
+      const ctrl = new SunitTestController(sm);
+      
+      await ctrl.runClassesByName(['MyTestCase', 'OtherTest']);
+      
+      expect(sunit.runTestClass).toHaveBeenCalledTimes(2)
+      expect(sunit.runTestClass).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ id: 1 }),
+        'MyTestCase',
+      );
+      expect(sunit.runTestClass).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ id: 1 }),
+        'OtherTest',
+      );
+      ctrl.dispose();
+    });
+
+    it('does not run tests for unknown class names', async () => {
+      const sm = makeSessionManager(true);
+      const ctrl = new SunitTestController(sm);
+
+      await ctrl.runClassesByName(['NoSuchTest']);
+
+      expect(sunit.runTestClass).not.toHaveBeenCalled()
+      ctrl.dispose();
+    });
+  });
+
   describe('dispose', () => {
     it('disposes the controller', () => {
       const sm = makeSessionManager(true);

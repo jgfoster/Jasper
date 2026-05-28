@@ -734,6 +734,10 @@ export function activate(context: vscode.ExtensionContext) {
       await sunitTestController.runClassByName(args.className);
     }),
 
+    vscode.commands.registerCommand('gemstone.runSunitClasses', async (classNames: string[]) => {
+      await sunitTestController.runClassesByName(classNames);
+    }),
+
     vscode.commands.registerCommand('gemstone.inspectGlobal', async (args: { className: string }) => {
       const existing = inspectorProvider.findRootByLabel(args.className);
       if (existing) {
