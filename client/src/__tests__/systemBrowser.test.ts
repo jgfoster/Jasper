@@ -1021,6 +1021,27 @@ describe('SystemBrowser', () => {
       );
     });
 
+    it('delegates run single test to command', () => {
+      vi.mocked(commands.executeCommand).mockClear();
+
+      messageHandler({ command: 'ctxRunMethodTests' });
+
+      expect(commands.executeCommand).toHaveBeenCalledWith(
+        'gemstone.runSunitMethods',
+        'Array', 
+        ['name'],
+      );
+    });
+
+    it('does nothing for run single test when no method is selected', () => {
+      messageHandler({ command: 'selectDictionary', index: 2 });
+      vi.mocked(commands.executeCommand).mockClear();
+
+      messageHandler({ command: 'ctxRunMethodTests' });
+
+      expect(commands.executeCommand).not.toHaveBeenCalledWith('gemstone.runSunitMethods', expect.anything());
+    });
+
     it('delegates senders to command', () => {
       messageHandler({ command: 'ctxSendersOf' });
       expect(commands.executeCommand).toHaveBeenCalledWith(

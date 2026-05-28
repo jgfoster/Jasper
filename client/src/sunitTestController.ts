@@ -117,7 +117,36 @@ export class SunitTestController implements vscode.Disposable {
 
     await this.runTestItems(classItems);
   }
+
+  /** Run test methods by class/selector from browser context menus. */
+  async runTestsByName(className: string, selectors: string[]): Promise<void> {
+    await this.discoverTests();
+
+    const classItem = this.findClassItemByName(className);
+    if (!classItem) {
+      vscode.window.showWarningMessage(this.notATestClassErrorMessage(className));
+      return;
+    }
+    
+    if (classItem.children.size === 0) {
+      await this.resolveTestMethods(classItem);
+    }
+
+    const methodItems = selectors
+        .map(selector => this.itemForMethodNamed(classItem, selector))
+        .filter(result => result !== undefined);
+    
+    await this.runTestItems(methodItems);
+  }
+
+  public notATestClassErrorMessage(className: string) {
+    return `${className} is not a test class.`;
+  }
   
+  public noTestsFoundErrorMessage() {
+    return `No tests found`
+  }
+
 // ── Discovery ──────────────────────────────────────────────
 
   private async discoverTests(): Promise<void> {
@@ -335,8 +364,37 @@ export class SunitTestController implements vscode.Disposable {
     
    return result;
   }
+
+  private findClassItemByName(className: string): TestItem | undefined {
+    let classItem: TestItem | undefined;
+    
+    this.controller.items.forEach(testItem => {
+      if (testItem.label === className) {
+        classItem = testItem;
+      }
+    });
+    
+    return classItem;
+  }
+
+  private itemForMethodNamed(classItem: TestItem, selector: string): TestItem | undefined {
+    let methodItem: TestItem | undefined;
+    
+    classItem.children.forEach(child => {
+      if (child.label === selector) {
+        methodItem = child;
+      }
+    });
+    
+    return methodItem;
+  }
   
   private async runTestItems(testItems: TestItem[]) {
+    if (testItems.length === 0) {
+      vscode.window.showWarningMessage(this.noTestsFoundErrorMessage());
+      return;
+    }
+    
     await this.runTests({
       include: testItems,
       exclude: undefined,

@@ -467,6 +467,9 @@ export class SystemBrowser {
         case 'ctxDeleteMethod':
           this.handleDeleteMethod().catch(e => this.postError(e));
           break;
+        case 'ctxRunMethodTests':
+          this.handleRunMethodTests().catch(e => this.postError(e));
+          break;
         case 'ctxMoveToCategory':
           this.handleMoveToCategory().catch(e => this.postError(e));
           break;
@@ -1179,6 +1182,14 @@ export class SystemBrowser {
     if (classNames.length === 0) return;
 
     await vscode.commands.executeCommand('gemstone.runSunitClasses', classNames);
+  }
+
+  private async handleRunMethodTests() {
+    const className = this.state.selectedClass;
+    const selector = this.state.selectedMethod;
+    if (!className || !selector) return;
+
+    await vscode.commands.executeCommand('gemstone.runSunitMethods', className, [selector]);
   }
 
 
@@ -2162,6 +2173,8 @@ export class SystemBrowser {
           { separator: true },
           { label: 'Senders Of', action: () => vscode.postMessage({ command: 'ctxSendersOf' }) },
           { label: 'Implementors Of', action: () => vscode.postMessage({ command: 'ctxImplementorsOf' }) },
+          { separator: true },
+          { label: 'Run SUnit Test', action: () => vscode.postMessage({ command: 'ctxRunMethodTests' }) },
         ] : []),
       ]);
     });
