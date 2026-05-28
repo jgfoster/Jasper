@@ -835,6 +835,31 @@ describe('SystemBrowser', () => {
         { recursive: true, force: true },
       );
     });
+
+    it('runs SUnit tests for all classes in the selected dictionary', () => {
+      messageHandler({ command: 'selectDictionary', index: 1 });
+      vi.mocked(commands.executeCommand).mockClear();
+
+      messageHandler({ command: 'ctxRunDictionaryTests' });
+
+      expect(commands.executeCommand).toHaveBeenCalledWith(
+        'gemstone.runSunitClasses',
+        ['Array', 'Set', 'Bag'],
+      );
+    });
+
+    it('does nothing when no dictionary is selected', () => {
+      // Fresh browser — no dictionary selected
+      SystemBrowser.show(session, exportManager);
+      const freshHandler = vi.mocked(window.createWebviewPanel).mock.results.at(-1)!.value
+        .webview.onDidReceiveMessage.mock.calls[0][0] as (m: unknown) => void;
+      freshHandler({ command: 'ready' });
+      vi.mocked(commands.executeCommand).mockClear();
+
+      freshHandler({ command: 'ctxRunDictionaryTests' });
+
+      expect(commands.executeCommand).not.toHaveBeenCalledWith('gemstone.runSunitClasses', expect.anything());
+    });
   });
 
   describe('class category context menu', () => {
