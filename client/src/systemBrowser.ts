@@ -455,6 +455,9 @@ export class SystemBrowser {
         case 'ctxRunCategoryTests':
           this.handleRunCategoryTests().catch(e => this.postError(e));
           break;
+        case 'ctxRunDictionaryTests':
+          this.handleRunDictionaryTests().catch(e => this.postError(e));
+          break;
         case 'ctxNewMethod':
           this.handleNewMethod().catch(e => this.postError(e));
           break;
@@ -1165,6 +1168,17 @@ export class SystemBrowser {
     if (!categoryName) return;
     
     await vscode.commands.executeCommand('gemstone.runSunitClasses', this.state.classes);
+  }
+
+  private async handleRunDictionaryTests() {
+    const dictIndex = this.state.selectedDictIndex;
+    if (!dictIndex) return;
+
+    const entries = this.getCachedDictEntries(dictIndex);
+    const classNames = entries.filter(e => e.isClass).map(e => e.name);
+    if (classNames.length === 0) return;
+
+    await vscode.commands.executeCommand('gemstone.runSunitClasses', classNames);
   }
 
 
@@ -2070,13 +2084,15 @@ export class SystemBrowser {
       showContextMenu(e.clientX, e.clientY, [
         { label: 'Add Dictionary\\u2026', action: () => vscode.postMessage({ command: 'ctxAddDictionary' }) },
         ...(item ? [
+           { label: 'Remove Dictionary\\u2026', action: () => vscode.postMessage({ command: 'ctxRemoveDictionary' }) },
           { separator: true },
           { label: 'Move Up', action: () => vscode.postMessage({ command: 'ctxMoveDictUp' }) },
           { label: 'Move Down', action: () => vscode.postMessage({ command: 'ctxMoveDictDown' }) },
           { separator: true },
           { label: 'Browse References', action: () => vscode.postMessage({ command: 'ctxBrowseReferences', name: item.dataset.value }) },
           { separator: true },
-          { label: 'Remove Dictionary\\u2026', action: () => vscode.postMessage({ command: 'ctxRemoveDictionary' }) },
+          { label: 'Run SUnit Tests', action: () => vscode.postMessage({ command: 'ctxRunDictionaryTests' }) }
+          
         ] : []),
       ]);
     });
