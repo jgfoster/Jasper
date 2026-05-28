@@ -967,6 +967,28 @@ describe('SystemBrowser', () => {
       await messageHandler({ command: 'ctxRenameCategory' });
       expect(queries.renameCategory).not.toHaveBeenCalled();
     });
+
+    it('runs SUnit tests for all methods in the selected method category', () => {
+      vi.mocked(commands.executeCommand).mockClear();
+
+      messageHandler({ command: 'ctxRunMethodCategoryTests' });
+
+      expect(commands.executeCommand).toHaveBeenCalledWith(
+        'gemstone.runSunitMethodCategory',
+        'Array',
+        'Accessing',
+      );
+    });
+
+    it('does nothing when no method category is selected', () => {
+      // Deselect class entirely so selectedMethodCategory is also cleared
+      messageHandler({ command: 'selectDictionary', index: 2 });
+      vi.mocked(commands.executeCommand).mockClear();
+
+      messageHandler({ command: 'ctxRunMethodCategoryTests' });
+
+      expect(commands.executeCommand).not.toHaveBeenCalledWith('gemstone.runSunitMethodCategory', expect.anything());
+    });
   });
 
   describe('method context menu', () => {

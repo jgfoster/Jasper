@@ -292,6 +292,48 @@ describe('SunitTestController', () => {
     });
   });
 
+  describe('runMethodCategoryByName', () => {
+    let ctrl: SunitTestController;
+    
+    beforeEach(() => {
+      const sm = makeSessionManager(true);
+      ctrl = new SunitTestController(sm)
+    })
+    
+    afterEach(() => {
+      ctrl.dispose();
+    })
+    
+    it('runs all methods in the given category', async () => {
+      // 'testAdd' and 'testRemove' are both in 'unit tests' per the mock
+      await ctrl.runMethodCategoryByName('MyTestCase', 'unit tests');
+
+      expect(sunit.runTestMethod).toHaveBeenCalledTimes(2);
+      expect(sunit.runTestMethod).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'MyTestCase', 'testAdd');
+      expect(sunit.runTestMethod).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'MyTestCase', 'testRemove');
+    });
+
+    it('does not run tests when a class is not a test class', async () => {
+      await ctrl.runMethodCategoryByName('NoSuchClass', 'unit tests');
+
+      expect(window.showWarningMessage).toHaveBeenCalledWith(
+        expect.stringContaining('NoSuchClass'),
+      );
+      expect(sunit.runTestMethod).not.toHaveBeenCalled();
+      ctrl.dispose();
+    });
+
+    it('does not run tests when no tests methods were found', async () => {
+      await ctrl.runMethodCategoryByName('MyTestCase', 'non-existent category');
+
+      expect(window.showWarningMessage).toHaveBeenCalledWith(
+        ctrl.noTestsFoundErrorMessage()
+      );
+      expect(sunit.runTestMethod).not.toHaveBeenCalled();
+      ctrl.dispose();
+    });
+  });
+
   describe('dispose', () => {
     it('disposes the controller', () => {
       const sm = makeSessionManager(true);

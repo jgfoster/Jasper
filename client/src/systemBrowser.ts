@@ -470,6 +470,9 @@ export class SystemBrowser {
         case 'ctxRunMethodTests':
           this.handleRunMethodTests().catch(e => this.postError(e));
           break;
+        case 'ctxRunMethodCategoryTests':
+          this.handleRunMethodCategoryTests().catch(e => this.postError(e));
+          break;
         case 'ctxMoveToCategory':
           this.handleMoveToCategory().catch(e => this.postError(e));
           break;
@@ -1190,6 +1193,14 @@ export class SystemBrowser {
     if (!className || !selector) return;
 
     await vscode.commands.executeCommand('gemstone.runSunitMethods', className, [selector]);
+  }
+
+  private async handleRunMethodCategoryTests() {
+    const className = this.state.selectedClass;
+    const category = this.state.selectedMethodCategory;
+    if (!className || !category) return;
+
+    await vscode.commands.executeCommand('gemstone.runSunitMethodCategory', className, category);
   }
 
 
@@ -2151,6 +2162,8 @@ export class SystemBrowser {
       if (item && !item.classList.contains('virtual')) {
         showContextMenu(e.clientX, e.clientY, [
           { label: 'Rename Category\\u2026', action: () => vscode.postMessage({ command: 'ctxRenameCategory' }) },
+          { separator: true },
+          { label: 'Run SUnit Tests', action: () => vscode.postMessage({ command: 'ctxRunMethodCategoryTests' }) },
         ]);
       }
     });

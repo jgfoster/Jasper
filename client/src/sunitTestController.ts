@@ -1,7 +1,7 @@
+import type {CancellationToken, TestItem} from "vscode";
 import * as vscode from 'vscode';
 import {ActiveSession, SessionManager} from './sessionManager';
 import * as sunit from './sunitQueries';
-import type {TestItem, CancellationToken} from "vscode";
 
 /**
  * Integrates GemStone SUnit tests with VS Code's Test Explorer.
@@ -118,6 +118,30 @@ export class SunitTestController implements vscode.Disposable {
     await this.runTestItems(classItems);
   }
 
+  /** Run all test methods in a method category from browser context menus. */
+  async runMethodCategoryByName(className: string, category: string): Promise<void> {
+    await this.discoverTests();
+
+    const classItem = this.findClassItemByName(className);
+    if (!classItem) {
+      vscode.window.showWarningMessage(this.notATestClassErrorMessage(className));
+      return;
+    }
+
+    if (classItem.children.size === 0) {
+      await this.resolveTestMethods(classItem);
+    }
+
+    const methodItems: TestItem[] = [];
+    classItem.children.forEach(child => {
+      if (this.methodCategory.get(`${className}/${child.label}`) === category) {
+        methodItems.push(child);
+      }
+    });
+
+    await this.runTestItems(methodItems);
+  }
+
   /** Run test methods by class/selector from browser context menus. */
   async runTestsByName(className: string, selectors: string[]): Promise<void> {
     await this.discoverTests();
@@ -127,15 +151,15 @@ export class SunitTestController implements vscode.Disposable {
       vscode.window.showWarningMessage(this.notATestClassErrorMessage(className));
       return;
     }
-    
+
     if (classItem.children.size === 0) {
       await this.resolveTestMethods(classItem);
     }
 
     const methodItems = selectors
-        .map(selector => this.itemForMethodNamed(classItem, selector))
+      .map(selector => this.itemForMethodNamed(classItem, selector))
         .filter(result => result !== undefined);
-    
+
     await this.runTestItems(methodItems);
   }
 
