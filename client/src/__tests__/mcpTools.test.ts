@@ -188,7 +188,27 @@ describe('registerMcpTools', () => {
       await server.getTool('execute_code')!.handler({ code: '| x | x := 42. x + 1' });
 
       const codeArg = vi.mocked(queries.executeFetchString).mock.calls[0][2];
-      expect(codeArg).toBe('[| x | x := 42. x + 1] value printString');
+      expect(codeArg).toContain('[| x | x := 42. x + 1] value printString');
+    });
+
+    // Stack-blowup guard: user code recursing past the stack limit (e.g.
+    // dataclass self-reference) used to take the gem down. AlmostOutOfStack
+    // is signaled with ~30 frames of headroom — a minimal handler unwinds
+    // cleanly and returns a string the agent can read.
+    it('execute_code wraps user code with an AlmostOutOfStack handler', async () => {
+      vi.mocked(queries.executeFetchString).mockReturnValue('ok');
+      await server.getTool('execute_code')!.handler({ code: '1 + 1' });
+
+      const codeArg = vi.mocked(queries.executeFetchString).mock.calls[0][2];
+      expect(codeArg).toContain('on: AlmostOutOfStack');
+    });
+
+    it('execute_code wraps user code with an AbstractException handler', async () => {
+      vi.mocked(queries.executeFetchString).mockReturnValue('ok');
+      await server.getTool('execute_code')!.handler({ code: '1 + 1' });
+
+      const codeArg = vi.mocked(queries.executeFetchString).mock.calls[0][2];
+      expect(codeArg).toContain('on: AbstractException');
     });
 
     it('get_class_definition delegates to queries.getClassDefinition', async () => {

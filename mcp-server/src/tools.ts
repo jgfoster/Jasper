@@ -13,6 +13,7 @@ import { runFailingTests } from '../../client/src/queries/runFailingTests';
 import { discoverTestClasses } from '../../client/src/queries/discoverTestClasses';
 import { describeTestFailure, TestFailureDetails } from '../../client/src/queries/describeTestFailure';
 import { evalPython, compilePython } from '../../client/src/queries/python';
+import { wrapExecuteCode } from '../../client/src/queries/executeCode';
 import { getDictionaryNames } from '../../client/src/queries/getDictionaryNames';
 import { getClassNames } from '../../client/src/queries/getClassNames';
 import { getDictionaryEntries } from '../../client/src/queries/getDictionaryEntries';
@@ -394,13 +395,11 @@ export function registerTools(rawServer: McpServer, session: McpSession): void {
     { code: z.string().describe('Smalltalk expression or statement sequence to execute') },
     async ({ code }) => {
       try {
-        // Wrap as `[<code>] value printString` so multi-statement bodies and
-        // top-level temp declarations parse — `(<code>) printString` only
-        // accepts a single expression and rejected `| x | ...` with
-        // "expected start of a statement". Block evaluation also coerces the
-        // result through printString, satisfying GciTsExecuteFetchBytes's
-        // need for a byte-object return.
-        const wrapped = `[${code}] value printString`;
+        // Block-wrap so multi-statement bodies and top-level temp declarations
+        // parse, and guard with AlmostOutOfStack/AbstractException handlers so
+        // a runaway block returns a clean error instead of taking the gem
+        // down. See queries/executeCode.ts.
+        const wrapped = wrapExecuteCode(code);
         const result = session.executeFetchString(wrapped);
         return { content: [{ type: 'text' as const, text: result }] };
       } catch (err) {

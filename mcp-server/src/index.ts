@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import express from 'express';
 import * as net from 'net';
+import * as fs from 'fs';
 import { McpSession, McpSessionConfig } from './mcpSession';
 import { registerTools } from './tools';
 
@@ -19,14 +20,27 @@ export interface CliArgs {
   gemstone?: string;
   gemstoneGlobalDir?: string;
   hostUser?: string;
+  /**
+   * Paths to Smalltalk source files replayed after every login (including
+   * reconnects from a dead gem). Repeat `--session-init-script <path>` to
+   * register multiple — they run in argument order.
+   */
+  sessionInitScripts?: string[];
 }
 
 export function parseArgs(argv: string[]): CliArgs {
   const args = argv.slice(2);
   const result: Record<string, string> = {};
+  const sessionInitScripts: string[] = [];
   for (let i = 0; i < args.length - 1; i += 2) {
     const key = args[i].replace(/^--/, '');
-    result[key] = args[i + 1];
+    const value = args[i + 1];
+    // Multi-valued: repeat `--session-init-script` to register more than one.
+    if (key === 'session-init-script') {
+      sessionInitScripts.push(value);
+    } else {
+      result[key] = value;
+    }
   }
 
   // Proxy mode is inferred from --proxy-socket (transport=proxy is implicit).
@@ -61,7 +75,26 @@ export function parseArgs(argv: string[]): CliArgs {
     gemstone: result['gemstone'],
     gemstoneGlobalDir: result['gemstone-global-dir'],
     hostUser: result['host-user'],
+    sessionInitScripts: sessionInitScripts.length > 0 ? sessionInitScripts : undefined,
   };
+}
+
+// Read each --session-init-script path as the Smalltalk source we'll replay
+// after every login. Fail loud if the file is missing — silently skipping a
+// configured init script would defeat the purpose of having one. The reader
+// is injectable so tests don't need to fight Node's frozen-fs descriptors.
+export function readInitScripts(
+  paths: string[] | undefined,
+  read: (path: string) => string = (p) => fs.readFileSync(p, 'utf8'),
+): string[] {
+  if (!paths) return [];
+  return paths.map(p => {
+    try {
+      return read(p);
+    } catch (err) {
+      throw new Error(`Cannot read session-init-script ${p}: ${(err as Error).message}`);
+    }
+  });
 }
 
 export function createSessionConfig(args: CliArgs): McpSessionConfig {
@@ -76,6 +109,7 @@ export function createSessionConfig(args: CliArgs): McpSessionConfig {
     gsPassword: process.env.GS_PASSWORD || '',
     hostUser: args.hostUser,
     hostPassword: process.env.HOST_PASSWORD,
+    initScripts: readInitScripts(args.sessionInitScripts),
   };
 }
 

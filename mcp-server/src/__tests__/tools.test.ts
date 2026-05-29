@@ -101,8 +101,33 @@ describe('tools', () => {
       const result = await tool.handler({ code: '| x | x := 42. x + 1' });
 
       const code = vi.mocked(session.executeFetchString).mock.calls[0][0];
-      expect(code).toBe('[| x | x := 42. x + 1] value printString');
+      expect(code).toContain('[| x | x := 42. x + 1] value printString');
       expect(result.content[0].text).toBe('43');
+    });
+
+    // Stack-blowup guard: a runaway recursion in user code (e.g. dataclass
+    // self-reference) shouldn't take the gem down. AlmostOutOfStack fires
+    // before the hard overflow with ~30 frames of headroom; we catch it
+    // with a minimal handler so the result is a clean string.
+    it('wraps user code in an AlmostOutOfStack handler', async () => {
+      vi.mocked(session.executeFetchString).mockReturnValue('ok');
+      const tool = server.getTool('execute_code')!;
+      await tool.handler({ code: '3 + 4' });
+
+      const code = vi.mocked(session.executeFetchString).mock.calls[0][0];
+      expect(code).toContain('on: AlmostOutOfStack');
+      expect(code).toContain('AlmostOutOfStack');
+    });
+
+    // Non-stack errors (DNU, ZeroDivide, etc.) still need to come back as a
+    // diagnostic string rather than crashing the call.
+    it('wraps user code in an AbstractException handler too', async () => {
+      vi.mocked(session.executeFetchString).mockReturnValue('ok');
+      const tool = server.getTool('execute_code')!;
+      await tool.handler({ code: '3 + 4' });
+
+      const code = vi.mocked(session.executeFetchString).mock.calls[0][0];
+      expect(code).toContain('on: AbstractException');
     });
 
     it('returns error on GCI failure', async () => {

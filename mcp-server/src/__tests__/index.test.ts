@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { parseArgs } from '../index';
+import { describe, it, expect, vi } from 'vitest';
+import { parseArgs, readInitScripts } from '../index';
 
 describe('parseArgs', () => {
   const validArgs = [
@@ -63,6 +63,57 @@ describe('parseArgs', () => {
   it('throws on invalid transport value', () => {
     expect(() => parseArgs([...validArgs, '--transport', 'websocket']))
       .toThrow('Invalid --transport');
+  });
+
+  // The user's pain: after every gem crash they re-paste a multi-line
+  // `importlib grailDir: ... ; CPythonShim libraryPath: ...` block. Storing
+  // those as `--session-init-script <path>` lets the server replay them on
+  // every login (initial + reconnects).
+  describe('--session-init-script', () => {
+    it('returns undefined when no init script is given', () => {
+      const result = parseArgs(validArgs);
+      expect(result.sessionInitScripts).toBeUndefined();
+    });
+
+    it('captures a single --session-init-script path', () => {
+      const result = parseArgs([...validArgs, '--session-init-script', '/etc/init1.gs']);
+      expect(result.sessionInitScripts).toEqual(['/etc/init1.gs']);
+    });
+
+    // Order matters: scripts run in argv order at login time, so repeated
+    // flags must preserve that order rather than the last-wins shape the
+    // rest of the args use.
+    it('accepts repeated --session-init-script flags in order', () => {
+      const result = parseArgs([
+        ...validArgs,
+        '--session-init-script', '/etc/a.gs',
+        '--session-init-script', '/etc/b.gs',
+      ]);
+      expect(result.sessionInitScripts).toEqual(['/etc/a.gs', '/etc/b.gs']);
+    });
+  });
+
+  describe('readInitScripts', () => {
+    it('returns [] when no paths are given', () => {
+      expect(readInitScripts(undefined)).toEqual([]);
+      expect(readInitScripts([])).toEqual([]);
+    });
+
+    it('reads each path via the injected reader and returns contents in order', () => {
+      const reader = vi.fn((p: string) => `contents of ${p}`);
+      expect(readInitScripts(['/a', '/b'], reader)).toEqual(['contents of /a', 'contents of /b']);
+      expect(reader).toHaveBeenNthCalledWith(1, '/a');
+      expect(reader).toHaveBeenNthCalledWith(2, '/b');
+    });
+
+    // Fail loud: silently skipping a missing init script would put the
+    // session in a half-primed state without the user knowing why their
+    // Grail / CPythonShim setup didn't take.
+    it('throws a clear error if the file cannot be read', () => {
+      const reader = vi.fn(() => { throw new Error('ENOENT'); });
+      expect(() => readInitScripts(['/missing.gs'], reader))
+        .toThrow(/Cannot read session-init-script \/missing.gs: ENOENT/);
+    });
   });
 
   describe('proxy mode', () => {

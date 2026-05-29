@@ -526,6 +526,24 @@ describe('python (Grail) queries', () => {
     expect(code).toContain("''hello''");
   });
 
+  // Stack-blowup guard: dataclass self-references and other recursive code
+  // paths used to take the gem down. GemStone signals AlmostOutOfStack with
+  // ~30 frames of headroom — the handler must be minimal because it runs
+  // with very little stack room, so it just returns a fixed string literal.
+  // It's nested *inside* the AbstractException wrapper so the cheap handler
+  // intercepts before the rich-error path can fail under low stack.
+  it('wraps the Grail call in an inner on: AlmostOutOfStack do:', () => {
+    const exec = vi.fn<QueryExecutor>(() => '');
+    evalPython(exec, 'x = 1');
+    const code = exec.mock.calls[0][1];
+    expect(code).toContain('on: AlmostOutOfStack');
+    expect(code).toContain("'Error: AlmostOutOfStack");
+    // AlmostOutOfStack must appear *before* AbstractException in the source
+    // (innermost handler) so the minimal handler runs first.
+    expect(code.indexOf('on: AlmostOutOfStack'))
+      .toBeLessThan(code.indexOf('on: AbstractException'));
+  });
+
   // Errors from Grail's compile/runtime path (SyntaxError, NameError, etc.)
   // are caught and reported inline as "Error: <class> — <messageText>" so
   // the agent gets a usable diagnostic, not a dropped tool call.

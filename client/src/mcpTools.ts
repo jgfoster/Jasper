@@ -4,6 +4,7 @@ import { ActiveSession } from './sessionManager';
 import * as queries from './browserQueries';
 import * as sunit from './sunitQueries';
 import * as python from './pythonQueries';
+import { wrapExecuteCode } from './queries/executeCode';
 import type { TestRunResult } from './queries/runTestMethod';
 import type { TestFailureDetails } from './queries/describeTestFailure';
 import { withMcpErrorMap } from './mcpZodErrorMap';
@@ -275,10 +276,10 @@ export function registerMcpTools(
     'Changes are NOT committed automatically.',
     { code: z.string().describe('Smalltalk expression or statement sequence to execute') },
     async (args) => wrap<typeof args>((session, a) => {
-      // Block-wrap so multi-statement bodies and top-level temp declarations
-      // parse — `(<code>) printString` only accepts a single expression and
-      // rejected `| x | ...` with "expected start of a statement".
-      return executeString(session, `[${a.code}] value printString`);
+      // See queries/executeCode.ts. Block-wraps multi-statement bodies and
+      // guards against AlmostOutOfStack / AbstractException so a runaway
+      // block returns a clean error string instead of taking the gem down.
+      return executeString(session, wrapExecuteCode(a.code));
     })(args),
   );
 
