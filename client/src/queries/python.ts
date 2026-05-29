@@ -39,6 +39,14 @@ function buildPythonQuery(grailExpression: string, pythonSource: string): string
   // The hint is itself a Smalltalk string literal — the same single-quote
   // escaping rule applies, but it has none today, so we inline it directly.
   //
+  // Stack-guard layering: an inner `on: AlmostOutOfStack` wraps the Grail
+  // call. GemStone signals AlmostOutOfStack *before* the stack hard-fails
+  // (about 30 frames of headroom), and the handler must be cheap because
+  // it runs with very little stack room — so it just returns a fixed
+  // literal, no WriteStream / no concatenation. The outer
+  // `on: AbstractException` catches everything else (DNU, ZeroDivide,
+  // SyntaxError) and builds the rich error string the agent normally sees.
+  //
   // The encoding model GemStone wants us to use:
   //
   //   Unicode7 / Unicode16 / Unicode32 are *internal storage* formats with
@@ -70,7 +78,8 @@ src := '${esc}'.
 result := dispatcher isNil
   ifTrue: ['${GRAIL_HINT}']
   ifFalse: [
-    [${grailExpression}]
+    [[${grailExpression}]
+       on: AlmostOutOfStack do: [:e | 'Error: AlmostOutOfStack — user code exhausted the call stack']]
       on: AbstractException do: [:e |
         | ws |
         ws := WriteStream on: Unicode7 new.
