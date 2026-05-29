@@ -4,6 +4,13 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-05-28
+
+### Added
+
+- **Visual feedback when the Inspector is updated.** Inspect It now raises the Inspector panel and returns focus to the active editor, and shows an amber status-bar item plus an activity-bar badge for five seconds on each inspect. Closes the silent-update gap when the Inspector is occluded by other panels — previously the only signal that an inspect-it landed was the contents quietly changing wherever the panel happened to be.
+- **`AlmostOutOfStack` guard on `execute_code`, `eval_python`, and `compile_python`.** User code is now wrapped with an inner `on: AlmostOutOfStack do:` (minimal fixed-literal handler — must run with ~30 frames of headroom) and an outer `on: AbstractException do:` (rich error string for the usual DNU / ZeroDivide / SyntaxError path). A runaway recursion (e.g. dataclass self-reference) now returns a clean `Error: AlmostOutOfStack — user code exhausted the call stack` instead of taking the gem down. Lives in `client/src/queries/executeCode.ts` and applies to both MCP transport surfaces (proxy mode via Jasper's extension host, and the standalone stdio/SSE mode). ([#74](https://github.com/jgfoster/Jasper/pull/74))
+
 ## [1.5.1] - 2026-05-26
 
 ### Changed
