@@ -60,6 +60,17 @@ describe('DatabaseTreeProvider', () => {
 
       expect(kinds).toEqual(['stone', 'netldi', 'logs', 'config']);
     });
+
+    it('queries running state with the database version so same-named stones stay distinct', () => {
+      const db = makeDatabase({ config: { ...makeDatabase().config, version: '3.6.2' } });
+      const pm = makeProcessManager();
+      const provider = new DatabaseTreeProvider(makeStorage([db]) as never, pm as never);
+
+      provider.getChildren({ kind: 'database', db });
+
+      expect(pm.isStoneRunning).toHaveBeenCalledWith('gs64stone', '3.6.2');
+      expect(pm.isNetldiRunning).toHaveBeenCalledWith('gs64ldi', '3.6.2');
+    });
   });
 
   describe('getTreeItem', () => {

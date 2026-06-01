@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { SysadminStorage } from './sysadminStorage';
-import { ProcessManager } from './processManager';
+import { ProcessManager, versionsMatch } from './processManager';
 import { GemStoneDatabase } from './sysadminTypes';
 import { wslExistsSync, wslReaddirSync, wslIsFile } from './wslFs';
 
@@ -51,7 +51,10 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseNod
       }
       case 'netldi': {
         const proc = this.processManager.getProcesses().find(
-          p => p.type === 'netldi' && p.name === node.db.config.ldiName,
+          p =>
+            p.type === 'netldi' &&
+            p.name === node.db.config.ldiName &&
+            versionsMatch(p.version, node.db.config.version),
         );
         const item = new vscode.TreeItem(`NetLDI: ${node.db.config.ldiName}`);
         item.description = node.running
@@ -97,8 +100,14 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseNod
       return this.storage.getDatabases().map(db => ({ kind: 'database' as const, db }));
     }
     if (node.kind === 'database') {
-      const stoneRunning = this.processManager.isStoneRunning(node.db.config.stoneName);
-      const netldiRunning = this.processManager.isNetldiRunning(node.db.config.ldiName);
+      const stoneRunning = this.processManager.isStoneRunning(
+        node.db.config.stoneName,
+        node.db.config.version,
+      );
+      const netldiRunning = this.processManager.isNetldiRunning(
+        node.db.config.ldiName,
+        node.db.config.version,
+      );
       return [
         { kind: 'stone', db: node.db, running: stoneRunning },
         { kind: 'netldi', db: node.db, running: netldiRunning },

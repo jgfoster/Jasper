@@ -40,6 +40,23 @@ export function classifyPidOwnership(
   return { pidGone: false, isGemStoneServer: looksLikeServer, command };
 }
 
+/** Decide whether a gslist-reported version matches a database's configured
+ *  version. They usually come from different sources (the gslist Version column
+ *  vs. the version parsed out of the product directory name), so we treat them
+ *  as matching when the shorter one is a dotted-component prefix of the longer
+ *  (e.g. "3.7.4" matches "3.7.4.3"). This keeps genuinely different installs —
+ *  "3.6.2" vs "3.7.5" — distinct, which is what lets the Databases panel tie a
+ *  running stone to the version that actually started it. Exported for testing. */
+export function versionsMatch(a: string, b: string): boolean {
+  const as = a.split('.');
+  const bs = b.split('.');
+  const shared = Math.min(as.length, bs.length);
+  for (let i = 0; i < shared; i++) {
+    if (as[i] !== bs[i]) return false;
+  }
+  return shared > 0;
+}
+
 /** Parse `gslist -cvl` output into structured process records.
  *  Exported for testing. Lines that don't match the data-row format
  *  (header, separator, info lines, blanks) are silently skipped. */
@@ -331,13 +348,19 @@ export class ProcessManager {
     });
   }
 
-  /** Check if a stone is running */
-  isStoneRunning(stoneName: string): boolean {
-    return this.cachedProcesses.some(p => p.type === 'stone' && p.name === stoneName);
+  /** Check if a stone is running for the given version. Name alone is ambiguous
+   *  when two installed versions share a stone name, so the version must match
+   *  too (see versionsMatch). */
+  isStoneRunning(stoneName: string, version: string): boolean {
+    return this.cachedProcesses.some(
+      p => p.type === 'stone' && p.name === stoneName && versionsMatch(p.version, version),
+    );
   }
 
-  /** Check if a netldi is running */
-  isNetldiRunning(ldiName: string): boolean {
-    return this.cachedProcesses.some(p => p.type === 'netldi' && p.name === ldiName);
+  /** Check if a netldi is running for the given version. See isStoneRunning. */
+  isNetldiRunning(ldiName: string, version: string): boolean {
+    return this.cachedProcesses.some(
+      p => p.type === 'netldi' && p.name === ldiName && versionsMatch(p.version, version),
+    );
   }
 }

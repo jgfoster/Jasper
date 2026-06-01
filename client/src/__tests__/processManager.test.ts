@@ -16,7 +16,7 @@ vi.mock('../wslBridge', async () => {
 });
 
 import { spawn } from 'child_process';
-import { ProcessManager, parseGslist, classifyPidOwnership } from '../processManager';
+import { ProcessManager, parseGslist, classifyPidOwnership, versionsMatch } from '../processManager';
 import { GemStoneDatabase, GemStoneProcess } from '../sysadminTypes';
 import * as wslBridge from '../wslBridge';
 
@@ -293,6 +293,65 @@ describe('ProcessManager', () => {
 
     it('returns an empty list for the "No GemStone servers" info message', () => {
       expect(parseGslist('gslist[Info]: No GemStone servers.')).toEqual([]);
+    });
+  });
+
+  // ── versionsMatch (pure) ──────────────────────────────────
+
+  describe('versionsMatch', () => {
+    it('matches identical versions', () => {
+      expect(versionsMatch('3.7.5', '3.7.5')).toBe(true);
+    });
+
+    it('treats a shorter version as matching when it is a dotted prefix', () => {
+      // gslist may report "3.7.4" while the product dir yields "3.7.4.3" (or vice versa).
+      expect(versionsMatch('3.7.4', '3.7.4.3')).toBe(true);
+      expect(versionsMatch('3.7.4.3', '3.7.4')).toBe(true);
+    });
+
+    it('keeps genuinely different installs distinct', () => {
+      // The exact scenario from the bug report.
+      expect(versionsMatch('3.6.2', '3.7.5')).toBe(false);
+    });
+
+    it('does not match when only the major component agrees', () => {
+      expect(versionsMatch('3.6.2', '3.6.3')).toBe(false);
+    });
+  });
+
+  // ── isStoneRunning / isNetldiRunning (version-aware) ──────
+
+  describe('isStoneRunning / isNetldiRunning', () => {
+    // Two installed versions share the same stone and netldi names; only 3.7.5 is running.
+    const running = [
+      'OK     3.7.5     jfoster      10923 50377 May 24 07:06 Netldi      gs64ldi',
+      'OK     3.7.5     jfoster       4106 49677 May 17 19:57 Stone       gs64stone',
+    ].join('\n');
+
+    function managerWith(output: string) {
+      vi.mocked(wslBridge.wslExecSync).mockReturnValue(output);
+      const storage = makeStorage('/gs/3.7.5');
+      const manager = new ProcessManager(storage as any);
+      manager.refreshProcesses();
+      return manager;
+    }
+
+    beforeEach(() => {
+      vi.mocked(wslBridge.wslExecSync).mockReset();
+      vi.mocked(wslBridge.needsWsl).mockReturnValue(false);
+    });
+
+    it('reports the running version as running', () => {
+      const manager = managerWith(running);
+      expect(manager.isStoneRunning('gs64stone', '3.7.5')).toBe(true);
+      expect(manager.isNetldiRunning('gs64ldi', '3.7.5')).toBe(true);
+    });
+
+    it('does NOT report a same-named stone from a different version as running', () => {
+      // Regression: starting the 3.7.5 stone must not light up the 3.6.2 database.
+      const manager = managerWith(running);
+      expect(manager.isStoneRunning('gs64stone', '3.6.2')).toBe(false);
+      expect(manager.isNetldiRunning('gs64ldi', '3.6.2')).toBe(false);
     });
   });
 

@@ -257,13 +257,13 @@ export class DatabaseManager {
   /** Delete a database directory after confirmation */
   async deleteDatabase(db: GemStoneDatabase): Promise<boolean> {
     // Check if processes are running
-    if (this.processManager.isStoneRunning(db.config.stoneName)) {
+    if (this.processManager.isStoneRunning(db.config.stoneName, db.config.version)) {
       vscode.window.showErrorMessage(
         `Stone "${db.config.stoneName}" is still running. Stop it before deleting.`,
       );
       return false;
     }
-    if (this.processManager.isNetldiRunning(db.config.ldiName)) {
+    if (this.processManager.isNetldiRunning(db.config.ldiName, db.config.version)) {
       vscode.window.showErrorMessage(
         `NetLDI "${db.config.ldiName}" is still running. Stop it before deleting.`,
       );
@@ -284,7 +284,7 @@ export class DatabaseManager {
 
   /** Replace the extent and transaction logs with a fresh base extent */
   async replaceExtent(db: GemStoneDatabase): Promise<boolean> {
-    if (this.processManager.isStoneRunning(db.config.stoneName)) {
+    if (this.processManager.isStoneRunning(db.config.stoneName, db.config.version)) {
       vscode.window.showErrorMessage(
         `Stone "${db.config.stoneName}" is still running. Stop it before replacing the extent.`,
       );
