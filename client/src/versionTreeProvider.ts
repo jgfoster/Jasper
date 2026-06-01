@@ -34,7 +34,9 @@ export class VersionItem extends vscode.TreeItem {
 
     const clientOnly = isClientOnlyMode();
     const sizeLabel = version.size > 0 ? formatSize(version.size) : '';
-    this.description = [sizeLabel, version.date].filter(Boolean).join(' | ');
+    this.description = [sizeLabel, version.date, version.bundled ? 'bundled' : '']
+      .filter(Boolean)
+      .join(' | ');
 
     // Independent flag suffixes so `when` clauses can match each state with a
     // simple substring regex (e.g. /ServerExtracted/) without worrying about
@@ -43,12 +45,19 @@ export class VersionItem extends vscode.TreeItem {
     if (version.downloaded) ctx += 'ServerDownloaded';
     if (version.extracted) ctx += 'ServerExtracted';
     if (version.clientExtracted) ctx += 'ClientExtracted';
+    // The Bundled suffix also drops this row out of the download command's
+    // `when` regex (which is anchored), so no download is offered for it.
+    if (version.bundled) ctx += 'Bundled';
     this.contextValue = ctx;
 
     const tooltipBits: string[] = [version.version];
     if (clientOnly) {
       // Windows-no-WSL: icon reflects Windows-client state only.
-      if (version.clientExtracted) {
+      if (version.bundled) {
+        // GCI ships with the extension — ready to use, no download needed.
+        this.iconPath = new vscode.ThemeIcon('package', new vscode.ThemeColor('testing.iconPassed'));
+        tooltipBits.push('GCI bundled with the extension — ready to use');
+      } else if (version.clientExtracted) {
         this.iconPath = new vscode.ThemeIcon('check', new vscode.ThemeColor('testing.iconPassed'));
         tooltipBits.push('Windows client extracted');
       } else {
@@ -69,6 +78,9 @@ export class VersionItem extends vscode.TreeItem {
       }
       if (isWindows() && version.clientExtracted) {
         tooltipBits.push('Windows client extracted');
+      }
+      if (version.bundled) {
+        tooltipBits.push('GCI bundled with the extension');
       }
     }
     this.tooltip = tooltipBits.join(' — ');

@@ -217,6 +217,27 @@ describe('VersionItem (local version)', () => {
     expect(item.contextValue).toBe('gemstoneVersionServerDownloadedServerExtracted');
     expect((item.iconPath as any).id).toBe('check');
   });
+
+  it('marks a bundled version in description, contextValue, and tooltip', () => {
+    const version: GemStoneVersion = {
+      version: '3.7.5',
+      fileName: 'GemStone64BitClient3.7.5-x86.Windows_NT.zip',
+      url: '',
+      size: 0,
+      date: '24-Mar-2026',
+      downloaded: false,
+      extracted: false,
+      bundled: true,
+    };
+
+    const item = new VersionItem(version);
+
+    // The Bundled suffix drops the row out of the download command's anchored
+    // `when` regex, so no download is offered.
+    expect(item.contextValue).toBe('gemstoneVersionBundled');
+    expect(item.description).toContain('bundled');
+    expect(item.tooltip).toContain('bundled');
+  });
 });
 
 // ── VersionManager.fetchAvailableVersions (local inclusion) ──

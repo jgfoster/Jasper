@@ -1,10 +1,15 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 
 vi.mock('vscode', () => import('../__mocks__/vscode'));
 vi.mock('../sysadminStorage');
+vi.mock('../bundledGci', () => ({
+  bundledWindowsClientVersions: vi.fn(() => []),
+  bundledGciArchSupported: vi.fn(() => true),
+}));
 
 import { window, __resetConfig, __setConfig } from '../__mocks__/vscode';
 import { LoginEditorPanel } from '../loginEditorPanel';
+import { bundledWindowsClientVersions, bundledGciArchSupported } from '../bundledGci';
 import { LoginStorage } from '../loginStorage';
 import { LoginTreeProvider } from '../loginTreeProvider';
 import { SysadminStorage } from '../sysadminStorage';
@@ -43,6 +48,8 @@ describe('LoginEditorPanel', () => {
     // Reset the static currentPanel between tests
     (LoginEditorPanel as any).currentPanel = undefined;
     vi.clearAllMocks();
+    (bundledWindowsClientVersions as Mock).mockReturnValue([]);
+    (bundledGciArchSupported as Mock).mockReturnValue(true);
   });
 
   describe('show', () => {
@@ -182,6 +189,39 @@ describe('LoginEditorPanel', () => {
       expect(panel.webview.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({ versions: ['3.7.4', '3.6.4', '3.5.0'] }),
       );
+    });
+
+    it('includes GCI versions bundled with the extension on Windows', () => {
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      (bundledWindowsClientVersions as Mock).mockReturnValue(['3.6.2']);
+      try {
+        const sysadmin = makeSysadminStorage([]);
+        LoginEditorPanel.show(storage, secrets as any, treeProvider, undefined, sysadmin);
+        const panel = (window.createWebviewPanel as any).mock.results[0].value;
+        expect(panel.webview.postMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ versions: ['3.6.2'] }),
+        );
+      } finally {
+        Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+      }
+    });
+
+    it('omits bundled versions when the arch cannot load them (e.g. ARM64)', () => {
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      (bundledWindowsClientVersions as Mock).mockReturnValue(['3.6.2']);
+      (bundledGciArchSupported as Mock).mockReturnValue(false);
+      try {
+        const sysadmin = makeSysadminStorage([]);
+        LoginEditorPanel.show(storage, secrets as any, treeProvider, undefined, sysadmin);
+        const panel = (window.createWebviewPanel as any).mock.results[0].value;
+        expect(panel.webview.postMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ versions: [] }),
+        );
+      } finally {
+        Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+      }
     });
 
     it('renders a select element for the version field', () => {

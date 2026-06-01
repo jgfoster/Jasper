@@ -31,6 +31,8 @@ export interface GemStoneVersion {
   extracted: boolean;
   /** Whether the Windows client distribution is extracted (Windows only) */
   clientExtracted?: boolean;
+  /** Whether a GCI library for this version ships bundled in the extension */
+  bundled?: boolean;
   /** Whether this is a locally registered version (symlink) */
   local?: boolean;
   /** Build description from version.txt (for local versions) */

@@ -222,4 +222,72 @@ describe('debugQueries', () => {
       }
     });
   });
+
+  // These two used to call GciTsFetchNamedOops / GciTsFetchVaryingOops, which
+  // don't exist in 3.6.2. They now use absolute GciTsFetchOops (present in
+  // 3.6.2), so debugger/inspector variable display works on both 3.6.2 and 3.7.5.
+  describe('instance variable fetch (3.6.2-compatible via GciTsFetchOops)', () => {
+    function sessionWith(gci: Record<string, unknown>): ActiveSession {
+      return {
+        id: 1,
+        handle: { h: 1 },
+        login: { label: 'T' } as GemStoneLogin,
+        stoneVersion: '3.6.2',
+        gci: gci as unknown as ActiveSession['gci'],
+      } as ActiveSession;
+    }
+
+    it('getNamedInstVarOops fetches absolute OOPs starting at index 1', () => {
+      const fetchOops = vi.fn(() => ({ result: 2, oops: [11n, 22n], err: { ...noErr } }));
+      const session = sessionWith({ GciTsFetchOops: fetchOops });
+
+      expect(debug.getNamedInstVarOops(session, 100n, 2)).toEqual([11n, 22n]);
+      expect(fetchOops).toHaveBeenCalledWith(session.handle, 100n, 1n, 2);
+    });
+
+    it('getNamedInstVarOops returns [] for non-positive count without calling GCI', () => {
+      const fetchOops = vi.fn();
+      const session = sessionWith({ GciTsFetchOops: fetchOops });
+
+      expect(debug.getNamedInstVarOops(session, 100n, 0)).toEqual([]);
+      expect(fetchOops).not.toHaveBeenCalled();
+    });
+
+    it('getIndexedOops offsets the 1-based varying index by namedSize', () => {
+      const fetchObjInfo = vi.fn(() => ({ info: { namedSize: 3 }, err: { ...noErr } }));
+      const fetchOops = vi.fn(() => ({ result: 2, oops: [7n, 8n], err: { ...noErr } }));
+      const session = sessionWith({ GciTsFetchObjInfo: fetchObjInfo, GciTsFetchOops: fetchOops });
+
+      // First varying element (startIndex 1) of an object with 3 named instVars
+      // is at absolute index 4.
+      expect(debug.getIndexedOops(session, 100n, 1, 2)).toEqual([7n, 8n]);
+      expect(fetchObjInfo).toHaveBeenCalledWith(session.handle, 100n, false, 0);
+      expect(fetchOops).toHaveBeenCalledWith(session.handle, 100n, 4n, 2);
+    });
+
+    it('getIndexedOops returns [] (and skips the fetch) when GciTsFetchObjInfo errors', () => {
+      const fetchObjInfo = vi.fn(() => ({ info: { namedSize: 0 }, err: { ...noErr, number: 2418 } }));
+      const fetchOops = vi.fn();
+      const session = sessionWith({ GciTsFetchObjInfo: fetchObjInfo, GciTsFetchOops: fetchOops });
+
+      expect(debug.getIndexedOops(session, 100n, 1, 2)).toEqual([]);
+      expect(fetchOops).not.toHaveBeenCalled();
+    });
+
+    it('neither path calls the post-3.6.2 GciTsFetchNamedOops / GciTsFetchVaryingOops', () => {
+      const named = vi.fn();
+      const varying = vi.fn();
+      const session = sessionWith({
+        GciTsFetchNamedOops: named,
+        GciTsFetchVaryingOops: varying,
+        GciTsFetchObjInfo: vi.fn(() => ({ info: { namedSize: 0 }, err: { ...noErr } })),
+        GciTsFetchOops: vi.fn(() => ({ result: 0, oops: [], err: { ...noErr } })),
+      });
+
+      debug.getNamedInstVarOops(session, 100n, 2);
+      debug.getIndexedOops(session, 100n, 1, 2);
+      expect(named).not.toHaveBeenCalled();
+      expect(varying).not.toHaveBeenCalled();
+    });
+  });
 });

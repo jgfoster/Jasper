@@ -13,9 +13,14 @@ vi.mock('../transcriptChannel', () => ({
   appendTranscript: vi.fn(),
 }));
 
+vi.mock('../socketPoll', () => ({
+  pollReadable: vi.fn(() => 1),
+}));
+
 import { CodeExecutor } from '../codeExecutor';
 import { SessionManager, ActiveSession } from '../sessionManager';
 import * as vscode from 'vscode';
+import { pollReadable } from '../socketPoll';
 
 const OOP_NIL = 0x14n;
 
@@ -26,6 +31,8 @@ function makeGci(overrides: Record<string, unknown> = {}) {
     GciTsResolveSymbol: vi.fn(() => ({ result: 100n, err: { number: 0 } })),
     GciTsNbExecute: vi.fn((): Record<string, unknown> => ({ success: true, err: { number: 0, message: '' } })),
     GciTsNbPoll: vi.fn(() => ({ result: 1, err: { number: 0 } })),
+    isAvailable: vi.fn(() => true),
+    GciTsSocket: vi.fn(() => ({ fd: 7, err: { number: 0 } })),
     GciTsNbResult: vi.fn((): Record<string, unknown> => ({ result: 200n, err: { number: 0, message: '', context: OOP_NIL } })),
     GciTsPerformFetchBytes: vi.fn(() => ({ data: '42', err: { number: 0 } })),
     GciTsExecuteFetchBytes: vi.fn(() => ({ data: '', err: { number: 0 } })),
@@ -642,6 +649,54 @@ describe('CodeExecutor', () => {
         .filter(([cmd]) => cmd === 'setContext');
       expect(calls[0]).toEqual(['setContext', 'gemstone.executing', true]);
       expect(calls[calls.length - 1]).toEqual(['setContext', 'gemstone.executing', false]);
+    });
+  });
+
+  // ── Result polling: GciTsNbPoll (3.7+) vs GciTsSocket fallback (3.6.2) ──
+
+  describe('result polling fallback for GemStone 3.6.2', () => {
+    it('uses GciTsNbPoll when it is available (3.7+)', async () => {
+      const editor = makeEditor('3 + 4');
+      setActiveEditor(editor);
+
+      await executor.executeIt();
+
+      expect(gci.GciTsNbPoll).toHaveBeenCalled();
+      expect(gci.GciTsSocket).not.toHaveBeenCalled();
+      expect(pollReadable).not.toHaveBeenCalled();
+    });
+
+    it('falls back to GciTsSocket + native poll when GciTsNbPoll is absent (3.6.2)', async () => {
+      (gci.isAvailable as Mock).mockImplementation((name: string) => name !== 'GciTsNbPoll');
+
+      const editor = makeEditor('3 + 4');
+      setActiveEditor(editor);
+
+      await executor.executeIt();
+
+      // Did not call the missing 3.7+ function...
+      expect(gci.GciTsNbPoll).not.toHaveBeenCalled();
+      // ...and instead polled the session socket fd.
+      expect(gci.GciTsSocket).toHaveBeenCalledWith(session.handle);
+      expect(pollReadable).toHaveBeenCalledWith(7, 0);
+      // Execution still completed (result fetched).
+      expect(gci.GciTsNbResult).toHaveBeenCalled();
+    });
+
+    it('reports an error when the session socket cannot be obtained on 3.6.2', async () => {
+      (gci.isAvailable as Mock).mockImplementation((name: string) => name !== 'GciTsNbPoll');
+      (gci.GciTsSocket as Mock).mockReturnValue({ fd: -1, err: { number: 4100, message: 'no socket' } });
+
+      const editor = makeEditor('3 + 4');
+      setActiveEditor(editor);
+
+      await executor.executeIt();
+
+      expect(pollReadable).not.toHaveBeenCalled();
+      const dc = lastDiagCollection();
+      expect(dc.set).toHaveBeenCalled();
+      const [, diags] = dc.set.mock.calls[0];
+      expect(diags[0].message).toContain('no socket');
     });
   });
 });

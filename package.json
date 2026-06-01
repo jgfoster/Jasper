@@ -2,7 +2,7 @@
   "name": "gemstone-ide",
   "displayName": "Jasper: A GemStone Smalltalk IDE",
   "description": "GemStone/S IDE for Visual Studio Code",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "publisher": "gemtalksystems",
   "license": "MIT",
   "author": "James Foster",
@@ -305,12 +305,12 @@
     "viewsWelcome": [
       {
         "view": "gemstoneInspector",
-        "contents": "No objects inspected yet.\nSelect code and press Cmd+I to inspect.",
+        "contents": "No objects inspected yet.\nSelect code and press Cmd+K I to inspect.",
         "when": "isMac"
       },
       {
         "view": "gemstoneInspector",
-        "contents": "No objects inspected yet.\nSelect code and press Ctrl+I to inspect.",
+        "contents": "No objects inspected yet.\nSelect code and press Ctrl+K I to inspect.",
         "when": "!isMac"
       },
       {

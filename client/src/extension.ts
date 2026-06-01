@@ -64,6 +64,7 @@ import {
 import { wslExistsSync, wslSymlinkSync } from './wslFs';
 import type {OutputChannel} from "vscode";
 import {initializeExtensionFolder} from "./extensionPath";
+import {initializeBundledGci, bundledWindowsClientGciPath, bundledGciArchSupported} from "./bundledGci";
 
 let client: LanguageClient;
 let sessionManager: SessionManager;
@@ -90,6 +91,8 @@ export async function logJasperError(message: string, scope: string, error: unkn
 export function activate(context: vscode.ExtensionContext) {
   jasperChannel = vscode.window.createOutputChannel('Jasper');
   context.subscriptions.push(jasperChannel);
+
+  initializeBundledGci(context.extensionPath);
 
   try {
     initializeExtensionFolder();
@@ -485,6 +488,28 @@ export function activate(context: vscode.ExtensionContext) {
 
       // Ensure GCI library is configured for this version
       let gciPath = storage.getGciLibraryPath(login.version);
+
+      // Prefer a GCI library bundled with the extension (for secure /
+      // air-gapped installs that cannot download from gemtalksystems.com).
+      // This must win over the download/file-picker prompts below.
+      if (!gciPath && process.platform === 'win32') {
+        const bundled = bundledWindowsClientGciPath(login.version);
+        if (bundled) {
+          if (bundledGciArchSupported()) {
+            gciPath = bundled;
+          } else {
+            // The bundled DLLs are x64; an ARM64 VS Code process cannot load
+            // them. Guide the user to the x64 build instead of letting the
+            // native loader fail with a cryptic architecture-mismatch error.
+            vscode.window.showErrorMessage(
+              `The GemStone ${login.version} client library bundled with Jasper is x64, but VS Code is ` +
+              `running as ${process.arch}. Install and run the x64 build of VS Code (it runs under ` +
+              `emulation on Windows on ARM) to use the bundled library.`,
+            );
+            return;
+          }
+        }
+      }
 
       // Auto-detect from extracted version's lib/ directory.
       // Skipped on Windows: the product dir is a Linux build (only .so), so

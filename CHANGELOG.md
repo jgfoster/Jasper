@@ -4,6 +4,25 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-05-31
+
+### Added
+
+- **Bundled GCI client libraries for secure / air-gapped installs.** Some customers run in environments where Jasper cannot download the GemStone client from `downloads.gemtalksystems.com`. Native GCI libraries placed under `resources/gci/GemStone64BitClient<version>-x86.Windows_NT/bin/` now ship inside the extension and are detected automatically (`client/src/bundledGci.ts`): the login flow, Quick Setup, the new-login version dropdown, and the Versions view all recognize a bundled version, skip the download/file-picker step, and use it directly. This release bundles the **GemStone 3.6.2** Windows x64 client (`libgcits` + `libssl` + the `msvcr100` VC++ 2010 runtime, the only non-OS dependency).
+- **ARM64 guidance for the bundled (x64) libraries.** A 64-bit process can only load DLLs of its own architecture, so the bundled x64 client cannot load in an ARM64 VS Code (Windows on ARM). Jasper now hides the bundled version on ARM64 and, on login, shows a clear message directing the user to the x64 build of VS Code (which runs under emulation) — instead of a cryptic native loader error.
+
+### Changed
+
+- **GemStone 3.6.2 compatibility.** Jasper now connects to and works against 3.6.2 servers:
+  - GCI functions added after 3.6.2 (16 in total, found via a `gcits.hf` diff) are now bound optionally, so loading an older client no longer crashes at construction over a symbol that is never called. A build-time test (`gciVersionGated.test.ts`) gates any *new* use of a post-3.6.2 function behind an explicit allowlist, so requiring 3.7+ for a code path is always a conscious, reviewed decision.
+  - Login uses `GciTsLogin` (folding the NetLDI into the NRS string) rather than the post-3.6.2 `GciTsLogin_`.
+  - Debugger / Inspector variable display fetches named and indexed instance variables via absolute `GciTsFetchOops` (present in 3.6.2) instead of the post-3.6.2 `GciTsFetchNamedOops` / `GciTsFetchVaryingOops`.
+  - Code execution (Execute It / Display It / Inspect It) polls for completion via `GciTsSocket` + a native socket poll (`WSAPoll` on Windows, `poll(2)` on macOS/Linux) when the post-3.6.2 `GciTsNbPoll` is unavailable — keeping execution interruptible and cancellable on 3.6.2.
+
+### Fixed
+
+- **Inspector welcome text now matches the actual Inspect It chord.** After the 1.5.1 chord-prefix migration the empty-Inspector hint still read `Cmd+I` / `Ctrl+I`; it now reads `Cmd+K I` / `Ctrl+K I`, with a test that keeps the welcome text in sync with the keybinding.
+
 ## [1.5.2] - 2026-05-28
 
 ### Added

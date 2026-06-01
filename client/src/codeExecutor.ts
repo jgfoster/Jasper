@@ -4,6 +4,8 @@ import { OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG } from './gciConsta
 import { logQuery, logResult, logError, logInfo } from './gciLog';
 import { InspectorTreeProvider } from './inspectorTreeProvider';
 import { appendTranscript } from './transcriptChannel';
+import { GciError } from './gciLibrary';
+import { pollReadable } from './socketPoll';
 
 const BACKOFF_INTERVALS = [10, 10, 20, 40, 80, 160, 320, 500];
 const MAX_INTERVAL = 500;
@@ -370,6 +372,31 @@ __t`;
     return new vscode.Range(pos, lineEnd);
   }
 
+  /**
+   * Checks whether a non-blocking call's result is ready, returning the same
+   * { result: 1=ready, 0=pending, -1=error } shape as GciTsNbPoll.
+   *
+   * GciTsNbPoll doesn't exist before GemStone 3.7. When it's unavailable we
+   * poll the session socket directly (GciTsSocket + native poll), exactly as
+   * the GciTsNbResult docs prescribe.
+   */
+  private pollNbResultReady(session: ActiveSession): { result: number; err: GciError } {
+    if (session.gci.isAvailable('GciTsNbPoll')) {
+      return session.gci.GciTsNbPoll(session.handle, 0);
+    }
+    const { fd, err } = session.gci.GciTsSocket(session.handle);
+    if (err.number !== 0 || fd < 0) {
+      return { result: -1, err };
+    }
+    const ready = pollReadable(fd, 0);
+    return {
+      result: ready,
+      err: ready === -1
+        ? ({ number: -1, message: 'Failed to poll the GemStone session socket' } as GciError)
+        : err,
+    };
+  }
+
   private pollForCompletion<T>(
     session: ActiveSession, onReady: () => T,
   ): Promise<T> {
@@ -388,9 +415,7 @@ __t`;
       };
 
       const doPoll = () => {
-        const { result: pollResult, err: pollErr } = session.gci.GciTsNbPoll(
-          session.handle, 0,
-        );
+        const { result: pollResult, err: pollErr } = this.pollNbResultReady(session);
 
         if (pollResult === 1) {
           finishProgress();

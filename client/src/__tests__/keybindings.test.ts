@@ -72,4 +72,20 @@ describe('keybindings', () => {
       }
     }
   });
+
+  it('inspector welcome text should match the actual inspectIt chord', () => {
+    const inspectIt = keybindings.find((kb) => kb.command === 'gemstone.inspectIt');
+    expect(inspectIt).toBeDefined();
+    const letter = inspectIt!.mac.split(' ')[1].toUpperCase();
+
+    const welcomes: Array<{ view: string; contents: string; when?: string }> =
+      pkg.contributes.viewsWelcome;
+    const inspectorWelcomes = welcomes.filter((w) => w.view === 'gemstoneInspector');
+    expect(inspectorWelcomes.length).toBe(2);
+
+    const mac = inspectorWelcomes.find((w) => w.when === 'isMac');
+    const nonMac = inspectorWelcomes.find((w) => w.when === '!isMac');
+    expect(mac?.contents).toContain(`Cmd+K ${letter} to inspect`);
+    expect(nonMac?.contents).toContain(`Ctrl+K ${letter} to inspect`);
+  });
 });

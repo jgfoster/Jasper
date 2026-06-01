@@ -4,6 +4,7 @@ import { GemStoneLogin, DEFAULT_LOGIN, loginLabel } from './loginTypes';
 import { LoginStorage } from './loginStorage';
 import { LoginTreeProvider } from './loginTreeProvider';
 import { SysadminStorage } from './sysadminStorage';
+import { bundledWindowsClientVersions, bundledGciArchSupported } from './bundledGci';
 import {
   setLoginPassword,
   getLoginPassword,
@@ -26,6 +27,14 @@ export class LoginEditorPanel {
     if (process.platform === 'win32') {
       for (const v of sysadminStorage.getExtractedWindowsClientVersions()) {
         versionSet.add(v);
+      }
+      // GCI libraries bundled with the extension (secure/air-gapped installs).
+      // These are x64 Windows DLLs, so only offer them on a compatible arch —
+      // an ARM64 VS Code can't load them (run the x64 build instead).
+      if (bundledGciArchSupported()) {
+        for (const v of bundledWindowsClientVersions()) {
+          versionSet.add(v);
+        }
       }
     }
     // Versions with manually configured GCI library paths

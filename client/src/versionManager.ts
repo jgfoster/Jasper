@@ -8,6 +8,7 @@ import { GemStoneVersion } from './sysadminTypes';
 import { appendSysadmin, showSysadmin } from './sysadminChannel';
 import { needsWsl, wslSpawn, wslExecSync } from './wslBridge';
 import { wslExistsSync } from './wslFs';
+import { bundledWindowsClientVersions, bundledGciArchSupported } from './bundledGci';
 
 const WIN_CLIENT_BASE_URL = 'https://downloads.gemtalksystems.com/pub/GemStone64/';
 
@@ -34,6 +35,9 @@ export class VersionManager {
     const extractedMap = new Map(extractedInfos.map(e => [e.version, e.isLocal]));
     const clientExtracted = new Set(
       process.platform === 'win32' ? this.storage.getExtractedWindowsClientVersions() : [],
+    );
+    const bundled = new Set(
+      process.platform === 'win32' && bundledGciArchSupported() ? bundledWindowsClientVersions() : [],
     );
 
     // Add local (symlinked) versions first
@@ -71,6 +75,7 @@ export class VersionManager {
         downloaded: isDownloaded,
         extracted: extractedKind === false, // dir, not symlink
         clientExtracted: clientExtracted.has(version),
+        bundled: bundled.has(version),
       });
     }
 

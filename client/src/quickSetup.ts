@@ -10,6 +10,7 @@ import { GemStoneVersion } from './sysadminTypes';
 import { getSharedMemory } from './sharedMemoryTreeProvider';
 import { appendSysadmin } from './sysadminChannel';
 import { isWindows } from './wslBridge';
+import { bundledWindowsClientGciPath } from './bundledGci';
 
 function waitForTerminalClose(name: string): Promise<void> {
   return new Promise((resolve) => {
@@ -197,7 +198,13 @@ export async function runQuickSetup(deps: QuickSetupDeps): Promise<void> {
   };
 
   // Auto-detect GCI library path
-  if (isWindows()) {
+  const bundledDll = isWindows() ? bundledWindowsClientGciPath(version.version) : undefined;
+  if (bundledDll) {
+    // A GCI DLL ships with the extension (secure/air-gapped build) — use it
+    // directly and skip the network download.
+    await loginStorage.setGciLibraryPath(version.version, bundledDll);
+    appendSysadmin(`Using GCI library bundled with the extension: ${bundledDll}`);
+  } else if (isWindows()) {
     // Download and extract the Windows client for this version so the
     // native GCI DLL is available for login.
     try {

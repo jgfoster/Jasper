@@ -271,12 +271,16 @@ export function getInstVarNames(session: ActiveSession, oop: bigint): string[] {
 
 /**
  * Fetches OOPs of named instance variables.
+ *
+ * Uses absolute GciTsFetchOops rather than GciTsFetchNamedOops (which does not
+ * exist in GemStone 3.6.2). Named instance variables are the first slots of an
+ * object, so the absolute 1-based index of named var N is simply N.
  */
 export function getNamedInstVarOops(
   session: ActiveSession, oop: bigint, count: number,
 ): bigint[] {
   if (count <= 0) return [];
-  const { oops, err } = session.gci.GciTsFetchNamedOops(
+  const { oops, err } = session.gci.GciTsFetchOops(
     session.handle, oop, 1n, count,
   );
   if (err.number !== 0) return [];
@@ -293,14 +297,24 @@ export function getIndexedSize(session: ActiveSession, oop: bigint): number {
 }
 
 /**
- * Fetches OOPs of varying (indexed) elements.
+ * Fetches OOPs of varying (indexed) elements. `startIndex` is 1-based within
+ * the varying region.
+ *
+ * Uses absolute GciTsFetchOops rather than GciTsFetchVaryingOops (which does
+ * not exist in GemStone 3.6.2). Varying elements follow the named instance
+ * variables, so varying element `startIndex` is at absolute index
+ * namedSize + startIndex.
  */
 export function getIndexedOops(
   session: ActiveSession, oop: bigint, startIndex: number, count: number,
 ): bigint[] {
   if (count <= 0) return [];
-  const { oops, err } = session.gci.GciTsFetchVaryingOops(
-    session.handle, oop, BigInt(startIndex), count,
+  const { info, err: infoErr } = session.gci.GciTsFetchObjInfo(
+    session.handle, oop, false, 0,
+  );
+  if (infoErr.number !== 0) return [];
+  const { oops, err } = session.gci.GciTsFetchOops(
+    session.handle, oop, BigInt(info.namedSize + startIndex), count,
   );
   if (err.number !== 0) return [];
   return oops;

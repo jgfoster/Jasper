@@ -1,7 +1,22 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// Functions that the Windows client DLL does NOT export
+// Functions that older / client GCI libraries do NOT export.
+// The GciTs* functions below (per a gcits.hf diff of 3.6.2 vs 3.7.5) were added
+// after 3.6.2; the NbLogin/Debug ones are also absent from Windows client DLLs.
 const OPTIONAL_FUNCTIONS = [
+  'GciTsLogin_',
+  'GciTsFetchNamedOops',
+  'GciTsFetchVaryingOops',
+  'GciTsStoreNamedOops',
+  'GciTsStoreIdxOops',
+  'GciTsNbPoll',
+  'GciTsAddOopsToNsc',
+  'GciTsPerformFetchOops',
+  'GciTsFetchGbjInfo',
+  'GciTsNewStringFromUtf16',
+  'GciTsDirtyExportedObjs',
+  'GciTsKeepAliveCount',
+  'GciTsKeyfilePermissions',
   'GciTsNbLogin',
   'GciTsNbLogin_',
   'GciTsNbLoginFinished',
@@ -49,6 +64,32 @@ describe('GciLibrary with Windows client DLL (missing optional functions)', () =
 
   it('constructs successfully when optional functions are missing', () => {
     expect(gci).toBeDefined();
+  });
+
+  it('throws descriptive error when calling GciTsLogin_ (absent in 3.6.2)', () => {
+    expect(() =>
+      gci.GciTsLogin_(null, null, null, false, null, 'user', 'pass', null, 0, 0),
+    ).toThrow('GciTsLogin_ is not available in this GCI library');
+  });
+
+  // Functions added after 3.6.2 (found via the gcits.hf diff) must not crash
+  // the constructor; calling them on an older library throws a clear error.
+  it('throws descriptive error when calling GciTsKeepAliveCount (added after 3.6.2)', () => {
+    expect(() =>
+      gci.GciTsKeepAliveCount(null),
+    ).toThrow('GciTsKeepAliveCount is not available in this GCI library');
+  });
+
+  it('throws descriptive error when calling GciTsKeyfilePermissions (added after 3.6.2)', () => {
+    expect(() =>
+      gci.GciTsKeyfilePermissions(null),
+    ).toThrow('GciTsKeyfilePermissions is not available in this GCI library');
+  });
+
+  it('throws descriptive error when calling GciTsFetchNamedOops (added after 3.6.2)', () => {
+    expect(() =>
+      gci.GciTsFetchNamedOops(null, 0n, 0n, 1),
+    ).toThrow('GciTsFetchNamedOops is not available in this GCI library');
   });
 
   it('throws descriptive error when calling GciTsNbLogin', () => {
