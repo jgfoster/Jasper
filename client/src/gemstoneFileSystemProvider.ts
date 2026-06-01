@@ -283,21 +283,6 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
     }
   }
 
-  /**
-   * Close all open editor tabs for a given session (scheme: gemstone, authority: sessionId).
-   */
-  closeTabsForSession(sessionId: number): void {
-    const auth = String(sessionId);
-    for (const group of vscode.window.tabGroups.all) {
-      for (const tab of group.tabs) {
-        const input = tab.input as { uri?: vscode.Uri } | undefined;
-        if (input?.uri?.scheme === 'gemstone' && input.uri.authority === auth) {
-          vscode.window.tabGroups.close(tab);
-        }
-      }
-    }
-  }
-
   createDirectory(): void {
     throw vscode.FileSystemError.NoPermissions('Cannot create directories');
   }

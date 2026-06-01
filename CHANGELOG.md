@@ -13,7 +13,8 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ### Changed
 
-  - Use a modal dialog when asking whether to debug an error raised during Display It, Inspect It, or Execute It. This prevents workspaces from becoming stuck in the executing state if the prompt is not answered. 
+  - Use a modal dialog when asking whether to debug an error raised during Display It, Inspect It, or Execute It. This prevents workspaces from becoming stuck in the executing state if the prompt is not answered.
+  - Preserve open tabs across session actions (commit, abort or logout) to avoid altering the user’s workspace and to respect their tab selection.
 
 ### Fixed
 
