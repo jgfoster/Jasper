@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { GciLibrary, GciError } from './gciLibrary';
+import { OOP_NIL } from './gciConstants';
 import { GemStoneLogin, loginLabel } from './loginTypes';
 import { logInfo } from './gciLog';
 
@@ -9,6 +10,36 @@ export interface ActiveSession {
   handle: unknown;
   login: GemStoneLogin;
   stoneVersion: string;
+}
+
+/**
+ * Decide whether a new login may proceed given the current session count.
+ * Returns an error message to show the user, or null when the login is allowed.
+ *
+ * Pure (no VS Code / GCI dependencies) so the policy can be unit-tested directly.
+ * Single mode (the default) caps the extension at one session; multiple mode
+ * still blocks a second session when a custom export path lacks {session}, since
+ * concurrent sessions would otherwise overwrite each other's exported files.
+ */
+export function evaluateLoginPolicy(
+  mode: string,
+  existingCount: number,
+  exportPath: string,
+): string | null {
+  if (existingCount === 0) return null;
+  if (mode !== 'multiple') {
+    return (
+      'Only one GemStone session is allowed at a time. Log out of the current session before ' +
+      'logging in again. (Set "gemstone.sessionMode": "multiple" to enable concurrent sessions.)'
+    );
+  }
+  if (exportPath && !exportPath.includes('{session}')) {
+    return (
+      'Only one session is allowed when the export path does not include {session}. ' +
+      'Log out of the current session before logging in again, or add {session} to your export path.'
+    );
+  }
+  return null;
 }
 
 export class SessionManager {
@@ -80,14 +111,14 @@ export class SessionManager {
   }
 
   login(login: GemStoneLogin, libraryPath: string): ActiveSession {
-    // The default export path includes {session}, so multiple sessions are safe.
-    // A custom exportPath without {session} risks file conflicts between sessions.
-    const customPath = vscode.workspace.getConfiguration('gemstone').get<string>('exportPath', '').trim();
-    if (this.sessions.size > 0 && customPath && !customPath.includes('{session}')) {
-      throw new Error(
-        'Only one session is allowed at a time when the export path does not include {session}. ' +
-        'Log out of the current session before logging in again, or add {session} to your export path.',
-      );
+    // Single mode (the default) allows one session at a time; multiple mode still
+    // guards against export-path conflicts. See evaluateLoginPolicy.
+    const config = vscode.workspace.getConfiguration('gemstone');
+    const mode = config.get<string>('sessionMode', 'single');
+    const customPath = config.get<string>('exportPath', '').trim();
+    const policyError = evaluateLoginPolicy(mode, this.sessions.size, customPath);
+    if (policyError) {
+      throw new Error(policyError);
     }
 
     const gci = this.getGciLibrary(libraryPath);
@@ -164,6 +195,18 @@ export class SessionManager {
     const s = this.sessions.get(id);
     if (!s) throw new Error('Session not found');
     return s.gci.GciTsAbort(s.handle);
+  }
+
+  /**
+   * Confirm the session is alive and responsive by forcing a round-trip to the
+   * gem without compiling or executing Smalltalk: fetch the instVar count of
+   * nil (a low-level GCI call). Returns cleanly when the session responds.
+   */
+  ping(id: number): { success: boolean; err: GciError } {
+    const s = this.sessions.get(id);
+    if (!s) throw new Error('Session not found');
+    const { err } = s.gci.GciTsFetchSize(s.handle, OOP_NIL);
+    return { success: err.number === 0, err };
   }
 
   getSessions(): ActiveSession[] {

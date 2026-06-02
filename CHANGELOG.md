@@ -4,6 +4,13 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.5.4] - 2026-06-01
+
+### Added
+
+- **"Logins & Sessions" tree with single-session mode by default.** The Logins and Sessions panels are now a single tree: each configured login is a row, and the sessions started from it appear as children — so a login with children is visibly connected, with no separate panel to reconcile. Session rows carry **Logout**, **Abort**, **Commit**, **Ping**, and **Open Browser** inline (plus **Export** and **Make Active Session** in the context menu), and a login can no longer be edited or deleted while it has a live session (log out first), which also guarantees every active session keeps a matching login row to nest under. A new `gemstone.sessionMode` setting governs how many sessions a login may have at once: `single` (the **default**) keeps one session at a time for a simpler mental model — the active session, the System Browser, and any open workspace can never point at different sessions — while `multiple` (beta) re-enables concurrent sessions. Existing users who relied on multiple concurrent sessions can restore that behavior with `"gemstone.sessionMode": "multiple"`.
+- **Ping a session** to confirm it is still active and responsive. Ping issues a low-level GCI round-trip (fetching the size of `nil`) that needs no Smalltalk compilation or execution, so it reports liveness without disturbing the session.
+
 ### Changed
 
   - Use a modal dialog when asking whether to debug an error raised during Display It, Inspect It, or Execute It. This prevents workspaces from becoming stuck in the executing state if the prompt is not answered. 

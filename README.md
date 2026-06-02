@@ -115,27 +115,41 @@ The **MCP Server** view shows which Jasper window is currently serving MCP tool 
 
 ## IDE Features
 
-### Logins
+### Logins & Sessions
 
-The **Logins** view stores connection configurations for your GemStone databases. Each login specifies:
+The **Logins & Sessions** view stores connection configurations for your GemStone databases and shows the live sessions started from each one. Each login specifies:
 
 - GemStone version and GCI library path
 - Host, stone name, and NetLDI
 - GemStone and host credentials
 - Optional per-login export path template
 
-Use the toolbar to add, edit, duplicate, or delete logins. Click **Login** to establish a session.
+Each login is a row in the tree; click **Login** to start a session, which appears as a child beneath it. A login with no children is idle; a login with children is connected — so the tree itself shows what's running.
 
-### Sessions
-
-The **Sessions** view shows active GemStone connections. Each session provides inline buttons for:
+**Login rows** offer Edit, Duplicate, Delete, and Login. A login **cannot be edited or deleted while it has an active session** — log out first. **Session rows** (the children) offer:
 
 - **Commit** / **Abort** — transaction control
+- **Ping** — confirm the session is still active and responsive
 - **Open Browser** — launch the System Browser for this session
-- **Export** — export classes to local files
 - **Logout** — disconnect
+- **Export** and **Make Active Session** (context menu)
 
-Click a session to make it the **active session** for code execution. The status bar shows which session is active.
+The active session (used for code execution) is highlighted, and the status bar shows which session is active.
+
+#### Single vs. multiple sessions
+
+By default Jasper runs in **single-session mode**: each login may have at most one session at a time. This keeps a simpler mental model — there is one session, so the active session, the System Browser, and any open workspace can never point at different sessions.
+
+If you need concurrent connections, enable the **beta** multiple-session mode:
+
+```jsonc
+// settings.json
+"gemstone.sessionMode": "multiple"
+```
+
+The only difference is cardinality: a login may now have several session children, and its **Login** action stays available while connected so you can start more.
+
+> **Note:** In multiple-session mode, an open workspace/editor stays bound to the session that opened it even after you switch the active session, so the active session, browser, and an open editor can point at different sessions at once. If you use a custom `gemstone.exportPath`, include the `{session}` variable so concurrent sessions don't overwrite each other's exported files.
 
 ### Code Execution
 
@@ -268,6 +282,7 @@ The Smalltalk formatter has eleven knobs under `gemstoneSmalltalk.formatter.*` (
 | `gemstone.gciLibraries` | `{}` | Map of GemStone versions to GCI library paths |
 | `gemstone.exportPath` | `""` | Root path for class file export (supports `{workspaceRoot}`) |
 | `gemstone.maxEnvironment` | 0 | Method environments to display in browser |
+| `gemstone.sessionMode` | `single` | Concurrent sessions allowed: `single` (default) or `multiple` (beta — reveals the Sessions panel) |
 | `gemstone.mcp.httpPort` | 27101 | Port on 127.0.0.1 where Jasper serves the MCP HTTPS/SSE surface |
 | `gemstone.mcp.registerWithClaudeDesktop` | true | Auto-register the gemstone MCP server in Claude Desktop's global config |
 

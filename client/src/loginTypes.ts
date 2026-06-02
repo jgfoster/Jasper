@@ -19,6 +19,43 @@ export function loginLabel(login: Pick<GemStoneLogin, 'gs_user' | 'stone' | 'gem
   return `${login.gs_user} on ${login.stone} (${login.gem_host})`;
 }
 
+/**
+ * True when two logins point at the same target connection (same user, stone,
+ * host, and NetLDI). Used to group active sessions under the configured login
+ * that spawned them.
+ */
+export function sameLoginTarget(
+  a: Pick<GemStoneLogin, 'gem_host' | 'stone' | 'gs_user' | 'netldi'>,
+  b: Pick<GemStoneLogin, 'gem_host' | 'stone' | 'gs_user' | 'netldi'>,
+): boolean {
+  return (
+    a.gem_host === b.gem_host &&
+    a.stone === b.stone &&
+    a.gs_user === b.gs_user &&
+    a.netldi === b.netldi
+  );
+}
+
+/**
+ * The active sessions that belong under the login at position `loginIndex`,
+ * using first-match-wins: each session is assigned to the first login in
+ * `logins` whose connection target it matches. Keyed on position rather than
+ * object identity because each LoginStorage.getLogins() call returns a fresh
+ * deserialized array, so the same login is a different object across calls.
+ * Pure and free of VS Code/GCI deps so it can be unit-tested directly. Generic
+ * over the session shape (only `.login` is read) to avoid importing
+ * ActiveSession here.
+ */
+export function sessionsForLogin<T extends { login: GemStoneLogin }>(
+  loginIndex: number,
+  logins: GemStoneLogin[],
+  sessions: T[],
+): T[] {
+  return sessions.filter(
+    (s) => logins.findIndex((l) => sameLoginTarget(l, s.login)) === loginIndex,
+  );
+}
+
 export const DEFAULT_LOGIN: GemStoneLogin = {
   label: '',
   version: '',

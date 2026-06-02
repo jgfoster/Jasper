@@ -17,10 +17,13 @@ vi.mock('vscode', () => ({
   },
 }));
 
+let pingErrNumber = 0;
+
 vi.mock('../gciLibrary', () => ({
   GciLibrary: class {
     GciTsLogin() { return { session: {}, err: { number: 0, message: '' } }; }
     GciTsVersion() { return { version: '3.7.2' }; }
+    GciTsFetchSize() { return { result: pingErrNumber ? -1n : 0n, err: { number: pingErrNumber, message: pingErrNumber ? 'boom' : '' } }; }
     GciTsLogout() {}
     close() {}
   },
@@ -30,8 +33,33 @@ vi.mock('../gciLog', () => ({
   logInfo: vi.fn(),
 }));
 
-import { SessionManager } from '../sessionManager';
+import { SessionManager, evaluateLoginPolicy } from '../sessionManager';
 import { DEFAULT_LOGIN } from '../loginTypes';
+
+describe('evaluateLoginPolicy', () => {
+  it('allows the first login regardless of mode', () => {
+    expect(evaluateLoginPolicy('single', 0, '')).toBeNull();
+    expect(evaluateLoginPolicy('multiple', 0, '{session}')).toBeNull();
+  });
+
+  it('blocks a second login in single mode', () => {
+    expect(evaluateLoginPolicy('single', 1, '{session}')).toMatch(/Only one GemStone session/);
+  });
+
+  it('treats an unrecognized/unset mode as single', () => {
+    expect(evaluateLoginPolicy('', 1, '{session}')).toMatch(/Only one GemStone session/);
+  });
+
+  it('allows concurrent sessions in multiple mode with a {session} export path', () => {
+    expect(evaluateLoginPolicy('multiple', 1, '{workspaceRoot}/gemstone/{session}')).toBeNull();
+    expect(evaluateLoginPolicy('multiple', 1, '')).toBeNull();
+  });
+
+  it('blocks a second session in multiple mode when export path lacks {session}', () => {
+    expect(evaluateLoginPolicy('multiple', 1, '{workspaceRoot}/gemstone/{dictName}'))
+      .toMatch(/does not include \{session\}/);
+  });
+});
 
 describe('SessionManager', () => {
   let manager: SessionManager;
@@ -39,6 +67,7 @@ describe('SessionManager', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     for (const k of Object.keys(configValues)) delete configValues[k];
+    pingErrNumber = 0;
     manager = new SessionManager();
   });
 
@@ -47,31 +76,58 @@ describe('SessionManager', () => {
     expect(session.id).toBe(1);
   });
 
-  it('allows multiple sessions with default export path (includes {session})', () => {
+  it('rejects a second login in single mode (the default)', () => {
+    manager.login({ ...DEFAULT_LOGIN, label: 'First' }, '/mock/lib');
+    expect(() => manager.login({ ...DEFAULT_LOGIN, label: 'Second' }, '/mock/lib'))
+      .toThrow('Only one GemStone session is allowed at a time');
+  });
+
+  it('allows multiple sessions in multiple mode with default export path (includes {session})', () => {
+    configValues['sessionMode'] = 'multiple';
     manager.login({ ...DEFAULT_LOGIN, label: 'First' }, '/mock/lib');
     const session2 = manager.login({ ...DEFAULT_LOGIN, label: 'Second' }, '/mock/lib');
     expect(session2.id).toBe(2);
   });
 
-  it('allows multiple sessions when custom export path includes {session}', () => {
+  it('allows multiple sessions in multiple mode when custom export path includes {session}', () => {
+    configValues['sessionMode'] = 'multiple';
     configValues['exportPath'] = '{workspaceRoot}/gemstone/{session}/{dictName}';
     manager.login({ ...DEFAULT_LOGIN, label: 'First' }, '/mock/lib');
     const session2 = manager.login({ ...DEFAULT_LOGIN, label: 'Second' }, '/mock/lib');
     expect(session2.id).toBe(2);
   });
 
-  it('rejects a second login when custom export path lacks {session}', () => {
+  it('rejects a second login in multiple mode when custom export path lacks {session}', () => {
+    configValues['sessionMode'] = 'multiple';
     configValues['exportPath'] = '{workspaceRoot}/gemstone/{dictName}';
     manager.login({ ...DEFAULT_LOGIN, label: 'First' }, '/mock/lib');
     expect(() => manager.login({ ...DEFAULT_LOGIN, label: 'Second' }, '/mock/lib'))
-      .toThrow('Only one session is allowed at a time');
+      .toThrow('does not include {session}');
   });
 
   it('allows login again after logging out', () => {
-    configValues['exportPath'] = '{workspaceRoot}/gemstone/{dictName}';
     const session = manager.login({ ...DEFAULT_LOGIN, label: 'First' }, '/mock/lib');
     manager.logout(session.id);
     const session2 = manager.login({ ...DEFAULT_LOGIN, label: 'Second' }, '/mock/lib');
     expect(session2.id).toBe(2);
+  });
+
+  describe('ping', () => {
+    it('reports success when the round-trip returns cleanly', () => {
+      const session = manager.login({ ...DEFAULT_LOGIN, label: 'First' }, '/mock/lib');
+      expect(manager.ping(session.id)).toEqual({ success: true, err: { number: 0, message: '' } });
+    });
+
+    it('reports failure when the gem returns an error', () => {
+      const session = manager.login({ ...DEFAULT_LOGIN, label: 'First' }, '/mock/lib');
+      pingErrNumber = 4100;
+      const result = manager.ping(session.id);
+      expect(result.success).toBe(false);
+      expect(result.err.number).toBe(4100);
+    });
+
+    it('throws for an unknown session id', () => {
+      expect(() => manager.ping(999)).toThrow('Session not found');
+    });
   });
 });

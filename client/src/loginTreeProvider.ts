@@ -1,37 +1,94 @@
 import * as vscode from 'vscode';
-import { GemStoneLogin, loginLabel } from './loginTypes';
+import { GemStoneLogin, loginLabel, sessionsForLogin } from './loginTypes';
 import { LoginStorage } from './loginStorage';
+import { ActiveSession, SessionManager } from './sessionManager';
 
+/** A configured login (tree root). Its active sessions appear as children. */
 export class GemStoneLoginItem extends vscode.TreeItem {
-  constructor(public readonly login: GemStoneLogin) {
-    super(loginLabel(login), vscode.TreeItemCollapsibleState.None);
+  constructor(
+    public readonly login: GemStoneLogin,
+    public readonly index = 0,
+    hasSessions = false,
+  ) {
+    super(
+      loginLabel(login),
+      hasSessions
+        ? vscode.TreeItemCollapsibleState.Expanded
+        : vscode.TreeItemCollapsibleState.None,
+    );
     this.description = login.version || '';
     this.tooltip = `${loginLabel(login)} (${login.version || ''})`;
     this.iconPath = new vscode.ThemeIcon('server');
-    this.contextValue = 'gemstoneLogin';
-    this.command = {
-      command: 'gemstone.editLogin',
-      title: 'Edit Login',
-      arguments: [this],
-    };
+    this.contextValue = hasSessions ? 'gemstoneLoginConnected' : 'gemstoneLogin';
+    // Encode connection state in the id so that when a login gains its first
+    // session VS Code sees a "new" node and honors the Expanded state above,
+    // rather than preserving the row's previous collapsed/leaf state.
+    this.id = `login-${index}-${hasSessions ? 'open' : 'closed'}`;
+    // Clicking an idle login opens the editor; a connected login can't be
+    // edited (log out first), so clicking it just expands/selects the row.
+    this.command = hasSessions
+      ? undefined
+      : { command: 'gemstone.editLogin', title: 'Edit Login', arguments: [this] };
   }
 }
 
-export class LoginTreeProvider implements vscode.TreeDataProvider<GemStoneLoginItem> {
-  private _onDidChangeTreeData = new vscode.EventEmitter<GemStoneLoginItem | undefined>();
+/** An active session (tree child of the login that started it). */
+export class GemStoneSessionItem extends vscode.TreeItem {
+  constructor(public readonly activeSession: ActiveSession, isSelected: boolean) {
+    super(loginLabel(activeSession.login), vscode.TreeItemCollapsibleState.None);
+    const { id, stoneVersion } = activeSession;
+    this.id = `session-${id}`;
+    this.description = `Session ${id} (${stoneVersion})`;
+    this.tooltip = `Session ${id}: ${loginLabel(activeSession.login)} (${stoneVersion})`;
+    this.iconPath = new vscode.ThemeIcon(isSelected ? 'debug-start' : 'plug');
+    this.contextValue = 'gemstoneSession';
+  }
+}
+
+type LoginTreeNode = GemStoneLoginItem | GemStoneSessionItem;
+
+/**
+ * Two-level tree: configured logins are roots, the sessions started from each
+ * login are its children. The presence of child rows is the connection
+ * indicator; single- vs. multiple-session mode only changes how many children
+ * a root may have (enforced at login time by evaluateLoginPolicy).
+ */
+export class LoginTreeProvider implements vscode.TreeDataProvider<LoginTreeNode> {
+  private _onDidChangeTreeData = new vscode.EventEmitter<LoginTreeNode | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  constructor(private storage: LoginStorage) {}
+  constructor(
+    private storage: LoginStorage,
+    private sessionManager?: SessionManager,
+  ) {
+    sessionManager?.onDidChangeSelection(() => this.refresh());
+  }
 
   refresh(): void {
     this._onDidChangeTreeData.fire(undefined);
   }
 
-  getTreeItem(element: GemStoneLoginItem): vscode.TreeItem {
+  getTreeItem(element: LoginTreeNode): vscode.TreeItem {
     return element;
   }
 
-  getChildren(): GemStoneLoginItem[] {
-    return this.storage.getLogins().map((l) => new GemStoneLoginItem(l));
+  getChildren(element?: LoginTreeNode): LoginTreeNode[] {
+    const logins = this.storage.getLogins();
+    const sessions = this.sessionManager?.getSessions() ?? [];
+
+    if (!element) {
+      return logins.map(
+        (l, i) => new GemStoneLoginItem(l, i, sessionsForLogin(i, logins, sessions).length > 0),
+      );
+    }
+
+    if (element instanceof GemStoneLoginItem) {
+      const selectedId = this.sessionManager?.selectedId;
+      return sessionsForLogin(element.index, logins, sessions).map(
+        (s) => new GemStoneSessionItem(s, s.id === selectedId),
+      );
+    }
+
+    return [];
   }
 }

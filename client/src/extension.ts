@@ -9,11 +9,10 @@ import {
 } from 'vscode-languageclient/node';
 import { LoginStorage } from './loginStorage';
 import { getLoginPassword, deleteLoginPassword } from './loginCredentials';
-import { LoginTreeProvider, GemStoneLoginItem } from './loginTreeProvider';
-import { loginLabel } from './loginTypes';
+import { LoginTreeProvider, GemStoneLoginItem, GemStoneSessionItem } from './loginTreeProvider';
+import { GemStoneLogin, loginLabel, sameLoginTarget } from './loginTypes';
 import { LoginEditorPanel } from './loginEditorPanel';
 import { SessionManager } from './sessionManager';
-import { SessionTreeProvider, GemStoneSessionItem } from './sessionTreeProvider';
 import { CodeExecutor } from './codeExecutor';
 import { SystemBrowser } from './systemBrowser';
 import { GlobalsBrowser } from './globalsBrowser';
@@ -143,7 +142,10 @@ export function activate(context: vscode.ExtensionContext) {
   // ── Login Management ─────────────────────────────────────
   const storage = new LoginStorage();
   const sysadminStorage = new SysadminStorage();
-  const treeProvider = new LoginTreeProvider(storage);
+  // SessionManager is created early so the Logins panel can mark the connected
+  // login row (and swap its inline Login action for Logout) in single-session mode.
+  sessionManager = new SessionManager();
+  const treeProvider = new LoginTreeProvider(storage, sessionManager);
 
   const treeView = vscode.window.createTreeView('gemstoneLogins', {
     treeDataProvider: treeProvider,
@@ -159,21 +161,31 @@ export function activate(context: vscode.ExtensionContext) {
       if (e.affectsConfiguration('gemstone.maxEnvironment')) {
         // maxEnvironment changes are picked up on next browser refresh
       }
+      if (e.affectsConfiguration('gemstone.sessionMode')) {
+        applySessionModeContext();
+      }
     })
   );
 
+  // Drive the `gemstone.multipleSessions` context key (used to show/hide the
+  // Sessions panel) from the gemstone.sessionMode preference.
+  const applySessionModeContext = () => {
+    const mode = vscode.workspace.getConfiguration('gemstone').get<string>('sessionMode', 'single');
+    vscode.commands.executeCommand('setContext', 'gemstone.multipleSessions', mode === 'multiple');
+  };
+  applySessionModeContext();
+
+  // A login may not be edited or deleted while it has a live session, which also
+  // guarantees every active session keeps a matching login row to nest under.
+  const loginHasActiveSession = (login: GemStoneLogin): boolean =>
+    sessionManager.getSessions().some((s) => sameLoginTarget(s.login, login));
+
   // ── Session Management ───────────────────────────────────
-  sessionManager = new SessionManager();
+  // Active sessions are shown as children of their login in the Logins &
+  // Sessions tree (treeProvider above); there is no separate Sessions view.
   exportManager = new ExportManager();
   fileInManager = new FileInManager(sessionManager, exportManager);
   fileInManager.register(context);
-  const sessionTreeProvider = new SessionTreeProvider(sessionManager);
-
-  const sessionTreeView = vscode.window.createTreeView('gemstoneSessions', {
-    treeDataProvider: sessionTreeProvider,
-    showCollapseAll: false,
-  });
-  context.subscriptions.push(sessionTreeView);
 
   // ── Object Inspector ──────────────────────────────────────
   const inspectorProvider = new InspectorTreeProvider(sessionManager);
@@ -426,10 +438,22 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand('gemstone.editLogin', (item: GemStoneLoginItem) => {
+      if (loginHasActiveSession(item.login)) {
+        vscode.window.showWarningMessage(
+          `"${loginLabel(item.login)}" has an active session. Log out before editing it.`,
+        );
+        return;
+      }
       LoginEditorPanel.show(storage, context.secrets, treeProvider, item.login, sysadminStorage);
     }),
 
     vscode.commands.registerCommand('gemstone.deleteLogin', async (item: GemStoneLoginItem) => {
+      if (loginHasActiveSession(item.login)) {
+        vscode.window.showWarningMessage(
+          `"${loginLabel(item.login)}" has an active session. Log out before deleting it.`,
+        );
+        return;
+      }
       const confirmed = await vscode.window.showWarningMessage(
         `Delete login "${loginLabel(item.login)}"?`,
         { modal: true },
@@ -616,7 +640,7 @@ export function activate(context: vscode.ExtensionContext) {
       let session;
       try {
         session = sessionManager.login(login, gciPath);
-        sessionTreeProvider.refresh();
+        treeProvider.refresh();
         vscode.window.showInformationMessage(
           `Connected to ${login.stone} (${session.stoneVersion}) on ${login.gem_host} as ${login.gs_user}`
         );
@@ -695,18 +719,43 @@ export function activate(context: vscode.ExtensionContext) {
       SystemBrowser.show(session, exportManager);
     }),
 
-    vscode.commands.registerCommand('gemstone.sessionLogout', async (item: GemStoneSessionItem) => {
-      const session = item.activeSession;
+    vscode.commands.registerCommand('gemstone.sessionLogout', async (item?: GemStoneSessionItem) => {
+      const session = item ? item.activeSession : sessionManager.getSelectedSession();
+      if (!session) {
+        vscode.window.showInformationMessage('No GemStone session to log out of.');
+        return;
+      }
       gemstoneFs.closeTabsForSession(session.id);
       exportManager.deleteSessionFiles(session);
       SystemBrowser.disposeForSession(session.id);
       GlobalsBrowser.disposeForSession(session.id);
       sessionManager.logout(session.id);
-      sessionTreeProvider.refresh();
+      treeProvider.refresh();
       inspectorProvider.removeSessionItems(session.id);
       breakpointManager.clearAllForSession(session.id);
       selectorBreakpointManager.clearAllForSession(session.id);
       vscode.window.showInformationMessage(`Session ${session.id}: Logged out.`);
+    }),
+
+    vscode.commands.registerCommand('gemstone.sessionPing', async (item?: GemStoneSessionItem) => {
+      const session = item ? item.activeSession : sessionManager.getSelectedSession();
+      if (!session) {
+        vscode.window.showInformationMessage('No GemStone session to ping.');
+        return;
+      }
+      try {
+        const { success, err } = sessionManager.ping(session.id);
+        if (success) {
+          vscode.window.showInformationMessage(`Session ${session.id} is active and responsive.`);
+        } else {
+          vscode.window.showErrorMessage(
+            `Session ${session.id}: Ping failed — ${err.message || `error ${err.number}`}`
+          );
+        }
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        vscode.window.showErrorMessage(`Ping failed: ${msg}`);
+      }
     }),
 
     vscode.commands.registerCommand('gemstone.selectSession', async (item?: GemStoneSessionItem) => {
@@ -715,7 +764,7 @@ export function activate(context: vscode.ExtensionContext) {
       } else {
         await sessionManager.resolveSession();
       }
-      sessionTreeProvider.refresh();
+      treeProvider.refresh();
     }),
 
     vscode.commands.registerCommand('gemstone.exportClasses', async (item?: GemStoneSessionItem) => {

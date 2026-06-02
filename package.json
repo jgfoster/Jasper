@@ -2,7 +2,7 @@
   "name": "gemstone-ide",
   "displayName": "Jasper: A GemStone Smalltalk IDE",
   "description": "GemStone/S IDE for Visual Studio Code",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "publisher": "gemtalksystems",
   "license": "MIT",
   "author": "James Foster",
@@ -105,6 +105,12 @@
             "default": 0,
             "minimum": 0,
             "description": "Maximum method dictionary environment to show in the browser (0 = standard Smalltalk only, 2 = show environments 0–2)"
+          },
+          "gemstone.sessionMode": {
+            "type": "string",
+            "enum": ["single", "multiple"],
+            "default": "single",
+            "description": "Number of concurrent GemStone sessions allowed. 'single' (default) keeps one session at a time for a clearer mental model — the connected login shows an inline Logout action and the Sessions panel is hidden. 'multiple' (beta) re-enables concurrent sessions and the Sessions panel."
           },
           "gemstone.exportPath": {
             "type": "string",
@@ -277,15 +283,9 @@
         },
         {
           "id": "gemstoneLogins",
-          "name": "Logins",
+          "name": "Logins & Sessions",
           "type": "tree",
           "icon": "$(key)"
-        },
-        {
-          "id": "gemstoneSessions",
-          "name": "Sessions",
-          "type": "tree",
-          "icon": "$(plug)"
         },
         {
           "id": "gemstoneMcpServer",
@@ -400,6 +400,12 @@
         "title": "Abort",
         "category": "GemStone",
         "icon": "$(discard)"
+      },
+      {
+        "command": "gemstone.sessionPing",
+        "title": "Ping Session",
+        "category": "GemStone",
+        "icon": "$(pulse)"
       },
       {
         "command": "gemstone.sessionLogout",
@@ -756,50 +762,55 @@
         },
         {
           "command": "gemstone.deleteLogin",
-          "when": "view == gemstoneLogins",
+          "when": "view == gemstoneLogins && viewItem == gemstoneLogin",
           "group": "inline@1"
         },
         {
           "command": "gemstone.editLogin",
-          "when": "view == gemstoneLogins",
+          "when": "view == gemstoneLogins && viewItem == gemstoneLogin",
           "group": "inline@2"
         },
         {
           "command": "gemstone.login",
-          "when": "view == gemstoneLogins",
+          "when": "view == gemstoneLogins && (viewItem == gemstoneLogin || (viewItem == gemstoneLoginConnected && gemstone.multipleSessions))",
           "group": "inline@3"
         },
         {
           "command": "gemstone.duplicateLogin",
-          "when": "view == gemstoneLogins"
+          "when": "view == gemstoneLogins && (viewItem == gemstoneLogin || viewItem == gemstoneLoginConnected)"
         },
         {
           "command": "gemstone.sessionLogout",
-          "when": "view == gemstoneSessions && viewItem == gemstoneSession",
+          "when": "view == gemstoneLogins && viewItem == gemstoneSession",
           "group": "inline@1"
         },
         {
           "command": "gemstone.sessionAbort",
-          "when": "view == gemstoneSessions && viewItem == gemstoneSession",
+          "when": "view == gemstoneLogins && viewItem == gemstoneSession",
           "group": "inline@2"
         },
         {
           "command": "gemstone.sessionCommit",
-          "when": "view == gemstoneSessions && viewItem == gemstoneSession",
+          "when": "view == gemstoneLogins && viewItem == gemstoneSession",
           "group": "inline@3"
         },
         {
-          "command": "gemstone.openBrowser",
-          "when": "view == gemstoneSessions && viewItem == gemstoneSession",
+          "command": "gemstone.sessionPing",
+          "when": "view == gemstoneLogins && viewItem == gemstoneSession",
           "group": "inline@4"
         },
         {
+          "command": "gemstone.openBrowser",
+          "when": "view == gemstoneLogins && viewItem == gemstoneSession",
+          "group": "inline@5"
+        },
+        {
           "command": "gemstone.exportClasses",
-          "when": "view == gemstoneSessions && viewItem == gemstoneSession"
+          "when": "view == gemstoneLogins && viewItem == gemstoneSession"
         },
         {
           "command": "gemstone.selectSession",
-          "when": "view == gemstoneSessions && viewItem == gemstoneSession"
+          "when": "view == gemstoneLogins && viewItem == gemstoneSession"
         },
         {
           "command": "gemstone.removeInspectorItem",
