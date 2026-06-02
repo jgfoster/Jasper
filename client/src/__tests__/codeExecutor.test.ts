@@ -652,6 +652,107 @@ describe('CodeExecutor', () => {
     });
   });
 
+  // ── Debuggable error dialog must be modal ──────────────────
+  //
+  // When execution raises a DebuggableError, we prompt the user with a
+  // "Debug" / "Dismiss" choice. That prompt MUST be modal — a non-modal
+  // toast would be easy to miss and would let the stalled GemStone process
+  // linger unnoticed. These tests guard the `{ modal: true }` option.
+
+  describe('debuggable error dialog is modal', () => {
+    function debuggableGci() {
+      // Non-nil context (≠ OOP_NIL) makes fetchResultOop throw a DebuggableError.
+      return makeGci({
+        GciTsNbResult: vi.fn(() => ({
+          result: 0x01n,
+          err: {
+            number: 2003,
+            message: 'a UndefinedObject does not understand #foo',
+            context: 0x123n,
+          },
+        })),
+      });
+    }
+
+    /** The options object passed as the 2nd arg of the most recent showErrorMessage call. */
+    function lastErrorMessageOptions() {
+      const calls = vi.mocked(vscode.window.showErrorMessage).mock.calls;
+      return calls[calls.length - 1][1] as { modal?: boolean } | undefined;
+    }
+
+    it('shows a modal dialog when Execute It raises a DebuggableError', async () => {
+      gci = debuggableGci();
+      session = makeSession(gci);
+      executor = new CodeExecutor(makeSessionManager(session));
+
+      const editor = makeEditor('nil foo');
+      setActiveEditor(editor);
+
+      await executor.executeIt();
+
+      expect(vscode.window.showErrorMessage).toHaveBeenCalled();
+      expect(lastErrorMessageOptions()).toEqual({ modal: true });
+    });
+
+    it('offers Debug and Dismiss in the modal dialog on Execute It', async () => {
+      gci = debuggableGci();
+      session = makeSession(gci);
+      executor = new CodeExecutor(makeSessionManager(session));
+
+      const editor = makeEditor('nil foo');
+      setActiveEditor(editor);
+
+      await executor.executeIt();
+
+      const calls = vi.mocked(vscode.window.showErrorMessage).mock.calls;
+      const lastCall = calls[calls.length - 1];
+      expect(lastCall.slice(2)).toEqual(['Debug', 'Dismiss']);
+    });
+
+    it('shows a modal dialog when Inspect It raises a DebuggableError', async () => {
+      gci = debuggableGci();
+      session = makeSession(gci);
+      executor = new CodeExecutor(makeSessionManager(session));
+
+      const editor = makeEditor('nil foo');
+      setActiveEditor(editor);
+
+      const inspectorProvider = {
+        addRoot: vi.fn(),
+        findRootByLabel: vi.fn(),
+      };
+
+      await executor.inspectIt(
+        inspectorProvider as unknown as import('../inspectorTreeProvider').InspectorTreeProvider,
+      );
+
+      expect(vscode.window.showErrorMessage).toHaveBeenCalled();
+      expect(lastErrorMessageOptions()).toEqual({ modal: true });
+    });
+
+    it('offers Debug and Dismiss in the modal dialog on Inspect It', async () => {
+      gci = debuggableGci();
+      session = makeSession(gci);
+      executor = new CodeExecutor(makeSessionManager(session));
+
+      const editor = makeEditor('nil foo');
+      setActiveEditor(editor);
+
+      const inspectorProvider = {
+        addRoot: vi.fn(),
+        findRootByLabel: vi.fn(),
+      };
+
+      await executor.inspectIt(
+        inspectorProvider as unknown as import('../inspectorTreeProvider').InspectorTreeProvider,
+      );
+
+      const calls = vi.mocked(vscode.window.showErrorMessage).mock.calls;
+      const lastCall = calls[calls.length - 1];
+      expect(lastCall.slice(2)).toEqual(['Debug', 'Dismiss']);
+    });
+  });
+
   // ── Result polling: GciTsNbPoll (3.7+) vs GciTsSocket fallback (3.6.2) ──
 
   describe('result polling fallback for GemStone 3.6.2', () => {
