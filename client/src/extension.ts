@@ -16,6 +16,7 @@ import { SessionManager } from './sessionManager';
 import { CodeExecutor } from './codeExecutor';
 import { SystemBrowser } from './systemBrowser';
 import { GlobalsBrowser } from './globalsBrowser';
+import { SuperInspector } from './superInspector';
 import { GemStoneFileSystemProvider } from './gemstoneFileSystemProvider';
 import { openWorkspace } from './workspace';
 import { GemStoneDebugSession } from './gemstoneDebugSession';
@@ -729,6 +730,7 @@ export function activate(context: vscode.ExtensionContext) {
       exportManager.deleteSessionFiles(session);
       SystemBrowser.disposeForSession(session.id);
       GlobalsBrowser.disposeForSession(session.id);
+      SuperInspector.disposeForSession(session.id);
       sessionManager.logout(session.id);
       treeProvider.refresh();
       inspectorProvider.removeSessionItems(session.id);
@@ -798,6 +800,10 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('gemstone.inspectIt', () => {
       codeExecutor.inspectIt(inspectorProvider);
+    }),
+
+    vscode.commands.registerCommand('gemstone.superInspectIt', () => {
+      codeExecutor.superInspectIt();
     }),
 
     vscode.commands.registerCommand('gemstone.showTranscript', () => {

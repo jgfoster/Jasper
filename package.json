@@ -444,6 +444,12 @@
         "icon": "$(eye)"
       },
       {
+        "command": "gemstone.superInspectIt",
+        "title": "Super Inspect It",
+        "category": "GemStone",
+        "icon": "$(eye)"
+      },
+      {
         "command": "gemstone.showTranscript",
         "title": "Show Transcript",
         "category": "GemStone",
@@ -912,17 +918,22 @@
         {
           "command": "gemstone.displayIt",
           "when": "editorTextFocus && gemstone.hasActiveSession && !gemstone.executing",
-          "group": "1_modification@0"
+          "group": "1_gemstone@0"
         },
         {
           "command": "gemstone.inspectIt",
           "when": "editorTextFocus && gemstone.hasActiveSession && !gemstone.executing",
-          "group": "1_modification@1"
+          "group": "1_gemstone@1"
+        },
+        {
+          "command": "gemstone.superInspectIt",
+          "when": "editorTextFocus && gemstone.hasActiveSession && !gemstone.executing",
+          "group": "1_gemstone@2"
         },
         {
           "command": "gemstone.executeIt",
           "when": "editorTextFocus && gemstone.hasActiveSession && !gemstone.executing",
-          "group": "1_modification@2"
+          "group": "1_gemstone@3"
         },
         {
           "command": "gemstone.sendersOf",
@@ -996,6 +1007,12 @@
         "command": "gemstone.inspectIt",
         "key": "ctrl+k i",
         "mac": "cmd+k i",
+        "when": "editorTextFocus && gemstone.hasActiveSession && !gemstone.executing"
+      },
+      {
+        "command": "gemstone.superInspectIt",
+        "key": "ctrl+k o",
+        "mac": "cmd+k o",
         "when": "editorTextFocus && gemstone.hasActiveSession && !gemstone.executing"
       },
       {

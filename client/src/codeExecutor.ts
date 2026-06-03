@@ -3,6 +3,7 @@ import { SessionManager, ActiveSession } from './sessionManager';
 import { OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG } from './gciConstants';
 import { logQuery, logResult, logError, logInfo } from './gciLog';
 import { InspectorTreeProvider } from './inspectorTreeProvider';
+import { SuperInspector } from './superInspector';
 import { appendTranscript } from './transcriptChannel';
 import { GciError } from './gciLibrary';
 import { pollReadable } from './socketPoll';
@@ -513,6 +514,105 @@ __t`;
   }
 
   // ── Inspect ──────────────────────────────────────────
+
+  async superInspectIt(): Promise<void> {
+    const session = await this.sessionManager.resolveSession();
+    if (!session) return;
+
+    if (this.executing.has(session.id)) {
+      vscode.window.showWarningMessage(
+        'A GemStone execution is already in progress on this session.'
+      );
+      return;
+    }
+
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showErrorMessage('No active text editor.');
+      return;
+    }
+
+    let selection = editor.selection;
+    if (selection.isEmpty) {
+      const line = editor.document.lineAt(selection.active.line);
+      selection = new vscode.Selection(line.range.start, line.range.end);
+    }
+
+    const code = editor.document.getText(selection);
+    if (!code.trim()) {
+      vscode.window.showWarningMessage('No code to execute.');
+      return;
+    }
+
+    const label = code.trim().split('\n')[0].slice(0, 40);
+    await this.executeAndSuperInspect(session, code, label);
+  }
+
+  private async executeAndSuperInspect(
+    session: ActiveSession, code: string, label: string,
+  ): Promise<void> {
+    const oopClassString = this.resolveOopClassString(session);
+    if (oopClassString === undefined) return;
+
+    this.setExecuting(session.id, true);
+    logQuery(session.id, 'Super Inspect It', code);
+    const { wrappedCode } = this.wrapWithTranscriptCapture(code);
+
+    const editor = vscode.window.activeTextEditor;
+    if (editor) {
+      editor.setDecorations(executingDecorationType, [editor.selection]);
+    }
+
+    try {
+      const { success, err: startErr } = session.gci.GciTsNbExecute(
+        session.handle, wrappedCode, oopClassString,
+        OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG, 0,
+      );
+      if (!success) {
+        const msg = `Execution failed to start: ${startErr.message || `error ${startErr.number}`}`;
+        logError(session.id, msg);
+        vscode.window.showErrorMessage(msg);
+        return;
+      }
+
+      const oop = await this.pollForResultOop(session);
+
+      const transcript = this.fetchTranscriptOutput(session);
+      if (transcript) appendTranscript(transcript);
+
+      logResult(session.id, `OOP ${oop}`);
+      SuperInspector.create(session, oop, label);
+    } catch (e: unknown) {
+      if (e instanceof ExecutionCancelledError) return;
+      const msg = e instanceof Error ? e.message : String(e);
+      logError(session.id, msg);
+
+      if (e instanceof DebuggableError) {
+        const choice = await vscode.window.showErrorMessage(
+          `GemStone error: ${msg}`, { modal: true }, 'Debug', 'Dismiss',
+        );
+        if (choice === 'Debug') {
+          vscode.debug.startDebugging(undefined, {
+            type: 'gemstone',
+            name: 'GemStone Error',
+            request: 'attach',
+            sessionId: session.id,
+            gsProcess: e.context.toString(),
+            errorMessage: msg,
+          }, { suppressSaveBeforeStart: true });
+        } else {
+          try { session.gci.GciTsClearStack(session.handle, e.context); } catch { /* ignore */ }
+        }
+      } else {
+        vscode.window.showErrorMessage(`GemStone execution error: ${msg}`);
+      }
+    } finally {
+      if (editor) {
+        editor.setDecorations(executingDecorationType, []);
+      }
+      this.setExecuting(session.id, false);
+    }
+  }
 
   async inspectIt(inspectorProvider: InspectorTreeProvider): Promise<void> {
     const session = await this.sessionManager.resolveSession();
