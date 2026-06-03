@@ -3,25 +3,139 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
+// ── Fake GemStone server ─────────────────────────────────────────────────────
+// ExportManager runs the real sync transport/framing/diff against this in-memory
+// image (only the GCI executor is mocked), then writes real files to a temp dir.
+const h = vi.hoisted(() => {
+  interface FakeClass { dictIndex: number; className: string; source: string }
+  interface FakeImage { dicts: { index: number; name: string }[]; classes: FakeClass[] }
+
+  const state: {
+    image: FakeImage;
+    contentPrepares: number;
+    fetchedClasses: string[];
+  } = { image: { dicts: [], classes: [] }, contentPrepares: 0, fetchedClasses: [] };
+
+  const fakeHash = (s: string): string => {
+    let n = 0;
+    for (let i = 0; i < s.length; i++) n = (n * 31 + s.charCodeAt(i)) >>> 0;
+    return String(n);
+  };
+
+  const manifestPayload = (img: FakeImage): string => {
+    let out = '';
+    for (const d of img.dicts) {
+      out += `D\t${d.index}\t${d.name}\n`;
+      for (const c of img.classes.filter(c => c.dictIndex === d.index)) {
+        out += `C\t${d.index}\t${c.className}\t${fakeHash(c.source)}\n`;
+      }
+    }
+    return out;
+  };
+
+  const contentPayload = (img: FakeImage, refs: { dictIndex: number; className: string }[]): string => {
+    let out = '';
+    for (const r of refs) {
+      const c = img.classes.find(c => c.dictIndex === r.dictIndex && c.className === r.className);
+      if (!c) continue;
+      out += `${r.dictIndex}\t${r.className}\t${[...c.source].length}\n${c.source}`;
+    }
+    return out;
+  };
+
+  const dictNameOf = (img: FakeImage, idx: number) => img.dicts.find(d => d.index === idx)?.name;
+
+  // syncClassBuildExpr: resolve dict by name, return `idx \t hash \n source`.
+  const classPayload = (img: FakeImage, code: string): string => {
+    const dn = code.match(/name asString = '((?:[^']|'')*)'/);
+    const cn = code.match(/at: #'((?:[^']|'')*)'/);
+    if (!dn || !cn) return '';
+    const dictName = dn[1].replace(/''/g, "'");
+    const className = cn[1].replace(/''/g, "'");
+    const c = img.classes.find(
+      c => c.className === className && dictNameOf(img, c.dictIndex) === dictName);
+    if (!c) return '';
+    return `${c.dictIndex}\t${fakeHash(c.source)}\n${c.source}`;
+  };
+
+  const makeExecutor = () => {
+    let stored: string | null = null;
+    return (label: string, code: string, _max: number): string => {
+      if (label.endsWith(':prepare')) {
+        let payload: string;
+        if (label.startsWith('manifest')) {
+          payload = manifestPayload(state.image);
+        } else if (label.startsWith('class')) {
+          payload = classPayload(state.image, code);
+        } else {
+          state.contentPrepares++;
+          const refs: { dictIndex: number; className: string }[] = [];
+          const re = /\((\d+) '((?:[^']|'')*)'\)/g;
+          let m: RegExpExecArray | null;
+          while ((m = re.exec(code)) !== null) {
+            const className = m[2].replace(/''/g, "'");
+            refs.push({ dictIndex: parseInt(m[1], 10), className });
+            state.fetchedClasses.push(className);
+          }
+          payload = contentPayload(state.image, refs);
+        }
+        const cm = code.match(/min: (\d+)/);
+        const chunk = cm ? parseInt(cm[1], 10) : payload.length;
+        const cps = [...payload];
+        if (cps.length > chunk) stored = payload;
+        return `${cps.length}\n${cps.slice(0, Math.min(chunk, cps.length)).join('')}`;
+      }
+      if (label.endsWith(':fetch')) {
+        const m = code.match(/copyFrom: (\d+) to: (\d+)/)!;
+        return [...(stored ?? '')].slice(parseInt(m[1], 10) - 1, parseInt(m[2], 10)).join('');
+      }
+      if (label.endsWith(':release')) { stored = null; return ''; }
+      return '';
+    };
+  };
+
+  return {
+    setImage: (img: FakeImage) => { state.image = img; },
+    setClassSource: (dictIndex: number, className: string, source: string) => {
+      const c = state.image.classes.find(c => c.dictIndex === dictIndex && c.className === className);
+      if (c) c.source = source;
+    },
+    removeClass: (dictIndex: number, className: string) => {
+      state.image.classes = state.image.classes.filter(
+        c => !(c.dictIndex === dictIndex && c.className === className));
+    },
+    addClass: (dictIndex: number, className: string, source: string) => {
+      state.image.classes.push({ dictIndex, className, source });
+    },
+    renameDict: (index: number, name: string) => {
+      const d = state.image.dicts.find(d => d.index === index);
+      if (d) d.name = name;
+    },
+    reset: () => { state.contentPrepares = 0; state.fetchedClasses = []; },
+    contentPrepares: () => state.contentPrepares,
+    fetchedClasses: () => state.fetchedClasses,
+    boundLimitExecutor: vi.fn(() => makeExecutor()),
+  };
+});
+
+vi.mock('../browserQueries', () => ({ boundLimitExecutor: h.boundLimitExecutor }));
+
 vi.mock('vscode', () => {
   const configValues: Record<string, unknown> = {};
   return {
     workspace: {
-      getConfiguration: vi.fn((_section: string) => ({
-        get: vi.fn((key: string, defaultValue?: unknown) => {
-          return configValues[key] ?? defaultValue;
-        }),
+      getConfiguration: vi.fn(() => ({
+        get: vi.fn((key: string, defaultValue?: unknown) => configValues[key] ?? defaultValue),
       })),
       workspaceFolders: [{ uri: { fsPath: '/mock/workspace' } }],
     },
     window: {
       showWarningMessage: vi.fn(),
       showInformationMessage: vi.fn(),
-      withProgress: vi.fn(async (_opts: unknown, task: (progress: unknown, token: unknown) => Promise<void>) => {
-        const progress = { report: vi.fn() };
-        const token = { isCancellationRequested: false };
-        return task(progress, token);
-      }),
+      showErrorMessage: vi.fn(),
+      createOutputChannel: vi.fn(() => ({ appendLine: vi.fn(), append: vi.fn(), dispose: vi.fn() })),
+      withProgress: vi.fn(async (_opts: unknown, task: (p: unknown, t: unknown) => Promise<void>) =>
+        task({ report: vi.fn() }, { isCancellationRequested: false })),
     },
     ProgressLocation: { Notification: 15 },
     __setConfigValue: (key: string, value: unknown) => { configValues[key] = value; },
@@ -29,22 +143,9 @@ vi.mock('vscode', () => {
   };
 });
 
-vi.mock('../browserQueries', () => ({
-  getDictionaryNames: vi.fn(() => ['UserGlobals', 'Globals']),
-  getClassNames: vi.fn((session: unknown, dictIndex: number) => {
-    if (dictIndex === 1) return ['MyClass', 'OtherClass'];
-    if (dictIndex === 2) return ['Array', 'String'];
-    return [];
-  }),
-  fileOutClass: vi.fn((_session: unknown, className: string, _dict?: number | string) => {
-    return `! fileout of ${className}\n`;
-  }),
-}));
-
 import { ExportManager } from '../exportManager';
 import { ActiveSession } from '../sessionManager';
 import { GemStoneLogin } from '../loginTypes';
-import * as queries from '../browserQueries';
 import * as vscode from 'vscode';
 
 function createMockSession(overrides?: Partial<GemStoneLogin>): ActiveSession {
@@ -53,431 +154,316 @@ function createMockSession(overrides?: Partial<GemStoneLogin>): ActiveSession {
     gci: {} as ActiveSession['gci'],
     handle: {},
     login: {
-      label: 'Test',
-      version: '3.7.2',
-      gem_host: 'localhost',
-      stone: 'gs64stone',
-      gs_user: 'DataCurator',
-      gs_password: '',
-      netldi: 'gs64ldi',
-      host_user: '',
-      host_password: '',
-      ...overrides,
+      label: 'Test', version: '3.7.2', gem_host: 'localhost', stone: 'gs64stone',
+      gs_user: 'DataCurator', gs_password: '', netldi: 'gs64ldi',
+      host_user: '', host_password: '', ...overrides,
     },
     stoneVersion: '3.7.2',
+  } as ActiveSession;
+}
+
+function defaultImage() {
+  return {
+    dicts: [{ index: 1, name: 'UserGlobals' }, { index: 2, name: 'Globals' }],
+    classes: [
+      { dictIndex: 1, className: 'MyClass', source: '! fileout of MyClass\n' },
+      { dictIndex: 1, className: 'OtherClass', source: '! fileout of OtherClass\n' },
+      { dictIndex: 2, className: 'Array', source: '! fileout of Array\n' },
+      { dictIndex: 2, className: 'String', source: '! fileout of String\n' },
+    ],
   };
 }
 
-describe('ExportManager', () => {
+describe('ExportManager (incremental sync)', () => {
   let manager: ExportManager;
   let tmpDir: string;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Restore default mock implementations (tests may override these)
-    (queries.getDictionaryNames as ReturnType<typeof vi.fn>).mockReturnValue(['UserGlobals', 'Globals']);
-    (queries.getClassNames as ReturnType<typeof vi.fn>).mockImplementation((_s: unknown, dictIndex: number) => {
-      if (dictIndex === 1) return ['MyClass', 'OtherClass'];
-      if (dictIndex === 2) return ['Array', 'String'];
-      return [];
-    });
-    (queries.fileOutClass as ReturnType<typeof vi.fn>).mockImplementation((_s: unknown, className: string, _dict?: number | string) => {
-      return `! fileout of ${className}\n`;
-    });
+    h.setImage(defaultImage());
+    h.reset();
     manager = new ExportManager();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemstone-export-test-'));
-    // Point workspace to temp dir
-    const wsModule = vscode.workspace as unknown as { workspaceFolders: { uri: { fsPath: string } }[] };
-    wsModule.workspaceFolders = [{ uri: { fsPath: tmpDir } }];
+    (vscode.workspace as unknown as { workspaceFolders: { uri: { fsPath: string } }[] })
+      .workspaceFolders = [{ uri: { fsPath: tmpDir } }];
   });
 
   afterEach(() => {
     manager.dispose();
     (vscode as unknown as { __resetConfig: () => void }).__resetConfig();
-    // Clean up temp dir
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  describe('getSessionRoot', () => {
-    it('returns {exportRoot}/{session}', () => {
+  const root = (s: ActiveSession) => manager.getSessionRoot(s)!;
+
+  describe('path layout', () => {
+    it('keys the mirror by host/stone/user', () => {
       const session = createMockSession();
-      const root = manager.getSessionRoot(session);
-      expect(root).toBe(path.join(tmpDir, '.gemstone', '1'));
+      expect(root(session)).toBe(path.join(tmpDir, '.gemstone', 'localhost', 'gs64stone', 'DataCurator'));
     });
 
-    it('uses a hidden dot-prefixed default directory', () => {
-      const session = createMockSession();
-      const root = manager.getSessionRoot(session)!;
-      // The first segment under workspace root should be '.gemstone' (hidden)
-      const relative = path.relative(tmpDir, root);
-      const firstSegment = relative.split(path.sep)[0];
-      expect(firstSegment).toBe('.gemstone');
-      expect(firstSegment.startsWith('.')).toBe(true);
+    it('sanitizes unusual segments', () => {
+      const session = createMockSession({ stone: 'weird/stone..name' });
+      expect(root(session)).toBe(path.join(tmpDir, '.gemstone', 'localhost', 'weird_stone..name', 'DataCurator'));
     });
   });
 
-  describe('exportSession', () => {
-    it('creates numbered dictionary directories with class files', async () => {
+  describe('first sync', () => {
+    it('creates dictionary directories with class files', async () => {
       const session = createMockSession();
       await manager.exportSession(session);
-
-      const sessionRoot = manager.getSessionRoot(session)!;
-
-      // Check directory structure
-      const dict1Dir = path.join(sessionRoot, '1-UserGlobals');
-      const dict2Dir = path.join(sessionRoot, '2-Globals');
-      expect(fs.existsSync(dict1Dir)).toBe(true);
-      expect(fs.existsSync(dict2Dir)).toBe(true);
-
-      // Check files exist with correct content
-      expect(fs.readFileSync(path.join(dict1Dir, 'MyClass.gs'), 'utf-8')).toBe('! fileout of MyClass\n');
-      expect(fs.readFileSync(path.join(dict1Dir, 'OtherClass.gs'), 'utf-8')).toBe('! fileout of OtherClass\n');
-      expect(fs.readFileSync(path.join(dict2Dir, 'Array.gs'), 'utf-8')).toBe('! fileout of Array\n');
-      expect(fs.readFileSync(path.join(dict2Dir, 'String.gs'), 'utf-8')).toBe('! fileout of String\n');
+      const r = root(session);
+      expect(fs.readFileSync(path.join(r, '1-UserGlobals', 'MyClass.gs'), 'utf-8')).toBe('! fileout of MyClass\n');
+      expect(fs.readFileSync(path.join(r, '1-UserGlobals', 'OtherClass.gs'), 'utf-8')).toBe('! fileout of OtherClass\n');
+      expect(fs.readFileSync(path.join(r, '2-Globals', 'Array.gs'), 'utf-8')).toBe('! fileout of Array\n');
+      expect(fs.readFileSync(path.join(r, '2-Globals', 'String.gs'), 'utf-8')).toBe('! fileout of String\n');
     });
 
-    it('calls fileOutClass scoped to each dictionary so shadowed names resolve correctly', async () => {
+    it('marks class files read-only', async () => {
       const session = createMockSession();
       await manager.exportSession(session);
-
-      const mockFileOut = queries.fileOutClass as ReturnType<typeof vi.fn>;
-      expect(mockFileOut).toHaveBeenCalledWith(session, 'MyClass', 1);
-      expect(mockFileOut).toHaveBeenCalledWith(session, 'OtherClass', 1);
-      expect(mockFileOut).toHaveBeenCalledWith(session, 'Array', 2);
-      expect(mockFileOut).toHaveBeenCalledWith(session, 'String', 2);
+      const stat = fs.statSync(path.join(root(session), '1-UserGlobals', 'MyClass.gs'));
+      expect(stat.mode & 0o222).toBe(0);
     });
 
-    it('shows progress notification', async () => {
+    it('persists a manifest state file', async () => {
       const session = createMockSession();
       await manager.exportSession(session);
-
-      expect(vscode.window.withProgress).toHaveBeenCalledWith(
-        expect.objectContaining({ title: 'Exporting GemStone classes' }),
-        expect.any(Function),
-      );
+      expect(fs.existsSync(path.join(root(session), '.manifest.json'))).toBe(true);
     });
 
-    it('shows completion message with count', async () => {
+    it('fetches every class', async () => {
       const session = createMockSession();
       await manager.exportSession(session);
+      expect(h.fetchedClasses().sort()).toEqual(['Array', 'MyClass', 'OtherClass', 'String']);
+    });
+  });
 
-      expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
-        'Exported 4 classes from 2 dictionaries.',
-      );
+  describe('incremental re-sync', () => {
+    it('fetches nothing when the image is unchanged', async () => {
+      const session = createMockSession();
+      await manager.exportSession(session);
+      h.reset();
+      await manager.refreshSession(session);
+      expect(h.contentPrepares()).toBe(0);
+      expect(h.fetchedClasses()).toEqual([]);
     });
 
-    it('warns when no workspace is open', async () => {
-      const wsModule = vscode.workspace as unknown as { workspaceFolders: null };
-      wsModule.workspaceFolders = null;
-
+    it('re-fetches only a changed class', async () => {
       const session = createMockSession();
       await manager.exportSession(session);
+      h.reset();
+      h.setClassSource(1, 'MyClass', '! fileout of MyClass v2\n');
+      await manager.refreshSession(session);
+      expect(h.fetchedClasses()).toEqual(['MyClass']);
+      expect(fs.readFileSync(path.join(root(session), '1-UserGlobals', 'MyClass.gs'), 'utf-8'))
+        .toBe('! fileout of MyClass v2\n');
+    });
 
+    it('deletes a class removed from the image', async () => {
+      const session = createMockSession();
+      await manager.exportSession(session);
+      const file = path.join(root(session), '1-UserGlobals', 'OtherClass.gs');
+      expect(fs.existsSync(file)).toBe(true);
+      h.reset();
+      h.removeClass(1, 'OtherClass');
+      await manager.refreshSession(session);
+      expect(fs.existsSync(file)).toBe(false);
+      expect(h.fetchedClasses()).toEqual([]); // nothing fetched, only a delete
+    });
+
+    it('fetches a newly added class only', async () => {
+      const session = createMockSession();
+      await manager.exportSession(session);
+      h.reset();
+      h.addClass(1, 'BrandNew', '! fileout of BrandNew\n');
+      await manager.refreshSession(session);
+      expect(h.fetchedClasses()).toEqual(['BrandNew']);
+      expect(fs.existsSync(path.join(root(session), '1-UserGlobals', 'BrandNew.gs'))).toBe(true);
+    });
+
+    it('handles a dictionary rename: prunes the old dir, populates the new', async () => {
+      const session = createMockSession();
+      await manager.exportSession(session);
+      expect(fs.existsSync(path.join(root(session), '1-UserGlobals'))).toBe(true);
+      h.reset();
+      h.renameDict(1, 'Renamed');
+      await manager.refreshSession(session);
+      expect(fs.existsSync(path.join(root(session), '1-UserGlobals'))).toBe(false);
+      expect(fs.readFileSync(path.join(root(session), '1-Renamed', 'MyClass.gs'), 'utf-8'))
+        .toBe('! fileout of MyClass\n');
+    });
+  });
+
+  describe('per-login gate', () => {
+    it('does nothing when sync_classes is false', async () => {
+      const session = createMockSession({ sync_classes: false });
+      await manager.exportSession(session);
+      expect(fs.existsSync(root(session))).toBe(false);
+      expect(h.fetchedClasses()).toEqual([]);
+    });
+
+    it('syncs when sync_classes is true', async () => {
+      const session = createMockSession({ sync_classes: true });
+      await manager.exportSession(session);
+      expect(fs.existsSync(path.join(root(session), '1-UserGlobals', 'MyClass.gs'))).toBe(true);
+    });
+  });
+
+  describe('no workspace', () => {
+    it('warns on an explicit (non-silent) sync', async () => {
+      (vscode.workspace as unknown as { workspaceFolders: null }).workspaceFolders = null;
+      await manager.exportSession(createMockSession());
       expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
-        expect.stringContaining('No workspace folder'),
-      );
+        expect.stringContaining('No workspace folder'));
     });
 
-    it('continues when a single class export fails', async () => {
-      const mockFileOut = queries.fileOutClass as ReturnType<typeof vi.fn>;
-      mockFileOut.mockImplementation((_s: unknown, className: string, _dict?: number | string) => {
-        if (className === 'OtherClass') throw new Error('Kernel class');
-        return `! fileout of ${className}\n`;
-      });
-
-      const session = createMockSession();
-      await manager.exportSession(session);
-
-      const sessionRoot = manager.getSessionRoot(session)!;
-      // MyClass should still exist
-      expect(fs.existsSync(path.join(sessionRoot, '1-UserGlobals', 'MyClass.gs'))).toBe(true);
-      // OtherClass should not
-      expect(fs.existsSync(path.join(sessionRoot, '1-UserGlobals', 'OtherClass.gs'))).toBe(false);
-    });
-
-    it('creates directories for empty dictionaries', async () => {
-      // "Published" has no classes but should still get a directory
-      const mockGetClassNames = queries.getClassNames as ReturnType<typeof vi.fn>;
-      mockGetClassNames.mockImplementation(() => []);
-
-      const session = createMockSession();
-      await manager.exportSession(session);
-
-      const sessionRoot = manager.getSessionRoot(session)!;
-      expect(fs.existsSync(path.join(sessionRoot, '1-UserGlobals'))).toBe(true);
-      expect(fs.existsSync(path.join(sessionRoot, '2-Globals'))).toBe(true);
-    });
-
-    it('removes stale dictionary directories on re-export', async () => {
-      const session = createMockSession();
-      await manager.exportSession(session);
-
-      const sessionRoot = manager.getSessionRoot(session)!;
-      expect(fs.existsSync(path.join(sessionRoot, '2-Globals'))).toBe(true);
-
-      // Simulate dictionary removal — second export has fewer dictionaries
-      (queries.getDictionaryNames as ReturnType<typeof vi.fn>).mockReturnValue(['UserGlobals']);
-      (queries.getClassNames as ReturnType<typeof vi.fn>).mockImplementation((_s: unknown, dictIndex: number) => {
-        if (dictIndex === 1) return ['MyClass', 'OtherClass'];
-        return [];
-      });
-
-      await manager.refreshSession(session);
-
-      expect(fs.existsSync(path.join(sessionRoot, '1-UserGlobals'))).toBe(true);
-      expect(fs.existsSync(path.join(sessionRoot, '2-Globals'))).toBe(false);
-    });
-
-    it('removes stale files on re-export', async () => {
-      const session = createMockSession();
-      await manager.exportSession(session);
-
-      const sessionRoot = manager.getSessionRoot(session)!;
-      const staleFile = path.join(sessionRoot, '1-UserGlobals', 'MyClass.gs');
-      expect(fs.existsSync(staleFile)).toBe(true);
-
-      // Simulate class removal — second export returns fewer classes
-      const mockGetClassNames = queries.getClassNames as ReturnType<typeof vi.fn>;
-      mockGetClassNames.mockImplementation((_s: unknown, dictIndex: number) => {
-        if (dictIndex === 1) return ['OtherClass']; // MyClass removed
-        if (dictIndex === 2) return ['Array', 'String'];
-        return [];
-      });
-
-      await manager.refreshSession(session);
-
-      expect(fs.existsSync(staleFile)).toBe(false);
-      expect(fs.existsSync(path.join(sessionRoot, '1-UserGlobals', 'OtherClass.gs'))).toBe(true);
+    it('stays silent on an automatic (silent) sync', async () => {
+      (vscode.workspace as unknown as { workspaceFolders: null }).workspaceFolders = null;
+      await manager.refreshSession(createMockSession());
+      expect(vscode.window.showWarningMessage).not.toHaveBeenCalled();
     });
   });
 
-  describe('all files read-only after export', () => {
-    it('marks all .gs files as read-only after export', async () => {
+  describe('syncClass (targeted single-class update)', () => {
+    it('rewrites a changed class file and updates persisted state', async () => {
       const session = createMockSession();
       await manager.exportSession(session);
+      const file = path.join(root(session), '1-UserGlobals', 'MyClass.gs');
+      h.setClassSource(1, 'MyClass', '! fileout of MyClass edited\n');
 
-      const sessionRoot = manager.getSessionRoot(session)!;
-      const filePath = path.join(sessionRoot, '1-UserGlobals', 'MyClass.gs');
-      const stat = fs.statSync(filePath);
+      await manager.syncClass(session, 'UserGlobals', 'MyClass');
+
+      expect(fs.readFileSync(file, 'utf-8')).toBe('! fileout of MyClass edited\n');
+      // State now matches the new content, so a follow-up sync fetches nothing.
+      h.reset();
+      await manager.refreshSession(session);
+      expect(h.contentPrepares()).toBe(0);
+    });
+
+    it('creates the file and dir for a class not yet mirrored', async () => {
+      const session = createMockSession();
+      await manager.exportSession(session);
+      h.addClass(1, 'FreshClass', '! fileout of FreshClass\n');
+
+      await manager.syncClass(session, 'UserGlobals', 'FreshClass');
+
+      expect(fs.readFileSync(path.join(root(session), '1-UserGlobals', 'FreshClass.gs'), 'utf-8'))
+        .toBe('! fileout of FreshClass\n');
+    });
+
+    it('writes a read-only file', async () => {
+      const session = createMockSession();
+      await manager.exportSession(session);
+      h.setClassSource(1, 'MyClass', '! v2\n');
+      await manager.syncClass(session, 'UserGlobals', 'MyClass');
+      const stat = fs.statSync(path.join(root(session), '1-UserGlobals', 'MyClass.gs'));
       expect(stat.mode & 0o222).toBe(0);
     });
 
-    it('marks Globals .gs files as read-only after export', async () => {
+    it('is a no-op when the class is not found', async () => {
       const session = createMockSession();
       await manager.exportSession(session);
+      await expect(manager.syncClass(session, 'UserGlobals', 'Ghost')).resolves.toBeUndefined();
+      expect(fs.existsSync(path.join(root(session), '1-UserGlobals', 'Ghost.gs'))).toBe(false);
+    });
 
-      const sessionRoot = manager.getSessionRoot(session)!;
-      const filePath = path.join(sessionRoot, '2-Globals', 'Array.gs');
-      const stat = fs.statSync(filePath);
-      expect(stat.mode & 0o222).toBe(0);
+    it('does nothing when sync is disabled for the login', async () => {
+      const session = createMockSession({ sync_classes: false });
+      await manager.syncClass(session, 'UserGlobals', 'MyClass');
+      expect(fs.existsSync(root(session))).toBe(false);
     });
   });
 
-  describe('isWriting', () => {
-    it('is false when not exporting', () => {
-      expect(manager.isWriting).toBe(false);
+  describe('removeClassFile (targeted delete)', () => {
+    it('deletes the file and drops the persisted hash', async () => {
+      const session = createMockSession();
+      await manager.exportSession(session);
+      const file = path.join(root(session), '1-UserGlobals', 'MyClass.gs');
+      expect(fs.existsSync(file)).toBe(true);
+
+      manager.removeClassFile(session, 1, 'UserGlobals', 'MyClass');
+
+      expect(fs.existsSync(file)).toBe(false);
+      // Drop it from the image too; a follow-up sync should not flag a deletion.
+      h.removeClass(1, 'MyClass');
+      h.reset();
+      await manager.refreshSession(session);
+      expect(h.contentPrepares()).toBe(0);
+    });
+
+    it('does not create a state file when sync is disabled', () => {
+      const session = createMockSession({ sync_classes: false });
+      manager.removeClassFile(session, 1, 'UserGlobals', 'MyClass');
+      expect(fs.existsSync(path.join(root(session), '.manifest.json'))).toBe(false);
     });
   });
 
-  describe('multiple sessions', () => {
-    it('exports to separate directories for different sessions', async () => {
-      const session1 = createMockSession({ gem_host: 'host1', stone: 'stone1', gs_user: 'user1' });
-      session1.id = 1;
-      const session2 = createMockSession({ gem_host: 'host2', stone: 'stone2', gs_user: 'user2' });
-      session2.id = 2;
-
-      await manager.exportSession(session1);
-      await manager.exportSession(session2);
-
-      const root1 = manager.getSessionRoot(session1)!;
-      const root2 = manager.getSessionRoot(session2)!;
-
-      expect(root1).not.toBe(root2);
-      expect(fs.existsSync(path.join(root1, '1-UserGlobals', 'MyClass.gs'))).toBe(true);
-      expect(fs.existsSync(path.join(root2, '1-UserGlobals', 'MyClass.gs'))).toBe(true);
-    });
-  });
-
-  describe('all files read-only regardless of user', () => {
-    it('marks all files read-only for DataCurator', async () => {
-      const session = createMockSession({ gs_user: 'DataCurator' });
-      await manager.exportSession(session);
-
-      const sessionRoot = manager.getSessionRoot(session)!;
-      const userFile = path.join(sessionRoot, '1-UserGlobals', 'MyClass.gs');
-      const globalsFile = path.join(sessionRoot, '2-Globals', 'Array.gs');
-      expect(fs.statSync(userFile).mode & 0o222).toBe(0);
-      expect(fs.statSync(globalsFile).mode & 0o222).toBe(0);
-    });
-
-    it('marks all files read-only for SystemUser', async () => {
-      const session = createMockSession({ gs_user: 'SystemUser' });
-      await manager.exportSession(session);
-
-      const sessionRoot = manager.getSessionRoot(session)!;
-      const globalsFile = path.join(sessionRoot, '2-Globals', 'Array.gs');
-      expect(fs.statSync(globalsFile).mode & 0o222).toBe(0);
-    });
-  });
-
-  describe('exportPath setting as template', () => {
-    it('getResolvedTemplate uses default when exportPath is empty', () => {
-      const session = createMockSession();
-      const template = manager.getResolvedTemplate(session);
-      expect(template).toBe(path.join(tmpDir, '.gemstone', '1', '{index}-{dictName}'));
-    });
-
-    it('getResolvedTemplate uses custom exportPath with variable substitution', () => {
-      const mockVscode = vscode as unknown as { __setConfigValue: (key: string, value: unknown) => void };
-      mockVscode.__setConfigValue('exportPath', '{workspaceRoot}/smalltalk/{dictName}');
-      const session = createMockSession();
-      const template = manager.getResolvedTemplate(session);
-      expect(template).toBe(path.join(tmpDir, 'smalltalk', '{dictName}'));
-    });
-
-    it('getResolvedTemplate resolves {session}, {host}, {stone}, {user} variables', () => {
-      const mockVscode = vscode as unknown as { __setConfigValue: (key: string, value: unknown) => void };
-      mockVscode.__setConfigValue('exportPath', '{workspaceRoot}/exports/{session}/{host}/{stone}/{user}/{dictName}');
-      const session = createMockSession({
-        gem_host: 'myhost',
-        stone: 'mystone',
-        gs_user: 'myuser',
-      });
-      const template = manager.getResolvedTemplate(session);
-      expect(template).toBe(path.join(tmpDir, 'exports', '1', 'myhost', 'mystone', 'myuser', '{dictName}'));
-    });
-
-    it('getResolvedTemplate handles relative exportPath', () => {
-      const mockVscode = vscode as unknown as { __setConfigValue: (key: string, value: unknown) => void };
-      mockVscode.__setConfigValue('exportPath', 'smalltalk/{dictName}');
-      const session = createMockSession();
-      const template = manager.getResolvedTemplate(session);
-      expect(template).toBe(path.join(tmpDir, 'smalltalk', '{dictName}'));
-    });
-
-    it('getResolvedTemplate returns undefined for relative path with no workspace', () => {
-      const wsModule = vscode.workspace as unknown as { workspaceFolders: null };
-      wsModule.workspaceFolders = null;
-      const mockVscode = vscode as unknown as { __setConfigValue: (key: string, value: unknown) => void };
-      mockVscode.__setConfigValue('exportPath', 'smalltalk/{dictName}');
-      const session = createMockSession();
-      expect(manager.getResolvedTemplate(session)).toBeUndefined();
-    });
-
-    it('getDictPath fully resolves the template', () => {
-      const mockVscode = vscode as unknown as { __setConfigValue: (key: string, value: unknown) => void };
-      mockVscode.__setConfigValue('exportPath', '{workspaceRoot}/smalltalk/{dictName}');
-      const session = createMockSession();
-      const dictPath = manager.getDictPath(session, 1, 'UserGlobals');
-      expect(dictPath).toBe(path.join(tmpDir, 'smalltalk', 'UserGlobals'));
-    });
-
-    it('getDictPath resolves {index} in template', () => {
-      const mockVscode = vscode as unknown as { __setConfigValue: (key: string, value: unknown) => void };
-      mockVscode.__setConfigValue('exportPath', '{workspaceRoot}/code/{index}-{dictName}');
-      const session = createMockSession();
-      const dictPath = manager.getDictPath(session, 3, 'Published');
-      expect(dictPath).toBe(path.join(tmpDir, 'code', '3-Published'));
-    });
-
-    it('getSessionRoot returns parent of dict directories', () => {
-      const mockVscode = vscode as unknown as { __setConfigValue: (key: string, value: unknown) => void };
-      mockVscode.__setConfigValue('exportPath', '{workspaceRoot}/smalltalk/{dictName}');
-      const session = createMockSession();
-      const root = manager.getSessionRoot(session);
-      expect(root).toBe(path.join(tmpDir, 'smalltalk'));
-    });
-
-    it('exports to custom paths using exportPath setting', async () => {
-      const mockVscode = vscode as unknown as { __setConfigValue: (key: string, value: unknown) => void };
-      mockVscode.__setConfigValue('exportPath', '{workspaceRoot}/smalltalk/{dictName}');
-      const session = createMockSession();
-      await manager.exportSession(session);
-
-      const root = manager.getSessionRoot(session)!;
-      expect(fs.existsSync(path.join(root, 'UserGlobals', 'MyClass.gs'))).toBe(true);
-      expect(fs.existsSync(path.join(root, 'UserGlobals', 'OtherClass.gs'))).toBe(true);
-      expect(fs.existsSync(path.join(root, 'Globals', 'Array.gs'))).toBe(true);
-      expect(fs.existsSync(path.join(root, 'Globals', 'String.gs'))).toBe(true);
-    });
-
-  });
-
-  describe('deleteSessionFiles', () => {
-    it('removes the session directory and its contents', async () => {
-      const session = createMockSession();
-      await manager.exportSession(session);
-
-      const sessionRoot = manager.getSessionRoot(session)!;
-      expect(fs.existsSync(sessionRoot)).toBe(true);
-
-      manager.deleteSessionFiles(session);
-
-      expect(fs.existsSync(sessionRoot)).toBe(false);
-    });
-
-    it('removes parent directory if empty after deletion', async () => {
-      const session = createMockSession();
-      await manager.exportSession(session);
-
-      const sessionRoot = manager.getSessionRoot(session)!;
-      const parent = path.dirname(sessionRoot);
-
-      manager.deleteSessionFiles(session);
-
-      expect(fs.existsSync(parent)).toBe(false);
-    });
-
-    it('preserves parent directory if other sessions exist', async () => {
-      const session1 = createMockSession();
-      session1.id = 1;
-      const session2 = createMockSession({ gem_host: 'host2' });
-      session2.id = 2;
-
-      await manager.exportSession(session1);
-      await manager.exportSession(session2);
-
-      const parent = path.dirname(manager.getSessionRoot(session1)!);
-
-      manager.deleteSessionFiles(session1);
-
-      expect(fs.existsSync(parent)).toBe(true);
-      expect(fs.existsSync(manager.getSessionRoot(session2)!)).toBe(true);
-    });
-
-    it('is a no-op when session root does not exist', () => {
-      const session = createMockSession();
-      // No export done — directory doesn't exist
-      expect(() => manager.deleteSessionFiles(session)).not.toThrow();
-    });
-
-    it('clears exported files tracking for the session', async () => {
-      const session = createMockSession();
-      await manager.exportSession(session);
-
-      manager.deleteSessionFiles(session);
-
-      // Re-export should work cleanly (no stale file tracking)
-      await manager.exportSession(session);
-      const sessionRoot = manager.getSessionRoot(session)!;
-      expect(fs.existsSync(path.join(sessionRoot, '1-UserGlobals', 'MyClass.gs'))).toBe(true);
-    });
-  });
-
-  describe('package.json export path description', () => {
-    const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf-8'));
-    const properties = pkg.contributes.configuration[0].properties;
-    const allVars = ['{workspaceRoot}', '{session}', '{host}', '{stone}', '{user}', '{index}', '{dictName}'];
-
-    it('gemstone.exportPath lists all variables', () => {
-      const desc = properties['gemstone.exportPath'].description;
-      for (const v of allVars) {
-        expect(desc).toContain(v);
+  describe('scheduleRefresh (debounced structural re-sync)', () => {
+    it('coalesces rapid calls into a single refresh', async () => {
+      vi.useFakeTimers();
+      try {
+        const session = createMockSession();
+        const spy = vi.spyOn(manager, 'refreshSession').mockResolvedValue();
+        manager.scheduleRefresh(session, 100);
+        manager.scheduleRefresh(session, 100);
+        manager.scheduleRefresh(session, 100);
+        expect(spy).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(120);
+        expect(spy).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
       }
     });
 
-    it('gemstone.exportPath documents the hidden .gemstone default', () => {
-      const desc = properties['gemstone.exportPath'].description;
+    it('does not schedule when sync is disabled', async () => {
+      vi.useFakeTimers();
+      try {
+        const session = createMockSession({ sync_classes: false });
+        const spy = vi.spyOn(manager, 'refreshSession').mockResolvedValue();
+        manager.scheduleRefresh(session, 100);
+        await vi.advanceTimersByTimeAsync(200);
+        expect(spy).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('deleteSessionFiles', () => {
+    it('removes the mirror and empty ancestors', async () => {
+      const session = createMockSession();
+      await manager.exportSession(session);
+      const r = root(session);
+      expect(fs.existsSync(r)).toBe(true);
+      manager.deleteSessionFiles(session);
+      expect(fs.existsSync(r)).toBe(false);
+      // .gemstone/localhost/gs64stone now empty → cleaned up
+      expect(fs.existsSync(path.join(tmpDir, '.gemstone'))).toBe(false);
+    });
+
+    it('is a no-op when the mirror does not exist', () => {
+      expect(() => manager.deleteSessionFiles(createMockSession())).not.toThrow();
+    });
+  });
+
+  describe('exportPath setting', () => {
+    it('uses a custom template with variable substitution', async () => {
+      (vscode as unknown as { __setConfigValue: (k: string, v: unknown) => void })
+        .__setConfigValue('exportPath', '{workspaceRoot}/smalltalk/{dictName}');
+      const session = createMockSession();
+      await manager.exportSession(session);
+      const r = root(session);
+      expect(r).toBe(path.join(tmpDir, 'smalltalk'));
+      expect(fs.existsSync(path.join(r, 'UserGlobals', 'MyClass.gs'))).toBe(true);
+    });
+
+    it('lists all variables and documents the default in package.json', () => {
+      const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf-8'));
+      const desc = pkg.contributes.configuration[0].properties['gemstone.exportPath'].description;
+      for (const v of ['{workspaceRoot}', '{session}', '{host}', '{stone}', '{user}', '{index}', '{dictName}']) {
+        expect(desc).toContain(v);
+      }
       expect(desc).toContain('.gemstone');
     });
   });

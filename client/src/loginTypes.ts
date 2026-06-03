@@ -13,6 +13,19 @@ export interface GemStoneLogin {
    * `gs_password` in the settings file is left empty. See loginCredentials.ts.
    */
   password_in_keychain?: boolean;
+  /**
+   * When true (the default when unset), the local `.gemstone` class mirror is
+   * synced for this login so VS Code's Find in Files / Go to Definition work over
+   * the source. Turn it off for slow/remote connections where the initial sync
+   * isn't worth it — server-side search still works. See client/src/sync/.
+   */
+  sync_classes?: boolean;
+}
+
+// Whether the class mirror should be synced for a login. Defaults to true when
+// the flag is unset, so existing logins keep today's behavior.
+export function shouldSyncClasses(login: Pick<GemStoneLogin, 'sync_classes'>): boolean {
+  return login.sync_classes !== false;
 }
 
 export function loginLabel(login: Pick<GemStoneLogin, 'gs_user' | 'stone' | 'gem_host'>): string {

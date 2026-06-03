@@ -301,6 +301,14 @@ export class LoginEditorPanel {
     <input type="password" id="host_password">
   </div>
 
+  <div class="field-group">
+    <div class="checkbox-row">
+      <input type="checkbox" id="sync_classes" checked>
+      <label for="sync_classes" class="inline-label">Sync classes to local files (Find in Files, Go to Definition)</label>
+    </div>
+    <div class="hint">Keeps a read-only .gemstone mirror in sync on login/commit. Turn off for slow or remote connections where the initial sync isn't worth it — server-side search still works.</div>
+  </div>
+
   <div class="button-row">
     <button id="saveBtn">Save</button>
     <button id="cancelBtn" class="secondary">Cancel</button>
@@ -341,6 +349,9 @@ export class LoginEditorPanel {
         }
         document.getElementById('password_in_keychain').checked =
           Boolean(msg.data.password_in_keychain);
+        // Default on when unset, so existing logins keep syncing.
+        document.getElementById('sync_classes').checked =
+          msg.data.sync_classes !== false;
       }
     });
 
@@ -350,6 +361,7 @@ export class LoginEditorPanel {
         data[f] = document.getElementById(f).value;
       }
       data.password_in_keychain = document.getElementById('password_in_keychain').checked;
+      data.sync_classes = document.getElementById('sync_classes').checked;
       vscode.postMessage({ command: 'save', data, originalLabel });
     });
 

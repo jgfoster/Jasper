@@ -115,6 +115,8 @@ export class FileInManager {
     const session = this.resolveSessionFromPath(filePath);
     if (session) {
       fileInClass(session, template);
+      // Reconcile the mirror so the new class is filed under canonical source.
+      this.exportManager.scheduleRefresh(session);
       SystemBrowser.refresh(session.id);
     }
 
@@ -151,6 +153,9 @@ export class FileInManager {
       const className = path.basename(uri.fsPath, '.gs');
       try {
         queries.deleteClass(session, dictIndex, className);
+        // The .gs is already gone; drop it from the persisted mirror state too.
+        const dictName = parts[0].replace(/^\d+-/, '');
+        this.exportManager.removeClassFile(session, dictIndex, dictName, className);
         SystemBrowser.refresh(session.id);
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -162,6 +167,8 @@ export class FileInManager {
       if (!dictIndex) return;
       try {
         queries.removeDictionary(session, dictIndex);
+        // Reconcile the mirror (the dir is gone; drop its classes from state).
+        this.exportManager.scheduleRefresh(session);
         SystemBrowser.refresh(session.id);
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);

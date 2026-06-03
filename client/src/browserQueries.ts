@@ -144,6 +144,48 @@ export function executeFetchString(session: ActiveSession, label: string, code: 
   return data;
 }
 
+// Like executeFetchString but with a caller-chosen result-buffer size. The
+// class-sync transport (see client/src/sync/) moves multi-MB chunks well above
+// the default 256 KB cap, slicing on code-point boundaries so the UTF-8 decode
+// here is always lossless. Result data is not logged — chunks can be megabytes.
+export function executeFetchStringWithLimit(
+  session: ActiveSession, label: string, code: string, maxBytes: number,
+): string {
+  logQuery(session.id, label, code);
+
+  const { result: inProgress } = session.gci.GciTsCallInProgress(session.handle);
+  if (inProgress !== 0) {
+    const msg = 'Session is busy with another operation. Please wait or use a different session.';
+    logError(session.id, msg);
+    throw new BrowserQueryError(msg);
+  }
+
+  const oopClassUtf8 = resolveClassUtf8(session);
+
+  const { data, err } = session.gci.GciTsExecuteFetchBytes(
+    session.handle,
+    code,
+    -1,
+    oopClassUtf8,
+    OOP_ILLEGAL,
+    OOP_NIL,
+    maxBytes,
+  );
+
+  if (err.number !== 0) {
+    const msg = err.message || `GCI error ${err.number}`;
+    logError(session.id, msg);
+    throw new BrowserQueryError(msg, err.number);
+  }
+  return data;
+}
+
+// A LimitExecutor bound to a session, for the sync transport.
+export function boundLimitExecutor(session: ActiveSession) {
+  return (label: string, code: string, maxBytes: number) =>
+    executeFetchStringWithLimit(session, label, code, maxBytes);
+}
+
 // Bind a session to the QueryExecutor shape that shared queries expect.
 function bind(session: ActiveSession): QueryExecutor {
   return (label, code) => executeFetchString(session, label, code);

@@ -198,7 +198,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(inspectorView, inspectorProvider);
 
   // ── GemStone FileSystem Provider ─────────────────────────
-  const gemstoneFs = new GemStoneFileSystemProvider(sessionManager);
+  const gemstoneFs = new GemStoneFileSystemProvider(sessionManager, exportManager);
   context.subscriptions.push(
     vscode.workspace.registerFileSystemProvider('gemstone', gemstoneFs, {
       isCaseSensitive: true,
@@ -726,7 +726,9 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       gemstoneFs.closeTabsForSession(session.id);
-      exportManager.deleteSessionFiles(session);
+      // Keep the class mirror on disk: it's keyed by connection target and is
+      // re-synced incrementally on the next login, which is far cheaper than
+      // rebuilding it from scratch (especially for large, remote images).
       SystemBrowser.disposeForSession(session.id);
       GlobalsBrowser.disposeForSession(session.id);
       sessionManager.logout(session.id);

@@ -4,6 +4,17 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.5.5] - 2026-06-03
+
+### Changed
+
+- **Class export is now an incremental sync, so the local `.gemstone` mirror stays fast on large or remote images.** The old exporter filed out one class per GCI round-trip, so the first export — and the re-export after *every* login, commit, and abort — scaled with class-count × network latency: a customer with ~5500 classes on a slow link waited minutes where a local 1200-class image took under a second. Jasper now builds a single server-side manifest of per-class md5 hashes, diffs it against a persisted state (`.manifest.json`), and re-fetches only the classes that actually changed, streaming them in a handful of round-trips through a chunked transport (one server-built payload, sliced on code-point boundaries; the small case is a single round-trip). The mirror is keyed by connection target (`{workspaceRoot}/.gemstone/{host}/{stone}/{user}/…`), shared across that target's sessions, and **kept across logout** so reconnecting re-syncs the difference instead of rebuilding from scratch. A new per-login **"Sync classes"** toggle (on by default) turns the mirror off for slow/remote connections, where server-side search still works. Sync runs in a cancellable foreground progress (a cancelled run leaves a consistent partial mirror that the next sync completes) and logs size / round-trip / timing to a **"GemStone Class Sync"** output channel. This also fixes a latent truncation bug where a class whose file-out exceeded 256 KB was silently cut off.
+- **Every code mutation now updates the mirror immediately**, so Find in Files and Go to Definition reflect the change before the next commit/abort: saving a method, deleting/recategorizing a method, renaming a category, deleting/moving a class, and adding/removing/reordering a dictionary. A single-class update re-files-out just that class (its hash matches the manifest, so the next sync skips it); structural changes trigger a debounced re-sync. Replaces the previous ad-hoc `mkdir`/`rmdir` pokes that bypassed the persisted state.
+
+### Fixed
+
+- **Editor-cursor → System Browser sync** now fires. The handler parsed the dictionary directory with the wrong separator (it looked for a `.` where the on-disk layout uses `{index}-{dictName}`), so moving the cursor within a `.gs` file never drove the browser's selection.
+
 ## [1.5.4] - 2026-06-01
 
 ### Added

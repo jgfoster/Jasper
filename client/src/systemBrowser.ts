@@ -265,7 +265,7 @@ export class SystemBrowser {
     const sessionRoot = this.exportManager.getSessionRoot(this.session);
     if (!sessionRoot || !filePath.startsWith(sessionRoot)) return;
 
-    // Parse path: sessionRoot / "N. DictName" / "ClassName.gs"
+    // Parse path: sessionRoot / "{index}-{DictName}" / "ClassName.gs"
     const relative = filePath.slice(sessionRoot.length + 1); // skip leading /
     const sep = relative.indexOf(path.sep);
     if (sep < 0) return;
@@ -274,9 +274,9 @@ export class SystemBrowser {
     if (!classFile.endsWith('.gs')) return;
     const className = classFile.slice(0, -3);
 
-    const dotPos = dictLabel.indexOf('.');
-    if (dotPos < 0) return;
-    const dictIndex = parseInt(dictLabel.slice(0, dotPos), 10);
+    const dashPos = dictLabel.indexOf('-');
+    if (dashPos < 0) return;
+    const dictIndex = parseInt(dictLabel.slice(0, dashPos), 10);
     if (isNaN(dictIndex)) return;
 
     // Find which method the cursor is in
@@ -941,6 +941,14 @@ export class SystemBrowser {
 
   // ── Context menu handlers ────────────────────────────────
 
+  // Re-file-out the currently selected class to its mirror file after an
+  // in-place change (method add/delete/recategorize, category rename).
+  private syncSelectedClass(className: string): void {
+    const dictIndex = this.state.selectedDictIndex;
+    const dictName = dictIndex ? this.state.dictionaries[dictIndex - 1] : undefined;
+    if (dictName) void this.exportManager.syncClass(this.session, dictName, className);
+  }
+
   private async handleAddDictionary(): Promise<void> {
     const name = await vscode.window.showInputBox({
       prompt: 'New dictionary name',
@@ -952,13 +960,9 @@ export class SystemBrowser {
     this.dictEntryCache.clear();
     this.state.dictionaries = queries.getDictionaryNames(this.session);
 
-    // Create the directory on disk so it appears in the file explorer
-    const sessionRoot = this.exportManager.getSessionRoot(this.session);
-    if (sessionRoot) {
-      const dictIndex = this.state.dictionaries.length; // new dict is last
-      const dictLabel = `${dictIndex}-${name}`;
-      fs.mkdirSync(path.join(sessionRoot, dictLabel), { recursive: true });
-    }
+    // Reconcile the mirror (creates the new dir, updates state) via the manifest
+    // diff rather than poking the filesystem directly.
+    this.exportManager.scheduleRefresh(this.session);
 
     this.panel.webview.postMessage({
       command: 'loadDictionaries',
@@ -971,6 +975,7 @@ export class SystemBrowser {
     if (!idx || idx <= 1) return;
 
     queries.moveDictionaryUp(this.session, idx);
+    this.exportManager.scheduleRefresh(this.session);
     const dicts = this.state.dictionaries;
     [dicts[idx - 1], dicts[idx - 2]] = [dicts[idx - 2], dicts[idx - 1]];
     this.state.selectedDictIndex = idx - 1;
@@ -992,6 +997,7 @@ export class SystemBrowser {
     if (!idx || idx >= this.state.dictionaries.length) return;
 
     queries.moveDictionaryDown(this.session, idx);
+    this.exportManager.scheduleRefresh(this.session);
     const dicts = this.state.dictionaries;
     [dicts[idx - 1], dicts[idx]] = [dicts[idx], dicts[idx - 1]];
     this.state.selectedDictIndex = idx + 1;
@@ -1023,15 +1029,9 @@ export class SystemBrowser {
 
     queries.removeDictionary(this.session, dictIndex);
 
-    // Delete the local directory
-    const sessionRoot = this.exportManager.getSessionRoot(this.session);
-    if (sessionRoot) {
-      const dictLabel = `${dictIndex}-${dictName}`;
-      const dirPath = path.join(sessionRoot, dictLabel);
-      if (fs.existsSync(dirPath)) {
-        fs.rmSync(dirPath, { recursive: true, force: true });
-      }
-    }
+    // Reconcile the mirror (prunes the dir, drops its classes from state, fixes
+    // shifted indices) via the manifest diff.
+    this.exportManager.scheduleRefresh(this.session);
 
     // Re-fetch dictionaries — indices have shifted
     this.dictEntryCache.clear();
@@ -1112,6 +1112,9 @@ export class SystemBrowser {
     if (confirmed !== 'Delete') return;
 
     queries.deleteClass(this.session, dictIndex, className);
+    this.exportManager.removeClassFile(
+      this.session, dictIndex, this.state.dictionaries[dictIndex - 1], className,
+    );
     this.dictEntryCache.delete(dictIndex);
     this.envCache.clear();
     this.state.selectedClass = null;
@@ -1151,6 +1154,10 @@ export class SystemBrowser {
     if (!picked) return;
 
     queries.moveClass(this.session, srcIndex, picked.index, className);
+    this.exportManager.removeClassFile(
+      this.session, srcIndex, this.state.dictionaries[srcIndex - 1], className,
+    );
+    void this.exportManager.syncClass(this.session, picked.label, className);
     this.dictEntryCache.delete(srcIndex);
     this.dictEntryCache.delete(picked.index);
     this.envCache.clear();
@@ -1241,6 +1248,7 @@ export class SystemBrowser {
     if (!newName || newName === oldCategory) return;
 
     queries.renameCategory(this.session, className, this.state.isMeta, oldCategory, newName);
+    this.syncSelectedClass(className);
     const dictIndex = this.state.selectedDictIndex;
     if (dictIndex) {
       this.envCache.delete(`${dictIndex}/${className}`);
@@ -1262,6 +1270,7 @@ export class SystemBrowser {
     if (confirmed !== 'Delete') return;
 
     queries.deleteMethod(this.session, className, this.state.isMeta, selector);
+    this.syncSelectedClass(className);
     const dictIndex = this.state.selectedDictIndex;
     if (dictIndex) {
       this.envCache.delete(`${dictIndex}/${className}`);
@@ -1286,6 +1295,7 @@ export class SystemBrowser {
     if (!picked) return;
 
     queries.recategorizeMethod(this.session, className, this.state.isMeta, selector, picked);
+    this.syncSelectedClass(className);
     const dictIndex = this.state.selectedDictIndex;
     if (dictIndex) {
       this.envCache.delete(`${dictIndex}/${className}`);
@@ -1329,6 +1339,7 @@ export class SystemBrowser {
     if (!className) return;
 
     queries.recategorizeMethod(this.session, className, this.state.isMeta, selector, category);
+    this.syncSelectedClass(className);
     const dictIndex = this.state.selectedDictIndex;
     if (dictIndex) {
       this.envCache.delete(`${dictIndex}/${className}`);
@@ -1347,6 +1358,10 @@ export class SystemBrowser {
     if (destIndex < 1 || destIndex === srcIndex) return;
 
     queries.moveClass(this.session, srcIndex, destIndex, className);
+    this.exportManager.removeClassFile(
+      this.session, srcIndex, this.state.dictionaries[srcIndex - 1], className,
+    );
+    void this.exportManager.syncClass(this.session, dictName, className);
     this.dictEntryCache.delete(srcIndex);
     this.dictEntryCache.delete(destIndex);
     this.envCache.clear();
