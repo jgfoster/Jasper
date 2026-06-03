@@ -19,16 +19,16 @@ session — what you see from one transport is what you see from the other.
 ## Architecture
 
 ```
-   Claude Code ──┐
-                 │ stdio (JSON-RPC)
+   Claude Code ────┐
+                   │ stdio (JSON-RPC)
    Claude Desktop ─┤
-                 │
-                 ▼
+                   │
+                   ▼
         mcp-server/out/index.js  ◄── launched per-client by the client
         (the "proxy" — one Node process per MCP connection)
-                 │
-                 │ Unix socket / named pipe
-                 ▼
+                   │
+                   │ Unix socket / named pipe
+                   ▼
    ╔═════════════════════════════════════════════════╗
    ║ Jasper VS Code extension (the "owning" window)  ║
    ║                                                 ║
