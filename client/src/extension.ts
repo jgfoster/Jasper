@@ -668,7 +668,6 @@ export function activate(context: vscode.ExtensionContext) {
           vscode.window.showInformationMessage(
             `Session ${item.activeSession.id}: Commit succeeded.`
           );
-          gemstoneFs.closeTabsForSession(item.activeSession.id);
           await exportManager.refreshSession(item.activeSession);
           SystemBrowser.refresh(item.activeSession.id);
         } else {
@@ -697,7 +696,6 @@ export function activate(context: vscode.ExtensionContext) {
           vscode.window.showInformationMessage(
             `Session ${item.activeSession.id}: Abort succeeded.`
           );
-          gemstoneFs.closeTabsForSession(item.activeSession.id);
           await exportManager.refreshSession(item.activeSession);
           SystemBrowser.refresh(item.activeSession.id);
         } else {
@@ -725,7 +723,6 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage('No GemStone session to log out of.');
         return;
       }
-      gemstoneFs.closeTabsForSession(session.id);
       // Keep the class mirror on disk: it's keyed by connection target and is
       // re-synced incrementally on the next login, which is far cheaper than
       // rebuilding it from scratch (especially for large, remote images).

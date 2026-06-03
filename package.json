@@ -915,32 +915,32 @@
       "editor/context": [
         {
           "command": "gemstone.displayIt",
-          "when": "editorTextFocus && gemstone.hasActiveSession && !gemstone.executing",
+          "when": "editorTextFocus && resourceScheme == gemstone && !gemstone.executing",
           "group": "1_modification@0"
         },
         {
           "command": "gemstone.inspectIt",
-          "when": "editorTextFocus && gemstone.hasActiveSession && !gemstone.executing",
+          "when": "editorTextFocus && resourceScheme == gemstone && !gemstone.executing",
           "group": "1_modification@1"
         },
         {
           "command": "gemstone.executeIt",
-          "when": "editorTextFocus && gemstone.hasActiveSession && !gemstone.executing",
+          "when": "editorTextFocus && resourceScheme == gemstone && !gemstone.executing",
           "group": "1_modification@2"
         },
         {
           "command": "gemstone.sendersOf",
-          "when": "editorTextFocus && gemstone.hasActiveSession",
+          "when": "editorTextFocus && resourceScheme == gemstone",
           "group": "2_navigation@0"
         },
         {
           "command": "gemstone.implementorsOf",
-          "when": "editorTextFocus && gemstone.hasActiveSession",
+          "when": "editorTextFocus && resourceScheme == gemstone",
           "group": "2_navigation@1"
         },
         {
           "command": "gemstone.toggleSelectorBreakpoint",
-          "when": "editorTextFocus && gemstone.hasActiveSession && resourceScheme == gemstone",
+          "when": "editorTextFocus && resourceScheme == gemstone",
           "group": "3_gemstoneBreakpoints@0"
         }
       ]

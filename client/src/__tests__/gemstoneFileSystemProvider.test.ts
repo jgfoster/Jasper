@@ -368,64 +368,6 @@ describe('GemStoneFileSystemProvider', () => {
     });
   });
 
-  describe('closeTabsForSession', () => {
-    beforeEach(() => {
-      (window.tabGroups.all as unknown[]).length = 0;
-    });
-
-    it('closes tabs belonging to the given session', () => {
-      const tab1 = { input: { uri: Uri.parse('gemstone://1/Globals/Array/instance/accessing/size') } };
-      const tab2 = { input: { uri: Uri.parse('gemstone://1/UserGlobals/MyClass/instance/init/initialize') } };
-      (window.tabGroups.all as unknown[]).push({ tabs: [tab1, tab2] });
-
-      provider.closeTabsForSession(1);
-
-      expect(window.tabGroups.close).toHaveBeenCalledWith(tab1);
-      expect(window.tabGroups.close).toHaveBeenCalledWith(tab2);
-      expect(window.tabGroups.close).toHaveBeenCalledTimes(2);
-    });
-
-    it('does not close tabs belonging to a different session', () => {
-      const tab1 = { input: { uri: Uri.parse('gemstone://1/Globals/Array/instance/accessing/size') } };
-      const tab2 = { input: { uri: Uri.parse('gemstone://2/Globals/Array/instance/accessing/size') } };
-      (window.tabGroups.all as unknown[]).push({ tabs: [tab1, tab2] });
-
-      provider.closeTabsForSession(1);
-
-      expect(window.tabGroups.close).toHaveBeenCalledWith(tab1);
-      expect(window.tabGroups.close).not.toHaveBeenCalledWith(tab2);
-      expect(window.tabGroups.close).toHaveBeenCalledTimes(1);
-    });
-
-    it('does not close non-gemstone tabs', () => {
-      const tab1 = { input: { uri: Uri.parse('file:///path/to/file.gs') } };
-      (window.tabGroups.all as unknown[]).push({ tabs: [tab1] });
-
-      provider.closeTabsForSession(1);
-
-      expect(window.tabGroups.close).not.toHaveBeenCalled();
-    });
-
-    it('handles tabs without a URI input gracefully', () => {
-      const tab1 = { input: undefined };
-      const tab2 = { input: {} };
-      (window.tabGroups.all as unknown[]).push({ tabs: [tab1, tab2] });
-
-      expect(() => provider.closeTabsForSession(1)).not.toThrow();
-      expect(window.tabGroups.close).not.toHaveBeenCalled();
-    });
-
-    it('searches across multiple tab groups', () => {
-      const tab1 = { input: { uri: Uri.parse('gemstone://1/Globals/Array/instance/accessing/size') } };
-      const tab2 = { input: { uri: Uri.parse('gemstone://1/UserGlobals/MyClass/instance/init/initialize') } };
-      (window.tabGroups.all as unknown[]).push({ tabs: [tab1] }, { tabs: [tab2] });
-
-      provider.closeTabsForSession(1);
-
-      expect(window.tabGroups.close).toHaveBeenCalledTimes(2);
-    });
-  });
-
   describe('workspace', () => {
     const workspaceUri = Uri.parse('gemstone://1/Workspace');
     const encode = (s: string) => new TextEncoder().encode(s);
