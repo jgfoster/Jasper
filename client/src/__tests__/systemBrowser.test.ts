@@ -75,6 +75,9 @@ function makeSession(id = 1, label = 'test'): ActiveSession {
 function makeExportManager(sessionRoot: string | undefined = SESSION_ROOT): ExportManager {
   return {
     getSessionRoot: vi.fn(() => sessionRoot),
+    syncClass: vi.fn(() => Promise.resolve()),
+    removeClassFile: vi.fn(),
+    scheduleRefresh: vi.fn(),
   } as unknown as ExportManager;
 }
 
@@ -730,16 +733,14 @@ describe('SystemBrowser', () => {
       });
     });
 
-    it('creates a directory on disk for the new dictionary', async () => {
+    it('reconciles the mirror via a debounced refresh for the new dictionary', async () => {
       vi.mocked(window.showInputBox).mockResolvedValue('NewDict');
       vi.mocked(queries.getDictionaryNames).mockReturnValue(['UserGlobals', 'Globals', 'NewDict']);
 
       await messageHandler({ command: 'ctxAddDictionary' });
 
-      expect(fs.mkdirSync).toHaveBeenCalledWith(
-        path.join(SESSION_ROOT, '3-NewDict'),
-        { recursive: true },
-      );
+      expect(exportManager.scheduleRefresh).toHaveBeenCalled();
+      expect(fs.mkdirSync).not.toHaveBeenCalled();
     });
 
     it('does nothing when user cancels add dictionary', async () => {
@@ -822,7 +823,7 @@ describe('SystemBrowser', () => {
       expect(queries.removeDictionary).not.toHaveBeenCalled();
     });
 
-    it('deletes directory on disk when removing dictionary', async () => {
+    it('reconciles the mirror via a debounced refresh when removing a dictionary', async () => {
       messageHandler({ command: 'selectDictionary', index: 1 });
       vi.mocked(window.showWarningMessage).mockResolvedValue('Remove' as never);
       vi.mocked(queries.getDictionaryNames).mockReturnValue(['Globals']);
@@ -830,10 +831,8 @@ describe('SystemBrowser', () => {
 
       await messageHandler({ command: 'ctxRemoveDictionary' });
 
-      expect(fs.rmSync).toHaveBeenCalledWith(
-        path.join(SESSION_ROOT, '1-UserGlobals'),
-        { recursive: true, force: true },
-      );
+      expect(exportManager.scheduleRefresh).toHaveBeenCalled();
+      expect(fs.rmSync).not.toHaveBeenCalled();
     });
 
     it('runs SUnit tests for all classes in the selected dictionary', () => {
@@ -907,6 +906,8 @@ describe('SystemBrowser', () => {
       await messageHandler({ command: 'ctxDeleteClass' });
 
       expect(queries.deleteClass).toHaveBeenCalledWith(session, 1, 'Array');
+      // The class's mirror file + persisted hash are dropped.
+      expect(exportManager.removeClassFile).toHaveBeenCalledWith(session, 1, 'UserGlobals', 'Array');
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({ command: 'loadClasses' }),
       );
@@ -1010,6 +1011,8 @@ describe('SystemBrowser', () => {
       await messageHandler({ command: 'ctxDeleteMethod' });
 
       expect(queries.deleteMethod).toHaveBeenCalledWith(session, 'Array', false, 'name');
+      // The class's mirror file is re-filed-out to reflect the removed method.
+      expect(exportManager.syncClass).toHaveBeenCalledWith(session, 'UserGlobals', 'Array');
     });
 
     it('refreshes method list after deletion', async () => {
@@ -1664,11 +1667,11 @@ describe('SystemBrowser', () => {
       );
     });
 
-    it('posts loadMethodCategories with no selected method', () => {
+    it('clears the method list', () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
       SystemBrowser.navigateToClass(session.id, 'UserGlobals', 'Array');
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ command: 'loadMethods', selected: null }),
+        { command: 'loadMethods', items: [], selected: null },
       );
     });
 

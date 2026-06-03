@@ -25,6 +25,7 @@ import { GemStoneFileSystemProvider, WORKSPACE_TEMPLATE } from '../gemstoneFileS
 import { SessionManager } from '../sessionManager';
 import * as queries from '../browserQueries';
 import { BrowserQueryError } from '../browserQueries';
+import type { ExportManager } from '../exportManager';
 
 function makeSession(id = 1, gs_user = 'DataCurator') {
   return { id, gci: {}, handle: {}, login: { label: 'Test', gs_user }, stoneVersion: '3.7.2' };
@@ -214,6 +215,40 @@ describe('GemStoneFileSystemProvider', () => {
       expect(queries.compileClassDefinition).toHaveBeenCalledWith(expect.anything(), source);
     });
 
+    describe('mirror sync after save', () => {
+      const makeExportManager = () =>
+        ({ syncClass: vi.fn(() => Promise.resolve()), scheduleRefresh: vi.fn() });
+
+      it('re-files-out the edited class after a method save', () => {
+        const em = makeExportManager();
+        const p = new GemStoneFileSystemProvider(makeSessionManager(), em as unknown as ExportManager);
+        p.writeFile(
+          Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A'),
+          encode('at: i\n  ^self basicAt: i'), { create: false, overwrite: true },
+        );
+        expect(em.syncClass).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'Globals', 'Array');
+      });
+
+      it('debounced-refreshes after a new-class save (no class name in the URI)', () => {
+        const em = makeExportManager();
+        const p = new GemStoneFileSystemProvider(makeSessionManager(), em as unknown as ExportManager);
+        p.writeFile(
+          Uri.parse('gemstone://1/UserGlobals/new-class'),
+          encode("Object subclass: 'Foo'\n  inDictionary: UserGlobals"), { create: true, overwrite: true },
+        );
+        expect(em.scheduleRefresh).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }));
+        expect(em.syncClass).not.toHaveBeenCalled();
+      });
+
+      it('does not throw when no export manager is wired', () => {
+        const p = new GemStoneFileSystemProvider(makeSessionManager());
+        expect(() => p.writeFile(
+          Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A'),
+          encode('at: i\n  ^1'), { create: false, overwrite: true },
+        )).not.toThrow();
+      });
+    });
+
     it('compiles new-method on save', () => {
       const uri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/new-method');
       const source = 'foo\n  ^42';
@@ -330,64 +365,6 @@ describe('GemStoneFileSystemProvider', () => {
       expect(() => {
         provider.writeFile(uri, encode('bad code'), { create: false, overwrite: true });
       }).toThrow('Unexpected internal error');
-    });
-  });
-
-  describe('closeTabsForSession', () => {
-    beforeEach(() => {
-      (window.tabGroups.all as unknown[]).length = 0;
-    });
-
-    it('closes tabs belonging to the given session', () => {
-      const tab1 = { input: { uri: Uri.parse('gemstone://1/Globals/Array/instance/accessing/size') } };
-      const tab2 = { input: { uri: Uri.parse('gemstone://1/UserGlobals/MyClass/instance/init/initialize') } };
-      (window.tabGroups.all as unknown[]).push({ tabs: [tab1, tab2] });
-
-      provider.closeTabsForSession(1);
-
-      expect(window.tabGroups.close).toHaveBeenCalledWith(tab1);
-      expect(window.tabGroups.close).toHaveBeenCalledWith(tab2);
-      expect(window.tabGroups.close).toHaveBeenCalledTimes(2);
-    });
-
-    it('does not close tabs belonging to a different session', () => {
-      const tab1 = { input: { uri: Uri.parse('gemstone://1/Globals/Array/instance/accessing/size') } };
-      const tab2 = { input: { uri: Uri.parse('gemstone://2/Globals/Array/instance/accessing/size') } };
-      (window.tabGroups.all as unknown[]).push({ tabs: [tab1, tab2] });
-
-      provider.closeTabsForSession(1);
-
-      expect(window.tabGroups.close).toHaveBeenCalledWith(tab1);
-      expect(window.tabGroups.close).not.toHaveBeenCalledWith(tab2);
-      expect(window.tabGroups.close).toHaveBeenCalledTimes(1);
-    });
-
-    it('does not close non-gemstone tabs', () => {
-      const tab1 = { input: { uri: Uri.parse('file:///path/to/file.gs') } };
-      (window.tabGroups.all as unknown[]).push({ tabs: [tab1] });
-
-      provider.closeTabsForSession(1);
-
-      expect(window.tabGroups.close).not.toHaveBeenCalled();
-    });
-
-    it('handles tabs without a URI input gracefully', () => {
-      const tab1 = { input: undefined };
-      const tab2 = { input: {} };
-      (window.tabGroups.all as unknown[]).push({ tabs: [tab1, tab2] });
-
-      expect(() => provider.closeTabsForSession(1)).not.toThrow();
-      expect(window.tabGroups.close).not.toHaveBeenCalled();
-    });
-
-    it('searches across multiple tab groups', () => {
-      const tab1 = { input: { uri: Uri.parse('gemstone://1/Globals/Array/instance/accessing/size') } };
-      const tab2 = { input: { uri: Uri.parse('gemstone://1/UserGlobals/MyClass/instance/init/initialize') } };
-      (window.tabGroups.all as unknown[]).push({ tabs: [tab1] }, { tabs: [tab2] });
-
-      provider.closeTabsForSession(1);
-
-      expect(window.tabGroups.close).toHaveBeenCalledTimes(2);
     });
   });
 

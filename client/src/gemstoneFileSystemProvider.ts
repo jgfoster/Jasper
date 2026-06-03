@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { SessionManager } from './sessionManager';
 import * as queries from './browserQueries';
 import { BrowserQueryError } from './browserQueries';
+import { ExportManager } from './exportManager';
 import { logInfo } from './gciLog';
 
 // ── URI Structure ────────────────────────────────────────────
@@ -123,7 +124,10 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
   private diagnostics = vscode.languages.createDiagnosticCollection('gemstone-method');
   private workspaceContents = new Map<number, Uint8Array>();
 
-  constructor(private sessionManager: SessionManager) {}
+  constructor(
+    private sessionManager: SessionManager,
+    private exportManager?: ExportManager,
+  ) {}
 
   watch(): vscode.Disposable {
     return new vscode.Disposable(() => {});
@@ -258,6 +262,17 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
           break;
       }
 
+      // Keep the local .gemstone mirror in step with this edit so Find in Files
+      // sees it before the next commit/abort. For a new class the name isn't in
+      // the URI, so fall back to a debounced full re-sync.
+      if (this.exportManager) {
+        if (parsed.kind === 'new-class') {
+          this.exportManager.scheduleRefresh(session);
+        } else {
+          void this.exportManager.syncClass(session, parsed.dictName, parsed.className);
+        }
+      }
+
       this.diagnostics.delete(uri);
       this._onDidChangeFile.fire([{ type: vscode.FileChangeType.Changed, uri }]);
       logInfo(`[FS] writeFile → success (${parsed.kind})`);
@@ -280,21 +295,6 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
       }
       logInfo(`[FS] writeFile → unexpected error: ${e instanceof Error ? e.message : String(e)}`);
       throw e;
-    }
-  }
-
-  /**
-   * Close all open editor tabs for a given session (scheme: gemstone, authority: sessionId).
-   */
-  closeTabsForSession(sessionId: number): void {
-    const auth = String(sessionId);
-    for (const group of vscode.window.tabGroups.all) {
-      for (const tab of group.tabs) {
-        const input = tab.input as { uri?: vscode.Uri } | undefined;
-        if (input?.uri?.scheme === 'gemstone' && input.uri.authority === auth) {
-          vscode.window.tabGroups.close(tab);
-        }
-      }
     }
   }
 

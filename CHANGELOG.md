@@ -4,6 +4,17 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.5.5] - 2026-06-03
+
+### Changed
+
+- **Class export is now an incremental sync, so the local `.gemstone` mirror stays fast on large or remote images.** The old exporter filed out one class per GCI round-trip, so the first export — and the re-export after *every* login, commit, and abort — scaled with class-count × network latency: a customer with ~5500 classes on a slow link waited minutes where a local 1200-class image took under a second. Jasper now builds a single server-side manifest of per-class md5 hashes, diffs it against a persisted state (`.manifest.json`), and re-fetches only the classes that actually changed, streaming them in a handful of round-trips through a chunked transport (one server-built payload, sliced on code-point boundaries; the small case is a single round-trip). The mirror is keyed by connection target (`{workspaceRoot}/.gemstone/{host}/{stone}/{user}/…`), shared across that target's sessions, and **kept across logout** so reconnecting re-syncs the difference instead of rebuilding from scratch. A new per-login **"Sync classes"** toggle (on by default) turns the mirror off for slow/remote connections, where server-side search still works. Sync runs in a cancellable foreground progress (a cancelled run leaves a consistent partial mirror that the next sync completes) and logs size / round-trip / timing to a **"GemStone Class Sync"** output channel. This also fixes a latent truncation bug where a class whose file-out exceeded 256 KB was silently cut off.
+- **Every code mutation now updates the mirror immediately**, so Find in Files and Go to Definition reflect the change before the next commit/abort: saving a method, deleting/recategorizing a method, renaming a category, deleting/moving a class, and adding/removing/reordering a dictionary. A single-class update re-files-out just that class (its hash matches the manifest, so the next sync skips it); structural changes trigger a debounced re-sync. Replaces the previous ad-hoc `mkdir`/`rmdir` pokes that bypassed the persisted state.
+
+### Fixed
+
+- **Editor-cursor → System Browser sync** now fires. The handler parsed the dictionary directory with the wrong separator (it looked for a `.` where the on-disk layout uses `{index}-{dictName}`), so moving the cursor within a `.gs` file never drove the browser's selection.
+
 ## [1.5.4] - 2026-06-01
 
 ### Added
@@ -13,11 +24,13 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ### Changed
 
-  - Use a modal dialog when asking whether to debug an error raised during Display It, Inspect It, or Execute It. This prevents workspaces from becoming stuck in the executing state if the prompt is not answered. 
+  - Use a modal dialog when asking whether to debug an error raised during Display It, Inspect It, or Execute It. This prevents workspaces from becoming stuck in the executing state if the prompt is not answered.
+  - Preserve open tabs across session actions (commit, abort or logout) to avoid altering the user’s workspace and to respect their tab selection.
 
 ### Fixed
 
 - **Databases panel running/stopped indicators are now tied to the correct version.** With two versions installed (e.g. 3.6.2 and 3.7.5) that share a stone/NetLDI name, starting one stone lit up the Stone/NetLDI nodes under *both* versions — and trying to stop the wrong one failed with an incompatible-version error. `ProcessManager.isStoneRunning` / `isNetldiRunning` now match the gslist process version against the database's configured version (`versionsMatch`, prefix-tolerant so a gslist `3.7.4` still matches a `3.7.4.3` install), so each database reflects only its own running processes. The same version guard is applied to the delete / replace-extent safety checks.
+- Ensure the method list is refreshed correctly when navigating between classes, preventing methods from a previously selected class from being shown.
 
 ## [1.5.3] - 2026-05-31
 

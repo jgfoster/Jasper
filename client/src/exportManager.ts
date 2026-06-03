@@ -2,33 +2,74 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { ActiveSession } from './sessionManager';
-import * as queries from './browserQueries';
+import { shouldSyncClasses } from './loginTypes';
+import { boundLimitExecutor } from './browserQueries';
+import { fetchBlob } from './sync/syncTransport';
+import {
+  MANIFEST_BUILD_EXPR, contentBuildExpr, syncClassBuildExpr, SYNC_REFS_PER_BATCH, ClassRef,
+} from './sync/syncProtocol';
+import { parseManifest, parseContent } from './sync/syncFraming';
+import {
+  diffManifest, stateFromManifest, emptyState, entryKey, splitKey, chunkRefs,
+  MirrorState,
+} from './sync/manifestDiff';
+
+const STATE_FILE = '.manifest.json';
+const STATE_VERSION = 1;
+
+interface PersistedState {
+  version: number;
+  classes: Record<string, string>;
+}
+
+// Restrict a path segment derived from connection metadata to filesystem-safe
+// characters (also blocks `..` traversal from an oddly named stone/user).
+function safeSegment(s: string): string {
+  return s.replace(/[^A-Za-z0-9._-]/g, '_') || '_';
+}
 
 /**
- * Manages exporting GemStone classes to local .gs files in Topaz file-out format.
+ * Maintains a local `.gemstone` mirror of a session's classes as read-only
+ * Topaz file-out (`.gs`) files, so VS Code's Find in Files, Go to Definition,
+ * and workspace symbol search work over the source.
  *
- * Default file structure:
- *   {workspaceRoot}/.gemstone/{session}/{index}-{dictName}/{ClassName}.gs
+ * The mirror is kept current with an incremental sync (see client/src/sync/):
+ * one server-built manifest of per-class md5 hashes is diffed against a persisted
+ * state, and only changed/new classes are re-fetched (in batches, through a
+ * chunked transport). This collapses the old per-class round trips — the cost
+ * that made large, remote images take minutes — into a handful of round trips.
  *
- * The `gemstone.exportPath` setting supports variables:
+ * Default file structure (keyed by connection target, shared across that
+ * target's sessions and persisted across logout):
+ *   {workspaceRoot}/.gemstone/{host}/{stone}/{user}/{index}-{dictName}/{ClassName}.gs
+ *
+ * The `gemstone.exportPath` setting overrides this with variable substitution:
  *   {workspaceRoot}, {session}, {host}, {stone}, {user}, {index}, {dictName}
- * e.g. {workspaceRoot}/smalltalk/{dictName}
  */
 export class ExportManager {
-  // Track exported file paths per session so we can detect stale files on refresh
-  private exportedFiles = new Map<number, Set<string>>();
-
-  // Suppress file-watcher events while we are writing
+  // Suppress file-watcher events while we are writing the mirror.
   private writing = false;
+
+  private logChannel: vscode.OutputChannel | undefined;
+
+  // Debounced full re-syncs, keyed by session, for structural changes where a
+  // targeted patch is fiddlier than re-running the (cheap) manifest diff.
+  private refreshTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
   get isWriting(): boolean {
     return this.writing;
   }
 
+  private log(message: string): void {
+    if (!this.logChannel && vscode.window.createOutputChannel) {
+      this.logChannel = vscode.window.createOutputChannel('GemStone Class Sync');
+    }
+    this.logChannel?.appendLine(message);
+  }
+
   /**
-   * Resolved export path template for a session.
-   * Uses the `gemstone.exportPath` setting with variable substitution.
-   * Session-level variables are resolved; {index} and {dictName} remain as placeholders.
+   * Resolved export path template for a session. Uses `gemstone.exportPath` with
+   * session-level variables resolved; {index} and {dictName} remain placeholders.
    */
   getResolvedTemplate(session: ActiveSession): string | undefined {
     const config = vscode.workspace.getConfiguration('gemstone');
@@ -45,9 +86,7 @@ export class ExportManager {
         .replace(/\{host}/g, gem_host)
         .replace(/\{stone}/g, stone)
         .replace(/\{user}/g, gs_user);
-      // Normalize separators for current platform (e.g. forward slashes in config become backslashes on Windows)
       resolved = path.normalize(resolved);
-      // Handle relative paths (substitute dict vars with dummies to test)
       const testPath = resolved.replace(/\{index}/g, '0').replace(/\{dictName}/g, 'X');
       if (!path.isAbsolute(testPath)) {
         if (!wsRoot) return undefined;
@@ -56,14 +95,17 @@ export class ExportManager {
       return resolved;
     }
 
-    // Default: {workspaceRoot}/.gemstone/{session}/{index}-{dictName}
+    // Default: keyed by connection target so sessions to the same stone share one
+    // mirror that survives logout. {index} and {dictName} stay as placeholders.
     if (!wsRoot) return undefined;
-    return path.join(wsRoot, '.gemstone', sessionId, '{index}-{dictName}');
+    return path.join(
+      wsRoot, '.gemstone',
+      safeSegment(gem_host), safeSegment(stone), safeSegment(gs_user),
+      '{index}-{dictName}',
+    );
   }
 
-  /**
-   * Full path for a specific dictionary directory.
-   */
+  /** Full path for a specific dictionary directory. */
   getDictPath(session: ActiveSession, dictIndex: number, dictName: string): string | undefined {
     const template = this.getResolvedTemplate(session);
     if (!template) return undefined;
@@ -72,9 +114,7 @@ export class ExportManager {
       .replace(/\{dictName}/g, dictName);
   }
 
-  /**
-   * Session-specific root directory (parent of all dictionary directories).
-   */
+  /** Per-target root directory (parent of all dictionary directories). */
   getSessionRoot(session: ActiveSession): string | undefined {
     const template = this.getResolvedTemplate(session);
     if (!template) return undefined;
@@ -82,15 +122,24 @@ export class ExportManager {
   }
 
   /**
-   * Export all classes for a session, showing progress.
-   * If `silent` is true, skip quietly when there is no export destination.
+   * Sync the class mirror for a session: fetch the manifest, diff against the
+   * persisted state, and re-fetch only what changed. Cancellable; a cancelled
+   * run leaves a consistent partial mirror that the next sync completes.
+   *
+   * @param silent when true, skip the "no workspace" warning and completion toast
+   *   (used for the automatic syncs on login / commit / abort).
    */
   async exportSession(session: ActiveSession, silent = false): Promise<void> {
+    if (!shouldSyncClasses(session.login)) {
+      this.log(`Sync skipped for ${session.login.gs_user}@${session.login.stone}: disabled for this login.`);
+      return;
+    }
+
     const sessionRoot = this.getSessionRoot(session);
     if (!sessionRoot) {
       if (!silent) {
         vscode.window.showWarningMessage(
-          'No workspace folder open. Open a folder (File > Open Folder) or set `gemstone.exportPath` to enable class export.',
+          'No workspace folder open. Open a folder (File > Open Folder) or set `gemstone.exportPath` to enable class sync.',
         );
       }
       return;
@@ -99,106 +148,214 @@ export class ExportManager {
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: 'Exporting GemStone classes',
+        title: 'Syncing GemStone classes',
         cancellable: true,
       },
       async (progress, token) => {
-        // 1. Get dictionary names
-        const dictNames = queries.getDictionaryNames(session);
+        const startMs = Date.now();
+        const exec = boundLimitExecutor(session);
+
+        // 1. Fetch the manifest (md5 of every class) and diff against local state.
+        progress.report({ message: 'checking for changes…' });
+        const manifestStats = { roundTrips: 0, chars: 0 };
+        let manifestText: string;
+        try {
+          manifestText = fetchBlob(exec, 'manifest', MANIFEST_BUILD_EXPR, {}, manifestStats);
+        } catch (e) {
+          this.reportError(e, silent);
+          return;
+        }
         if (token.isCancellationRequested) return;
 
-        // 2. Gather all classes per dictionary
-        const plan: { dictIndex: number; dictLabel: string; dirPath: string; classes: string[] }[] = [];
-        let totalClasses = 0;
-        for (let i = 0; i < dictNames.length; i++) {
-          const dictIndex = i + 1; // Smalltalk 1-based
-          const dirPath = this.getDictPath(session, dictIndex, dictNames[i])!;
-          const dictLabel = path.basename(dirPath);
-          const classes = queries.getClassNames(session, dictIndex);
-          plan.push({ dictIndex, dictLabel, dirPath, classes });
-          totalClasses += classes.length;
+        const manifest = parseManifest(manifestText);
+        const dictNameByIndex = new Map<number, string>();
+        for (const d of manifest.dictionaries) dictNameByIndex.set(d.dictIndex, d.dictName);
+
+        const local = this.loadState(sessionRoot);
+        const { toFetch, toDeleteKeys, unchanged } = diffManifest(manifest, local);
+
+        // Evolving state — persisted even on cancel so it always reflects disk.
+        const newState: MirrorState = { classes: { ...local.classes } };
+        const hashByKey = new Map<string, string>();
+        for (const c of manifest.classes) {
+          hashByKey.set(entryKey(c.dictIndex, c.dictName, c.className), c.hash);
         }
 
-        if (token.isCancellationRequested) return;
-
-        // 3. Make existing files writable so we can overwrite them
-        this.setPermissions(sessionRoot, 0o644);
-
-        // 4. Create all dictionary directories (even empty ones) and export classes
-        const newFiles = new Set<string>();
-        const currentDictDirs = new Set<string>();
-        let exported = 0;
+        const contentStats = { roundTrips: 0, chars: 0 };
+        let fetched = 0;
+        let deleted = 0;
 
         this.writing = true;
         try {
-          for (const dict of plan) {
-            if (token.isCancellationRequested) break;
-            fs.mkdirSync(dict.dirPath, { recursive: true });
-            currentDictDirs.add(dict.dirPath);
-
-            for (const className of dict.classes) {
-              if (token.isCancellationRequested) break;
-
-              progress.report({
-                message: `${dict.dictLabel}/${className} (${exported + 1}/${totalClasses})`,
-                increment: totalClasses > 0 ? (1 / totalClasses) * 100 : 0,
-              });
-
-              try {
-                const source = queries.fileOutClass(session, className, dict.dictIndex);
-                const filePath = path.join(dict.dirPath, `${className}.gs`);
-                fs.writeFileSync(filePath, source, 'utf-8');
-                newFiles.add(filePath);
-              } catch (e: unknown) {
-                const msg = e instanceof Error ? e.message : String(e);
-                // Log but don't abort — some classes may fail (e.g., kernel classes)
-                console.warn(`Export failed for ${className}: ${msg}`);
-              }
-              exported++;
-            }
+          // 2. Create all dictionary directories (including empty ones).
+          const currentDictDirs = new Set<string>();
+          for (const d of manifest.dictionaries) {
+            const dir = this.getDictPath(session, d.dictIndex, d.dictName)!;
+            fs.mkdirSync(dir, { recursive: true });
+            currentDictDirs.add(dir);
           }
+
+          // 3. Delete classes that no longer exist.
+          for (const key of toDeleteKeys) {
+            const { dictIndex, dictName, className } = splitKey(key);
+            const dir = this.getDictPath(session, dictIndex, dictName);
+            if (dir) this.deleteClassFile(dir, className);
+            delete newState.classes[key];
+            deleted++;
+          }
+
+          // 4. Fetch & write changed/new classes in batches.
+          const batches = chunkRefs(toFetch, SYNC_REFS_PER_BATCH);
+          for (const batch of batches) {
+            if (token.isCancellationRequested) break;
+            let payload: string;
+            try {
+              payload = fetchBlob(exec, 'content', contentBuildExpr(batch), {}, contentStats);
+            } catch (e) {
+              this.reportError(e, silent);
+              break;
+            }
+            for (const rec of parseContent(payload)) {
+              const dictName = dictNameByIndex.get(rec.dictIndex);
+              if (dictName === undefined) continue;
+              const dir = this.getDictPath(session, rec.dictIndex, dictName)!;
+              this.writeClassFile(dir, rec.className, rec.source);
+              const key = entryKey(rec.dictIndex, dictName, rec.className);
+              const h = hashByKey.get(key);
+              if (h !== undefined) newState.classes[key] = h;
+              fetched++;
+            }
+            progress.report({
+              message: `${fetched}/${toFetch.length} classes`,
+              increment: toFetch.length > 0 ? (batch.length / toFetch.length) * 100 : 0,
+            });
+            // Yield so the progress UI repaints and Cancel stays responsive
+            // between the (synchronous, blocking) GCI batch fetches.
+            await new Promise(resolve => setImmediate(resolve));
+          }
+
+          // 5. Prune dictionary directories that no longer exist.
+          this.removeStaleDictDirs(sessionRoot, currentDictDirs);
         } finally {
           this.writing = false;
+          // 6. Persist state reflecting exactly what's on disk (resumable).
+          this.saveState(sessionRoot, newState);
         }
 
-        // 5. Mark all exported files read-only (files are for search/navigation only)
-        this.setPermissions(sessionRoot, 0o444);
-
-        // 6. Remove stale files (classes that no longer exist)
-        const previousFiles = this.exportedFiles.get(session.id);
-        if (previousFiles) {
-          for (const oldFile of previousFiles) {
-            if (!newFiles.has(oldFile) && fs.existsSync(oldFile)) {
-              try {
-                fs.chmodSync(oldFile, 0o644);
-                fs.unlinkSync(oldFile);
-              } catch { /* ignore */ }
-            }
-          }
-        }
-
-        // 7. Remove stale dictionary directories (dictionaries that no longer exist)
-        this.removeStaleDictDirs(sessionRoot, currentDictDirs);
-
-        // 8. Track exported files
-        this.exportedFiles.set(session.id, newFiles);
-
-        vscode.window.showInformationMessage(
-          `Exported ${exported} classes from ${dictNames.length} dictionaries.`,
+        const elapsed = Date.now() - startMs;
+        const roundTrips = manifestStats.roundTrips + contentStats.roundTrips;
+        const cancelled = token.isCancellationRequested;
+        this.log(
+          `[${new Date().toISOString()}] ${session.login.gs_user}@${session.login.stone}` +
+          (cancelled ? ' (cancelled)' : '') +
+          ` — classes: ${manifest.classes.length} total, ${unchanged} unchanged, ` +
+          `${fetched} fetched, ${deleted} deleted; ` +
+          `manifest ${formatBytes(manifestStats.chars)}, content ${formatBytes(contentStats.chars)}; ` +
+          `${roundTrips} round trips; ${elapsed} ms` +
+          (elapsed > 0 ? ` (${formatBytes(Math.round((contentStats.chars / elapsed) * 1000))}/s)` : ''),
         );
+
+        if (!silent && !cancelled) {
+          vscode.window.showInformationMessage(
+            fetched + deleted === 0
+              ? 'GemStone classes already up to date.'
+              : `Synced GemStone classes: ${fetched} updated, ${deleted} removed.`,
+          );
+        }
       },
     );
   }
 
-  /**
-   * Re-export all classes (e.g., after commit or abort).
-   */
+  /** Re-sync after a commit or abort (another session's changes may be visible). */
   async refreshSession(session: ActiveSession): Promise<void> {
     return this.exportSession(session, true);
   }
 
   /**
-   * Delete all exported files and the session directory on logout.
+   * Update one class's mirror file in place (and its persisted hash), keeping
+   * the mirror in step with a single mutation — a method save, a deleted/moved
+   * method, a recategorize. Resolves the dictionary index by name server-side so
+   * the file lands under the same `{index}-{dictName}` dir the manifest uses.
+   * Cheap (one round trip) and silent; failures are logged, not surfaced.
+   */
+  async syncClass(session: ActiveSession, dictName: string, className: string): Promise<void> {
+    if (!shouldSyncClasses(session.login)) return;
+    const sessionRoot = this.getSessionRoot(session);
+    if (!sessionRoot) return;
+    try {
+      const exec = boundLimitExecutor(session);
+      const payload = fetchBlob(exec, 'class', syncClassBuildExpr(dictName, className));
+      const nl = payload.indexOf('\n');
+      if (nl < 0) return; // dictionary/class not found — nothing to write
+      const header = payload.slice(0, nl);
+      const tab = header.indexOf('\t');
+      if (tab < 0) return;
+      const dictIndex = parseInt(header.slice(0, tab), 10);
+      const hash = header.slice(tab + 1);
+      const source = payload.slice(nl + 1);
+      const dir = this.getDictPath(session, dictIndex, dictName);
+      if (!dir) return;
+
+      this.writing = true;
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+        this.writeClassFile(dir, className, source);
+      } finally {
+        this.writing = false;
+      }
+
+      const state = this.loadState(sessionRoot);
+      state.classes[entryKey(dictIndex, dictName, className)] = hash;
+      this.saveState(sessionRoot, state);
+    } catch (e) {
+      this.log(`syncClass failed for ${dictName}/${className}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /**
+   * Remove one class's mirror file (and its persisted hash) after the class is
+   * deleted or moved out of a dictionary. The index is known by the caller, so
+   * no server round trip is needed.
+   */
+  removeClassFile(
+    session: ActiveSession, dictIndex: number, dictName: string, className: string,
+  ): void {
+    if (!shouldSyncClasses(session.login)) return;
+    const sessionRoot = this.getSessionRoot(session);
+    if (!sessionRoot) return;
+    const dir = this.getDictPath(session, dictIndex, dictName);
+    this.writing = true;
+    try {
+      if (dir) this.deleteClassFile(dir, className);
+    } finally {
+      this.writing = false;
+    }
+    const state = this.loadState(sessionRoot);
+    const key = entryKey(dictIndex, dictName, className);
+    if (state.classes[key] !== undefined) {
+      delete state.classes[key];
+      this.saveState(sessionRoot, state);
+    }
+  }
+
+  /**
+   * Debounced full re-sync, for structural changes (dictionary add/remove/
+   * reorder, class move, file-in) where indices shift and the manifest diff is
+   * the simplest correct reconciliation. Coalesces rapid changes.
+   */
+  scheduleRefresh(session: ActiveSession, delayMs = 400): void {
+    if (!shouldSyncClasses(session.login)) return;
+    const prev = this.refreshTimers.get(session.id);
+    if (prev) clearTimeout(prev);
+    this.refreshTimers.set(session.id, setTimeout(() => {
+      this.refreshTimers.delete(session.id);
+      void this.refreshSession(session);
+    }, delayMs));
+  }
+
+  /**
+   * Delete the mirror for a session's target (explicit "clear mirror"). No longer
+   * called on logout — the mirror persists so reconnects sync incrementally.
    */
   deleteSessionFiles(session: ActiveSession): void {
     const sessionRoot = this.getSessionRoot(session);
@@ -211,56 +368,112 @@ export class ExportManager {
       this.writing = false;
     }
 
-    this.exportedFiles.delete(session.id);
-
-    // Remove parent directory if empty (e.g., the '.gemstone' dir)
-    const parent = path.dirname(sessionRoot);
-    try {
-      const remaining = fs.readdirSync(parent);
-      if (remaining.length === 0) {
-        fs.rmdirSync(parent);
+    // Remove now-empty ancestor directories up to (and excluding) the workspace.
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    let dir = path.dirname(sessionRoot);
+    while (wsRoot && dir.startsWith(wsRoot) && dir !== wsRoot) {
+      try {
+        if (fs.readdirSync(dir).length > 0) break;
+        fs.rmdirSync(dir);
+      } catch {
+        break;
       }
-    } catch { /* ignore */ }
-  }
-
-  /**
-   * Recursively set file permissions on all .gs files under a directory.
-   */
-  private setPermissions(dir: string, mode: number): void {
-    if (!fs.existsSync(dir)) return;
-    const stat = fs.statSync(dir);
-    if (!stat.isDirectory()) return;
-
-    for (const entry of fs.readdirSync(dir)) {
-      const full = path.join(dir, entry);
-      const entryStat = fs.statSync(full);
-      if (entryStat.isDirectory()) {
-        this.setPermissions(full, mode);
-      } else if (entry.endsWith('.gs')) {
-        try {
-          fs.chmodSync(full, mode);
-        } catch { /* ignore */ }
-      }
+      dir = path.dirname(dir);
     }
   }
 
-  /**
-   * Remove dictionary directories under sessionRoot that are not in the current set.
-   */
+  // ── persisted state ────────────────────────────────────────────────────────
+
+  private statePath(sessionRoot: string): string {
+    return path.join(sessionRoot, STATE_FILE);
+  }
+
+  private loadState(sessionRoot: string): MirrorState {
+    try {
+      const raw = fs.readFileSync(this.statePath(sessionRoot), 'utf-8');
+      const parsed = JSON.parse(raw) as PersistedState;
+      if (parsed && parsed.version === STATE_VERSION && parsed.classes) {
+        return { classes: parsed.classes };
+      }
+    } catch {
+      /* missing or unreadable — treat as a full sync */
+    }
+    return emptyState();
+  }
+
+  private saveState(sessionRoot: string, state: MirrorState): void {
+    const payload: PersistedState = { version: STATE_VERSION, classes: state.classes };
+    try {
+      fs.mkdirSync(sessionRoot, { recursive: true });
+      fs.writeFileSync(this.statePath(sessionRoot), JSON.stringify(payload), 'utf-8');
+    } catch (e) {
+      this.log(`Failed to persist sync state: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // ── file helpers ─────────────────────────────────────────────────────────────
+
+  private writeClassFile(dir: string, className: string, source: string): void {
+    const filePath = path.join(dir, `${className}.gs`);
+    try {
+      // Mirror files are read-only; make writable before overwriting.
+      if (fs.existsSync(filePath)) fs.chmodSync(filePath, 0o644);
+      fs.writeFileSync(filePath, source, 'utf-8');
+      fs.chmodSync(filePath, 0o444);
+    } catch (e) {
+      this.log(`Failed to write ${className}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  private deleteClassFile(dir: string, className: string): void {
+    const filePath = path.join(dir, `${className}.gs`);
+    if (!fs.existsSync(filePath)) return;
+    try {
+      fs.chmodSync(filePath, 0o644);
+      fs.unlinkSync(filePath);
+    } catch {
+      /* ignore */
+    }
+  }
+
   private removeStaleDictDirs(sessionRoot: string, currentDirs: Set<string>): void {
     if (!fs.existsSync(sessionRoot)) return;
     for (const entry of fs.readdirSync(sessionRoot)) {
       const full = path.join(sessionRoot, entry);
-      if (!fs.statSync(full).isDirectory()) continue;
-      if (currentDirs.has(full)) continue;
-
+      let isDir: boolean;
+      try {
+        isDir = fs.statSync(full).isDirectory();
+      } catch {
+        continue;
+      }
+      if (!isDir || currentDirs.has(full)) continue;
       try {
         fs.rmSync(full, { recursive: true, force: true });
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
   }
 
+  private reportError(e: unknown, silent: boolean): void {
+    const msg = e instanceof Error ? e.message : String(e);
+    this.log(`Sync error: ${msg}`);
+    if (!silent) vscode.window.showErrorMessage(`GemStone class sync failed: ${msg}`);
+  }
+
   dispose(): void {
-    this.exportedFiles.clear();
+    for (const timer of this.refreshTimers.values()) clearTimeout(timer);
+    this.refreshTimers.clear();
+    this.logChannel?.dispose();
   }
 }
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Re-exported so callers/tests can reference the ref shape without reaching into
+// the sync internals.
+export type { ClassRef };
