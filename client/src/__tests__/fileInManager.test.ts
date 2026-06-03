@@ -70,6 +70,8 @@ function createMockExportManager(overrides: {
     getExportRoot: vi.fn(() => overrides.exportRoot ?? '/workspace/gemstone'),
     getSessionRoot: vi.fn(() => overrides.sessionRoot ?? '/workspace/gemstone/localhost/gs64stone/DataCurator'),
     isWriting: overrides.isWriting ?? false,
+    removeClassFile: vi.fn(),
+    scheduleRefresh: vi.fn(),
   } as unknown as ExportManager;
 }
 
@@ -487,6 +489,10 @@ describe('FileInManager', () => {
       deleteHandler({ files: [createUri(fsPath)] });
 
       expect(queries.deleteClass).toHaveBeenCalledWith(mockSession, 1, 'MyClass');
+      // Drop the (already-deleted) class from the persisted mirror state too.
+      expect(mockExportManager.removeClassFile).toHaveBeenCalledWith(
+        mockSession, 1, 'UserGlobals', 'MyClass',
+      );
       expect(SystemBrowser.refresh).toHaveBeenCalledWith(mockSession.id);
     });
 
@@ -495,6 +501,8 @@ describe('FileInManager', () => {
       deleteHandler({ files: [createUri(fsPath)] });
 
       expect(queries.removeDictionary).toHaveBeenCalledWith(mockSession, 3);
+      // Reconcile the mirror after the dictionary is gone.
+      expect(mockExportManager.scheduleRefresh).toHaveBeenCalledWith(mockSession);
       expect(SystemBrowser.refresh).toHaveBeenCalledWith(mockSession.id);
     });
 

@@ -223,11 +223,13 @@ The extension integrates with VS Code's native Test Explorer:
 - Pass/fail/error results with failure messages
 - Test items link to method source
 
-### File Export
+### Class Sync (File Export)
 
-Export classes from a GemStone session to local `.gs` files in Topaz format. Files land in `{workspaceRoot}/.gemstone/{sessionId}/{index}-{dictName}/` by default — a hidden directory so the exported tree doesn't clutter Quick Open or your repo. Override the layout with the `gemstone.exportPath` template setting (variables: `{workspaceRoot}`, `{session}`, `{host}`, `{stone}`, `{user}`, `{index}`, `{dictName}`).
+Jasper keeps a local mirror of a session's classes as `.gs` files in Topaz format, so VS Code's search, Go to Definition, and find-in-files have something to work with. Files land in `{workspaceRoot}/.gemstone/{host}/{stone}/{user}/{index}-{dictName}/` by default — a hidden directory, keyed by connection target so it's shared across that target's sessions. Override the layout with the `gemstone.exportPath` template setting (variables: `{workspaceRoot}`, `{session}`, `{host}`, `{stone}`, `{user}`, `{index}`, `{dictName}`).
 
-Exported `.gs` files are **read-only on disk** (`chmod 0o444`). They exist so VS Code's search, Go to Definition, and find-in-files have something to work with — not for editing. Edit methods through the **System Browser**, which round-trips through the `gemstone://` virtual filesystem and compiles on save. Creating a new `.gs` file under a dictionary directory does still file in a class template; deleting one deletes the class in GemStone.
+The mirror syncs **incrementally**: Jasper diffs a server-side manifest of per-class hashes against the last sync and re-fetches only what changed, so login/commit/abort stay fast even on a large schema over a slow connection. It's kept across logout (reconnecting re-syncs the difference) and is updated immediately as you edit, so search reflects a change before you commit. A per-login **Sync classes** toggle (on by default) turns the mirror off for slow/remote connections, where server-side search still works.
+
+Exported `.gs` files are **read-only on disk** (`chmod 0o444`) — not for editing. Edit methods through the **System Browser**, which round-trips through the `gemstone://` virtual filesystem and compiles on save. Creating a new `.gs` file under a dictionary directory does still file in a class template; deleting one deletes the class in GemStone.
 
 ## Claude / MCP Integration
 

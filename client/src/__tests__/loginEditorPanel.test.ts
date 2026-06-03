@@ -312,10 +312,20 @@ describe('LoginEditorPanel', () => {
     });
   });
 
+  describe('class sync option', () => {
+    it('renders a "Sync classes to local files" checkbox in the HTML', () => {
+      LoginEditorPanel.show(storage, secrets as any, treeProvider);
+      const panel = (window.createWebviewPanel as any).mock.results[0].value;
+      const html = panel.webview.html;
+      expect(html).toContain('id="sync_classes"');
+      expect(html).toContain('Sync classes to local files');
+    });
+  });
+
   describe('save with keychain checkbox', () => {
     async function simulateSave(
       existingLogin: GemStoneLogin | undefined,
-      saveData: Partial<GemStoneLogin> & { password_in_keychain?: boolean },
+      saveData: Partial<GemStoneLogin> & { password_in_keychain?: boolean; sync_classes?: boolean },
     ) {
       await LoginEditorPanel.show(storage, secrets as any, treeProvider, existingLogin);
       const panel = (window.createWebviewPanel as any).mock.results[0].value;
@@ -342,6 +352,15 @@ describe('LoginEditorPanel', () => {
       const saved = saveSpy.mock.calls[0][0];
       expect(saved.gs_password).toBe('');
       expect(saved.password_in_keychain).toBe(true);
+    });
+
+    it('persists the sync_classes flag from the form', async () => {
+      const saveSpy = vi.spyOn(storage, 'saveLogin').mockResolvedValue();
+      await simulateSave(undefined, {
+        gs_user: 'DataCurator', gem_host: 'localhost', stone: 'gs64stone',
+        gs_password: 'pw', sync_classes: false,
+      });
+      expect(saveSpy.mock.calls[0][0].sync_classes).toBe(false);
     });
 
     it('deletes the SecretStorage entry when unchecking the box', async () => {

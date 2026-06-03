@@ -25,6 +25,7 @@ import { GemStoneFileSystemProvider, WORKSPACE_TEMPLATE } from '../gemstoneFileS
 import { SessionManager } from '../sessionManager';
 import * as queries from '../browserQueries';
 import { BrowserQueryError } from '../browserQueries';
+import type { ExportManager } from '../exportManager';
 
 function makeSession(id = 1, gs_user = 'DataCurator') {
   return { id, gci: {}, handle: {}, login: { label: 'Test', gs_user }, stoneVersion: '3.7.2' };
@@ -212,6 +213,40 @@ describe('GemStoneFileSystemProvider', () => {
       const source = "Object subclass: 'MyClass'\n  inDictionary: UserGlobals";
       provider.writeFile(uri, encode(source), { create: true, overwrite: true });
       expect(queries.compileClassDefinition).toHaveBeenCalledWith(expect.anything(), source);
+    });
+
+    describe('mirror sync after save', () => {
+      const makeExportManager = () =>
+        ({ syncClass: vi.fn(() => Promise.resolve()), scheduleRefresh: vi.fn() });
+
+      it('re-files-out the edited class after a method save', () => {
+        const em = makeExportManager();
+        const p = new GemStoneFileSystemProvider(makeSessionManager(), em as unknown as ExportManager);
+        p.writeFile(
+          Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A'),
+          encode('at: i\n  ^self basicAt: i'), { create: false, overwrite: true },
+        );
+        expect(em.syncClass).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'Globals', 'Array');
+      });
+
+      it('debounced-refreshes after a new-class save (no class name in the URI)', () => {
+        const em = makeExportManager();
+        const p = new GemStoneFileSystemProvider(makeSessionManager(), em as unknown as ExportManager);
+        p.writeFile(
+          Uri.parse('gemstone://1/UserGlobals/new-class'),
+          encode("Object subclass: 'Foo'\n  inDictionary: UserGlobals"), { create: true, overwrite: true },
+        );
+        expect(em.scheduleRefresh).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }));
+        expect(em.syncClass).not.toHaveBeenCalled();
+      });
+
+      it('does not throw when no export manager is wired', () => {
+        const p = new GemStoneFileSystemProvider(makeSessionManager());
+        expect(() => p.writeFile(
+          Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A'),
+          encode('at: i\n  ^1'), { create: false, overwrite: true },
+        )).not.toThrow();
+      });
     });
 
     it('compiles new-method on save', () => {

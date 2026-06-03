@@ -2,7 +2,7 @@
   "name": "gemstone-ide",
   "displayName": "Jasper: A GemStone Smalltalk IDE",
   "description": "GemStone/S IDE for Visual Studio Code",
-  "version": "1.5.4",
+  "version": "1.5.5",
   "publisher": "gemtalksystems",
   "license": "MIT",
   "author": "James Foster",
@@ -115,7 +115,7 @@
           "gemstone.exportPath": {
             "type": "string",
             "default": "",
-            "description": "Root path for exported class files. Variables: {workspaceRoot}, {session}, {host}, {stone}, {user}, {index}, {dictName}. Defaults to {workspaceRoot}/.gemstone/{session}/{index}-{dictName}"
+            "description": "Root path for the local class mirror (read-only .gs files used by Find in Files / Go to Definition). Variables: {workspaceRoot}, {session}, {host}, {stone}, {user}, {index}, {dictName}. Defaults to {workspaceRoot}/.gemstone/{host}/{stone}/{user}/{index}-{dictName} — keyed by connection target so it is shared across that target's sessions and kept (and re-synced incrementally) across logout."
           },
           "gemstone.rootPath": {
             "type": "string",
@@ -172,6 +172,10 @@
                 "host_password": {
                   "type": "string",
                   "description": "Host OS password"
+                },
+                "sync_classes": {
+                  "type": "boolean",
+                  "description": "Sync this connection's classes to the local .gemstone mirror (read-only .gs files for Find in Files / Go to Definition). Defaults to true; turn off for slow/remote connections."
                 }
               }
             }

@@ -5,6 +5,7 @@ import {
   loginLabel,
   sameLoginTarget,
   sessionsForLogin,
+  shouldSyncClasses,
 } from '../loginTypes';
 
 function makeLogin(overrides: Partial<GemStoneLogin> = {}): GemStoneLogin {
@@ -70,5 +71,20 @@ describe('sessionsForLogin', () => {
     const sessions = [makeSession(b, 7)];
     expect(sessionsForLogin(0, dupLogins, sessions).map((s) => s.id)).toEqual([7]);
     expect(sessionsForLogin(1, dupLogins, sessions)).toEqual([]);
+  });
+});
+
+describe('shouldSyncClasses', () => {
+  it('defaults to true when unset (existing logins keep syncing)', () => {
+    expect(shouldSyncClasses({})).toBe(true);
+    expect(shouldSyncClasses({ sync_classes: undefined })).toBe(true);
+  });
+
+  it('is true when explicitly enabled', () => {
+    expect(shouldSyncClasses({ sync_classes: true })).toBe(true);
+  });
+
+  it('is false only when explicitly disabled', () => {
+    expect(shouldSyncClasses({ sync_classes: false })).toBe(false);
   });
 });
