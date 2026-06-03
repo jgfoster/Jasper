@@ -1667,11 +1667,11 @@ describe('SystemBrowser', () => {
       );
     });
 
-    it('posts loadMethodCategories with no selected method', () => {
+    it('clears the method list', () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
       SystemBrowser.navigateToClass(session.id, 'UserGlobals', 'Array');
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ command: 'loadMethods', selected: null }),
+        { command: 'loadMethods', items: [], selected: null },
       );
     });
 

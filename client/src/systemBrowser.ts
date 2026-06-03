@@ -783,7 +783,7 @@ export class SystemBrowser {
     });
     this.panel.webview.postMessage({
       command: 'loadMethods',
-      items: this.state.methods,
+      items: [],
       selected: null,
     });
   }

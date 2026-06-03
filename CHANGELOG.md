@@ -29,6 +29,7 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 ### Fixed
 
 - **Databases panel running/stopped indicators are now tied to the correct version.** With two versions installed (e.g. 3.6.2 and 3.7.5) that share a stone/NetLDI name, starting one stone lit up the Stone/NetLDI nodes under *both* versions — and trying to stop the wrong one failed with an incompatible-version error. `ProcessManager.isStoneRunning` / `isNetldiRunning` now match the gslist process version against the database's configured version (`versionsMatch`, prefix-tolerant so a gslist `3.7.4` still matches a `3.7.4.3` install), so each database reflects only its own running processes. The same version guard is applied to the delete / replace-extent safety checks.
+- Ensure the method list is refreshed correctly when navigating between classes, preventing methods from a previously selected class from being shown.
 
 ## [1.5.3] - 2026-05-31
 
