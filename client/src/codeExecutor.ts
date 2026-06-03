@@ -188,7 +188,7 @@ export class CodeExecutor {
         // Try to show as inline diagnostic first; fall back to debug dialog
         this.showCompileError(editor, selection, code, codeOffset, msg);
         const choice = await vscode.window.showErrorMessage(
-          `GemStone error: ${msg}`, { modal: true },'Debug', 'Dismiss',
+          `GemStone error: ${msg}`, { modal: true },'Debug'
         );
         if (choice === 'Debug') {
           vscode.debug.startDebugging(undefined, {
@@ -606,7 +606,7 @@ __t`;
 
       if (e instanceof DebuggableError) {
         const choice = await vscode.window.showErrorMessage(
-          `GemStone error: ${msg}`, { modal: true },'Debug', 'Dismiss',
+          `GemStone error: ${msg}`, { modal: true },'Debug'
         );
         if (choice === 'Debug') {
           vscode.debug.startDebugging(undefined, {
