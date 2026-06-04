@@ -4,6 +4,20 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.5.6] - 2026-06-03
+
+### Changed
+
+- **Workspaces are now ordinary editable files.** A GemStone workspace opens as a plain untitled `gemstone-smalltalk` document instead of a virtual `gemstone://` buffer, so you can save it to disk and track it in git — saving as `.gst` gives automatic language recognition when you reopen it. The editor commands (Display It, Execute It, Inspect It, Senders, Implementors) and language features (hover, go-to-definition, completion) now work in any `gemstone-smalltalk` file, including saved workspaces. ([#85](https://github.com/jgfoster/Jasper/pull/85))
+- **Editor commands now follow the file's language, not session state.** Display It / Execute It / Inspect It and friends appear whenever the active document is `gemstone-smalltalk`, so they survive logout (workspace tabs stay open) and no longer clutter unrelated `.ts` / `.json` files. Running one without a live session prompts you to log in first. ([#79](https://github.com/jgfoster/Jasper/pull/79))
+- **Open tabs are preserved across session actions.** Committing, aborting, or logging out no longer closes your open GemStone editor tabs, so your workspace and tab selection survive a session action. ([#79](https://github.com/jgfoster/Jasper/pull/79))
+- **Removed the redundant Dismiss button from debuggable-error dialogs** (closing the dialog already dismisses it), and consolidated the duplicated debug-dialog logic behind a single `handleDebuggableError`. ([#86](https://github.com/jgfoster/Jasper/pull/86))
+
+### Fixed
+
+- **Class Hierarchy view no longer comes up empty on GemStone 3.6.8.** An em dash embedded in a Smalltalk source comment tripped a compiler cursor bug (error 1001) on 3.6.8, blanking the hierarchy view; the source no longer relies on it. Verified across 3.6.1–3.7.5. ([#84](https://github.com/jgfoster/Jasper/pull/84), fixes [#78](https://github.com/jgfoster/Jasper/issues/78))
+- **Navigating between classes no longer shows the previous class's methods.** A stale method list was being pushed to the System Browser view when a new class was selected. ([#81](https://github.com/jgfoster/Jasper/pull/81))
+
 ## [1.5.5] - 2026-06-03
 
 ### Changed
@@ -25,12 +39,10 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 ### Changed
 
   - Use a modal dialog when asking whether to debug an error raised during Display It, Inspect It, or Execute It. This prevents workspaces from becoming stuck in the executing state if the prompt is not answered.
-  - Preserve open tabs across session actions (commit, abort or logout) to avoid altering the user’s workspace and to respect their tab selection.
 
 ### Fixed
 
 - **Databases panel running/stopped indicators are now tied to the correct version.** With two versions installed (e.g. 3.6.2 and 3.7.5) that share a stone/NetLDI name, starting one stone lit up the Stone/NetLDI nodes under *both* versions — and trying to stop the wrong one failed with an incompatible-version error. `ProcessManager.isStoneRunning` / `isNetldiRunning` now match the gslist process version against the database's configured version (`versionsMatch`, prefix-tolerant so a gslist `3.7.4` still matches a `3.7.4.3` install), so each database reflects only its own running processes. The same version guard is applied to the delete / replace-extent safety checks.
-- Ensure the method list is refreshed correctly when navigating between classes, preventing methods from a previously selected class from being shown.
 
 ## [1.5.3] - 2026-05-31
 
