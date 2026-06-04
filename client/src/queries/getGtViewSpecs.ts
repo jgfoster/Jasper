@@ -56,14 +56,32 @@ export function fetchGtRowOop(
   nodeId: number,
 ): bigint | null {
   const code =
-    `| viewed ds obj |
+    `| viewed ds node item |
 viewed := GtRemotePhlowViewedObject new initializeWith: (Object _objectForOop: ${itemOop}).
 ds := (viewed viewSpecificationsBySelector at: #'${escapeString(methodSelector)}') phlowDataSource.
-obj := ds retrieveSentItemAt: ${nodeId}.
-(GtRsrEvaluatorService isRsrImmediate: obj) ifTrue: [''] ifFalse: [obj _oop printString]`;
+STONJSON toString: (ds retrieveItems: 1 fromIndex: ${nodeId}).
+node := ds cachedNodes at: ${nodeId}.
+item := node targetObject.
+[item asOop printString] on: Error do: [:e | '']`;
   const result = gtExecute(execute, 'fetchGtRowOop', code);
   if (!result || result.trim() === '') return null;
   try { return BigInt(result.trim()); } catch { return null; }
+}
+
+export function fetchGtListTotal(
+  execute: QueryExecutor,
+  oop: bigint,
+  methodSelector: string,
+): number | null {
+  const code =
+    `| viewed ds |
+viewed := GtRemotePhlowViewedObject new initializeWith: (Object _objectForOop: ${oop}).
+ds := (viewed viewSpecificationsBySelector at: #'${escapeString(methodSelector)}') phlowDataSource.
+ds retrieveTotalItemsCount printString`;
+  const result = gtExecute(execute, 'fetchGtListTotal', code);
+  if (!result) return null;
+  const n = parseInt(result.trim(), 10);
+  return isNaN(n) ? null : n;
 }
 
 export function fetchGtTreeChildren(

@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import { ActiveSession } from './sessionManager';
 import * as debug from './debugQueries';
 import { executeFetchString } from './browserQueries';
-import { getGtViewSpecs, fetchGtTextData, fetchGtListData, fetchGtRowOop, fetchGtTreeChildren, fetchObjectMeta, GtViewSpec } from './queries/getGtViewSpecs';
+import { getGtViewSpecs, fetchGtTextData, fetchGtListData, fetchGtRowOop, fetchGtTreeChildren, fetchGtListTotal, fetchObjectMeta } from './queries/getGtViewSpecs';
 import { QueryExecutor } from './queries/types';
 
 const PAGE_SIZE = 100;
@@ -12,6 +12,8 @@ type InspectorMessage =
   | { command: 'ready' }
   | { command: 'fetchGtViewData'; oop: string; methodSelector: string; viewName: string }
   | { command: 'fetchMoreRows'; oop: string; methodSelector: string; viewName: string; fromIndex: number }
+  | { command: 'fetchGtViewTotal'; oop: string; methodSelector: string }
+  | { command: 'fetchGtRangeData'; oop: string; methodSelector: string; viewName: string; fromIndex: number; rangeStart: number }
   | { command: 'fetchGtTreeChildren'; itemOop: string; methodSelector: string; path: number[] }
   | { command: 'gtInspectRow'; itemOop: string; methodSelector: string; nodeId: number };
 
@@ -93,6 +95,18 @@ export class GtInspector {
       case 'fetchMoreRows': {
         const more = this.fetchGtViewData(BigInt(msg.oop), msg.methodSelector, msg.viewName, msg.fromIndex);
         this.panel.webview.postMessage({ command: 'gtMoreRows', methodSelector: msg.methodSelector, data: more });
+        break;
+      }
+
+      case 'fetchGtViewTotal': {
+        const total = fetchGtListTotal(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector);
+        this.panel.webview.postMessage({ command: 'gtViewTotal', methodSelector: msg.methodSelector, total });
+        break;
+      }
+
+      case 'fetchGtRangeData': {
+        const rangeData = fetchGtListData(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector, msg.fromIndex, PAGE_SIZE);
+        this.panel.webview.postMessage({ command: 'gtRangeData', methodSelector: msg.methodSelector, rangeStart: msg.rangeStart, data: rangeData });
         break;
       }
 
@@ -223,12 +237,21 @@ export class GtInspector {
     .placeholder { padding: 12px 8px; color: var(--vscode-descriptionForeground); font-style: italic; }
     /* ── GT view table ───────────────────────── */
     .gt-table-wrap { overflow: auto; flex: 1; }
-    .gt-table { border-collapse: collapse; width: 100%; font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
-    .gt-table th { text-align: left; padding: 2px 8px; border-bottom: 1px solid var(--vscode-panel-border); font-weight: 600; white-space: nowrap; }
-    .gt-table td { padding: 2px 8px; border-bottom: 1px solid var(--vscode-list-hoverBackground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 400px; }
+    .gt-table { border-collapse: collapse; font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
+    .gt-table th { position: sticky; top: 0; z-index: 1; background: var(--vscode-editor-background); text-align: left; padding: 2px 20px 2px 6px; border-bottom: 1px solid var(--vscode-panel-border); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: none; }
+    .gt-table td { padding: 2px 6px; border-bottom: 1px solid var(--vscode-list-hoverBackground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .gt-table tr:hover td { background: var(--vscode-list-hoverBackground); cursor: pointer; }
+    .col-resize-handle { position: absolute; top: 0; right: 0; bottom: 0; width: 5px; cursor: col-resize; background: transparent; }
+    .col-resize-handle:hover, .col-resize-handle.active { background: var(--vscode-focusBorder, #007fd4); opacity: 0.7; }
     .load-more-row td { padding: 4px 8px; color: var(--vscode-textLink-foreground); cursor: pointer; font-style: italic; }
     .load-more-row:hover td { text-decoration: underline; }
+    .table-toolbar { display:flex; align-items:center; gap:8px; padding:2px 4px; flex-shrink:0; border-bottom:1px solid var(--vscode-panel-border); }
+    .table-btn { background:var(--vscode-button-secondaryBackground,transparent); border:1px solid var(--vscode-panel-border); border-radius:3px; color:var(--vscode-button-secondaryForeground,var(--vscode-foreground)); cursor:pointer; padding:1px 8px; font-size:0.8em; font-family:var(--vscode-font-family); }
+    .table-btn:hover { background:var(--vscode-list-hoverBackground); }
+    .table-btn.active { background:var(--vscode-button-background); color:var(--vscode-button-foreground); border-color:var(--vscode-button-background); }
+    .toolbar-label { font-size:0.8em; color:var(--vscode-descriptionForeground); }
+    .range-node td { background:var(--vscode-editor-background); font-family:var(--vscode-font-family); cursor:pointer; padding:3px 8px; border-bottom:1px solid var(--vscode-panel-border); }
+    .range-node:hover td { background:var(--vscode-list-hoverBackground); }
     .tree-toggle { background: none; border: none; cursor: pointer; color: inherit; padding: 0 2px; font-size: 0.85em; opacity: 0.6; width: 16px; text-align: center; }
     .tree-toggle:hover { opacity: 1; }
     .ctx-menu { position: fixed; display: none; background: var(--vscode-menu-background, var(--vscode-editor-background)); border: 1px solid var(--vscode-panel-border); border-radius: 3px; padding: 2px 0; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
@@ -261,6 +284,11 @@ export class GtInspector {
     let activeMethodSelector = null;
     let cachedViewData = {};
     let loadedRowCounts = {};
+    let colWidths = {};           // { [methodSelector]: number[] } — user-resized widths
+    let resizingCol = null;       // active drag state
+    let rangesMode = {};          // { [methodSelector]: boolean }
+    let rangeTotals = {};         // { [methodSelector]: number }
+    let rangeDataCache = {};      // { [methodSelector]: { [rangeStart]: string } }
     let ctxMenuNodeId = null;
 
     function esc(s) {
@@ -308,6 +336,32 @@ export class GtInspector {
 
     // ── Row interactions ──────────────────────
 
+    // Range node expand/collapse
+    document.getElementById('contentPane').addEventListener('click', e => {
+      const rangeNode = e.target.closest('.range-node');
+      if (!rangeNode || !activeMethodSelector || !currentOop) return;
+      e.stopPropagation();
+      const spec = specs && specs.find(s => s.methodSelector === activeMethodSelector);
+      if (!spec) return;
+      const start = parseInt(rangeNode.dataset.rangeStart, 10);
+      if (rangeNode.dataset.expanded === 'true') {
+        let next = rangeNode.nextElementSibling;
+        while (next && next.dataset.parentRange === String(start)) {
+          const rm = next; next = next.nextElementSibling; rm.remove();
+        }
+        rangeNode.dataset.expanded = 'false';
+        rangeNode.querySelector('.range-expand').textContent = '▶';
+      } else {
+        const cached = rangeDataCache[activeMethodSelector] && rangeDataCache[activeMethodSelector][start];
+        if (cached) {
+          insertRangeItems(rangeNode, cached, spec);
+        } else {
+          rangeNode.querySelector('.range-expand').textContent = '…';
+          vscode.postMessage({ command: 'fetchGtRangeData', oop: currentOop, methodSelector: activeMethodSelector, viewName: spec.viewName, fromIndex: start, rangeStart: start });
+        }
+      }
+    });
+
     document.getElementById('contentPane').addEventListener('dblclick', e => {
       if (!activeMethodSelector || !currentOop) return;
       const tr = e.target.closest('tr[data-nodeid]');
@@ -340,6 +394,38 @@ export class GtInspector {
     }
     document.addEventListener('click', hideCtxMenu);
     document.addEventListener('keydown', e => { if (e.key === 'Escape') hideCtxMenu(); });
+
+    // ── Column resize ─────────────────────────
+
+    document.getElementById('contentPane').addEventListener('mousedown', e => {
+      const handle = e.target.closest('.col-resize-handle');
+      if (!handle) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const th = handle.closest('th');
+      const colIndex = parseInt(th.dataset.colindex, 10);
+      const table = th.closest('table');
+      const colEl = table.querySelectorAll('col')[colIndex];
+      if (!colEl) return;
+      handle.classList.add('active');
+      resizingCol = { colEl, handle, index: colIndex, startX: e.clientX, startWidth: th.getBoundingClientRect().width };
+    });
+
+    document.addEventListener('mousemove', e => {
+      if (!resizingCol) return;
+      const newWidth = Math.max(40, resizingCol.startWidth + (e.clientX - resizingCol.startX));
+      resizingCol.colEl.style.width = newWidth + 'px';
+      if (activeMethodSelector) {
+        if (!colWidths[activeMethodSelector]) colWidths[activeMethodSelector] = [];
+        colWidths[activeMethodSelector][resizingCol.index] = newWidth;
+      }
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!resizingCol) return;
+      resizingCol.handle.classList.remove('active');
+      resizingCol = null;
+    });
 
     // ── Load more ────────────────────────────
 
@@ -394,6 +480,10 @@ export class GtInspector {
         metaData = msg.meta || null;
         cachedViewData = {};
         loadedRowCounts = {};
+        colWidths = {};
+        rangesMode = {};
+        rangeTotals = {};
+        rangeDataCache = {};
         activeMethodSelector = null;
         document.getElementById('objClass').textContent = msg.className || '';
         const hasLabel = !!msg.label;
@@ -414,6 +504,23 @@ export class GtInspector {
           const contentPane = document.getElementById('contentPane');
           if (spec) renderGtContent(contentPane, spec, msg.data);
         }
+
+      } else if (msg.command === 'gtViewTotal') {
+        rangeTotals[msg.methodSelector] = msg.total;
+        if (msg.methodSelector === activeMethodSelector && rangesMode[msg.methodSelector]) {
+          const spec = specs && specs.find(s => s.methodSelector === msg.methodSelector);
+          const contentPane = document.getElementById('contentPane');
+          if (spec) renderGtContent(contentPane, spec, cachedViewData[msg.methodSelector]);
+        }
+
+      } else if (msg.command === 'gtRangeData') {
+        if (msg.methodSelector !== activeMethodSelector || !msg.data) return;
+        const spec = specs && specs.find(s => s.methodSelector === msg.methodSelector);
+        if (!spec) return;
+        const table = document.querySelector('.gt-table');
+        if (!table) return;
+        const rangeNode = table.querySelector('[data-range-start="' + msg.rangeStart + '"]');
+        if (rangeNode) insertRangeItems(rangeNode, msg.data, spec);
 
       } else if (msg.command === 'gtMoreRows') {
         if (msg.methodSelector !== activeMethodSelector || !msg.data) return;
@@ -586,26 +693,26 @@ export class GtInspector {
     }
 
     // A5/A1/A2: Build a single table row HTML string
-    function makeRowHtml(row, cols, isTree, depth, path) {
+    function makeRowHtml(row, cols, isTree, depth, path, parentRange) {
       const nv = row.nodeValue;
       if (!nv) return '';
       const pathAttr = ' data-path="' + esc(JSON.stringify(path)) + '"';
       const depthAttr = ' data-depth="' + depth + '"';
-      let html = '<tr data-nodeid="' + row.nodeId + '"' + pathAttr + depthAttr + '>';
+      const parentAttr = parentRange != null ? ' data-parent-range="' + parentRange + '"' : '';
+      let html = '<tr data-nodeid="' + row.nodeId + '"' + pathAttr + depthAttr + parentAttr + '>';
       const indent = depth > 0 ? 'padding-left:' + (8 + depth * 16) + 'px;' : '';
       const toggle = isTree ? '<button class="tree-toggle" data-state="collapsed">▶</button>' : '';
       if (nv.columnValues) {
         for (let i = 0; i < nv.columnValues.length; i++) {
           const cell = nv.columnValues[i];
           const col = cols[i];
-          const w = col && col.cellWidth ? 'width:' + col.cellWidth + 'px;' : '';
           const bg = cell.background ? 'background-color:' + gtColor(cell.background) + ';' : '';
           const pre = (i === 0) ? toggle : '';
           const ind = (i === 0) ? indent : '';
           const content = (col && col.type === 'icon')
             ? iconHtml(typeof cell.itemText === 'string' ? cell.itemText : (cell.itemText && cell.itemText.sourceString) || '')
             : cellHtml(cell.itemText);
-          html += '<td style="' + ind + w + bg + '">' + pre + content + '</td>';
+          html += '<td style="' + ind + bg + '">' + pre + content + '</td>';
         }
       } else if (nv.itemText !== undefined) {
         html += '<td style="' + indent + '">' + toggle + cellHtml(nv.itemText) + '</td>';
@@ -619,25 +726,120 @@ export class GtInspector {
     }
 
     // A4/A5: Table + tree rendering
+    function applyColWidths(table, widths) {
+      let cg = table.querySelector('colgroup');
+      if (!cg) { cg = document.createElement('colgroup'); table.insertBefore(cg, table.firstChild); }
+      cg.innerHTML = widths.map(w => '<col style="width:' + w + 'px">').join('');
+      table.style.tableLayout = 'fixed';
+    }
+
+    function makeTableHtml(selector, cols, isTree) {
+      return '<table class="gt-table" data-selector="' + esc(selector) + '">' +
+        (cols.length > 0
+          ? '<tr>' + cols.map((c, i) => '<th data-colindex="' + i + '">' + esc(c.title) + '<div class="col-resize-handle"></div></th>').join('') + '</tr>'
+          : '');
+    }
+
+    function insertRangeItems(rangeNode, rawData, spec) {
+      let rows;
+      try { rows = JSON.parse(rawData); } catch { return; }
+      const selector = spec.methodSelector;
+      const cols = spec.columnSpecifications || [];
+      const isTree = spec.viewName && spec.viewName.includes('Tree');
+      const start = parseInt(rangeNode.dataset.rangeStart, 10);
+      if (!rangeDataCache[selector]) rangeDataCache[selector] = {};
+      rangeDataCache[selector][start] = rawData;
+      rangeNode.querySelector('.range-expand').textContent = '▼';
+      rangeNode.dataset.expanded = 'true';
+      let insertAfter = rangeNode;
+      rows.forEach(row => {
+        insertAfter.insertAdjacentHTML('afterend', makeRowHtml(row, cols, isTree, 0, [row.nodeId], start));
+        insertAfter = insertAfter.nextElementSibling;
+      });
+    }
+
     function renderGtTable(el, spec, rawData) {
       let rows;
       try { rows = JSON.parse(rawData); } catch { el.innerHTML = '<div class="placeholder">Error parsing data.</div>'; return; }
       if (!rows || !rows.length) { el.innerHTML = '<div class="placeholder">No items.</div>'; return; }
       const cols = spec.columnSpecifications || [];
       const isTree = spec.viewName && spec.viewName.includes('Tree');
-      let html = '<div class="gt-table-wrap"><table class="gt-table">';
-      if (cols.length > 0) {
-        html += '<tr>' + cols.map(c =>
-          '<th' + (c.cellWidth ? ' style="width:' + c.cellWidth + 'px"' : '') + '>' + esc(c.title) + '</th>'
-        ).join('') + '</tr>';
-      }
-      rows.forEach(row => { html += makeRowHtml(row, cols, isTree, 0, [row.nodeId]); });
-      loadedRowCounts[spec.methodSelector] = rows.length;
-      if (rows.length >= PAGE_SIZE) html += makeLoadMoreHtml();
-      html += '</table></div>';
+      const selector = spec.methodSelector;
+      const hasMore = rows.length >= PAGE_SIZE;
+      const inRangesMode = rangesMode[selector];
+      const total = rangeTotals[selector];
+
       el.className = '';
       el.style.cssText = 'flex:1;overflow:hidden;display:flex;flex-direction:column';
+
+      // Toolbar (shown when list may have more items)
+      let html = '';
+      if (hasMore || total) {
+        html += '<div class="table-toolbar">' +
+          '<button class="table-btn' + (inRangesMode ? ' active' : '') + '" id="rangesToggle">' +
+          (inRangesMode ? 'Flat' : 'Ranges') + '</button>' +
+          (total ? '<span class="toolbar-label">' + total + ' items</span>' : '') +
+          '</div>';
+      }
+
+      if (inRangesMode && total) {
+        // Ranges view — one row per PAGE_SIZE chunk
+        html += '<div class="gt-table-wrap">' + makeTableHtml(selector, cols, isTree);
+        for (let start = 1; start <= total; start += PAGE_SIZE) {
+          const end = Math.min(start + PAGE_SIZE - 1, total);
+          const cached = rangeDataCache[selector] && rangeDataCache[selector][start];
+          const expanded = !!cached;
+          html += '<tr class="range-node" data-range-start="' + start + '" data-range-end="' + end +
+            '" data-expanded="' + expanded + '">' +
+            '<td colspan="' + (cols.length || 1) + '">' +
+            '<span class="range-expand">' + (expanded ? '▼' : '▶') + '</span>' +
+            ' [' + start + '..' + end + ']' +
+            ' <span style="color:var(--vscode-descriptionForeground)">(' + (end - start + 1) + ')</span>' +
+            '</td></tr>';
+          if (expanded) {
+            let cachedRows; try { cachedRows = JSON.parse(cached); } catch { cachedRows = []; }
+            cachedRows.forEach(row => { html += makeRowHtml(row, cols, isTree, 0, [row.nodeId], start); });
+          }
+        }
+        html += '</table></div>';
+      } else {
+        // Flat view
+        html += '<div class="gt-table-wrap">' + makeTableHtml(selector, cols, isTree);
+        rows.forEach(row => { html += makeRowHtml(row, cols, isTree, 0, [row.nodeId]); });
+        loadedRowCounts[selector] = rows.length;
+        if (hasMore) html += makeLoadMoreHtml();
+        html += '</table></div>';
+      }
+
       el.innerHTML = html;
+
+      // Wire up ranges toggle button
+      const btn = el.querySelector('#rangesToggle');
+      if (btn) btn.addEventListener('click', () => {
+        if (rangesMode[selector]) {
+          rangesMode[selector] = false;
+          renderGtTable(el, spec, rawData);
+        } else {
+          rangesMode[selector] = true;
+          if (rangeTotals[selector]) {
+            renderGtTable(el, spec, rawData);
+          } else {
+            el.querySelector('.gt-table-wrap').innerHTML = '<div class="placeholder">Loading…</div>';
+            vscode.postMessage({ command: 'fetchGtViewTotal', oop: currentOop, methodSelector: selector });
+          }
+        }
+      });
+
+      // Bake column widths for resizing (flat mode only — ranges use colspan)
+      if (!inRangesMode) {
+        const table = el.querySelector('.gt-table');
+        if (colWidths[selector]) {
+          applyColWidths(table, colWidths[selector]);
+        } else if (cols.length > 0) {
+          const measured = Array.from(table.querySelectorAll('th')).map(th => Math.ceil(th.getBoundingClientRect().width));
+          if (measured.some(w => w > 0)) { colWidths[selector] = measured; applyColWidths(table, measured); }
+        }
+      }
     }
 
     // Meta tab state
