@@ -239,6 +239,8 @@ export function activate(context: vscode.ExtensionContext) {
   // ── GCI-backed providers (Definition + Hover + Completion) ─
   const providerSelectors: vscode.DocumentFilter[] = [
     { scheme: 'gemstone', language: 'gemstone-smalltalk' },
+    { scheme: 'untitled', language: 'gemstone-smalltalk' },
+    { scheme: 'file', language: 'gemstone-smalltalk' },
     { scheme: 'file', language: 'gemstone-topaz' },
     { scheme: 'file', language: 'gemstone-tonel' },
   ];
@@ -651,7 +653,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showErrorMessage(`Login failed: ${msg}`);
         return;
       }
-      await openWorkspace(session.id);
+      await openWorkspace();
     }),
 
     vscode.commands.registerCommand('gemstone.sessionCommit', async (item: GemStoneSessionItem) => {

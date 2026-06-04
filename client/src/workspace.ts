@@ -1,20 +1,16 @@
 import * as vscode from 'vscode';
 import { logInfo } from './gciLog';
 
-export async function openWorkspace(sessionId: number): Promise<void> {
-  const uri = vscode.Uri.parse(`gemstone://${sessionId}/Workspace`);
-  const uriString = uri.toString();
-  logInfo(`[Workspace] opening ${uriString}`);
-  const alreadyOpen = vscode.workspace.textDocuments.some(
-    doc => doc.uri.toString() === uriString,
-  );
-  if (alreadyOpen) {
-    logInfo('[Workspace] already open, skipping');
-    return;
-  }
+const MOD_KEY = process.platform === 'darwin' ? 'Cmd' : 'Ctrl';
+
+export const WORKSPACE_TEMPLATE =
+    `"Workspace\nPlace cursor anywhere on a line with code\nand press [<${MOD_KEY}>+<K> followed by <D>]\n(note that this is a two-keypress chord) to display"\n6 * 7\n`;
+
+export async function openWorkspace(): Promise<void> {
+  logInfo('[Workspace] opening new workspace document');
   try {
-    const doc = await vscode.workspace.openTextDocument(uri);
-    await vscode.window.showTextDocument(doc, { preview: false });
+    const workspaceDocument = await vscode.workspace.openTextDocument({content: WORKSPACE_TEMPLATE, language: 'gemstone-smalltalk' });
+    await vscode.window.showTextDocument(workspaceDocument, { preview: false });
     logInfo('[Workspace] opened successfully');
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

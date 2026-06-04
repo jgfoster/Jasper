@@ -2,7 +2,7 @@
   "name": "gemstone-ide",
   "displayName": "Jasper: A GemStone Smalltalk IDE",
   "description": "GemStone/S IDE for Visual Studio Code",
-  "version": "1.5.5",
+  "version": "1.5.6",
   "publisher": "gemtalksystems",
   "license": "MIT",
   "author": "James Foster",
@@ -64,6 +64,9 @@
         "aliases": [
           "GemStone (Smalltalk)",
           "Smalltalk"
+        ],
+        "extensions": [
+          ".gst"
         ],
         "mimeTypes": [
           "text/x-gemstone-smalltalk"
@@ -921,37 +924,37 @@
       "editor/context": [
         {
           "command": "gemstone.displayIt",
-          "when": "editorTextFocus && resourceScheme == gemstone && !gemstone.executing",
-          "group": "1_gemstone@0"
+          "when": "editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing",
+          "group": "1_modification@0"
         },
         {
           "command": "gemstone.inspectIt",
-          "when": "editorTextFocus && resourceScheme == gemstone && !gemstone.executing",
-          "group": "1_gemstone@1"
+          "when": "editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing",
+          "group": "1_modification@1"
         },
         {
           "command": "gemstone.superInspectIt",
-          "when": "editorTextFocus && resourceScheme == gemstone && !gemstone.executing",
-          "group": "1_gemstone@2"
+          "when": "editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing",
+          "group": "1_modification@2"
         },
         {
           "command": "gemstone.executeIt",
-          "when": "editorTextFocus && resourceScheme == gemstone && !gemstone.executing",
-          "group": "1_gemstone@3"
+          "when": "editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing",
+          "group": "1_modification@3"
         },
         {
           "command": "gemstone.sendersOf",
-          "when": "editorTextFocus && resourceScheme == gemstone",
+          "when": "editorTextFocus && resourceLangId == gemstone-smalltalk",
           "group": "2_navigation@0"
         },
         {
           "command": "gemstone.implementorsOf",
-          "when": "editorTextFocus && resourceScheme == gemstone",
+          "when": "editorTextFocus && resourceLangId == gemstone-smalltalk",
           "group": "2_navigation@1"
         },
         {
           "command": "gemstone.toggleSelectorBreakpoint",
-          "when": "editorTextFocus && resourceScheme == gemstone",
+          "when": "editorTextFocus && resourceLangId == gemstone-smalltalk",
           "group": "3_gemstoneBreakpoints@0"
         }
       ]

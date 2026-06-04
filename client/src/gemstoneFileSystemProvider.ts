@@ -6,7 +6,6 @@ import { ExportManager } from './exportManager';
 import { logInfo } from './gciLog';
 
 // ── URI Structure ────────────────────────────────────────────
-// Workspace:  gemstone://{sessionId}/Workspace
 // Method:     gemstone://{sessionId}/{dictName}/{className}/{side}/{category}/{selector}
 // Definition: gemstone://{sessionId}/{dictName}/{className}/definition
 // Comment:    gemstone://{sessionId}/{dictName}/{className}/comment
@@ -55,12 +54,7 @@ interface ParsedNewMethodUri {
   environmentId: number;
 }
 
-interface ParsedWorkspaceUri {
-  kind: 'workspace';
-  sessionId: number;
-}
-
-type ParsedUri = ParsedMethodUri | ParsedDefinitionUri | ParsedCommentUri | ParsedNewClassUri | ParsedNewMethodUri | ParsedWorkspaceUri;
+type ParsedUri = ParsedMethodUri | ParsedDefinitionUri | ParsedCommentUri | ParsedNewClassUri | ParsedNewMethodUri;
 
 function parseUri(uri: vscode.Uri): ParsedUri {
   const sessionId = parseInt(uri.authority, 10);
@@ -71,9 +65,6 @@ function parseUri(uri: vscode.Uri): ParsedUri {
   const envMatch = uri.query?.match(/env=(\d+)/);
   const environmentId = envMatch ? parseInt(envMatch[1], 10) : 0;
 
-  if (parts.length === 2 && parts[1] === 'Workspace') {
-    return { kind: 'workspace', sessionId };
-  }
   if (parts.length === 3 && parts[2] === 'new-class') {
     const catMatch = uri.query?.match(/category=([^&]+)/);
     const category = catMatch ? decodeURIComponent(catMatch[1]) : undefined;
@@ -113,16 +104,11 @@ function parseUri(uri: vscode.Uri): ParsedUri {
 
 // ── FileSystemProvider ────────────────────────────────────────
 
-const MOD_KEY = process.platform === 'darwin' ? 'Cmd' : 'Ctrl';
-export const WORKSPACE_TEMPLATE =
-  `"Workspace\nPlace cursor anywhere on a line with code\nand press [<${MOD_KEY}>+<K> followed by <D>]\n(note that this is a two-keypress chord) to display"\n6 * 7\n`;
-
 export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
   private _onDidChangeFile = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
   readonly onDidChangeFile = this._onDidChangeFile.event;
 
   private diagnostics = vscode.languages.createDiagnosticCollection('gemstone-method');
-  private workspaceContents = new Map<number, Uint8Array>();
 
   constructor(
     private sessionManager: SessionManager,
@@ -142,8 +128,8 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
       size: 0,
     };
     const parsed = parseUri(uri);
-    // Workspaces and new documents are always writable — no existing class to check
-    if (parsed.kind === 'workspace' || parsed.kind === 'new-class' || parsed.kind === 'new-method') return stat;
+    // New documents are always writable — no existing class to check
+    if (parsed.kind === 'new-class' || parsed.kind === 'new-method') return stat;
     const session = this.sessionManager.getSession(parsed.sessionId);
     if (!session) return stat;
     try {
@@ -163,11 +149,6 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
 
   readFile(uri: vscode.Uri): Uint8Array {
     const parsed = parseUri(uri);
-
-    if (parsed.kind === 'workspace') {
-      return this.workspaceContents.get(parsed.sessionId)
-        ?? new TextEncoder().encode(WORKSPACE_TEMPLATE);
-    }
 
     if (parsed.kind === 'new-class') {
       const categoryLine = parsed.category ? `\n  category: '${parsed.category}'` : '';
@@ -216,13 +197,6 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
   ): void {
     logInfo(`[FS] writeFile ${uri.toString()} (${content.length} bytes)`);
     const parsed = parseUri(uri);
-
-    if (parsed.kind === 'workspace') {
-      this.workspaceContents.set(parsed.sessionId, content);
-      this._onDidChangeFile.fire([{ type: vscode.FileChangeType.Changed, uri }]);
-      return;
-    }
-
     const session = this.getSession(parsed.sessionId);
     const source = new TextDecoder().decode(content);
 

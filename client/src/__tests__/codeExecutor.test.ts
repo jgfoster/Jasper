@@ -655,7 +655,7 @@ describe('CodeExecutor', () => {
   // ── Debuggable error dialog must be modal ──────────────────
   //
   // When execution raises a DebuggableError, we prompt the user with a
-  // "Debug" / "Dismiss" choice. That prompt MUST be modal — a non-modal
+  // "Debug" choice. That prompt MUST be modal — a non-modal
   // toast would be easy to miss and would let the stalled GemStone process
   // linger unnoticed. These tests guard the `{ modal: true }` option.
 
@@ -694,7 +694,7 @@ describe('CodeExecutor', () => {
       expect(lastErrorMessageOptions()).toEqual({ modal: true });
     });
 
-    it('offers Debug and Dismiss in the modal dialog on Execute It', async () => {
+    it('offers Debug in the modal dialog on Execute It', async () => {
       gci = debuggableGci();
       session = makeSession(gci);
       executor = new CodeExecutor(makeSessionManager(session));
@@ -706,7 +706,7 @@ describe('CodeExecutor', () => {
 
       const calls = vi.mocked(vscode.window.showErrorMessage).mock.calls;
       const lastCall = calls[calls.length - 1];
-      expect(lastCall.slice(2)).toEqual(['Debug', 'Dismiss']);
+      expect(lastCall.slice(2)).toEqual(['Debug']);
     });
 
     it('shows a modal dialog when Inspect It raises a DebuggableError', async () => {
@@ -730,7 +730,7 @@ describe('CodeExecutor', () => {
       expect(lastErrorMessageOptions()).toEqual({ modal: true });
     });
 
-    it('offers Debug and Dismiss in the modal dialog on Inspect It', async () => {
+    it('offers Debug in the modal dialog on Inspect It', async () => {
       gci = debuggableGci();
       session = makeSession(gci);
       executor = new CodeExecutor(makeSessionManager(session));
@@ -749,7 +749,7 @@ describe('CodeExecutor', () => {
 
       const calls = vi.mocked(vscode.window.showErrorMessage).mock.calls;
       const lastCall = calls[calls.length - 1];
-      expect(lastCall.slice(2)).toEqual(['Debug', 'Dismiss']);
+      expect(lastCall.slice(2)).toEqual(['Debug']);
     });
   });
 

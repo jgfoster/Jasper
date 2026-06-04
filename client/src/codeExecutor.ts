@@ -188,21 +188,7 @@ export class CodeExecutor {
       if (e instanceof DebuggableError) {
         // Try to show as inline diagnostic first; fall back to debug dialog
         this.showCompileError(editor, selection, code, codeOffset, msg);
-        const choice = await vscode.window.showErrorMessage(
-          `GemStone error: ${msg}`, { modal: true },'Debug', 'Dismiss',
-        );
-        if (choice === 'Debug') {
-          vscode.debug.startDebugging(undefined, {
-            type: 'gemstone',
-            name: 'GemStone Error',
-            request: 'attach',
-            sessionId: session.id,
-            gsProcess: e.context.toString(),
-            errorMessage: msg,
-          }, { suppressSaveBeforeStart: true });
-        } else {
-          try { session.gci.GciTsClearStack(session.handle, e.context); } catch { /* ignore */ }
-        }
+        await this.handleDebuggableError(session, e, msg);
       } else {
         this.showCompileError(editor, selection, code, codeOffset, msg);
       }
@@ -344,6 +330,24 @@ __t`;
         disposable.dispose();
       }
     });
+  }
+
+  private async handleDebuggableError(session: ActiveSession, e: DebuggableError, msg: string): Promise<void> {
+    const choice = await vscode.window.showErrorMessage(
+      `GemStone error: ${msg}`, { modal: true }, 'Debug'
+    );
+    if (choice === 'Debug') {
+      vscode.debug.startDebugging(undefined, {
+        type: 'gemstone',
+        name: 'GemStone Error',
+        request: 'attach',
+        sessionId: session.id,
+        gsProcess: e.context.toString(),
+        errorMessage: msg,
+      }, { suppressSaveBeforeStart: true });
+    } else {
+      try { session.gci.GciTsClearStack(session.handle, e.context); } catch { /* ignore */ }
+    }
   }
 
   /**
@@ -705,21 +709,7 @@ __t`;
       logError(session.id, msg);
 
       if (e instanceof DebuggableError) {
-        const choice = await vscode.window.showErrorMessage(
-          `GemStone error: ${msg}`, { modal: true },'Debug', 'Dismiss',
-        );
-        if (choice === 'Debug') {
-          vscode.debug.startDebugging(undefined, {
-            type: 'gemstone',
-            name: 'GemStone Error',
-            request: 'attach',
-            sessionId: session.id,
-            gsProcess: e.context.toString(),
-            errorMessage: msg,
-          }, { suppressSaveBeforeStart: true });
-        } else {
-          try { session.gci.GciTsClearStack(session.handle, e.context); } catch { /* ignore */ }
-        }
+        await this.handleDebuggableError(session, e, msg);
       } else {
         vscode.window.showErrorMessage(`GemStone execution error: ${msg}`);
       }
