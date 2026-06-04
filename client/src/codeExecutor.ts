@@ -3,7 +3,7 @@ import { SessionManager, ActiveSession } from './sessionManager';
 import { OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG } from './gciConstants';
 import { logQuery, logResult, logError, logInfo } from './gciLog';
 import { InspectorTreeProvider } from './inspectorTreeProvider';
-import { SuperInspector } from './superInspector';
+import { GtInspector } from './gtInspector';
 import { appendTranscript } from './transcriptChannel';
 import { GciError } from './gciLibrary';
 import { pollReadable } from './socketPoll';
@@ -555,7 +555,7 @@ __t`;
     if (oopClassString === undefined) return;
 
     this.setExecuting(session.id, true);
-    logQuery(session.id, 'Super Inspect It', code);
+    logQuery(session.id, 'GT Inspect It', code);
     const { wrappedCode } = this.wrapWithTranscriptCapture(code);
 
     const editor = vscode.window.activeTextEditor;
@@ -581,7 +581,7 @@ __t`;
       if (transcript) appendTranscript(transcript);
 
       logResult(session.id, `OOP ${oop}`);
-      SuperInspector.create(session, oop, label);
+      GtInspector.create(session, oop, label);
     } catch (e: unknown) {
       if (e instanceof ExecutionCancelledError) return;
       const msg = e instanceof Error ? e.message : String(e);

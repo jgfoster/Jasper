@@ -449,7 +449,7 @@
       },
       {
         "command": "gemstone.superInspectIt",
-        "title": "Super Inspect It",
+        "title": "GT Inspect It",
         "category": "GemStone",
         "icon": "$(eye)"
       },

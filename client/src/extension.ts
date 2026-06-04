@@ -16,7 +16,7 @@ import { SessionManager } from './sessionManager';
 import { CodeExecutor } from './codeExecutor';
 import { SystemBrowser } from './systemBrowser';
 import { GlobalsBrowser } from './globalsBrowser';
-import { SuperInspector } from './superInspector';
+import { GtInspector } from './gtInspector';
 import { GemStoneFileSystemProvider } from './gemstoneFileSystemProvider';
 import { openWorkspace } from './workspace';
 import { GemStoneDebugSession } from './gemstoneDebugSession';
@@ -729,7 +729,7 @@ export function activate(context: vscode.ExtensionContext) {
       // rebuilding it from scratch (especially for large, remote images).
       SystemBrowser.disposeForSession(session.id);
       GlobalsBrowser.disposeForSession(session.id);
-      SuperInspector.disposeForSession(session.id);
+      GtInspector.disposeForSession(session.id);
       sessionManager.logout(session.id);
       treeProvider.refresh();
       inspectorProvider.removeSessionItems(session.id);
