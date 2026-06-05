@@ -79,6 +79,29 @@ STONJSON toString: (viewed getInspectorSpecificationData at: 'views')`;
   }
 }
 
+export function fetchGtPrintTabData(
+  execute: QueryExecutor,
+  oop: bigint,
+  methodSelector: string,
+): { data: string | null; truncated: boolean } {
+  const code =
+    `| viewed obj ds textData s |
+obj := Object _objectForOop: ${oop}.
+viewed := GtRemotePhlowViewedObject new initializeWith: obj.
+ds := (viewed viewSpecificationsBySelector at: #'${escapeString(methodSelector)}') phlowDataSource.
+textData := ds getText.
+s := WriteStream on: String new.
+obj printOn: s.
+textData at: 'truncated' put: (s position > (textData at: 'string') size).
+STONJSON toString: textData`;
+  const result = gtExecute(execute, 'fetchGtPrintTabData', code);
+  let truncated = false;
+  if (result) {
+    try { truncated = JSON.parse(result).truncated === true; } catch {}
+  }
+  return { data: result, truncated };
+}
+
 export function fetchGtTextData(execute: QueryExecutor, oop: bigint, methodSelector: string): string | null {
   const code =
     `| viewed ds |

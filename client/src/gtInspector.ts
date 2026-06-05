@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import { ActiveSession } from './sessionManager';
 import * as debug from './debugQueries';
 import { executeFetchString } from './browserQueries';
-import { getGtViewSpecs, fetchGtTextData, fetchGtListData, fetchGtForwardListData, fetchGtForwardListTotal, fetchGtRowOop, fetchGtForwardRowOop, fetchGtTreeChildren, fetchGtListTotal, fetchObjectMeta } from './queries/getGtViewSpecs';
+import { getGtViewSpecs, fetchGtPrintTabData, fetchGtTextData, fetchGtListData, fetchGtForwardListData, fetchGtForwardListTotal, fetchGtRowOop, fetchGtForwardRowOop, fetchGtTreeChildren, fetchGtListTotal, fetchObjectMeta } from './queries/getGtViewSpecs';
 import { QueryExecutor } from './queries/types';
 
 const PAGE_SIZE = 100;
@@ -15,7 +15,8 @@ type InspectorMessage =
   | { command: 'fetchGtViewTotal'; oop: string; methodSelector: string; viewName: string }
   | { command: 'fetchGtRangeData'; oop: string; methodSelector: string; viewName: string; fromIndex: number; rangeStart: number }
   | { command: 'fetchGtTreeChildren'; itemOop: string; methodSelector: string; path: number[] }
-  | { command: 'gtInspectRow'; itemOop: string; methodSelector: string; nodeId: number; viewName: string };
+  | { command: 'gtInspectRow'; itemOop: string; methodSelector: string; nodeId: number; viewName: string }
+  | { command: 'fetchFullPrintString'; oop: string; methodSelector: string };
 
 export class GtInspector {
   private static panels = new Map<number, Set<GtInspector>>();
@@ -87,8 +88,14 @@ export class GtInspector {
       }
 
       case 'fetchGtViewData': {
-        const data = this.fetchGtViewData(BigInt(msg.oop), msg.methodSelector, msg.viewName);
-        this.panel.webview.postMessage({ command: 'gtViewData', methodSelector: msg.methodSelector, data });
+        const oop = BigInt(msg.oop);
+        if (msg.viewName === 'GtPhlowTextEditorViewSpecification' && msg.methodSelector === 'gtPrintFor:') {
+          const result = fetchGtPrintTabData(this.makeExecutor(), oop, msg.methodSelector);
+          this.panel.webview.postMessage({ command: 'gtViewData', methodSelector: msg.methodSelector, data: result.data, truncated: result.truncated });
+        } else {
+          const data = this.fetchGtViewData(oop, msg.methodSelector, msg.viewName);
+          this.panel.webview.postMessage({ command: 'gtViewData', methodSelector: msg.methodSelector, data });
+        }
         break;
       }
 
@@ -118,6 +125,13 @@ export class GtInspector {
       case 'fetchGtTreeChildren': {
         const children = fetchGtTreeChildren(this.makeExecutor(), BigInt(msg.itemOop), msg.methodSelector, msg.path);
         this.panel.webview.postMessage({ command: 'gtTreeChildren', methodSelector: msg.methodSelector, path: msg.path, data: children });
+        break;
+      }
+
+      case 'fetchFullPrintString': {
+        const fullText = debug.fetchFullPrintString(this.session, BigInt(msg.oop));
+        const data = JSON.stringify({ string: fullText, stylerSpecification: null });
+        this.panel.webview.postMessage({ command: 'fullPrintString', methodSelector: msg.methodSelector, data });
         break;
       }
 
@@ -243,6 +257,7 @@ export class GtInspector {
       word-break: break-all;
       overflow: auto;
       flex: 1;
+      min-height: 0;
     }
     .placeholder { padding: 12px 8px; color: var(--vscode-descriptionForeground); font-style: italic; }
     /* ── GT view table ───────────────────────── */
@@ -517,7 +532,25 @@ export class GtInspector {
         if (msg.methodSelector === activeMethodSelector) {
           const spec = specs && specs.find(s => s.methodSelector === msg.methodSelector);
           const contentPane = document.getElementById('contentPane');
-          if (spec) renderGtContent(contentPane, spec, msg.data);
+          if (spec) {
+            renderGtContent(contentPane, spec, msg.data);
+            if (msg.truncated) {
+              const bar = document.createElement('div');
+              bar.id = 'gtShowAllBar';
+              bar.style.cssText = 'padding:4px 0;border-top:1px solid var(--vscode-panel-border);margin-top:2px';
+              const link = document.createElement('a');
+              link.textContent = 'Show all…';
+              link.style.cssText = 'cursor:pointer;color:var(--vscode-textLink-foreground);font-size:0.85em';
+              const capturedSelector = msg.methodSelector;
+              link.addEventListener('click', function() {
+                const b = document.getElementById('gtShowAllBar');
+                if (b) b.remove();
+                vscode.postMessage({ command: 'fetchFullPrintString', oop: currentOop, methodSelector: capturedSelector });
+              });
+              bar.appendChild(link);
+              contentPane.appendChild(bar);
+            }
+          }
         }
 
       } else if (msg.command === 'gtViewTotal') {
@@ -554,6 +587,14 @@ export class GtInspector {
         newRows.forEach(row => { table.insertAdjacentHTML('beforeend', makeRowHtml(row, cols, isTree, 0, [row.nodeId])); });
         loadedRowCounts[msg.methodSelector] = (loadedRowCounts[msg.methodSelector] || 0) + newRows.length;
         if (newRows.length >= PAGE_SIZE) table.insertAdjacentHTML('beforeend', makeLoadMoreHtml());
+
+      } else if (msg.command === 'fullPrintString') {
+        cachedViewData[msg.methodSelector] = msg.data;
+        if (msg.methodSelector === activeMethodSelector) {
+          const spec = specs && specs.find(s => s.methodSelector === msg.methodSelector);
+          const cp = document.getElementById('contentPane');
+          if (spec) renderGtContent(cp, spec, msg.data);
+        }
 
       } else if (msg.command === 'gtTreeChildren') {
         if (msg.methodSelector !== activeMethodSelector || !msg.data) return;
@@ -687,6 +728,8 @@ export class GtInspector {
       const styler = textData.stylerSpecification;
       el.className = 'detail-value';
       el.style.whiteSpace = 'pre-wrap';
+      el.style.overflow = 'auto';
+      el.style.minHeight = '0';
       if (styler && styler.__typeLabel === 'remotePhlowTextParserStylerSpecification') {
         el.innerHTML = styler.parserClassName === 'JSONParser' ? highlightJson(str) : esc(str);
         return;
