@@ -162,6 +162,22 @@ export function wslCopyFileSync(src: string, dst: string): void {
   );
 }
 
+/**
+ * Copy a file when either endpoint may live on the Windows filesystem
+ * (C:\...) or the WSL filesystem (\\wsl$\...). On Windows the copy runs as
+ * `cp -p` inside WSL with both endpoints translated via toWslPath (Windows
+ * drives map to /mnt/<drive>), so a user-selected extent on C:\ can land in a
+ * WSL-side database — the cross-filesystem case wslCopyFileSync rejects.
+ * On non-Windows hosts this is a plain fs.copyFileSync.
+ */
+export function wslImportFileSync(src: string, dst: string): void {
+  if (!needsWsl()) {
+    fs.copyFileSync(src, dst);
+    return;
+  }
+  wslExecSync(`cp -p ${shellQuote(toWslPath(src))} ${shellQuote(toWslPath(dst))}`);
+}
+
 export function wslUnlinkSync(p: string): void {
   if (!shouldRoute(p)) {
     fs.unlinkSync(p);

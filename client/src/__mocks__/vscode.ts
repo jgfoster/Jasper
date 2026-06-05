@@ -164,6 +164,13 @@ export const StatusBarAlignment = {
   Right: 2,
 };
 
+// ── QuickPickItemKind mock ─────────────────────────────────
+
+export const QuickPickItemKind = {
+  Separator: -1,
+  Default: 0,
+};
+
 export const window = {
   activeTextEditor: undefined as unknown,
   createWebviewPanel: vi.fn((_viewType: string, title: string) => {
@@ -193,6 +200,7 @@ export const window = {
   })),
   showInputBox: vi.fn(),
   showQuickPick: vi.fn(),
+  showOpenDialog: vi.fn(),
   tabGroups: {
     all: [] as { tabs: { input: unknown }[] }[],
     close: vi.fn(),
