@@ -4,6 +4,12 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.5.7] - 2026-06-04
+
+### Added
+
+- **Replace a database's extent from any file on disk, not just the bundled starter extents.** The Databases panel's **Replace Extent** action (on a stopped stone) now offers a **"Browse for extent file…"** option alongside the vendor-supplied initial extents, so you can seed a database from an `extent0.dbf` copied from another machine. The selected file replaces the current extent (the old extent and transaction logs are cleared first, after the new source is confirmed to exist), and on Windows the copy bridges the Windows and WSL filesystems so a file picked from `C:\…` lands correctly in the WSL-side database.
+
 ## [1.5.6] - 2026-06-03
 
 ### Changed
