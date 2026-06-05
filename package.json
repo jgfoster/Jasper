@@ -925,22 +925,22 @@
         {
           "command": "gemstone.displayIt",
           "when": "editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing",
-          "group": "1_modification@0"
+          "group": "1_gemstone@0"
         },
         {
           "command": "gemstone.inspectIt",
           "when": "editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing",
-          "group": "1_modification@1"
+          "group": "1_gemstone@1"
         },
         {
           "command": "gemstone.superInspectIt",
-          "when": "editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing",
-          "group": "1_modification@2"
+          "when": "editorTextFocus && resourceLangId == gemstone-smalltalk && gemstone.gtAvailable && !gemstone.executing",
+          "group": "1_gemstone@2"
         },
         {
           "command": "gemstone.executeIt",
           "when": "editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing",
-          "group": "1_modification@3"
+          "group": "1_gemstone@3"
         },
         {
           "command": "gemstone.sendersOf",
@@ -1020,7 +1020,7 @@
         "command": "gemstone.superInspectIt",
         "key": "ctrl+k o",
         "mac": "cmd+k o",
-        "when": "editorTextFocus && gemstone.hasActiveSession && !gemstone.executing"
+        "when": "editorTextFocus && gemstone.hasActiveSession && gemstone.gtAvailable && !gemstone.executing"
       },
       {
         "command": "gemstone.openBrowser",

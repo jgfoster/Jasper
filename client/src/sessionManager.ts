@@ -10,6 +10,7 @@ export interface ActiveSession {
   handle: unknown;
   login: GemStoneLogin;
   stoneVersion: string;
+  gtAvailable?: boolean;
 }
 
 /**
@@ -149,6 +150,7 @@ export class SessionManager {
       handle: result.session,
       login,
       stoneVersion: version,
+      gtAvailable: false,
     };
 
     this.sessions.set(session.id, session);

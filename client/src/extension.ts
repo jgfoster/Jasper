@@ -146,6 +146,7 @@ export function activate(context: vscode.ExtensionContext) {
   // SessionManager is created early so the Logins panel can mark the connected
   // login row (and swap its inline Login action for Logout) in single-session mode.
   sessionManager = new SessionManager();
+  vscode.commands.executeCommand('setContext', 'gemstone.gtAvailable', false);
   const treeProvider = new LoginTreeProvider(storage, sessionManager);
 
   const treeView = vscode.window.createTreeView('gemstoneLogins', {
@@ -352,7 +353,11 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   context.subscriptions.push(
-    sessionManager.onDidChangeSelection(() => updateStatusBar())
+    sessionManager.onDidChangeSelection(() => updateStatusBar()),
+    sessionManager.onDidChangeSelection(id => {
+      const s = id !== null ? sessionManager.getSession(id) : undefined;
+      vscode.commands.executeCommand('setContext', 'gemstone.gtAvailable', s?.gtAvailable ?? false);
+    }),
   );
   updateStatusBar();
 
@@ -643,6 +648,8 @@ export function activate(context: vscode.ExtensionContext) {
       let session;
       try {
         session = sessionManager.login(login, gciPath);
+        session.gtAvailable = queries.checkGtAvailable(session);
+        vscode.commands.executeCommand('setContext', 'gemstone.gtAvailable', session.gtAvailable);
         treeProvider.refresh();
         vscode.window.showInformationMessage(
           `Connected to ${login.stone} (${session.stoneVersion}) on ${login.gem_host} as ${login.gs_user}`
