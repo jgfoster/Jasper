@@ -13,6 +13,14 @@ export interface GtViewSpec {
     cellWidth: number | null;
     spawnsObjects: boolean;
   }>;
+  // Populated for GtPhlowForwardViewSpecification: the real view type and columns after resolution
+  resolvedViewName?: string;
+  resolvedColumnSpecifications?: Array<{
+    type: string;
+    title: string;
+    cellWidth: number | null;
+    spawnsObjects: boolean;
+  }>;
 }
 
 function gtExecute(execute: QueryExecutor, label: string, code: string): string | null {
@@ -25,6 +33,27 @@ function gtExecute(execute: QueryExecutor, label: string, code: string): string 
   }
 }
 
+function resolveForwardViewSpec(
+  execute: QueryExecutor,
+  oop: bigint,
+  forwardSelector: string,
+): Pick<GtViewSpec, 'resolvedViewName' | 'resolvedColumnSpecifications'> | null {
+  const code =
+    `| viewed ds specDict |
+viewed := GtRemotePhlowViewedObject new initializeWith: (Object _objectForOop: ${oop}).
+ds := (viewed viewSpecificationsBySelector at: #'${escapeString(forwardSelector)}') phlowDataSource.
+STONJSON toString: ds retrieveViewSpecificationForForwarding`;
+  const result = gtExecute(execute, 'resolveForwardViewSpec', code);
+  if (!result) return null;
+  try {
+    const spec = JSON.parse(result);
+    return {
+      resolvedViewName: spec.__typeName || spec.viewName || '',
+      resolvedColumnSpecifications: spec.columnSpecifications,
+    };
+  } catch { return null; }
+}
+
 export function getGtViewSpecs(execute: QueryExecutor, oop: bigint): GtViewSpec[] | null {
   const code =
     `| viewed |
@@ -34,7 +63,17 @@ STONJSON toString: (viewed getInspectorSpecificationData at: 'views')`;
   if (!result) return null;
   try {
     const specs = JSON.parse(result) as GtViewSpec[];
-    return specs.sort((a, b) => a.priority - b.priority);
+    specs.sort((a, b) => a.priority - b.priority);
+    for (const spec of specs) {
+      if (spec.viewName === 'GtPhlowForwardViewSpecification') {
+        const resolved = resolveForwardViewSpec(execute, oop, spec.methodSelector);
+        if (resolved) {
+          spec.resolvedViewName = resolved.resolvedViewName;
+          spec.resolvedColumnSpecifications = resolved.resolvedColumnSpecifications;
+        }
+      }
+    }
+    return specs;
   } catch {
     return null;
   }
@@ -47,6 +86,25 @@ viewed := GtRemotePhlowViewedObject new initializeWith: (Object _objectForOop: $
 ds := (viewed viewSpecificationsBySelector at: #'${escapeString(methodSelector)}') phlowDataSource.
 STONJSON toString: ds getText`;
   return gtExecute(execute, 'fetchGtTextData', code);
+}
+
+export function fetchGtForwardRowOop(
+  execute: QueryExecutor,
+  itemOop: bigint,
+  forwardSelector: string,
+  nodeId: number,
+): bigint | null {
+  const code =
+    `| viewed ds forwardDs item |
+viewed := GtRemotePhlowViewedObject new initializeWith: (Object _objectForOop: ${itemOop}).
+ds := (viewed viewSpecificationsBySelector at: #'${escapeString(forwardSelector)}') phlowDataSource.
+ds retrieveViewSpecificationForForwarding.
+forwardDs := ds retrieveForwardTargetDataSource.
+item := forwardDs retrieveSentItemAt: ${nodeId}.
+[item asOop printString] on: Error do: [:e | '']`;
+  const result = gtExecute(execute, 'fetchGtForwardRowOop', code);
+  if (!result || result.trim() === '') return null;
+  try { return BigInt(result.trim()); } catch { return null; }
 }
 
 export function fetchGtRowOop(
@@ -128,4 +186,39 @@ viewed := GtRemotePhlowViewedObject new initializeWith: (Object _objectForOop: $
 ds := (viewed viewSpecificationsBySelector at: #'${escapeString(methodSelector)}') phlowDataSource.
 STONJSON toString: (ds retrieveItems: ${count} fromIndex: ${fromIndex})`;
   return gtExecute(execute, 'fetchGtListData', code);
+}
+
+export function fetchGtForwardListData(
+  execute: QueryExecutor,
+  oop: bigint,
+  forwardSelector: string,
+  fromIndex: number,
+  count: number,
+): string | null {
+  const code =
+    `| viewed ds forwardDs |
+viewed := GtRemotePhlowViewedObject new initializeWith: (Object _objectForOop: ${oop}).
+ds := (viewed viewSpecificationsBySelector at: #'${escapeString(forwardSelector)}') phlowDataSource.
+ds retrieveViewSpecificationForForwarding.
+forwardDs := ds retrieveForwardTargetDataSource.
+STONJSON toString: (forwardDs retrieveItems: ${count} fromIndex: ${fromIndex})`;
+  return gtExecute(execute, 'fetchGtForwardListData', code);
+}
+
+export function fetchGtForwardListTotal(
+  execute: QueryExecutor,
+  oop: bigint,
+  forwardSelector: string,
+): number | null {
+  const code =
+    `| viewed ds forwardDs |
+viewed := GtRemotePhlowViewedObject new initializeWith: (Object _objectForOop: ${oop}).
+ds := (viewed viewSpecificationsBySelector at: #'${escapeString(forwardSelector)}') phlowDataSource.
+ds retrieveViewSpecificationForForwarding.
+forwardDs := ds retrieveForwardTargetDataSource.
+forwardDs retrieveTotalItemsCount printString`;
+  const result = gtExecute(execute, 'fetchGtForwardListTotal', code);
+  if (!result) return null;
+  const n = parseInt(result.trim(), 10);
+  return isNaN(n) ? null : n;
 }

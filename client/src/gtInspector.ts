@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import { ActiveSession } from './sessionManager';
 import * as debug from './debugQueries';
 import { executeFetchString } from './browserQueries';
-import { getGtViewSpecs, fetchGtTextData, fetchGtListData, fetchGtRowOop, fetchGtTreeChildren, fetchGtListTotal, fetchObjectMeta } from './queries/getGtViewSpecs';
+import { getGtViewSpecs, fetchGtTextData, fetchGtListData, fetchGtForwardListData, fetchGtForwardListTotal, fetchGtRowOop, fetchGtForwardRowOop, fetchGtTreeChildren, fetchGtListTotal, fetchObjectMeta } from './queries/getGtViewSpecs';
 import { QueryExecutor } from './queries/types';
 
 const PAGE_SIZE = 100;
@@ -12,10 +12,10 @@ type InspectorMessage =
   | { command: 'ready' }
   | { command: 'fetchGtViewData'; oop: string; methodSelector: string; viewName: string }
   | { command: 'fetchMoreRows'; oop: string; methodSelector: string; viewName: string; fromIndex: number }
-  | { command: 'fetchGtViewTotal'; oop: string; methodSelector: string }
+  | { command: 'fetchGtViewTotal'; oop: string; methodSelector: string; viewName: string }
   | { command: 'fetchGtRangeData'; oop: string; methodSelector: string; viewName: string; fromIndex: number; rangeStart: number }
   | { command: 'fetchGtTreeChildren'; itemOop: string; methodSelector: string; path: number[] }
-  | { command: 'gtInspectRow'; itemOop: string; methodSelector: string; nodeId: number };
+  | { command: 'gtInspectRow'; itemOop: string; methodSelector: string; nodeId: number; viewName: string };
 
 export class GtInspector {
   private static panels = new Map<number, Set<GtInspector>>();
@@ -99,13 +99,18 @@ export class GtInspector {
       }
 
       case 'fetchGtViewTotal': {
-        const total = fetchGtListTotal(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector);
+        const isForward = msg.viewName === 'GtPhlowForwardViewSpecification';
+        const total = isForward
+          ? fetchGtForwardListTotal(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector)
+          : fetchGtListTotal(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector);
         this.panel.webview.postMessage({ command: 'gtViewTotal', methodSelector: msg.methodSelector, total });
         break;
       }
 
       case 'fetchGtRangeData': {
-        const rangeData = fetchGtListData(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector, msg.fromIndex, PAGE_SIZE);
+        const rangeData = msg.viewName === 'GtPhlowForwardViewSpecification'
+          ? fetchGtForwardListData(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector, msg.fromIndex, PAGE_SIZE)
+          : fetchGtListData(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector, msg.fromIndex, PAGE_SIZE);
         this.panel.webview.postMessage({ command: 'gtRangeData', methodSelector: msg.methodSelector, rangeStart: msg.rangeStart, data: rangeData });
         break;
       }
@@ -117,7 +122,9 @@ export class GtInspector {
       }
 
       case 'gtInspectRow': {
-        const rowOop = fetchGtRowOop(this.makeExecutor(), BigInt(msg.itemOop), msg.methodSelector, msg.nodeId);
+        const rowOop = msg.viewName === 'GtPhlowForwardViewSpecification'
+          ? fetchGtForwardRowOop(this.makeExecutor(), BigInt(msg.itemOop), msg.methodSelector, msg.nodeId)
+          : fetchGtRowOop(this.makeExecutor(), BigInt(msg.itemOop), msg.methodSelector, msg.nodeId);
         if (rowOop !== null) {
           GtInspector.create(this.session, rowOop, msg.methodSelector + '[' + msg.nodeId + ']');
         }
@@ -134,6 +141,9 @@ export class GtInspector {
     const execute = this.makeExecutor();
     if (viewName === 'GtPhlowTextViewSpecification' || viewName === 'GtPhlowTextEditorViewSpecification') {
       return fetchGtTextData(execute, oop, methodSelector);
+    }
+    if (viewName === 'GtPhlowForwardViewSpecification') {
+      return fetchGtForwardListData(execute, oop, methodSelector, fromIndex, PAGE_SIZE);
     }
     return fetchGtListData(execute, oop, methodSelector, fromIndex, PAGE_SIZE);
   }
@@ -367,7 +377,9 @@ export class GtInspector {
       const tr = e.target.closest('tr[data-nodeid]');
       if (!tr) return;
       const nodeId = parseInt(tr.dataset.nodeid, 10);
-      vscode.postMessage({ command: 'gtInspectRow', itemOop: currentOop, methodSelector: activeMethodSelector, nodeId });
+      const activeSpec = specs && specs.find(s => s.methodSelector === activeMethodSelector);
+      const viewName = activeSpec ? activeSpec.viewName : '';
+      vscode.postMessage({ command: 'gtInspectRow', itemOop: currentOop, methodSelector: activeMethodSelector, nodeId, viewName });
     });
 
     document.getElementById('contentPane').addEventListener('contextmenu', e => {
@@ -383,8 +395,11 @@ export class GtInspector {
     });
 
     document.getElementById('rowCtxInspect').addEventListener('click', () => {
-      if (ctxMenuNodeId !== null && activeMethodSelector && currentOop)
-        vscode.postMessage({ command: 'gtInspectRow', itemOop: currentOop, methodSelector: activeMethodSelector, nodeId: ctxMenuNodeId });
+      if (ctxMenuNodeId !== null && activeMethodSelector && currentOop) {
+        const activeSpec = specs && specs.find(s => s.methodSelector === activeMethodSelector);
+        const viewName = activeSpec ? activeSpec.viewName : '';
+        vscode.postMessage({ command: 'gtInspectRow', itemOop: currentOop, methodSelector: activeMethodSelector, nodeId: ctxMenuNodeId, viewName });
+      }
       hideCtxMenu();
     });
 
@@ -825,7 +840,7 @@ export class GtInspector {
             renderGtTable(el, spec, rawData);
           } else {
             el.querySelector('.gt-table-wrap').innerHTML = '<div class="placeholder">Loading…</div>';
-            vscode.postMessage({ command: 'fetchGtViewTotal', oop: currentOop, methodSelector: selector });
+            vscode.postMessage({ command: 'fetchGtViewTotal', oop: currentOop, methodSelector: selector, viewName: spec.viewName });
           }
         }
       });
@@ -918,12 +933,16 @@ export class GtInspector {
 
     function renderGtContent(el, spec, data) {
       if (data === null || data === undefined) { el.innerHTML = '<div class="placeholder">No data.</div>'; return; }
-      if (spec.viewName === 'GtPhlowTextViewSpecification' || spec.viewName === 'GtPhlowTextEditorViewSpecification') {
+      const effectiveViewName = spec.resolvedViewName || spec.viewName;
+      if (effectiveViewName === 'GtPhlowTextViewSpecification' || effectiveViewName === 'GtPhlowTextEditorViewSpecification') {
         let textData;
         try { textData = JSON.parse(data); } catch { textData = { string: data }; }
         renderStyledText(el, textData);
       } else {
-        renderGtTable(el, spec, data);
+        const effectiveSpec = spec.resolvedViewName
+          ? Object.assign({}, spec, { viewName: spec.resolvedViewName, columnSpecifications: spec.resolvedColumnSpecifications || spec.columnSpecifications })
+          : spec;
+        renderGtTable(el, effectiveSpec, data);
       }
     }
 
