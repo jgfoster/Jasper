@@ -4,6 +4,10 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+### Added
+
+- **Live search filter in the System Browser.** A filter box now sits above every column in the System Browser. As you type, matching entries are highlighted in bold at the matching portion — non-matching items remain visible. The first match is automatically focused so you can press **Enter** to select it without touching the mouse. Use **↑ / ↓** to move through matches (wrapping at both ends), and **Escape** to clear the filter and restore the full list. A **✕** button in the filter box and a **Clear all filters** button in the toolbar let you reset filters with the mouse. Filters survive column selections and automatically re-focus the first matching entry whenever a list is refreshed from the server.
+
 ## [1.5.7] - 2026-06-04
 
 ### Added

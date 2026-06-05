@@ -9,6 +9,17 @@ import * as queries from './browserQueries';
 import {GlobalsBrowser} from './globalsBrowser';
 import {ClassBrowser} from './classBrowser';
 
+/**
+ * The webview HTML is a large template literal in getHtml(). Embedding JS directly
+ * inside that string is hard to work with and the file keeps growing. listFilter.js is kept as a
+ * standalone file so it gets proper IDE support and can be edited in isolation.
+ *
+ * We can't use a regular import because the webview needs the raw source text to
+ * inject into a <script> tag — not a compiled module.
+ * Reading the file at runtime is the simplest approach that works in both environments.
+ */
+const listFilterJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'listFilter.js'), 'utf8');
+
 // ── Types ────────────────────────────────────────────────────
 
 interface BrowserState {
@@ -16,7 +27,7 @@ interface BrowserState {
   selectedDictIndex: number | null;       // 1-based
   classCategories: string[];
   selectedCategory: string | null;
-  classes: string[];
+  classes: string[];  
   selectedClass: string | null;
   isMeta: boolean;
   selectedEnvId: number;
@@ -1807,13 +1818,20 @@ export class SystemBrowser {
       font-size: 0.9em;
       display: none;
     }
+    .toolbar {
+         display: flex;
+    }
   </style>
+  <script nonce="${nonce}">${listFilterJs}</script>
 </head>
 <body>
   <div class="error-banner" id="errorBanner"></div>
   <div class="toolbar">
     <div class="toolbar-cell">
       <button id="refreshBtn" title="Refresh">&#x21bb; Refresh</button>
+    </div>
+    <div class="toolbar-cell">
+      <button id="clearFiltersBtn" title="Clear filters">✕ Clear filters</button>
     </div>
     <div class="toolbar-cell toolbar-mode">
       <span class="mode-toggle">
@@ -1828,14 +1846,17 @@ export class SystemBrowser {
   <div class="columns">
     <div class="column">
       <div class="column-header">Dictionaries</div>
+      <list-filter for="list-dicts"></list-filter>
       <div class="column-list" id="list-dicts"></div>
     </div>
     <div class="column" id="col-categories">
       <div class="column-header">Class Categories</div>
+      <list-filter for="list-categories"></list-filter>
       <div class="column-list" id="list-categories"></div>
     </div>
     <div class="column" id="col-classes">
       <div class="column-header">Classes</div>
+      <list-filter for="list-classes"></list-filter>
       <div class="column-list" id="list-classes"></div>
       <div class="column-footer">
         <label><input type="radio" name="side" value="instance" checked> Instance</label>
@@ -1852,11 +1873,13 @@ export class SystemBrowser {
     </div>
     <div class="column">
       <div class="column-header">Method Categories</div>
+      <list-filter for="list-method-cats"></list-filter>
       <div class="column-list" id="list-method-cats"></div>
       <div class="column-footer hidden" id="envFooter"></div>
     </div>
     <div class="column">
       <div class="column-header">Methods</div>
+      <list-filter for="list-methods"></list-filter>
       <div class="column-list" id="list-methods"></div>
     </div>
   </div>
@@ -1882,7 +1905,6 @@ export class SystemBrowser {
     const catBtn = document.getElementById('catBtn');
     const hierBtn = document.getElementById('hierBtn');
     const errorBanner = document.getElementById('errorBanner');
-
     // ── Populate a column with items ───────────────
     function populateColumn(listEl, items, virtualItems, draggable) {
       listEl.innerHTML = '';
@@ -1897,6 +1919,8 @@ export class SystemBrowser {
         }
         listEl.appendChild(div);
       }
+      
+      listEl.refreshFilter();
     }
 
     function selectItemInColumn(listEl, value) {
@@ -1933,9 +1957,7 @@ export class SystemBrowser {
     }
 
     setupClickHandler(cols.dicts, (name) => {
-      const idx = Array.from(cols.dicts.children).findIndex(
-        el => el.dataset.value === name
-      );
+      const idx = Array.from(cols.dicts.children).findIndex(el => el.dataset.value === name);
       vscode.postMessage({ command: 'selectDictionary', index: idx + 1 });
     });
 
@@ -1968,6 +1990,11 @@ export class SystemBrowser {
     // ── Refresh button ─────────────────────────────
     document.getElementById('refreshBtn').addEventListener('click', () => {
       vscode.postMessage({ command: 'refresh' });
+    });
+    
+    // ── Clear filters button ─────────────────────────────
+    document.getElementById('clearFiltersBtn').addEventListener('click', () => {
+      ListFilter.clearAllFilters();
     });
 
     // ── Category / Hierarchy toggle ─────────────────
