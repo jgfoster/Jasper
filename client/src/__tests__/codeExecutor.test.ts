@@ -650,6 +650,129 @@ describe('CodeExecutor', () => {
       expect(calls[0]).toEqual(['setContext', 'gemstone.executing', true]);
       expect(calls[calls.length - 1]).toEqual(['setContext', 'gemstone.executing', false]);
     });
+
+    // The dim decoration is applied before setExecuting(true) so that if anything
+    // between decoration and the try block throws, the session is not left stuck.
+    it('applies dim decoration before setting gemstone.executing context (executeIt)', async () => {
+      const callOrder: string[] = [];
+      const editor = makeEditor('3 + 4');
+      (editor.setDecorations as ReturnType<typeof vi.fn>).mockImplementation(
+        (_type: unknown, ranges: unknown[]) => {
+          if (ranges.length > 0) callOrder.push('decoration:apply');
+        },
+      );
+      vi.mocked(vscode.commands.executeCommand).mockImplementation(
+        async (cmd: string, ...args: unknown[]) => {
+          if (cmd === 'setContext' && args[0] === 'gemstone.executing' && args[1] === true) {
+            callOrder.push('executing:true');
+          }
+          return undefined;
+        },
+      );
+      setActiveEditor(editor);
+
+      await executor.executeIt();
+
+      expect(callOrder.indexOf('decoration:apply')).toBeLessThan(callOrder.indexOf('executing:true'));
+    });
+
+    it('applies dim decoration before setting gemstone.executing context (inspectIt)', async () => {
+      const callOrder: string[] = [];
+      const editor = makeEditor('3 + 4');
+      (editor.setDecorations as ReturnType<typeof vi.fn>).mockImplementation(
+        (_type: unknown, ranges: unknown[]) => {
+          if (ranges.length > 0) callOrder.push('decoration:apply');
+        },
+      );
+      vi.mocked(vscode.commands.executeCommand).mockImplementation(
+        async (cmd: string, ...args: unknown[]) => {
+          if (cmd === 'setContext' && args[0] === 'gemstone.executing' && args[1] === true) {
+            callOrder.push('executing:true');
+          }
+          return undefined;
+        },
+      );
+      setActiveEditor(editor);
+
+      const inspectorProvider = { addRoot: vi.fn(), findRootByLabel: vi.fn() };
+      await executor.inspectIt(
+        inspectorProvider as unknown as import('../inspectorTreeProvider').InspectorTreeProvider,
+      );
+
+      expect(callOrder.indexOf('decoration:apply')).toBeLessThan(callOrder.indexOf('executing:true'));
+    });
+
+    it('does not set gemstone.executing when resolveOopClassString fails (executeIt)', async () => {
+      (gci.GciTsResolveSymbol as Mock).mockReturnValue({
+        result: 0n,
+        err: { number: 4242, message: 'cannot resolve String' },
+      });
+
+      const editor = makeEditor('3 + 4');
+      setActiveEditor(editor);
+
+      await executor.executeIt();
+
+      const setCalls = vi.mocked(vscode.commands.executeCommand).mock.calls
+        .filter(([cmd, key]) => cmd === 'setContext' && key === 'gemstone.executing');
+      expect(setCalls.some(([, , value]) => value === true)).toBe(false);
+    });
+
+    it('does not set gemstone.executing when resolveOopClassString fails (inspectIt)', async () => {
+      (gci.GciTsResolveSymbol as Mock).mockReturnValue({
+        result: 0n,
+        err: { number: 4242, message: 'cannot resolve String' },
+      });
+
+      const editor = makeEditor('3 + 4');
+      setActiveEditor(editor);
+
+      const inspectorProvider = { addRoot: vi.fn(), findRootByLabel: vi.fn() };
+      await executor.inspectIt(
+        inspectorProvider as unknown as import('../inspectorTreeProvider').InspectorTreeProvider,
+      );
+
+      const setCalls = vi.mocked(vscode.commands.executeCommand).mock.calls
+        .filter(([cmd, key]) => cmd === 'setContext' && key === 'gemstone.executing');
+      expect(setCalls.some(([, , value]) => value === true)).toBe(false);
+    });
+
+    it('clears gemstone.executing after a GciTsNbExecute start failure (executeIt)', async () => {
+      (gci.GciTsNbExecute as Mock).mockReturnValue({
+        success: false,
+        err: { number: 1001, message: 'a CompileError occurred (error 1001), expected expression' },
+      });
+
+      const editor = makeEditor('bad syntax');
+      setActiveEditor(editor);
+
+      await executor.executeIt();
+
+      const setCalls = vi.mocked(vscode.commands.executeCommand).mock.calls
+        .filter(([cmd, key]) => cmd === 'setContext' && key === 'gemstone.executing');
+      expect(setCalls.length).toBeGreaterThanOrEqual(2);
+      expect(setCalls[setCalls.length - 1][2]).toBe(false);
+    });
+
+    it('clears gemstone.executing after a GciTsNbExecute start failure (inspectIt)', async () => {
+      (gci.GciTsNbExecute as Mock).mockReturnValue({
+        success: false,
+        err: { number: 1001, message: 'Execution failed to start' },
+      });
+
+      const editor = makeEditor('bad syntax');
+      setActiveEditor(editor);
+
+      const inspectorProvider = { addRoot: vi.fn(), findRootByLabel: vi.fn() };
+      await executor.inspectIt(
+        inspectorProvider as unknown as import('../inspectorTreeProvider').InspectorTreeProvider,
+      );
+
+      const setCalls = vi.mocked(vscode.commands.executeCommand).mock.calls
+        .filter(([cmd, key]) => cmd === 'setContext' && key === 'gemstone.executing');
+      expect(setCalls.length).toBeGreaterThanOrEqual(2);
+      expect(setCalls[setCalls.length - 1][2]).toBe(false);
+    });
   });
 
   // ── Debuggable error dialog must be modal ──────────────────
