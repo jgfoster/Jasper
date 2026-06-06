@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import { ActiveSession } from './sessionManager';
 import { shouldSyncClasses } from './loginTypes';
 import { boundLimitExecutor } from './browserQueries';
-import { fetchBlob } from './sync/syncTransport';
+import { fetchBlob, newStats, RequestTiming } from './sync/syncTransport';
 import {
   MANIFEST_BUILD_EXPR, contentBuildExpr, syncClassBuildExpr, SYNC_REFS_PER_BATCH, ClassRef,
 } from './sync/syncProtocol';
@@ -64,7 +64,8 @@ export class ExportManager {
     if (!this.logChannel && vscode.window.createOutputChannel) {
       this.logChannel = vscode.window.createOutputChannel('GemStone Class Sync');
     }
-    this.logChannel?.appendLine(message);
+    const ts = new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
+    this.logChannel?.appendLine(`[${ts}] ${message}`);
   }
 
   /**
@@ -155,12 +156,19 @@ export class ExportManager {
         const startMs = Date.now();
         const exec = boundLimitExecutor(session);
 
+        // Per-request timing line, so a slow sync can be localized to the server
+        // (build) vs the network (net ≈ wall − server).
+        const reqLog = (t: RequestTiming) => {
+          const net = Math.max(0, t.wallMs - t.serverMs);
+          this.log(`  ${t.label}: server=${t.serverMs}ms wall=${t.wallMs}ms net≈${net}ms ${formatBytes(t.bytes)}`);
+        };
+
         // 1. Fetch the manifest (md5 of every class) and diff against local state.
         progress.report({ message: 'checking for changes…' });
-        const manifestStats = { roundTrips: 0, chars: 0 };
+        const manifestStats = newStats();
         let manifestText: string;
         try {
-          manifestText = fetchBlob(exec, 'manifest', MANIFEST_BUILD_EXPR, {}, manifestStats);
+          manifestText = fetchBlob(exec, 'manifest', MANIFEST_BUILD_EXPR, {}, manifestStats, reqLog);
         } catch (e) {
           this.reportError(e, silent);
           return;
@@ -168,6 +176,12 @@ export class ExportManager {
         if (token.isCancellationRequested) return;
 
         const manifest = parseManifest(manifestText);
+        if (manifest.classCount !== null && manifest.classCount !== manifest.classes.length) {
+          this.log(
+            `WARNING: manifest looks truncated — server declared ${manifest.classCount} ` +
+            `classes but only ${manifest.classes.length} parsed.`,
+          );
+        }
         const dictNameByIndex = new Map<number, string>();
         for (const d of manifest.dictionaries) dictNameByIndex.set(d.dictIndex, d.dictName);
 
@@ -181,9 +195,12 @@ export class ExportManager {
           hashByKey.set(entryKey(c.dictIndex, c.dictName, c.className), c.hash);
         }
 
-        const contentStats = { roundTrips: 0, chars: 0 };
+        const contentStats = newStats();
         let fetched = 0;
         let deleted = 0;
+        // Audit: classes we asked for but didn't get back, and batch parse errors.
+        const missing: ClassRef[] = [];
+        const parseErrors: string[] = [];
 
         this.writing = true;
         try {
@@ -210,12 +227,15 @@ export class ExportManager {
             if (token.isCancellationRequested) break;
             let payload: string;
             try {
-              payload = fetchBlob(exec, 'content', contentBuildExpr(batch), {}, contentStats);
+              payload = fetchBlob(exec, 'content', contentBuildExpr(batch), {}, contentStats, reqLog);
             } catch (e) {
               this.reportError(e, silent);
               break;
             }
-            for (const rec of parseContent(payload)) {
+            const parsed = parseContent(payload);
+            if (parsed.error) parseErrors.push(parsed.error);
+            const got = new Set<string>();
+            for (const rec of parsed.records) {
               const dictName = dictNameByIndex.get(rec.dictIndex);
               if (dictName === undefined) continue;
               const dir = this.getDictPath(session, rec.dictIndex, dictName)!;
@@ -223,7 +243,11 @@ export class ExportManager {
               const key = entryKey(rec.dictIndex, dictName, rec.className);
               const h = hashByKey.get(key);
               if (h !== undefined) newState.classes[key] = h;
+              got.add(`${rec.dictIndex}\t${rec.className}`);
               fetched++;
+            }
+            for (const ref of batch) {
+              if (!got.has(`${ref.dictIndex}\t${ref.className}`)) missing.push(ref);
             }
             progress.report({
               message: `${fetched}/${toFetch.length} classes`,
@@ -243,19 +267,39 @@ export class ExportManager {
         }
 
         const elapsed = Date.now() - startMs;
-        const roundTrips = manifestStats.roundTrips + contentStats.roundTrips;
         const cancelled = token.isCancellationRequested;
+        const serverMs = manifestStats.serverMs + contentStats.serverMs;
+        const wallMs = manifestStats.wallMs + contentStats.wallMs;
+        const roundTrips = manifestStats.roundTrips + contentStats.roundTrips;
         this.log(
-          `[${new Date().toISOString()}] ${session.login.gs_user}@${session.login.stone}` +
+          `${session.login.gs_user}@${session.login.stone}` +
           (cancelled ? ' (cancelled)' : '') +
-          ` — classes: ${manifest.classes.length} total, ${unchanged} unchanged, ` +
-          `${fetched} fetched, ${deleted} deleted; ` +
-          `manifest ${formatBytes(manifestStats.chars)}, content ${formatBytes(contentStats.chars)}; ` +
-          `${roundTrips} round trips; ${elapsed} ms` +
-          (elapsed > 0 ? ` (${formatBytes(Math.round((contentStats.chars / elapsed) * 1000))}/s)` : ''),
+          ` — ${manifest.classes.length} classes` +
+          (manifest.methodCount !== null ? ` / ${manifest.methodCount} methods` : '') +
+          `, ${unchanged} unchanged, ${fetched} fetched, ${deleted} deleted; ` +
+          `${roundTrips} requests; server ${serverMs}ms, wall ${wallMs}ms, net≈${Math.max(0, wallMs - serverMs)}ms; ` +
+          `total ${elapsed}ms; content ${formatBytes(contentStats.chars)}`,
         );
 
-        if (!silent && !cancelled) {
+        // 7. Audit: report (loudly) any requested class we failed to write.
+        const auditFailed = !cancelled && (missing.length > 0 || parseErrors.length > 0);
+        if (auditFailed) {
+          this.log(
+            `AUDIT FAILED: ${missing.length} requested class(es) not written; ` +
+            `${parseErrors.length} batch parse error(s).`,
+          );
+          for (const e of parseErrors) this.log(`  parse error: ${e}`);
+          for (const m of missing.slice(0, 50)) this.log(`  missing: ${m.dictName}/${m.className}`);
+          if (missing.length > 50) this.log(`  …and ${missing.length - 50} more`);
+          if (!silent) {
+            vscode.window.showWarningMessage(
+              `GemStone class sync: ${missing.length} class(es) could not be written. ` +
+              `See the "GemStone Class Sync" output for details.`,
+            );
+          }
+        }
+
+        if (!silent && !cancelled && !auditFailed) {
           vscode.window.showInformationMessage(
             fetched + deleted === 0
               ? 'GemStone classes already up to date.'
