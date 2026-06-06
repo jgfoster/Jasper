@@ -4,9 +4,15 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.5.8] - 2026-06-05
+
 ### Added
 
 - **Live search filter in the System Browser.** A filter box now sits above every column in the System Browser. As you type, matching entries are highlighted in bold at the matching portion — non-matching items remain visible. The first match is automatically focused so you can press **Enter** to select it without touching the mouse. Use **↑ / ↓** to move through matches (wrapping at both ends), and **Escape** to clear the filter and restore the full list. A **✕** button in the filter box and a **Clear all filters** button in the toolbar let you reset filters with the mouse. Filters survive column selections and automatically re-focus the first matching entry whenever a list is refreshed from the server.
+
+### Fixed
+
+- **Session no longer gets stuck in executing state when execution fails before it starts.** The "Executing…" indicator (dimmed selection, spinner, and command context) is now set immediately before the GCI call, so if an early validation fails (e.g. the String class cannot be resolved) the session state is never dirtied.
 
 ## [1.5.7] - 2026-06-04
 
