@@ -122,7 +122,6 @@ export class CodeExecutor {
     const oopClassString = this.resolveOopClassString(session);
     if (oopClassString === undefined) return;
 
-    this.setExecuting(session.id, true);
     const label = displayResult ? 'Display It' : 'Execute It';
     logQuery(session.id, label, code);
     const { wrappedCode, codeOffset } = this.wrapWithTranscriptCapture(code);
@@ -130,7 +129,8 @@ export class CodeExecutor {
     // Dim the selected code while executing
     const execRange = new vscode.Range(selection.start, selection.end);
     editor.setDecorations(executingDecorationType, [execRange]);
-
+    
+    this.setExecuting(session.id, true);
     try {
       const { success, err: startErr } = session.gci.GciTsNbExecute(
         session.handle, wrappedCode, oopClassString,
@@ -574,7 +574,6 @@ __t`;
     const oopClassString = this.resolveOopClassString(session);
     if (oopClassString === undefined) return;
 
-    this.setExecuting(session.id, true);
     logQuery(session.id, 'Inspect It', code);
     const { wrappedCode } = this.wrapWithTranscriptCapture(code);
 
@@ -584,6 +583,7 @@ __t`;
       editor.setDecorations(executingDecorationType, [editor.selection]);
     }
 
+    this.setExecuting(session.id, true);
     try {
       const { success, err: startErr } = session.gci.GciTsNbExecute(
         session.handle, wrappedCode, oopClassString,
