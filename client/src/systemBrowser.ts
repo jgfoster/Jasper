@@ -62,6 +62,17 @@ export function extractSelector(messagePattern: string): string {
 export class SystemBrowser {
   private static panels = new Map<number, Set<SystemBrowser>>();
   private static lastActive = new Map<number, SystemBrowser>();
+  private static sharedExportManager: ExportManager | undefined;
+
+  static setExportManager(em: ExportManager): void {
+    SystemBrowser.sharedExportManager = em;
+  }
+
+  /** Open a new browser beside the currently active panel (e.g. the GT inspector). */
+  static showBeside(session: ActiveSession): void {
+    if (!SystemBrowser.sharedExportManager) return;
+    SystemBrowser.show(session, SystemBrowser.sharedExportManager, vscode.ViewColumn.Beside);
+  }
 
   private readonly panel: vscode.WebviewPanel;
   private disposables: vscode.Disposable[] = [];
@@ -104,11 +115,12 @@ export class SystemBrowser {
   static show(
     session: ActiveSession,
     exportManager: ExportManager,
+    viewColumn: vscode.ViewColumn = vscode.ViewColumn.One,
   ): void {
     const panel = vscode.window.createWebviewPanel(
       'gemstoneSystemBrowser',
       'Browser',
-      vscode.ViewColumn.One,
+      viewColumn,
       {
         enableScripts: true,
         retainContextWhenHidden: true,
@@ -714,6 +726,7 @@ export class SystemBrowser {
     // Update instance/class side if changed
     if (this.state.isMeta !== isMeta) {
       this.handleToggleSide(isMeta);
+      this.panel.webview.postMessage({ command: 'setSide', isMeta });
     }
 
     // Update method category if changed

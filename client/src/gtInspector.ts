@@ -4,6 +4,7 @@ import { ActiveSession } from './sessionManager';
 import * as debug from './debugQueries';
 import { executeFetchString } from './browserQueries';
 import { getGtViewSpecs, fetchGtPrintTabData, fetchGtTextData, fetchGtListData, fetchGtForwardListData, fetchGtForwardListTotal, fetchGtRowOop, fetchGtForwardRowOop, fetchGtTreeChildren, fetchGtListTotal, fetchObjectMeta, fetchMethodSource } from './queries/getGtViewSpecs';
+import { SystemBrowser } from './systemBrowser';
 import { QueryExecutor } from './queries/types';
 
 const PAGE_SIZE = 100;
@@ -17,7 +18,8 @@ type InspectorMessage =
   | { command: 'fetchGtTreeChildren'; itemOop: string; methodSelector: string; path: number[] }
   | { command: 'gtInspectRow'; itemOop: string; methodSelector: string; nodeId: number; viewName: string }
   | { command: 'fetchFullPrintString'; oop: string; methodSelector: string }
-  | { command: 'fetchMethodSource'; oop: string; methodSelector: string; isClassSide: boolean };
+  | { command: 'fetchMethodSource'; oop: string; methodSelector: string; isClassSide: boolean }
+  | { command: 'browseMethod' };
 
 export class GtInspector {
   private static panels = new Map<number, Set<GtInspector>>();
@@ -133,6 +135,11 @@ export class GtInspector {
         const fullText = debug.fetchFullPrintString(this.session, BigInt(msg.oop));
         const data = JSON.stringify({ string: fullText, stylerSpecification: null });
         this.panel.webview.postMessage({ command: 'fullPrintString', methodSelector: msg.methodSelector, data });
+        break;
+      }
+
+      case 'browseMethod': {
+        SystemBrowser.showBeside(this.session);
         break;
       }
 
@@ -291,7 +298,11 @@ export class GtInspector {
     .ctx-item:hover { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
     .method-item { padding: 2px 0; cursor: pointer; user-select: none; }
     .method-item:hover .method-label { color: var(--vscode-textLink-foreground); }
-    .method-source-box { margin: 4px 0 4px 14px; padding: 6px 8px; background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background)); border: 1px solid var(--vscode-panel-border); border-radius: 3px; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); white-space: pre-wrap; cursor: text; user-select: text; }
+    .method-source-box { margin: 4px 0 4px 14px; padding: 6px 8px; background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background)); border: 1px solid var(--vscode-panel-border); border-radius: 3px; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); user-select: text; }
+    .method-source-header { display: flex; justify-content: flex-end; margin-bottom: 4px; padding-bottom: 3px; border-bottom: 1px solid var(--vscode-panel-border); }
+    .method-browse-btn { cursor: pointer; color: var(--vscode-textLink-foreground); font-size: 0.8em; font-family: var(--vscode-font-family); user-select: none; }
+    .method-browse-btn:hover { text-decoration: underline; }
+    .method-source-code { white-space: pre-wrap; cursor: text; }
   </style>
 </head>
 <body>
@@ -975,6 +986,10 @@ export class GtInspector {
 
       el.querySelector('#metaSubContent').addEventListener('click', e => {
         if (metaSubTab !== 'instanceMethods' && metaSubTab !== 'classMethods') return;
+        if (e.target.closest('.method-browse-btn')) {
+          vscode.postMessage({ command: 'browseMethod' });
+          return;
+        }
         if (e.target.closest('.method-source-box')) return;
         const item = e.target.closest('.method-item');
         const sel = item ? item.dataset.sel : null;
@@ -1005,9 +1020,14 @@ export class GtInspector {
             '</div>' +
             (isOpen
               ? '<div class="method-source-box">' +
+                '<div class="method-source-header">' +
+                '<span class="method-browse-btn" data-sel="' + esc(sel) + '" data-class-side="' + isClassTab + '">Browse →</span>' +
+                '</div>' +
+                '<span class="method-source-code">' +
                 (cacheKey in methodSourceCache
                   ? (methodSourceCache[cacheKey] !== null ? esc(methodSourceCache[cacheKey]) : '<span style="color:var(--vscode-errorForeground)">Error fetching source.</span>')
                   : '<span style="color:var(--vscode-descriptionForeground)">Loading…</span>') +
+                '</span>' +
                 '</div>'
               : '') +
             '</div>';

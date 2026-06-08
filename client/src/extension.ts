@@ -186,6 +186,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Active sessions are shown as children of their login in the Logins &
   // Sessions tree (treeProvider above); there is no separate Sessions view.
   exportManager = new ExportManager();
+  SystemBrowser.setExportManager(exportManager);
   fileInManager = new FileInManager(sessionManager, exportManager);
   fileInManager.register(context);
 

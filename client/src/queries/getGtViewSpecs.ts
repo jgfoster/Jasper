@@ -180,6 +180,7 @@ STONJSON toString: (ds retrieveChildrenForNodeAtPath: ${stPath})`;
   return gtExecute(execute, 'fetchGtTreeChildren', code);
 }
 
+
 export function fetchMethodSource(
   execute: QueryExecutor,
   oop: bigint,
@@ -187,25 +188,25 @@ export function fetchMethodSource(
   isClassSide: boolean,
 ): string | null {
   const recv = isClassSide
-    ? `(Object _objectForOop: ${oop}) class class`
-    : `(Object _objectForOop: ${oop}) class`;
+    ? `(Object _objectForOop: ${oop}) class theNonMetaClass class`
+    : `(Object _objectForOop: ${oop}) class theNonMetaClass`;
   const code = `${recv} sourceCodeAt: #'${escapeString(methodSelector)}'`;
   return gtExecute(execute, 'fetchMethodSource', code);
 }
 
 export function fetchObjectMeta(execute: QueryExecutor, oop: bigint): string | null {
   const code =
-    `| obj cls |
+    `| obj baseCls |
 obj := Object _objectForOop: ${oop}.
-cls := obj class.
+baseCls := obj class theNonMetaClass.
 STONJSON toString: (Dictionary new
-  at: 'className' put: cls name;
-  at: 'superclassName' put: (cls superclass ifNil: [''] ifNotNil: [:s | s name]);
-  at: 'category' put: (cls category ifNil: ['']);
-  at: 'comment' put: (cls comment ifNil: ['']);
-  at: 'definition' put: cls definition;
-  at: 'methodSelectors' put: cls selectors asSortedCollection asArray;
-  at: 'classMethodSelectors' put: cls class selectors asSortedCollection asArray;
+  at: 'className' put: baseCls name;
+  at: 'superclassName' put: (baseCls superclass ifNil: [''] ifNotNil: [:s | s name]);
+  at: 'category' put: (baseCls category ifNil: ['']);
+  at: 'comment' put: (baseCls comment ifNil: ['']);
+  at: 'definition' put: baseCls definition;
+  at: 'methodSelectors' put: baseCls selectors asSortedCollection asArray;
+  at: 'classMethodSelectors' put: baseCls class selectors asSortedCollection asArray;
   yourself)`;
   return gtExecute(execute, 'fetchObjectMeta', code);
 }
