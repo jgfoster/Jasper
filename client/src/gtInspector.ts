@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import { ActiveSession } from './sessionManager';
 import * as debug from './debugQueries';
 import { executeFetchString } from './browserQueries';
-import { getGtViewSpecs, fetchGtPrintTabData, fetchGtTextData, fetchGtListData, fetchGtForwardListData, fetchGtForwardListTotal, fetchGtRowOop, fetchGtForwardRowOop, fetchGtTreeChildren, fetchGtListTotal, fetchObjectMeta, fetchMethodSource } from './queries/getGtViewSpecs';
+import { getGtViewSpecs, fetchGtPrintTabData, fetchGtTextData, fetchGtListData, fetchGtForwardListData, fetchGtForwardListTotal, fetchGtRowOop, fetchGtForwardRowOop, fetchGtTreeChildren, fetchGtListTotal, fetchObjectMeta, fetchMethodSource, fetchMethodBrowseLocation } from './queries/getGtViewSpecs';
 import { SystemBrowser } from './systemBrowser';
 import { QueryExecutor } from './queries/types';
 
@@ -19,7 +19,7 @@ type InspectorMessage =
   | { command: 'gtInspectRow'; itemOop: string; methodSelector: string; nodeId: number; viewName: string }
   | { command: 'fetchFullPrintString'; oop: string; methodSelector: string }
   | { command: 'fetchMethodSource'; oop: string; methodSelector: string; isClassSide: boolean }
-  | { command: 'browseMethod' };
+  | { command: 'browseMethod'; oop: string; methodSelector: string; isClassSide: boolean };
 
 export class GtInspector {
   private static panels = new Map<number, Set<GtInspector>>();
@@ -139,7 +139,18 @@ export class GtInspector {
       }
 
       case 'browseMethod': {
-        SystemBrowser.showBeside(this.session);
+        const loc = fetchMethodBrowseLocation(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector, msg.isClassSide);
+        if (!loc) {
+          vscode.window.showWarningMessage(`Cannot browse ${msg.methodSelector}: failed to locate class in GemStone.`);
+          break;
+        }
+        SystemBrowser.navigateBeside(this.session, {
+          dictName: loc.dictName,
+          className: loc.className,
+          isMeta: msg.isClassSide,
+          selector: msg.methodSelector,
+          category: loc.category,
+        });
         break;
       }
 
@@ -986,8 +997,9 @@ export class GtInspector {
 
       el.querySelector('#metaSubContent').addEventListener('click', e => {
         if (metaSubTab !== 'instanceMethods' && metaSubTab !== 'classMethods') return;
-        if (e.target.closest('.method-browse-btn')) {
-          vscode.postMessage({ command: 'browseMethod' });
+        const browseBtn = e.target.closest('.method-browse-btn');
+        if (browseBtn) {
+          vscode.postMessage({ command: 'browseMethod', oop: currentOop, methodSelector: browseBtn.dataset.sel, isClassSide: browseBtn.dataset.classSide === 'true' });
           return;
         }
         if (e.target.closest('.method-source-box')) return;

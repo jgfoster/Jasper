@@ -181,6 +181,29 @@ STONJSON toString: (ds retrieveChildrenForNodeAtPath: ${stPath})`;
 }
 
 
+export function fetchMethodBrowseLocation(
+  execute: QueryExecutor,
+  oop: bigint,
+  methodSelector: string,
+  isClassSide: boolean,
+): { dictName: string; className: string; category: string } | null {
+  const methodCls = isClassSide ? 'baseCls class' : 'baseCls';
+  const code =
+    `| obj baseCls dictName category |
+obj := Object _objectForOop: ${oop}.
+baseCls := obj class theNonMetaClass.
+dictName := (System myUserProfile dictionariesAndSymbolsOf: baseCls) first first name.
+category := (${methodCls} categoryOfSelector: #'${escapeString(methodSelector)}' environmentId: 0) ifNil: [''].
+STONJSON toString: (Dictionary new
+  at: 'dictName' put: dictName;
+  at: 'className' put: baseCls name;
+  at: 'category' put: category;
+  yourself)`;
+  const result = gtExecute(execute, 'fetchMethodBrowseLocation', code);
+  if (!result) return null;
+  try { return JSON.parse(result); } catch { return null; }
+}
+
 export function fetchMethodSource(
   execute: QueryExecutor,
   oop: bigint,
