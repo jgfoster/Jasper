@@ -180,6 +180,19 @@ STONJSON toString: (ds retrieveChildrenForNodeAtPath: ${stPath})`;
   return gtExecute(execute, 'fetchGtTreeChildren', code);
 }
 
+export function fetchMethodSource(
+  execute: QueryExecutor,
+  oop: bigint,
+  methodSelector: string,
+  isClassSide: boolean,
+): string | null {
+  const recv = isClassSide
+    ? `(Object _objectForOop: ${oop}) class class`
+    : `(Object _objectForOop: ${oop}) class`;
+  const code = `${recv} sourceCodeAt: #'${escapeString(methodSelector)}'`;
+  return gtExecute(execute, 'fetchMethodSource', code);
+}
+
 export function fetchObjectMeta(execute: QueryExecutor, oop: bigint): string | null {
   const code =
     `| obj cls |
@@ -192,6 +205,7 @@ STONJSON toString: (Dictionary new
   at: 'comment' put: (cls comment ifNil: ['']);
   at: 'definition' put: cls definition;
   at: 'methodSelectors' put: cls selectors asSortedCollection asArray;
+  at: 'classMethodSelectors' put: cls class selectors asSortedCollection asArray;
   yourself)`;
   return gtExecute(execute, 'fetchObjectMeta', code);
 }

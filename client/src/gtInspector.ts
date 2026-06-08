@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import { ActiveSession } from './sessionManager';
 import * as debug from './debugQueries';
 import { executeFetchString } from './browserQueries';
-import { getGtViewSpecs, fetchGtPrintTabData, fetchGtTextData, fetchGtListData, fetchGtForwardListData, fetchGtForwardListTotal, fetchGtRowOop, fetchGtForwardRowOop, fetchGtTreeChildren, fetchGtListTotal, fetchObjectMeta } from './queries/getGtViewSpecs';
+import { getGtViewSpecs, fetchGtPrintTabData, fetchGtTextData, fetchGtListData, fetchGtForwardListData, fetchGtForwardListTotal, fetchGtRowOop, fetchGtForwardRowOop, fetchGtTreeChildren, fetchGtListTotal, fetchObjectMeta, fetchMethodSource } from './queries/getGtViewSpecs';
 import { QueryExecutor } from './queries/types';
 
 const PAGE_SIZE = 100;
@@ -16,7 +16,8 @@ type InspectorMessage =
   | { command: 'fetchGtRangeData'; oop: string; methodSelector: string; viewName: string; fromIndex: number; rangeStart: number }
   | { command: 'fetchGtTreeChildren'; itemOop: string; methodSelector: string; path: number[] }
   | { command: 'gtInspectRow'; itemOop: string; methodSelector: string; nodeId: number; viewName: string }
-  | { command: 'fetchFullPrintString'; oop: string; methodSelector: string };
+  | { command: 'fetchFullPrintString'; oop: string; methodSelector: string }
+  | { command: 'fetchMethodSource'; oop: string; methodSelector: string; isClassSide: boolean };
 
 export class GtInspector {
   private static panels = new Map<number, Set<GtInspector>>();
@@ -132,6 +133,12 @@ export class GtInspector {
         const fullText = debug.fetchFullPrintString(this.session, BigInt(msg.oop));
         const data = JSON.stringify({ string: fullText, stylerSpecification: null });
         this.panel.webview.postMessage({ command: 'fullPrintString', methodSelector: msg.methodSelector, data });
+        break;
+      }
+
+      case 'fetchMethodSource': {
+        const source = fetchMethodSource(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector, msg.isClassSide);
+        this.panel.webview.postMessage({ command: 'methodSource', methodSelector: msg.methodSelector, isClassSide: msg.isClassSide, source });
         break;
       }
 
@@ -282,6 +289,9 @@ export class GtInspector {
     .ctx-menu { position: fixed; display: none; background: var(--vscode-menu-background, var(--vscode-editor-background)); border: 1px solid var(--vscode-panel-border); border-radius: 3px; padding: 2px 0; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
     .ctx-item { padding: 4px 16px; cursor: pointer; white-space: nowrap; color: var(--vscode-menu-foreground, var(--vscode-foreground)); font-size: 0.9em; }
     .ctx-item:hover { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+    .method-item { padding: 2px 0; cursor: pointer; user-select: none; }
+    .method-item:hover .method-label { color: var(--vscode-textLink-foreground); }
+    .method-source-box { margin: 4px 0 4px 14px; padding: 6px 8px; background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background)); border: 1px solid var(--vscode-panel-border); border-radius: 3px; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); white-space: pre-wrap; cursor: text; user-select: text; }
   </style>
 </head>
 <body>
@@ -314,6 +324,7 @@ export class GtInspector {
     let rangesMode = {};          // { [methodSelector]: boolean }
     let rangeTotals = {};         // { [methodSelector]: number }
     let rangeDataCache = {};      // { [methodSelector]: { [rangeStart]: string } }
+    let methodSourceCache = {};   // { [methodSelector]: string | null }
     let ctxMenuNodeId = null;
 
     function esc(s) {
@@ -514,6 +525,7 @@ export class GtInspector {
         rangesMode = {};
         rangeTotals = {};
         rangeDataCache = {};
+        methodSourceCache = {};
         activeMethodSelector = null;
         document.getElementById('objClass').textContent = msg.className || '';
         const hasLabel = !!msg.label;
@@ -594,6 +606,17 @@ export class GtInspector {
           const spec = specs && specs.find(s => s.methodSelector === msg.methodSelector);
           const cp = document.getElementById('contentPane');
           if (spec) renderGtContent(cp, spec, msg.data);
+        }
+
+      } else if (msg.command === 'methodSource') {
+        const cacheKey = (msg.isClassSide ? 'c:' : 'i:') + msg.methodSelector;
+        methodSourceCache[cacheKey] = msg.source;
+        if (cacheKey === openMethodSel && activeMethodSelector === '__meta__') {
+          const sc = document.getElementById('metaSubContent');
+          if (sc) {
+            let d2; try { d2 = metaData ? JSON.parse(metaData) : null; } catch { d2 = null; }
+            sc.innerHTML = renderMetaSubTab(d2);
+          }
         }
 
       } else if (msg.command === 'gtTreeChildren') {
@@ -901,7 +924,8 @@ export class GtInspector {
     }
 
     // Meta tab state
-    let metaSubTab = 'methods';
+    let metaSubTab = 'instanceMethods';
+    let openMethodSel = null;
 
     function renderMetaTab(el) {
       let d;
@@ -928,7 +952,7 @@ export class GtInspector {
         // Sub-tab bar
         '<div class="tab-bar" id="metaSubTabBar" style="flex-shrink:0;border-bottom:1px solid var(--vscode-panel-border)">';
 
-      const subTabs = [['methods','Methods'],['definition','Definition'],['comment','Comment']];
+      const subTabs = [['instanceMethods','Instance Methods'],['classMethods','Class Methods'],['definition','Definition'],['comment','Comment']];
       subTabs.forEach(([id, label]) => {
         html += '<div class="tab' + (metaSubTab === id ? ' active' : '') + '" data-metatab="' + id + '">' + label + '</div>';
       });
@@ -944,22 +968,50 @@ export class GtInspector {
         const tab = e.target.closest('[data-metatab]');
         if (!tab) return;
         metaSubTab = tab.dataset.metatab;
+        openMethodSel = null;
         el.querySelectorAll('[data-metatab]').forEach(t => t.classList.toggle('active', t === tab));
+        el.querySelector('#metaSubContent').innerHTML = renderMetaSubTab(d);
+      });
+
+      el.querySelector('#metaSubContent').addEventListener('click', e => {
+        if (metaSubTab !== 'instanceMethods' && metaSubTab !== 'classMethods') return;
+        if (e.target.closest('.method-source-box')) return;
+        const item = e.target.closest('.method-item');
+        const sel = item ? item.dataset.sel : null;
+        const isClassSide = metaSubTab === 'classMethods';
+        const cacheKey = (isClassSide ? 'c:' : 'i:') + sel;
+        openMethodSel = (sel && openMethodSel !== cacheKey) ? cacheKey : null;
+        if (openMethodSel && !(openMethodSel in methodSourceCache)) {
+          vscode.postMessage({ command: 'fetchMethodSource', oop: currentOop, methodSelector: sel, isClassSide });
+        }
         el.querySelector('#metaSubContent').innerHTML = renderMetaSubTab(d);
       });
     }
 
     function renderMetaSubTab(d) {
       if (!d) return '<div class="placeholder">No metadata available.</div>';
-      if (metaSubTab === 'methods') {
-        const methods = d.methodSelectors || [];
+      if (metaSubTab === 'instanceMethods' || metaSubTab === 'classMethods') {
+        const isClassTab = metaSubTab === 'classMethods';
+        const dotColor = isClassTab ? '#e08052' : 'var(--vscode-button-background)';
+        const methods = isClassTab ? (d.classMethodSelectors || []) : (d.methodSelectors || []);
         if (!methods.length) return '<div class="placeholder">No methods.</div>';
-        return methods.map(sel =>
-          '<div style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:default">' +
-          '<span style="width:8px;height:8px;border-radius:2px;background:var(--vscode-button-background);flex-shrink:0;display:inline-block"></span>' +
-          '<span style="font-family:var(--vscode-editor-font-family);font-size:var(--vscode-editor-font-size)">' + esc(sel) + '</span>' +
-          '</div>'
-        ).join('');
+        return methods.map(sel => {
+          const cacheKey = (isClassTab ? 'c:' : 'i:') + sel;
+          const isOpen = openMethodSel === cacheKey;
+          return '<div class="method-item" data-sel="' + esc(sel) + '">' +
+            '<div style="display:flex;align-items:center;gap:6px">' +
+            '<span style="width:8px;height:8px;border-radius:2px;background:' + dotColor + ';flex-shrink:0;display:inline-block"></span>' +
+            '<span class="method-label" style="font-family:var(--vscode-editor-font-family);font-size:var(--vscode-editor-font-size)">' + esc(sel) + '</span>' +
+            '</div>' +
+            (isOpen
+              ? '<div class="method-source-box">' +
+                (cacheKey in methodSourceCache
+                  ? (methodSourceCache[cacheKey] !== null ? esc(methodSourceCache[cacheKey]) : '<span style="color:var(--vscode-errorForeground)">Error fetching source.</span>')
+                  : '<span style="color:var(--vscode-descriptionForeground)">Loading…</span>') +
+                '</div>'
+              : '') +
+            '</div>';
+        }).join('');
       }
       if (metaSubTab === 'definition') {
         return '<pre style="font-family:var(--vscode-editor-font-family);font-size:var(--vscode-editor-font-size);white-space:pre-wrap;margin:0">' +
