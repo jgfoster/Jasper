@@ -46,38 +46,48 @@ function blockExpr(body: string): string {
 // the md5 of its file-out. Enumeration mirrors the export's per-(dict, class)
 // layout, so manifest entries line up one-to-one with files on disk.
 export const MANIFEST_BUILD_EXPR = blockExpr(`
-  | ws sl |
+  | ws sl classCount methodCount |
   ws := WriteStream on: String new.
   sl := System myUserProfile symbolList.
+  classCount := 0. methodCount := 0.
   1 to: sl size do: [:idx | | dict |
     dict := sl at: idx.
     ws nextPutAll: 'D'; tab; nextPutAll: idx printString; tab; nextPutAll: dict name; lf.
     dict keysAndValuesDo: [:k :v |
       v isBehavior ifTrue: [
+        classCount := classCount + 1.
+        methodCount := methodCount + v selectors size + v class selectors size.
         ws nextPutAll: 'C'; tab; nextPutAll: idx printString; tab;
            nextPutAll: k; tab; nextPutAll: v fileOutClass md5sum printString; lf]]].
-  ws contents`);
+  'S', (String with: Character tab), classCount printString, (String with: Character tab),
+    methodCount printString, (String with: Character lf), ws contents`);
 
-// Expression evaluating to the content String for a batch of class refs. Each
-// record is a header line (dictIndex, className, code-point length) followed by
-// the raw file-out. Lookup is dict-scoped so shadowed names resolve correctly.
+// Expression evaluating to the content String for a batch of class refs. A count
+// header line (`N \t classes \t methods`) lets the client audit that it received
+// everything; each record is then a header line (dictIndex, className, code-point
+// length) followed by the raw file-out. Lookup is dict-scoped so shadowed names
+// resolve correctly.
 export function contentBuildExpr(refs: ClassRef[]): string {
   const literal = refs
     .map(r => `(${r.dictIndex} '${escapeString(r.className)}')`)
     .join(' ');
   return blockExpr(`
-  | ws sl |
+  | ws sl classCount methodCount |
   ws := WriteStream on: String new.
   sl := System myUserProfile symbolList.
+  classCount := 0. methodCount := 0.
   #( ${literal} ) do: [:pair | | cls src |
     cls := (sl at: (pair at: 1)) at: (pair at: 2) asSymbol ifAbsent: [nil].
     cls ifNotNil: [
+      classCount := classCount + 1.
+      methodCount := methodCount + cls selectors size + cls class selectors size.
       src := cls fileOutClass.
       ws nextPutAll: (pair at: 1) printString; tab;
          nextPutAll: (pair at: 2); tab;
          nextPutAll: src size printString; lf;
          nextPutAll: src]].
-  ws contents`);
+  'N', (String with: Character tab), classCount printString, (String with: Character tab),
+    methodCount printString, (String with: Character lf), ws contents`);
 }
 
 // Expression for a targeted single-class update (used when one class changes,
@@ -103,16 +113,28 @@ export function syncClassBuildExpr(dictName: string, className: string): string 
             (String with: Character lf), src]]`);
 }
 
+// Prepare returns `serverMs \t total \n <firstChunk>`, the whole thing encoded as
+// UTF-8 bytes. The encodeAsUTF8 is the crucial part: a file-out containing any
+// non-ASCII character (e.g. an em dash) is a wide GemStone string (Unicode16),
+// whose raw bytes are NOT UTF-8; returning it directly makes the client's UTF-8
+// decode corrupt the payload and desync the parser. Slicing happens on code-point
+// boundaries first, so encoding never splits a character. `serverMs` is the build
+// time (Time millisecondsElapsedTime:) so the client can separate server vs network.
 export function prepareCode(buildExpr: string, chunkChars: number): string {
-  return `| payload firstEnd |
-payload := (${buildExpr}).
+  return `| payload firstEnd serverMs |
+serverMs := Time millisecondsElapsedTime: [payload := (${buildExpr})].
 firstEnd := payload size min: ${chunkChars}.
 payload size > ${chunkChars} ifTrue: [SessionTemps current at: #'${SYNC_BLOB_KEY}' put: payload].
-payload size printString, (String with: Character lf), (payload copyFrom: 1 to: firstEnd)`;
+(serverMs printString, (String with: Character tab), payload size printString,
+  (String with: Character lf), (payload copyFrom: 1 to: firstEnd)) encodeAsUTF8`;
 }
 
+// Fetch returns `serverMs \n <chunk>`, encoded as UTF-8 (see prepareCode).
 export function fetchCode(start: number, end: number): string {
-  return `(SessionTemps current at: #'${SYNC_BLOB_KEY}' ifAbsent: ['']) copyFrom: ${start} to: ${end}`;
+  return `| chunk serverMs |
+serverMs := Time millisecondsElapsedTime: [
+  chunk := (SessionTemps current at: #'${SYNC_BLOB_KEY}' ifAbsent: ['']) copyFrom: ${start} to: ${end}].
+(serverMs printString, (String with: Character lf), chunk) encodeAsUTF8`;
 }
 
 export function releaseCode(): string {

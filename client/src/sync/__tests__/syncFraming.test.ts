@@ -1,7 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  takeCodePoints, parseManifest, parseContent,
-} from '../syncFraming';
+import { takeCodePoints, parseManifest, parseContent } from '../syncFraming';
 
 describe('takeCodePoints', () => {
   it('takes whole code points for BMP text', () => {
@@ -11,12 +9,11 @@ describe('takeCodePoints', () => {
   });
 
   it('treats an astral character as one code point spanning two UTF-16 units', () => {
-    // 😀 (U+1F600) is two UTF-16 code units but one code point.
-    const s = 'a😀b';
-    expect(s.length).toBe(4); // UTF-16 length
+    const s = 'a😀b'; // 😀 (U+1F600) is two UTF-16 units but one code point.
+    expect(s.length).toBe(4);
     const r = takeCodePoints(s, 0, 2); // 'a' + emoji
     expect(r.text).toBe('a😀');
-    expect(r.end).toBe(3); // advanced past the surrogate pair
+    expect(r.end).toBe(3);
   });
 
   it('stops at end of string when count exceeds available code points', () => {
@@ -27,8 +24,9 @@ describe('takeCodePoints', () => {
 });
 
 describe('parseManifest', () => {
-  it('parses dictionary and class lines', () => {
+  it('parses the summary, dictionary, and class lines', () => {
     const payload = [
+      'S\t3\t99',
       'D\t1\tUserGlobals',
       'C\t1\tFoo\t123',
       'C\t1\tBar\t456',
@@ -37,6 +35,8 @@ describe('parseManifest', () => {
       '',
     ].join('\n');
     const m = parseManifest(payload);
+    expect(m.classCount).toBe(3);
+    expect(m.methodCount).toBe(99);
     expect(m.dictionaries).toEqual([
       { dictIndex: 1, dictName: 'UserGlobals' },
       { dictIndex: 2, dictName: 'Globals' },
@@ -48,42 +48,64 @@ describe('parseManifest', () => {
     ]);
   });
 
-  it('keeps empty dictionaries (no class lines)', () => {
+  it('reports null counts when there is no summary line', () => {
     const m = parseManifest('D\t3\tPublished\n');
+    expect(m.classCount).toBeNull();
+    expect(m.methodCount).toBeNull();
     expect(m.dictionaries).toEqual([{ dictIndex: 3, dictName: 'Published' }]);
     expect(m.classes).toEqual([]);
   });
 });
 
 describe('parseContent', () => {
-  it('parses length-framed records whose bodies contain newlines and tabs', () => {
+  it('parses a count header then length-framed records with newlines/tabs in bodies', () => {
     const body1 = 'line one\nline two\n\twith tab\n';
     const body2 = '! topaz %\nstuff';
     const payload =
+      'N\t2\t5\n' +
       `1\tFoo\t${[...body1].length}\n${body1}` +
       `2\tBar\t${[...body2].length}\n${body2}`;
-    const records = parseContent(payload);
-    expect(records).toEqual([
+    const r = parseContent(payload);
+    expect(r.error).toBeNull();
+    expect(r.declaredCount).toBe(2);
+    expect(r.declaredMethods).toBe(5);
+    expect(r.records).toEqual([
       { dictIndex: 1, className: 'Foo', source: body1 },
       { dictIndex: 2, className: 'Bar', source: body2 },
     ]);
   });
 
-  it('round-trips a body containing astral characters using code-point length', () => {
+  it('round-trips a body with astral + accented characters using code-point length', () => {
     const body = 'comment with 😀 emoji and é accents';
-    const codePointLen = [...body].length; // what GemStone String size reports
-    const payload = `1\tEmojiClass\t${codePointLen}\n${body}`;
-    const records = parseContent(payload);
-    expect(records).toHaveLength(1);
-    expect(records[0].source).toBe(body);
+    const payload = `N\t1\t0\n1\tEmojiClass\t${[...body].length}\n${body}`;
+    const r = parseContent(payload);
+    expect(r.error).toBeNull();
+    expect(r.records).toHaveLength(1);
+    expect(r.records[0].source).toBe(body);
   });
 
-  it('returns empty for empty payload', () => {
-    expect(parseContent('')).toEqual([]);
+  it('parses without a count header (back-compat)', () => {
+    const r = parseContent('1\tFoo\t1\nx');
+    expect(r.declaredCount).toBeNull();
+    expect(r.error).toBeNull();
+    expect(r.records).toEqual([{ dictIndex: 1, className: 'Foo', source: 'x' }]);
   });
 
-  it('stops cleanly on a truncated tail rather than throwing', () => {
-    // header with no following newline
-    expect(parseContent('1\tFoo')).toEqual([]);
+  it('returns an empty, error-free result for empty payload', () => {
+    const r = parseContent('');
+    expect(r.records).toEqual([]);
+    expect(r.error).toBeNull();
+  });
+
+  it('flags a count mismatch instead of silently dropping records', () => {
+    // Declares 2 records but only one well-formed record follows.
+    const r = parseContent('N\t2\t0\n1\tFoo\t1\nx');
+    expect(r.records).toHaveLength(1);
+    expect(r.error).toMatch(/count mismatch/);
+  });
+
+  it('flags a truncated tail rather than dropping silently', () => {
+    const r = parseContent('N\t1\t0\n1\tFoo'); // header with no newline
+    expect(r.error).not.toBeNull();
   });
 });

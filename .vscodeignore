@@ -23,6 +23,9 @@ mcp-server/node_modules/**
 !node_modules/koffi/build/**
 
 client/src/**
+# listFilter.js is read at runtime via fs.readFileSync and injected into the webview as a <script> tag.
+# It must ship as a standalone file — it cannot be compiled into the bundle.
+!client/src/listFilter.js
 server/src/**
 mcp-server/src/**
 

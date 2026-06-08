@@ -49,15 +49,26 @@ classes that actually changed.
 - One primitive (`fetchBlob`) used for both the manifest and content. Server
   stashes large payloads in `SessionTemps` and serves code-point slices;
   small payloads come back in the prepare call with nothing stored to release.
-- Slicing on **code-point** boundaries keeps every chunk valid UTF-8, so the
-  GCI wrapper's UTF-8 decode is lossless and plain string concatenation
-  reproduces the payload. Content records are **length-framed** (header line +
-  N code points), never delimiter-scanned, so Topaz `% ! \n \t` in bodies are
-  safe. A class larger than a chunk (e.g. `Object` ≈ 220 KB) simply spans
-  chunks. This also fixes a latent truncation bug: the old single-fetch path
-  silently cut off any class whose file-out exceeded the 256 KB result cap.
+- Slicing happens on **code-point** boundaries, and each chunk is then
+  `encodeAsUTF8`'d server-side so the GCI wrapper's UTF-8 decode is always
+  correct. This last part is essential: a file-out containing any non-ASCII
+  character is a wide (`Unicode16`) GemStone string whose raw bytes are *not*
+  UTF-8, so returning it directly corrupts the decode and desyncs the parser
+  (it silently dropped such classes before this was fixed). Content records are
+  **length-framed** (header line + N code points), never delimiter-scanned, so
+  Topaz `% ! \n \t` in bodies are safe. A class larger than a chunk (e.g.
+  `Object` ≈ 220 KB) simply spans chunks. This also fixes a latent truncation
+  bug: the old single-fetch path silently cut off any class whose file-out
+  exceeded the 256 KB result cap.
 - `browserQueries.executeFetchStringWithLimit` raises the result-buffer size
   per call (the default 256 KB cap is ours, not GCI's).
+- **Self-audit + timing.** Each payload carries a count header (`S`/`N` lines)
+  so the client can verify it received every class it asked for and that the
+  framing parsed cleanly — any shortfall is surfaced as a warning with the
+  missing names, never dropped silently. Each server response is also prefixed
+  with its build time (`Time millisecondsElapsedTime:`); combined with the
+  client wall-clock, the "GemStone Class Sync" output attributes a slow sync to
+  the server (build) vs the network (net ≈ wall − server).
 
 ### Lifecycle and layout
 

@@ -14,7 +14,8 @@ const h = vi.hoisted(() => {
     image: FakeImage;
     contentPrepares: number;
     fetchedClasses: string[];
-  } = { image: { dicts: [], classes: [] }, contentPrepares: 0, fetchedClasses: [] };
+    drop: Set<string>; // className(s) the fake server silently omits from content
+  } = { image: { dicts: [], classes: [] }, contentPrepares: 0, fetchedClasses: [], drop: new Set() };
 
   const fakeHash = (s: string): string => {
     let n = 0;
@@ -23,24 +24,29 @@ const h = vi.hoisted(() => {
   };
 
   const manifestPayload = (img: FakeImage): string => {
-    let out = '';
+    let body = '';
+    let classCount = 0;
     for (const d of img.dicts) {
-      out += `D\t${d.index}\t${d.name}\n`;
+      body += `D\t${d.index}\t${d.name}\n`;
       for (const c of img.classes.filter(c => c.dictIndex === d.index)) {
-        out += `C\t${d.index}\t${c.className}\t${fakeHash(c.source)}\n`;
+        classCount++;
+        body += `C\t${d.index}\t${c.className}\t${fakeHash(c.source)}\n`;
       }
     }
-    return out;
+    return `S\t${classCount}\t0\n${body}`;
   };
 
   const contentPayload = (img: FakeImage, refs: { dictIndex: number; className: string }[]): string => {
-    let out = '';
+    let body = '';
+    let count = 0;
     for (const r of refs) {
+      if (state.drop.has(r.className)) continue; // simulate server omitting a class
       const c = img.classes.find(c => c.dictIndex === r.dictIndex && c.className === r.className);
       if (!c) continue;
-      out += `${r.dictIndex}\t${r.className}\t${[...c.source].length}\n${c.source}`;
+      count++;
+      body += `${r.dictIndex}\t${r.className}\t${[...c.source].length}\n${c.source}`;
     }
-    return out;
+    return `N\t${count}\t0\n${body}`;
   };
 
   const dictNameOf = (img: FakeImage, idx: number) => img.dicts.find(d => d.index === idx)?.name;
@@ -83,11 +89,13 @@ const h = vi.hoisted(() => {
         const chunk = cm ? parseInt(cm[1], 10) : payload.length;
         const cps = [...payload];
         if (cps.length > chunk) stored = payload;
-        return `${cps.length}\n${cps.slice(0, Math.min(chunk, cps.length)).join('')}`;
+        // prepare → `serverMs \t total \n <firstChunk>`
+        return `0\t${cps.length}\n${cps.slice(0, Math.min(chunk, cps.length)).join('')}`;
       }
       if (label.endsWith(':fetch')) {
         const m = code.match(/copyFrom: (\d+) to: (\d+)/)!;
-        return [...(stored ?? '')].slice(parseInt(m[1], 10) - 1, parseInt(m[2], 10)).join('');
+        // fetch → `serverMs \n <chunk>`
+        return `0\n${[...(stored ?? '')].slice(parseInt(m[1], 10) - 1, parseInt(m[2], 10)).join('')}`;
       }
       if (label.endsWith(':release')) { stored = null; return ''; }
       return '';
@@ -111,7 +119,8 @@ const h = vi.hoisted(() => {
       const d = state.image.dicts.find(d => d.index === index);
       if (d) d.name = name;
     },
-    reset: () => { state.contentPrepares = 0; state.fetchedClasses = []; },
+    dropClass: (className: string) => state.drop.add(className),
+    reset: () => { state.contentPrepares = 0; state.fetchedClasses = []; state.drop.clear(); },
     contentPrepares: () => state.contentPrepares,
     fetchedClasses: () => state.fetchedClasses,
     boundLimitExecutor: vi.fn(() => makeExecutor()),
@@ -427,6 +436,31 @@ describe('ExportManager (incremental sync)', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+
+  describe('audit (missing classes are surfaced, not silently dropped)', () => {
+    it('warns and skips the success toast when the server omits a requested class', async () => {
+      const session = createMockSession();
+      h.dropClass('Array'); // server silently omits Array from the content batch
+      await manager.exportSession(session);
+
+      expect(fs.existsSync(path.join(root(session), '2-Globals', 'Array.gs'))).toBe(false);
+      expect(fs.existsSync(path.join(root(session), '1-UserGlobals', 'MyClass.gs'))).toBe(true);
+      expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
+        expect.stringContaining('could not be written'));
+      expect(vscode.window.showInformationMessage).not.toHaveBeenCalledWith(
+        expect.stringContaining('Synced GemStone classes'));
+    });
+
+    it('does not record a missing class in state, so the next sync re-fetches it', async () => {
+      const session = createMockSession();
+      h.dropClass('Array');
+      await manager.exportSession(session);
+      h.reset(); // stop dropping
+      await manager.refreshSession(session);
+      expect(fs.existsSync(path.join(root(session), '2-Globals', 'Array.gs'))).toBe(true);
+      expect(h.fetchedClasses()).toEqual(['Array']); // only the previously-missing one
     });
   });
 

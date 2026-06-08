@@ -11,6 +11,7 @@ import {
   wslMkdirSync,
   wslWriteFileSync,
   wslCopyFileSync,
+  wslImportFileSync,
   wslUnlinkSync,
   wslRmSync,
   wslChmodSync,
@@ -291,25 +292,54 @@ export class DatabaseManager {
       return false;
     }
 
+    // Offer the vendor-supplied extents plus a "browse" escape hatch so the
+    // user can seed from an extent copied off another machine. Browse is
+    // always available, so a not-yet-extracted version no longer blocks this.
+    const browseItem: vscode.QuickPickItem = {
+      label: '$(folder-opened) Browse for extent file…',
+      detail: 'Copy an extent from another location (e.g. a copy from another machine)',
+    };
+    const currentExtent = db.config.baseExtent.replace(/\.dbf$/, '');
+    const items: vscode.QuickPickItem[] = [browseItem];
     const extents = this.storage.getAvailableExtents(db.config.version);
-    if (extents.length === 0) {
-      vscode.window.showErrorMessage(
-        `No extent files found for version ${db.config.version}. Is it still extracted?`,
-      );
-      return false;
+    if (extents.length > 0) {
+      items.push({ label: 'Initial databases', kind: vscode.QuickPickItemKind.Separator });
+      items.push(...extents.map(e => ({ label: e, picked: e === currentExtent })));
     }
 
-    // Default selection to current base extent (without .dbf)
-    const currentExtent = db.config.baseExtent.replace(/\.dbf$/, '');
-    const extentPick = await vscode.window.showQuickPick(
-      extents.map(e => ({ label: e, picked: e === currentExtent })),
-      { placeHolder: 'Select new base extent', title: `Replace extent for ${db.config.stoneName}` },
-    );
-    if (!extentPick) return false;
-    const newExtent = extentPick.label;
+    const pick = await vscode.window.showQuickPick(items, {
+      placeHolder: 'Select new base extent',
+      title: `Replace extent for ${db.config.stoneName}`,
+    });
+    if (!pick) return false;
+
+    // Resolve the source path and the name to record in database.yaml.
+    let extentSource: string;
+    let baseExtentName: string;
+    if (pick === browseItem) {
+      const selection = await vscode.window.showOpenDialog({
+        canSelectFiles: true,
+        canSelectFolders: false,
+        canSelectMany: false,
+        openLabel: 'Select Extent',
+        title: `Select an extent file to copy into ${db.config.stoneName}`,
+        filters: { 'Extent files': ['dbf'], 'All files': ['*'] },
+      });
+      if (!selection?.[0]) return false;
+      extentSource = selection[0].fsPath;
+      baseExtentName = path.basename(extentSource);
+    } else {
+      const gsPath = this.storage.getGemstonePath(db.config.version);
+      if (!gsPath) {
+        vscode.window.showErrorMessage(`GemStone ${db.config.version} not found.`);
+        return false;
+      }
+      extentSource = path.join(gsPath, 'bin', `${pick.label}.dbf`);
+      baseExtentName = `${pick.label}.dbf`;
+    }
 
     const confirmed = await vscode.window.showWarningMessage(
-      `Replace the database for "${db.config.stoneName}" with ${newExtent}? ` +
+      `Replace the database for "${db.config.stoneName}" with ${baseExtentName}? ` +
       `This will delete the current extent and all transaction logs. This cannot be undone.`,
       { modal: true },
       'Replace',
@@ -319,36 +349,44 @@ export class DatabaseManager {
     return vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: `Replacing extent for ${db.config.stoneName}...` },
       async (progress) => {
-        const dataDir = path.join(db.path, 'data');
-
-        // Delete all .dbf files in data/
-        progress.report({ message: 'Removing old extent and transaction logs...' });
-        for (const entry of wslReaddirSync(dataDir)) {
-          if (entry.endsWith('.dbf')) {
-            wslUnlinkSync(path.join(dataDir, entry));
+        try {
+          // Verify the source exists before deleting anything, so a missing or
+          // unreadable source can't leave the database with no extent at all.
+          if (!wslExistsSync(extentSource)) {
+            vscode.window.showErrorMessage(`Extent file not found: ${extentSource}`);
+            return false;
           }
-        }
 
-        // Copy new extent
-        progress.report({ message: 'Copying new extent (this may take a moment)...' });
-        const gsPath = this.storage.getGemstonePath(db.config.version);
-        if (!gsPath) {
-          vscode.window.showErrorMessage(`GemStone ${db.config.version} not found.`);
+          const dataDir = path.join(db.path, 'data');
+
+          // Delete all .dbf files in data/
+          progress.report({ message: 'Removing old extent and transaction logs...' });
+          for (const entry of wslReaddirSync(dataDir)) {
+            if (entry.endsWith('.dbf')) {
+              wslUnlinkSync(path.join(dataDir, entry));
+            }
+          }
+
+          // Copy new extent (source may be on a different filesystem than the
+          // WSL-side database, so use the cross-filesystem-aware import).
+          progress.report({ message: 'Copying new extent (this may take a moment)...' });
+          const extentDest = path.join(dataDir, 'extent0.dbf');
+          wslImportFileSync(extentSource, extentDest);
+          wslChmodSync(extentDest, 0o644);
+
+          // Update database.yaml
+          progress.report({ message: 'Updating configuration...' });
+          wslWriteFileSync(path.join(db.path, 'database.yaml'),
+            `---\nbaseExtent: "${baseExtentName}"\nldiName: "${db.config.ldiName}"\n` +
+            `stoneName: "${db.config.stoneName}"\nversion: "${db.config.version}"\n`);
+
+          appendSysadmin(`Replaced extent for ${db.config.stoneName} with ${baseExtentName}`);
+          return true;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          vscode.window.showErrorMessage(`Replace extent failed: ${msg}`);
           return false;
         }
-        const extentSource = path.join(gsPath, 'bin', `${newExtent}.dbf`);
-        const extentDest = path.join(dataDir, 'extent0.dbf');
-        wslCopyFileSync(extentSource, extentDest);
-        wslChmodSync(extentDest, 0o644);
-
-        // Update database.yaml
-        progress.report({ message: 'Updating configuration...' });
-        wslWriteFileSync(path.join(db.path, 'database.yaml'),
-          `---\nbaseExtent: "${newExtent}.dbf"\nldiName: "${db.config.ldiName}"\n` +
-          `stoneName: "${db.config.stoneName}"\nversion: "${db.config.version}"\n`);
-
-        appendSysadmin(`Replaced extent for ${db.config.stoneName} with ${newExtent}.dbf`);
-        return true;
       },
     );
   }

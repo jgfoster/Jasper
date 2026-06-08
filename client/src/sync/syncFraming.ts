@@ -7,10 +7,12 @@
 //
 // Two formats:
 //   Manifest  — line oriented, used to diff what changed:
+//       S \t <classCount> \t <methodCount>            (server's own count, for audit)
 //       D \t <dictIndex> \t <dictName>
 //       C \t <dictIndex> \t <className> \t <md5-decimal>
-//   Content   — length framed, carries class source whose body contains
-//       newlines, tabs and '%' / '!' from Topaz, so we never scan the body:
+//   Content   — a count header then length-framed records (the source body
+//       contains newlines, tabs and '%' / '!' from Topaz, so we never scan it):
+//       N \t <classCount> \t <methodCount>            (for the end-of-batch audit)
 //       <dictIndex> \t <className> \t <codePointLen> \n
 //       <codePointLen code points of file-out source>
 //       <dictIndex> \t ...                              (next record, no separator)
@@ -30,12 +32,26 @@ export interface ClassHashEntry {
 export interface Manifest {
   dictionaries: DictEntry[];
   classes: ClassHashEntry[];
+  // From the server's `S` summary line: the counts it believes it emitted. Used
+  // to detect a truncated manifest (server count ≠ parsed C-line count).
+  classCount: number | null;
+  methodCount: number | null;
 }
 
 export interface ClassSource {
   dictIndex: number;
   className: string;
   source: string;
+}
+
+export interface ContentParseResult {
+  records: ClassSource[];
+  // From the server's `N` count header (null if absent).
+  declaredCount: number | null;
+  declaredMethods: number | null;
+  // Set when framing desyncs or the parsed count disagrees with the declared
+  // count — surfaced loudly by the caller instead of silently dropping records.
+  error: string | null;
 }
 
 // Advance `count` Unicode code points starting at UTF-16 index `start`, returning
@@ -69,10 +85,15 @@ export function parseManifest(payload: string): Manifest {
   const dictionaries: DictEntry[] = [];
   const nameByIndex = new Map<number, string>();
   const rawClasses: { dictIndex: number; className: string; hash: string }[] = [];
+  let classCount: number | null = null;
+  let methodCount: number | null = null;
   for (const line of payload.split('\n')) {
     if (line.length === 0) continue;
     const p = line.split('\t');
-    if (p[0] === 'D' && p.length >= 3) {
+    if (p[0] === 'S' && p.length >= 3) {
+      classCount = parseInt(p[1], 10);
+      methodCount = parseInt(p[2], 10);
+    } else if (p[0] === 'D' && p.length >= 3) {
       const dictIndex = parseInt(p[1], 10);
       dictionaries.push({ dictIndex, dictName: p[2] });
       nameByIndex.set(dictIndex, p[2]);
@@ -89,26 +110,54 @@ export function parseManifest(payload: string): Manifest {
     className: c.className,
     hash: c.hash,
   }));
-  return { dictionaries, classes };
+  return { dictionaries, classes, classCount, methodCount };
 }
 
-export function parseContent(payload: string): ClassSource[] {
-  const out: ClassSource[] = [];
+export function parseContent(payload: string): ContentParseResult {
+  const records: ClassSource[] = [];
+  let declaredCount: number | null = null;
+  let declaredMethods: number | null = null;
+  let error: string | null = null;
   let i = 0;
   const n = payload.length;
+
+  // Optional count header: `N \t <classes> \t <methods>`
+  if (payload.startsWith('N\t')) {
+    const nl = payload.indexOf('\n');
+    if (nl >= 0) {
+      const parts = payload.slice(0, nl).split('\t');
+      declaredCount = parseInt(parts[1], 10);
+      declaredMethods = parseInt(parts[2], 10);
+      i = nl + 1;
+    }
+  }
+
   while (i < n) {
     const nl = payload.indexOf('\n', i);
-    if (nl < 0) break; // malformed / truncated tail — stop rather than guess
+    if (nl < 0) {
+      error = `truncated record header at offset ${i}`;
+      break;
+    }
     const header = payload.slice(i, nl);
     const parts = header.split('\t');
-    if (parts.length < 3) break;
+    if (parts.length < 3) {
+      error = `malformed record header at offset ${i}: ${JSON.stringify(header.slice(0, 80))}`;
+      break;
+    }
     const dictIndex = parseInt(parts[0], 10);
     const className = parts[1];
     const charLen = parseInt(parts[2], 10);
-    if (Number.isNaN(charLen)) break;
+    if (Number.isNaN(charLen)) {
+      error = `non-numeric record length at offset ${i}: ${JSON.stringify(header.slice(0, 80))}`;
+      break;
+    }
     const { end, text } = takeCodePoints(payload, nl + 1, charLen);
-    out.push({ dictIndex, className, source: text });
+    records.push({ dictIndex, className, source: text });
     i = end;
   }
-  return out;
+
+  if (error === null && declaredCount !== null && records.length !== declaredCount) {
+    error = `record count mismatch: server declared ${declaredCount}, parsed ${records.length}`;
+  }
+  return { records, declaredCount, declaredMethods, error };
 }

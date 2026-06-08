@@ -192,6 +192,29 @@ describe('SystemBrowser', () => {
     (SystemBrowser as unknown as { lastActive: Map<number, unknown> }).lastActive = new Map();
   });
 
+  describe('webview HTML', () => {
+    beforeEach(() => {
+      SystemBrowser.show(session, exportManager);
+    });
+
+    it('includes a list-filter for each column list', () => {
+      const html = mockPanel.webview.html;
+      expect(html).toContain('list-filter for="list-dicts"');
+      expect(html).toContain('list-filter for="list-categories"');
+      expect(html).toContain('list-filter for="list-classes"');
+      expect(html).toContain('list-filter for="list-method-cats"');
+      expect(html).toContain('list-filter for="list-methods"');
+    });
+
+    it('includes a Clear filters button', () => {
+      expect(mockPanel.webview.html).toContain('clearFiltersBtn');
+    });
+
+    it('includes the inlined listFilter.js script tag', () => {
+      expect(mockPanel.webview.html).toMatch(/<script nonce="[^"]*"><\/script>/);
+    });
+  });
+
   describe('show', () => {
     it('creates a new panel with initial title Browser', () => {
       SystemBrowser.show(session, exportManager);

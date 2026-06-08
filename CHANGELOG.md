@@ -4,6 +4,31 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+### Fixed
+
+- **Classes whose source contains a non-ASCII character (e.g. an em dash) are no longer silently dropped from the `.gemstone` mirror.** Such a file-out is a wide (`Unicode16`) GemStone string, and the sync transport returned it via `GciTsExecuteFetchBytes` — whose bytes are not UTF-8 for a wide string — so the client's UTF-8 decode corrupted the payload and desynced the length-framed parser, dropping the rest of that batch (a large, stable fraction of classes on images with any Unicode in their source). Each transport chunk is now encoded to UTF-8 server-side (`encodeAsUTF8`) after slicing on code-point boundaries, so the decode is always correct. A GCI integration test round-trips a class containing an em dash.
+
+### Added
+
+- **The class-sync engine now audits itself and reports failures prominently.** The server states how many classes/methods each payload contains; the client checks that every requested class came back and that batch framing parsed cleanly, and surfaces any shortfall as a warning (with the missing class names in the "GemStone Class Sync" output) instead of failing silently. A missing class is not recorded in the persisted state, so the next sync re-fetches it.
+- **Per-request sync timing in the "GemStone Class Sync" output.** Every log line is timestamped, each request logs its client wall-clock time, and the server returns its own build time (`Time millisecondsElapsedTime:`) in-band, so a slow sync can be attributed to the server (build) vs the network (net ≈ wall − server).
+
+## [1.5.8] - 2026-06-05
+
+### Added
+
+- **Live search filter in the System Browser.** A filter box now sits above every column in the System Browser. As you type, matching entries are highlighted in bold at the matching portion — non-matching items remain visible. The first match is automatically focused so you can press **Enter** to select it without touching the mouse. Use **↑ / ↓** to move through matches (wrapping at both ends), and **Escape** to clear the filter and restore the full list. A **✕** button in the filter box and a **Clear all filters** button in the toolbar let you reset filters with the mouse. Filters survive column selections and automatically re-focus the first matching entry whenever a list is refreshed from the server.
+
+### Fixed
+
+- **Session no longer gets stuck in executing state when execution fails before it starts.** The "Executing…" indicator (dimmed selection, spinner, and command context) is now set immediately before the GCI call, so if an early validation fails (e.g. the String class cannot be resolved) the session state is never dirtied.
+
+## [1.5.7] - 2026-06-04
+
+### Added
+
+- **Replace a database's extent from any file on disk, not just the bundled starter extents.** The Databases panel's **Replace Extent** action (on a stopped stone) now offers a **"Browse for extent file…"** option alongside the vendor-supplied initial extents, so you can seed a database from an `extent0.dbf` copied from another machine. The selected file replaces the current extent (the old extent and transaction logs are cleared first, after the new source is confirmed to exist), and on Windows the copy bridges the Windows and WSL filesystems so a file picked from `C:\…` lands correctly in the WSL-side database.
+
 ## [1.5.6] - 2026-06-03
 
 ### Changed

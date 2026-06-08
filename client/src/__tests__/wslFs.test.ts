@@ -39,6 +39,7 @@ import {
   wslMkdirSync,
   wslWriteFileSync,
   wslCopyFileSync,
+  wslImportFileSync,
   wslUnlinkSync,
   wslRmSync,
   wslChmodSync,
@@ -171,6 +172,24 @@ describe('wslFs', () => {
 
     it('rejects mixed Windows/WSL copies', () => {
       expect(() => wslCopyFileSync(UNC, 'C:\\out.bin')).toThrow(/cannot copy between/);
+    });
+  });
+
+  describe('wslImportFileSync', () => {
+    it('bridges a Windows-side source into a WSL-side destination via cp inside WSL', () => {
+      vi.mocked(needsWsl).mockReturnValue(true);
+      vi.mocked(wslExecSync).mockReturnValue('');
+      wslImportFileSync('C:\\seed\\extent0.dbf', UNC + '\\data\\extent0.dbf');
+      expect(vi.mocked(wslExecSync).mock.calls[0][0]).toBe(
+        "cp -p '/mnt/c/seed/extent0.dbf' '/home/james/db-1/data/extent0.dbf'",
+      );
+    });
+
+    it('falls back to fs.copyFileSync on non-Windows hosts', () => {
+      vi.mocked(needsWsl).mockReturnValue(false);
+      wslImportFileSync('/seed/extent0.dbf', '/home/james/db-1/data/extent0.dbf');
+      expect(fs.copyFileSync).toHaveBeenCalledWith('/seed/extent0.dbf', '/home/james/db-1/data/extent0.dbf');
+      expect(wslExecSync).not.toHaveBeenCalled();
     });
   });
 

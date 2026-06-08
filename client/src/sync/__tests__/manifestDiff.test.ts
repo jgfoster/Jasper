@@ -11,6 +11,8 @@ function manifest(rows: [number, string, string, string][]): Manifest {
     classes: rows.map(([dictIndex, dictName, className, hash]) => ({
       dictIndex, dictName, className, hash,
     })),
+    classCount: rows.length,
+    methodCount: null,
   };
 }
 
