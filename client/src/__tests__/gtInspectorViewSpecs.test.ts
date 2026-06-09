@@ -47,6 +47,7 @@ describe('getGtViewSpecs', () => {
     expect.assertions(1);
     const execute = vi.fn(() => '[]');
     getGtViewSpecs(execute, 99999n);
-    expect(execute.mock.calls[0][1]).toContain('99999');
+    const code = (execute as ReturnType<typeof vi.fn>).mock.calls[0][1] as string;
+    expect(code).toContain('99999');
   });
 });
