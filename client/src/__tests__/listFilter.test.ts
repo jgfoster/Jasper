@@ -18,6 +18,7 @@ beforeAll(() => {
 type ListFilterClass = {
   new(): ListFilterInstance;
   clearAllFilters(): void;
+  refreshFilterOf(listElement: HTMLElement): void;
 };
 
 type ListFilterInstance = HTMLElement & {
@@ -392,33 +393,108 @@ describe('ListFilter', () => {
     });
   });
 
-  describe('refreshFilter hook', () => {
-    it('wires a refreshFilter function onto the list element when accessed', () => {
-      const list = makeList('items', ['Array']);
+  describe('refreshFilterOf', () => {
+    it('applies the current filter to the given list element', () => {
+      const list = makeList('items', ['Array', 'Bag', 'Barrage']);
       const filter = makeFilter('items');
+      filter.searchBox.value = 'arr';
 
-      // Trigger list() by calling applyFilter
-      filter.applyFilter();
+      getListFilterClass().refreshFilterOf(list);
 
-      expect(typeof (list as HTMLElement & { refreshFilter?: unknown }).refreshFilter).toBe('function');
+      expect(filter.matchedItems).toHaveLength(2);
+      expect(filter.matchedItems.map(el => (el as HTMLElement).dataset.value)).toEqual(['Array', 'Barrage']);
     });
 
-    it('calling refreshFilter re-applies the current filter', () => {
-      // 'Barrage' contains 'arr' at index 1; 'Array' contains 'arr' at index 0
-      const list = makeList('items', ['Array', 'Bag', 'Barrage']) as HTMLDivElement & { refreshFilter?(): void };
+    it('picks up a changed query when called after searchBox value changes', () => {
+      const list = makeList('items', ['Array', 'Bag', 'Barrage']);
       const filter = makeFilter('items');
-
-      // First apply with 'arr' — Array and Barrage match, Bag does not
       filter.searchBox.value = 'arr';
-      filter.applyFilter(); // wires refreshFilter onto the list element
+      filter.applyFilter();
       expect(filter.matchedItems).toHaveLength(2);
 
-      // Change query and re-apply via refreshFilter
       filter.searchBox.value = 'bag';
-      list.refreshFilter!();
+      getListFilterClass().refreshFilterOf(list);
 
       expect(filter.matchedItems).toHaveLength(1);
       expect((filter.matchedItems[0] as HTMLElement).dataset.value).toBe('Bag');
+    });
+
+    it('re-applies the active filter against new children after list repopulation', () => {
+      const list = makeList('items', ['OldClass']);
+      const filter = makeFilter('items');
+      filter.searchBox.value = 'arr';
+      filter.applyFilter(); // user has an active query
+
+      // Server repopulates the list — replace contents using makeList's schema
+      list.innerHTML = '';
+      makeList('items-tmp', ['Array', 'Bag', 'Barrage'])
+        .querySelectorAll('.item')
+        .forEach(el => list.appendChild(el));
+
+      getListFilterClass().refreshFilterOf(list);
+
+      expect(filter.matchedItems).toHaveLength(2);
+      expect(filter.matchedItems.map(el => (el as HTMLElement).dataset.value)).toEqual(['Array', 'Barrage']);
+    });
+
+    it('does nothing when no filter is associated with the list element', () => {
+      const list = makeList('unfiltered-list', ['Array', 'Bag']);
+      const before = list.innerHTML;
+
+      getListFilterClass().refreshFilterOf(list);
+
+      expect(list.innerHTML).toBe(before);
+    });
+
+    it('does nothing when the list element has no id', () => {
+      const list = document.createElement('div');
+      const before = list.innerHTML;
+
+      getListFilterClass().refreshFilterOf(list);
+
+      expect(list.innerHTML).toBe(before);
+    });
+
+    it('throws when more than one filter is defined for the same list', () => {
+      const list = makeList('items', ['Array', 'Bag']);
+      makeFilter('items');
+      makeFilter('items');
+
+      expect(() => getListFilterClass().refreshFilterOf(list)).toThrow('Found 2 list-filter elements for #items — only one filter per list is supported.');
+    });
+
+    it('finds the filter when the list id contains a double quote', () => {
+      const list = makeList('list"items', ['Array', 'Bag']);
+      const filter = makeFilter('list"items');
+      filter.searchBox.value = 'arr';
+
+      getListFilterClass().refreshFilterOf(list);
+
+      expect(filter.matchedItems).toHaveLength(1);
+      expect((filter.matchedItems[0] as HTMLElement).dataset.value).toBe('Array');
+    });
+  });
+
+  describe('list() lazy loading', () => {
+    it('does nothing when the list element is not yet in the DOM', () => {
+      const filter = makeFilter('items');
+      filter.searchBox.value = 'arr';
+
+      filter.applyFilter();
+
+      expect(filter.matchedItems).toHaveLength(0);
+    });
+
+    it('applies the filter once the list is added to the DOM after a failed lookup', () => {
+      const filter = makeFilter('items');
+      filter.searchBox.value = 'arr';
+      filter.applyFilter(); // list not in DOM yet — no-op
+
+      makeList('items', ['Array', 'Bag']);
+      filter.applyFilter();
+
+      expect(filter.matchedItems).toHaveLength(1);
+      expect((filter.matchedItems[0] as HTMLElement).dataset.value).toBe('Array');
     });
   });
 
