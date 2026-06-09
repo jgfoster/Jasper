@@ -8,7 +8,7 @@ import { fetchBlob, newStats, RequestTiming } from './sync/syncTransport';
 import {
   MANIFEST_BUILD_EXPR, contentBuildExpr, syncClassBuildExpr, SYNC_REFS_PER_BATCH, ClassRef,
 } from './sync/syncProtocol';
-import { parseManifest, parseContent } from './sync/syncFraming';
+import { parseManifest, parseContent, ClassSource } from './sync/syncFraming';
 import {
   diffManifest, stateFromManifest, emptyState, entryKey, splitKey, chunkRefs,
   MirrorState,
@@ -16,6 +16,10 @@ import {
 
 const STATE_FILE = '.manifest.json';
 const STATE_VERSION = 1;
+
+// Files written/deleted concurrently during a sync. Overlapping per-file latency
+// keeps a slow or network filesystem from serializing thousands of tiny writes.
+const SYNC_WRITE_CONCURRENCY = 32;
 
 interface PersistedState {
   version: number;
@@ -155,6 +159,9 @@ export class ExportManager {
       async (progress, token) => {
         const startMs = Date.now();
         const exec = boundLimitExecutor(session);
+        const readOnly = vscode.workspace
+          .getConfiguration('gemstone')
+          .get<boolean>('classSync.readOnlyMirror', true);
 
         // Per-request timing line, so a slow sync can be localized to the server
         // (build) vs the network (net ≈ wall − server).
@@ -216,15 +223,17 @@ export class ExportManager {
             currentDictDirs.add(dir);
           }
 
-          // 3. Delete classes that no longer exist.
-          const delT0 = Date.now();
+          // 3. Delete classes that no longer exist (in parallel).
+          const deletePaths: string[] = [];
           for (const key of toDeleteKeys) {
             const { dictIndex, dictName, className } = splitKey(key);
             const dir = this.getDictPath(session, dictIndex, dictName);
-            if (dir) this.deleteClassFile(dir, className);
+            if (dir) deletePaths.push(path.join(dir, `${className}.gs`));
             delete newState.classes[key];
             deleted++;
           }
+          const delT0 = Date.now();
+          await runPool(deletePaths, SYNC_WRITE_CONCURRENCY, fp => this.deleteClassFileAsync(fp));
           deleteMs += Date.now() - delT0;
 
           // 4. Fetch & write changed/new classes in batches.
@@ -240,20 +249,28 @@ export class ExportManager {
             }
             const parsed = parseContent(payload);
             if (parsed.error) parseErrors.push(parsed.error);
-            const got = new Set<string>();
+
+            // Resolve write targets (cheap), then write them in parallel.
+            const writes: { rec: ClassSource; dictName: string; filePath: string }[] = [];
             for (const rec of parsed.records) {
               const dictName = dictNameByIndex.get(rec.dictIndex);
               if (dictName === undefined) continue;
               const dir = this.getDictPath(session, rec.dictIndex, dictName)!;
-              const wt0 = Date.now();
-              this.writeClassFile(dir, rec.className, rec.source);
-              writeMs += Date.now() - wt0;
-              const key = entryKey(rec.dictIndex, dictName, rec.className);
+              writes.push({ rec, dictName, filePath: path.join(dir, `${rec.className}.gs`) });
+            }
+            const got = new Set<string>();
+            const wt0 = Date.now();
+            await runPool(writes, SYNC_WRITE_CONCURRENCY, async (w) => {
+              const ok = await this.writeClassFileAsync(w.filePath, w.rec.source, readOnly);
+              if (!ok) return;
+              const key = entryKey(w.rec.dictIndex, w.dictName, w.rec.className);
               const h = hashByKey.get(key);
               if (h !== undefined) newState.classes[key] = h;
-              got.add(`${rec.dictIndex}\t${rec.className}`);
+              got.add(`${w.rec.dictIndex}\t${w.rec.className}`);
               fetched++;
-            }
+            });
+            writeMs += Date.now() - wt0;
+
             for (const ref of batch) {
               if (!got.has(`${ref.dictIndex}\t${ref.className}`)) missing.push(ref);
             }
@@ -261,9 +278,6 @@ export class ExportManager {
               message: `${fetched}/${toFetch.length} classes`,
               increment: toFetch.length > 0 ? (batch.length / toFetch.length) * 100 : 0,
             });
-            // Yield so the progress UI repaints and Cancel stays responsive
-            // between the (synchronous, blocking) GCI batch fetches.
-            await new Promise(resolve => setImmediate(resolve));
           }
 
           // 5. Prune dictionary directories that no longer exist.
@@ -348,11 +362,14 @@ export class ExportManager {
       const source = payload.slice(nl + 1);
       const dir = this.getDictPath(session, dictIndex, dictName);
       if (!dir) return;
+      const readOnly = vscode.workspace
+        .getConfiguration('gemstone')
+        .get<boolean>('classSync.readOnlyMirror', true);
 
       this.writing = true;
       try {
         fs.mkdirSync(dir, { recursive: true });
-        this.writeClassFile(dir, className, source);
+        await this.writeClassFileAsync(path.join(dir, `${className}.gs`), source, readOnly);
       } finally {
         this.writing = false;
       }
@@ -466,15 +483,54 @@ export class ExportManager {
 
   // ── file helpers ─────────────────────────────────────────────────────────────
 
-  private writeClassFile(dir: string, className: string, source: string): void {
-    const filePath = path.join(dir, `${className}.gs`);
+  // Write one mirror file. Skips an upfront existsSync (one fewer syscall per
+  // file) by writing directly and, only if that fails because the file is an
+  // existing read-only mirror file, making it writable and retrying. Returns
+  // false (and logs) if the class could not be written, so the audit catches it.
+  private async writeClassFileAsync(
+    filePath: string, source: string, readOnly: boolean,
+  ): Promise<boolean> {
     try {
-      // Mirror files are read-only; make writable before overwriting.
-      if (fs.existsSync(filePath)) fs.chmodSync(filePath, 0o644);
-      fs.writeFileSync(filePath, source, 'utf-8');
-      fs.chmodSync(filePath, 0o444);
+      await fs.promises.writeFile(filePath, source, 'utf-8');
     } catch (e) {
-      this.log(`Failed to write ${className}: ${e instanceof Error ? e.message : String(e)}`);
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === 'EACCES' || code === 'EPERM') {
+        try {
+          await fs.promises.chmod(filePath, 0o644);
+          await fs.promises.writeFile(filePath, source, 'utf-8');
+        } catch (e2) {
+          this.log(`Failed to write ${path.basename(filePath)}: ${e2 instanceof Error ? e2.message : String(e2)}`);
+          return false;
+        }
+      } else {
+        this.log(`Failed to write ${path.basename(filePath)}: ${e instanceof Error ? e.message : String(e)}`);
+        return false;
+      }
+    }
+    if (readOnly) {
+      try {
+        await fs.promises.chmod(filePath, 0o444);
+      } catch {
+        /* best effort — a writable mirror file is still usable */
+      }
+    }
+    return true;
+  }
+
+  private async deleteClassFileAsync(filePath: string): Promise<void> {
+    try {
+      await fs.promises.unlink(filePath);
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') return; // already gone
+      if (code === 'EACCES' || code === 'EPERM') {
+        try {
+          await fs.promises.chmod(filePath, 0o644);
+          await fs.promises.unlink(filePath);
+        } catch {
+          /* ignore */
+        }
+      }
     }
   }
 
@@ -525,6 +581,20 @@ function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Run `fn` over `items` with at most `limit` promises in flight at once.
+async function runPool<T>(
+  items: T[], limit: number, fn: (item: T) => Promise<void>,
+): Promise<void> {
+  if (items.length === 0) return;
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      await fn(items[next++]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
 }
 
 // Re-exported so callers/tests can reference the ref shape without reaching into
