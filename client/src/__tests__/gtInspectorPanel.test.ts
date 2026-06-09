@@ -291,6 +291,89 @@ describe('GtInspector', () => {
     });
   });
 
+  describe('H — fetchMoreRows', () => {
+    it('posts gtMoreRows (not gtViewData) with list data', () => {
+      expect.assertions(1);
+      vi.mocked(queries.fetchGtListData).mockReturnValue('[1,2,3]');
+      setup();
+      mock.sendMessage({ command: 'fetchMoreRows', oop: '1000', methodSelector: 'gtItemsFor:', viewName: 'GtPhlowListViewSpecification', fromIndex: 11 });
+      expect(mock.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'gtMoreRows', methodSelector: 'gtItemsFor:', data: '[1,2,3]' }),
+      );
+    });
+
+    it('passes fromIndex through to the query function', () => {
+      expect.assertions(1);
+      vi.mocked(queries.fetchGtListData).mockReturnValue('[]');
+      setup();
+      mock.sendMessage({ command: 'fetchMoreRows', oop: '1000', methodSelector: 'gtItemsFor:', viewName: 'GtPhlowListViewSpecification', fromIndex: 21 });
+      expect(queries.fetchGtListData).toHaveBeenCalledWith(expect.any(Function), 1000n, 'gtItemsFor:', 21, expect.any(Number));
+    });
+  });
+
+  describe('I — fetchGtRangeData', () => {
+    it('routes non-forward view to fetchGtListData and posts gtRangeData with rangeStart', () => {
+      expect.assertions(2);
+      vi.mocked(queries.fetchGtListData).mockReturnValue('[4,5,6]');
+      setup();
+      mock.sendMessage({ command: 'fetchGtRangeData', oop: '1000', methodSelector: 'gtItemsFor:', viewName: 'GtPhlowListViewSpecification', fromIndex: 5, rangeStart: 5 });
+      expect(queries.fetchGtListData).toHaveBeenCalled();
+      expect(mock.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'gtRangeData', methodSelector: 'gtItemsFor:', rangeStart: 5, data: '[4,5,6]' }),
+      );
+    });
+
+    it('routes forward view to fetchGtForwardListData', () => {
+      expect.assertions(1);
+      vi.mocked(queries.fetchGtForwardListData).mockReturnValue('[7,8,9]');
+      setup();
+      mock.sendMessage({ command: 'fetchGtRangeData', oop: '1000', methodSelector: 'gtForwardFor:', viewName: 'GtPhlowForwardViewSpecification', fromIndex: 1, rangeStart: 1 });
+      expect(queries.fetchGtForwardListData).toHaveBeenCalled();
+    });
+  });
+
+  describe('J — fetchGtTreeChildren', () => {
+    it('calls fetchGtTreeChildren and posts gtTreeChildren with path and data', () => {
+      expect.assertions(2);
+      vi.mocked(queries.fetchGtTreeChildren).mockReturnValue('[{"label":"child"}]');
+      setup();
+      mock.sendMessage({ command: 'fetchGtTreeChildren', itemOop: '2000', methodSelector: 'gtTreeFor:', path: [1, 2] });
+      expect(queries.fetchGtTreeChildren).toHaveBeenCalledWith(expect.any(Function), 2000n, 'gtTreeFor:', [1, 2]);
+      expect(mock.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'gtTreeChildren', methodSelector: 'gtTreeFor:', path: [1, 2], data: '[{"label":"child"}]' }),
+      );
+    });
+  });
+
+  describe('K — fetchFullPrintString', () => {
+    it('wraps fetchFullPrintString result in JSON with stylerSpecification null and posts fullPrintString', () => {
+      expect.assertions(2);
+      vi.mocked(debug.fetchFullPrintString).mockReturnValue('this is the full text');
+      setup();
+      mock.sendMessage({ command: 'fetchFullPrintString', oop: '1000', methodSelector: 'gtPrintFor:' });
+      expect(debug.fetchFullPrintString).toHaveBeenCalled();
+      expect(mock.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: 'fullPrintString',
+          methodSelector: 'gtPrintFor:',
+          data: JSON.stringify({ string: 'this is the full text', stylerSpecification: null }),
+        }),
+      );
+    });
+  });
+
+  describe('L — fetchMethodSource', () => {
+    it('posts methodSource with source, methodSelector, and isClassSide', () => {
+      expect.assertions(1);
+      vi.mocked(queries.fetchMethodSource).mockReturnValue('size\n  ^ self basicSize');
+      setup();
+      mock.sendMessage({ command: 'fetchMethodSource', oop: '1000', methodSelector: 'size', isClassSide: false });
+      expect(mock.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'methodSource', methodSelector: 'size', isClassSide: false, source: 'size\n  ^ self basicSize' }),
+      );
+    });
+  });
+
   describe('G — browseMethod', () => {
     it('calls SystemBrowser.navigateBeside when location is found', () => {
       expect.assertions(1);
