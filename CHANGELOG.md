@@ -4,6 +4,10 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+### Fixed
+
+- **Search filter is re-applied after column repopulation even if never previously used.** When the server reloads a column's items (e.g. selecting a dictionary loads its class list), any active search query is now correctly re-applied to the new entries. Previously this failed silently if the user had not yet typed anything in the filter box before the first reload.
+
 ## [1.6.0] - 2026-06-08
 
 ### Added

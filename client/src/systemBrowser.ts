@@ -1952,7 +1952,7 @@ export class SystemBrowser {
         listEl.appendChild(div);
       }
       
-      listEl.refreshFilter();
+      ListFilter.refreshFilterOf(listEl);
     }
 
     function selectItemInColumn(listEl, value) {
