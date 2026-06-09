@@ -201,6 +201,10 @@ export class ExportManager {
         // Audit: classes we asked for but didn't get back, and batch parse errors.
         const missing: ClassRef[] = [];
         const parseErrors: string[] = [];
+        // Local-disk time, measured separately from the GCI requests: on a slow
+        // or network filesystem this — not the network — can dominate the sync.
+        let writeMs = 0;
+        let deleteMs = 0;
 
         this.writing = true;
         try {
@@ -213,6 +217,7 @@ export class ExportManager {
           }
 
           // 3. Delete classes that no longer exist.
+          const delT0 = Date.now();
           for (const key of toDeleteKeys) {
             const { dictIndex, dictName, className } = splitKey(key);
             const dir = this.getDictPath(session, dictIndex, dictName);
@@ -220,6 +225,7 @@ export class ExportManager {
             delete newState.classes[key];
             deleted++;
           }
+          deleteMs += Date.now() - delT0;
 
           // 4. Fetch & write changed/new classes in batches.
           const batches = chunkRefs(toFetch, SYNC_REFS_PER_BATCH);
@@ -239,7 +245,9 @@ export class ExportManager {
               const dictName = dictNameByIndex.get(rec.dictIndex);
               if (dictName === undefined) continue;
               const dir = this.getDictPath(session, rec.dictIndex, dictName)!;
+              const wt0 = Date.now();
               this.writeClassFile(dir, rec.className, rec.source);
+              writeMs += Date.now() - wt0;
               const key = entryKey(rec.dictIndex, dictName, rec.className);
               const h = hashByKey.get(key);
               if (h !== undefined) newState.classes[key] = h;
@@ -278,6 +286,7 @@ export class ExportManager {
           (manifest.methodCount !== null ? ` / ${manifest.methodCount} methods` : '') +
           `, ${unchanged} unchanged, ${fetched} fetched, ${deleted} deleted; ` +
           `${roundTrips} requests; server ${serverMs}ms, wall ${wallMs}ms, net≈${Math.max(0, wallMs - serverMs)}ms; ` +
+          `disk ${writeMs + deleteMs}ms (write ${writeMs}ms, delete ${deleteMs}ms); ` +
           `total ${elapsed}ms; content ${formatBytes(contentStats.chars)}`,
         );
 
