@@ -4,14 +4,17 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
-### Fixed
-
-- **Classes whose source contains a non-ASCII character (e.g. an em dash) are no longer silently dropped from the `.gemstone` mirror.** Such a file-out is a wide (`Unicode16`) GemStone string, and the sync transport returned it via `GciTsExecuteFetchBytes` — whose bytes are not UTF-8 for a wide string — so the client's UTF-8 decode corrupted the payload and desynced the length-framed parser, dropping the rest of that batch (a large, stable fraction of classes on images with any Unicode in their source). Each transport chunk is now encoded to UTF-8 server-side (`encodeAsUTF8`) after slicing on code-point boundaries, so the decode is always correct. A GCI integration test round-trips a class containing an em dash.
+## [1.6.0] - 2026-06-08
 
 ### Added
 
+- **GT Phlow inspector (`Cmd+K O` / `Ctrl+K O`).** Replaces the raw GCI-based Super Inspector with a full GT Phlow-driven inspector that calls `GtRemotePhlowViewedObject` server-side and renders declarative view specs as tab-based panels in a VS Code webview. Key capabilities: tab-per-view driven by server-side `<gtView>` pragma methods; text views with attribute-run styling (bold, color, italic, decorations) and JSON syntax highlighting; columned list/tree with cell-level background colors, icon column rendering, and resizable/sticky column headers; tree expand/collapse via `retrieveChildrenForNodeAtPath:`; load-more paging and a Ranges mode for large collections; double-click or right-click a row to inspect the item; a Meta tab with class name, superclass, package, instance/class method source, class definition, and comment sub-tabs; Browse → in the Meta tab opens the System Browser beside the inspector and navigates to the selected method; forward view support (`GtPhlowForwardViewSpecification`); Print tab with truncation detection and a **Show all…** link for large `printOn:` output. The command is gated on GT availability in the connected image — it is hidden on non-GT stones. ([#89](https://github.com/jgfoster/Jasper/pull/89), closes [#83](https://github.com/jgfoster/Jasper/issues/83))
 - **The class-sync engine now audits itself and reports failures prominently.** The server states how many classes/methods each payload contains; the client checks that every requested class came back and that batch framing parsed cleanly, and surfaces any shortfall as a warning (with the missing class names in the "GemStone Class Sync" output) instead of failing silently. A missing class is not recorded in the persisted state, so the next sync re-fetches it.
 - **Per-request sync timing in the "GemStone Class Sync" output.** Every log line is timestamped, each request logs its client wall-clock time, and the server returns its own build time (`Time millisecondsElapsedTime:`) in-band, so a slow sync can be attributed to the server (build) vs the network (net ≈ wall − server).
+
+### Fixed
+
+- **Classes whose source contains a non-ASCII character (e.g. an em dash) are no longer silently dropped from the `.gemstone` mirror.** Such a file-out is a wide (`Unicode16`) GemStone string, and the sync transport returned it via `GciTsExecuteFetchBytes` — whose bytes are not UTF-8 for a wide string — so the client's UTF-8 decode corrupted the payload and desynced the length-framed parser, dropping the rest of that batch (a large, stable fraction of classes on images with any Unicode in their source). Each transport chunk is now encoded to UTF-8 server-side (`encodeAsUTF8`) after slicing on code-point boundaries, so the decode is always correct. A GCI integration test round-trips a class containing an em dash.
 
 ## [1.5.8] - 2026-06-05
 
