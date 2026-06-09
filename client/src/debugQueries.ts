@@ -216,20 +216,72 @@ export function getLineForIp(
 // ── Variables ───────────────────────────────────────────
 
 /**
+ * Returns the printString of an object together with a truncation flag.
+ * truncated is true when the GCI fetch hit maxBytes exactly, meaning the
+ * full printString is longer than what was returned.
+ */
+/**
+ * Returns the printString of an object limited to maxBytes display characters,
+ * together with a truncation flag.
+ *
+ * Truncation can happen two ways:
+ *  1. GemStone's own collection limit fires first (ends with '...' or ', ...)').
+ *  2. The GCI byte limit fires (data.length or bytesReturned exceeds maxBytes).
+ * We detect both.
+ */
+export function fetchPrintString(
+  session: ActiveSession, oop: bigint, maxBytes: number,
+): { value: string; truncated: boolean } {
+  try {
+    const { bytesReturned, data, err } = session.gci.GciTsPerformFetchBytes(
+      session.handle, oop, 'printString', [], maxBytes + 2,
+    );
+    if (err.number !== 0) return { value: `<error: ${err.message}>`, truncated: false };
+    const gciTruncated = data.length > maxBytes || bytesReturned > maxBytes;
+    // GemStone appends '...' (optionally followed by ')') when printString hits
+    // its own internal collection size cap.
+    const gemstoneTruncated = /\.\.\.\s*\)?\s*$/.test(data);
+    const truncated = gciTruncated || gemstoneTruncated;
+    return { value: gciTruncated ? data.slice(0, maxBytes) : data, truncated };
+  } catch {
+    return { value: '<error getting printString>', truncated: false };
+  }
+}
+
+const MAX_FULL_PRINT = 256 * 1024;
+
+/**
+ * Returns the full output of printOn: for an object, bypassing GemStone's
+ * internal printString size cap.  printString uses a LimitedWriteStream
+ * internally; calling printOn: directly with a plain WriteStream has no limit.
+ */
+export function fetchFullPrintString(session: ActiveSession, oop: bigint): string {
+  try {
+    const { result: classUtf8, err: classErr } = session.gci.GciTsResolveSymbol(
+      session.handle, 'Utf8', OOP_NIL,
+    );
+    if (classErr.number !== 0) return `<error: cannot resolve Utf8>`;
+    const code = `| s |
+s := WriteStream on: String new.
+(Object _objectForOop: ${oop}) printOn: s.
+s contents`;
+    const { data, err } = session.gci.GciTsExecuteFetchBytes(
+      session.handle, code, -1, classUtf8, OOP_ILLEGAL, OOP_NIL, MAX_FULL_PRINT,
+    );
+    if (err.number !== 0) return `<error: ${err.message}>`;
+    return data;
+  } catch {
+    return '<error getting full printString>';
+  }
+}
+
+/**
  * Returns a printString representation of an object (truncated to maxBytes).
  */
 export function getObjectPrintString(
   session: ActiveSession, oop: bigint, maxBytes: number = 1024,
 ): string {
-  try {
-    const { data, err } = session.gci.GciTsPerformFetchBytes(
-      session.handle, oop, 'printString', [], maxBytes,
-    );
-    if (err.number !== 0) return `<error: ${err.message}>`;
-    return data;
-  } catch {
-    return '<error getting printString>';
-  }
+  return fetchPrintString(session, oop, maxBytes).value;
 }
 
 /**

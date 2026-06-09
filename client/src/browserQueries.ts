@@ -186,6 +186,19 @@ export function boundLimitExecutor(session: ActiveSession) {
     executeFetchStringWithLimit(session, label, code, maxBytes);
 }
 
+export function checkGtAvailable(session: ActiveSession): boolean {
+  try {
+    const result = executeFetchString(
+      session,
+      'checkGtAvailable',
+      '[GtRemotePhlowViewedObject notNil printString] on: Error do: [:e | \'false\']',
+    );
+    return result.trim() === 'true';
+  } catch {
+    return false;
+  }
+}
+
 // Bind a session to the QueryExecutor shape that shared queries expect.
 function bind(session: ActiveSession): QueryExecutor {
   return (label, code) => executeFetchString(session, label, code);

@@ -73,6 +73,28 @@ export function extractSelector(messagePattern: string): string {
 export class SystemBrowser {
   private static panels = new Map<number, Set<SystemBrowser>>();
   private static lastActive = new Map<number, SystemBrowser>();
+  private static sharedExportManager: ExportManager | undefined;
+  private static pendingNavigation = new Map<number, queries.MethodSearchResult>();
+
+  static setExportManager(em: ExportManager): void {
+    SystemBrowser.sharedExportManager = em;
+  }
+
+  /** Navigate an existing browser, or open a new one in ViewColumn.One and navigate once ready.
+   *  Layout-disruptive side effects (setEditorLayout, ClassBrowser, GlobalsBrowser) are
+   *  suppressed during the programmatic navigation so the inspector panel is not displaced. */
+  static navigateBeside(session: ActiveSession, result: queries.MethodSearchResult): void {
+    if (SystemBrowser.navigateTo(session.id, result, true, true)) return;
+    if (!SystemBrowser.sharedExportManager) return;
+    SystemBrowser.pendingNavigation.set(session.id, result);
+    SystemBrowser.show(session, SystemBrowser.sharedExportManager, vscode.ViewColumn.One);
+  }
+
+  /** Open a new browser beside the currently active panel with no navigation. */
+  static showBeside(session: ActiveSession): void {
+    if (!SystemBrowser.sharedExportManager) return;
+    SystemBrowser.show(session, SystemBrowser.sharedExportManager, vscode.ViewColumn.Beside);
+  }
 
   private readonly panel: vscode.WebviewPanel;
   private disposables: vscode.Disposable[] = [];
@@ -115,11 +137,12 @@ export class SystemBrowser {
   static show(
     session: ActiveSession,
     exportManager: ExportManager,
+    viewColumn: vscode.ViewColumn = vscode.ViewColumn.One,
   ): void {
     const panel = vscode.window.createWebviewPanel(
       'gemstoneSystemBrowser',
       'Browser',
-      vscode.ViewColumn.One,
+      viewColumn,
       {
         enableScripts: true,
         retainContextWhenHidden: true,
@@ -150,10 +173,10 @@ export class SystemBrowser {
    * was found and navigated (meaning the caller does NOT need to open the file
    * separately), false if no browser is open for this session.
    */
-  static navigateTo(sessionId: number, result: queries.MethodSearchResult): boolean {
+  static navigateTo(sessionId: number, result: queries.MethodSearchResult, openFile = true, skipClassBrowser = false): boolean {
     const browser = SystemBrowser.activeBrowser(sessionId);
     if (!browser) return false;
-    browser.handleNavigateTo(result);
+    browser.handleNavigateTo(result, openFile, skipClassBrowser);
     return true;
   }
 
@@ -535,9 +558,14 @@ export class SystemBrowser {
       command: 'loadDictionaries',
       items: this.state.dictionaries,
     });
+    const pending = SystemBrowser.pendingNavigation.get(this.session.id);
+    if (pending) {
+      SystemBrowser.pendingNavigation.delete(this.session.id);
+      this.handleNavigateTo(pending, true, true);
+    }
   }
 
-  private async handleSelectDictionary(dictIndex: number): Promise<void> {
+  private async handleSelectDictionary(dictIndex: number, skipPanels = false): Promise<void> {
     this.state.selectedDictIndex = dictIndex;
     this.state.selectedCategory = null;
     this.state.selectedClass = null;
@@ -564,6 +592,8 @@ export class SystemBrowser {
       command: 'loadClassCategories',
       items: this.state.classCategories,
     });
+
+    if (skipPanels) return;
 
     const dictName = this.state.dictionaries[dictIndex - 1];
     // Set the editor layout before creating panels so they appear in the right order
@@ -625,7 +655,7 @@ export class SystemBrowser {
    * editor untouched on purpose — clicking a class shouldn't shove a new
    * file in front of whatever the user was editing.
    */
-  private applyClassSelection(className: string): void {
+  private applyClassSelection(className: string, skipClassBrowser = false): void {
     this.state.selectedClass = className;
     this.state.selectedMethodCategory = null;
     this.state.selectedMethod = null;
@@ -633,10 +663,12 @@ export class SystemBrowser {
 
     this.loadMethodCategories();
 
-    const dictIndex = this.state.selectedDictIndex;
-    if (dictIndex) {
-      ClassBrowser.showOrUpdate(this.session, this.state.dictionaries, dictIndex, className)
-        .catch(e => this.postError(e));
+    if (!skipClassBrowser) {
+      const dictIndex = this.state.selectedDictIndex;
+      if (dictIndex) {
+        ClassBrowser.showOrUpdate(this.session, this.state.dictionaries, dictIndex, className)
+          .catch(e => this.postError(e));
+      }
     }
   }
 
@@ -692,7 +724,7 @@ export class SystemBrowser {
     this.openClassFile(className, selector, this.state.isMeta);
   }
 
-  private handleNavigateTo(result: queries.MethodSearchResult): void {
+  private handleNavigateTo(result: queries.MethodSearchResult, openFile = true, skipClassBrowser = false): void {
     const { dictName, className, isMeta, category, selector } = result;
 
     // Find 1-based dict index
@@ -704,7 +736,7 @@ export class SystemBrowser {
 
     // Update dictionary if changed
     if (this.state.selectedDictIndex !== dictIndex) {
-      this.handleSelectDictionary(dictIndex);
+      void this.handleSelectDictionary(dictIndex, skipClassBrowser);
       this.panel.webview.postMessage({ command: 'selectDictionaryItem', index: dictIndex });
     }
 
@@ -719,12 +751,13 @@ export class SystemBrowser {
     // earlier inline mutation here skipped that update, leaving the
     // Class Definition stale relative to whatever method we navigated to.
     if (this.state.selectedClass !== className) {
-      this.applyClassSelection(className);
+      this.applyClassSelection(className, skipClassBrowser);
     }
 
     // Update instance/class side if changed
     if (this.state.isMeta !== isMeta) {
       this.handleToggleSide(isMeta);
+      this.panel.webview.postMessage({ command: 'setSide', isMeta });
     }
 
     // Update method category if changed
@@ -755,8 +788,7 @@ export class SystemBrowser {
       selected: selector,
     });
 
-    // Open the method in the editor
-    this.openClassFile(className, selector, isMeta);
+    if (openFile) this.openClassFile(className, selector, isMeta);
   }
 
   private handleNavigateToClass(dictName: string, className: string): void {

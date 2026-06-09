@@ -16,6 +16,7 @@ import { SessionManager } from './sessionManager';
 import { CodeExecutor } from './codeExecutor';
 import { SystemBrowser } from './systemBrowser';
 import { GlobalsBrowser } from './globalsBrowser';
+import { GtInspector } from './gtInspector';
 import { GemStoneFileSystemProvider } from './gemstoneFileSystemProvider';
 import { openWorkspace } from './workspace';
 import { GemStoneDebugSession } from './gemstoneDebugSession';
@@ -145,6 +146,7 @@ export function activate(context: vscode.ExtensionContext) {
   // SessionManager is created early so the Logins panel can mark the connected
   // login row (and swap its inline Login action for Logout) in single-session mode.
   sessionManager = new SessionManager();
+  vscode.commands.executeCommand('setContext', 'gemstone.gtAvailable', false);
   const treeProvider = new LoginTreeProvider(storage, sessionManager);
 
   const treeView = vscode.window.createTreeView('gemstoneLogins', {
@@ -184,6 +186,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Active sessions are shown as children of their login in the Logins &
   // Sessions tree (treeProvider above); there is no separate Sessions view.
   exportManager = new ExportManager();
+  SystemBrowser.setExportManager(exportManager);
   fileInManager = new FileInManager(sessionManager, exportManager);
   fileInManager.register(context);
 
@@ -351,7 +354,11 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   context.subscriptions.push(
-    sessionManager.onDidChangeSelection(() => updateStatusBar())
+    sessionManager.onDidChangeSelection(() => updateStatusBar()),
+    sessionManager.onDidChangeSelection(id => {
+      const s = id !== null ? sessionManager.getSession(id) : undefined;
+      vscode.commands.executeCommand('setContext', 'gemstone.gtAvailable', s?.gtAvailable ?? false);
+    }),
   );
   updateStatusBar();
 
@@ -642,6 +649,8 @@ export function activate(context: vscode.ExtensionContext) {
       let session;
       try {
         session = sessionManager.login(login, gciPath);
+        session.gtAvailable = queries.checkGtAvailable(session);
+        vscode.commands.executeCommand('setContext', 'gemstone.gtAvailable', session.gtAvailable);
         treeProvider.refresh();
         vscode.window.showInformationMessage(
           `Connected to ${login.stone} (${session.stoneVersion}) on ${login.gem_host} as ${login.gs_user}`
@@ -730,6 +739,7 @@ export function activate(context: vscode.ExtensionContext) {
       // rebuilding it from scratch (especially for large, remote images).
       SystemBrowser.disposeForSession(session.id);
       GlobalsBrowser.disposeForSession(session.id);
+      GtInspector.disposeForSession(session.id);
       sessionManager.logout(session.id);
       treeProvider.refresh();
       inspectorProvider.removeSessionItems(session.id);
@@ -799,6 +809,10 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('gemstone.inspectIt', () => {
       codeExecutor.inspectIt(inspectorProvider);
+    }),
+
+    vscode.commands.registerCommand('gemstone.superInspectIt', () => {
+      codeExecutor.superInspectIt();
     }),
 
     vscode.commands.registerCommand('gemstone.showTranscript', () => {
