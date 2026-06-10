@@ -4,6 +4,8 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-06-09
+
 ### Added
 
 - **`gemstone.classSync.readOnlyMirror` setting (default on).** The local class-mirror `.gs` files are written read-only so they aren't edited by hand (edit via the System Browser instead). Turning it off writes them writable, roughly halving the filesystem operations per class — a useful speed-up when the workspace lives on a slow or network filesystem.
