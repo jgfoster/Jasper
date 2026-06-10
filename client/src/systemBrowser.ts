@@ -1274,7 +1274,7 @@ export class SystemBrowser {
       `/${encodeURIComponent(category)}` +
       `/new-method`,
     );
-    const viewColumn = this.getBrowserViewColumn();
+    const viewColumn = await this.getBrowserViewColumn();
     const doc = await vscode.workspace.openTextDocument(uri);
     vscode.window.showTextDocument(doc, { viewColumn, preview: true });
   }
@@ -1512,7 +1512,7 @@ export class SystemBrowser {
     if (!dictIndex) return;
 
     const dictName = this.state.dictionaries[dictIndex - 1];
-    const viewColumn = this.getBrowserViewColumn();
+    const viewColumn = await this.getBrowserViewColumn();
 
     if (!selector) {
       // Open the read-only .gs file for class-level navigation
@@ -1539,7 +1539,7 @@ export class SystemBrowser {
     vscode.window.showTextDocument(doc, { viewColumn, preview: true });
   }
 
-  private getBrowserViewColumn(): vscode.ViewColumn {
+  private async getBrowserViewColumn(): Promise<vscode.ViewColumn> {
     const sessionId = String(this.session.id);
     const sessionRoot = this.exportManager.getSessionRoot(this.session);
     for (const editor of vscode.window.visibleTextEditors) {
@@ -1551,10 +1551,13 @@ export class SystemBrowser {
         return editor.viewColumn ?? vscode.ViewColumn.Beside;
       }
     }
-    // No existing editor group — open beside the browser panel.
-    // Avoid setEditorLayout: it reorganizes all groups and can displace
-    // other panels (e.g. the GT Inspector) that are open in other columns.
-    return vscode.ViewColumn.Beside;
+    // No existing editor — split the browser's column vertically so the source
+    // appears below the browser, not beside the inspector in a separate column.
+    // Focus the browser first so newGroupBelow targets column 1, then the new
+    // (now-active) group below is where we open the file.
+    this.panel.reveal(undefined, false);
+    await vscode.commands.executeCommand('workbench.action.newGroupBelow');
+    return vscode.ViewColumn.Active;
   }
 
   private applyDimming(
