@@ -21,7 +21,7 @@ vi.mock('../browserQueries', () => ({
 }));
 
 import { Uri, FileSystemError, FilePermission, window, languages } from '../__mocks__/vscode';
-import { GemStoneFileSystemProvider } from '../gemstoneFileSystemProvider';
+import { GemStoneFileSystemProvider, buildNewMethodUri } from '../gemstoneFileSystemProvider';
 import { SessionManager } from '../sessionManager';
 import * as queries from '../browserQueries';
 import { BrowserQueryError } from '../browserQueries';
@@ -410,5 +410,63 @@ describe('GemStoneFileSystemProvider', () => {
         expect.anything(), 'Array', false, 'size', 0,
       );
     });
+  });
+});
+
+describe('buildNewMethodUri', () => {
+  it('uses the gemstone scheme', () => {
+    const uri = buildNewMethodUri(42, 'Globals', 'Array', false, 'accessing', 0);
+    expect(uri.scheme).toBe('gemstone');
+  });
+
+  it('uses the session id as the authority', () => {
+    const uri = buildNewMethodUri(42, 'Globals', 'Array', false, 'accessing', 0);
+    expect(uri.authority).toBe('42');
+  });
+
+  it('produces an instance-side path when the class side is not meta', () => {
+    const uri = buildNewMethodUri(1, 'Globals', 'Array', false, 'accessing', 0);
+    const parts = uri.path.split('/');
+    expect(parts[3]).toBe('instance');
+  });
+
+  it('produces a class-side path when the class side is meta', () => {
+    const uri = buildNewMethodUri(1, 'Globals', 'Array', true, 'accessing', 0);
+    const parts = uri.path.split('/');
+    expect(parts[3]).toBe('class');
+  });
+
+  it('URL-encodes the dictionary name', () => {
+    const uri = buildNewMethodUri(1, 'User Globals', 'Array', false, 'accessing', 0);
+    const parts = uri.path.split('/');
+    expect(parts[1]).toBe('User%20Globals');
+  });
+
+  it('URL-encodes the class name', () => {
+    const uri = buildNewMethodUri(1, 'Globals', 'My Class', false, 'accessing', 0);
+    const parts = uri.path.split('/');
+    expect(parts[2]).toBe('My%20Class');
+  });
+
+  it('URL-encodes the category name', () => {
+    const uri = buildNewMethodUri(1, 'Globals', 'Array', false, 'as yet unclassified', 0);
+    const parts = uri.path.split('/');
+    expect(parts[4]).toBe('as%20yet%20unclassified');
+  });
+
+  it('places new-method as the final path segment', () => {
+    const uri = buildNewMethodUri(1, 'Globals', 'Array', false, 'accessing', 0);
+    const parts = uri.path.split('/');
+    expect(parts[5]).toBe('new-method');
+  });
+
+  it('omits the env query parameter when the environment is the default', () => {
+    const uri = buildNewMethodUri(1, 'Globals', 'Array', false, 'accessing', 0);
+    expect(uri.query).toBe('');
+  });
+
+  it('appends the env query parameter when a non-default environment is specified', () => {
+    const uri = buildNewMethodUri(1, 'Globals', 'Array', false, 'accessing', 2);
+    expect(uri.query).toBe('env=2');
   });
 });

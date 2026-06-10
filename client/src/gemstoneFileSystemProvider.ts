@@ -102,6 +102,26 @@ function parseUri(uri: vscode.Uri): ParsedUri {
   throw vscode.FileSystemError.FileNotFound(uri);
 }
 
+export function buildNewMethodUri(
+  sessionId: number,
+  dictName: string,
+  className: string,
+  isMeta: boolean,
+  category: string,
+  environmentId: number,
+): vscode.Uri {
+  const side = isMeta ? 'class' : 'instance';
+  const envQuery = environmentId > 0 ? `?env=${environmentId}` : '';
+  return vscode.Uri.parse(
+    `gemstone://${sessionId}` +
+    `/${encodeURIComponent(dictName)}` +
+    `/${encodeURIComponent(className)}` +
+    `/${side}` +
+    `/${encodeURIComponent(category)}` +
+    `/new-method${envQuery}`,
+  );
+}
+
 // ── FileSystemProvider ────────────────────────────────────────
 
 export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
