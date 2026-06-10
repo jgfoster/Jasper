@@ -2,7 +2,7 @@
   "name": "gemstone-ide",
   "displayName": "Jasper: A GemStone Smalltalk IDE",
   "description": "GemStone/S IDE for Visual Studio Code",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "publisher": "gemtalksystems",
   "license": "MIT",
   "author": "James Foster",
@@ -119,6 +119,11 @@
             "type": "string",
             "default": "",
             "description": "Root path for the local class mirror (read-only .gs files used by Find in Files / Go to Definition). Variables: {workspaceRoot}, {session}, {host}, {stone}, {user}, {index}, {dictName}. Defaults to {workspaceRoot}/.gemstone/{host}/{stone}/{user}/{index}-{dictName} — keyed by connection target so it is shared across that target's sessions and kept (and re-synced incrementally) across logout."
+          },
+          "gemstone.classSync.readOnlyMirror": {
+            "type": "boolean",
+            "default": true,
+            "description": "Write the local class-mirror .gs files as read-only, so they aren't edited directly (edit via the System Browser instead). Turn off to roughly halve the filesystem operations per class, which can noticeably speed up syncing on slow or network filesystems."
           },
           "gemstone.rootPath": {
             "type": "string",

@@ -464,6 +464,26 @@ describe('ExportManager (incremental sync)', () => {
     });
   });
 
+  describe('readOnlyMirror setting', () => {
+    it('writes writable files when disabled (fewer syscalls on slow filesystems)', async () => {
+      (vscode as unknown as { __setConfigValue: (k: string, v: unknown) => void })
+        .__setConfigValue('classSync.readOnlyMirror', false);
+      const session = createMockSession();
+      await manager.exportSession(session);
+      const stat = fs.statSync(path.join(root(session), '1-UserGlobals', 'MyClass.gs'));
+      expect(stat.mode & 0o222).not.toBe(0); // writable
+    });
+
+    it('overwrites an existing read-only file on the next sync', async () => {
+      const session = createMockSession();
+      await manager.exportSession(session); // writes read-only files
+      h.setClassSource(1, 'MyClass', '! fileout of MyClass v2\n');
+      await manager.refreshSession(session); // must make it writable, rewrite, re-lock
+      expect(fs.readFileSync(path.join(root(session), '1-UserGlobals', 'MyClass.gs'), 'utf-8'))
+        .toBe('! fileout of MyClass v2\n');
+    });
+  });
+
   describe('deleteSessionFiles', () => {
     it('removes the mirror and empty ancestors', async () => {
       const session = createMockSession();

@@ -17,8 +17,25 @@ class ListFilter extends HTMLElement {
 
     static clearAllFilters() {
         document.querySelectorAll(listFilterTag).forEach(listFilter => listFilter.clearFilter());
-    } 
-    
+    }
+
+    static refreshFilterOf(listElement) {
+        this.#filterFor(listElement)?.applyFilter();
+    }
+
+    static #filterFor(listElement) {
+        // An empty id would produce [for=""], matching any list-filter with a missing or blank
+        // 'for' attribute — a phantom match that would apply the filter to the wrong list.
+        if (!listElement.id) return undefined;
+
+        const filters = document.querySelectorAll(`${listFilterTag}[for="${CSS.escape(listElement.id)}"]`);
+        if (filters.length > 1) {
+            throw new Error(`Found ${filters.length} list-filter elements for #${listElement.id} — only one filter per list is supported.`);
+        }
+
+        return filters[0];
+    }
+
     constructor() {
         super();
         this.debounceTimer = null;
@@ -34,9 +51,6 @@ class ListFilter extends HTMLElement {
         this.searchBox.addEventListener('input', this.onQueryChanged.bind(this));
         this.searchBox.addEventListener('keydown', this.onKeydown.bind(this));
         this.querySelector('.clear-btn').addEventListener('click', this.onClearFilterClick.bind(this));
-        // The target list element may not exist yet during initial HTML parsing
-        // (it comes after this element in the DOM). Defer so the full DOM is ready.
-        setTimeout(() => this.list(), 0);
     }
 
 
@@ -209,17 +223,9 @@ class ListFilter extends HTMLElement {
     // List access
 
     list() {
-        if (!this.listElement) {
-            // getElementById may return null if the list hasn't been added to the DOM yet.
-            // Callers must handle a null return gracefully.
-            this.listElement = document.getElementById(this.getAttribute('for'));
-            
-            if (this.listElement) {
-                this.listElement.refreshFilter = () => this.applyFilter();
-            }
-        }
-
-        return this.listElement;
+        // getElementById may return null if the list hasn't been added to the DOM yet.
+        // Callers must handle a null return gracefully.
+        return this.listElement ??= document.getElementById(this.getAttribute('for'));
     }
 
     listItems() {

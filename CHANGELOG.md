@@ -4,6 +4,21 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-06-09
+
+### Added
+
+- **`gemstone.classSync.readOnlyMirror` setting (default on).** The local class-mirror `.gs` files are written read-only so they aren't edited by hand (edit via the System Browser instead). Turning it off writes them writable, roughly halving the filesystem operations per class — a useful speed-up when the workspace lives on a slow or network filesystem.
+- **Disk-write time is now reported in the "GemStone Class Sync" output**, separately from server and network time, so a slow sync can be attributed to the local filesystem (e.g. a network drive, or antivirus scanning each write) rather than the GemStone connection.
+
+### Changed
+
+- **Class-mirror files are written to disk in parallel** (bounded concurrency) instead of one at a time, and a redundant `existsSync` probe per file was removed. On a slow or network filesystem — where thousands of tiny serial writes can dominate the sync far more than the network does — this overlaps the per-file latency and keeps the UI responsive during a large sync.
+
+### Fixed
+
+- **Search filter is re-applied after column repopulation even if never previously used.** When the server reloads a column's items (e.g. selecting a dictionary loads its class list), any active search query is now correctly re-applied to the new entries. Previously this failed silently if the user had not yet typed anything in the filter box before the first reload.
+
 ## [1.6.0] - 2026-06-08
 
 ### Added

@@ -1,6 +1,12 @@
 import { QueryExecutor } from './types';
 import { escapeString } from './util';
 
+const VALID_SELECTOR = /^[a-zA-Z_][a-zA-Z0-9_]*:?$|^([a-zA-Z_][a-zA-Z0-9_]*:)+$|^[+\-*\/<>=~&|@%?,]{1,2}$/;
+
+export function isValidSelector(selector: string): boolean {
+  return VALID_SELECTOR.test(selector);
+}
+
 export interface GtViewSpec {
   viewName: string;
   title: string;
@@ -38,6 +44,7 @@ function resolveForwardViewSpec(
   oop: bigint,
   forwardSelector: string,
 ): Pick<GtViewSpec, 'resolvedViewName' | 'resolvedColumnSpecifications'> | null {
+  if (!isValidSelector(forwardSelector)) return null;
   const code =
     `| viewed ds specDict |
 viewed := GtRemotePhlowViewedObject new initializeWith: (Object _objectForOop: ${oop}).
@@ -84,6 +91,7 @@ export function fetchGtPrintTabData(
   oop: bigint,
   methodSelector: string,
 ): { data: string | null; truncated: boolean } {
+  if (!isValidSelector(methodSelector)) return { data: null, truncated: false };
   const code =
     `| viewed obj ds textData s |
 obj := Object _objectForOop: ${oop}.
@@ -103,6 +111,7 @@ STONJSON toString: textData`;
 }
 
 export function fetchGtTextData(execute: QueryExecutor, oop: bigint, methodSelector: string): string | null {
+  if (!isValidSelector(methodSelector)) return null;
   const code =
     `| viewed ds |
 viewed := GtRemotePhlowViewedObject new initializeWith: (Object _objectForOop: ${oop}).
@@ -117,6 +126,7 @@ export function fetchGtForwardRowOop(
   forwardSelector: string,
   nodeId: number,
 ): bigint | null {
+  if (!isValidSelector(forwardSelector)) return null;
   const code =
     `| viewed ds forwardDs item |
 viewed := GtRemotePhlowViewedObject new initializeWith: (Object _objectForOop: ${itemOop}).
@@ -136,6 +146,7 @@ export function fetchGtRowOop(
   methodSelector: string,
   nodeId: number,
 ): bigint | null {
+  if (!isValidSelector(methodSelector)) return null;
   const code =
     `| viewed ds node item |
 viewed := GtRemotePhlowViewedObject new initializeWith: (Object _objectForOop: ${itemOop}).
@@ -154,6 +165,7 @@ export function fetchGtListTotal(
   oop: bigint,
   methodSelector: string,
 ): number | null {
+  if (!isValidSelector(methodSelector)) return null;
   const code =
     `| viewed ds |
 viewed := GtRemotePhlowViewedObject new initializeWith: (Object _objectForOop: ${oop}).
@@ -171,6 +183,7 @@ export function fetchGtTreeChildren(
   methodSelector: string,
   path: number[],
 ): string | null {
+  if (!isValidSelector(methodSelector)) return null;
   const stPath = '{' + path.join('. ') + '}';
   const code =
     `| viewed ds |
@@ -187,6 +200,7 @@ export function fetchMethodBrowseLocation(
   methodSelector: string,
   isClassSide: boolean,
 ): { dictName: string; className: string; category: string } | null {
+  if (!isValidSelector(methodSelector)) return null;
   const methodCls = isClassSide ? 'baseCls class' : 'baseCls';
   const code =
     `| obj baseCls dictName category |
@@ -210,6 +224,7 @@ export function fetchMethodSource(
   methodSelector: string,
   isClassSide: boolean,
 ): string | null {
+  if (!isValidSelector(methodSelector)) return null;
   const recv = isClassSide
     ? `(Object _objectForOop: ${oop}) class theNonMetaClass class`
     : `(Object _objectForOop: ${oop}) class theNonMetaClass`;
@@ -241,6 +256,9 @@ export function fetchGtListData(
   fromIndex: number,
   count: number,
 ): string | null {
+  if (!isValidSelector(methodSelector)) return null;
+  if (!Number.isInteger(fromIndex) || fromIndex < 1) return null;
+  if (!Number.isInteger(count) || count < 1) return null;
   const code =
     `| viewed ds |
 viewed := GtRemotePhlowViewedObject new initializeWith: (Object _objectForOop: ${oop}).
@@ -256,6 +274,9 @@ export function fetchGtForwardListData(
   fromIndex: number,
   count: number,
 ): string | null {
+  if (!isValidSelector(forwardSelector)) return null;
+  if (!Number.isInteger(fromIndex) || fromIndex < 1) return null;
+  if (!Number.isInteger(count) || count < 1) return null;
   const code =
     `| viewed ds forwardDs |
 viewed := GtRemotePhlowViewedObject new initializeWith: (Object _objectForOop: ${oop}).
@@ -271,6 +292,7 @@ export function fetchGtForwardListTotal(
   oop: bigint,
   forwardSelector: string,
 ): number | null {
+  if (!isValidSelector(forwardSelector)) return null;
   const code =
     `| viewed ds forwardDs |
 viewed := GtRemotePhlowViewedObject new initializeWith: (Object _objectForOop: ${oop}).
