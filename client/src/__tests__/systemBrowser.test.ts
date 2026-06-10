@@ -1114,7 +1114,7 @@ describe('SystemBrowser', () => {
       );
     });
 
-    it('opens new method template in the bottom editor group', async () => {
+    it('opens new method template beside the browser', async () => {
       vi.mocked(workspace.openTextDocument).mockClear();
       vi.mocked(window.showTextDocument).mockClear();
       messageHandler({ command: 'ctxNewMethod' });
@@ -1125,7 +1125,7 @@ describe('SystemBrowser', () => {
       expect(uri.path).toContain('/new-method');
       expect(window.showTextDocument).toHaveBeenCalledWith(
         expect.anything(),
-        expect.objectContaining({ viewColumn: ViewColumn.Two, preview: true }),
+        expect.objectContaining({ viewColumn: ViewColumn.Beside, preview: true }),
       );
     });
 

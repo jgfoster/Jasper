@@ -1274,7 +1274,7 @@ export class SystemBrowser {
       `/${encodeURIComponent(category)}` +
       `/new-method`,
     );
-    const viewColumn = await this.getBrowserViewColumn();
+    const viewColumn = this.getBrowserViewColumn();
     const doc = await vscode.workspace.openTextDocument(uri);
     vscode.window.showTextDocument(doc, { viewColumn, preview: true });
   }
@@ -1512,7 +1512,7 @@ export class SystemBrowser {
     if (!dictIndex) return;
 
     const dictName = this.state.dictionaries[dictIndex - 1];
-    const viewColumn = await this.getBrowserViewColumn();
+    const viewColumn = this.getBrowserViewColumn();
 
     if (!selector) {
       // Open the read-only .gs file for class-level navigation
@@ -1539,7 +1539,7 @@ export class SystemBrowser {
     vscode.window.showTextDocument(doc, { viewColumn, preview: true });
   }
 
-  private async getBrowserViewColumn(): Promise<vscode.ViewColumn> {
+  private getBrowserViewColumn(): vscode.ViewColumn {
     const sessionId = String(this.session.id);
     const sessionRoot = this.exportManager.getSessionRoot(this.session);
     for (const editor of vscode.window.visibleTextEditors) {
@@ -1551,16 +1551,10 @@ export class SystemBrowser {
         return editor.viewColumn ?? vscode.ViewColumn.Beside;
       }
     }
-    // No existing editor group — create a top/bottom split so the
-    // text editor opens below the browser instead of to the right.
-    await vscode.commands.executeCommand('vscode.setEditorLayout', {
-      orientation: 1,  // vertical (top/bottom)
-      groups: [
-        { size: 0.5 },
-        { size: 0.5 },
-      ],
-    });
-    return vscode.ViewColumn.Two;
+    // No existing editor group — open beside the browser panel.
+    // Avoid setEditorLayout: it reorganizes all groups and can displace
+    // other panels (e.g. the GT Inspector) that are open in other columns.
+    return vscode.ViewColumn.Beside;
   }
 
   private applyDimming(
@@ -1952,7 +1946,7 @@ export class SystemBrowser {
         listEl.appendChild(div);
       }
       
-      listEl.refreshFilter();
+      listEl.refreshFilter?.();
     }
 
     function selectItemInColumn(listEl, value) {

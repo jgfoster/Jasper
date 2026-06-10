@@ -34,6 +34,9 @@ class ListFilter extends HTMLElement {
         this.searchBox.addEventListener('input', this.onQueryChanged.bind(this));
         this.searchBox.addEventListener('keydown', this.onKeydown.bind(this));
         this.querySelector('.clear-btn').addEventListener('click', this.onClearFilterClick.bind(this));
+        // The target list element may not exist yet during initial HTML parsing
+        // (it comes after this element in the DOM). Defer so the full DOM is ready.
+        setTimeout(() => this.list(), 0);
     }
 
 
