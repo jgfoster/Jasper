@@ -148,6 +148,9 @@ describe('SystemBrowser', () => {
     vi.clearAllMocks();
     (SystemBrowser as unknown as { panels: Map<number, unknown> }).panels = new Map();
     (SystemBrowser as unknown as { lastActive: Map<number, unknown> }).lastActive = new Map();
+    (SystemBrowser as unknown as { sharedExportManager: unknown }).sharedExportManager = undefined;
+    (SystemBrowser as unknown as { pendingNavigation: Map<number, unknown> }).pendingNavigation = new Map();
+    window.visibleTextEditors = [];
 
     session = makeSession();
     exportManager = makeExportManager();
@@ -1114,18 +1117,20 @@ describe('SystemBrowser', () => {
       );
     });
 
-    it('opens new method template in the bottom editor group', async () => {
+    it('opens new method template below the browser', async () => {
       vi.mocked(workspace.openTextDocument).mockClear();
       vi.mocked(window.showTextDocument).mockClear();
+      vi.mocked(commands.executeCommand).mockClear();
       messageHandler({ command: 'ctxNewMethod' });
       await vi.waitFor(() => { expect(workspace.openTextDocument).toHaveBeenCalled(); });
 
       const uri = vi.mocked(workspace.openTextDocument).mock.calls[0][0] as { scheme: string; path: string };
       expect(uri.scheme).toBe('gemstone');
       expect(uri.path).toContain('/new-method');
+      expect(commands.executeCommand).toHaveBeenCalledWith('workbench.action.newGroupBelow');
       expect(window.showTextDocument).toHaveBeenCalledWith(
         expect.anything(),
-        expect.objectContaining({ viewColumn: ViewColumn.Two, preview: true }),
+        expect.objectContaining({ viewColumn: ViewColumn.Active, preview: true }),
       );
     });
 
@@ -1647,6 +1652,114 @@ describe('SystemBrowser', () => {
       SystemBrowser.navigateTo(session.id, result);
       expect(ClassBrowser.showOrUpdate).toHaveBeenCalledWith(
         session, expect.any(Array), expect.any(Number), 'Array',
+      );
+    });
+
+    it('reuses the visible gemstone editor column and skips newGroupBelow', async () => {
+      window.visibleTextEditors = [{
+        document: { uri: { scheme: 'gemstone', authority: String(session.id), fsPath: '' } },
+        viewColumn: ViewColumn.Two,
+      }];
+      vi.mocked(commands.executeCommand).mockClear();
+      vi.mocked(window.showTextDocument).mockClear();
+
+      SystemBrowser.navigateTo(session.id, result);
+      await vi.waitFor(() => expect(window.showTextDocument).toHaveBeenCalled());
+
+      expect(commands.executeCommand).not.toHaveBeenCalledWith('workbench.action.newGroupBelow');
+      expect(window.showTextDocument).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ viewColumn: ViewColumn.Two }),
+      );
+    });
+
+    it('calls newGroupBelow only on the first navigation, reuses the column on subsequent ones', async () => {
+      vi.mocked(commands.executeCommand).mockClear();
+      vi.mocked(window.showTextDocument).mockClear();
+
+      // First navigation: no gemstone editor visible → newGroupBelow is called
+      SystemBrowser.navigateTo(session.id, result);
+      await vi.waitFor(() => expect(window.showTextDocument).toHaveBeenCalled());
+      expect(commands.executeCommand).toHaveBeenCalledWith('workbench.action.newGroupBelow');
+      expect(window.showTextDocument).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ viewColumn: ViewColumn.Active }),
+      );
+
+      // Simulate VS Code having opened the source file in a new group (ViewColumn.Two)
+      window.visibleTextEditors = [{
+        document: { uri: { scheme: 'gemstone', authority: String(session.id), fsPath: '' } },
+        viewColumn: ViewColumn.Two,
+      }];
+      vi.mocked(commands.executeCommand).mockClear();
+      vi.mocked(workspace.openTextDocument).mockClear();
+      vi.mocked(window.showTextDocument).mockClear();
+
+      // Second navigation to a different method: should reuse the existing column
+      const result2 = { ...result, category: 'Comparing', selector: '=' };
+      SystemBrowser.navigateTo(session.id, result2);
+      await vi.waitFor(() => expect(window.showTextDocument).toHaveBeenCalled());
+
+      expect(commands.executeCommand).not.toHaveBeenCalledWith('workbench.action.newGroupBelow');
+      expect(window.showTextDocument).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ viewColumn: ViewColumn.Two }),
+      );
+    });
+  });
+
+  describe('navigateBeside', () => {
+    const result: queries.MethodSearchResult = {
+      dictName: 'UserGlobals',
+      className: 'Array',
+      isMeta: false,
+      category: 'Accessing',
+      selector: 'name',
+    };
+
+    beforeEach(() => {
+      SystemBrowser.setExportManager(exportManager);
+    });
+
+    it('does nothing when no export manager has been set', () => {
+      (SystemBrowser as unknown as { sharedExportManager: unknown }).sharedExportManager = undefined;
+      SystemBrowser.navigateBeside(session, result);
+      expect(window.createWebviewPanel).not.toHaveBeenCalled();
+    });
+
+    it('selects all browser columns when the browser opens with pending navigation', () => {
+      SystemBrowser.navigateBeside(session, result);
+      // navigateBeside called show() internally — mockPanel and messageHandler now point to the new browser
+      vi.mocked(mockPanel.webview.postMessage).mockClear();
+      messageHandler({ command: 'ready' });
+
+      expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'loadClassCategories', selected: '** ALL CLASSES **' }),
+      );
+      expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'loadClasses', selected: 'Array' }),
+      );
+      expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'loadMethodCategories', selected: 'Accessing' }),
+      );
+      expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'loadMethods', selected: 'name' }),
+      );
+      // setEditorLayout reorganizes ALL editor groups globally — calling it would clobber the GT Inspector panel
+      expect(commands.executeCommand).not.toHaveBeenCalledWith('vscode.setEditorLayout', expect.anything());
+    });
+
+    it('navigates an existing browser directly without opening a new panel', () => {
+      // Open a browser first so navigateBeside finds it
+      SystemBrowser.show(session, exportManager);
+      messageHandler({ command: 'ready' });
+      vi.mocked(window.createWebviewPanel).mockClear();
+
+      SystemBrowser.navigateBeside(session, result);
+
+      expect(window.createWebviewPanel).not.toHaveBeenCalled();
+      expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'loadClasses', selected: 'Array' }),
       );
     });
   });

@@ -1551,16 +1551,13 @@ export class SystemBrowser {
         return editor.viewColumn ?? vscode.ViewColumn.Beside;
       }
     }
-    // No existing editor group — create a top/bottom split so the
-    // text editor opens below the browser instead of to the right.
-    await vscode.commands.executeCommand('vscode.setEditorLayout', {
-      orientation: 1,  // vertical (top/bottom)
-      groups: [
-        { size: 0.5 },
-        { size: 0.5 },
-      ],
-    });
-    return vscode.ViewColumn.Two;
+    // No existing editor — split the browser's column vertically so the source
+    // appears below the browser, not beside the inspector in a separate column.
+    // Focus the browser first so newGroupBelow targets column 1, then the new
+    // (now-active) group below is where we open the file.
+    this.panel.reveal(undefined, false);
+    await vscode.commands.executeCommand('workbench.action.newGroupBelow');
+    return vscode.ViewColumn.Active;
   }
 
   private applyDimming(
