@@ -4,6 +4,13 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-06-10
+
+### Fixed
+
+- **New methods are now created in the environment selected in the System Browser, not always environment 0.** The `gemstone://` URI for a new method was built inline in `handleNewMethod` with a raw template string that duplicated `parseUri`'s encoding logic and omitted the `?env=N` query parameter, so a new method was always compiled into environment 0 regardless of the browser's selected environment. URI construction is now centralized in `buildNewMethodUri`, which threads the environment through. ([#99](https://github.com/jgfoster/Jasper/pull/99))
+- **GT Inspector "Browse →" no longer destroys the panel layout or leaves the browser columns unselected.** Two regressions introduced when the live-search filter merged into main: (1) `getBrowserViewColumn()` called `setEditorLayout` when no `gemstone://` editor was open, clobbering the panel layout and removing the GT Inspector tab — the method source now opens in a new group below the browser (`workbench.action.newGroupBelow`) without disturbing other panels; (2) `populateColumn()` unconditionally called `refreshFilter()`, which is only attached after the user first types in a filter box, so before any typing it threw a `TypeError` that silently aborted column selection — category, class, method category, and method went unhighlighted after a Browse navigation. Fixed with optional chaining and by eagerly attaching `refreshFilter` once the filter element's DOM is constructed. ([#98](https://github.com/jgfoster/Jasper/pull/98))
+
 ## [1.6.1] - 2026-06-09
 
 ### Added
