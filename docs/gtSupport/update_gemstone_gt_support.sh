@@ -1,0 +1,86 @@
+#!/bin/bash
+#
+#
+# Updates the .gs files in this directory from the project checkouts
+# in $ROWAN_PROJECTS_HOME. Run this script to pick up the latest GT support
+# files when the projects have been updated.
+#
+# The following four projects must be cloned into $ROWAN_PROJECTS_HOME:
+#   gt4gemstone            github.com/feenkcom/gt4gemstone
+#   gtoolkit-remote        github.com/feenkcom/gtoolkit-remote
+#   gtoolkit-wireencoding  github.com/feenkcom/gtoolkit-wireencoding
+#   RemoteServiceReplication  github.com/GemTalk/RemoteServiceReplication
+#
+# REQUIREMENTS:
+#   $ROWAN_PROJECTS_HOME  Directory containing the four project checkouts above
+#
+# USAGE:
+#   ./update_gemstone_gt_support.sh
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -z "$ROWAN_PROJECTS_HOME" ]; then
+    echo "Error: ROWAN_PROJECTS_HOME is not set."
+    exit 1
+fi
+
+# Verify all four project directories are present
+missing_projects=()
+for project in gt4gemstone gtoolkit-wireencoding gtoolkit-remote RemoteServiceReplication; do
+    [ ! -d "$ROWAN_PROJECTS_HOME/$project" ] && missing_projects+=("$project")
+done
+
+if [ ${#missing_projects[@]} -gt 0 ]; then
+    echo "Cannot update: the following project directories were not found in $ROWAN_PROJECTS_HOME:"
+    for p in "${missing_projects[@]}"; do
+        echo "  $p"
+    done
+    echo ""
+    echo "Clone the missing projects into \$ROWAN_PROJECTS_HOME before running this script:"
+    echo "  gt4gemstone            github.com/feenkcom/gt4gemstone"
+    echo "  gtoolkit-remote        github.com/feenkcom/gtoolkit-remote"
+    echo "  gtoolkit-wireencoding  github.com/feenkcom/gtoolkit-wireencoding"
+    echo "  RemoteServiceReplication  github.com/GemTalk/RemoteServiceReplication"
+    exit 1
+fi
+
+# Before running this script, pull the latest from each of the four repos:
+#   git -C "$ROWAN_PROJECTS_HOME/gt4gemstone" pull
+#   git -C "$ROWAN_PROJECTS_HOME/gtoolkit-wireencoding" pull
+#   git -C "$ROWAN_PROJECTS_HOME/gtoolkit-remote" pull
+#   git -C "$ROWAN_PROJECTS_HOME/RemoteServiceReplication" pull
+
+
+
+# Warn and confirm before overwriting
+existing=()
+for f in Announcements.gs RemoteServiceReplication.gs STON.gs patch-gemstone.gs \
+         gtoolkit-wireencoding.gs gt4gemstone.gs gtoolkit-remote.gs; do
+    [ -f "$SCRIPT_DIR/$f" ] && existing+=("$f")
+done
+
+if [ ${#existing[@]} -gt 0 ]; then
+    echo "Warning: the following files will be overwritten in $SCRIPT_DIR:"
+    for f in "${existing[@]}"; do
+        echo "  $f"
+    done
+    echo ""
+    read -rp "Continue? [y/N] " answer
+    case "$answer" in
+        [yY]*) ;;
+        *) echo "Aborted."; exit 0 ;;
+    esac
+fi
+
+# Copy the src-gs files
+cp "$ROWAN_PROJECTS_HOME/gt4gemstone/src-gs/Announcements.gs"        "$SCRIPT_DIR/"
+cp "$ROWAN_PROJECTS_HOME/RemoteServiceReplication/src-gs/bootstrapRSR.gs"  "$SCRIPT_DIR/RemoteServiceReplication.gs"
+cp "$ROWAN_PROJECTS_HOME/gt4gemstone/src-gs/STON.gs"                  "$SCRIPT_DIR/"
+cp "$ROWAN_PROJECTS_HOME/gt4gemstone/src-gs/patch-gemstone.gs"        "$SCRIPT_DIR/"
+cp "$ROWAN_PROJECTS_HOME/gtoolkit-wireencoding/src-gs/gtoolkit-wireencoding.gs" "$SCRIPT_DIR/"
+cp "$ROWAN_PROJECTS_HOME/gt4gemstone/src-gs/gt4gemstone.gs"           "$SCRIPT_DIR/"
+cp "$ROWAN_PROJECTS_HOME/gtoolkit-remote/src-gs/gtoolkit-remote.gs"   "$SCRIPT_DIR/"
+
+echo ""
+echo "Update complete. Files written to $SCRIPT_DIR"
+echo "Use load_gemstone_gt_support.sh to load these into a stone."
