@@ -8,6 +8,7 @@ import {parseTopazDocument} from './topazFileIn';
 import * as queries from './browserQueries';
 import {GlobalsBrowser} from './globalsBrowser';
 import {ClassBrowser} from './classBrowser';
+import {buildNewMethodUri} from './gemstoneFileSystemProvider';
 
 /**
  * The webview HTML is a large template literal in getHtml(). Embedding JS directly
@@ -1263,17 +1264,9 @@ export class SystemBrowser {
     }
 
     const dictName = this.state.dictionaries[dictIndex - 1];
-    const side = this.state.isMeta ? 'class' : 'instance';
     const category = (this.state.selectedMethodCategory && this.state.selectedMethodCategory !== '** ALL METHODS **')
       ? this.state.selectedMethodCategory : 'as yet unclassified';
-    const uri = vscode.Uri.parse(
-      `gemstone://${this.session.id}` +
-      `/${encodeURIComponent(dictName)}` +
-      `/${encodeURIComponent(className)}` +
-      `/${side}` +
-      `/${encodeURIComponent(category)}` +
-      `/new-method`,
-    );
+    const uri = buildNewMethodUri(this.session.id, dictName, className, this.state.isMeta, category, this.state.selectedEnvId);
     const viewColumn = await this.getBrowserViewColumn();
     const doc = await vscode.workspace.openTextDocument(uri);
     vscode.window.showTextDocument(doc, { viewColumn, preview: true });
