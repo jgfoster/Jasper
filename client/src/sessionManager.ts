@@ -3,6 +3,7 @@ import { GciLibrary, GciError } from './gciLibrary';
 import { OOP_NIL } from './gciConstants';
 import { GemStoneLogin, loginLabel } from './loginTypes';
 import { logInfo } from './gciLog';
+import { wrapWithGtPerfProxy } from './gtPerfTracker';
 
 export interface ActiveSession {
   id: number;
@@ -105,7 +106,7 @@ export class SessionManager {
   private getGciLibrary(libraryPath: string): GciLibrary {
     let gci = this.gciInstances.get(libraryPath);
     if (!gci) {
-      gci = new GciLibrary(libraryPath);
+      gci = wrapWithGtPerfProxy(new GciLibrary(libraryPath));
       this.gciInstances.set(libraryPath, gci);
     }
     return gci;

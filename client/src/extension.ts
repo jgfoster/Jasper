@@ -13,6 +13,14 @@ import { LoginTreeProvider, GemStoneLoginItem, GemStoneSessionItem } from './log
 import { GemStoneLogin, loginLabel, sameLoginTarget } from './loginTypes';
 import { LoginEditorPanel } from './loginEditorPanel';
 import { SessionManager } from './sessionManager';
+import {
+  gtPerfTracker,
+  buildGtPerfStatusBarText,
+  buildGtPerfClipboardText,
+  buildGtPerfQuickPickItems,
+  RESET_LABEL,
+  COPY_LABEL,
+} from './gtPerfTracker';
 import { CodeExecutor } from './codeExecutor';
 import { SystemBrowser } from './systemBrowser';
 import { GlobalsBrowser } from './globalsBrowser';
@@ -369,6 +377,82 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   );
   updateStatusBar();
+
+  // ── GT Perf Tracking ───────────────────────────────────
+  const gtPerfChannel = vscode.window.createOutputChannel('GemStone GT Perf');
+  context.subscriptions.push(gtPerfChannel);
+
+  const gtPerfCountItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 98);
+  gtPerfCountItem.tooltip = 'GT Perf: click to see breakdown';
+  gtPerfCountItem.command = 'gemstone.showGtPerfDetails';
+  context.subscriptions.push(gtPerfCountItem);
+
+  const gtPerfResetItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 97);
+  gtPerfResetItem.text = '$(debug-restart)';
+  gtPerfResetItem.tooltip = 'Reset GT Perf Counter';
+  gtPerfResetItem.command = 'gemstone.resetGtPerfCounter';
+  context.subscriptions.push(gtPerfResetItem);
+
+  function updateGtPerfStatusBar() {
+    if (gtPerfTracker.enabled) {
+      gtPerfCountItem.text = buildGtPerfStatusBarText(gtPerfTracker.count);
+      gtPerfCountItem.show();
+      gtPerfResetItem.show();
+    } else {
+      gtPerfCountItem.hide();
+      gtPerfResetItem.hide();
+    }
+  }
+
+  gtPerfTracker.onCountChanged = updateGtPerfStatusBar;
+
+  const applyGtPerfSetting = () => {
+    const enabled = vscode.workspace.getConfiguration('gemstone').get<boolean>('gtPerfTracking', false);
+    gtPerfTracker.setEnabled(enabled);
+    vscode.commands.executeCommand('setContext', 'gemstone.gtPerfTracking', enabled);
+    updateGtPerfStatusBar();
+  };
+  applyGtPerfSetting();
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration('gemstone.gtPerfTracking')) {
+        applyGtPerfSetting();
+      }
+    }),
+    vscode.commands.registerCommand('gemstone.enableGtPerfTracking', async () => {
+      await vscode.workspace.getConfiguration('gemstone').update('gtPerfTracking', true, vscode.ConfigurationTarget.Workspace);
+    }),
+    vscode.commands.registerCommand('gemstone.disableGtPerfTracking', async () => {
+      await vscode.workspace.getConfiguration('gemstone').update('gtPerfTracking', false, vscode.ConfigurationTarget.Workspace);
+    }),
+    vscode.commands.registerCommand('gemstone.resetGtPerfCounter', () => {
+      const sorted = [...gtPerfTracker.methodCounts.entries()].sort((a, b) => b[1] - a[1]);
+      gtPerfChannel.appendLine(`[reset] ${gtPerfTracker.count} total GCI calls`);
+      for (const [method, count] of sorted) {
+        gtPerfChannel.appendLine(`  ${method}: ${count}`);
+      }
+      gtPerfTracker.reset();
+    }),
+    vscode.commands.registerCommand('gemstone.showGtPerfDetails', async () => {
+      const clipboardText = buildGtPerfClipboardText(gtPerfTracker);
+      const items: vscode.QuickPickItem[] = buildGtPerfQuickPickItems(gtPerfTracker).map(item =>
+        item.isSeparator
+          ? { label: '', kind: vscode.QuickPickItemKind.Separator }
+          : { label: item.label, description: item.description }
+      );
+      const selected = await vscode.window.showQuickPick(items, {
+        title: `GT Perf: ${gtPerfTracker.count} total GCI calls`,
+        placeHolder: 'Choose an action, or press Escape to dismiss',
+      });
+      if (selected?.label === RESET_LABEL) {
+        vscode.commands.executeCommand('gemstone.resetGtPerfCounter');
+      } else if (selected?.label === COPY_LABEL) {
+        await vscode.env.clipboard.writeText(clipboardText);
+        vscode.window.showInformationMessage('GT Perf breakdown copied to clipboard.');
+      }
+    }),
+  );
 
   // ── Shared Helpers ─────────────────────────────────────
 
