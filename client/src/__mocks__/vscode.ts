@@ -1,4 +1,7 @@
 import { vi } from 'vitest';
+import { URI as Uri } from 'vscode-uri';
+
+export { Uri };
 
 // ── Configuration mock ─────────────────────────────────────
 
@@ -270,56 +273,6 @@ export const commands = {
   registerCommand: vi.fn((_command: string, _callback: unknown) => ({ dispose: () => {} })),
   executeCommand: vi.fn(),
 };
-
-// ── Uri mock ───────────────────────────────────────────────
-
-export class Uri {
-  scheme: string;
-  authority: string;
-  path: string;
-  fsPath: string;
-  query: string;
-  fragment: string;
-
-  private constructor(scheme: string, authority: string, path: string, query = '', fragment = '') {
-    this.scheme = scheme;
-    this.authority = authority;
-    this.path = path;
-    this.fsPath = path;
-    this.query = query;
-    this.fragment = fragment;
-  }
-
-  with(_change: { scheme?: string; authority?: string; path?: string; query?: string; fragment?: string }): Uri {
-    return new Uri(
-      _change.scheme ?? this.scheme,
-      _change.authority ?? this.authority,
-      _change.path ?? this.path,
-      _change.query ?? this.query,
-      _change.fragment ?? this.fragment,
-    );
-  }
-
-  toJSON(): unknown {
-    return { scheme: this.scheme, authority: this.authority, path: this.path, query: this.query, fragment: this.fragment };
-  }
-
-  toString(): string {
-    return `${this.scheme}://${this.authority}${this.path}`;
-  }
-
-  static file(path: string) {
-    return new Uri('file', '', path);
-  }
-
-  static parse(value: string): Uri {
-    const match = value.match(/^([^:]+):\/\/([^/]*)([^?#]*)(?:\?([^#]*))?(?:#(.*))?$/);
-    if (match) {
-      return new Uri(match[1], match[2], match[3], match[4] || '', match[5] || '');
-    }
-    return new Uri('file', '', value);
-  }
-}
 
 // ── FileSystemError mock ──────────────────────────────────
 

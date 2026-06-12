@@ -110,16 +110,23 @@ export function buildNewMethodUri(
   category: string,
   environmentId: number,
 ): vscode.Uri {
+  assertIsValidUriPath('Dictionary name', dictName);
+  assertIsValidUriPath('Class name', className);
+  assertIsValidUriPath('Method category name', category);
+  
   const side = isMeta ? 'class' : 'instance';
-  const envQuery = environmentId > 0 ? `?env=${environmentId}` : '';
-  return vscode.Uri.parse(
-    `gemstone://${sessionId}` +
-    `/${encodeURIComponent(dictName)}` +
-    `/${encodeURIComponent(className)}` +
-    `/${side}` +
-    `/${encodeURIComponent(category)}` +
-    `/new-method${envQuery}`,
-  );
+  return vscode.Uri.from({
+    scheme: 'gemstone',
+    authority: String(sessionId),
+    path: `/${dictName}/${className}/${side}/${category}/new-method`,
+    query: environmentId > 0 ? `env=${environmentId}` : '',
+  });
+}
+
+function assertIsValidUriPath(parameterName: string, value: string) {
+  if (value.includes('/')) {
+    throw new Error(`${parameterName} must not contain '/': ${value}`);
+  }
 }
 
 // ── FileSystemProvider ────────────────────────────────────────

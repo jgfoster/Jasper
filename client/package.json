@@ -11,6 +11,7 @@
     "@types/vscode": "^1.85.0",
     "css.escape": "^1.5.1",
     "jsdom": "^27.4.0",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "vscode-uri": "^3.1.0"
   }
 }

@@ -424,49 +424,53 @@ describe('buildNewMethodUri', () => {
     expect(uri.authority).toBe('42');
   });
 
-  it('produces an instance-side path when the class side is not meta', () => {
-    const uri = buildNewMethodUri(1, 'Globals', 'Array', false, 'accessing', 0);
-    const parts = uri.path.split('/');
-    expect(parts[3]).toBe('instance');
+  it('places the dictionary name at path segment 1', () => {
+    const uri = buildNewMethodUri(1, 'UserGlobals', 'Array', false, 'accessing', 0);
+    expect(uri.path.split('/')[1]).toBe('UserGlobals');
   });
 
-  it('produces a class-side path when the class side is meta', () => {
+  it('places the class name at path segment 2', () => {
+    const uri = buildNewMethodUri(1, 'Globals', 'Array', false, 'accessing', 0);
+    expect(uri.path.split('/')[2]).toBe('Array');
+  });
+
+  it('places "instance" at path segment 3 when isMeta is false', () => {
+    const uri = buildNewMethodUri(1, 'Globals', 'Array', false, 'accessing', 0);
+    expect(uri.path.split('/')[3]).toBe('instance');
+  });
+
+  it('places "class" at path segment 3 when isMeta is true', () => {
     const uri = buildNewMethodUri(1, 'Globals', 'Array', true, 'accessing', 0);
-    const parts = uri.path.split('/');
-    expect(parts[3]).toBe('class');
+    expect(uri.path.split('/')[3]).toBe('class');
   });
 
-  it('URL-encodes the dictionary name', () => {
-    const uri = buildNewMethodUri(1, 'User Globals', 'Array', false, 'accessing', 0);
-    const parts = uri.path.split('/');
-    expect(parts[1]).toBe('User%20Globals');
-  });
-
-  it('URL-encodes the class name', () => {
-    const uri = buildNewMethodUri(1, 'Globals', 'My Class', false, 'accessing', 0);
-    const parts = uri.path.split('/');
-    expect(parts[2]).toBe('My%20Class');
-  });
-
-  it('URL-encodes the category name', () => {
-    const uri = buildNewMethodUri(1, 'Globals', 'Array', false, 'as yet unclassified', 0);
-    const parts = uri.path.split('/');
-    expect(parts[4]).toBe('as%20yet%20unclassified');
-  });
-
-  it('places new-method as the final path segment', () => {
+  it('places the method category at path segment 4', () => {
     const uri = buildNewMethodUri(1, 'Globals', 'Array', false, 'accessing', 0);
-    const parts = uri.path.split('/');
-    expect(parts[5]).toBe('new-method');
+    expect(uri.path.split('/')[4]).toBe('accessing');
   });
 
-  it('omits the env query parameter when the environment is the default', () => {
+  it('omits the env query parameter when environmentId is 0', () => {
     const uri = buildNewMethodUri(1, 'Globals', 'Array', false, 'accessing', 0);
     expect(uri.query).toBe('');
   });
 
-  it('appends the env query parameter when a non-default environment is specified', () => {
+  it('appends the env query parameter when environmentId is non-zero', () => {
     const uri = buildNewMethodUri(1, 'Globals', 'Array', false, 'accessing', 2);
     expect(uri.query).toBe('env=2');
+  });
+
+  it('throws when dictName contains a slash', () => {
+    expect(() => buildNewMethodUri(1, 'User/Globals', 'Array', false, 'accessing', 0))
+      .toThrow("Dictionary name must not contain '/': User/Globals");
+  });
+
+  it('throws when className contains a slash', () => {
+    expect(() => buildNewMethodUri(1, 'Globals', 'My/Class', false, 'accessing', 0))
+      .toThrow("Class name must not contain '/': My/Class");
+  });
+
+  it('throws when category contains a slash', () => {
+    expect(() => buildNewMethodUri(1, 'Globals', 'Array', false, 'accessing/stuff', 0))
+      .toThrow("Method category name must not contain '/': accessing/stuff");
   });
 });

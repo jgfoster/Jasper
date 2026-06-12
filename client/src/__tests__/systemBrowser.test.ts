@@ -496,8 +496,8 @@ describe('SystemBrowser', () => {
       await vi.waitFor(() => { expect(workspace.openTextDocument).toHaveBeenCalled(); });
 
       const uri = (workspace.openTextDocument as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(uri.path).toContain('as%20yet%20unclassified');
-      expect(uri.path).not.toContain('ALL%20METHODS');
+      expect(uri.path).toContain('as yet unclassified');
+      expect(uri.path).not.toContain('ALL METHODS');
     });
 
     it('uses "as yet unclassified" when no method category is selected', async () => {
@@ -508,7 +508,7 @@ describe('SystemBrowser', () => {
       await vi.waitFor(() => { expect(workspace.openTextDocument).toHaveBeenCalled(); });
 
       const uri = (workspace.openTextDocument as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(uri.path).toContain('as%20yet%20unclassified');
+      expect(uri.path).toContain('as yet unclassified');
     });
 
     it('opens a gemstone:// editor even when method is not found in the .gs file', async () => {
@@ -1141,8 +1141,8 @@ describe('SystemBrowser', () => {
       await vi.waitFor(() => { expect(workspace.openTextDocument).toHaveBeenCalled(); });
 
       const uri = vi.mocked(workspace.openTextDocument).mock.calls[0][0] as { path: string };
-      expect(uri.path).toContain('as%20yet%20unclassified');
-      expect(uri.path).not.toContain('ALL%20METHODS');
+      expect(uri.path).toContain('as yet unclassified');
+      expect(uri.path).not.toContain('ALL METHODS');
     });
   });
 
