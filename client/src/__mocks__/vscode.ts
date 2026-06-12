@@ -274,6 +274,12 @@ export const commands = {
   executeCommand: vi.fn(),
 };
 
+// ── Tab input mock ────────────────────────────────────────
+
+export class TabInputText {
+  constructor(public readonly uri: Uri) {}
+}
+
 // ── FileSystemError mock ──────────────────────────────────
 
 export class FileSystemError extends Error {
