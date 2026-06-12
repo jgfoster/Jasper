@@ -1,9 +1,10 @@
 import * as vscode from 'vscode';
-import { SessionManager } from './sessionManager';
+import {ActiveSession, SessionManager} from './sessionManager';
 import * as queries from './browserQueries';
 import { BrowserQueryError } from './browserQueries';
 import { ExportManager } from './exportManager';
 import { logInfo } from './gciLog';
+import {receiver} from "./queries/util";
 
 // ── URI Structure ────────────────────────────────────────────
 // Method:     gemstone://{sessionId}/{dictName}/{className}/{side}/{category}/{selector}
@@ -98,8 +99,8 @@ function parseUri(uri: vscode.Uri): ParsedUri {
       selector: parts[5],
       environmentId,
     };
-  }
-  throw vscode.FileSystemError.FileNotFound(uri);
+   }
+   throw vscode.FileSystemError.FileNotFound(uri);
 }
 
 export function buildNewMethodUri(
@@ -110,16 +111,33 @@ export function buildNewMethodUri(
   category: string,
   environmentId: number,
 ): vscode.Uri {
-  const side = isMeta ? 'class' : 'instance';
-  const envQuery = environmentId > 0 ? `?env=${environmentId}` : '';
-  return vscode.Uri.parse(
-    `gemstone://${sessionId}` +
-    `/${encodeURIComponent(dictName)}` +
-    `/${encodeURIComponent(className)}` +
-    `/${side}` +
-    `/${encodeURIComponent(category)}` +
-    `/new-method${envQuery}`,
-  );
+  return buildMethodUri({ kind: 'method', sessionId, dictName, className, isMeta, category, selector: 'new-method', environmentId });
+}
+
+export function buildMethodUri(parsedUri: ParsedMethodUri): vscode.Uri {
+  assertIsValidUriPath('Dictionary name', parsedUri.dictName);
+  assertIsValidUriPath('Class name', parsedUri.className);
+  assertIsValidUriPath('Method category name', parsedUri.category);
+  assertIsValidUriPath('Selector', parsedUri.selector);
+  
+  const side = parsedUri.isMeta ? 'class' : 'instance';
+  return vscode.Uri.from({
+    scheme: 'gemstone',
+    authority: String(parsedUri.sessionId),
+    path: `/${parsedUri.dictName}/${parsedUri.className}/${side}/${parsedUri.category}/${parsedUri.selector}`,
+    query: parsedUri.environmentId > 0 ? `env=${parsedUri.environmentId}` : '',
+  });
+}
+
+function assertIsValidUriPath(parameterName: string, value: string) {
+  if (value.includes('/')) {
+    throw new Error(`${parameterName} must not contain '/': ${value}`);
+  }
+}
+
+export interface MethodCompiledEvent{
+  uri: vscode.Uri;
+  previousUri: vscode.Uri
 }
 
 // ── FileSystemProvider ────────────────────────────────────────
@@ -127,6 +145,9 @@ export function buildNewMethodUri(
 export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
   private _onDidChangeFile = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
   readonly onDidChangeFile = this._onDidChangeFile.event;
+
+  private _onMethodCompiled = new vscode.EventEmitter<MethodCompiledEvent>();
+  readonly onMethodCompiled = this._onMethodCompiled.event;
 
   private diagnostics = vscode.languages.createDiagnosticCollection('gemstone-method');
 
@@ -247,12 +268,13 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
           vscode.window.showInformationMessage('Class created');
           break;
         case 'new-method':
-          queries.compileMethod(
-            session, parsed.className, parsed.isMeta, parsed.category, source, parsed.environmentId,
-          );
-          vscode.window.showInformationMessage(
-            `Compiled new method in ${parsed.className}${parsed.isMeta ? ' class' : ''}`
-          );
+          const newMethodUri = this.compileMethod(parsed, source, session);
+          
+          // Defer the event to the next event-loop iteration so VS Code has time to
+          // process the completed save and mark the document clean. Firing synchronously
+          // here — before writeFile returns — means the tab is still dirty when
+          // closeTextEditorOn runs, which triggers a "save before closing?" dialog.
+          setImmediate(() => this._onMethodCompiled.fire({uri: newMethodUri, previousUri: uri}));
           break;
       }
 
@@ -290,6 +312,32 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
       logInfo(`[FS] writeFile → unexpected error: ${e instanceof Error ? e.message : String(e)}`);
       throw e;
     }
+  }
+
+  private compileMethod(parsedMethodUri: ParsedNewMethodUri, sourceCode: string, session: ActiveSession) : vscode.Uri {
+    const result = queries.compileMethod(
+        session, parsedMethodUri.className, parsedMethodUri.isMeta, parsedMethodUri.category, sourceCode, parsedMethodUri.environmentId,
+    );
+    const selector = result.split('>> ')[1]?.trim();
+
+    if (!selector) {
+      throw new BrowserQueryError(result);
+    }
+    
+    vscode.window.showInformationMessage(
+        `Compiled method ${receiver(parsedMethodUri.className, parsedMethodUri.isMeta)}>>#${selector}`
+    );
+    
+    return buildMethodUri({
+      ...parsedMethodUri,
+      kind: 'method',
+      selector: selector
+    });
+  }
+
+  dispose(): void {
+    this._onDidChangeFile.dispose();
+    this._onMethodCompiled.dispose();
   }
 
   createDirectory(): void {

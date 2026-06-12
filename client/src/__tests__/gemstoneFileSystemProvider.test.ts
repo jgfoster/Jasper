@@ -21,7 +21,7 @@ vi.mock('../browserQueries', () => ({
 }));
 
 import { Uri, FileSystemError, FilePermission, window, languages } from '../__mocks__/vscode';
-import { GemStoneFileSystemProvider, buildNewMethodUri } from '../gemstoneFileSystemProvider';
+import { GemStoneFileSystemProvider, buildMethodUri, buildNewMethodUri } from '../gemstoneFileSystemProvider';
 import { SessionManager } from '../sessionManager';
 import * as queries from '../browserQueries';
 import { BrowserQueryError } from '../browserQueries';
@@ -249,14 +249,89 @@ describe('GemStoneFileSystemProvider', () => {
       });
     });
 
-    it('compiles new-method on save', () => {
-      const uri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/new-method');
-      const source = 'foo\n  ^42';
-      provider.writeFile(uri, encode(source), { create: true, overwrite: true });
-      expect(queries.compileMethod).toHaveBeenCalledWith(
-        expect.anything(), 'Array', false, 'accessing', source, 0,
-      );
-    });
+     it('compiles new-method on save', () => {
+       const uri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/new-method');
+       const source = 'foo\n  ^42';
+       vi.mocked(queries.compileMethod).mockReturnValueOnce('Compiled: Array >> foo');
+       provider.writeFile(uri, encode(source), { create: true, overwrite: true });
+       expect(queries.compileMethod).toHaveBeenCalledWith(
+         expect.anything(), 'Array', false, 'accessing', source, 0,
+       );
+     });
+
+     it('emits onMethodCompiled event when new-method compiles successfully', async () => {
+       const newMethodUri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/new-method');
+       const source = 'foo\n  ^42';
+       vi.mocked(queries.compileMethod).mockReturnValueOnce('Compiled: Array >> foo');
+       const listener = vi.fn();
+       provider.onMethodCompiled(listener);
+
+       provider.writeFile(newMethodUri, encode(source), { create: true, overwrite: true });
+       await new Promise(resolve => setImmediate(resolve));
+
+       expect(listener).toHaveBeenCalledTimes(1);
+       const event = listener.mock.calls[0][0];
+       expect(event.previousUri.toString()).toBe(newMethodUri.toString());
+       expect(event.uri.toString()).toBe('gemstone://1/Globals/Array/instance/accessing/foo');
+     });
+
+     it('trims trailing whitespace from the selector when building the compiled method uri', async () => {
+       const newMethodUri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/new-method');
+       vi.mocked(queries.compileMethod).mockReturnValueOnce('Compiled: Array >> foo ');
+       const listener = vi.fn();
+       provider.onMethodCompiled(listener);
+
+       provider.writeFile(newMethodUri, encode('foo\n  ^42'), { create: true, overwrite: true });
+       await new Promise(resolve => setImmediate(resolve));
+
+       const event = listener.mock.calls[0][0];
+       expect(event.uri.toString()).toBe('gemstone://1/Globals/Array/instance/accessing/foo');
+     });
+
+     it('trims leading whitespace from the selector when building the compiled method uri', async () => {
+       const newMethodUri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/new-method');
+       vi.mocked(queries.compileMethod).mockReturnValueOnce('Compiled: Array >>  foo');
+       const listener = vi.fn();
+       provider.onMethodCompiled(listener);
+
+       provider.writeFile(newMethodUri, encode('foo\n  ^42'), { create: true, overwrite: true });
+       await new Promise(resolve => setImmediate(resolve));
+
+       const event = listener.mock.calls[0][0];
+       expect(event.uri.toString()).toBe('gemstone://1/Globals/Array/instance/accessing/foo');
+     });
+
+     it('does not fire onMethodCompiled after dispose', async () => {
+       const newMethodUri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/new-method');
+       vi.mocked(queries.compileMethod).mockReturnValueOnce('Compiled: Array >> foo');
+       const listener = vi.fn();
+       provider.onMethodCompiled(listener);
+
+       provider.dispose();
+       provider.writeFile(newMethodUri, encode('foo\n  ^42'), { create: true, overwrite: true });
+       await new Promise(resolve => setImmediate(resolve));
+
+       expect(listener).not.toHaveBeenCalled();
+     });
+
+     it('sets diagnostic (no throw) when new-method compile result cannot extract selector', () => {
+       const uri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/new-method');
+       const source = 'foo\n  ^42';
+       const listener = vi.fn();
+       provider.onMethodCompiled(listener);
+       vi.mocked(queries.compileMethod).mockReturnValueOnce('Class not found: Array');
+
+       expect(() => provider.writeFile(uri, encode(source), { create: true, overwrite: true }))
+         .not.toThrow();
+       expect(listener).not.toHaveBeenCalled();
+       const collection = vi.mocked(languages.createDiagnosticCollection).mock.results[0].value;
+       expect(collection.set).toHaveBeenCalledWith(
+         uri,
+         expect.arrayContaining([
+           expect.objectContaining({ message: 'Class not found: Array' }),
+         ]),
+       );
+     });
 
     it('shows success message after compiling a method', () => {
       const uri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A');
@@ -411,6 +486,79 @@ describe('GemStoneFileSystemProvider', () => {
       );
     });
   });
+
+});
+
+describe('buildMethodUri', () => {
+  it('uses the gemstone scheme', () => {
+    const uri = buildMethodUri({ kind: 'method', sessionId: 42, dictName: 'Globals', className: 'Array', isMeta: false, category: 'accessing', selector: 'at', environmentId: 0 });
+    expect(uri.scheme).toBe('gemstone');
+  });
+
+  it('uses the session id as the authority', () => {
+    const uri = buildMethodUri({ kind: 'method', sessionId: 42, dictName: 'Globals', className: 'Array', isMeta: false, category: 'accessing', selector: 'at', environmentId: 0 });
+    expect(uri.authority).toBe('42');
+  });
+
+  it('places the dictionary name at path segment 1', () => {
+    const uri = buildMethodUri({ kind: 'method', sessionId: 1, dictName: 'UserGlobals', className: 'Array', isMeta: false, category: 'accessing', selector: 'at', environmentId: 0 });
+    expect(uri.path.split('/')[1]).toBe('UserGlobals');
+  });
+
+  it('places the class name at path segment 2', () => {
+    const uri = buildMethodUri({ kind: 'method', sessionId: 1, dictName: 'Globals', className: 'String', isMeta: false, category: 'accessing', selector: 'at', environmentId: 0 });
+    expect(uri.path.split('/')[2]).toBe('String');
+  });
+
+  it('places "instance" at path segment 3 when isMeta is false', () => {
+    const uri = buildMethodUri({ kind: 'method', sessionId: 1, dictName: 'Globals', className: 'Array', isMeta: false, category: 'accessing', selector: 'at', environmentId: 0 });
+    expect(uri.path.split('/')[3]).toBe('instance');
+  });
+
+  it('places "class" at path segment 3 when isMeta is true', () => {
+    const uri = buildMethodUri({ kind: 'method', sessionId: 1, dictName: 'Globals', className: 'Array', isMeta: true, category: 'accessing', selector: 'at', environmentId: 0 });
+    expect(uri.path.split('/')[3]).toBe('class');
+  });
+
+  it('places the method category at path segment 4', () => {
+    const uri = buildMethodUri({ kind: 'method', sessionId: 1, dictName: 'Globals', className: 'Array', isMeta: false, category: 'accessing', selector: 'at', environmentId: 0 });
+    expect(uri.path.split('/')[4]).toBe('accessing');
+  });
+
+  it('places the selector at path segment 5', () => {
+    const uri = buildMethodUri({ kind: 'method', sessionId: 1, dictName: 'Globals', className: 'Array', isMeta: false, category: 'accessing', selector: 'at:put:', environmentId: 0 });
+    expect(uri.path.split('/')[5]).toBe('at:put:');
+  });
+
+  it('omits the env query parameter when environmentId is 0', () => {
+    const uri = buildMethodUri({ kind: 'method', sessionId: 1, dictName: 'Globals', className: 'Array', isMeta: false, category: 'accessing', selector: 'at', environmentId: 0 });
+    expect(uri.query).toBe('');
+  });
+
+  it('appends the env query parameter when environmentId is non-zero', () => {
+    const uri = buildMethodUri({ kind: 'method', sessionId: 1, dictName: 'Globals', className: 'Array', isMeta: false, category: 'accessing', selector: 'at', environmentId: 2 });
+    expect(uri.query).toBe('env=2');
+  });
+
+  it('throws when dictName contains a slash', () => {
+    expect(() => buildMethodUri({ kind: 'method', sessionId: 1, dictName: 'User/Globals', className: 'Array', isMeta: false, category: 'accessing', selector: 'at', environmentId: 0 }))
+      .toThrow("Dictionary name must not contain '/': User/Globals");
+  });
+
+  it('throws when className contains a slash', () => {
+    expect(() => buildMethodUri({ kind: 'method', sessionId: 1, dictName: 'Globals', className: 'My/Class', isMeta: false, category: 'accessing', selector: 'at', environmentId: 0 }))
+      .toThrow("Class name must not contain '/': My/Class");
+  });
+
+  it('throws when category contains a slash', () => {
+    expect(() => buildMethodUri({ kind: 'method', sessionId: 1, dictName: 'Globals', className: 'Array', isMeta: false, category: 'accessing/stuff', selector: 'at', environmentId: 0 }))
+      .toThrow("Method category name must not contain '/': accessing/stuff");
+  });
+
+  it('throws when selector contains a slash', () => {
+    expect(() => buildMethodUri({ kind: 'method', sessionId: 1, dictName: 'Globals', className: 'Array', isMeta: false, category: 'accessing', selector: 'foo/bar', environmentId: 0 }))
+      .toThrow("Selector must not contain '/': foo/bar");
+  });
 });
 
 describe('buildNewMethodUri', () => {
@@ -424,49 +572,53 @@ describe('buildNewMethodUri', () => {
     expect(uri.authority).toBe('42');
   });
 
-  it('produces an instance-side path when the class side is not meta', () => {
-    const uri = buildNewMethodUri(1, 'Globals', 'Array', false, 'accessing', 0);
-    const parts = uri.path.split('/');
-    expect(parts[3]).toBe('instance');
+  it('places the dictionary name at path segment 1', () => {
+    const uri = buildNewMethodUri(1, 'UserGlobals', 'Array', false, 'accessing', 0);
+    expect(uri.path.split('/')[1]).toBe('UserGlobals');
   });
 
-  it('produces a class-side path when the class side is meta', () => {
+  it('places the class name at path segment 2', () => {
+    const uri = buildNewMethodUri(1, 'Globals', 'Array', false, 'accessing', 0);
+    expect(uri.path.split('/')[2]).toBe('Array');
+  });
+
+  it('places "instance" at path segment 3 when isMeta is false', () => {
+    const uri = buildNewMethodUri(1, 'Globals', 'Array', false, 'accessing', 0);
+    expect(uri.path.split('/')[3]).toBe('instance');
+  });
+
+  it('places "class" at path segment 3 when isMeta is true', () => {
     const uri = buildNewMethodUri(1, 'Globals', 'Array', true, 'accessing', 0);
-    const parts = uri.path.split('/');
-    expect(parts[3]).toBe('class');
+    expect(uri.path.split('/')[3]).toBe('class');
   });
 
-  it('URL-encodes the dictionary name', () => {
-    const uri = buildNewMethodUri(1, 'User Globals', 'Array', false, 'accessing', 0);
-    const parts = uri.path.split('/');
-    expect(parts[1]).toBe('User%20Globals');
-  });
-
-  it('URL-encodes the class name', () => {
-    const uri = buildNewMethodUri(1, 'Globals', 'My Class', false, 'accessing', 0);
-    const parts = uri.path.split('/');
-    expect(parts[2]).toBe('My%20Class');
-  });
-
-  it('URL-encodes the category name', () => {
-    const uri = buildNewMethodUri(1, 'Globals', 'Array', false, 'as yet unclassified', 0);
-    const parts = uri.path.split('/');
-    expect(parts[4]).toBe('as%20yet%20unclassified');
-  });
-
-  it('places new-method as the final path segment', () => {
+  it('places the method category at path segment 4', () => {
     const uri = buildNewMethodUri(1, 'Globals', 'Array', false, 'accessing', 0);
-    const parts = uri.path.split('/');
-    expect(parts[5]).toBe('new-method');
+    expect(uri.path.split('/')[4]).toBe('accessing');
   });
 
-  it('omits the env query parameter when the environment is the default', () => {
+  it('omits the env query parameter when environmentId is 0', () => {
     const uri = buildNewMethodUri(1, 'Globals', 'Array', false, 'accessing', 0);
     expect(uri.query).toBe('');
   });
 
-  it('appends the env query parameter when a non-default environment is specified', () => {
+  it('appends the env query parameter when environmentId is non-zero', () => {
     const uri = buildNewMethodUri(1, 'Globals', 'Array', false, 'accessing', 2);
     expect(uri.query).toBe('env=2');
+  });
+
+  it('throws when dictName contains a slash', () => {
+    expect(() => buildNewMethodUri(1, 'User/Globals', 'Array', false, 'accessing', 0))
+      .toThrow("Dictionary name must not contain '/': User/Globals");
+  });
+
+  it('throws when className contains a slash', () => {
+    expect(() => buildNewMethodUri(1, 'Globals', 'My/Class', false, 'accessing', 0))
+      .toThrow("Class name must not contain '/': My/Class");
+  });
+
+  it('throws when category contains a slash', () => {
+    expect(() => buildNewMethodUri(1, 'Globals', 'Array', false, 'accessing/stuff', 0))
+      .toThrow("Method category name must not contain '/': accessing/stuff");
   });
 });
