@@ -9,7 +9,7 @@ import { getMethodList } from '../getMethodList';
 import { getStepPointSelectorRanges } from '../getStepPointSelectorRanges';
 import { runFailingTests, globToPatternArray } from '../runFailingTests';
 import { describeTestFailure } from '../describeTestFailure';
-import { evalPython, compilePython } from '../python';
+import { evalPython, evalPythonInScope, resetPythonScope, compilePython } from '../python';
 
 describe('getDictionaryEntries', () => {
   it('parses class (1) and global (0) rows', () => {
@@ -627,5 +627,69 @@ describe('python (Grail) queries', () => {
     // The query as a whole carries the embedded LFs through — the literal
     // sits across multiple lines in the generated source.
     expect(code.split('\n').length).toBeGreaterThanOrEqual(source.split('\n').length);
+  });
+});
+
+describe('python (Grail) scoped queries — notebook kernel', () => {
+  // REPL contract: ModuleAst evaluateSource:usingModuleScope: persists
+  // user-defined globals across calls that pass the *same* SymbolDictionary.
+  // The dictionary lives in SessionTemps keyed by scopeId so successive GCI
+  // executes (notebook cells) reuse it.
+  it('evaluates through evaluateSource:usingModuleScope: with a persistent scope', () => {
+    const exec = vi.fn<QueryExecutor>(() => '');
+    evalPythonInScope(exec, 'x = 1', 'file:///nb/a.ipynb');
+    const code = exec.mock.calls[0][1];
+    expect(code).toContain('dispatcher evaluateSource: src usingModuleScope: scope');
+    expect(code).toContain("SessionTemps current at: #'__vscGrailScopes'");
+    expect(code).toContain("at: 'file:///nb/a.ipynb' ifAbsentPut: [SymbolDictionary new]");
+  });
+
+  // Scoped eval must keep the same protection scaffolding as one-shot eval:
+  // Grail-absence hint, cheap AlmostOutOfStack handler innermost, rich
+  // AbstractException handler outermost, UTF-8 transcoding at the boundary.
+  it('keeps the detection, stack-guard, and encoding scaffolding', () => {
+    const exec = vi.fn<QueryExecutor>(() => '');
+    evalPythonInScope(exec, 'x = 1', 'nb');
+    const code = exec.mock.calls[0][1];
+    expect(code).toContain("objectNamed: #'ModuleAst'");
+    expect(code).toContain('Grail (GemStone-Python) not detected');
+    expect(code.indexOf('on: AlmostOutOfStack'))
+      .toBeLessThan(code.indexOf('on: AbstractException'));
+    expect(code).toContain('result encodeAsUTF8');
+  });
+
+  // scopeId is interpolated into a Smalltalk string literal — the same
+  // single-quote doubling rule as the Python source applies (a notebook URI
+  // can contain quotes via its path).
+  it('escapes single quotes in both source and scopeId', () => {
+    const exec = vi.fn<QueryExecutor>(() => '');
+    evalPythonInScope(exec, "x = 'hi'", "file:///o'brien/nb.ipynb");
+    const code = exec.mock.calls[0][1];
+    expect(code).toContain("''hi''");
+    expect(code).toContain("o''brien");
+  });
+
+  it('returns the executor result verbatim — no parsing on the JS side', () => {
+    const result = evalPythonInScope(vi.fn<QueryExecutor>(() => '3'), 'x + 2', 'nb');
+    expect(result).toBe('3');
+  });
+
+  // Reset works without Grail: the scope registry is plain GemStone
+  // (Dictionary / SymbolDictionary), so no ModuleAst lookup belongs here.
+  it('resetPythonScope removes only the given scope and needs no dispatcher', () => {
+    const exec = vi.fn<QueryExecutor>(() => '');
+    resetPythonScope(exec, 'file:///nb/a.ipynb');
+    const code = exec.mock.calls[0][1];
+    expect(code).toContain("removeKey: 'file:///nb/a.ipynb' ifAbsent: []");
+    expect(code).toContain("SessionTemps current at: #'__vscGrailScopes'");
+    expect(code).not.toContain('ModuleAst');
+    expect(code).toContain('encodeAsUTF8');
+  });
+
+  it('resetPythonScope escapes single quotes in scopeId', () => {
+    const exec = vi.fn<QueryExecutor>(() => '');
+    resetPythonScope(exec, "o'brien");
+    const code = exec.mock.calls[0][1];
+    expect(code).toContain("removeKey: 'o''brien'");
   });
 });

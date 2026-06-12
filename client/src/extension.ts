@@ -28,6 +28,7 @@ import { GemStoneCompletionProvider } from './gemstoneCompletionProvider';
 import { BreakpointManager } from './breakpointManager';
 import { SelectorBreakpointManager } from './selectorBreakpointManager';
 import { SunitTestController } from './sunitTestController';
+import { GrailNotebookController } from './grailNotebookController';
 import { ExportManager } from './exportManager';
 import { FileInManager } from './fileInManager';
 import { showTranscript } from './transcriptChannel';
@@ -315,6 +316,10 @@ export function activate(context: vscode.ExtensionContext) {
   // ── SUnit Test Controller ────────────────────────────────
   const sunitTestController = new SunitTestController(sessionManager);
   context.subscriptions.push(sunitTestController);
+
+  // ── Grail Jupyter Notebook Kernel ───────────────────────
+  const grailNotebookController = new GrailNotebookController(sessionManager);
+  context.subscriptions.push(grailNotebookController);
 
   // ── Code Execution ─────────────────────────────────────
   const codeExecutor = new CodeExecutor(sessionManager);

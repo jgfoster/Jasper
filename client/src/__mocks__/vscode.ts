@@ -174,6 +174,7 @@ export const QuickPickItemKind = {
 
 export const window = {
   activeTextEditor: undefined as unknown,
+  activeNotebookEditor: undefined as unknown,
   createWebviewPanel: vi.fn((_viewType: string, title: string) => {
     const panel = createMockPanel();
     panel.title = title;
@@ -635,6 +636,61 @@ function createMockTestController() {
 
 export const tests = {
   createTestController: vi.fn((_id: string, _label: string) => createMockTestController()),
+};
+
+// ── Notebook API mock ─────────────────────────────────────
+
+export class NotebookCellOutputItem {
+  constructor(public readonly data: Uint8Array, public readonly mime: string) {}
+
+  static text(value: string, mime = 'text/plain'): NotebookCellOutputItem {
+    return new NotebookCellOutputItem(new TextEncoder().encode(value), mime);
+  }
+
+  static error(err: Error): NotebookCellOutputItem {
+    const payload = JSON.stringify({ name: err.name, message: err.message });
+    return new NotebookCellOutputItem(
+      new TextEncoder().encode(payload),
+      'application/vnd.code.notebook.error',
+    );
+  }
+}
+
+export class NotebookCellOutput {
+  constructor(public readonly items: NotebookCellOutputItem[]) {}
+}
+
+function createMockCellExecution(cell: unknown) {
+  return {
+    cell,
+    executionOrder: undefined as number | undefined,
+    start: vi.fn(),
+    end: vi.fn(),
+    replaceOutput: vi.fn(async () => {}),
+    appendOutput: vi.fn(async () => {}),
+  };
+}
+
+function createMockNotebookController(id: string, notebookType: string, label: string) {
+  return {
+    id,
+    notebookType,
+    label,
+    description: undefined as string | undefined,
+    detail: undefined as string | undefined,
+    supportedLanguages: undefined as string[] | undefined,
+    supportsExecutionOrder: false,
+    executeHandler: undefined as unknown,
+    interruptHandler: undefined as unknown,
+    createNotebookCellExecution: vi.fn((cell: unknown) => createMockCellExecution(cell)),
+    onDidChangeSelectedNotebooks: vi.fn(() => ({ dispose: () => {} })),
+    dispose: vi.fn(),
+  };
+}
+
+export const notebooks = {
+  createNotebookController: vi.fn((id: string, notebookType: string, label: string) =>
+    createMockNotebookController(id, notebookType, label)),
 };
 
 // ── DataTransfer mock ─────────────────────────────────────

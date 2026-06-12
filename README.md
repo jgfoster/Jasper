@@ -223,6 +223,16 @@ The extension integrates with VS Code's native Test Explorer:
 - Pass/fail/error results with failure messages
 - Test items link to method source
 
+### Grail Python Notebooks (Jupyter)
+
+If [Grail](https://github.com/jgfoster/Grail) (GemStone-Python) is installed in your stone, Jasper registers a **Grail (GemStone Python)** kernel with Microsoft's [Jupyter extension](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.jupyter). Open any `.ipynb` notebook, choose *Grail (GemStone Python)* from the kernel picker, and Python cells execute in the active GemStone session:
+
+- Globals persist across cells (Jupyter REPL semantics): `x = 1` in one cell, `x + 2` in the next. Each notebook gets its own module scope within the session, so two open notebooks don't share variables.
+- Grail compile and runtime errors (`SyntaxError`, `NameError`, …) appear as cell error outputs.
+- **GemStone: Reset Grail Notebook Scope** (command palette) clears the active notebook's globals — the equivalent of restarting a kernel.
+
+Cells run against the same session the rest of the IDE uses, so notebook code sees — and can modify — the same objects as the System Browser and Display It. Without Grail in the stone, running a cell reports "Grail (GemStone-Python) not detected".
+
 ### Class Sync (File Export)
 
 Jasper keeps a local mirror of a session's classes as `.gs` files in Topaz format, so VS Code's search, Go to Definition, and find-in-files have something to work with. Files land in `{workspaceRoot}/.gemstone/{host}/{stone}/{user}/{index}-{dictName}/` by default — a hidden directory, keyed by connection target so it's shared across that target's sessions. Override the layout with the `gemstone.exportPath` template setting (variables: `{workspaceRoot}`, `{session}`, `{host}`, `{stone}`, `{user}`, `{index}`, `{dictName}`).

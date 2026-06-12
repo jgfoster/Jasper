@@ -25,6 +25,42 @@ export function evalPython(execute: QueryExecutor, source: string): string {
   return execute('evalPython', code);
 }
 
+// Like evalPython, but with REPL semantics: globals persist across calls
+// that share the same scopeId. ModuleAst's REPL contract is
+// `evaluateSource:usingModuleScope:` — the *caller* owns the SymbolDictionary
+// and passes the same instance to successive calls so `x = 1` in one call
+// resolves in the next. Since each call here is a fresh GCI execute, the
+// dictionary is parked in SessionTemps under a per-scopeId registry (notebook
+// kernels use the notebook URI as scopeId, giving each notebook its own
+// module scope within the session).
+export function evalPythonInScope(
+  execute: QueryExecutor, source: string, scopeId: string,
+): string {
+  const escScope = escapeString(scopeId);
+  const expr = `| scopes scope |
+       scopes := SessionTemps current at: #'__vscGrailScopes' ifAbsent: [nil].
+       scopes isNil ifTrue: [
+         scopes := Dictionary new.
+         SessionTemps current at: #'__vscGrailScopes' put: scopes].
+       scope := scopes at: '${escScope}' ifAbsentPut: [SymbolDictionary new].
+       (dispatcher evaluateSource: src usingModuleScope: scope) printString`;
+  const code = buildPythonQuery(expr, source);
+  return execute('evalPythonInScope', code);
+}
+
+// Drop the persistent module scope for scopeId so the next evalPythonInScope
+// call starts fresh (notebook "reset kernel" semantics). No dispatcher lookup:
+// the registry is plain GemStone (Dictionary / SymbolDictionary), so this
+// works — and is a no-op — whether or not Grail is installed.
+export function resetPythonScope(execute: QueryExecutor, scopeId: string): string {
+  const escScope = escapeString(scopeId);
+  const code = `| scopes |
+scopes := SessionTemps current at: #'__vscGrailScopes' ifAbsent: [nil].
+scopes ifNotNil: [scopes removeKey: '${escScope}' ifAbsent: []].
+'scope reset' encodeAsUTF8`;
+  return execute('resetPythonScope', code);
+}
+
 // Transpile a Python source string to Smalltalk via Grail and return the
 // generated Smalltalk source verbatim. Useful for inspecting codegen output
 // without actually running the code (and as an end-to-end check on the

@@ -32,7 +32,9 @@
   "extensionKind": [
     "workspace"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onNotebook:jupyter-notebook"
+  ],
   "main": "./client/out/extension.js",
   "contributes": {
     "languages": [
@@ -351,6 +353,11 @@
       }
     ],
     "commands": [
+      {
+        "command": "gemstone.resetGrailNotebookScope",
+        "title": "Reset Grail Notebook Scope",
+        "category": "GemStone"
+      },
       {
         "command": "gemstone.claimMcpServer",
         "title": "Claim MCP Server",
