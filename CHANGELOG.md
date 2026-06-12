@@ -6,6 +6,7 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ### Added
 
+- **GemStone Smalltalk appears as a kernel in Microsoft's Jupyter Notebook extension.** A "GemStone Smalltalk" notebook controller runs each cell as an independent guarded doit (the same `wrapExecuteCode` contract as the MCP `execute_code` tool) in the active session, printing the last statement's value and rendering inline `Error: <class> — <messageText>` results as notebook error outputs. The Grail and Smalltalk kernels share a common `GemStoneNotebookKernel` base; unlike Grail there is no synthetic cross-cell scope — Smalltalk state persists through the session itself (`UserGlobals`, class definitions, commits).
 - **Grail appears as a Python kernel in Microsoft's Jupyter Notebook extension.** Jasper now registers a "Grail (GemStone Python)" notebook controller for the `jupyter-notebook` notebook type, so opening a `.ipynb` and picking Grail from the kernel picker runs Python cells in the active GemStone session via Grail (GemStone-Python). Cells get Jupyter-style REPL semantics — globals persist across cells through `ModuleAst evaluateSource:usingModuleScope:`, with each notebook's module scope keyed by its URI in `SessionTemps` — and Grail compile/runtime errors (plus the "Grail not detected" hint) render as notebook error outputs. A new **GemStone: Reset Grail Notebook Scope** command drops the active notebook's globals, the "restart kernel" equivalent.
 
 ## [1.6.2] - 2026-06-10

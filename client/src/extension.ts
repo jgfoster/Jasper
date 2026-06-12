@@ -29,6 +29,7 @@ import { BreakpointManager } from './breakpointManager';
 import { SelectorBreakpointManager } from './selectorBreakpointManager';
 import { SunitTestController } from './sunitTestController';
 import { GrailNotebookController } from './grailNotebookController';
+import { SmalltalkNotebookController } from './smalltalkNotebookController';
 import { ExportManager } from './exportManager';
 import { FileInManager } from './fileInManager';
 import { showTranscript } from './transcriptChannel';
@@ -317,9 +318,11 @@ export function activate(context: vscode.ExtensionContext) {
   const sunitTestController = new SunitTestController(sessionManager);
   context.subscriptions.push(sunitTestController);
 
-  // ── Grail Jupyter Notebook Kernel ───────────────────────
+  // ── Jupyter Notebook Kernels (Grail Python + Smalltalk) ─
   const grailNotebookController = new GrailNotebookController(sessionManager);
   context.subscriptions.push(grailNotebookController);
+  const smalltalkNotebookController = new SmalltalkNotebookController(sessionManager);
+  context.subscriptions.push(smalltalkNotebookController);
 
   // ── Code Execution ─────────────────────────────────────
   const codeExecutor = new CodeExecutor(sessionManager);

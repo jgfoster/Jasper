@@ -223,15 +223,17 @@ The extension integrates with VS Code's native Test Explorer:
 - Pass/fail/error results with failure messages
 - Test items link to method source
 
-### Grail Python Notebooks (Jupyter)
+### Jupyter Notebooks (Smalltalk and Grail Python)
 
-If [Grail](https://github.com/jgfoster/Grail) (GemStone-Python) is installed in your stone, Jasper registers a **Grail (GemStone Python)** kernel with Microsoft's [Jupyter extension](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.jupyter). Open any `.ipynb` notebook, choose *Grail (GemStone Python)* from the kernel picker, and Python cells execute in the active GemStone session:
+Jasper registers two kernels with Microsoft's [Jupyter extension](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.jupyter). Open any `.ipynb` notebook and pick one from the kernel picker; cells execute in the active GemStone session, so notebook code sees — and can modify — the same objects as the System Browser and Display It. Compile and runtime errors appear as cell error outputs.
+
+**GemStone Smalltalk** runs each cell as an independent doit — multi-statement bodies are fine, and the value of the last statement is printed as the cell output. There is no notebook-local variable scope (Smalltalk has no REPL globals concept); state persists the way it does everywhere else in the session, e.g. `UserGlobals at: #x put: ...`, class definitions, and commits.
+
+**Grail (GemStone Python)** requires [Grail](https://github.com/jgfoster/Grail) (GemStone-Python) in your stone:
 
 - Globals persist across cells (Jupyter REPL semantics): `x = 1` in one cell, `x + 2` in the next. Each notebook gets its own module scope within the session, so two open notebooks don't share variables.
-- Grail compile and runtime errors (`SyntaxError`, `NameError`, …) appear as cell error outputs.
 - **GemStone: Reset Grail Notebook Scope** (command palette) clears the active notebook's globals — the equivalent of restarting a kernel.
-
-Cells run against the same session the rest of the IDE uses, so notebook code sees — and can modify — the same objects as the System Browser and Display It. Without Grail in the stone, running a cell reports "Grail (GemStone-Python) not detected".
+- Without Grail in the stone, running a cell reports "Grail (GemStone-Python) not detected".
 
 ### Class Sync (File Export)
 

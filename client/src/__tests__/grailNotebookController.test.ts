@@ -14,12 +14,11 @@ vi.mock('../gciLog', () => ({
 import { notebooks, window, commands } from '../__mocks__/vscode';
 import {
   GrailNotebookController,
-  classifyGrailResult,
   GRAIL_CONTROLLER_ID,
-  GRAIL_NOTEBOOK_TYPE,
   GRAIL_CONTROLLER_LABEL,
   GRAIL_RESET_SCOPE_COMMAND,
 } from '../grailNotebookController';
+import { classifyCellResult, GEMSTONE_NOTEBOOK_TYPE } from '../gemstoneNotebookKernel';
 import { SessionManager } from '../sessionManager';
 import * as python from '../pythonQueries';
 
@@ -61,25 +60,25 @@ async function runCells(cells: unknown[]) {
   await lastController().executeHandler(cells);
 }
 
-describe('classifyGrailResult', () => {
+describe('classifyCellResult', () => {
   it('treats ordinary results as success', () => {
-    expect(classifyGrailResult('3')).toEqual({ success: true, message: '3' });
+    expect(classifyCellResult('3')).toEqual({ success: true, message: '3' });
   });
 
   it('treats inline Grail errors as failure', () => {
     const msg = 'Error: ZeroDivide — division by zero';
-    expect(classifyGrailResult(msg)).toEqual({ success: false, message: msg });
+    expect(classifyCellResult(msg)).toEqual({ success: false, message: msg });
   });
 
   it('treats the Grail-not-detected hint as failure', () => {
     const msg = 'Grail (GemStone-Python) not detected: class ModuleAst not found in symbolList.';
-    expect(classifyGrailResult(msg).success).toBe(false);
+    expect(classifyCellResult(msg).success).toBe(false);
   });
 
   // printString wraps Python string results in quotes, so a user string that
   // *contains* "Error: " arrives as 'Error: ...' (leading quote) — success.
   it('does not misclassify a quoted Python string starting with Error:', () => {
-    expect(classifyGrailResult("'Error: my own text'").success).toBe(true);
+    expect(classifyCellResult("'Error: my own text'").success).toBe(true);
   });
 });
 
@@ -92,7 +91,7 @@ describe('GrailNotebookController', () => {
   it('registers a controller for the jupyter-notebook type with python cells', () => {
     const ctrl = new GrailNotebookController(makeSessionManager(true));
     expect(notebooks.createNotebookController).toHaveBeenCalledWith(
-      GRAIL_CONTROLLER_ID, GRAIL_NOTEBOOK_TYPE, GRAIL_CONTROLLER_LABEL,
+      GRAIL_CONTROLLER_ID, GEMSTONE_NOTEBOOK_TYPE, GRAIL_CONTROLLER_LABEL,
     );
     const mock = lastController();
     expect(mock.supportedLanguages).toEqual(['python']);
