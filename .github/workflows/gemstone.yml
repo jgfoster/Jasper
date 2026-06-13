@@ -1,0 +1,80 @@
+name: GemStone Smoke Test
+
+on: [push, pull_request]
+
+env:
+  GS_VERSION: 3.7.5
+  GS_DIST: /opt/gemstone/dist
+
+jobs:
+  gemstone-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # GemStone requires /opt/gemstone/locks and /opt/gemstone/log to exist.
+      - name: Create system directories
+        run: |
+          sudo mkdir -p /opt/gemstone/locks /opt/gemstone/log $GS_DIST
+          sudo chown -R $USER:$USER /opt/gemstone
+
+      # Cache the ~500MB zip. First run: ~3-5 min. Subsequent runs: ~30 sec.
+      - name: Cache GemStone distribution
+        id: cache-gs
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.GS_DIST }}
+          key: gemstone-${{ env.GS_VERSION }}-linux-x86_64
+
+      - name: Download and extract GemStone
+        if: steps.cache-gs.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL \
+            "https://downloads.gemtalksystems.com/pub/GemStone64/$GS_VERSION/GemStone64Bit$GS_VERSION-x86_64.Linux.zip" \
+            -o /tmp/gemstone.zip
+          unzip -q /tmp/gemstone.zip -d $GS_DIST
+
+      # Persist GEMSTONE, PATH, and LD_LIBRARY_PATH for subsequent steps.
+      - name: Set environment variables
+        run: |
+          GS_HOME=$GS_DIST/GemStone64Bit$GS_VERSION-x86_64.Linux
+          echo "GEMSTONE=$GS_HOME" >> $GITHUB_ENV
+          echo "$GS_HOME/bin"      >> $GITHUB_PATH
+          echo "LD_LIBRARY_PATH=$GS_HOME/lib" >> $GITHUB_ENV
+
+      # Copy the blank template extent to the data directory, then start.
+      # startstone and startnetldi both block until ready before returning.
+      - name: Start Stone and NetLDI
+        run: |
+          cp $GEMSTONE/bin/extent0.dbf $GEMSTONE/data/extent0.dbf
+          chmod 600 $GEMSTONE/data/extent0.dbf
+          startstone  -l /tmp/gs64stone.log gs64stone
+          startnetldi -g -l /tmp/gs64ldi.log gs64ldi
+
+      # Linked Topaz (-L) runs in-process — no NetLDI needed for this step,
+      # but NetLDI is already up for future RPC-based Jasper tests.
+      # Default credentials: DataCurator / swordfish.
+      - name: Smoke test — evaluate 3 + 4
+        run: |
+          output=$(topaz -L -q <<'TOPAZ'
+          set gemstone gs64stone
+          set username DataCurator
+          set password swordfish
+          login
+          printit
+          3 + 4
+          %
+          logout
+          exit 0
+          TOPAZ
+          )
+          echo "$output"
+          echo "$output" | grep -q "^7$" \
+            && echo "✓ 3 + 4 = 7" \
+            || (echo "FAILED: expected 7 in output" && exit 1)
+
+      - name: Dump stone log on failure
+        if: failure()
+        run: cat /tmp/gs64stone.log 2>/dev/null || true
