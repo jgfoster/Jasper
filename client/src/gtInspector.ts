@@ -772,6 +772,12 @@ export class GtInspector {
       const str = textData.string || '';
       const styler = textData.stylerSpecification;
       el.className = 'detail-value';
+      // Clear inline styles left behind by a prior table/tree render into this
+      // shared pane. renderGtTable sets el.style.cssText to include
+      // 'display:flex;flex-direction:column', which (as an inline style) wins
+      // over the .detail-value class and would stack each styled run on its own
+      // line. Reset before laying out the text.
+      el.style.cssText = '';
       el.style.whiteSpace = 'pre-wrap';
       el.style.overflow = 'auto';
       el.style.minHeight = '0';

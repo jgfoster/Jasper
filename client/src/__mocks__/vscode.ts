@@ -217,6 +217,13 @@ export const window = {
   }),
 };
 
+export const env = {
+  clipboard: {
+    writeText: vi.fn(async (_text: string) => {}),
+    readText: vi.fn(async () => ''),
+  },
+};
+
 // ── Workspace mock ─────────────────────────────────────────
 
 export const TextDocumentSaveReason = {

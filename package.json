@@ -189,6 +189,11 @@
                 }
               }
             }
+          },
+          "gemstone.gtPerfTracking": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable GT Perf Tracking: count GCI round trips in the GT Inspector. When enabled, shows a status bar counter and logs to the 'GemStone GT Perf' output channel. Intended for performance tuning only."
           }
         }
       },
@@ -353,6 +358,26 @@
       }
     ],
     "commands": [
+      {
+        "command": "gemstone.enableGtPerfTracking",
+        "title": "Enable GT Perf Tracking",
+        "category": "GemStone GT"
+      },
+      {
+        "command": "gemstone.disableGtPerfTracking",
+        "title": "Disable GT Perf Tracking",
+        "category": "GemStone GT"
+      },
+      {
+        "command": "gemstone.resetGtPerfCounter",
+        "title": "Reset GT Perf Counter",
+        "category": "GemStone GT"
+      },
+      {
+        "command": "gemstone.showGtPerfDetails",
+        "title": "Show GT Perf Details",
+        "category": "GemStone GT"
+      },
       {
         "command": "gemstone.resetGrailNotebookScope",
         "title": "Reset Grail Notebook Scope",
@@ -737,6 +762,24 @@
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "gemstone.enableGtPerfTracking",
+          "when": "!gemstone.gtPerfTracking"
+        },
+        {
+          "command": "gemstone.disableGtPerfTracking",
+          "when": "gemstone.gtPerfTracking"
+        },
+        {
+          "command": "gemstone.resetGtPerfCounter",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.showGtPerfDetails",
+          "when": "false"
+        }
+      ],
       "view/title": [
         {
           "command": "gemstone.addLogin",
