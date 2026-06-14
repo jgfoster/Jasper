@@ -4,6 +4,24 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.6.4] - 2026-06-13
+
+### Added
+
+- **GT Perf Tracker — a GCI round-trip counter for tuning GT Inspector performance.** A Proxy-based counter tallies GCI round trips per action; toggle it from the Command Palette or the `gemstone.gtPerfTracking` setting (default off). It shows a live count in the status bar, with a per-method Quick Pick breakdown, clipboard copy, and output-channel logging on reset. ([#106](https://github.com/jgfoster/Jasper/pull/106))
+- **IMCSystem GT inspector views file-in.** A self-contained topaz installer under `docs/gtSupport/` adds four `<gtView>` tabs (Summary, Customer Invoices, Contracts, Overview) to `IMCSystem`, committing and running a smoke test on file-in. ([#106](https://github.com/jgfoster/Jasper/pull/106))
+
+### Changed
+
+- **Newly compiled methods now open automatically.** After compiling a method from the new-method editor, Jasper opens the resulting method in a permanent tab and closes the new-method placeholder; the success message names the actual selector (e.g. "Compiled method Array>>#foo"). ([#104](https://github.com/jgfoster/Jasper/pull/104))
+
+### Fixed
+
+- **The Versions sidebar now loads on Intel Macs instead of failing with a repeating "unable to download versions … 404" dialog.** GemStone's Darwin x86_64 server is published under the historic platform name `i386.Darwin`, but `getPlatformKey()` computed `x86_64.Darwin` — a path that does not exist on `downloads.gemtalksystems.com` and returns HTTP 404. Intel Macs now map to `i386.Darwin` (Apple silicon remains `arm64.Darwin`), so the version catalog, downloads, and product paths all resolve.
+- **A failed version fetch no longer triggers an endless reload/error-dialog loop.** `VersionTreeProvider.getChildren()` re-triggered `loadVersions()` whenever the list was empty; a failed load left it empty and fired `refresh()`, which re-rendered and reloaded again, flickering error dialogs indefinitely. The initial load is now attempted once; explicit user actions (the refresh command, post-download, etc.) still re-fetch.
+- **Switching environments in the System Browser keeps the method list populated.** Previously, switching environments cleared the selected method category and left the method list empty until the user clicked a category again. The browser now auto-selects the previously chosen category if it exists in the new environment (otherwise "** ALL METHODS **") and populates the method list immediately. ([#100](https://github.com/jgfoster/Jasper/pull/100))
+- **GT Inspector styled-text tabs no longer stack one run per line after a table view.** `renderStyledText` now clears inline styles left on the shared content pane by a prior table/tree render, so styled-text tabs (Overview, Customer Invoices, …) lay out inline. ([#106](https://github.com/jgfoster/Jasper/pull/106))
+
 ## [1.6.3] - 2026-06-11
 
 ### Added
