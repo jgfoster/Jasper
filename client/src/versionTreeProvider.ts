@@ -92,6 +92,7 @@ export class VersionTreeProvider implements vscode.TreeDataProvider<VersionItem>
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
   private versions: GemStoneVersion[] = [];
   private loading = false;
+  private loaded = false;
 
   constructor(private manager: VersionManager) {}
 
@@ -110,6 +111,7 @@ export class VersionTreeProvider implements vscode.TreeDataProvider<VersionItem>
       this.versions = [];
     } finally {
       this.loading = false;
+      this.loaded = true;
       this.refresh();
     }
   }
@@ -119,8 +121,11 @@ export class VersionTreeProvider implements vscode.TreeDataProvider<VersionItem>
   }
 
   getChildren(): VersionItem[] | Thenable<VersionItem[]> {
-    if (this.versions.length === 0 && !this.loading) {
-      // Trigger initial load
+    if (!this.loaded && !this.loading) {
+      // Trigger the initial load once. A failed load leaves the list empty but
+      // keeps `loaded` true so the refresh() below does not re-trigger us into
+      // an endless reload/error-dialog loop. Explicit user actions (the refresh
+      // command, post-download, etc.) call loadVersions() directly to re-fetch.
       this.loadVersions();
       return [];
     }

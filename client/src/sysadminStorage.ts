@@ -78,7 +78,8 @@ export class SysadminStorage {
   /** Returns the platform key for downloads, e.g. "arm64.Darwin" */
   getPlatformKey(): string | undefined {
     const arch = process.arch === 'arm64' ? 'arm64' : 'x86_64';
-    if (process.platform === 'darwin') return `${arch}.Darwin`;
+    // GemStone's Darwin x86_64 build is named "i386.Darwin" for historic reasons.
+    if (process.platform === 'darwin') return arch === 'arm64' ? 'arm64.Darwin' : 'i386.Darwin';
     if (process.platform === 'linux') return `${arch}.Linux`;
     if (needsWsl() && getWslInfo().available) {
       const wslArch = getWslInfo().arch || 'x86_64';
