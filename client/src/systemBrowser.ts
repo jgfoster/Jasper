@@ -974,12 +974,25 @@ export class SystemBrowser {
   }
 
   private handleToggleEnvironment(envId: number): void {
+    const previousCategory = this.state.selectedMethodCategory;
     this.state.selectedEnvId = envId;
-    this.state.selectedMethodCategory = null;
     this.state.selectedMethod = null;
 
     if (this.state.selectedClass) {
-      this.loadMethodCategories();
+      const dictIndex = this.state.selectedDictIndex!;
+      const envData = this.getCachedEnvData(dictIndex, this.state.selectedClass);
+      const availableInNewEnv = new Set(
+        envData
+          .filter(e => e.isMeta === this.state.isMeta && e.envId === envId)
+          .map(e => e.category),
+      );
+      const categoryToSelect =
+        previousCategory !== null && availableInNewEnv.has(previousCategory)
+          ? previousCategory
+          : '** ALL METHODS **';
+      this.state.selectedMethodCategory = categoryToSelect;
+      this.loadMethodCategories(categoryToSelect);
+      this.handleSelectMethodCategory(categoryToSelect);
     }
   }
 

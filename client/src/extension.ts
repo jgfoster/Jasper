@@ -25,7 +25,7 @@ import { CodeExecutor } from './codeExecutor';
 import { SystemBrowser } from './systemBrowser';
 import { GlobalsBrowser } from './globalsBrowser';
 import { GtInspector } from './gtInspector';
-import { GemStoneFileSystemProvider } from './gemstoneFileSystemProvider';
+import { GemStoneFileSystemProvider, MethodCompiledEvent } from './gemstoneFileSystemProvider';
 import { openWorkspace } from './workspace';
 import { GemStoneDebugSession } from './gemstoneDebugSession';
 import { InspectorTreeProvider, InspectorNode } from './inspectorTreeProvider';
@@ -83,10 +83,10 @@ let fileInManager: FileInManager;
 let jasperChannel:OutputChannel;
 
 function logLine(level: "ERROR", scope: string, message: string, data: unknown) {
-  jasperChannel.appendLine(`${new Date().toISOString()} [${level}] [${scope}] ${message} | ${data && JSON.stringify(data)}`);
+  jasperChannel?.appendLine(`${new Date().toISOString()} [${level}] [${scope}] ${message} | ${data && JSON.stringify(data)}`);
 }
 
-export async function logJasperError(message: string, scope: string, error: unknown) {
+async function logJasperError(message: string, scope: string, error: unknown) {
   logLine("ERROR", scope, message, { error: error instanceof Error ? error.message : String(error) });
 
   await vscode.window
@@ -96,6 +96,11 @@ export async function logJasperError(message: string, scope: string, error: unkn
           jasperChannel.show(true);
         }
       });
+}
+
+export async function handleMethodCompiled(event: MethodCompiledEvent) {
+  await openTextEditorOn(event.uri);
+  await closeTextEditorOn(event.previousUri);
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -213,6 +218,7 @@ export function activate(context: vscode.ExtensionContext) {
   // ── GemStone FileSystem Provider ─────────────────────────
   const gemstoneFs = new GemStoneFileSystemProvider(sessionManager, exportManager);
   context.subscriptions.push(
+    gemstoneFs,
     vscode.workspace.registerFileSystemProvider('gemstone', gemstoneFs, {
       isCaseSensitive: true,
     })
@@ -302,6 +308,10 @@ export function activate(context: vscode.ExtensionContext) {
         }
       }
     }),
+  );
+
+  context.subscriptions.push(
+    gemstoneFs.onMethodCompiled(handleMethodCompiled)
   );
 
   context.subscriptions.push(
@@ -2006,4 +2016,33 @@ export function deactivate(): Thenable<void> | undefined {
   }
   if (!client) return undefined;
   return client.stop();
+}
+
+export async function openTextEditorOn(uri: vscode.Uri) {
+  try {
+    const document = await vscode.workspace.openTextDocument(uri);
+    await vscode.window.showTextDocument(document, {preview: false});
+  } catch (error) {
+    await logJasperError(`Failed to open text editor on ${uri.toString()}`, "Editor", error);
+  }
+}
+
+export async function closeTextEditorOn(uri: vscode.Uri) {
+  const uriString = uri.toString();
+  await Promise.all(textEditorsOn(uriString).map(async tab => {
+    try {
+      await vscode.window.tabGroups.close(tab)
+    } catch (error) {
+      await logJasperError(`Failed to close text editor on ${uriString}`, "Editor", error);
+    }
+  }))
+}
+
+function textEditorsOn(uriString: string) {
+  return vscode.window.tabGroups.all
+      .flatMap(tabGroup => tabGroup.tabs.filter(tab => isTextEditorFor(tab, uriString)));
+}
+
+function isTextEditorFor(tab: vscode.Tab, uriString: string) {
+  return tab.input instanceof vscode.TabInputText && tab.input.uri.toString() === uriString;
 }

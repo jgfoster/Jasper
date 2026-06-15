@@ -496,8 +496,8 @@ describe('SystemBrowser', () => {
       await vi.waitFor(() => { expect(workspace.openTextDocument).toHaveBeenCalled(); });
 
       const uri = (workspace.openTextDocument as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(uri.path).toContain('as%20yet%20unclassified');
-      expect(uri.path).not.toContain('ALL%20METHODS');
+      expect(uri.path).toContain('as yet unclassified');
+      expect(uri.path).not.toContain('ALL METHODS');
     });
 
     it('uses "as yet unclassified" when no method category is selected', async () => {
@@ -508,7 +508,7 @@ describe('SystemBrowser', () => {
       await vi.waitFor(() => { expect(workspace.openTextDocument).toHaveBeenCalled(); });
 
       const uri = (workspace.openTextDocument as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(uri.path).toContain('as%20yet%20unclassified');
+      expect(uri.path).toContain('as yet unclassified');
     });
 
     it('opens a gemstone:// editor even when method is not found in the .gs file', async () => {
@@ -1141,8 +1141,8 @@ describe('SystemBrowser', () => {
       await vi.waitFor(() => { expect(workspace.openTextDocument).toHaveBeenCalled(); });
 
       const uri = vi.mocked(workspace.openTextDocument).mock.calls[0][0] as { path: string };
-      expect(uri.path).toContain('as%20yet%20unclassified');
-      expect(uri.path).not.toContain('ALL%20METHODS');
+      expect(uri.path).toContain('as yet unclassified');
+      expect(uri.path).not.toContain('ALL METHODS');
     });
   });
 
@@ -1321,6 +1321,7 @@ describe('SystemBrowser', () => {
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
         command: 'loadMethodCategories',
         items: ['** ALL METHODS **', 'Ruby'],
+        selected: '** ALL METHODS **',
       });
     });
 
@@ -1336,6 +1337,67 @@ describe('SystemBrowser', () => {
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
         command: 'loadMethodCategories',
         items: ['** ALL METHODS **'],
+        selected: '** ALL METHODS **',
+      });
+    });
+
+    it('selects ** ALL METHODS ** when no category was selected before environment toggle', () => {
+      messageHandler({ command: 'selectDictionary', index: 1 });
+      messageHandler({ command: 'selectCategory', name: '** ALL CLASSES **' });
+      messageHandler({ command: 'selectClass', name: 'Array' });
+      vi.mocked(mockPanel.webview.postMessage).mockClear();
+
+      messageHandler({ command: 'toggleEnvironment', envId: 1 });
+
+      expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'loadMethodCategories', selected: '** ALL METHODS **' }),
+      );
+    });
+
+    it('preserves selected method category when it exists in the target environment', () => {
+      vi.mocked(queries.getClassEnvironments).mockReturnValue([
+        { isMeta: false, envId: 0, category: 'Accessing', selectors: ['name', 'name:'] },
+        { isMeta: false, envId: 1, category: 'Accessing', selectors: ['rb_name'] }
+      ]);
+      messageHandler({ command: 'selectDictionary', index: 1 });
+      messageHandler({ command: 'selectCategory', name: '** ALL CLASSES **' });
+      messageHandler({ command: 'selectClass', name: 'Array' });
+      messageHandler({ command: 'selectMethodCategory', name: 'Accessing' });
+      vi.mocked(mockPanel.webview.postMessage).mockClear();
+
+      messageHandler({ command: 'toggleEnvironment', envId: 1 });
+
+      expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'loadMethodCategories', selected: 'Accessing' }),
+      );
+    });
+
+    it('selects ** ALL METHODS ** when selected category does not exist in target environment', () => {
+      messageHandler({ command: 'selectDictionary', index: 1 });
+      messageHandler({ command: 'selectCategory', name: '** ALL CLASSES **' });
+      messageHandler({ command: 'selectClass', name: 'Array' });
+      messageHandler({ command: 'selectMethodCategory', name: 'Accessing' });
+      vi.mocked(mockPanel.webview.postMessage).mockClear();
+
+      messageHandler({ command: 'toggleEnvironment', envId: 1 });
+
+      expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'loadMethodCategories', selected: '** ALL METHODS **' }),
+      );
+    });
+
+    it('loads methods for the auto-selected category on environment toggle', () => {
+      messageHandler({ command: 'selectDictionary', index: 1 });
+      messageHandler({ command: 'selectCategory', name: '** ALL CLASSES **' });
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      messageHandler({ command: 'selectClass', name: 'Array' });
+      vi.mocked(mockPanel.webview.postMessage).mockClear();
+
+      messageHandler({ command: 'toggleEnvironment', envId: 1 });
+
+      expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
+        command: 'loadMethods',
+        items: ['rb_name'],
       });
     });
 

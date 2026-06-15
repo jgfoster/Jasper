@@ -2,7 +2,7 @@
   "name": "gemstone-ide",
   "displayName": "Jasper: A GemStone Smalltalk IDE",
   "description": "GemStone/S IDE for Visual Studio Code",
-  "version": "1.6.3",
+  "version": "1.6.4",
   "publisher": "gemtalksystems",
   "license": "MIT",
   "author": "James Foster",
@@ -1123,7 +1123,7 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@vscode/vsce": "^3.7.1",
-    "esbuild": "^0.27.3",
+    "esbuild": "^0.28.1",
     "ovsx": "^0.10.5",
     "typescript": "^5.3.0"
   },
