@@ -196,10 +196,14 @@ describe('handleMethodCompiled', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.mocked(vscode.workspace.openTextDocument).mockReset();
+    vi.mocked(vscode.window.showTextDocument).mockReset();
+    vi.mocked(vscode.window.tabGroups.close).mockReset();
     vi.mocked(vscode.window.showErrorMessage).mockResolvedValue(undefined);
+    (vscode.window.tabGroups as any).all = [];
   });
 
-  it('opens the new uri and then closes the previous uri', async () => {
+  it('opens the new uri and then closes the previous uri when isNewMethod is true', async () => {
     const document = { uri, getText: vi.fn(() => '') } as unknown as vscode.TextDocument;
     vi.mocked(vscode.workspace.openTextDocument).mockResolvedValue(document);
     vi.mocked(vscode.window.showTextDocument).mockResolvedValue({} as vscode.TextEditor);
@@ -207,12 +211,34 @@ describe('handleMethodCompiled', () => {
     (vscode.window.tabGroups as any).all = [{ tabs: [previousTab] }];
     vi.mocked(vscode.window.tabGroups.close).mockResolvedValue(undefined as never);
 
-    await extension.handleMethodCompiled({ uri, previousUri });
+    await extension.handleMethodCompiled({ uri, previousUri, isNewMethod: true });
 
     expect(vscode.workspace.openTextDocument).toHaveBeenCalledWith(uri);
     expect(vscode.window.tabGroups.close).toHaveBeenCalledWith(previousTab);
     expect(vi.mocked(vscode.workspace.openTextDocument).mock.invocationCallOrder[0])
       .toBeLessThan(vi.mocked(vscode.window.tabGroups.close).mock.invocationCallOrder[0]);
+  });
+
+  it('does nothing when uri equals previousUri (selector unchanged)', async () => {
+    (vscode.window.tabGroups as any).all = [];
+
+    await extension.handleMethodCompiled({ uri, previousUri: uri, isNewMethod: false });
+
+    expect(vscode.workspace.openTextDocument).not.toHaveBeenCalled();
+    expect(vscode.window.tabGroups.close).not.toHaveBeenCalled();
+  });
+
+  it('opens the new uri but does not close the previous tab when isNewMethod is false (selector changed)', async () => {
+    const document = { uri, getText: vi.fn(() => '') } as unknown as vscode.TextDocument;
+    vi.mocked(vscode.workspace.openTextDocument).mockResolvedValue(document);
+    vi.mocked(vscode.window.showTextDocument).mockResolvedValue({} as vscode.TextEditor);
+    const previousTab = { input: new vscode.TabInputText(previousUri) } as unknown as vscode.Tab;
+    (vscode.window.tabGroups as any).all = [{ tabs: [previousTab] }];
+
+    await extension.handleMethodCompiled({ uri, previousUri, isNewMethod: false });
+
+    expect(vscode.workspace.openTextDocument).toHaveBeenCalledWith(uri);
+    expect(vscode.window.tabGroups.close).not.toHaveBeenCalled();
   });
 });
 
@@ -252,6 +278,7 @@ describe('onMethodCompiled event subscription (functional)', () => {
     const event = handler.mock.calls[0][0];
     expect(event.previousUri.toString()).toBe(newMethodUri.toString());
     expect(event.uri.toString()).toBe('gemstone://1/Globals/Array/instance/accessing/foo');
+    expect(event.isNewMethod).toBe(true);
   });
 });
 
