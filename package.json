@@ -194,6 +194,19 @@
             "type": "boolean",
             "default": false,
             "description": "Enable GT Perf Tracking: count GCI round trips in the GT Inspector. When enabled, shows a status bar counter and logs to the 'GemStone GT Perf' output channel. Intended for performance tuning only."
+          },
+          "gemstone.displayItMode": {
+            "type": "string",
+            "enum": [
+              "overlay",
+              "insert"
+            ],
+            "enumDescriptions": [
+              "Non-destructive: show the result as an inline annotation that is not part of the document, so the file is never modified. Hover the result for Copy and Expand actions.",
+              "Classic: insert the result into the document as editable text (a single Backspace removes it). This dirties the file."
+            ],
+            "default": "overlay",
+            "description": "How 'Display It' (Ctrl+K D / Cmd+K D) shows its result."
           }
         }
       },
@@ -480,6 +493,26 @@
         "title": "Execute It",
         "category": "GemStone",
         "icon": "$(run)"
+      },
+      {
+        "command": "gemstone.copyDisplayItResult",
+        "title": "Copy Display It Result",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.outputDisplayItResult",
+        "title": "Show Display It Result in Output",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.dismissDisplayResult",
+        "title": "Dismiss Display It Result",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.expandDisplayResultInPlace",
+        "title": "Expand Display It Result In Place",
+        "category": "GemStone"
       },
       {
         "command": "gemstone.inspectIt",
@@ -1058,6 +1091,27 @@
         "key": "ctrl+k d",
         "mac": "cmd+k d",
         "when": "editorTextFocus && gemstone.hasActiveSession && !gemstone.executing"
+      },
+      {
+        "command": "gemstone.dismissDisplayResult",
+        "key": "backspace",
+        "when": "gemstone.displayResultVisible && editorTextFocus && !editorReadonly"
+      },
+      {
+        "command": "gemstone.dismissDisplayResult",
+        "key": "ctrl+z",
+        "mac": "cmd+z",
+        "when": "gemstone.displayResultVisible && editorTextFocus && !editorReadonly"
+      },
+      {
+        "command": "gemstone.dismissDisplayResult",
+        "key": "escape",
+        "when": "gemstone.displayResultVisible && editorTextFocus"
+      },
+      {
+        "command": "gemstone.expandDisplayResultInPlace",
+        "key": "enter",
+        "when": "gemstone.displayResultVisible && editorTextFocus && !editorReadonly && !suggestWidgetVisible"
       },
       {
         "command": "gemstone.executeIt",

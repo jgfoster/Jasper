@@ -11,6 +11,7 @@ vi.mock('../gciLog', () => ({
 
 vi.mock('../transcriptChannel', () => ({
   appendTranscript: vi.fn(),
+  showTranscript: vi.fn(),
 }));
 
 vi.mock('../socketPoll', () => ({
@@ -20,7 +21,14 @@ vi.mock('../socketPoll', () => ({
 import { CodeExecutor } from '../codeExecutor';
 import { SessionManager, ActiveSession } from '../sessionManager';
 import * as vscode from 'vscode';
+import { __resetConfig } from '../__mocks__/vscode';
+import { appendTranscript, showTranscript } from '../transcriptChannel';
 import { pollReadable } from '../socketPoll';
+
+/** Set the gemstone.displayItMode setting for the current test. */
+function setDisplayItMode(mode: 'overlay' | 'insert'): void {
+  vscode.workspace.getConfiguration('gemstone').update('displayItMode', mode);
+}
 
 const OOP_NIL = 0x14n;
 
@@ -192,6 +200,7 @@ describe('CodeExecutor', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetConfig();
     gci = makeGci();
     session = makeSession(gci);
     executor = new CodeExecutor(makeSessionManager(session));
@@ -432,6 +441,12 @@ describe('CodeExecutor', () => {
   // end of the user code; the active position is past the inserted result.
 
   describe('displayIt result selection', () => {
+    // These tests cover the classic "insert" mode, which is no longer the
+    // default — opt in explicitly.
+    beforeEach(() => {
+      setDisplayItMode('insert');
+    });
+
     it('selects the inserted result (including leading space)', async () => {
       (gci.GciTsPerformFetchBytes as Mock).mockReturnValue({
         data: '42', err: { number: 0 },
@@ -557,6 +572,317 @@ describe('CodeExecutor', () => {
       );
       expect(decoCall).toBeDefined();
     });
+  });
+
+  // ── Display It: non-destructive overlay mode (default) ─────
+  //
+  // In overlay mode the result is shown as an after-line decoration and the
+  // document is never modified. A hover exposes Copy and Expand actions.
+
+  describe('displayIt overlay mode', () => {
+    function mockResult(value: string): void {
+      (gci.GciTsPerformFetchBytes as Mock).mockReturnValue({
+        data: value, err: { number: 0 },
+      });
+    }
+
+    /** The decoration options passed to the last after-content setDecorations call. */
+    function lastOverlayDecoration(
+      editor: ReturnType<typeof makeEditor> | ReturnType<typeof makeMutableEditor>,
+    ) {
+      const calls = editor.setDecorations.mock.calls as [unknown, unknown[]][];
+      const overlayCall = [...calls].reverse().find(([, opts]) =>
+        Array.isArray(opts) && opts.length === 1
+          && (opts[0] as { renderOptions?: { after?: { contentText?: string } } })
+            .renderOptions?.after?.contentText !== undefined,
+      );
+      return overlayCall?.[1][0] as {
+        range: vscode.Range;
+        hoverMessage: { value: string; isTrusted?: boolean };
+        renderOptions: { after: { contentText: string } };
+      } | undefined;
+    }
+
+    it('does not modify the document', async () => {
+      mockResult('42');
+      const userCode = '3 + 4';
+      const editor = makeMutableEditor(userCode);
+      setActiveEditor(editor);
+
+      await executor.displayIt();
+
+      expect(editor.document.getText()).toBe(userCode);
+    });
+
+    it('does not insert text or move the selection', async () => {
+      mockResult('42');
+      const userCode = '3 + 4';
+      const sel = new vscode.Selection(
+        new vscode.Position(0, 0),
+        new vscode.Position(0, userCode.length),
+      );
+      const editor = makeMutableEditor(userCode, sel);
+      setActiveEditor(editor);
+
+      await executor.displayIt();
+
+      expect(editor.edit).not.toHaveBeenCalled();
+      expect(editor.selection).toBe(sel);
+    });
+
+    it('renders the result as an after-content overlay decoration', async () => {
+      mockResult('42');
+      const editor = makeEditor('3 + 4');
+      setActiveEditor(editor);
+
+      await executor.displayIt();
+
+      const deco = lastOverlayDecoration(editor);
+      expect(deco).toBeDefined();
+      expect(deco!.renderOptions.after.contentText).toContain('42');
+    });
+
+    it('flattens newlines and truncates long results in the inline preview', async () => {
+      const long = 'line one\n' + 'x'.repeat(200);
+      mockResult(long);
+      const editor = makeEditor('aCollection');
+      setActiveEditor(editor);
+
+      await executor.displayIt();
+
+      const text = lastOverlayDecoration(editor)!.renderOptions.after.contentText;
+      expect(text).not.toContain('\n');
+      expect(text).toContain('⏎');
+      expect(text).toContain('…');
+      expect(text.length).toBeLessThan(120);
+    });
+
+    it('attaches a trusted hover with Copy and Expand command links', async () => {
+      mockResult("'the full value'");
+      const editor = makeEditor("'x'");
+      setActiveEditor(editor);
+
+      await executor.displayIt();
+
+      const hover = lastOverlayDecoration(editor)!.hoverMessage;
+      expect(hover.isTrusted).toBe(true);
+      expect(hover.value).toContain("'the full value'");
+      expect(hover.value).toContain('command:gemstone.copyDisplayItResult');
+      expect(hover.value).toContain('command:gemstone.outputDisplayItResult');
+    });
+
+    it('copyLastResult writes the full result to the clipboard', async () => {
+      mockResult('a multi\nline\nresult');
+      const editor = makeEditor('foo');
+      setActiveEditor(editor);
+
+      await executor.displayIt();
+      await executor.copyLastResult();
+
+      expect(vscode.env.clipboard.writeText).toHaveBeenCalledWith('a multi\nline\nresult');
+    });
+
+    it('outputLastResult sends the full result to the Output panel', async () => {
+      mockResult('a multi\nline\nresult');
+      const editor = makeEditor('foo');
+      setActiveEditor(editor);
+
+      await executor.displayIt();
+      executor.outputLastResult();
+
+      expect(appendTranscript).toHaveBeenCalledWith('a multi\nline\nresult');
+      expect(showTranscript).toHaveBeenCalled();
+    });
+
+    it('copyLastResult is a no-op (no clipboard write) when there is no result yet', async () => {
+      await executor.copyLastResult();
+      expect(vscode.env.clipboard.writeText).not.toHaveBeenCalled();
+    });
+
+    it('activates the dismiss context while the overlay is shown', async () => {
+      mockResult('42');
+      const editor = makeEditor('3 + 4');
+      setActiveEditor(editor);
+
+      await executor.displayIt();
+
+      expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+        'setContext', 'gemstone.displayResultVisible', true,
+      );
+    });
+
+    it('dismissDisplayResult clears the overlay and context without editing the document', async () => {
+      mockResult('42');
+      const editor = makeMutableEditor('3 + 4');
+      setActiveEditor(editor);
+
+      await executor.displayIt();
+      editor.setDecorations.mockClear();
+      (vscode.commands.executeCommand as Mock).mockClear();
+
+      executor.dismissDisplayResult();
+
+      // Overlay decoration cleared (last setDecorations call passes an empty array)
+      const lastDeco = editor.setDecorations.mock.calls.at(-1);
+      expect(lastDeco?.[1]).toEqual([]);
+      // Context released
+      expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+        'setContext', 'gemstone.displayResultVisible', false,
+      );
+      // Document untouched
+      expect(editor.edit).not.toHaveBeenCalled();
+      expect(editor.document.getText()).toBe('3 + 4');
+    });
+
+    it('expandResultInPlace inserts the FULL result (not the preview) and clears the overlay', async () => {
+      // Multi-line result: the inline preview is flattened, but the in-place
+      // expansion must insert the real multi-line value.
+      const full = 'a\nb\nc';
+      mockResult(full);
+      const userCode = '3 + 4';
+      const editor = makeMutableEditor(userCode);
+      setActiveEditor(editor);
+
+      await executor.displayIt();
+      await executor.expandResultInPlace();
+
+      expect(editor.document.getText()).toBe('3 + 4 a\nb\nc');
+      expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+        'setContext', 'gemstone.displayResultVisible', false,
+      );
+    });
+
+    it('expandResultInPlace is a no-op when no overlay is showing', async () => {
+      const editor = makeMutableEditor('3 + 4');
+      setActiveEditor(editor);
+
+      await executor.expandResultInPlace();
+
+      expect(editor.edit).not.toHaveBeenCalled();
+      expect(editor.document.getText()).toBe('3 + 4');
+    });
+
+    it('releases the dismiss context even if clearing the decoration throws (closed editor)', async () => {
+      mockResult('42');
+      const editor = makeEditor('3 + 4');
+      setActiveEditor(editor);
+
+      await executor.displayIt();
+
+      // Simulate the overlay editor having been disposed (e.g. its file was
+      // closed): setDecorations now throws when we try to clear the overlay.
+      editor.setDecorations.mockImplementation(() => {
+        throw new Error('TextEditor disposed');
+      });
+      (vscode.commands.executeCommand as Mock).mockClear();
+
+      // Must not propagate the error...
+      expect(() => executor.dismissDisplayResult()).not.toThrow();
+      // ...and must still release the context key.
+      expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+        'setContext', 'gemstone.displayResultVisible', false,
+      );
+    });
+
+    it('anchors the overlay on the selection end when code is on a non-first line', async () => {
+      mockResult('7');
+      const text = 'line0\n3 + 4\nline2';
+      const sel = new vscode.Selection(
+        new vscode.Position(1, 0),
+        new vscode.Position(1, 5),
+      );
+      const editor = makeMutableEditor(text, sel);
+      // Real VSCode's getText(selection) returns only the selected substring
+      editor.document.getText = vi.fn(() => '3 + 4') as unknown as typeof editor.document.getText;
+      setActiveEditor(editor);
+
+      await executor.displayIt();
+
+      const deco = lastOverlayDecoration(editor);
+      expect(deco).toBeDefined();
+      // Anchored on the last character of the selection: line 1, chars 4–5
+      expect(deco!.range.start.line).toBe(1);
+      expect(deco!.range.start.character).toBe(4);
+      expect(deco!.range.end.line).toBe(1);
+      expect(deco!.range.end.character).toBe(5);
+      expect(deco!.renderOptions.after.contentText).toContain('7');
+    });
+
+    it('shows no overlay and never activates the context on a compile error', async () => {
+      (gci.GciTsNbExecute as Mock).mockReturnValue({
+        success: false,
+        err: { number: 1001, message: 'a CompileError occurred' },
+      });
+      const editor = makeMutableEditor('bad syntax');
+      setActiveEditor(editor);
+
+      await executor.displayIt();
+
+      // No after-content overlay decoration was rendered
+      expect(lastOverlayDecoration(editor)).toBeUndefined();
+      // The dismiss context was never turned on, so Backspace/Enter/Ctrl+Z
+      // are not hijacked after a failed Display It
+      expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
+        'setContext', 'gemstone.displayResultVisible', true,
+      );
+      // And nothing was inserted into the document
+      expect(editor.document.getText()).toBe('bad syntax');
+    });
+  });
+
+  // ── Code selection handling (mode-independent) ────────────
+  //
+  // Selecting nothing executes/displays the whole current line; selecting
+  // text executes/displays only that text. This happens upstream of the
+  // display branch, so it must hold in both overlay and insert mode.
+
+  describe('code selection handling', () => {
+    for (const mode of ['overlay', 'insert'] as const) {
+      describe(`${mode} mode`, () => {
+        beforeEach(() => {
+          setDisplayItMode(mode);
+          (gci.GciTsPerformFetchBytes as Mock).mockReturnValue({
+            data: '42', err: { number: 0 },
+          });
+        });
+
+        it('executes the whole current line when the selection is empty', async () => {
+          const text = 'line0\n3 + 4\nline2';
+          // Collapsed (empty) caret on line 1
+          const caret = new vscode.Selection(
+            new vscode.Position(1, 2),
+            new vscode.Position(1, 2),
+          );
+          const editor = makeMutableEditor(text, caret);
+          setActiveEditor(editor);
+
+          await executor.displayIt();
+
+          // getText was asked for the full line range, not the empty caret
+          const arg = (editor.document.getText as Mock).mock.calls[0][0];
+          expect(arg.start.line).toBe(1);
+          expect(arg.start.character).toBe(0);
+          expect(arg.end.line).toBe(1);
+          expect(arg.end.character).toBe('3 + 4'.length);
+        });
+
+        it('executes only the selected text when a selection is present', async () => {
+          const text = 'line0\n3 + 4\nline2';
+          const sel = new vscode.Selection(
+            new vscode.Position(1, 0),
+            new vscode.Position(1, 5),
+          );
+          const editor = makeMutableEditor(text, sel);
+          setActiveEditor(editor);
+
+          await executor.displayIt();
+
+          // getText was called with the exact selection (not the whole document)
+          const arg = (editor.document.getText as Mock).mock.calls[0][0];
+          expect(arg).toBe(sel);
+        });
+      });
+    }
   });
 
   // ── Execution busy-state indicators ───────────────────────

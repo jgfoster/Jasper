@@ -4,7 +4,7 @@ import { OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG } from './gciConsta
 import { logQuery, logResult, logError, logInfo } from './gciLog';
 import { InspectorTreeProvider } from './inspectorTreeProvider';
 import { GtInspector } from './gtInspector';
-import { appendTranscript } from './transcriptChannel';
+import { appendTranscript, showTranscript } from './transcriptChannel';
 import { GciError } from './gciLibrary';
 import { pollReadable } from './socketPoll';
 
@@ -33,6 +33,28 @@ const executingDecorationType = vscode.window.createTextEditorDecorationType({
   opacity: '0.4',
 });
 
+// Decoration type for the non-destructive "overlay" Display It result.
+// Renders the result as an after-line annotation that is NOT part of the
+// document — the file is never modified, never dirtied, never saved. Styling
+// lives on `after`; the dynamic result text is supplied per-instance via
+// renderOptions.after.contentText.
+const overlayDecorationType = vscode.window.createTextEditorDecorationType({
+  after: {
+    margin: '0 0 0 1ch',
+    fontStyle: 'italic',
+  },
+  light: { after: { color: '#005fa3', backgroundColor: 'rgba(0, 102, 204, 0.1)' } },
+  dark: { after: { color: '#7cc6ff', backgroundColor: 'rgba(51, 153, 255, 0.2)' } },
+});
+
+// Context key controlling whether Backspace/Escape dismiss the overlay
+// (instead of editing the document) while a Display It result is shown.
+const DISPLAY_RESULT_CONTEXT = 'gemstone.displayResultVisible';
+
+// Max characters shown in the inline overlay before truncating (full value
+// is always available via the hover and the Expand action).
+const MAX_OVERLAY_PREVIEW = 100;
+
 class ExecutionCancelledError extends Error {
   constructor() {
     super('Execution cancelled');
@@ -56,6 +78,16 @@ export class CodeExecutor {
   private oopClassStringCache = new Map<unknown, bigint>();
   private diagnostics: vscode.DiagnosticCollection;
   private statusBarItem: vscode.StatusBarItem;
+  // Most recent Display It result (full text), used by the Copy/Expand hover
+  // actions in overlay mode.
+  private lastResult: string | null = null;
+  // Active overlay clear-listeners, disposed when the overlay is removed.
+  private overlayDisposables: vscode.Disposable[] | undefined;
+  // The editor currently showing an overlay result (so it can be cleared).
+  private overlayEditor: vscode.TextEditor | undefined;
+  // The selection the overlay was anchored on, i.e. where Enter inserts the
+  // full result if the user chooses to materialize it in place.
+  private overlaySelection: vscode.Selection | undefined;
 
   constructor(private sessionManager: SessionManager) {
     this.diagnostics = vscode.languages.createDiagnosticCollection('gemstone-execute');
@@ -65,6 +97,7 @@ export class CodeExecutor {
   dispose(): void {
     this.diagnostics.dispose();
     this.statusBarItem.dispose();
+    this.clearOverlay();
   }
 
   private setExecuting(sessionId: number, busy: boolean): void {
@@ -153,30 +186,14 @@ export class CodeExecutor {
       this.diagnostics.delete(editor.document.uri);
 
       if (displayResult) {
-        await editor.edit(editBuilder => {
-          editBuilder.insert(selection.end, ` ${resultString}`);
-        });
-
-        // Select the inserted result so a single backspace removes it
-        const resultStart = selection.end.translate(0, 1);
-        const resultEnd = editor.document.positionAt(
-          editor.document.offsetAt(selection.end) + 1 + resultString.length
-        );
-        editor.selection = new vscode.Selection(selection.end, resultEnd);
-
-        // Apply decoration so the result is visually distinct (Cmd+Z to undo)
-        const decoRange = new vscode.Range(resultStart, resultEnd);
-        editor.setDecorations(resultDecorationType, [decoRange]);
-
-        // Clear decoration when document is next edited
-        setTimeout(() => {
-          const disposable = vscode.workspace.onDidChangeTextDocument(e => {
-            if (e.document === editor.document) {
-              editor.setDecorations(resultDecorationType, []);
-              disposable.dispose();
-            }
-          });
-        }, 0);
+        const mode = vscode.workspace
+          .getConfiguration('gemstone')
+          .get<string>('displayItMode', 'overlay');
+        if (mode === 'insert') {
+          await this.insertResult(editor, selection, resultString);
+        } else {
+          this.showResultOverlay(editor, selection, resultString);
+        }
       } else {
         vscode.window.setStatusBarMessage('GemStone: Executed successfully.', 3000);
       }
@@ -196,6 +213,173 @@ export class CodeExecutor {
       editor.setDecorations(executingDecorationType, []);
       this.setExecuting(session.id, false);
     }
+  }
+
+  /**
+   * Classic workspace behavior: insert the result into the document as
+   * editable text after the selection, then select it so a single Backspace
+   * removes it. This mutates (and dirties) the file.
+   */
+  private async insertResult(
+    editor: vscode.TextEditor,
+    selection: vscode.Selection,
+    resultString: string,
+  ): Promise<void> {
+    await editor.edit(editBuilder => {
+      editBuilder.insert(selection.end, ` ${resultString}`);
+    });
+
+    // Select the inserted result so a single backspace removes it
+    const resultStart = selection.end.translate(0, 1);
+    const resultEnd = editor.document.positionAt(
+      editor.document.offsetAt(selection.end) + 1 + resultString.length
+    );
+    editor.selection = new vscode.Selection(selection.end, resultEnd);
+
+    // Apply decoration so the result is visually distinct (Cmd+Z to undo)
+    const decoRange = new vscode.Range(resultStart, resultEnd);
+    editor.setDecorations(resultDecorationType, [decoRange]);
+
+    // Clear decoration when document is next edited
+    setTimeout(() => {
+      const disposable = vscode.workspace.onDidChangeTextDocument(e => {
+        if (e.document === editor.document) {
+          editor.setDecorations(resultDecorationType, []);
+          disposable.dispose();
+        }
+      });
+    }, 0);
+  }
+
+  /**
+   * Quokka-style non-destructive result display: render the result as an
+   * after-line decoration (an editor overlay, NOT document text) so the file
+   * is never modified, dirtied, or saved. Inline overlays are single-line, so
+   * the preview is flattened/truncated; the full value is reachable via the
+   * hover's Copy and Expand command links.
+   */
+  private showResultOverlay(
+    editor: vscode.TextEditor,
+    selection: vscode.Selection,
+    resultString: string,
+  ): void {
+    this.lastResult = resultString;
+    this.clearOverlay();
+
+    const flat = resultString.replace(/\s*\r?\n\s*/g, ' ⏎ ').trim();
+    const preview = flat.length > MAX_OVERLAY_PREVIEW
+      ? `${flat.slice(0, MAX_OVERLAY_PREVIEW)} …`
+      : flat;
+
+    // Hover carries the full value plus clickable command links. isTrusted is
+    // required for command: links to fire.
+    const hover = new vscode.MarkdownString();
+    hover.isTrusted = true;
+    hover.appendCodeblock(resultString, 'smalltalk');
+    hover.appendMarkdown(
+      '\n\n[Copy](command:gemstone.copyDisplayItResult "Copy the full result to the clipboard")'
+      + ' &nbsp;|&nbsp; '
+      + '[Output](command:gemstone.outputDisplayItResult "Show the full result in the Output panel")'
+      + '\n\n_Enter to insert in place · Backspace to dismiss_'
+    );
+
+    // Anchor on the last character of the selection so the hover has a target;
+    // the `after` annotation still renders past the end of the selection.
+    const endOffset = editor.document.offsetAt(selection.end);
+    const anchorStart = endOffset > 0
+      ? editor.document.positionAt(endOffset - 1)
+      : selection.end;
+    const decoration: vscode.DecorationOptions = {
+      range: new vscode.Range(anchorStart, selection.end),
+      hoverMessage: hover,
+      renderOptions: { after: { contentText: ` ⇒ ${preview}` } },
+    };
+    editor.setDecorations(overlayDecorationType, [decoration]);
+    this.overlayEditor = editor;
+    this.overlaySelection = selection;
+
+    // While the result is showing, Backspace/Escape dismiss it (see the
+    // keybindings in package.json) instead of editing the document.
+    vscode.commands.executeCommand('setContext', DISPLAY_RESULT_CONTEXT, true);
+
+    // Otherwise the overlay clears as soon as the user edits, moves the
+    // cursor, or switches editors. Deferred so we don't catch trailing events
+    // from this command.
+    const disposables: vscode.Disposable[] = [];
+    setTimeout(() => {
+      disposables.push(
+        vscode.workspace.onDidChangeTextDocument(e => {
+          if (e.document === editor.document) this.clearOverlay();
+        }),
+        vscode.window.onDidChangeTextEditorSelection(e => {
+          if (e.textEditor === editor) this.clearOverlay();
+        }),
+        vscode.window.onDidChangeActiveTextEditor(() => this.clearOverlay()),
+      );
+    }, 0);
+    this.overlayDisposables = disposables;
+  }
+
+  /**
+   * Remove the overlay result: clear its decoration, dispose its listeners,
+   * and release the dismiss context key. Never modifies the document.
+   */
+  private clearOverlay(): void {
+    // Release the context key FIRST and unconditionally, so a stale-editor
+    // error below can never strand it on — a stranded key would hijack
+    // Backspace/Enter/Ctrl+Z with no overlay visible to explain why.
+    vscode.commands.executeCommand('setContext', DISPLAY_RESULT_CONTEXT, false);
+    this.overlayDisposables?.forEach(d => d.dispose());
+    this.overlayDisposables = undefined;
+    if (this.overlayEditor) {
+      try {
+        this.overlayEditor.setDecorations(overlayDecorationType, []);
+      } catch {
+        // Editor already disposed (e.g. its file was closed) — the decoration
+        // is gone with it, nothing more to clear.
+      }
+      this.overlayEditor = undefined;
+    }
+    this.overlaySelection = undefined;
+  }
+
+  /** Dismiss the visible overlay result (bound to Backspace/Escape/Ctrl+Z). */
+  dismissDisplayResult(): void {
+    this.clearOverlay();
+  }
+
+  /**
+   * Materialize the overlay result into the document as editable text (bound
+   * to Enter while a result is shown). Inserts the FULL result — not the
+   * truncated inline preview — then clears the overlay. This dirties the file.
+   */
+  async expandResultInPlace(): Promise<void> {
+    const editor = this.overlayEditor;
+    const selection = this.overlaySelection;
+    const result = this.lastResult;
+    if (!editor || !selection || result === null) return;
+    this.clearOverlay();
+    await this.insertResult(editor, selection, result);
+  }
+
+  /** Copy the most recent Display It result to the clipboard. */
+  async copyLastResult(): Promise<void> {
+    if (this.lastResult === null) {
+      vscode.window.showInformationMessage('No Display It result to copy.');
+      return;
+    }
+    await vscode.env.clipboard.writeText(this.lastResult);
+    vscode.window.setStatusBarMessage('GemStone: Result copied to clipboard.', 2000);
+  }
+
+  /** Show the full most recent Display It result in the Output panel. */
+  outputLastResult(): void {
+    if (this.lastResult === null) {
+      vscode.window.showInformationMessage('No Display It result to show in the Output panel.');
+      return;
+    }
+    appendTranscript(this.lastResult);
+    showTranscript();
   }
 
   private validateContextOop(session: ActiveSession, context: bigint): void {
