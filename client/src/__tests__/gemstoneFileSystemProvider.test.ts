@@ -14,7 +14,7 @@ vi.mock('../browserQueries', () => ({
   getMethodSource: vi.fn(() => 'at: index\n  ^self basicAt: index'),
   getClassDefinition: vi.fn(() => "Object subclass: 'Array'\n  instVarNames: #()"),
   getClassComment: vi.fn(() => 'An ordered collection.'),
-  compileMethod: vi.fn(() => 1n),
+  compileMethod: vi.fn(() => 'Compiled: Array >> at:'),
   compileClassDefinition: vi.fn(),
   setClassComment: vi.fn(),
   canClassBeWritten: vi.fn(() => true),
@@ -273,6 +273,39 @@ describe('GemStoneFileSystemProvider', () => {
        const event = listener.mock.calls[0][0];
        expect(event.previousUri.toString()).toBe(newMethodUri.toString());
        expect(event.uri.toString()).toBe('gemstone://1/Globals/Array/instance/accessing/foo');
+       expect(event.isNewMethod).toBe(true);
+     });
+
+     it('emits onMethodCompiled with isNewMethod false when an existing method is saved with unchanged selector', async () => {
+       const methodUri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A');
+       vi.mocked(queries.compileMethod).mockReturnValueOnce('Compiled: Array >> at:');
+       const listener = vi.fn();
+       provider.onMethodCompiled(listener);
+
+       provider.writeFile(methodUri, encode('at: i\n  ^self basicAt: i'), { create: false, overwrite: true });
+       await new Promise(resolve => setImmediate(resolve));
+
+       expect(listener).toHaveBeenCalledTimes(1);
+       const event = listener.mock.calls[0][0];
+       expect(event.isNewMethod).toBe(false);
+       expect(event.uri.toString()).toBe(methodUri.toString());
+       expect(event.previousUri.toString()).toBe(methodUri.toString());
+     });
+
+     it('emits onMethodCompiled with isNewMethod false when an existing method is saved with a changed selector', async () => {
+       const previousUri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A');
+       vi.mocked(queries.compileMethod).mockReturnValueOnce('Compiled: Array >> newSelector');
+       const listener = vi.fn();
+       provider.onMethodCompiled(listener);
+
+       provider.writeFile(previousUri, encode('newSelector\n  ^42'), { create: false, overwrite: true });
+       await new Promise(resolve => setImmediate(resolve));
+
+       expect(listener).toHaveBeenCalledTimes(1);
+       const event = listener.mock.calls[0][0];
+       expect(event.isNewMethod).toBe(false);
+       expect(event.previousUri.toString()).toBe(previousUri.toString());
+       expect(event.uri.toString()).toBe('gemstone://1/Globals/Array/instance/accessing/newSelector');
      });
 
      it('trims trailing whitespace from the selector when building the compiled method uri', async () => {
@@ -337,7 +370,7 @@ describe('GemStoneFileSystemProvider', () => {
       const uri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A');
       provider.writeFile(uri, encode('at: i\n  ^self basicAt: i'), { create: false, overwrite: true });
       expect(window.showInformationMessage).toHaveBeenCalledWith(
-        expect.stringContaining('Compiled Array>>#at:'),
+        expect.stringContaining('Compiled method Array>>#at:'),
       );
     });
 
