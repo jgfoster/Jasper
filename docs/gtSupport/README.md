@@ -24,3 +24,7 @@ then run the update script:
 ```
 ./update_gemstone_gt_support.sh
 ```
+
+## Use with Acme Licensing Demo
+
+Log in to Topaz as DataCurator and input `IMCSystem-gtViews.gs` (no script for this one).

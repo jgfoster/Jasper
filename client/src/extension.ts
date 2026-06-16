@@ -99,8 +99,15 @@ async function logJasperError(message: string, scope: string, error: unknown) {
 }
 
 export async function handleMethodCompiled(event: MethodCompiledEvent) {
+  if (event.uri.toString() === event.previousUri.toString()) {
+    return;
+  }
+  
   await openTextEditorOn(event.uri);
-  await closeTextEditorOn(event.previousUri);
+  
+  if (event.isNewMethod) {
+    await closeTextEditorOn(event.previousUri);
+  }
 }
 
 export function activate(context: vscode.ExtensionContext) {

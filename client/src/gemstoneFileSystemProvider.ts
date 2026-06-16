@@ -137,7 +137,8 @@ function assertIsValidUriPath(parameterName: string, value: string) {
 
 export interface MethodCompiledEvent{
   uri: vscode.Uri;
-  previousUri: vscode.Uri
+  previousUri: vscode.Uri;
+  isNewMethod: boolean;
 }
 
 // ── FileSystemProvider ────────────────────────────────────────
@@ -244,12 +245,7 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
     try {
       switch (parsed.kind) {
         case 'method':
-          queries.compileMethod(
-            session, parsed.className, parsed.isMeta, parsed.category, source, parsed.environmentId,
-          );
-          vscode.window.showInformationMessage(
-            `Compiled ${parsed.className}${parsed.isMeta ? ' class' : ''}>>#${parsed.selector}`
-          );
+          this.compileMethod(uri, parsed, source, session);
           break;
         case 'definition':
           queries.compileClassDefinition(session, source);
@@ -268,13 +264,7 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
           vscode.window.showInformationMessage('Class created');
           break;
         case 'new-method':
-          const newMethodUri = this.compileMethod(parsed, source, session);
-          
-          // Defer the event to the next event-loop iteration so VS Code has time to
-          // process the completed save and mark the document clean. Firing synchronously
-          // here — before writeFile returns — means the tab is still dirty when
-          // closeTextEditorOn runs, which triggers a "save before closing?" dialog.
-          setImmediate(() => this._onMethodCompiled.fire({uri: newMethodUri, previousUri: uri}));
+          this.compileMethod(uri, parsed, source, session);
           break;
       }
 
@@ -314,7 +304,7 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
     }
   }
 
-  private compileMethod(parsedMethodUri: ParsedNewMethodUri, sourceCode: string, session: ActiveSession) : vscode.Uri {
+  private compileMethod(uri: vscode.Uri, parsedMethodUri: ParsedNewMethodUri | ParsedMethodUri, sourceCode: string, session: ActiveSession) {
     const result = queries.compileMethod(
         session, parsedMethodUri.className, parsedMethodUri.isMeta, parsedMethodUri.category, sourceCode, parsedMethodUri.environmentId,
     );
@@ -328,11 +318,21 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
         `Compiled method ${receiver(parsedMethodUri.className, parsedMethodUri.isMeta)}>>#${selector}`
     );
     
-    return buildMethodUri({
+    const newMethodUri = buildMethodUri({
       ...parsedMethodUri,
       kind: 'method',
       selector: selector
     });
+
+    // Defer the event to the next event-loop iteration so VS Code has time to
+    // process the completed save and mark the document clean. Firing synchronously
+    // here — before writeFile returns — means the tab is still dirty when
+    // closeTextEditorOn runs, which triggers a "save before closing?" dialog.
+    setImmediate(() => this._onMethodCompiled.fire({
+      uri: newMethodUri,
+      previousUri: uri,
+      isNewMethod: parsedMethodUri.kind === 'new-method',
+    }));
   }
 
   dispose(): void {

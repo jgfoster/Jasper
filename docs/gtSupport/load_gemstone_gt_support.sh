@@ -33,6 +33,7 @@
 #   Or specify the topazini path explicitly:
 #   ./load_gemstone_gt_support.sh -I /path/to/.topazini
 
+set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOPAZINI=".topazini"
 
@@ -76,9 +77,13 @@ if [ ${#missing[@]} -gt 0 ]; then
     exit 1
 fi
 
-echo "Loading GT support into stone..."
+echo "Loading GT support into stone; see \`load_gemstone_gt_support.out\` for details..."
 
-"$GEMSTONE/bin/topaz" -l -I "$TOPAZINI" << EOF
+"$GEMSTONE/bin/topaz" -lq -I "$TOPAZINI" << EOF
+output push load_gemstone_gt_support.out only 
+errorcount
+iferr 1 stk
+iferr 2 exit 1
 login
 input $SCRIPT_DIR/Announcements.gs
 input $SCRIPT_DIR/RemoteServiceReplication.gs
@@ -89,6 +94,9 @@ input $SCRIPT_DIR/gt4gemstone.gs
 input $SCRIPT_DIR/gtoolkit-remote.gs
 commit
 logout
+errorcount
+output pop
+errorcount
 exit
 EOF
 
