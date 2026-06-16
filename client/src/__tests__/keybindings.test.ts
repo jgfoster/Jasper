@@ -11,9 +11,13 @@ const keybindings: Array<{
   when: string;
 }> = pkg.contributes.keybindings;
 
+// The ctrl+k / cmd+k chord family. Other bindings (e.g. the single-key
+// Backspace/Escape that dismiss a Display It overlay) are validated separately.
+const chordBindings = keybindings.filter((kb) => kb.key?.startsWith('ctrl+k'));
+
 describe('keybindings', () => {
   it('should all use the ctrl+k chord prefix (Windows/Linux)', () => {
-    for (const kb of keybindings) {
+    for (const kb of chordBindings) {
       expect(kb.key, `${kb.command} has unexpected key: "${kb.key}"`).toMatch(
         /^ctrl\+k [a-z]$/,
       );
@@ -21,7 +25,7 @@ describe('keybindings', () => {
   });
 
   it('should all use the cmd+k chord prefix (macOS)', () => {
-    for (const kb of keybindings) {
+    for (const kb of chordBindings) {
       expect(kb.mac, `${kb.command} has unexpected mac key: "${kb.mac}"`).toMatch(
         /^cmd\+k [a-z]$/,
       );
@@ -29,7 +33,7 @@ describe('keybindings', () => {
   });
 
   it('should have matching second keys on both platforms', () => {
-    for (const kb of keybindings) {
+    for (const kb of chordBindings) {
       const winKey = kb.key.split(' ')[1];
       const macKey = kb.mac.split(' ')[1];
       expect(winKey).toBe(macKey);
@@ -37,7 +41,7 @@ describe('keybindings', () => {
   });
 
   it('should have no duplicate second keys', () => {
-    const secondKeys = keybindings.map((kb) => kb.key.split(' ')[1]);
+    const secondKeys = chordBindings.map((kb) => kb.key.split(' ')[1]);
     expect(new Set(secondKeys).size).toBe(secondKeys.length);
   });
 
@@ -52,16 +56,43 @@ describe('keybindings', () => {
       m: 'gemstone.findMethod',
     };
 
-    for (const kb of keybindings) {
+    for (const kb of chordBindings) {
       const letter = kb.mac.split(' ')[1];
       expect(expected[letter]).toBe(kb.command);
     }
   });
 
-  it('should require active session for all bindings', () => {
-    for (const kb of keybindings) {
+  it('should require active session for all chord bindings', () => {
+    for (const kb of chordBindings) {
       expect(kb.when).toContain('gemstone.hasActiveSession');
     }
+  });
+
+  it('dismiss-overlay bindings use single keys gated on the overlay context', () => {
+    const dismiss = keybindings.filter(
+      (kb) => kb.command === 'gemstone.dismissDisplayResult',
+    );
+    // Backspace, Ctrl+Z (undo), and Escape
+    expect(dismiss.map((kb) => kb.key).sort()).toEqual(['backspace', 'ctrl+z', 'escape']);
+    for (const kb of dismiss) {
+      expect(kb.when).toContain('gemstone.displayResultVisible');
+      expect(kb.when).toContain('editorTextFocus');
+    }
+    // The undo binding maps to cmd+z on macOS
+    const undo = dismiss.find((kb) => kb.key === 'ctrl+z');
+    expect(undo?.mac).toBe('cmd+z');
+  });
+
+  it('expand-in-place binds Enter, gated on the overlay context and not stealing IntelliSense', () => {
+    const expand = keybindings.filter(
+      (kb) => kb.command === 'gemstone.expandDisplayResultInPlace',
+    );
+    expect(expand.length).toBe(1);
+    expect(expand[0].key).toBe('enter');
+    expect(expand[0].when).toContain('gemstone.displayResultVisible');
+    expect(expand[0].when).toContain('editorTextFocus');
+    // Must not hijack Enter while the suggestion widget is open
+    expect(expand[0].when).toContain('!suggestWidgetVisible');
   });
 
   it('should gate editor commands on editorTextFocus and !executing', () => {

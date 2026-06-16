@@ -916,6 +916,22 @@ export function activate(context: vscode.ExtensionContext) {
       codeExecutor.executeIt();
     }),
 
+    vscode.commands.registerCommand('gemstone.copyDisplayItResult', () => {
+      codeExecutor.copyLastResult();
+    }),
+
+    vscode.commands.registerCommand('gemstone.outputDisplayItResult', () => {
+      codeExecutor.outputLastResult();
+    }),
+
+    vscode.commands.registerCommand('gemstone.dismissDisplayResult', () => {
+      codeExecutor.dismissDisplayResult();
+    }),
+
+    vscode.commands.registerCommand('gemstone.expandDisplayResultInPlace', () => {
+      codeExecutor.expandResultInPlace();
+    }),
+
     vscode.commands.registerCommand('gemstone.inspectIt', () => {
       codeExecutor.inspectIt(inspectorProvider);
     }),
