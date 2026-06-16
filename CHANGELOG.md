@@ -4,6 +4,22 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.6.5] - 2026-06-16
+
+### Added
+
+- **Non-destructive (overlay) Display It** (`gemstone.displayItMode`, default `overlay`). Display It (`Cmd+K D` / `Ctrl+K D`) now shows its result as an inline overlay decoration instead of inserting text into the document, so the file is never modified, dirtied, or saved. While the result is shown, hover it for **Copy** / **Output** actions; **Backspace**, **Ctrl+Z**, or **Escape** dismiss it; **Enter** materializes the full value into the document. Set `gemstone.displayItMode` to `insert` for the classic insert-and-select behavior, which is preserved verbatim. ([#115](https://github.com/jgfoster/Jasper/pull/115))
+- **GT Perf Tracker for round-trip tuning** (`gemstone.gtPerfTracking`, default off). A status-bar counter of GCI round trips per action, with a per-method Quick Pick breakdown, clipboard copy, and output-channel logging on reset — for diagnosing GT Inspector performance. A companion Pharo-side file-in script (`docs/gtSupport/gtPerfTracker.st`) counts GemStone RSR round trips from the GT image side. ([#108](https://github.com/jgfoster/Jasper/pull/108))
+
+### Changed
+
+- Updated the GT support installation script under `docs/gtSupport/`.
+- Dependency updates: js-yaml, markdown-it, hono, vite, form-data, tmp.
+
+### Fixed
+
+- **Renaming a selector and saving now opens a tab for the new method.** Previously the old tab kept its original title but displayed the new source, and the new method had no tab at all. Jasper now detects when the compiled selector differs from the one being saved, opens the new method's tab, and reverts the old tab (the original method is left unchanged in GemStone). ([#109](https://github.com/jgfoster/Jasper/pull/109))
+
 ## [1.6.4] - 2026-06-13
 
 ### Added
