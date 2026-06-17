@@ -869,6 +869,7 @@ describe('SystemBrowser', () => {
 
       expect(commands.executeCommand).toHaveBeenCalledWith(
         'gemstone.runSunitClasses',
+        'UserGlobals',
         ['Array', 'Set', 'Bag'],
       );
     });
@@ -902,6 +903,7 @@ describe('SystemBrowser', () => {
 
       expect(commands.executeCommand).toHaveBeenCalledWith(
           'gemstone.runSunitClasses',
+          'UserGlobals',
           ['Array', 'Set'],
       );
     });
@@ -961,7 +963,7 @@ describe('SystemBrowser', () => {
       messageHandler({ command: 'ctxRunTests' });
       expect(commands.executeCommand).toHaveBeenCalledWith(
         'gemstone.runSunitClass',
-        { className: 'Array' },
+        { dictName: 'UserGlobals', className: 'Array' },
       );
     });
 
@@ -1002,6 +1004,7 @@ describe('SystemBrowser', () => {
 
       expect(commands.executeCommand).toHaveBeenCalledWith(
         'gemstone.runSunitMethodCategory',
+        'UserGlobals',
         'Array',
         'Accessing',
       );
@@ -1079,7 +1082,8 @@ describe('SystemBrowser', () => {
 
       expect(commands.executeCommand).toHaveBeenCalledWith(
         'gemstone.runSunitMethods',
-        'Array', 
+        'UserGlobals',
+        'Array',
         ['name'],
       );
     });

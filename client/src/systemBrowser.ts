@@ -1227,44 +1227,55 @@ export class SystemBrowser {
     vscode.window.showInformationMessage(`Moved ${className} to ${picked.label}.`);
   }
 
+  /** Resolve a 1-based symbolList index to its dictionary name. */
+  private dictNameForIndex(dictIndex: number | null): string | undefined {
+    if (!dictIndex) return undefined;
+    return this.state.dictionaries[dictIndex - 1];
+  }
+
   private handleRunTests(): void {
     const className = this.state.selectedClass;
-    if (!className) return;
-    vscode.commands.executeCommand('gemstone.runSunitClass', { className });
+    const dictName = this.dictNameForIndex(this.state.selectedDictIndex);
+    if (!className || !dictName) return;
+    vscode.commands.executeCommand('gemstone.runSunitClass', { dictName, className });
   }
 
   private async handleRunCategoryTests() {
     const categoryName = this.state.selectedCategory;
-    if (!categoryName) return;
-    
-    await vscode.commands.executeCommand('gemstone.runSunitClasses', this.state.classes);
+    const dictName = this.dictNameForIndex(this.state.selectedDictIndex);
+    if (!categoryName || !dictName) return;
+
+    await vscode.commands.executeCommand('gemstone.runSunitClasses', dictName, this.state.classes);
   }
 
   private async handleRunDictionaryTests() {
     const dictIndex = this.state.selectedDictIndex;
-    if (!dictIndex) return;
+    const dictName = this.dictNameForIndex(dictIndex);
+    if (!dictIndex || !dictName) return;
 
     const entries = this.getCachedDictEntries(dictIndex);
     const classNames = entries.filter(e => e.isClass).map(e => e.name);
     if (classNames.length === 0) return;
 
-    await vscode.commands.executeCommand('gemstone.runSunitClasses', classNames);
+    await vscode.commands.executeCommand('gemstone.runSunitClasses', dictName, classNames);
   }
 
   private async handleRunMethodTests() {
     const className = this.state.selectedClass;
     const selector = this.state.selectedMethod;
-    if (!className || !selector) return;
+    const dictName = this.dictNameForIndex(this.state.selectedDictIndex);
+    if (!className || !selector || !dictName) return;
 
-    await vscode.commands.executeCommand('gemstone.runSunitMethods', className, [selector]);
+    await vscode.commands.executeCommand('gemstone.runSunitMethods', dictName, className, [selector]);
   }
 
   private async handleRunMethodCategoryTests() {
     const className = this.state.selectedClass;
     const category = this.state.selectedMethodCategory;
-    if (!className || !category) return;
+    const dictName = this.dictNameForIndex(this.state.selectedDictIndex);
+    if (!className || !category || !dictName) return;
 
-    await vscode.commands.executeCommand('gemstone.runSunitMethodCategory', className, category);
+    await vscode.commands.executeCommand('gemstone.runSunitMethodCategory', dictName, className, category);
   }
 
 

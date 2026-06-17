@@ -30,12 +30,36 @@ function createMockSession(executeFetchData = ''): ActiveSession {
 
 describe('sunitQueries', () => {
   describe('discoverTestClasses', () => {
-    it('parses tab-separated dictName/className pairs', () => {
-      const session = createMockSession('UserGlobals\tMyTestCase\nGlobals\tOtherTest\n');
+    it('parses tab-separated dictName/className/testCount rows', () => {
+      const session = createMockSession('UserGlobals\tMyTestCase\t7\nGlobals\tOtherTest\t19\n');
       const results = sunit.discoverTestClasses(session);
       expect(results).toHaveLength(2);
-      expect(results[0]).toEqual({ dictName: 'UserGlobals', className: 'MyTestCase' });
-      expect(results[1]).toEqual({ dictName: 'Globals', className: 'OtherTest' });
+      expect(results[0]).toEqual({ dictName: 'UserGlobals', className: 'MyTestCase', testCount: 7 });
+      expect(results[1]).toEqual({ dictName: 'Globals', className: 'OtherTest', testCount: 19 });
+    });
+
+    it('emits the per-class test count from the query', () => {
+      const session = createMockSession('');
+      sunit.discoverTestClasses(session);
+      const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      expect(code).toContain('testSelectors size');
+    });
+
+    it('keeps a genuine zero count distinct from a missing one', () => {
+      const session = createMockSession('UserGlobals\tEmptyTest\t0\n');
+      const results = sunit.discoverTestClasses(session);
+      expect(results[0].testCount).toBe(0);
+    });
+
+    it('parses a bad/missing/negative test count as null (never negative or NaN)', () => {
+      const session = createMockSession(
+        'A\tMissing\t\n' +      // empty count field
+        'B\tNonNumeric\tabc\n' + // not a number
+        'C\tNegative\t-5\n' +    // negative (impossible for a real count)
+        'D\tFraction\t3.9\n',    // non-integer
+      );
+      const results = sunit.discoverTestClasses(session);
+      expect(results.map(r => r.testCount)).toEqual([null, null, null, null]);
     });
 
     it('returns empty array when no test classes exist', () => {
@@ -72,6 +96,23 @@ describe('sunitQueries', () => {
       const results = sunit.discoverTestMethods(session, 'MyTestCase');
       expect(results).toEqual([{ selector: 'testFoo', category: '' }]);
     });
+
+    // Run for both dictionaries of the duplicate-name case: the dict is a
+    // pure passthrough into the lookup, so this is symmetry coverage, and it
+    // also pins the nil-guard that protects against a missing class.
+    it.each(['UserGlobals', 'Globals'])(
+      'resolves the class dictionary-scoped (%s) and guards a missing class',
+      (dict) => {
+        const session = createMockSession('');
+        sunit.discoverTestMethods(session, 'AnnouncerTest', dict);
+        const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock.calls[0][1];
+        expect(code).toContain(`objectNamed: #'${dict}'`);
+        expect(code).toContain("at: #'AnnouncerTest'");
+        expect(code).toContain('cls isNil ifTrue:');
+        // Methods are read off the resolved class, not a bare-name receiver.
+        expect(code).toContain('cls testSelectors');
+      },
+    );
   });
 
   describe('runTestMethod', () => {
@@ -141,6 +182,20 @@ describe('sunitQueries', () => {
       expect(code).not.toContain('WriteStream on: Utf8 new');
       expect(code).not.toContain('asInteger < 128');
     });
+
+    it.each(['UserGlobals', 'Globals'])(
+      'resolves dictionary-scoped (%s) and raises if the class is absent there',
+      (dict) => {
+        const session = createMockSession('passed\t\t1');
+        sunit.runTestMethod(session, 'AnnouncerTest', 'testFoo', dict);
+        const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock.calls[0][1];
+        expect(code).toContain(`objectNamed: #'${dict}'`);
+        expect(code).toContain("at: #'AnnouncerTest'");
+        expect(code).toContain('cls isNil ifTrue:');
+        // The test instance is built from the resolved class, not a bare name.
+        expect(code).toContain('cls selector:');
+      },
+    );
   });
 
   describe('runTestClass', () => {
@@ -198,6 +253,25 @@ describe('sunitQueries', () => {
       expect(code).not.toMatch(/each printString copyFrom:/);
       expect(code).not.toContain('WriteStream on: Utf8 new');
       expect(code).not.toContain('asInteger < 128');
+    });
+
+    it('runs the suite of the dictionary-scoped class, not a bare name', () => {
+      const session = createMockSession('');
+      sunit.runTestClass(session, 'AnnouncerTest', 'Globals');
+      const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      expect(code).toContain("objectNamed: #'Globals'");
+      expect(code).toContain("at: #'AnnouncerTest'");
+      expect(code).toContain('suite := cls suite');
+      expect(code).toContain('cls isNil ifTrue:');
+      // Must NOT send `suite` to a bare class-name receiver.
+      expect(code).not.toMatch(/suite := AnnouncerTest suite/);
+    });
+
+    it('falls back to bare-name lookup when no dictionary is given', () => {
+      const session = createMockSession('');
+      sunit.runTestClass(session, 'MyTestCase');
+      const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      expect(code).toContain("objectNamed: #'MyTestCase'");
     });
   });
 

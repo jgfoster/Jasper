@@ -4,20 +4,45 @@ import {ActiveSession, SessionManager} from './sessionManager';
 import * as sunit from './sunitQueries';
 
 /**
- * Integrates GemStone SUnit tests with VS Code's Test Explorer.
+ * Test item ID scheme (dictionary-qualified — the same class name can exist
+ * in two dictionaries as two genuinely different test suites, so the
+ * dictionary is part of every id and is always known before a test runs):
+ *   Class:  sunit/<sessionId>/<dictName>/<className>
+ *   Method: sunit/<sessionId>/<dictName>/<className>/<selector>
  *
- * Test item ID scheme:
- *   Class:  sunit/<sessionId>/<className>
- *   Method: sunit/<sessionId>/<className>/<selector>
+ * These three functions are the single source of truth for that layout — build
+ * ids only via make*Id and read them only via parseTestId, so the segment
+ * offsets live in one place. (Segments are raw, not encoded: GemStone
+ * dictionary names, class names, and test selectors cannot contain '/'.)
+ */
+function makeClassId(sessionId: number, dictName: string, className: string): string {
+  return `sunit/${sessionId}/${dictName}/${className}`;
+}
+
+function makeMethodId(sessionId: number, dictName: string, className: string, selector: string): string {
+  return `${makeClassId(sessionId, dictName, className)}/${selector}`;
+}
+
+interface ParsedTestId {
+  dictName: string;
+  className: string;
+  /** undefined for a class id; present for a method id. */
+  selector?: string;
+}
+
+function parseTestId(id: string): ParsedTestId {
+  const [, , dictName, className, selector] = id.split('/');
+  return { dictName, className, selector };
+}
+
+/**
+ * Integrates GemStone SUnit tests with VS Code's Test Explorer.
  */
 export class SunitTestController implements vscode.Disposable {
   private controller: vscode.TestController;
   private disposables: vscode.Disposable[] = [];
 
-  /** dictName cache populated during discovery, keyed by className */
-  private classDict = new Map<string, string>();
-
-  /** category cache populated during method discovery, keyed by className/selector */
+  /** category cache populated during method discovery, keyed by dictName/className/selector */
   private methodCategory = new Map<string, string>();
 
   constructor(private sessionManager: SessionManager) {
@@ -42,7 +67,6 @@ export class SunitTestController implements vscode.Disposable {
     );
 
     this.controller.refreshHandler = async () => {
-      this.classDict.clear();
       this.methodCategory.clear();
       this.controller.items.replace([]);
       await this.discoverTests();
@@ -50,7 +74,6 @@ export class SunitTestController implements vscode.Disposable {
 
     this.disposables.push(
       sessionManager.onDidChangeSelection(async () => {
-        this.classDict.clear();
         this.methodCategory.clear();
         this.controller.items.replace([]);
         await this.discoverTests();
@@ -65,13 +88,12 @@ export class SunitTestController implements vscode.Disposable {
 
   /** Clear items and let resolveHandler re-discover on next view. */
   refresh(): void {
-    this.classDict.clear();
     this.methodCategory.clear();
     this.controller.items.replace([]);
   }
 
   /** Run all tests in a named class (bridge for browser tree context menu). */
-  async runClassByName(className: string): Promise<void> {
+  async runClassByName(dictName: string, className: string): Promise<void> {
     const session = this.sessionManager.getSelectedSession();
     if (!session) {
       vscode.window.showErrorMessage('No active GemStone session.');
@@ -79,20 +101,14 @@ export class SunitTestController implements vscode.Disposable {
     }
 
     // Ensure discovery has run so the item exists
-    let classItem: vscode.TestItem | undefined;
-    this.controller.items.forEach(item => {
-      if (item.label === className) classItem = item;
-    });
-
+    let classItem = this.findClassItem(dictName, className);
     if (!classItem) {
       await this.discoverTests();
-      this.controller.items.forEach(item => {
-        if (item.label === className) classItem = item;
-      });
+      classItem = this.findClassItem(dictName, className);
     }
 
     if (!classItem) {
-      vscode.window.showWarningMessage(`${className} is not a TestCase subclass.`);
+      vscode.window.showWarningMessage(`${className} is not a TestCase subclass in ${dictName}.`);
       return;
     }
 
@@ -105,24 +121,26 @@ export class SunitTestController implements vscode.Disposable {
     const run = this.controller.createTestRun(
       { include: [classItem], exclude: [], profile: undefined, preserveFocus: false } as vscode.TestRunRequest,
     );
-    const neverCancelled = { isCancellationRequested: false } as vscode.CancellationToken;
-    await this.runClassTests(session, run, classItem, className, neverCancelled);
+    await this.runClassTests(session, run, classItem, className, dictName);
     run.end();
   }
 
-  /** Run all tests in the provided class names using a single TestRun. */
-  async runClassesByName(classNames: string[]): Promise<void> {
+  /**
+   * Run all tests in the provided class names, all within one dictionary,
+   * using a single TestRun.
+   */
+  async runClassesByName(dictName: string, classNames: string[]): Promise<void> {
     await this.discoverTests();
-    const classItems: TestItem[] = this.itemsForClassesNamed(classNames);
+    const classItems: TestItem[] = this.itemsForClasses(dictName, classNames);
 
     await this.runTestItems(classItems);
   }
 
   /** Run all test methods in a method category from browser context menus. */
-  async runMethodCategoryByName(className: string, category: string): Promise<void> {
+  async runMethodCategoryByName(dictName: string, className: string, category: string): Promise<void> {
     await this.discoverTests();
 
-    const classItem = this.findClassItemByName(className);
+    const classItem = this.findClassItem(dictName, className);
     if (!classItem) {
       vscode.window.showWarningMessage(this.notATestClassErrorMessage(className));
       return;
@@ -134,7 +152,7 @@ export class SunitTestController implements vscode.Disposable {
 
     const methodItems: TestItem[] = [];
     classItem.children.forEach(child => {
-      if (this.methodCategory.get(`${className}/${child.label}`) === category) {
+      if (this.methodCategory.get(`${dictName}/${className}/${child.label}`) === category) {
         methodItems.push(child);
       }
     });
@@ -143,10 +161,10 @@ export class SunitTestController implements vscode.Disposable {
   }
 
   /** Run test methods by class/selector from browser context menus. */
-  async runTestsByName(className: string, selectors: string[]): Promise<void> {
+  async runTestsByName(dictName: string, className: string, selectors: string[]): Promise<void> {
     await this.discoverTests();
 
-    const classItem = this.findClassItemByName(className);
+    const classItem = this.findClassItem(dictName, className);
     if (!classItem) {
       vscode.window.showWarningMessage(this.notATestClassErrorMessage(className));
       return;
@@ -181,8 +199,19 @@ export class SunitTestController implements vscode.Disposable {
       const classes = sunit.discoverTestClasses(session);
       const items: vscode.TestItem[] = [];
 
+      // A class name is ambiguous when it exists in more than one dictionary.
+      // Only then do we qualify the label with the dictionary — the Test
+      // Results tab renders only labels (not the dimmed description), so this
+      // is the one place the dictionary can disambiguate same-named classes
+      // there. Unique names stay clean.
+      const nameCounts = new Map<string, number>();
       for (const cls of classes) {
-        this.classDict.set(cls.className, cls.dictName);
+        nameCounts.set(cls.className, (nameCounts.get(cls.className) ?? 0) + 1);
+      }
+
+      for (const cls of classes) {
+        const ambiguous = (nameCounts.get(cls.className) ?? 0) > 1;
+        const label = ambiguous ? `${cls.className} {${cls.dictName}}` : cls.className;
 
         const uri = vscode.Uri.parse(
           `gemstone://${session.id}` +
@@ -191,12 +220,16 @@ export class SunitTestController implements vscode.Disposable {
           `/definition`,
         );
         const classItem = this.controller.createTestItem(
-          `sunit/${session.id}/${cls.className}`,
-          cls.className,
+          makeClassId(session.id, cls.dictName, cls.className),
+          label,
           uri,
         );
         classItem.canResolveChildren = true;
-        classItem.description = cls.dictName;
+        // Dimmed qualifier (sidebar only): test count. The dictionary never
+        // goes here — it lives in the label, and only when the name is
+        // ambiguous. A null count means the stone returned an unparseable
+        // value; show "(?)" rather than a misleading "(0)".
+        classItem.description = cls.testCount === null ? '(?)' : `(${cls.testCount})`;
         items.push(classItem);
       }
 
@@ -211,15 +244,18 @@ export class SunitTestController implements vscode.Disposable {
     const session = this.sessionManager.getSelectedSession();
     if (!session) return;
 
-    const className = classItem.label;
-    const dictName = this.classDict.get(className) ?? '';
+    // dictName and className come from the class item's own id, so the
+    // methods are discovered from the exact class the user is looking at (not
+    // a same-named class in another dictionary). The label is NOT the class
+    // name — for ambiguous names it carries a " {Dict}" suffix.
+    const { dictName, className } = parseTestId(classItem.id);
 
     try {
-      const methods = sunit.discoverTestMethods(session, className);
+      const methods = sunit.discoverTestMethods(session, className, dictName);
       const children: vscode.TestItem[] = [];
 
       for (const { selector, category } of methods) {
-        this.methodCategory.set(`${className}/${selector}`, category);
+        this.methodCategory.set(`${dictName}/${className}/${selector}`, category);
 
         const uri = vscode.Uri.parse(
           `gemstone://${session.id}` +
@@ -230,7 +266,7 @@ export class SunitTestController implements vscode.Disposable {
           `/${encodeURIComponent(selector)}`,
         );
         const methodItem = this.controller.createTestItem(
-          `sunit/${session.id}/${className}/${selector}`,
+          makeMethodId(session.id, dictName, className, selector),
           selector,
           uri,
         );
@@ -265,14 +301,13 @@ export class SunitTestController implements vscode.Disposable {
         continue;
       }
 
-      const parts = item.id.split('/');
-      // parts: ['sunit', sessionId, className] or ['sunit', sessionId, className, selector]
+      const { dictName, className, selector } = parseTestId(item.id);
 
-      if (parts.length === 3) {
-        await this.runClassTests(session, run, item, parts[2], token);
-      } else if (parts.length === 4) {
+      if (selector === undefined) {
+        await this.runClassTests(session, run, item, className, dictName);
+      } else {
         run.started(item);
-        this.runSingleTest(session, run, item, parts[2], parts[3]);
+        this.runSingleTest(session, run, item, className, selector, dictName);
       }
     }
 
@@ -300,9 +335,10 @@ export class SunitTestController implements vscode.Disposable {
     item: vscode.TestItem,
     className: string,
     selector: string,
+    dictName: string,
   ): void {
     try {
-      const result = sunit.runTestMethod(session, className, selector);
+      const result = sunit.runTestMethod(session, className, selector, dictName);
       this.reportResult(run, item, result);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -315,7 +351,7 @@ export class SunitTestController implements vscode.Disposable {
     run: vscode.TestRun,
     classItem: vscode.TestItem,
     className: string,
-    token: vscode.CancellationToken,
+    dictName: string,
   ): Promise<void> {
     // Ensure children are resolved
     if (classItem.children.size === 0) {
@@ -327,12 +363,13 @@ export class SunitTestController implements vscode.Disposable {
     classItem.children.forEach(child => run.started(child));
 
     try {
-      const results = sunit.runTestClass(session, className);
+      const results = sunit.runTestClass(session, className, dictName);
       const resultMap = new Map(results.map(r => [r.selector, r]));
 
       let allPassed = true;
       classItem.children.forEach(child => {
-        const selector = child.id.split('/')[3];
+        // Children are always method ids, so selector is present.
+        const selector = parseTestId(child.id).selector!;
         const result = resultMap.get(selector);
 
         if (!result) {
@@ -377,27 +414,38 @@ export class SunitTestController implements vscode.Disposable {
     }
   }
 
-  private itemsForClassesNamed(classNames: string[]): TestItem[] {
+  /**
+   * True when a class item belongs to dictName and is named className.
+   * Both come from the id — the label carries the test-count suffix and is
+   * NOT the class name.
+   */
+  private classItemMatches(item: TestItem, dictName: string, className: string): boolean {
+    const { dictName: itemDict, className: itemClass } = parseTestId(item.id);
+    return itemDict === dictName && itemClass === className;
+  }
+
+  private itemsForClasses(dictName: string, classNames: string[]): TestItem[] {
     const result: TestItem[] = [];
-    
+
     this.controller.items.forEach(testItem => {
-      if (classNames.includes(testItem.label)){
+      const { dictName: itemDict, className: itemClass } = parseTestId(testItem.id);
+      if (itemDict === dictName && classNames.includes(itemClass)) {
         result.push(testItem);
       }
     });
-    
+
    return result;
   }
 
-  private findClassItemByName(className: string): TestItem | undefined {
+  private findClassItem(dictName: string, className: string): TestItem | undefined {
     let classItem: TestItem | undefined;
-    
+
     this.controller.items.forEach(testItem => {
-      if (testItem.label === className) {
+      if (this.classItemMatches(testItem, dictName, className)) {
         classItem = testItem;
       }
     });
-    
+
     return classItem;
   }
 
