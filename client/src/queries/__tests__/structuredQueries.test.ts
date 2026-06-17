@@ -57,8 +57,9 @@ describe('getAllClassNames', () => {
 
 describe('getClassEnvironments', () => {
   it('detects class side via " class" suffix on receiver name', () => {
-    const raw = 'Array class\t0\tinstance creation\tnew\twith:\n'
-              + 'Array\t0\taccessing\tsize\n';
+    // Each selector token carries a leading override-flag digit (0..3).
+    const raw = 'Array class\t0\tinstance creation\t0new\t0with:\n'
+              + 'Array\t0\taccessing\t0size\n';
     const results = getClassEnvironments(vi.fn<QueryExecutor>(() => raw), 1, 'Array', 0);
     expect(results).toHaveLength(2);
     expect(results[0]).toMatchObject({
@@ -68,6 +69,28 @@ describe('getClassEnvironments', () => {
     expect(results[1].isMeta).toBe(false);
   });
 
+  it('parses the per-selector override bitmask and strips its prefix', () => {
+    // 1 = overrides super (▲), 2 = overridden in subclass (▼), 3 = both.
+    const raw = 'Array\t0\taccessing\t1at:\t2size\t3printOn:\t0name\n';
+    const results = getClassEnvironments(vi.fn<QueryExecutor>(() => raw), 1, 'Array', 0);
+    expect(results[0].selectors).toEqual(['at:', 'name', 'printOn:', 'size']);
+    expect(results[0].methodOverrideBits).toEqual({ 'at:': 1, size: 2, 'printOn:': 3 });
+  });
+
+  it('omits zero-bit (neither overrides nor overridden) selectors from the map', () => {
+    const raw = 'Array\t0\taccessing\t0a\t0b\n';
+    const results = getClassEnvironments(vi.fn<QueryExecutor>(() => raw), 1, 'Array', 0);
+    expect(results[0].selectors).toEqual(['a', 'b']);
+    expect(results[0].methodOverrideBits).toEqual({});
+  });
+
+  it('records override bits on the class side too', () => {
+    const raw = 'Array class\t0\tinstance creation\t3new\t1basicNew\n';
+    const results = getClassEnvironments(vi.fn<QueryExecutor>(() => raw), 1, 'Array', 0);
+    expect(results[0].isMeta).toBe(true);
+    expect(results[0].methodOverrideBits).toEqual({ new: 3, basicNew: 1 });
+  });
+
   it('embeds dictIndex, escaped class name, and maxEnv', () => {
     const execute = vi.fn<QueryExecutor>(() => '');
     getClassEnvironments(execute, 3, "Foo'Bar", 2);
@@ -75,6 +98,18 @@ describe('getClassEnvironments', () => {
     expect(code).toContain('symbolList at: 3');
     expect(code).toContain("#'Foo''Bar'");
     expect(code).toContain('envs := 2');
+  });
+
+  it('detects overrides via the full chain, not the immediate neighbour', () => {
+    // Locks in the chain-walking primitives so a regression to a single-level
+    // check (or back to lookupSelector:) is caught here. The actual depth of
+    // detection is exercised by a live-GCI smoke test, not this unit test.
+    const execute = vi.fn<QueryExecutor>(() => '');
+    getClassEnvironments(execute, 1, 'Array', 0);
+    const code = execute.mock.calls[0][1];
+    expect(code).toContain('whichClassIncludesSelector:'); // walks all ancestors
+    expect(code).toContain('allSubclasses');               // walks all descendants
+    expect(code).not.toContain('lookupSelector:');         // the rejected approach
   });
 });
 

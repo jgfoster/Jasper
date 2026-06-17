@@ -32,6 +32,7 @@ import {
   searchMethodSource as sharedSearchMethodSource,
   sendersOf as sharedSendersOf,
   implementorsOf as sharedImplementorsOf,
+  hierarchyImplementorsOf as sharedHierarchyImplementorsOf,
   referencesToObject as sharedReferencesToObject,
 } from './queries/methodSearch';
 
@@ -341,6 +342,16 @@ export function implementorsOf(
   session: ActiveSession, selector: string, environmentId: number = 0,
 ) {
   return sharedImplementorsOf(bind(session), selector, environmentId);
+}
+
+export function hierarchyImplementorsOf(
+  session: ActiveSession, dictIndex: number, className: string,
+  selector: string, isMeta: boolean, direction: 'up' | 'down',
+  environmentId: number = 0,
+) {
+  return sharedHierarchyImplementorsOf(
+    bind(session), dictIndex, className, selector, isMeta, direction, environmentId,
+  );
 }
 
 export function referencesToObject(

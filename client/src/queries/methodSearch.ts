@@ -17,7 +17,11 @@ function methodSerialization(envId: number): string {
 classDict := IdentityDictionary new.
 sl do: [:dict |
   dict keysAndValuesDo: [:k :v |
-    (v isBehavior and: [(classDict includesKey: v) not])
+    "Only treat a dict as a class's home when it is stored under its own
+     name. Otherwise an alias entry (e.g. Python's #object -> Object, which
+     sorts before Globals) would mask the real home dictionary and break
+     browser navigation, since the browser keys classes by their name."
+    (v isBehavior and: [(classDict includesKey: v) not and: [k = v name asSymbol]])
       ifTrue: [classDict at: v put: dict name]]].
 stream := WriteStream on: Unicode7 new.
 limit := methods size min: 500.
@@ -89,6 +93,36 @@ ${methodSerialization(environmentId)}`;
 
   return parseMethodSearchResults(
     execute(`implementorsOf(#${selector}, env:${environmentId})`, code),
+  );
+}
+
+// Implementations of `selector` in a class's hierarchy: the full superclass
+// chain (direction 'up') or all subclasses (direction 'down'), on the
+// instance or class side. One round trip; reuses the standard result format.
+export function hierarchyImplementorsOf(
+  execute: QueryExecutor, dictIndex: number, className: string,
+  selector: string, isMeta: boolean, direction: 'up' | 'down',
+  environmentId: number = 0,
+): MethodSearchResult[] {
+  const sel = escapeString(selector);
+  const target = isMeta ? 'class class' : 'class';
+  const collect = direction === 'up'
+    ? `cur := (${target}) superclass.
+[cur notNil] whileTrue: [
+  (cur includesSelector: #'${sel}') ifTrue: [methods add: (cur compiledMethodAt: #'${sel}')].
+  cur := cur superclass].`
+    : `class allSubclasses do: [:sub | | tgt |
+  tgt := ${isMeta ? 'sub class' : 'sub'}.
+  (tgt includesSelector: #'${sel}') ifTrue: [methods add: (tgt compiledMethodAt: #'${sel}')]].`;
+  const code = `| class methods stream limit classDict sl cur |
+class := (System myUserProfile symbolList at: ${dictIndex}) at: #'${escapeString(className)}'.
+methods := OrderedCollection new.
+${collect}
+methods := methods asArray.
+${methodSerialization(environmentId)}`;
+
+  return parseMethodSearchResults(
+    execute(`hierarchyImplementorsOf(#${selector}, ${direction})`, code),
   );
 }
 

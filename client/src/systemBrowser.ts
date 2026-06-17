@@ -20,6 +20,7 @@ import {buildNewMethodUri} from './gemstoneFileSystemProvider';
  * Reading the file at runtime is the simplest approach that works in both environments.
  */
 const listFilterJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'listFilter.js'), 'utf8');
+const methodListViewJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'methodListView.js'), 'utf8');
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -392,11 +393,7 @@ export class SystemBrowser {
       items: this.state.methodCategories,
       selected: this.state.selectedMethodCategory,
     });
-    this.panel.webview.postMessage({
-      command: 'loadMethods',
-      items: this.state.methods,
-      selected: selector,
-    });
+    this.postMethods(this.state.methods, selector);
 
     // Update dimming to highlight the current method
     if (cursorRegion) {
@@ -516,6 +513,12 @@ export class SystemBrowser {
           break;
         case 'ctxImplementorsOf':
           this.handleImplementorsOf();
+          break;
+        case 'showHierarchyImpls':
+          this.handleShowHierarchyImpls(
+            message.selector as string,
+            message.direction as 'up' | 'down',
+          );
           break;
         case 'ctxBrowseReferences':
           this.handleBrowseReferences(message.name as string);
@@ -710,10 +713,7 @@ export class SystemBrowser {
     }
     this.state.methods = methods;
 
-    this.panel.webview.postMessage({
-      command: 'loadMethods',
-      items: this.state.methods,
-    });
+    this.postMethods(this.state.methods);
   }
 
   private handleSelectMethod(selector: string): void {
@@ -783,11 +783,7 @@ export class SystemBrowser {
       items: this.state.methodCategories,
       selected: category,
     });
-    this.panel.webview.postMessage({
-      command: 'loadMethods',
-      items: this.state.methods,
-      selected: selector,
-    });
+    this.postMethods(this.state.methods, selector);
 
     if (openFile) this.openClassFile(className, selector, isMeta);
   }
@@ -945,11 +941,7 @@ export class SystemBrowser {
           if (this.state.selectedClass) {
             this.loadMethodCategories(this.state.selectedMethodCategory);
             if (this.state.selectedMethodCategory) {
-              this.panel.webview.postMessage({
-                command: 'loadMethods',
-                items: this.state.methods,
-                selected: this.state.selectedMethod,
-              });
+              this.postMethods(this.state.methods, this.state.selectedMethod);
             }
           }
         }
@@ -1384,6 +1376,22 @@ export class SystemBrowser {
     });
   }
 
+  // Clicking an override arrow: show the implementations of `selector` in the
+  // current class's superclass chain ('up') or its subclasses ('down').
+  private handleShowHierarchyImpls(selector: string, direction: 'up' | 'down'): void {
+    const className = this.state.selectedClass;
+    const dictIndex = this.state.selectedDictIndex;
+    if (!selector || !className || !dictIndex) return;
+    vscode.commands.executeCommand('gemstone.hierarchyImplementorsOf', {
+      selector,
+      className,
+      dictIndex,
+      isMeta: this.state.isMeta,
+      direction,
+      sessionId: this.session.id,
+    });
+  }
+
   private handleBrowseReferences(objectName: string): void {
     if (!objectName) return;
     vscode.commands.executeCommand('gemstone.browseReferences', {
@@ -1459,6 +1467,34 @@ export class SystemBrowser {
       this.envCache.set(key, data);
     }
     return data;
+  }
+
+  // Override indicators (▲ overrides super, ▼ overridden in subclass) for the
+  // currently displayed selectors on the current side. Derived from the cached
+  // env data so it costs no extra round trip.
+  private methodOverrideBitsFor(items: string[]): Record<string, number> {
+    const dictIndex = this.state.selectedDictIndex;
+    const className = this.state.selectedClass;
+    if (!dictIndex || !className || items.length === 0) return {};
+    const itemSet = new Set(items);
+    const bits: Record<string, number> = {};
+    for (const line of this.getCachedEnvData(dictIndex, className)) {
+      if (line.isMeta !== this.state.isMeta || !line.methodOverrideBits) continue;
+      for (const sel of Object.keys(line.methodOverrideBits)) {
+        if (itemSet.has(sel)) bits[sel] = line.methodOverrideBits[sel];
+      }
+    }
+    return bits;
+  }
+
+  // Post the methods column to the webview with override bits attached.
+  private postMethods(items: string[], selected?: string | null): void {
+    this.panel.webview.postMessage({
+      command: 'loadMethods',
+      items,
+      selected: selected ?? undefined,
+      methodOverrideBits: this.methodOverrideBitsFor(items),
+    });
   }
 
   private refreshMethodList(): void {
@@ -1742,6 +1778,31 @@ export class SystemBrowser {
       color: var(--vscode-list-activeSelectionForeground);
     }
 
+    .override-arrow {
+      display: inline-block;
+      width: 0.85em;
+      margin-right: 1px;
+      text-align: center;
+      font-size: 0.72em;
+      line-height: 1;
+      vertical-align: middle;
+      cursor: pointer;
+      opacity: 0.8;
+    }
+
+    .override-arrow.up {
+      color: var(--vscode-charts-blue, var(--vscode-textLink-foreground));
+    }
+
+    .override-arrow.down {
+      color: var(--vscode-charts-orange, var(--vscode-symbolIcon-methodForeground));
+    }
+
+    .override-arrow:hover {
+      opacity: 1;
+      color: var(--vscode-textLink-activeForeground);
+    }
+
     .column-footer {
       padding: 4px 8px;
       border-top: 1px solid var(--vscode-panel-border);
@@ -1869,6 +1930,7 @@ export class SystemBrowser {
     }
   </style>
   <script nonce="${nonce}">${listFilterJs}</script>
+  <script nonce="${nonce}">${methodListViewJs}</script>
 </head>
 <body>
   <div class="error-banner" id="errorBanner"></div>
@@ -1952,20 +2014,25 @@ export class SystemBrowser {
     const hierBtn = document.getElementById('hierBtn');
     const errorBanner = document.getElementById('errorBanner');
     // ── Populate a column with items ───────────────
-    function populateColumn(listEl, items, virtualItems, draggable) {
+    function populateColumn(listEl, items, virtualItems, draggable, methodOverrideBits) {
       listEl.innerHTML = '';
       const virtualSet = new Set(virtualItems || []);
       for (const item of items) {
         const div = document.createElement('div');
         div.className = 'item' + (virtualSet.has(item) ? ' virtual' : '');
-        div.textContent = item;
         div.dataset.value = item;
+        const methodOverrideBit = methodOverrideBits && methodOverrideBits[item];
+        if (methodOverrideBit) {
+          MethodListView.applyOverrideArrows(div, item, methodOverrideBit);
+        } else {
+          div.textContent = item;
+        }
         if (draggable && !virtualSet.has(item)) {
           div.draggable = true;
         }
         listEl.appendChild(div);
       }
-      
+
       ListFilter.refreshFilterOf(listEl);
     }
 
@@ -2019,8 +2086,11 @@ export class SystemBrowser {
       vscode.postMessage({ command: 'selectMethodCategory', name });
     });
 
-    setupClickHandler(cols.methods, (selector) => {
-      vscode.postMessage({ command: 'selectMethod', selector });
+    // Methods column: clicking an override arrow shows the hierarchy
+    // implementations; clicking anywhere else selects the method as usual.
+    cols.methods.addEventListener('click', (e) => {
+      const message = MethodListView.methodListClickMessage(e, cols.methods);
+      if (message) vscode.postMessage(message);
     });
 
     // ── Instance / Class toggle ────────────────────
@@ -2305,7 +2375,7 @@ export class SystemBrowser {
           break;
         case 'loadMethods':
           cols.methods.innerHTML = '';
-          populateColumn(cols.methods, msg.items, [], true);
+          populateColumn(cols.methods, msg.items, [], true, msg.methodOverrideBits);
           if (msg.selected) selectItemInColumn(cols.methods, msg.selected);
           break;
         case 'setViewMode':

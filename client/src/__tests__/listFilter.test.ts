@@ -546,4 +546,71 @@ describe('ListFilter', () => {
       vi.useRealTimers();
     });
   });
+
+  // The method list prepends override-indicator arrows (▲/▼) as leading
+  // children of each item. ListFilter rewrites item text on every render, so it
+  // must preserve those arrows rather than wipe them.
+  describe('override-arrow preservation', () => {
+    function makeListWithArrows(
+      id: string, specs: Array<{ selector: string; dirs: Array<'up' | 'down'> }>,
+    ): HTMLDivElement {
+      const list = document.createElement('div');
+      list.id = id;
+      for (const { selector, dirs } of specs) {
+        const div = document.createElement('div');
+        div.className = 'item';
+        div.dataset.value = selector;
+        for (const dir of dirs) {
+          const span = document.createElement('span');
+          span.className = 'override-arrow ' + dir;
+          span.textContent = dir === 'up' ? '▲' : '▼';
+          div.appendChild(span);
+        }
+        div.appendChild(document.createTextNode(selector));
+        list.appendChild(div);
+      }
+      document.body.appendChild(list);
+      return list;
+    }
+
+    it('keeps the arrow and rebuilds selector text on an unmatched (empty) render', () => {
+      makeListWithArrows('items', [{ selector: 'size', dirs: ['up'] }]);
+      const filter = makeFilter('items');
+
+      filter.searchBox.value = '';
+      filter.applyFilter();
+
+      const item = document.querySelector('#items .item') as HTMLElement;
+      expect(item.querySelectorAll('.override-arrow')).toHaveLength(1);
+      expect(item.firstElementChild?.textContent).toBe('▲');
+      expect(item.textContent).toBe('▲size');
+    });
+
+    it('keeps the arrow and still highlights the match on a matched render', () => {
+      makeListWithArrows('items', [{ selector: 'size', dirs: ['down'] }]);
+      const filter = makeFilter('items');
+
+      filter.searchBox.value = 'iz';
+      filter.applyFilter();
+
+      const item = document.querySelector('#items .item') as HTMLElement;
+      expect(item.querySelectorAll('.override-arrow')).toHaveLength(1);
+      expect(item.firstElementChild?.classList.contains('override-arrow')).toBe(true);
+      expect(item.querySelector('.match-highlight')?.textContent).toBe('iz');
+      // Arrow precedes the rebuilt selector text.
+      expect(item.textContent).toBe('▼size');
+    });
+
+    it('preserves both arrows for a selector that is overridden and overriding', () => {
+      makeListWithArrows('items', [{ selector: 'new', dirs: ['up', 'down'] }]);
+      const filter = makeFilter('items');
+
+      filter.searchBox.value = '';
+      filter.applyFilter();
+
+      const arrows = document.querySelectorAll('#items .item .override-arrow');
+      expect([...arrows].map(a => a.textContent)).toEqual(['▲', '▼']);
+      expect((document.querySelector('#items .item') as HTMLElement).textContent).toBe('▲▼new');
+    });
+  });
 });
