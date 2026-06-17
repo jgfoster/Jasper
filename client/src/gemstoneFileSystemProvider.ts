@@ -114,6 +114,16 @@ export function buildNewMethodUri(
   return buildMethodUri({ kind: 'method', sessionId, dictName, className, isMeta, category, selector: 'new-method', environmentId });
 }
 
+export function buildClassDefinitionUri(sessionId: number, dictName: string, className: string): vscode.Uri {
+  assertIsValidUriPath('Dictionary name', dictName);
+  assertIsValidUriPath('Class name', className);
+  return vscode.Uri.from({
+    scheme: 'gemstone',
+    authority: String(sessionId),
+    path: `/${dictName}/${className}/definition`,
+  });
+}
+
 export function buildMethodUri(parsedUri: ParsedMethodUri): vscode.Uri {
   assertIsValidUriPath('Dictionary name', parsedUri.dictName);
   assertIsValidUriPath('Class name', parsedUri.className);
@@ -141,6 +151,12 @@ export interface MethodCompiledEvent{
   isNewMethod: boolean;
 }
 
+export interface ClassDefinitionCompiledEvent {
+  uri: vscode.Uri;
+  previousUri: vscode.Uri;
+  isNew: boolean;
+}
+
 // ── FileSystemProvider ────────────────────────────────────────
 
 export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
@@ -149,6 +165,9 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
 
   private _onMethodCompiled = new vscode.EventEmitter<MethodCompiledEvent>();
   readonly onMethodCompiled = this._onMethodCompiled.event;
+
+  private _onClassDefinitionCompiled = new vscode.EventEmitter<ClassDefinitionCompiledEvent>();
+  readonly onClassDefinitionCompiled = this._onClassDefinitionCompiled.event;
 
   private diagnostics = vscode.languages.createDiagnosticCollection('gemstone-method');
 
@@ -248,10 +267,7 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
           this.compileMethod(uri, parsed, source, session);
           break;
         case 'definition':
-          queries.compileClassDefinition(session, source);
-          vscode.window.showInformationMessage(
-            `Class definition updated for ${parsed.className}`
-          );
+          this.compileClassDefinition(uri, parsed, source, session);
           break;
         case 'comment':
           queries.setClassComment(session, parsed.className, source);
@@ -260,8 +276,7 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
           );
           break;
         case 'new-class':
-          queries.compileClassDefinition(session, source);
-          vscode.window.showInformationMessage('Class created');
+          this.compileClassDefinition(uri, parsed, source, session);
           break;
         case 'new-method':
           this.compileMethod(uri, parsed, source, session);
@@ -335,9 +350,27 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
     }));
   }
 
+  private compileClassDefinition(uri: vscode.Uri, parsed: ParsedNewClassUri | ParsedDefinitionUri, source: string, session: ActiveSession) {
+    const className = queries.compileClassDefinition(session, source);
+
+    const message = parsed.kind === 'new-class'
+      ? `Class created: ${className}`
+      : `Class definition updated for ${className}`;
+    vscode.window.showInformationMessage(message);
+
+    const definitionUri = buildClassDefinitionUri(parsed.sessionId, parsed.dictName, className);
+
+    setImmediate(() => this._onClassDefinitionCompiled.fire({
+      uri: definitionUri,
+      previousUri: uri,
+      isNew: parsed.kind === 'new-class',
+    }));
+  }
+
   dispose(): void {
     this._onDidChangeFile.dispose();
     this._onMethodCompiled.dispose();
+    this._onClassDefinitionCompiled.dispose();
   }
 
   createDirectory(): void {

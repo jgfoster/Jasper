@@ -242,6 +242,59 @@ describe('handleMethodCompiled', () => {
   });
 });
 
+describe('handleClassDefinitionCompiled', () => {
+  const previousUri = vscode.Uri.parse('gemstone://1/Globals/new-class');
+  const uri = vscode.Uri.parse('gemstone://1/Globals/MyClass/definition');
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.mocked(vscode.workspace.openTextDocument).mockReset();
+    vi.mocked(vscode.window.showTextDocument).mockReset();
+    vi.mocked(vscode.window.tabGroups.close).mockReset();
+    vi.mocked(vscode.window.showErrorMessage).mockResolvedValue(undefined);
+    (vscode.window.tabGroups as any).all = [];
+  });
+
+  it('opens the definition uri when uri differs from previousUri', async () => {
+    const document = { uri, getText: vi.fn(() => '') } as unknown as vscode.TextDocument;
+    vi.mocked(vscode.workspace.openTextDocument).mockResolvedValue(document);
+    vi.mocked(vscode.window.showTextDocument).mockResolvedValue({} as vscode.TextEditor);
+
+    await extension.handleClassDefinitionCompiled({ uri, previousUri, isNew: true });
+
+    expect(vscode.workspace.openTextDocument).toHaveBeenCalledWith(uri);
+  });
+
+  it('does not open an editor when uri equals previousUri', async () => {
+    await extension.handleClassDefinitionCompiled({ uri, previousUri: uri, isNew: false });
+    expect(vscode.workspace.openTextDocument).not.toHaveBeenCalled();
+  });
+
+  it('opens the definition uri and closes the previous tab when isNew is true', async () => {
+    const document = { uri, getText: vi.fn(() => '') } as unknown as vscode.TextDocument;
+    vi.mocked(vscode.workspace.openTextDocument).mockResolvedValue(document);
+    vi.mocked(vscode.window.showTextDocument).mockResolvedValue({} as vscode.TextEditor);
+    const previousTab = { input: new vscode.TabInputText(previousUri) } as unknown as vscode.Tab;
+    (vscode.window.tabGroups as any).all = [{ tabs: [previousTab] }];
+    vi.mocked(vscode.window.tabGroups.close).mockResolvedValue(undefined as never);
+
+    await extension.handleClassDefinitionCompiled({ uri, previousUri, isNew: true });
+
+    expect(vscode.workspace.openTextDocument).toHaveBeenCalledWith(uri);
+    expect(vscode.window.tabGroups.close).toHaveBeenCalledWith(previousTab);
+  });
+
+  it('does not close any tab when isNew is false', async () => {
+    const document = { uri, getText: vi.fn(() => '') } as unknown as vscode.TextDocument;
+    vi.mocked(vscode.workspace.openTextDocument).mockResolvedValue(document);
+    vi.mocked(vscode.window.showTextDocument).mockResolvedValue({} as vscode.TextEditor);
+
+    await extension.handleClassDefinitionCompiled({ uri, previousUri, isNew: false });
+
+    expect(vscode.window.tabGroups.close).not.toHaveBeenCalled();
+  });
+});
+
 describe('onMethodCompiled event subscription (functional)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
