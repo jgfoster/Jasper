@@ -1,11 +1,16 @@
 import { QueryExecutor } from './types';
-import { escapeString, splitLines } from './util';
+import { classLookupOrRaiseExpr, splitLines } from './util';
 import { TestRunResult } from './runTestMethod';
 
 export function runTestClass(
-  execute: QueryExecutor, className: string,
+  execute: QueryExecutor, className: string, dictName?: string,
 ): TestRunResult[] {
-  const esc = escapeString(className);
+  // Resolve the class dictionary-scoped (when dictName is given) rather than
+  // by bare name. Two distinct TestCase subclasses can share a name across
+  // dictionaries; bare-name `objectNamed:` would silently run only the
+  // symbol-list winner and hide the other suite. nil -> raise so the caller
+  // surfaces it as an execution error instead of running the wrong class.
+  //
   // `result passed`, `result failures`, `result errors` all contain the
   // TestCase instances themselves (only `testSelector` ivar) — verified via
   // probe. Don't send `each testCase`: the wrappers don't respond to it,
@@ -21,8 +26,9 @@ export function runTestClass(
   // Output is built through a String-class WriteStream (widens for
   // non-ASCII codepoints) and converted to Utf8 once at the boundary.
   // See python.ts for the encoding-model rationale.
-  const code = `| suite result ws captureMessage |
-suite := ${esc} suite.
+  const code = `| cls suite result ws captureMessage |
+${classLookupOrRaiseExpr(className, dictName)}
+suite := cls suite.
 result := suite run.
 ws := WriteStream on: Unicode7 new.
 captureMessage := [:t |

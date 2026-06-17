@@ -36,3 +36,16 @@ export function classLookupExpr(className: string, dict?: number | string): stri
   }
   return `(System myUserProfile symbolList objectNamed: #'${escapeString(dict)}') ifNotNil: [:d | d at: #'${esc}' ifAbsent: [nil]]`;
 }
+
+// Smalltalk statements that bind `cls` to the dictionary-scoped class and raise
+// a clear "not found" error if it's absent — the resolve-or-raise preamble
+// shared by the SUnit run/discover queries. The caller must declare `cls` in
+// its temps and use it afterward; the `^Error signal:` short-circuits the doit
+// when the class can't be resolved (so the tool surfaces a clean error rather
+// than sending messages to nil).
+export function classLookupOrRaiseExpr(className: string, dictName?: string): string {
+  const esc = escapeString(className);
+  const where = dictName ? ` in dictionary ${escapeString(dictName)}` : '';
+  return `cls := ${classLookupExpr(className, dictName)}.
+cls isNil ifTrue: [^Error signal: 'Test class ${esc}${where} not found'].`;
+}

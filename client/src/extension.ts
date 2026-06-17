@@ -944,20 +944,20 @@ export function activate(context: vscode.ExtensionContext) {
       showTranscript();
     }),
 
-    vscode.commands.registerCommand('gemstone.runSunitClass', async (args: { className: string }) => {
-      await sunitTestController.runClassByName(args.className);
+    vscode.commands.registerCommand('gemstone.runSunitClass', async (args: { dictName: string; className: string }) => {
+      await sunitTestController.runClassByName(args.dictName, args.className);
     }),
 
-    vscode.commands.registerCommand('gemstone.runSunitClasses', async (classNames: string[]) => {
-      await sunitTestController.runClassesByName(classNames);
+    vscode.commands.registerCommand('gemstone.runSunitClasses', async (dictName: string, classNames: string[]) => {
+      await sunitTestController.runClassesByName(dictName, classNames);
     }),
 
-    vscode.commands.registerCommand('gemstone.runSunitMethods', async (className: string, selectors: string[]) => {
-      await sunitTestController.runTestsByName(className, selectors);
+    vscode.commands.registerCommand('gemstone.runSunitMethods', async (dictName: string, className: string, selectors: string[]) => {
+      await sunitTestController.runTestsByName(dictName, className, selectors);
     }),
 
-    vscode.commands.registerCommand('gemstone.runSunitMethodCategory', async (className: string,category: string ) => {
-      await sunitTestController.runMethodCategoryByName(className, category);
+    vscode.commands.registerCommand('gemstone.runSunitMethodCategory', async (dictName: string, className: string, category: string) => {
+      await sunitTestController.runMethodCategoryByName(dictName, className, category);
     }),
 
     vscode.commands.registerCommand('gemstone.inspectGlobal', async (args: { className: string }) => {

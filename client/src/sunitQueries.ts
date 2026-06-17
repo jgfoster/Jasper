@@ -26,16 +26,16 @@ export function discoverTestClasses(session: ActiveSession) {
   return sharedDiscoverTestClasses(bind(session));
 }
 
-export function discoverTestMethods(session: ActiveSession, className: string) {
-  return sharedDiscoverTestMethods(bind(session), className);
+export function discoverTestMethods(session: ActiveSession, className: string, dictName?: string) {
+  return sharedDiscoverTestMethods(bind(session), className, dictName);
 }
 
-export function runTestMethod(session: ActiveSession, className: string, selector: string) {
-  return sharedRunTestMethod(bind(session), className, selector);
+export function runTestMethod(session: ActiveSession, className: string, selector: string, dictName?: string) {
+  return sharedRunTestMethod(bind(session), className, selector, dictName);
 }
 
-export function runTestClass(session: ActiveSession, className: string) {
-  return sharedRunTestClass(bind(session), className);
+export function runTestClass(session: ActiveSession, className: string, dictName?: string) {
+  return sharedRunTestClass(bind(session), className, dictName);
 }
 
 export function runFailingTests(

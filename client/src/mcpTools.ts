@@ -27,6 +27,56 @@ function refreshIfClean(session: ActiveSession): void {
   }
 }
 
+// Outcome of resolving which dictionary a test class lives in. A SUnit test
+// class must never be run without knowing its dictionary: the same name can
+// exist in two dictionaries as two genuinely different suites, and bare-name
+// resolution silently runs only the symbol-list winner.
+type TestDictResolution =
+  | { kind: 'resolved'; dictName: string }
+  | { kind: 'notFound' }
+  | { kind: 'ambiguous'; dictNames: string[] };
+
+// Resolve the dictionary for a test class. If the caller supplied one, trust
+// it. Otherwise discover which dictionaries define a TestCase subclass of that
+// name: exactly one -> use it; zero -> notFound; many -> ambiguous (the caller
+// must disambiguate rather than guess).
+function resolveTestDictionary(
+  session: ActiveSession, className: string, dictionary?: string,
+): TestDictResolution {
+  if (dictionary) return { kind: 'resolved', dictName: dictionary };
+  const dictNames = sunit
+    .discoverTestClasses(session)
+    .filter(c => c.className === className)
+    .map(c => c.dictName);
+  if (dictNames.length === 0) return { kind: 'notFound' };
+  if (dictNames.length > 1) return { kind: 'ambiguous', dictNames };
+  return { kind: 'resolved', dictName: dictNames[0] };
+}
+
+function ambiguousDictMessage(className: string, dictNames: string[]): string {
+  return (
+    `'${className}' is defined as a TestCase subclass in multiple dictionaries: ` +
+    `${dictNames.join(', ')}. These may be different test suites. Re-run with the ` +
+    `'dictionary' parameter set to one of them (ask the user which they mean if unsure).`
+  );
+}
+
+// Resolve the dictionary for className, then either invoke run(dictName) or
+// return the user-facing error text when the class is missing/ambiguous. Folds
+// the notFound/ambiguous handling shared by the test-running tools into one
+// place so they can't drift.
+function withResolvedDict(
+  session: ActiveSession,
+  className: string,
+  dictionary: string | undefined,
+  run: (dictName: string) => string,
+): string {
+  const res = resolveTestDictionary(session, className, dictionary);
+  if (res.kind === 'notFound') return `No TestCase subclass named '${className}' found.`;
+  if (res.kind === 'ambiguous') return ambiguousDictMessage(className, res.dictNames);
+  return run(res.dictName);
+}
+
 // Build the empty-result message for a find_* tool. With env explicitly set,
 // say so plainly; with env defaulted (we search env 0 then auto-fall-back to
 // env 1), say nothing was found in either.
@@ -526,12 +576,21 @@ export function registerMcpTools(
     'run_test_class',
     'Run all SUnit test methods in a TestCase subclass and return per-method pass/fail/error results. ' +
     'Auto-refreshes the session view first (when no uncommitted changes are pending) so results ' +
-    'reflect the latest committed code, not a stale transaction view.',
-    { className: z.string().describe('TestCase subclass name') },
+    'reflect the latest committed code, not a stale transaction view. The dictionary is always ' +
+    'resolved before running: omit it to auto-discover (errors if the name is ambiguous across ' +
+    'dictionaries), or pass it to target a specific copy.',
+    {
+      className: z.string().describe('TestCase subclass name'),
+      dictionary: z.string().optional().describe(
+        'SymbolDictionary holding the class (e.g. "UserGlobals"). Omit to auto-discover; ' +
+        'required when the same class name exists in more than one dictionary.',
+      ),
+    },
     async (args) => wrap<typeof args>((session, a) => {
       refreshIfClean(session);
-      const results = sunit.runTestClass(session, a.className);
-      return formatTestResults(results);
+      return withResolvedDict(session, a.className, a.dictionary, (dictName) =>
+        formatTestResults(sunit.runTestClass(session, a.className, dictName)),
+      );
     })(args),
   );
 
@@ -539,15 +598,22 @@ export function registerMcpTools(
     'run_test_method',
     'Run a single SUnit test method and return pass/fail/error with details. ' +
     'Auto-refreshes the session view first (when no uncommitted changes are pending) so the ' +
-    'result reflects the latest committed code.',
+    'result reflects the latest committed code. The dictionary is always resolved before ' +
+    'running: omit it to auto-discover (errors if the name is ambiguous), or pass it to target ' +
+    'a specific copy.',
     {
       className: z.string().describe('TestCase subclass name'),
       selector: z.string().describe('Test method selector, e.g. "testAdd"'),
+      dictionary: z.string().optional().describe(
+        'SymbolDictionary holding the class (e.g. "UserGlobals"). Omit to auto-discover; ' +
+        'required when the same class name exists in more than one dictionary.',
+      ),
     },
     async (args) => wrap<typeof args>((session, a) => {
       refreshIfClean(session);
-      const r = sunit.runTestMethod(session, a.className, a.selector);
-      return formatTestResult(r);
+      return withResolvedDict(session, a.className, a.dictionary, (dictName) =>
+        formatTestResult(sunit.runTestMethod(session, a.className, a.selector, dictName)),
+      );
     })(args),
   );
 

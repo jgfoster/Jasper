@@ -435,7 +435,10 @@ describe('registerMcpTools', () => {
       expect(ccd.content[0].text).toBe('Class: Foo');
     });
 
-    it('run_test_method delegates to sunit.runTestMethod and formats result', async () => {
+    it('run_test_method auto-discovers the dictionary and passes it through', async () => {
+      vi.mocked(sunit.discoverTestClasses).mockReturnValue([
+        { dictName: 'Globals', className: 'ArrayTest', testCount: 5 },
+      ]);
       vi.mocked(sunit.runTestMethod).mockReturnValue({
         className: 'ArrayTest', selector: 'testSize', status: 'passed', message: '', durationMs: 3,
       });
@@ -444,8 +447,20 @@ describe('registerMcpTools', () => {
         selector: 'testSize',
       });
 
-      expect(sunit.runTestMethod).toHaveBeenCalledWith(session, 'ArrayTest', 'testSize');
+      expect(sunit.runTestMethod).toHaveBeenCalledWith(session, 'ArrayTest', 'testSize', 'Globals');
       expect(result.content[0].text).toBe('PASSED (3ms)');
+    });
+
+    it('run_test_method uses an explicit dictionary without discovery', async () => {
+      vi.mocked(sunit.runTestMethod).mockReturnValue({
+        className: 'AnnouncerTest', selector: 'testFoo', status: 'passed', message: '', durationMs: 1,
+      });
+      await server.getTool('run_test_method')!.handler({
+        className: 'AnnouncerTest', selector: 'testFoo', dictionary: 'UserGlobals',
+      });
+
+      expect(sunit.discoverTestClasses).not.toHaveBeenCalled();
+      expect(sunit.runTestMethod).toHaveBeenCalledWith(session, 'AnnouncerTest', 'testFoo', 'UserGlobals');
     });
 
     it('run_test_method auto-refreshes the session view before running', async () => {
@@ -461,17 +476,41 @@ describe('registerMcpTools', () => {
       expect(refreshCall).toContain('System abortTransaction');
     });
 
-    it('run_test_class delegates to sunit.runTestClass and formats results', async () => {
+    it('run_test_class auto-discovers the dictionary and formats results', async () => {
+      vi.mocked(sunit.discoverTestClasses).mockReturnValue([
+        { dictName: 'Globals', className: 'ArrayTest', testCount: 5 },
+      ]);
       vi.mocked(sunit.runTestClass).mockReturnValue([
         { className: 'ArrayTest', selector: 'testSize', status: 'passed', message: '', durationMs: 0 },
         { className: 'ArrayTest', selector: 'testBad', status: 'failed', message: 'expected 1 got 2', durationMs: 0 },
       ]);
       const result = await server.getTool('run_test_class')!.handler({ className: 'ArrayTest' });
 
-      expect(sunit.runTestClass).toHaveBeenCalledWith(session, 'ArrayTest');
+      expect(sunit.runTestClass).toHaveBeenCalledWith(session, 'ArrayTest', 'Globals');
       expect(result.content[0].text).toContain('PASSED: ArrayTest >> testSize');
       expect(result.content[0].text).toContain('FAILED: ArrayTest >> testBad');
       expect(result.content[0].text).toContain('expected 1 got 2');
+    });
+
+    it('run_test_class refuses to guess when a name is in multiple dictionaries', async () => {
+      vi.mocked(sunit.discoverTestClasses).mockReturnValue([
+        { dictName: 'UserGlobals', className: 'AnnouncerTest', testCount: 7 },
+        { dictName: 'Globals', className: 'AnnouncerTest', testCount: 19 },
+      ]);
+      const result = await server.getTool('run_test_class')!.handler({ className: 'AnnouncerTest' });
+
+      expect(sunit.runTestClass).not.toHaveBeenCalled();
+      expect(result.content[0].text).toContain('UserGlobals');
+      expect(result.content[0].text).toContain('Globals');
+      expect(result.content[0].text).toContain('dictionary');
+    });
+
+    it('run_test_class reports when no such test class exists', async () => {
+      vi.mocked(sunit.discoverTestClasses).mockReturnValue([]);
+      const result = await server.getTool('run_test_class')!.handler({ className: 'NoSuchTest' });
+
+      expect(sunit.runTestClass).not.toHaveBeenCalled();
+      expect(result.content[0].text).toContain('No TestCase subclass named');
     });
 
     it('run_test_class auto-refreshes the session view before running', async () => {
@@ -532,8 +571,8 @@ describe('registerMcpTools', () => {
 
     it('list_test_classes returns dictName\\tclassName rows', async () => {
       vi.mocked(sunit.discoverTestClasses).mockReturnValue([
-        { dictName: 'UserGlobals', className: 'ArrayTest' },
-        { dictName: 'UserGlobals', className: 'StringTest' },
+        { dictName: 'UserGlobals', className: 'ArrayTest', testCount: 5 },
+        { dictName: 'UserGlobals', className: 'StringTest', testCount: 8 },
       ]);
       const result = await server.getTool('list_test_classes')!.handler({});
 

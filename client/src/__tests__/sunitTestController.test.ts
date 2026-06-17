@@ -4,8 +4,8 @@ vi.mock('vscode', () => import('../__mocks__/vscode'));
 
 vi.mock('../sunitQueries', () => ({
   discoverTestClasses: vi.fn(() => [
-    { dictName: 'UserGlobals', className: 'MyTestCase' },
-    { dictName: 'Globals', className: 'OtherTest' },
+    { dictName: 'UserGlobals', className: 'MyTestCase', testCount: 2 },
+    { dictName: 'Globals', className: 'OtherTest', testCount: 3 },
   ]),
   discoverTestMethods: vi.fn(() => [
     { selector: 'testAdd', category: 'unit tests' },
@@ -88,6 +88,69 @@ describe('SunitTestController', () => {
       ctrl.dispose();
     });
 
+    it('gives same-named classes in different dictionaries distinct, dict-qualified ids', async () => {
+      // The original crash: two distinct AnnouncerTest classes collapse to one
+      // name-only id `sunit/1/AnnouncerTest` and items.replace() throws. With
+      // dict-qualified ids they coexist as two items.
+      (sunit.discoverTestClasses as ReturnType<typeof vi.fn>).mockReturnValueOnce([
+        { dictName: 'UserGlobals', className: 'AnnouncerTest', testCount: 7 },
+        { dictName: 'Globals', className: 'AnnouncerTest', testCount: 19 },
+      ]);
+      const sm = makeSessionManager(true);
+      const ctrl = new SunitTestController(sm);
+      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock.results[0].value;
+
+      await mockController.resolveHandler(undefined);
+
+      expect(mockController.items.size).toBe(2);
+      const userGlobals = mockController.items.get('sunit/1/UserGlobals/AnnouncerTest');
+      const globals = mockController.items.get('sunit/1/Globals/AnnouncerTest');
+      expect(userGlobals).toBeDefined();
+      expect(globals).toBeDefined();
+      // Ambiguous names are qualified with the dictionary in braces in the
+      // label (so the Test Results tab can disambiguate). The dictionary is
+      // never in the description — that's just the count.
+      expect(userGlobals.label).toBe('AnnouncerTest {UserGlobals}');
+      expect(globals.label).toBe('AnnouncerTest {Globals}');
+      expect(userGlobals.description).toBe('(7)');
+      expect(globals.description).toBe('(19)');
+      expect(window.showErrorMessage).not.toHaveBeenCalled();
+      ctrl.dispose();
+    });
+
+    it('leaves unique class names unqualified, with only the count in the description', async () => {
+      // Default mock: MyTestCase (UserGlobals) and OtherTest (Globals) are
+      // both unique names — no brace qualifier, no dictionary anywhere.
+      const sm = makeSessionManager(true);
+      const ctrl = new SunitTestController(sm);
+      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock.results[0].value;
+
+      await mockController.resolveHandler(undefined);
+
+      const my = mockController.items.get('sunit/1/UserGlobals/MyTestCase');
+      expect(my.label).toBe('MyTestCase');
+      expect(my.description).toBe('(2)');
+      ctrl.dispose();
+    });
+
+    it('shows (?) in the description when the test count is unknown', async () => {
+      // A null testCount means the stone returned an unparseable value; the
+      // description must say it's unknown rather than fake a "(0)".
+      (sunit.discoverTestClasses as ReturnType<typeof vi.fn>).mockReturnValueOnce([
+        { dictName: 'UserGlobals', className: 'WeirdTest', testCount: null },
+      ]);
+      const sm = makeSessionManager(true);
+      const ctrl = new SunitTestController(sm);
+      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock.results[0].value;
+
+      await mockController.resolveHandler(undefined);
+
+      const weird = mockController.items.get('sunit/1/UserGlobals/WeirdTest');
+      expect(weird.description).toBe('(?)');
+      expect(weird.label).toBe('WeirdTest');
+      ctrl.dispose();
+    });
+
     it('returns empty when no session is active', async () => {
       const sm = makeSessionManager(false);
       const ctrl = new SunitTestController(sm);
@@ -114,6 +177,7 @@ describe('SunitTestController', () => {
       expect(sunit.discoverTestMethods).toHaveBeenCalledWith(
         expect.objectContaining({ id: 1 }),
         'MyTestCase',
+        'UserGlobals',
       );
       ctrl.dispose();
     });
@@ -186,11 +250,12 @@ describe('SunitTestController', () => {
       // Discover
       await mockController.resolveHandler(undefined);
 
-      await ctrl.runClassByName('MyTestCase');
+      await ctrl.runClassByName('UserGlobals', 'MyTestCase');
 
       expect(sunit.runTestClass).toHaveBeenCalledWith(
         expect.objectContaining({ id: 1 }),
         'MyTestCase',
+        'UserGlobals',
       );
       ctrl.dispose();
     });
@@ -199,7 +264,7 @@ describe('SunitTestController', () => {
       const sm = makeSessionManager(true);
       const ctrl = new SunitTestController(sm);
 
-      await ctrl.runClassByName('NotATestClass');
+      await ctrl.runClassByName('UserGlobals', 'NotATestClass');
 
       expect(window.showWarningMessage).toHaveBeenCalledWith(
         expect.stringContaining('NotATestClass'),
@@ -211,7 +276,7 @@ describe('SunitTestController', () => {
       const sm = makeSessionManager(false);
       const ctrl = new SunitTestController(sm);
 
-      await ctrl.runClassByName('MyTestCase');
+      await ctrl.runClassByName('UserGlobals', 'MyTestCase');
 
       expect(window.showErrorMessage).toHaveBeenCalledWith('No active GemStone session.');
       ctrl.dispose();
@@ -219,22 +284,47 @@ describe('SunitTestController', () => {
   });
 
   describe('runClassesByName', () => {
-    it('runs all provided classes in a single test run', async () => {
+    it('runs all provided classes in one dictionary in a single test run', async () => {
+      // Both classes live in the same dictionary (a category/dictionary run is
+      // always scoped to one dictionary).
+      (sunit.discoverTestClasses as ReturnType<typeof vi.fn>).mockReturnValueOnce([
+        { dictName: 'UserGlobals', className: 'MyTestCase', testCount: 2 },
+        { dictName: 'UserGlobals', className: 'OtherTest', testCount: 3 },
+      ]);
       const sm = makeSessionManager(true);
       const ctrl = new SunitTestController(sm);
-      
-      await ctrl.runClassesByName(['MyTestCase', 'OtherTest']);
-      
+
+      await ctrl.runClassesByName('UserGlobals', ['MyTestCase', 'OtherTest']);
+
       expect(sunit.runTestClass).toHaveBeenCalledTimes(2)
       expect(sunit.runTestClass).toHaveBeenNthCalledWith(
         1,
         expect.objectContaining({ id: 1 }),
         'MyTestCase',
+        'UserGlobals',
       );
       expect(sunit.runTestClass).toHaveBeenNthCalledWith(
         2,
         expect.objectContaining({ id: 1 }),
         'OtherTest',
+        'UserGlobals',
+      );
+      ctrl.dispose();
+    });
+
+    it('does not run a same-named class from a different dictionary', async () => {
+      // Default mock: MyTestCase is in UserGlobals, OtherTest in Globals.
+      const sm = makeSessionManager(true);
+      const ctrl = new SunitTestController(sm);
+
+      // Ask for both names but scoped to UserGlobals — only MyTestCase matches.
+      await ctrl.runClassesByName('UserGlobals', ['MyTestCase', 'OtherTest']);
+
+      expect(sunit.runTestClass).toHaveBeenCalledTimes(1);
+      expect(sunit.runTestClass).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 1 }),
+        'MyTestCase',
+        'UserGlobals',
       );
       ctrl.dispose();
     });
@@ -243,7 +333,7 @@ describe('SunitTestController', () => {
       const sm = makeSessionManager(true);
       const ctrl = new SunitTestController(sm);
 
-      await ctrl.runClassesByName(['NoSuchTest']);
+      await ctrl.runClassesByName('UserGlobals', ['NoSuchTest']);
 
       expect(sunit.runTestClass).not.toHaveBeenCalled()
       ctrl.dispose();
@@ -263,18 +353,19 @@ describe('SunitTestController', () => {
     })
     
     it('runs a single test', async () => {
-      await sunitTestController.runTestsByName('MyTestCase', ['testAdd']);
+      await sunitTestController.runTestsByName('UserGlobals', 'MyTestCase', ['testAdd']);
 
       expect(sunit.runTestMethod).toHaveBeenCalledTimes(1);
       expect(sunit.runTestMethod).toHaveBeenCalledWith(
         expect.objectContaining({ id: 1 }),
         'MyTestCase',
         'testAdd',
+        'UserGlobals',
       );
     });
 
     it('does not run tests when a class is not a test class', async () => {
-      await sunitTestController.runTestsByName('NoSuchClass', ['']);
+      await sunitTestController.runTestsByName('UserGlobals', 'NoSuchClass', ['']);
 
       expect(window.showWarningMessage).toHaveBeenCalledWith(
          sunitTestController.notATestClassErrorMessage('NoSuchClass')
@@ -283,7 +374,7 @@ describe('SunitTestController', () => {
     });
     
     it('does not run tests when no tests methods were found', async () => {
-      await sunitTestController.runTestsByName('MyTestCase', ['noSuchSelector']);
+      await sunitTestController.runTestsByName('UserGlobals', 'MyTestCase', ['noSuchSelector']);
 
       expect(window.showWarningMessage).toHaveBeenCalledWith(
          sunitTestController.noTestsFoundErrorMessage()
@@ -306,15 +397,15 @@ describe('SunitTestController', () => {
     
     it('runs all methods in the given category', async () => {
       // 'testAdd' and 'testRemove' are both in 'unit tests' per the mock
-      await ctrl.runMethodCategoryByName('MyTestCase', 'unit tests');
+      await ctrl.runMethodCategoryByName('UserGlobals', 'MyTestCase', 'unit tests');
 
       expect(sunit.runTestMethod).toHaveBeenCalledTimes(2);
-      expect(sunit.runTestMethod).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'MyTestCase', 'testAdd');
-      expect(sunit.runTestMethod).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'MyTestCase', 'testRemove');
+      expect(sunit.runTestMethod).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'MyTestCase', 'testAdd', 'UserGlobals');
+      expect(sunit.runTestMethod).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'MyTestCase', 'testRemove', 'UserGlobals');
     });
 
     it('does not run tests when a class is not a test class', async () => {
-      await ctrl.runMethodCategoryByName('NoSuchClass', 'unit tests');
+      await ctrl.runMethodCategoryByName('UserGlobals', 'NoSuchClass', 'unit tests');
 
       expect(window.showWarningMessage).toHaveBeenCalledWith(
         expect.stringContaining('NoSuchClass'),
@@ -324,12 +415,51 @@ describe('SunitTestController', () => {
     });
 
     it('does not run tests when no tests methods were found', async () => {
-      await ctrl.runMethodCategoryByName('MyTestCase', 'non-existent category');
+      await ctrl.runMethodCategoryByName('UserGlobals', 'MyTestCase', 'non-existent category');
 
       expect(window.showWarningMessage).toHaveBeenCalledWith(
         ctrl.noTestsFoundErrorMessage()
       );
       expect(sunit.runTestMethod).not.toHaveBeenCalled();
+      ctrl.dispose();
+    });
+  });
+
+  describe('running an ambiguous class from the Test Explorer', () => {
+    it('routes each same-named class to its own dictionary', async () => {
+      // Two distinct AnnouncerTest classes, one per dictionary.
+      (sunit.discoverTestClasses as ReturnType<typeof vi.fn>).mockReturnValueOnce([
+        { dictName: 'UserGlobals', className: 'AnnouncerTest', testCount: 7 },
+        { dictName: 'Globals', className: 'AnnouncerTest', testCount: 19 },
+      ]);
+      const sm = makeSessionManager(true);
+      const ctrl = new SunitTestController(sm);
+      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock.results[0].value;
+
+      // Discover both copies.
+      await mockController.resolveHandler(undefined);
+      const userGlobals = mockController.items.get('sunit/1/UserGlobals/AnnouncerTest');
+      const globals = mockController.items.get('sunit/1/Globals/AnnouncerTest');
+
+      // The Run profile is created as createRunProfile(name, kind, handler, isDefault);
+      // grab the handler the Test Explorer invokes when you click "Run".
+      const runHandler = (mockController.createRunProfile as ReturnType<typeof vi.fn>).mock.calls[0][2];
+      const cancellationToken = { isCancellationRequested: false };
+
+      // Run the UserGlobals copy — must resolve against UserGlobals, not the
+      // symbol-list winner.
+      await runHandler({ include: [userGlobals], exclude: undefined }, cancellationToken);
+      expect(sunit.runTestClass).toHaveBeenLastCalledWith(
+        expect.objectContaining({ id: 1 }), 'AnnouncerTest', 'UserGlobals',
+      );
+
+      // Run the Globals copy — must resolve against Globals.
+      await runHandler({ include: [globals], exclude: undefined }, cancellationToken);
+      expect(sunit.runTestClass).toHaveBeenLastCalledWith(
+        expect.objectContaining({ id: 1 }), 'AnnouncerTest', 'Globals',
+      );
+
+      expect(sunit.runTestClass).toHaveBeenCalledTimes(2);
       ctrl.dispose();
     });
   });

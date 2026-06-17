@@ -1,5 +1,5 @@
 import { QueryExecutor } from './types';
-import { escapeString } from './util';
+import { classLookupOrRaiseExpr, escapeString } from './util';
 
 export interface TestRunResult {
   className: string;
@@ -10,10 +10,12 @@ export interface TestRunResult {
 }
 
 export function runTestMethod(
-  execute: QueryExecutor, className: string, selector: string,
+  execute: QueryExecutor, className: string, selector: string, dictName?: string,
 ): TestRunResult {
-  const esc = escapeString(className);
   const sel = escapeString(selector);
+  // Resolve dictionary-scoped (see runTestClass for the rationale): a bare
+  // name can resolve to the wrong same-named class in another dictionary.
+  //
   // Round-3 (and round-2 ask #3 applied to this tool): capture the live
   // exception's class + messageText instead of the SUnit framework's
   // post-run TestCase printString (which is just the debug recipe). We
@@ -24,8 +26,9 @@ export function runTestMethod(
   // Output is built through a String-class WriteStream (which widens
   // transparently for non-ASCII codepoints) and converted to Utf8 once at
   // the boundary. See python.ts for the encoding-model rationale.
-  const code = `| testCase captured tdEx ws status startMs endMs |
-testCase := ${esc} selector: #'${sel}'.
+  const code = `| cls testCase captured tdEx ws status startMs endMs |
+${classLookupOrRaiseExpr(className, dictName)}
+testCase := cls selector: #'${sel}'.
 startMs := Time millisecondClockValue.
 captured := nil.
 [testCase setUp] on: AbstractException do: [:e | captured := e].

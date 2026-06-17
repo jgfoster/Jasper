@@ -1,5 +1,5 @@
 import { QueryExecutor } from './types';
-import { escapeString, splitLines } from './util';
+import { classLookupOrRaiseExpr, splitLines } from './util';
 
 export interface TestMethodInfo {
   selector: string;
@@ -7,15 +7,17 @@ export interface TestMethodInfo {
 }
 
 export function discoverTestMethods(
-  execute: QueryExecutor, className: string,
+  execute: QueryExecutor, className: string, dictName?: string,
 ): TestMethodInfo[] {
-  const esc = escapeString(className);
-  const code = `| ws |
+  // Resolve dictionary-scoped so we list the methods of the specific class
+  // the caller means, not whichever same-named class wins bare-name lookup.
+  const code = `| cls ws |
+${classLookupOrRaiseExpr(className, dictName)}
 ws := WriteStream on: Unicode7 new.
-${esc} testSelectors asSortedCollection do: [:each |
+cls testSelectors asSortedCollection do: [:each |
   ws nextPutAll: each;
     tab;
-    nextPutAll: ((${esc} categoryOfSelector: each environmentId: 0) ifNil: ['']);
+    nextPutAll: ((cls categoryOfSelector: each environmentId: 0) ifNil: ['']);
     lf].
 ws contents`;
   const data = execute(`discoverTestMethods(${className})`, code);
