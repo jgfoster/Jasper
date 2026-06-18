@@ -87,6 +87,84 @@ function receiverClassName(oop: bigint): string {
 }
 
 describe('debugQueries', () => {
+  describe('getStepPoint', () => {
+    const GS_PROCESS = 9000n;
+    const LEVEL_OOP = 0xAAn;
+    const STEP_POINT_OOP = 0xBBn;
+
+    function stepPointSession(stepPointResultOop: bigint) {
+      return {
+        id: 1,
+        handle: {},
+        login: { label: 'T' } as GemStoneLogin,
+        stoneVersion: '3.7.2',
+        gci: {
+          GciTsI64ToOop: vi.fn(() => ({ result: LEVEL_OOP, err: { ...noErr } })),
+          GciTsPerform: vi.fn(() => ({ result: stepPointResultOop, err: { ...noErr } })),
+          GciTsOopToI64: vi.fn(() => ({ value: 2n, err: { ...noErr } })),
+        } as unknown as ActiveSession['gci'],
+      } as ActiveSession;
+    }
+
+    it('sends _stepPointAt: with the frame level and returns the step point', () => {
+      const session = stepPointSession(STEP_POINT_OOP);
+      const result = debug.getStepPoint(session, GS_PROCESS, 3);
+
+      expect(result).toBe(2);
+      const performCalls = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls;
+      expect(performCalls[0][1]).toBe(GS_PROCESS);      // receiver is the process
+      expect(performCalls[0][3]).toBe('_stepPointAt:');  // selector
+      expect(performCalls[0][4]).toEqual([LEVEL_OOP]);   // level arg
+    });
+
+    it('returns undefined (without converting) when the step point is nil', () => {
+      const session = stepPointSession(0x14n /* OOP_NIL */);
+      const result = debug.getStepPoint(session, GS_PROCESS, 3);
+
+      expect(result).toBeUndefined();
+      expect(session.gci.GciTsOopToI64).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getMethodBlockInfo', () => {
+    const BLOCK_METHOD_OOP = 5100n;
+    const HOME_METHOD_OOP = 5200n;
+
+    function blockSession(isBlockOop: bigint, homeOop: bigint) {
+      return {
+        id: 1,
+        handle: {},
+        login: { label: 'T' } as GemStoneLogin,
+        stoneVersion: '3.7.2',
+        gci: {
+          GciTsPerform: vi.fn(
+            (_h: unknown, _r: bigint, _s: bigint, selector: string) => {
+              if (selector === 'isMethodForBlock') return { result: isBlockOop, err: { ...noErr } };
+              if (selector === 'homeMethod') return { result: homeOop, err: { ...noErr } };
+              return { result: 0n, err: { ...noErr } };
+            },
+          ),
+        } as unknown as ActiveSession['gci'],
+      } as ActiveSession;
+    }
+
+    it('reports a block method and its distinct home method', () => {
+      const session = blockSession(0x10Cn /* OOP_TRUE */, HOME_METHOD_OOP);
+      const result = debug.getMethodBlockInfo(session, BLOCK_METHOD_OOP);
+
+      expect(result.isBlock).toBe(true);
+      expect(result.homeMethodOop).toBe(HOME_METHOD_OOP);
+    });
+
+    it('reports a non-block method with homeMethod returning self', () => {
+      const session = blockSession(0x0Cn /* OOP_FALSE */, BLOCK_METHOD_OOP);
+      const result = debug.getMethodBlockInfo(session, BLOCK_METHOD_OOP);
+
+      expect(result.isBlock).toBe(false);
+      expect(result.homeMethodOop).toBe(BLOCK_METHOD_OOP);
+    });
+  });
+
   describe('getMethodInfo', () => {
     it('returns class name and selector by chaining single-message sends', () => {
       const session = createMockSession();

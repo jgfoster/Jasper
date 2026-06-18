@@ -1,5 +1,5 @@
 import { ActiveSession } from './sessionManager';
-import { OOP_NIL, OOP_ILLEGAL, GCI_PERFORM_FLAG_ENABLE_DEBUG } from './gciConstants';
+import { OOP_NIL, OOP_TRUE, OOP_ILLEGAL, GCI_PERFORM_FLAG_ENABLE_DEBUG } from './gciConstants';
 import { logInfo, logError } from './gciLog';
 
 const MAX_RESULT = 256 * 1024;
@@ -59,6 +59,18 @@ export interface FrameInfo {
 export interface MethodInfo {
   className: string;
   selector: string;
+}
+
+export interface MethodBlockInfo {
+  /** True when the frame's method is the compiled method of a block. */
+  isBlock: boolean;
+  /**
+   * Oop of the home (enclosing) method. GsNMethod>>homeMethod returns self for
+   * non-block methods, so this is always safe to use for naming. A block
+   * method's own inClass/selector are NOT the displayable class/selector
+   * (inClass returns the home method), so resolve names from this oop.
+   */
+  homeMethodOop: bigint;
 }
 
 export interface MethodUriInfo {
@@ -152,6 +164,20 @@ export function getMethodInfo(session: ActiveSession, methodOop: bigint): Method
 }
 
 /**
+ * Reports whether a frame's method is a block method, plus the oop of its home
+ * (enclosing) method. Used to render block frames as `[] in Class>>selector`,
+ * mirroring GsNMethod>>printOn:. Resolve the displayed class/selector from
+ * homeMethodOop, not the block method itself.
+ */
+export function getMethodBlockInfo(
+  session: ActiveSession, methodOop: bigint,
+): MethodBlockInfo {
+  const isBlock = gciPerform(session, methodOop, 'isMethodForBlock') === OOP_TRUE;
+  const homeMethodOop = gciPerform(session, methodOop, 'homeMethod');
+  return { isBlock, homeMethodOop };
+}
+
+/**
  * Returns everything needed to construct a gemstone:// URI for a method.
  * Uses a single Smalltalk execution to minimise GCI round-trips.
  */
@@ -211,6 +237,21 @@ export function getLineForIp(
   const ipOop = intToOop(session, ipOffset);
   const lineOop = gciPerform(session, methodOop, '_lineNumberForIp:', [ipOop]);
   return oopToInt(session, lineOop);
+}
+
+/**
+ * Returns the step point for the frame at the given level (1-based, 1 = top),
+ * or undefined when the frame has no step point. Uses GsProcess>>_stepPointAt:,
+ * the same primitive the topaz debugger uses — it accounts for native-stack
+ * and async-callee frames, which a raw ipOffset→stepPoint mapping would not.
+ */
+export function getStepPoint(
+  session: ActiveSession, gsProcess: bigint, level: number,
+): number | undefined {
+  const levelOop = intToOop(session, level);
+  const resultOop = gciPerform(session, gsProcess, '_stepPointAt:', [levelOop]);
+  if (resultOop === OOP_NIL) return undefined;
+  return oopToInt(session, resultOop);
 }
 
 // ── Variables ───────────────────────────────────────────

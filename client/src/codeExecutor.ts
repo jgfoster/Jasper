@@ -4,6 +4,8 @@ import { OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG } from './gciConsta
 import { logQuery, logResult, logError, logInfo } from './gciLog';
 import { InspectorTreeProvider } from './inspectorTreeProvider';
 import { GtInspector } from './gtInspector';
+import { DebuggerPanel } from './debuggerPanel';
+import { clearStack } from './debugQueries';
 import { appendTranscript, showTranscript } from './transcriptChannel';
 import { GciError } from './gciLibrary';
 import { pollReadable } from './socketPoll';
@@ -205,7 +207,7 @@ export class CodeExecutor {
       if (e instanceof DebuggableError) {
         // Try to show as inline diagnostic first; fall back to debug dialog
         this.showCompileError(editor, selection, code, codeOffset, msg);
-        await this.handleDebuggableError(session, e, msg);
+        await this.promptDebuggableError(session, e.context, msg);
       } else {
         this.showCompileError(editor, selection, code, codeOffset, msg);
       }
@@ -516,9 +518,20 @@ __t`;
     });
   }
 
-  private async handleDebuggableError(session: ActiveSession, e: DebuggableError, msg: string): Promise<void> {
+  /**
+   * Single shared notifier for a debuggable GemStone error. Offers two
+   * debuggers — the DAP "Debug" (Run and Debug view) and the webview
+   * "Enhanced Debug" — plus the implicit Cancel/dismiss. Whichever debugger the
+   * user picks OWNS the suspended `gsProcess`; dismissing clears the stack so
+   * the process is released. The two debuggers never coexist on one process.
+   */
+  private async promptDebuggableError(
+    session: ActiveSession, gsProcess: bigint, msg: string,
+  ): Promise<void> {
+    // Button array order maps to right-to-left placement in the modal, so
+    // 'Enhanced Debug' first puts it to the RIGHT of 'Debug'.
     const choice = await vscode.window.showErrorMessage(
-      `GemStone error: ${msg}`, { modal: true }, 'Debug'
+      `GemStone error: ${msg}`, { modal: true }, 'Enhanced Debug', 'Debug',
     );
     if (choice === 'Debug') {
       await vscode.debug.startDebugging(undefined, {
@@ -526,14 +539,23 @@ __t`;
         name: 'GemStone Error',
         request: 'attach',
         sessionId: session.id,
-        gsProcess: e.context.toString(),
+        gsProcess: gsProcess.toString(),
         errorMessage: msg,
       }, { suppressSaveBeforeStart: true });
       // Reveal the Run and Debug view so the call stack is immediately visible
       // instead of silently populating a hidden view.
       await vscode.commands.executeCommand('workbench.view.debug');
+    } else if (choice === 'Enhanced Debug') {
+      try {
+        DebuggerPanel.create(session, gsProcess, msg);
+      } catch (err: unknown) {
+        // If the panel fails to open, nothing owns the suspended process, so
+        // release it rather than leaving it stalled on the server.
+        logError(session.id, err instanceof Error ? err.message : String(err));
+        clearStack(session, gsProcess);
+      }
     } else {
-      try { session.gci.GciTsClearStack(session.handle, e.context); } catch { /* ignore */ }
+      clearStack(session, gsProcess);
     }
   }
 
@@ -779,21 +801,7 @@ __t`;
       logError(session.id, msg);
 
       if (e instanceof DebuggableError) {
-        const choice = await vscode.window.showErrorMessage(
-          `GemStone error: ${msg}`, { modal: true }, 'Debug', 'Dismiss',
-        );
-        if (choice === 'Debug') {
-          vscode.debug.startDebugging(undefined, {
-            type: 'gemstone',
-            name: 'GemStone Error',
-            request: 'attach',
-            sessionId: session.id,
-            gsProcess: e.context.toString(),
-            errorMessage: msg,
-          }, { suppressSaveBeforeStart: true });
-        } else {
-          try { session.gci.GciTsClearStack(session.handle, e.context); } catch { /* ignore */ }
-        }
+        await this.promptDebuggableError(session, e.context, msg);
       } else {
         vscode.window.showErrorMessage(`GemStone execution error: ${msg}`);
       }
@@ -896,7 +904,7 @@ __t`;
       logError(session.id, msg);
 
       if (e instanceof DebuggableError) {
-        await this.handleDebuggableError(session, e, msg);
+        await this.promptDebuggableError(session, e.context, msg);
       } else {
         vscode.window.showErrorMessage(`GemStone execution error: ${msg}`);
       }

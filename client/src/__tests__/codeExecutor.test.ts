@@ -18,7 +18,12 @@ vi.mock('../socketPoll', () => ({
   pollReadable: vi.fn(() => 1),
 }));
 
+vi.mock('../debuggerPanel', () => ({
+  DebuggerPanel: { create: vi.fn() },
+}));
+
 import { CodeExecutor } from '../codeExecutor';
+import { DebuggerPanel } from '../debuggerPanel';
 import { SessionManager, ActiveSession } from '../sessionManager';
 import * as vscode from 'vscode';
 import { __resetConfig } from '../__mocks__/vscode';
@@ -1155,7 +1160,7 @@ describe('CodeExecutor', () => {
 
       const calls = vi.mocked(vscode.window.showErrorMessage).mock.calls;
       const lastCall = calls[calls.length - 1];
-      expect(lastCall.slice(2)).toEqual(['Debug']);
+      expect(lastCall.slice(2)).toEqual(['Enhanced Debug', 'Debug']);
     });
 
     it('shows a modal dialog when Inspect It raises a DebuggableError', async () => {
@@ -1198,7 +1203,7 @@ describe('CodeExecutor', () => {
 
       const calls = vi.mocked(vscode.window.showErrorMessage).mock.calls;
       const lastCall = calls[calls.length - 1];
-      expect(lastCall.slice(2)).toEqual(['Debug']);
+      expect(lastCall.slice(2)).toEqual(['Enhanced Debug', 'Debug']);
     });
   });
 
@@ -1245,7 +1250,7 @@ describe('CodeExecutor', () => {
       await executor.executeIt();
 
       expect(vscode.debug.startDebugging).toHaveBeenCalled();
-      const config = vi.mocked(vscode.debug.startDebugging).mock.calls[0][1] as {
+      const config = vi.mocked(vscode.debug.startDebugging).mock.calls[0][1] as unknown as {
         type: string; gsProcess: string; sessionId: number;
       };
       expect(config.type).toBe('gemstone');
@@ -1264,6 +1269,21 @@ describe('CodeExecutor', () => {
       expect(revealedView()).toBe(false);
       // The stalled GsProcess must be released so it does not linger.
       expect(gci.GciTsClearStack).toHaveBeenCalledWith(session.handle, 0x123n);
+    });
+
+    it('opens the Enhanced Debugger panel (and not the DAP debugger) when the user clicks Enhanced Debug', async () => {
+      vi.mocked(vscode.window.showErrorMessage).mockResolvedValue('Enhanced Debug' as never);
+      setup();
+
+      await executor.executeIt();
+
+      // The webview debugger owns the gsProcess for this error.
+      expect(DebuggerPanel.create).toHaveBeenCalledWith(session, 0x123n, expect.any(String));
+      // The DAP path must not run, and the stack must NOT be cleared — the
+      // panel now owns the suspended process.
+      expect(vscode.debug.startDebugging).not.toHaveBeenCalled();
+      expect(revealedView()).toBe(false);
+      expect(gci.GciTsClearStack).not.toHaveBeenCalled();
     });
   });
 
