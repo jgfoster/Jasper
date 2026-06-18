@@ -147,12 +147,21 @@ class ListFilter extends HTMLElement {
 
     // Matched item rendering
 
+    // Clear the item's text while keeping any leading indicator elements
+    // (e.g. override arrows) that were rendered before the selector text.
+    clearItemText(item) {
+        const keep = [...item.querySelectorAll(':scope > .override-arrow')];
+        item.textContent = '';
+        for (const el of keep) item.appendChild(el);
+    }
+
     renderUnmatchedItem(item) {
-        item.textContent = item.dataset.value;
+        this.clearItemText(item);
+        item.appendChild(document.createTextNode(item.dataset.value));
     }
 
     renderMatchedItem(item, match) {
-        item.textContent = '';
+        this.clearItemText(item);
 
         this.renderTextBeforeMatch(item, match);
         this.renderHighlightedMatch(item, match);

@@ -1005,6 +1005,30 @@ export function activate(context: vscode.ExtensionContext) {
       await showMethodResults(session, results, `Implementors of #${args.selector}`);
     }),
 
+    vscode.commands.registerCommand('gemstone.hierarchyImplementorsOf', async (args: { selector: string; className: string; dictIndex: number; isMeta: boolean; direction: 'up' | 'down'; sessionId: number }) => {
+      const session = sessionManager.getSession(args.sessionId);
+      if (!session) return;
+      const maxEnv = vscode.workspace.getConfiguration('gemstone').get<number>('maxEnvironment', 0);
+      const all: queries.MethodSearchResult[] = [];
+      for (let env = 0; env <= maxEnv; env++) {
+        all.push(...queries.hierarchyImplementorsOf(
+          session, args.dictIndex, args.className, args.selector, args.isMeta, args.direction, env,
+        ));
+      }
+      const seen = new Set<string>();
+      const results = all.filter(r => {
+        const key = `${r.className}|${r.isMeta}|${r.selector}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      const side = args.isMeta ? ' class' : '';
+      const title = args.direction === 'up'
+        ? `${args.className}${side} >> #${args.selector} — superclass implementations`
+        : `${args.className}${side} >> #${args.selector} — subclass overrides`;
+      await showMethodResults(session, results, title);
+    }),
+
     vscode.commands.registerCommand('gemstone.browseReferences', async (args: { objectName: string; sessionId: number }) => {
       const session = sessionManager.getSession(args.sessionId);
       if (!session) return;

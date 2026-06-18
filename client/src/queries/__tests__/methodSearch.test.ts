@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { QueryExecutor } from '../types';
 import {
   searchMethodSource, sendersOf, implementorsOf, referencesToObject,
+  hierarchyImplementorsOf,
 } from '../methodSearch';
 
 const row = 'Globals\tArray\t0\tsize\taccessing\n';
@@ -70,5 +71,76 @@ describe('referencesToObject', () => {
     const code = execute.mock.calls[0][1];
     expect(code).toContain('referencesToObject:');
     expect(code).toContain("objectNamed: #'MyGlobal'");
+  });
+});
+
+// Guards the Python-alias navigation fix: a class's home dictionary must be the
+// one that stores it under its own name, not merely any dict that references it.
+describe('methodSerialization home-dictionary resolution', () => {
+  it('only treats a dict as a class home when keyed by the class name', () => {
+    const execute = vi.fn<QueryExecutor>(() => '');
+    implementorsOf(execute, 'size');
+    const code = execute.mock.calls[0][1];
+    expect(code).toContain('k = v name asSymbol');
+  });
+});
+
+describe('hierarchyImplementorsOf', () => {
+  it('walks the full superclass chain for direction up', () => {
+    const execute = vi.fn<QueryExecutor>(() => '');
+    hierarchyImplementorsOf(execute, 1, 'Array', 'at:', false, 'up');
+    const code = execute.mock.calls[0][1];
+    expect(code).toContain('superclass');
+    expect(code).toContain('[cur notNil] whileTrue:');
+    expect(code).toContain("includesSelector: #'at:'");
+    expect(code).not.toContain('allSubclasses');
+  });
+
+  it('walks all subclasses for direction down', () => {
+    const execute = vi.fn<QueryExecutor>(() => '');
+    hierarchyImplementorsOf(execute, 1, 'Array', 'at:', false, 'down');
+    const code = execute.mock.calls[0][1];
+    expect(code).toContain('allSubclasses do:');
+    expect(code).toContain("includesSelector: #'at:'");
+    expect(code).not.toContain('whileTrue:');
+  });
+
+  it('targets the metaclass side when isMeta is true (up)', () => {
+    const execute = vi.fn<QueryExecutor>(() => '');
+    hierarchyImplementorsOf(execute, 1, 'Array', 'new', true, 'up');
+    const code = execute.mock.calls[0][1];
+    expect(code).toContain('(class class) superclass');
+  });
+
+  it('targets each subclass metaclass when isMeta is true (down)', () => {
+    const execute = vi.fn<QueryExecutor>(() => '');
+    hierarchyImplementorsOf(execute, 1, 'Array', 'new', true, 'down');
+    const code = execute.mock.calls[0][1];
+    expect(code).toContain('tgt := sub class');
+  });
+
+  it('uses the instance side (class / sub) when isMeta is false', () => {
+    const execute = vi.fn<QueryExecutor>(() => '');
+    hierarchyImplementorsOf(execute, 1, 'Array', 'at:', false, 'down');
+    const code = execute.mock.calls[0][1];
+    expect(code).toContain('tgt := sub.');
+    expect(code).not.toContain('sub class');
+  });
+
+  it('embeds the dictIndex and escapes class name and selector', () => {
+    const execute = vi.fn<QueryExecutor>(() => '');
+    hierarchyImplementorsOf(execute, 7, "Foo'Bar", "o'clock", false, 'up');
+    const code = execute.mock.calls[0][1];
+    expect(code).toContain('symbolList at: 7');
+    expect(code).toContain("#'Foo''Bar'");
+    expect(code).toContain("#'o''clock'");
+  });
+
+  it('parses returned rows into MethodSearchResult', () => {
+    const raw = 'Globals\tObject\t0\tat:\taccessing\n';
+    const results = hierarchyImplementorsOf(vi.fn<QueryExecutor>(() => raw), 1, 'Array', 'at:', false, 'up');
+    expect(results).toEqual([
+      { dictName: 'Globals', className: 'Object', isMeta: false, selector: 'at:', category: 'accessing' },
+    ]);
   });
 });

@@ -347,6 +347,7 @@ describe('SystemBrowser', () => {
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
         command: 'loadMethods',
         items: ['=', 'hash', 'name', 'name:'],
+        methodOverrideBits: {},
       });
     });
 
@@ -360,6 +361,99 @@ describe('SystemBrowser', () => {
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
         command: 'loadMethods',
         items: ['name', 'name:'],
+        methodOverrideBits: {},
+      });
+    });
+
+    describe('method override bits', () => {
+      type LoadMethodsMsg = { command: string; items: string[]; methodOverrideBits: Record<string, number> };
+
+      beforeEach(() => {
+        vi.mocked(queries.getClassEnvironments).mockReturnValue([
+          { isMeta: false, envId: 0, category: 'Accessing', selectors: ['name', 'name:'],
+            methodOverrideBits: { name: 1 } },
+          { isMeta: false, envId: 0, category: 'Comparing', selectors: ['=', 'hash'],
+            methodOverrideBits: { '=': 3 } },
+          { isMeta: true, envId: 0, category: 'Instance Creation', selectors: ['new', 'new:'],
+            methodOverrideBits: { new: 2 } },
+        ]);
+      });
+
+      function selectArray(): void {
+        messageHandler({ command: 'ready' });
+        messageHandler({ command: 'selectDictionary', index: 1 });
+        messageHandler({ command: 'selectCategory', name: '** ALL CLASSES **' });
+        vi.mocked(fs.existsSync).mockReturnValue(false);
+        messageHandler({ command: 'selectClass', name: 'Array' });
+      }
+
+      function lastLoadMethods(): LoadMethodsMsg {
+        const calls = vi.mocked(mockPanel.webview.postMessage).mock.calls
+          .map(c => c[0] as LoadMethodsMsg)
+          .filter(m => m.command === 'loadMethods');
+        return calls[calls.length - 1];
+      }
+
+      it('attaches bits only for displayed selectors on the current side', () => {
+        selectArray();
+        messageHandler({ command: 'selectMethodCategory', name: 'Accessing' });
+        const msg = lastLoadMethods();
+        expect(msg.items).toEqual(['name', 'name:']);
+        // name: has no entry, so it is absent — only name carries a bit.
+        expect(msg.methodOverrideBits).toEqual({ name: 1 });
+      });
+
+      it('aggregates bits across categories for ALL METHODS', () => {
+        selectArray();
+        messageHandler({ command: 'selectMethodCategory', name: '** ALL METHODS **' });
+        expect(lastLoadMethods().methodOverrideBits).toEqual({ name: 1, '=': 3 });
+      });
+
+      it('uses class-side bits after toggling to the class side', () => {
+        selectArray();
+        messageHandler({ command: 'toggleSide', isMeta: true });
+        messageHandler({ command: 'selectMethodCategory', name: 'Instance Creation' });
+        const msg = lastLoadMethods();
+        expect(msg.items).toEqual(['new', 'new:']);
+        expect(msg.methodOverrideBits).toEqual({ new: 2 });
+      });
+    });
+
+    describe('override-arrow click (showHierarchyImpls)', () => {
+      function selectArray(): void {
+        messageHandler({ command: 'ready' });
+        messageHandler({ command: 'selectDictionary', index: 1 });
+        messageHandler({ command: 'selectCategory', name: '** ALL CLASSES **' });
+        vi.mocked(fs.existsSync).mockReturnValue(false);
+        messageHandler({ command: 'selectClass', name: 'Array' });
+      }
+
+      it('forwards to gemstone.hierarchyImplementorsOf with the current context', () => {
+        selectArray();
+        messageHandler({ command: 'showHierarchyImpls', selector: 'name', direction: 'up' });
+        expect(commands.executeCommand).toHaveBeenCalledWith('gemstone.hierarchyImplementorsOf', {
+          selector: 'name',
+          className: 'Array',
+          dictIndex: 1,
+          isMeta: false,
+          direction: 'up',
+          sessionId: session.id,
+        });
+      });
+
+      it('carries the class side and direction through', () => {
+        selectArray();
+        messageHandler({ command: 'toggleSide', isMeta: true });
+        messageHandler({ command: 'showHierarchyImpls', selector: 'new', direction: 'down' });
+        expect(commands.executeCommand).toHaveBeenCalledWith('gemstone.hierarchyImplementorsOf',
+          expect.objectContaining({ selector: 'new', isMeta: true, direction: 'down' }));
+      });
+
+      it('does nothing when no class is selected', () => {
+        messageHandler({ command: 'ready' });
+        messageHandler({ command: 'showHierarchyImpls', selector: 'name', direction: 'up' });
+        expect(commands.executeCommand).not.toHaveBeenCalledWith(
+          'gemstone.hierarchyImplementorsOf', expect.anything());
       });
     });
 
@@ -1402,6 +1496,7 @@ describe('SystemBrowser', () => {
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
         command: 'loadMethods',
         items: ['rb_name'],
+        methodOverrideBits: {},
       });
     });
 
@@ -1531,6 +1626,7 @@ describe('SystemBrowser', () => {
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
         command: 'loadMethods',
         items: ['name', 'name:'],
+        methodOverrideBits: {},
       });
     });
 
@@ -1595,6 +1691,7 @@ describe('SystemBrowser', () => {
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
         command: 'loadMethods',
         items: ['name', 'name:'],
+        methodOverrideBits: {},
       });
     });
 
