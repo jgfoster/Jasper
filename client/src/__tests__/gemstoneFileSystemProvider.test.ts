@@ -374,7 +374,29 @@ describe('GemStoneFileSystemProvider', () => {
         expect(em.syncClass).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'Globals', 'Array');
       });
 
-      it('debounced-refreshes after a new-class save (no class name in the URI)', () => {
+      it('syncs the compiled class name after a definition save with unchanged name', () => {
+        vi.mocked(queries.compileClassDefinition).mockReturnValueOnce('Array');
+        const em = makeExportManager();
+        const p = new GemStoneFileSystemProvider(makeSessionManager(), em as unknown as ExportManager);
+        p.writeFile(
+          Uri.parse('gemstone://1/Globals/Array/definition'),
+          encode("Object subclass: 'Array'\n  instVarNames: #()"), { create: false, overwrite: true },
+        );
+        expect(em.syncClass).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'Globals', 'Array');
+      });
+
+      it('syncs the new class name after a definition save that renames the class', () => {
+        vi.mocked(queries.compileClassDefinition).mockReturnValueOnce('RenamedArray');
+        const em = makeExportManager();
+        const p = new GemStoneFileSystemProvider(makeSessionManager(), em as unknown as ExportManager);
+        p.writeFile(
+          Uri.parse('gemstone://1/Globals/Array/definition'),
+          encode("Object subclass: 'RenamedArray'\n  instVarNames: #()"), { create: false, overwrite: true },
+        );
+        expect(em.syncClass).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'Globals', 'RenamedArray');
+      });
+
+      it('syncs the compiled class name after a new-class save', () => {
         vi.mocked(queries.compileClassDefinition).mockReturnValueOnce('Foo');
         const em = makeExportManager();
         const p = new GemStoneFileSystemProvider(makeSessionManager(), em as unknown as ExportManager);
@@ -382,8 +404,7 @@ describe('GemStoneFileSystemProvider', () => {
           Uri.parse('gemstone://1/UserGlobals/new-class'),
           encode("Object subclass: 'Foo'\n  inDictionary: UserGlobals"), { create: true, overwrite: true },
         );
-        expect(em.scheduleRefresh).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }));
-        expect(em.syncClass).not.toHaveBeenCalled();
+        expect(em.syncClass).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'UserGlobals', 'Foo');
       });
 
       it('does not throw when no export manager is wired', () => {

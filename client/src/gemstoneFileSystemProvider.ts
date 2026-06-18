@@ -274,6 +274,7 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
           vscode.window.showInformationMessage(
             `Comment updated for ${parsed.className}`
           );
+          void this.exportManager?.syncClass(session, parsed.dictName, parsed.className);
           break;
         case 'new-class':
           this.compileClassDefinition(uri, parsed, source, session);
@@ -281,17 +282,6 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
         case 'new-method':
           this.compileMethod(uri, parsed, source, session);
           break;
-      }
-
-      // Keep the local .gemstone mirror in step with this edit so Find in Files
-      // sees it before the next commit/abort. For a new class the name isn't in
-      // the URI, so fall back to a debounced full re-sync.
-      if (this.exportManager) {
-        if (parsed.kind === 'new-class') {
-          this.exportManager.scheduleRefresh(session);
-        } else {
-          void this.exportManager.syncClass(session, parsed.dictName, parsed.className);
-        }
       }
 
       this.diagnostics.delete(uri);
@@ -332,7 +322,9 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
     vscode.window.showInformationMessage(
         `Compiled method ${receiver(parsedMethodUri.className, parsedMethodUri.isMeta)}>>#${selector}`
     );
-    
+
+    void this.exportManager?.syncClass(session, parsedMethodUri.dictName, parsedMethodUri.className);
+
     const newMethodUri = buildMethodUri({
       ...parsedMethodUri,
       kind: 'method',
@@ -357,6 +349,8 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
       ? `Class created: ${className}`
       : `Class definition updated for ${className}`;
     vscode.window.showInformationMessage(message);
+
+    void this.exportManager?.syncClass(session, parsed.dictName, className);
 
     const definitionUri = buildClassDefinitionUri(parsed.sessionId, parsed.dictName, className);
 
