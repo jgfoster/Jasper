@@ -4,6 +4,17 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.6.6] - 2026-06-18
+
+### Added
+
+- **Method override indicators (▲/▼) in the System Browser method list.** Each selector now shows ▲ when it overrides a superclass implementation, ▼ when it is overridden in a subclass (both glyphs when both apply). The bits are computed server-side over the full hierarchy (`whichClassIncludesSelector:` up the superclass chain, `allSubclasses` down) and ride along on the existing method-list query, so there is no extra round trip. The arrows are clickable: ▲ opens the superclass-chain implementations, ▼ opens the subclass overrides, via a new `hierarchyImplementorsOf` query that reuses the existing results UI. ([#120](https://github.com/jgfoster/Jasper/pull/120))
+
+### Fixed
+
+- **SUnit discovery no longer crashes when two TestCase subclasses share a name across dictionaries.** Previously, an image with (say) an app's own `AnnouncerTest` in `UserGlobals` plus the base image's in `Globals` crashed discovery with "Attempted to insert a duplicate test item ID …", blanking the entire GemStone test list; and even without the crash, running a test by bare name silently ran only the symbol-list winner and hid the other suite. The dictionary is now part of every test's identity end to end — dictionary-qualified item ids (`sunit/<sid>/<dict>/<class>[/<selector>]`), dictionary-scoped class resolution so each copy runs its own suite, the System Browser threading its tracked dictionary through the run commands, and the MCP `run_test_class` / `run_test_method` tools taking an optional `dictionary` arg (running the unique match when omitted, refusing-with-candidates when ambiguous). The class label shows the dictionary in braces only when the name is ambiguous (e.g. `AnnouncerTest {UserGlobals}`). ([#119](https://github.com/jgfoster/Jasper/pull/119), fixes [#117](https://github.com/jgfoster/Jasper/issues/117))
+- **Class navigation and Find Implementors / Senders / References no longer mis-resolve aliased classes.** A class's home dictionary in the shared method-search serialization is now resolved by its own name key (`k = v name asSymbol`), so an alias entry that sorts ahead of the real home (e.g. Python's `#object -> Object` ahead of `Globals`) no longer masks it and breaks navigation. ([#120](https://github.com/jgfoster/Jasper/pull/120))
+
 ## [1.6.5] - 2026-06-16
 
 ### Added
