@@ -1202,6 +1202,71 @@ describe('CodeExecutor', () => {
     });
   });
 
+  // ── Reveal the Run and Debug view when debugging starts ────
+  //
+  // After the user clicks "Debug", the debug session attaches but VSCode does
+  // not switch to the Run and Debug view on its own, so the call stack lands
+  // in a hidden view and the session looks like it did nothing. We explicitly
+  // reveal the view via the workbench.view.debug command. Dismissing the
+  // dialog must NOT reveal the view and must clear the stalled GsProcess.
+
+  describe('reveals the Run and Debug view on Debug', () => {
+    function debuggableGci() {
+      return makeGci({
+        GciTsNbResult: vi.fn(() => ({
+          result: 0x01n,
+          err: {
+            number: 2003,
+            message: 'a UndefinedObject does not understand #foo',
+            context: 0x123n,
+          },
+        })),
+      });
+    }
+
+    function setup() {
+      gci = debuggableGci();
+      session = makeSession(gci);
+      executor = new CodeExecutor(makeSessionManager(session));
+      const editor = makeEditor('nil foo');
+      setActiveEditor(editor);
+    }
+
+    function revealedView(): boolean {
+      return vi.mocked(vscode.commands.executeCommand).mock.calls
+        .some(([cmd]) => cmd === 'workbench.view.debug');
+    }
+
+    it('starts debugging and focuses the Run and Debug view when the user clicks Debug', async () => {
+      vi.mocked(vscode.window.showErrorMessage).mockResolvedValue('Debug' as never);
+      vi.mocked(vscode.debug.startDebugging).mockResolvedValue(true as never);
+      setup();
+
+      await executor.executeIt();
+
+      expect(vscode.debug.startDebugging).toHaveBeenCalled();
+      const config = vi.mocked(vscode.debug.startDebugging).mock.calls[0][1] as {
+        type: string; gsProcess: string; sessionId: number;
+      };
+      expect(config.type).toBe('gemstone');
+      expect(config.sessionId).toBe(session.id);
+      expect(config.gsProcess).toBe((0x123n).toString());
+      expect(revealedView()).toBe(true);
+    });
+
+    it('does not reveal the view or start debugging, and clears the stack, when the dialog is dismissed', async () => {
+      vi.mocked(vscode.window.showErrorMessage).mockResolvedValue(undefined as never);
+      setup();
+
+      await executor.executeIt();
+
+      expect(vscode.debug.startDebugging).not.toHaveBeenCalled();
+      expect(revealedView()).toBe(false);
+      // The stalled GsProcess must be released so it does not linger.
+      expect(gci.GciTsClearStack).toHaveBeenCalledWith(session.handle, 0x123n);
+    });
+  });
+
   // ── Result polling: GciTsNbPoll (3.7+) vs GciTsSocket fallback (3.6.2) ──
 
   describe('result polling fallback for GemStone 3.6.2', () => {

@@ -521,7 +521,7 @@ __t`;
       `GemStone error: ${msg}`, { modal: true }, 'Debug'
     );
     if (choice === 'Debug') {
-      vscode.debug.startDebugging(undefined, {
+      await vscode.debug.startDebugging(undefined, {
         type: 'gemstone',
         name: 'GemStone Error',
         request: 'attach',
@@ -529,6 +529,9 @@ __t`;
         gsProcess: e.context.toString(),
         errorMessage: msg,
       }, { suppressSaveBeforeStart: true });
+      // Reveal the Run and Debug view so the call stack is immediately visible
+      // instead of silently populating a hidden view.
+      await vscode.commands.executeCommand('workbench.view.debug');
     } else {
       try { session.gci.GciTsClearStack(session.handle, e.context); } catch { /* ignore */ }
     }
