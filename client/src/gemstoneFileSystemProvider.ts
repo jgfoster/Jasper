@@ -350,6 +350,9 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
       : `Class definition updated for ${className}`;
     vscode.window.showInformationMessage(message);
 
+    // Use the name GemStone returned, not parsed.className: for a new-class URI the segment is
+    // a placeholder, and editing a definition with a different class name creates a new class —
+    // in both cases, parsed.className does not reflect the class that was actually created.
     void this.exportManager?.syncClass(session, parsed.dictName, className);
 
     const definitionUri = buildClassDefinitionUri(parsed.sessionId, parsed.dictName, className);
