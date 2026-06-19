@@ -407,6 +407,19 @@ describe('GemStoneFileSystemProvider', () => {
         expect(em.syncClass).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'UserGlobals', 'Foo');
       });
 
+      it('does not call syncClass when new-class compilation throws', () => {
+        vi.mocked(queries.compileClassDefinition).mockImplementationOnce(() => {
+          throw new BrowserQueryError('Syntax error', 0);
+        });
+        const em = makeExportManager();
+        const p = new GemStoneFileSystemProvider(makeSessionManager(), em as unknown as ExportManager);
+        expect(() => p.writeFile(
+          Uri.parse('gemstone://1/UserGlobals/new-class'),
+          encode("Object subclass: 'MyClass'\n  inDictionary: UserGlobals"), { create: true, overwrite: true },
+        )).not.toThrow();
+        expect(em.syncClass).not.toHaveBeenCalled();
+      });
+
       it('does not throw when no export manager is wired', () => {
         const p = new GemStoneFileSystemProvider(makeSessionManager());
         expect(() => p.writeFile(
