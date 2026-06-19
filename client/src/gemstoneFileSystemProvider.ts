@@ -148,13 +148,13 @@ function assertIsValidUriPath(parameterName: string, value: string) {
 export interface MethodCompiledEvent{
   uri: vscode.Uri;
   previousUri: vscode.Uri;
-  isNewMethod: boolean;
+  previousUriIsTemplate: boolean;
 }
 
 export interface ClassDefinitionCompiledEvent {
   uri: vscode.Uri;
   previousUri: vscode.Uri;
-  isNew: boolean;
+  previousUriIsTemplate: boolean;
 }
 
 // ── FileSystemProvider ────────────────────────────────────────
@@ -338,7 +338,7 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
     setImmediate(() => this._onMethodCompiled.fire({
       uri: newMethodUri,
       previousUri: uri,
-      isNewMethod: parsedMethodUri.kind === 'new-method',
+      previousUriIsTemplate: parsedMethodUri.kind === 'new-method',
     }));
   }
 
@@ -360,7 +360,7 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
     setImmediate(() => this._onClassDefinitionCompiled.fire({
       uri: definitionUri,
       previousUri: uri,
-      isNew: parsed.kind === 'new-class',
+      previousUriIsTemplate: parsed.kind === 'new-class',
     }));
   }
 

@@ -203,7 +203,7 @@ describe('handleMethodCompiled', () => {
     (vscode.window.tabGroups as any).all = [];
   });
 
-  it('opens the new uri and then closes the previous uri when isNewMethod is true', async () => {
+  it('opens the new uri and closes the previous tab when the previous URI is a template', async () => {
     const document = { uri, getText: vi.fn(() => '') } as unknown as vscode.TextDocument;
     vi.mocked(vscode.workspace.openTextDocument).mockResolvedValue(document);
     vi.mocked(vscode.window.showTextDocument).mockResolvedValue({} as vscode.TextEditor);
@@ -211,7 +211,7 @@ describe('handleMethodCompiled', () => {
     (vscode.window.tabGroups as any).all = [{ tabs: [previousTab] }];
     vi.mocked(vscode.window.tabGroups.close).mockResolvedValue(undefined as never);
 
-    await extension.handleMethodCompiled({ uri, previousUri, isNewMethod: true });
+    await extension.handleMethodCompiled({ uri, previousUri, previousUriIsTemplate: true });
 
     expect(vscode.workspace.openTextDocument).toHaveBeenCalledWith(uri);
     expect(vscode.window.tabGroups.close).toHaveBeenCalledWith(previousTab);
@@ -222,20 +222,20 @@ describe('handleMethodCompiled', () => {
   it('does nothing when uri equals previousUri (selector unchanged)', async () => {
     (vscode.window.tabGroups as any).all = [];
 
-    await extension.handleMethodCompiled({ uri, previousUri: uri, isNewMethod: false });
+    await extension.handleMethodCompiled({ uri, previousUri: uri, previousUriIsTemplate: false });
 
     expect(vscode.workspace.openTextDocument).not.toHaveBeenCalled();
     expect(vscode.window.tabGroups.close).not.toHaveBeenCalled();
   });
 
-  it('opens the new uri but does not close the previous tab when isNewMethod is false (selector changed)', async () => {
+  it('opens the new uri but does not close the previous tab when the previous URI is not a template', async () => {
     const document = { uri, getText: vi.fn(() => '') } as unknown as vscode.TextDocument;
     vi.mocked(vscode.workspace.openTextDocument).mockResolvedValue(document);
     vi.mocked(vscode.window.showTextDocument).mockResolvedValue({} as vscode.TextEditor);
     const previousTab = { input: new vscode.TabInputText(previousUri) } as unknown as vscode.Tab;
     (vscode.window.tabGroups as any).all = [{ tabs: [previousTab] }];
 
-    await extension.handleMethodCompiled({ uri, previousUri, isNewMethod: false });
+    await extension.handleMethodCompiled({ uri, previousUri, previousUriIsTemplate: false });
 
     expect(vscode.workspace.openTextDocument).toHaveBeenCalledWith(uri);
     expect(vscode.window.tabGroups.close).not.toHaveBeenCalled();
@@ -260,17 +260,18 @@ describe('handleClassDefinitionCompiled', () => {
     vi.mocked(vscode.workspace.openTextDocument).mockResolvedValue(document);
     vi.mocked(vscode.window.showTextDocument).mockResolvedValue({} as vscode.TextEditor);
 
-    await extension.handleClassDefinitionCompiled({ uri, previousUri, isNew: true });
+    await extension.handleClassDefinitionCompiled({ uri, previousUri, previousUriIsTemplate: true });
 
     expect(vscode.workspace.openTextDocument).toHaveBeenCalledWith(uri);
   });
 
   it('does not open an editor when uri equals previousUri', async () => {
-    await extension.handleClassDefinitionCompiled({ uri, previousUri: uri, isNew: false });
+    await extension.handleClassDefinitionCompiled({ uri, previousUri: uri, previousUriIsTemplate: false });
+
     expect(vscode.workspace.openTextDocument).not.toHaveBeenCalled();
   });
 
-  it('opens the definition uri and closes the previous tab when isNew is true', async () => {
+  it('opens the definition uri and closes the previous tab when the previous URI is a template', async () => {
     const document = { uri, getText: vi.fn(() => '') } as unknown as vscode.TextDocument;
     vi.mocked(vscode.workspace.openTextDocument).mockResolvedValue(document);
     vi.mocked(vscode.window.showTextDocument).mockResolvedValue({} as vscode.TextEditor);
@@ -278,18 +279,18 @@ describe('handleClassDefinitionCompiled', () => {
     (vscode.window.tabGroups as any).all = [{ tabs: [previousTab] }];
     vi.mocked(vscode.window.tabGroups.close).mockResolvedValue(undefined as never);
 
-    await extension.handleClassDefinitionCompiled({ uri, previousUri, isNew: true });
+    await extension.handleClassDefinitionCompiled({ uri, previousUri, previousUriIsTemplate: true });
 
     expect(vscode.workspace.openTextDocument).toHaveBeenCalledWith(uri);
     expect(vscode.window.tabGroups.close).toHaveBeenCalledWith(previousTab);
   });
 
-  it('does not close any tab when isNew is false', async () => {
+  it('does not close any tab when the previous URI is not a template', async () => {
     const document = { uri, getText: vi.fn(() => '') } as unknown as vscode.TextDocument;
     vi.mocked(vscode.workspace.openTextDocument).mockResolvedValue(document);
     vi.mocked(vscode.window.showTextDocument).mockResolvedValue({} as vscode.TextEditor);
 
-    await extension.handleClassDefinitionCompiled({ uri, previousUri, isNew: false });
+    await extension.handleClassDefinitionCompiled({ uri, previousUri, previousUriIsTemplate: false });
 
     expect(vscode.window.tabGroups.close).not.toHaveBeenCalled();
   });
@@ -331,7 +332,7 @@ describe('onMethodCompiled event subscription (functional)', () => {
     const event = handler.mock.calls[0][0];
     expect(event.previousUri.toString()).toBe(newMethodUri.toString());
     expect(event.uri.toString()).toBe('gemstone://1/Globals/Array/instance/accessing/foo');
-    expect(event.isNewMethod).toBe(true);
+    expect(event.previousUriIsTemplate).toBe(true);
   });
 });
 

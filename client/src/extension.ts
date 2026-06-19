@@ -105,7 +105,7 @@ export async function handleMethodCompiled(event: MethodCompiledEvent) {
   
   await openTextEditorOn(event.uri);
   
-  if (event.isNewMethod) {
+  if (event.previousUriIsTemplate) {
     await closeTextEditorOn(event.previousUri);
   }
 }
@@ -114,7 +114,7 @@ export async function handleClassDefinitionCompiled(event: ClassDefinitionCompil
   if (event.uri.toString() !== event.previousUri.toString()) {
     await openTextEditorOn(event.uri);
   }
-  if (event.isNew) {
+  if (event.previousUriIsTemplate) {
     await closeTextEditorOn(event.previousUri);
   }
 }

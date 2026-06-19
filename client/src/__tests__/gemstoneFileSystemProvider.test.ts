@@ -240,7 +240,7 @@ describe('GemStoneFileSystemProvider', () => {
       const event = listener.mock.calls[0][0];
       expect(event.previousUri.toString()).toBe(newClassUri.toString());
       expect(event.uri.toString()).toBe('gemstone://1/UserGlobals/MyClass/definition');
-      expect(event.isNew).toBe(true);
+      expect(event.previousUriIsTemplate).toBe(true);
     });
 
     it('fires onDidChangeFile with the new-class uri on successful compile', () => {
@@ -291,7 +291,7 @@ describe('GemStoneFileSystemProvider', () => {
       expect(window.showInformationMessage).toHaveBeenCalledWith('Class definition updated for Array');
     });
 
-    it('emits onClassDefinitionCompiled with isNew false when an existing class definition is saved with unchanged name', async () => {
+    it('emits onClassDefinitionCompiled when an existing class definition is saved with unchanged name', async () => {
       const uri = Uri.parse('gemstone://1/Globals/Array/definition');
       vi.mocked(queries.compileClassDefinition).mockReturnValueOnce('Array');
       const listener = vi.fn();
@@ -302,7 +302,7 @@ describe('GemStoneFileSystemProvider', () => {
 
       expect(listener).toHaveBeenCalledTimes(1);
       const event = listener.mock.calls[0][0];
-      expect(event.isNew).toBe(false);
+      expect(event.previousUriIsTemplate).toBe(false);
       expect(event.uri.toString()).toBe(uri.toString());
       expect(event.previousUri.toString()).toBe(uri.toString());
     });
@@ -318,7 +318,7 @@ describe('GemStoneFileSystemProvider', () => {
 
       expect(listener).toHaveBeenCalledTimes(1);
       const event = listener.mock.calls[0][0];
-      expect(event.isNew).toBe(false);
+      expect(event.previousUriIsTemplate).toBe(false);
       expect(event.previousUri.toString()).toBe(previousUri.toString());
       expect(event.uri.toString()).toBe('gemstone://1/Globals/RenamedArray/definition');
     });
@@ -453,10 +453,10 @@ describe('GemStoneFileSystemProvider', () => {
        const event = listener.mock.calls[0][0];
        expect(event.previousUri.toString()).toBe(newMethodUri.toString());
        expect(event.uri.toString()).toBe('gemstone://1/Globals/Array/instance/accessing/foo');
-       expect(event.isNewMethod).toBe(true);
+       expect(event.previousUriIsTemplate).toBe(true);
      });
 
-     it('emits onMethodCompiled with isNewMethod false when an existing method is saved with unchanged selector', async () => {
+     it('emits onMethodCompiled when an existing method is saved with unchanged selector', async () => {
        const methodUri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A');
        vi.mocked(queries.compileMethod).mockReturnValueOnce('Compiled: Array >> at:');
        const listener = vi.fn();
@@ -467,12 +467,12 @@ describe('GemStoneFileSystemProvider', () => {
 
        expect(listener).toHaveBeenCalledTimes(1);
        const event = listener.mock.calls[0][0];
-       expect(event.isNewMethod).toBe(false);
+       expect(event.previousUriIsTemplate).toBe(false);
        expect(event.uri.toString()).toBe(methodUri.toString());
        expect(event.previousUri.toString()).toBe(methodUri.toString());
      });
 
-     it('emits onMethodCompiled with isNewMethod false when an existing method is saved with a changed selector', async () => {
+     it('emits onMethodCompiled when an existing method is saved with a changed selector', async () => {
        const previousUri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A');
        vi.mocked(queries.compileMethod).mockReturnValueOnce('Compiled: Array >> newSelector');
        const listener = vi.fn();
@@ -483,7 +483,7 @@ describe('GemStoneFileSystemProvider', () => {
 
        expect(listener).toHaveBeenCalledTimes(1);
        const event = listener.mock.calls[0][0];
-       expect(event.isNewMethod).toBe(false);
+       expect(event.previousUriIsTemplate).toBe(false);
        expect(event.previousUri.toString()).toBe(previousUri.toString());
        expect(event.uri.toString()).toBe('gemstone://1/Globals/Array/instance/accessing/newSelector');
      });
