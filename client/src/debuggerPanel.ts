@@ -16,6 +16,26 @@ import { logError } from './gciLog';
 const debuggerViewJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'debuggerView.js'), 'utf8');
 
 /**
+ * Toolbar glyphs, keyed by `data-cmd`. These are the exact VS Code `codicon`
+ * debug-control SVGs the DAP debug toolbar uses (debug-continue / -step-over /
+ * -step-into / -step-out / -restart-frame / -stop), inlined so they need no font
+ * load or extra `localResourceRoots` and stay within the strict webview CSP
+ * (inline SVG markup, not a fetched resource). `fill="currentColor"` lets each
+ * button's text colour drive the glyph (so the danger Terminate renders red).
+ */
+const TOOLBAR_ICONS: Record<string, string> = {
+  resume: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M14.578 7.149L7.578 2.186C7.397 2.058 7.198 2 7.003 2C6.484 2 6 2.411 6 3.002V13.003C6 13.594 6.485 14.005 7.004 14.005C7.201 14.005 7.403 13.946 7.585 13.815L14.585 8.777C15.142 8.376 15.139 7.546 14.579 7.15L14.578 7.149ZM7.5 12.027V3.969L13.14 7.968L7.5 12.027ZM3.5 2.75V13.25C3.5 13.664 3.164 14 2.75 14C2.336 14 2 13.664 2 13.25V2.75C2 2.336 2.336 2 2.75 2C3.164 2 3.5 2.336 3.5 2.75Z"/></svg>',
+  stepOver: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M9.99993 13C9.99993 14.103 9.10293 15 7.99993 15C6.89693 15 5.99993 14.103 5.99993 13C5.99993 11.897 6.89693 11 7.99993 11C9.10293 11 9.99993 11.897 9.99993 13ZM13.2499 2C12.8359 2 12.4999 2.336 12.4999 2.75V4.027C11.3829 2.759 9.75993 2 7.99993 2C5.03293 2 2.47993 4.211 2.06093 7.144C2.00193 7.554 2.28793 7.934 2.69793 7.993C2.73393 7.999 2.76993 8.001 2.80493 8.001C3.17193 8.001 3.49293 7.731 3.54693 7.357C3.86093 5.159 5.77593 3.501 8.00093 3.501C9.52993 3.501 10.9199 4.264 11.7439 5.501H9.75093C9.33693 5.501 9.00093 5.837 9.00093 6.251C9.00093 6.665 9.33693 7.001 9.75093 7.001H13.2509C13.6649 7.001 14.0009 6.665 14.0009 6.251V2.751C14.0009 2.337 13.6649 2.001 13.2509 2.001L13.2499 2Z"/></svg>',
+  stepInto: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M10 13C10 14.103 9.10304 15 8.00004 15C6.89704 15 6.00004 14.103 6.00004 13C6.00004 11.897 6.89704 11 8.00004 11C9.10304 11 10 11.897 10 13ZM12.03 5.22C11.737 4.927 11.262 4.927 10.969 5.22L8.74904 7.44V1.75C8.74904 1.336 8.41304 1 7.99904 1C7.58504 1 7.24904 1.336 7.24904 1.75V7.439L5.02904 5.219C4.73604 4.926 4.26104 4.926 3.96804 5.219C3.67504 5.512 3.67504 5.987 3.96804 6.28L7.46804 9.78C7.61404 9.926 7.80604 10 7.99804 10C8.19004 10 8.38204 9.927 8.52804 9.78L12.028 6.28C12.321 5.987 12.321 5.512 12.028 5.219L12.03 5.22Z"/></svg>',
+  // "Through" = step through blocks (gciStepThru). The `indent` arrow (turns down
+  // into a nested position) reads as stepping into a block, and stays visually
+  // distinct from Into's debug-step-into glyph.
+  stepThrough: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M2.50002 3C2.77602 3 3.00002 3.224 3.00002 3.5V6.5C3.00002 7.327 3.67302 8 4.50002 8H12.293L9.64702 5.354C9.45202 5.159 9.45202 4.842 9.64702 4.647C9.84202 4.452 10.159 4.452 10.354 4.647L13.854 8.147C14.049 8.342 14.049 8.659 13.854 8.854L10.354 12.354C10.256 12.452 10.128 12.5 10 12.5C9.87202 12.5 9.74402 12.451 9.64602 12.354C9.45102 12.159 9.45102 11.842 9.64602 11.647L12.292 9.001H4.49902C3.12002 9.001 1.99902 7.88 1.99902 6.501V3.501C1.99902 3.225 2.22302 3.001 2.49902 3.001L2.50002 3Z"/></svg>',
+  restartFrame: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5C1 3.22386 1.22386 3 1.5 3H14.5C14.7761 3 15 3.22386 15 3.5C15 3.77614 14.7761 4 14.5 4H1.5C1.22386 4 1 3.77614 1 3.5Z"/><path d="M1 7.5C1 7.22386 1.22386 7 1.5 7H14.5C14.7761 7 15 7.22386 15 7.5C15 7.77614 14.7761 8 14.5 8H1.5C1.22386 8 1 7.77614 1 7.5Z"/><path d="M1 11.5C1 11.2239 1.22386 11 1.5 11H7.99939V11.4994C7.99939 11.6716 8.02899 11.8407 8.08538 12H1.5C1.22386 12 1 11.7761 1 11.5Z"/><path d="M8.99939 9.49939V11.4994C8.99939 11.632 9.05207 11.7592 9.14584 11.8529C9.2396 11.9467 9.36678 11.9994 9.49939 11.9994H11.4994C11.632 11.9994 11.7592 11.9467 11.8529 11.8529C11.9467 11.7592 11.9994 11.632 11.9994 11.4994C11.9994 11.3668 11.9467 11.2396 11.8529 11.1458C11.7592 11.0521 11.632 10.9994 11.4994 10.9994H10.4994C10.5702 10.9049 10.6477 10.8157 10.7314 10.7324C11.2078 10.2778 11.8409 10.0242 12.4994 10.0242C13.1579 10.0242 13.791 10.2778 14.2674 10.7324C14.4996 10.9645 14.6838 11.2402 14.8095 11.5435C14.9352 11.8469 14.9999 12.172 14.9999 12.5004C14.9999 12.8287 14.9352 13.1539 14.8095 13.4573C14.6838 13.7606 14.4996 14.0362 14.2674 14.2684C13.7909 14.7227 13.1578 14.9762 12.4994 14.9762C11.841 14.9762 11.2079 14.7227 10.7314 14.2684C10.6371 14.1773 10.5108 14.1269 10.3797 14.1281C10.2486 14.1292 10.1232 14.1818 10.0305 14.2745C9.93778 14.3672 9.88519 14.4926 9.88405 14.6237C9.88291 14.7548 9.93331 14.8811 10.0244 14.9754C10.6808 15.6318 11.5711 16.0006 12.4994 16.0006C13.4277 16.0006 14.318 15.6318 14.9744 14.9754C15.6308 14.319 15.9996 13.4287 15.9996 12.5004C15.9996 11.5721 15.6308 10.6818 14.9744 10.0254C14.3075 9.38902 13.4212 9.03396 12.4994 9.03396C11.5776 9.03396 10.6912 9.38902 10.0244 10.0254L9.99939 10.0514V9.49939C9.99939 9.36678 9.94671 9.2396 9.85294 9.14584C9.75918 9.05207 9.632 8.99939 9.49939 8.99939C9.36678 8.99939 9.2396 9.05207 9.14584 9.14584C9.05207 9.2396 8.99939 9.36678 8.99939 9.49939Z"/></svg>',
+  terminate: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M12.5 3.5V12.5H3.5V3.5H12.5ZM12.5 2H3.5C2.672 2 2 2.672 2 3.5V12.5C2 13.328 2.672 14 3.5 14H12.5C13.328 14 14 13.328 14 12.5V3.5C14 2.672 13.328 2 12.5 2Z"/></svg>',
+};
+
+/**
  * Jasper Debugger — a roomy, Smalltalk-style debugger rendered as a VS Code
  * webview, offered *alongside* the existing DAP debugger. Whichever entry point
  * the user picks (DAP "Debug" vs. this "Enhanced Debug") owns the suspended
@@ -45,7 +65,8 @@ type DebuggerInbound =
   | { command: 'stepOver'; level: number }
   | { command: 'stepInto'; level: number }
   | { command: 'stepThrough'; level: number }
-  | { command: 'restartFrame'; level: number };
+  | { command: 'restartFrame'; level: number }
+  | { command: 'saveLayout'; stackBasis: string };
 
 /**
  * Build the `gemstone://` URI for a method's source, in the exact form the
@@ -272,6 +293,15 @@ export class DebuggerPanel {
   private static readOnlySources = new Map<string, string>();
   private static providerRegistered = false;
 
+  /**
+   * The Call-Stack-vs-Variables split, as a CSS width for the stack pane
+   * (`--stack-basis`). Remembered across panels for the lifetime of this VS Code
+   * window so a resize sticks from one debugger to the next; the webview also
+   * persists it via getState/setState so it survives a webview reload. (Full
+   * cross-restart persistence would need globalState — deferred.) Default 60%.
+   */
+  private static savedStackBasis = '60%';
+
   private static ensureReadOnlySourceProvider(): void {
     if (DebuggerPanel.providerRegistered) return;
     DebuggerPanel.providerRegistered = true;
@@ -405,6 +435,11 @@ export class DebuggerPanel {
       case 'restartFrame': {
         const frame = this.frames.find(f => f.level === msg.level);
         if (frame) this.restartFrame(frame.serverLevel);
+        return;
+      }
+      case 'saveLayout': {
+        // Remember the stack/variables split so the next panel opens the same way.
+        DebuggerPanel.savedStackBasis = msg.stackBasis;
         return;
       }
     }
@@ -823,6 +858,7 @@ export class DebuggerPanel {
   private getHtml(): string {
     const nonce = crypto.randomBytes(16).toString('hex');
     const subtitle = escapeHtml(this.sessionSubtitle());
+    const stackBasis = DebuggerPanel.savedStackBasis;
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -889,23 +925,58 @@ export class DebuggerPanel {
     .frame .level { color: var(--vscode-descriptionForeground); margin-right: 0.6rem; }
     .frame .pos { color: var(--vscode-descriptionForeground); margin-left: 0.6rem; }
     .empty { color: var(--vscode-descriptionForeground); font-style: italic; }
-    /* Toolbar: Resume / step verbs / Restart Frame / Terminate. */
-    .toolbar { display: flex; gap: 0.3rem; margin: 0 0 0.6rem; flex-wrap: wrap; }
-    .toolbar button {
-      font-family: var(--vscode-font-family); font-size: 0.85rem;
-      color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
-      background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
-      border: none; padding: 0.25rem 0.7rem; border-radius: 2px; cursor: pointer;
+    /* Pane labels above the Call Stack / Variables panes. */
+    .pane-title {
+      font-size: 0.9rem; font-weight: 600; margin: 0 0 0.3rem;
+      color: var(--vscode-foreground);
     }
-    .toolbar button:hover { background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground)); }
-    .toolbar button.danger { color: var(--vscode-errorForeground); }
-    /* Stack (left) + variables (right). */
-    .main { display: flex; gap: 0.8rem; align-items: flex-start; }
-    .main .stack { flex: 1 1 60%; min-width: 0; }
+    /* Toolbar: icon-only debug controls (the DAP toolbar's codicon glyphs) so it
+       stays compact. Tooltips/aria-labels carry the names. */
+    .toolbar { display: flex; gap: 0.15rem; margin: 0 0 0.6rem; flex-wrap: wrap; }
+    .toolbar button {
+      display: flex; align-items: center; justify-content: center;
+      color: var(--vscode-icon-foreground, var(--vscode-foreground));
+      background: transparent;
+      border: none; padding: 0.3rem; border-radius: 4px; cursor: pointer;
+    }
+    .toolbar button svg { width: 16px; height: 16px; display: block; }
+    .toolbar button:hover { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
+    .toolbar button.danger { color: var(--vscode-debugIcon-stopForeground, var(--vscode-errorForeground)); }
+    /* Call Stack (left) + Variables (right), divided by a draggable splitter.
+       --stack-basis is the stack pane's width; the splitter drag rewrites it and
+       it's persisted (see debuggerView.js / the saveLayout message). */
+    .main { display: flex; align-items: stretch; --stack-basis: 60%; }
+    .pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+    .stack-pane { flex: 0 0 var(--stack-basis); }
+    .vars-pane { flex: 1 1 0; }
+    .main .stack { min-width: 0; max-height: 22rem; overflow: auto; }
+    /* Draggable divider: a thin hit area with a centred 1px rule that thickens
+       and lights up on hover / while dragging. */
+    .splitter {
+      flex: 0 0 9px; align-self: stretch; cursor: col-resize; position: relative;
+      margin-top: 1.7rem; /* skip past the pane titles so the rule spans the lists */
+    }
+    .splitter::before {
+      content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 1px;
+      background: var(--vscode-panel-border, transparent);
+    }
+    .splitter:hover::before, .splitter.dragging::before {
+      left: 3px; width: 3px; background: var(--vscode-focusBorder);
+    }
     .vars {
-      flex: 1 1 40%; min-width: 0; max-height: 18rem; overflow: auto;
-      border-left: 1px solid var(--vscode-panel-border, transparent); padding-left: 0.6rem;
+      min-width: 0; max-height: 22rem; overflow: auto;
       font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85rem;
+    }
+    /* Only when the column is genuinely tiny: stack the Variables pane under the
+       Call Stack and hide the splitter (a horizontal drag is meaningless in a
+       vertical layout). A debugger webview usually lives in a Beside column a few
+       hundred px wide, so this threshold stays low — otherwise the side-by-side
+       layout would never apply and the panel would be needlessly tall. */
+    @media (max-width: 340px) {
+      .main { flex-direction: column; }
+      .stack-pane, .vars-pane { flex: 0 0 auto; }
+      .splitter { display: none; }
+      .vars-pane { margin-top: 0.6rem; }
     }
     .vars .var { padding: 0.15rem 0.2rem; display: flex; gap: 0.5rem; }
     .vars .var-name { color: var(--vscode-symbolIcon-variableForeground, var(--vscode-foreground)); white-space: nowrap; }
@@ -934,17 +1005,24 @@ export class DebuggerPanel {
     <button id="copyBtn" class="copy-btn" title="Copy the whole stack to the clipboard">Copy Stack</button>
   </div>
   <div class="toolbar" id="toolbar">
-    <button data-cmd="resume" title="Resume execution">Resume</button>
-    <button data-cmd="stepOver" title="Step over (from the selected frame)">Over</button>
-    <button data-cmd="stepInto" title="Step into">Into</button>
-    <button data-cmd="stepThrough" title="Step through blocks">Through</button>
-    <button data-cmd="restartFrame" title="Restart the selected frame">Restart Frame</button>
-    <button data-cmd="terminate" class="danger" title="Terminate the process">Terminate</button>
+    <button data-cmd="resume" title="Resume execution" aria-label="Resume execution">${TOOLBAR_ICONS.resume}</button>
+    <button data-cmd="stepOver" title="Step over (from the selected frame)" aria-label="Step over">${TOOLBAR_ICONS.stepOver}</button>
+    <button data-cmd="stepInto" title="Step into" aria-label="Step into">${TOOLBAR_ICONS.stepInto}</button>
+    <button data-cmd="stepThrough" title="Step through blocks" aria-label="Step through blocks">${TOOLBAR_ICONS.stepThrough}</button>
+    <button data-cmd="restartFrame" title="Restart the selected frame" aria-label="Restart the selected frame">${TOOLBAR_ICONS.restartFrame}</button>
+    <button data-cmd="terminate" class="danger" title="Terminate the process" aria-label="Terminate the process">${TOOLBAR_ICONS.terminate}</button>
   </div>
   <div class="error" id="error"></div>
-  <div class="main">
-    <ul class="stack" id="stack"></ul>
-    <div class="vars" id="variables"></div>
+  <div class="main" id="main" style="--stack-basis: ${stackBasis};">
+    <div class="pane stack-pane">
+      <div class="pane-title">Call Stack</div>
+      <ul class="stack" id="stack"></ul>
+    </div>
+    <div class="splitter" id="splitter" title="Drag to resize"></div>
+    <div class="pane vars-pane">
+      <div class="pane-title">Variables</div>
+      <div class="vars" id="variables"></div>
+    </div>
   </div>
   <div class="evalbar">
     <input id="evalInput" type="text" autocomplete="off" spellcheck="false"
@@ -967,6 +1045,8 @@ export class DebuggerPanel {
       variables: document.getElementById('variables'),
       evalInput: document.getElementById('evalInput'),
       evalResult: document.getElementById('evalResult'),
+      main: document.getElementById('main'),
+      splitter: document.getElementById('splitter'),
     }, vscode);
     vscode.postMessage({ command: 'ready' });
   </script>

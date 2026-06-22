@@ -20,7 +20,11 @@ interface DebuggerViewApi {
   showMenu(menuEl: HTMLElement, x: number, y: number): void;
   hideMenu(menuEl: HTMLElement): void;
   frameLevelOf(target: Element | null): number | null;
-  init(refs: Refs, vscode: { postMessage: (m: unknown) => void }): {
+  init(refs: Refs, vscode: {
+    postMessage: (m: unknown) => void;
+    getState?: () => unknown;
+    setState?: (s: unknown) => void;
+  }): {
     selectedLevel(): number | null;
     select(level: number): void;
   };
@@ -36,6 +40,8 @@ interface Refs {
   variables: HTMLElement;
   evalInput: HTMLInputElement;
   evalResult: HTMLElement;
+  main?: HTMLElement;
+  splitter?: HTMLElement;
 }
 
 function api(): DebuggerViewApi {
@@ -265,6 +271,17 @@ describe('DebuggerView.init — toolbar', () => {
     click('terminate');
     expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'terminate', level: 1 });
   });
+
+  it('resolves the command when the click lands on a child of the button (the SVG icon)', () => {
+    const { refs, vscode } = setup(); // default-selects top frame (level 1)
+    const btn = refs.toolbar.querySelector('button[data-cmd="stepInto"]')!;
+    // Production buttons hold an inline <svg> glyph, so the real click target is
+    // the child element, not the button — the handler must walk up via closest().
+    const icon = document.createElement('span');
+    btn.appendChild(icon);
+    icon.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'stepInto', level: 1 });
+  });
 });
 
 describe('DebuggerView.init — eval bar', () => {
@@ -328,5 +345,91 @@ describe('DebuggerView.init — inbound variables / evalResult', () => {
     expect(refs.variables.querySelector('.var')).toBeNull();
     expect(refs.evalResult.textContent).toBe('');
     expect(refs.evalResult.classList.contains('error')).toBe(false);
+  });
+});
+
+describe('DebuggerView.init — resizable splitter', () => {
+  // Build a panel DOM that includes the .main container + splitter, and a fake
+  // vscode that records postMessage and round-trips getState/setState. jsdom
+  // getBoundingClientRect returns zeros, so stub .main's rect to a real width.
+  function setupSplit(initialState?: { stackBasis?: string }) {
+    document.body.innerHTML = `
+      <div id="error"></div>
+      <div class="main" id="main" style="--stack-basis: 60%;">
+        <ul id="stack"></ul>
+        <div id="splitter"></div>
+        <div id="variables"></div>
+      </div>
+      <div id="ctxmenu"><div id="copyFrameItem"></div></div>
+      <button id="copyBtn"></button><div id="toolbar"></div>
+      <input id="evalInput"><div id="evalResult"></div>`;
+    const main = document.getElementById('main')!;
+    main.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, right: 200, bottom: 100, width: 200, height: 100, x: 0, y: 0, toJSON() {} });
+    const refs: Refs = {
+      list: document.getElementById('stack')!,
+      menu: document.getElementById('ctxmenu')!,
+      copyFrameItem: document.getElementById('copyFrameItem')!,
+      copyBtn: document.getElementById('copyBtn')!,
+      error: document.getElementById('error')!,
+      toolbar: document.getElementById('toolbar')!,
+      variables: document.getElementById('variables')!,
+      evalInput: document.getElementById('evalInput') as HTMLInputElement,
+      evalResult: document.getElementById('evalResult')!,
+      main,
+      splitter: document.getElementById('splitter')!,
+    };
+    let state: unknown = initialState;
+    const vscode = {
+      postMessage: vi.fn(),
+      getState: vi.fn(() => state),
+      setState: vi.fn((s: unknown) => { state = s; }),
+    };
+    api().init(refs, vscode);
+    return { refs, vscode, main };
+  }
+
+  function drag(splitter: HTMLElement, toClientX: number) {
+    splitter.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 120, clientY: 50 }));
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: toClientX, clientY: 50 }));
+    window.dispatchEvent(new MouseEvent('mouseup', { clientX: toClientX, clientY: 50 }));
+  }
+
+  it('restores a previously saved stack basis from webview state on init', () => {
+    const { main } = setupSplit({ stackBasis: '35%' });
+    expect(main.style.getPropertyValue('--stack-basis').trim()).toBe('35%');
+  });
+
+  it('updates --stack-basis while dragging, clamped to 20–80%', () => {
+    const { refs, main } = setupSplit();
+    // 50px / 200px width → 25%.
+    drag(refs.splitter!, 50);
+    expect(main.style.getPropertyValue('--stack-basis').trim()).toBe('25.0%');
+    // Dragging past the right edge clamps to 80%.
+    drag(refs.splitter!, 400);
+    expect(main.style.getPropertyValue('--stack-basis').trim()).toBe('80.0%');
+  });
+
+  it('persists the basis on drag end via setState and a saveLayout message', () => {
+    const { refs, vscode } = setupSplit();
+    drag(refs.splitter!, 100); // 100/200 → 50%
+    expect(vscode.setState).toHaveBeenCalledWith({ stackBasis: '50.0%' });
+    expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'saveLayout', stackBasis: '50.0%' });
+  });
+
+  it('a mousemove with no active drag does nothing', () => {
+    const { main } = setupSplit();
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 10, clientY: 10 }));
+    expect(main.style.getPropertyValue('--stack-basis').trim()).toBe('60%');
+  });
+
+  it('a bare click on the splitter (no movement) does not persist', () => {
+    const { refs, vscode } = setupSplit();
+    refs.splitter!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 120, clientY: 50 }));
+    window.dispatchEvent(new MouseEvent('mouseup', { clientX: 120, clientY: 50 }));
+    expect(vscode.setState).not.toHaveBeenCalled();
+    expect(vscode.postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'saveLayout' }),
+    );
   });
 });

@@ -1312,20 +1312,31 @@ describe('CodeExecutor', () => {
       expect(DebuggerPanel.create).toHaveBeenCalledWith(session, 0x123n, expect.any(String), expect.any(Function));
     });
 
-    it('the Display It completion callback renders the result back in the workspace', async () => {
+    it('the Display It completion callback renders the result back in the workspace, refocusing the editor', async () => {
       vi.mocked(vscode.window.showErrorMessage).mockResolvedValue('Enhanced Debug' as never);
       setup();
       await executor.displayIt();
 
       // Invoke the captured callback exactly as the panel would on Resume/step-
-      // to-completion, and assert the result is displayed (overlay decoration).
+      // to-completion. Rendering is deferred to the next tick (after the panel
+      // disposes) and the editor is refocused first so the result's
+      // Backspace/Enter keybindings (editorTextFocus) work.
       const onComplete = vi.mocked(DebuggerPanel.create).mock.calls.at(-1)![3] as (oop: bigint) => void;
       const editor = vscode.window.activeTextEditor as unknown as { setDecorations: ReturnType<typeof vi.fn> };
       editor.setDecorations.mockClear();
+      // showTextDocument resolves with the same editor (as it would for the same doc).
+      vi.mocked(vscode.window.showTextDocument).mockResolvedValue(editor as unknown as vscode.TextEditor);
 
-      onComplete(0x222n);
+      vi.useFakeTimers();
+      try {
+        onComplete(0x222n);
+        await vi.runAllTimersAsync();
+      } finally {
+        vi.useRealTimers();
+      }
 
-      expect(editor.setDecorations).toHaveBeenCalled(); // result rendered into the workspace
+      expect(vscode.window.showTextDocument).toHaveBeenCalled(); // editor refocused
+      expect(editor.setDecorations).toHaveBeenCalled();          // result rendered into the workspace
     });
   });
 

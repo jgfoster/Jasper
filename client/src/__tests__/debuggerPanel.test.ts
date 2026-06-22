@@ -298,6 +298,29 @@ describe('DebuggerPanel', () => {
       expect(html).toContain('preventDefault');
     });
 
+    it('renders labelled, splittable Call Stack / Variables panes', () => {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const html = lastPanel().webview.html;
+
+      expect(html).toContain('>Call Stack<');     // pane title
+      expect(html).toContain('>Variables<');       // pane title
+      expect(html).toContain('id="splitter"');     // draggable divider
+      expect(html).toMatch(/--stack-basis:\s*60%/); // default split, injected from the saved static
+    });
+
+    it('renders the toolbar as DAP-style icon buttons (codicon SVGs), not text labels', () => {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const html = lastPanel().webview.html;
+
+      // Each control keeps its data-cmd (wiring) but now carries an inline SVG glyph.
+      for (const cmd of ['resume', 'stepOver', 'stepInto', 'stepThrough', 'restartFrame', 'terminate']) {
+        expect(html).toMatch(new RegExp(`data-cmd="${cmd}"[^>]*>\\s*<svg`));
+      }
+      // The old text labels are gone (names live in title/aria-label tooltips).
+      expect(html).toContain('aria-label="Resume execution"');
+      expect(html).not.toMatch(/data-cmd="resume"[^>]*>Resume</);
+    });
+
     it('writes the formatted stack to the clipboard on a copyStack message', () => {
       DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
       const panel = lastPanel();
@@ -523,6 +546,8 @@ describe('DebuggerPanel', () => {
       const openUri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
       expect(openUri.scheme).toBe('gemstone-debug');
       expect(openUri.path).toBe('Executed Code');
+      // stashReadOnlySource keys each method distinct via the query (session + oop).
+      expect(openUri.query).toMatch(/session=\d+&method=\d+/);
       expect(debug.getMethodSource).toHaveBeenCalled();
 
       // The content provider serves the UNWRAPPED user code (read-only, never dirty).
@@ -833,6 +858,20 @@ describe('DebuggerPanel', () => {
 
       expect(onComplete).not.toHaveBeenCalled();
       expect(panel.dispose).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('layout persistence', () => {
+    it('remembers a saved split so the next panel opens with it', () => {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      sendMessage(lastPanel(), { command: 'saveLayout', stackBasis: '42%' });
+
+      // A freshly created panel injects the remembered basis into its HTML.
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      expect(lastPanel().webview.html).toMatch(/--stack-basis:\s*42%/);
+
+      // Restore the default so later tests see the standard 60% split.
+      sendMessage(lastPanel(), { command: 'saveLayout', stackBasis: '60%' });
     });
   });
 });

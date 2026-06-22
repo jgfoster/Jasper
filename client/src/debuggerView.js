@@ -113,7 +113,7 @@
    * editor and highlight the current line.
    */
   function init(refs, vscode) {
-    const { list, menu, copyFrameItem, copyBtn, error, toolbar, variables, evalInput, evalResult } = refs;
+    const { list, menu, copyFrameItem, copyBtn, error, toolbar, variables, evalInput, evalResult, main, splitter } = refs;
     let selectedLevel = null;
 
     function select(level) {
@@ -169,6 +169,50 @@
         if (e.key !== 'Enter') return;
         const expr = evalInput.value.trim();
         if (expr) vscode.postMessage({ command: 'evalInFrame', level: selectedLevel, expr });
+      });
+    }
+
+    // Draggable splitter: dragging re-apportions the Call Stack vs Variables
+    // panes by rewriting `--stack-basis` (the stack pane's width) on `.main`.
+    // The ratio is persisted via webview state (survives a reload) and posted to
+    // the host as `saveLayout` (so the next debugger panel opens the same way).
+    if (splitter && main) {
+      // Restore a previously saved ratio when reopening a reloaded webview.
+      const saved = vscode.getState ? vscode.getState() : null;
+      if (saved && saved.stackBasis) main.style.setProperty('--stack-basis', saved.stackBasis);
+
+      // The basis at mousedown, so endDrag can tell a real drag from a bare click.
+      let startBasis = null;
+      function onMove(e) {
+        const rect = main.getBoundingClientRect();
+        if (rect.width <= 0) return;
+        let pct = ((e.clientX - rect.left) / rect.width) * 100;
+        pct = Math.max(20, Math.min(80, pct));
+        main.style.setProperty('--stack-basis', pct.toFixed(1) + '%');
+      }
+      function endDrag() {
+        // The global listeners exist only for the duration of the drag (attached
+        // on mousedown), so idle mouse movement never runs onMove.
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', endDrag);
+        splitter.classList.remove('dragging');
+        const basis = main.style.getPropertyValue('--stack-basis').trim();
+        // Persist only when the divider actually moved — a bare click leaves the
+        // basis unchanged and must not trigger a state write / host round-trip.
+        if (!basis || basis === startBasis) return;
+        if (vscode.setState) {
+          const state = (vscode.getState ? vscode.getState() : null) || {};
+          state.stackBasis = basis;
+          vscode.setState(state);
+        }
+        vscode.postMessage({ command: 'saveLayout', stackBasis: basis });
+      }
+      splitter.addEventListener('mousedown', (e) => {
+        startBasis = main.style.getPropertyValue('--stack-basis').trim();
+        splitter.classList.add('dragging');
+        e.preventDefault();
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', endDrag);
       });
     }
 

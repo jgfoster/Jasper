@@ -214,7 +214,19 @@ export class CodeExecutor {
               const transcript = this.fetchTranscriptOutput(session);
               if (transcript) appendTranscript(transcript);
               const resultString = getObjectPrintString(session, resultOop, MAX_RESULT_SIZE);
-              void this.displayExecutionResult(editor, selection, resultString);
+              // Capture the editor's column now, while it is still visible — by the
+              // next tick (after the panel disposes) editor.viewColumn may be
+              // undefined and the result would drift to whatever column is active.
+              const column = editor.viewColumn ?? vscode.ViewColumn.Active;
+              // The debugger panel disposes immediately after this callback,
+              // stealing focus from the workspace editor. Render once that has
+              // settled (next tick), refocusing the editor first — the result's
+              // Backspace/Enter keybindings require editorTextFocus, so otherwise
+              // the result shows but can't be dismissed/expanded from the keyboard.
+              setTimeout(() => {
+                this.renderResultWithFocus(editor, selection, resultString, column)
+                  .catch(err => logError(session.id, err instanceof Error ? err.message : String(err)));
+              }, 0);
             }
           : undefined;
         await this.promptDebuggableError(session, e.context, msg, onComplete);
@@ -226,6 +238,33 @@ export class CodeExecutor {
       releaseStepping(session);
       this.setExecuting(session.id, false);
     }
+  }
+
+  /**
+   * Render a Display-It result after refocusing its editor. Used only by the
+   * debugger's resume-to-completion path: the Enhanced Debugger panel takes
+   * focus and then disposes, so the workspace editor must be re-focused before
+   * the result is shown — the Backspace (dismiss) / Enter (expand) keybindings
+   * are gated on editorTextFocus. Falls back to the captured editor reference if
+   * the document can no longer be shown (e.g. it was closed).
+   */
+  private async renderResultWithFocus(
+    editor: vscode.TextEditor,
+    selection: vscode.Selection,
+    resultString: string,
+    column: vscode.ViewColumn,
+  ): Promise<void> {
+    let target = editor;
+    try {
+      target = await vscode.window.showTextDocument(editor.document, {
+        viewColumn: column,
+        preserveFocus: false,
+        preview: false,
+      });
+    } catch {
+      // Document gone/unopenable — render on the captured editor as a fallback.
+    }
+    await this.displayExecutionResult(target, selection, resultString);
   }
 
   /**
