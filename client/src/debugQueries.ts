@@ -1,6 +1,6 @@
 import { ActiveSession } from './sessionManager';
 import { OOP_NIL, OOP_TRUE, OOP_ILLEGAL, GCI_PERFORM_FLAG_ENABLE_DEBUG } from './gciConstants';
-import { logInfo } from './gciLog';
+import { logInfo, logError } from './gciLog';
 
 const MAX_RESULT = 256 * 1024;
 
@@ -447,6 +447,82 @@ export function getDictionaryEntries(
 // ── Stepping ────────────────────────────────────────────
 
 /**
+ * Outcome of a step/continue. `completed` means the process ran to completion
+ * (not stopped at another step point/error); when it does, `resultOop` is the
+ * process's result — for a wrapped doit, the user code's value — which the
+ * caller can display (e.g. a halted Display It that the user resumes).
+ */
+export interface StepResult {
+  completed: boolean;
+  resultOop?: bigint;
+  errorMessage?: string;
+  errorContext?: bigint;
+}
+
+// ── Native-code toggle for stepping ─────────────────────────────────────────
+//
+// GemStone cannot single-step or set breakpoints in NATIVE code (error 6014):
+// a `halt`/error parks execution in native signal machinery that can't be
+// stepped while the gem runs native code (GemNativeCodeEnabled, on by default).
+// Setting ANY breakpoint flips the gem to interpreted execution, which makes
+// stepping work — this is how topaz steps. So we toggle a breakpoint in a
+// benign kernel method as the switch, and clear it once the last debugger for a
+// session closes, restoring native-code performance for normal execution.
+//
+// Ref-counted per session: concurrent debuggers share one toggle — the break is
+// set on the first acquire and cleared on the last release. Best-effort:
+// failures are logged, not thrown (the debugger still opens; stepping degrades).
+
+/** Benign kernel method whose breakpoint we toggle to disable/enable native code. */
+const NATIVE_CODE_TOGGLE = 'GsSshSocket class>>exampleUserId';
+const steppingRefs = new Map<number, number>();
+
+function setNativeCodeBreak(session: ActiveSession, on: boolean): void {
+  const selector = on ? 'setBreakAtStepPoint:' : 'clearBreakAtStepPoint:';
+  const code = `(GsSshSocket class compiledMethodAt: #exampleUserId) ${selector} 1`;
+  // sourceOop is the class of the source string (String); contextObject is
+  // OOP_ILLEGAL — matching the working GciTsExecute calling convention.
+  const { result: strClass, err: resErr } = session.gci.GciTsResolveSymbol(
+    session.handle, 'String', OOP_NIL,
+  );
+  if (resErr.number !== 0) {
+    logError(session.id, `[Jasper Debugger] could not resolve String for native-code toggle: ${resErr.message || resErr.number}`);
+    return;
+  }
+  const { err } = session.gci.GciTsExecute(
+    session.handle, code, strClass, OOP_ILLEGAL, OOP_NIL, 0, 0,
+  );
+  if (err.number !== 0) {
+    logError(session.id, `[Jasper Debugger] could not ${on ? 'set' : 'clear'} native-code toggle (${NATIVE_CODE_TOGGLE}): ${err.message || err.number}`);
+  }
+}
+
+/**
+ * Disable native code for the session so the debugger can single-step. Sets the
+ * benign toggle breakpoint on the first hold for the session. Ref-counted —
+ * pair every call with releaseStepping.
+ */
+export function acquireStepping(session: ActiveSession): void {
+  const n = steppingRefs.get(session.id) ?? 0;
+  if (n === 0) setNativeCodeBreak(session, true);
+  steppingRefs.set(session.id, n + 1);
+}
+
+/**
+ * Release one stepping hold; restores native code (clears the toggle) once the
+ * last debugger for the session closes.
+ */
+export function releaseStepping(session: ActiveSession): void {
+  const n = steppingRefs.get(session.id) ?? 0;
+  if (n <= 1) {
+    steppingRefs.delete(session.id);
+    if (n === 1) setNativeCodeBreak(session, false);
+  } else {
+    steppingRefs.set(session.id, n - 1);
+  }
+}
+
+/**
  * Sends a step message (e.g. gciStepOverFromLevel:) to the GsProcess
  * via blocking GciTsPerform. The step message both configures and
  * executes the step — it blocks until the process stops at the next
@@ -454,8 +530,8 @@ export function getDictionaryEntries(
  */
 function performStep(
   session: ActiveSession, gsProcess: bigint, selector: string, args: bigint[],
-): { completed: boolean; errorMessage?: string; errorContext?: bigint } {
-  const { err } = session.gci.GciTsPerform(
+): StepResult {
+  const { result, err } = session.gci.GciTsPerform(
     session.handle, gsProcess, OOP_ILLEGAL, selector, args,
     GCI_PERFORM_FLAG_ENABLE_DEBUG, 0,
   );
@@ -466,12 +542,13 @@ function performStep(
       errorContext: err.context,
     };
   }
-  return { completed: true };
+  // gciStep…FromLevel: returns the completion result when the process finishes.
+  return { completed: true, resultOop: result };
 }
 
 export function stepOver(
   session: ActiveSession, gsProcess: bigint, level: number,
-): { completed: boolean; errorMessage?: string; errorContext?: bigint } {
+): StepResult {
   const levelOop = intToOop(session, level);
   logInfo(`[Session ${session.id}] Debug: stepOver from level ${level}`);
   return performStep(session, gsProcess, 'gciStepOverFromLevel:', [levelOop]);
@@ -479,7 +556,7 @@ export function stepOver(
 
 export function stepInto(
   session: ActiveSession, gsProcess: bigint, level: number,
-): { completed: boolean; errorMessage?: string; errorContext?: bigint } {
+): StepResult {
   const levelOop = intToOop(session, level);
   logInfo(`[Session ${session.id}] Debug: stepInto from level ${level}`);
   return performStep(session, gsProcess, 'gciStepIntoFromLevel:', [levelOop]);
@@ -487,7 +564,7 @@ export function stepInto(
 
 export function stepOut(
   session: ActiveSession, gsProcess: bigint, level: number,
-): { completed: boolean; errorMessage?: string; errorContext?: bigint } {
+): StepResult {
   const levelOop = intToOop(session, level);
   logInfo(`[Session ${session.id}] Debug: stepThru from level ${level}`);
   return performStep(session, gsProcess, 'gciStepThruFromLevel:', [levelOop]);
@@ -503,9 +580,9 @@ export function stepOut(
  */
 export function continueExecution(
   session: ActiveSession, gsProcess: bigint,
-): { completed: boolean; errorMessage?: string; errorContext?: bigint } {
+): StepResult {
   logInfo(`[Session ${session.id}] Debug: continue`);
-  const { err } = session.gci.GciTsContinueWith(
+  const { result, err } = session.gci.GciTsContinueWith(
     session.handle, gsProcess, OOP_NIL, null, GCI_PERFORM_FLAG_ENABLE_DEBUG,
   );
   if (err.number !== 0) {
@@ -515,7 +592,8 @@ export function continueExecution(
       errorContext: err.context,
     };
   }
-  return { completed: true };
+  // On normal completion GciTsContinueWith returns the process's result oop.
+  return { completed: true, resultOop: result };
 }
 
 /**

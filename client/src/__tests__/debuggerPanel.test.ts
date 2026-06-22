@@ -39,6 +39,8 @@ vi.mock('../debugQueries', () => ({
   stepOut: vi.fn(() => ({ completed: false })),
   trimStackToLevel: vi.fn(),
   clearStack: vi.fn(),
+  acquireStepping: vi.fn(),
+  releaseStepping: vi.fn(),
 }));
 
 // Source offsets for the step-point highlight. These are GemStone `_sourceOffsets`,
@@ -662,6 +664,16 @@ describe('DebuggerPanel', () => {
     expect(debug.clearStack).toHaveBeenCalledWith(session, GS_PROCESS);
   });
 
+  it('holds native code off for the session: acquires on open, releases on close', () => {
+    DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+    const panel = lastPanel();
+
+    expect(debug.acquireStepping).toHaveBeenCalledWith(session);
+    expect(debug.releaseStepping).not.toHaveBeenCalled();
+    closePanel(panel);
+    expect(debug.releaseStepping).toHaveBeenCalledWith(session);
+  });
+
   describe('variables / eval / toolbar', () => {
     // clearAllMocks() doesn't reset return values/implementations, so restore the
     // base getFrameInfo each test (a test that overrides it would otherwise leak).
@@ -733,15 +745,27 @@ describe('DebuggerPanel', () => {
       expect(lastPosted(panel, 'init').errorMessage).toBe('next error');
     });
 
-    it('Step Over steps from the selected frame and refreshes (clearing the error banner)', () => {
+    it('Step Over steps from the selected user frame (display level → server level) and refreshes, clearing the error banner', () => {
       const panel = openPanel();
       const before = posted(panel, 'init').length;
-      sendMessage(panel, { command: 'stepOver', level: 3 });
+      sendMessage(panel, { command: 'stepOver', level: 3 }); // display 3 → server level 3
 
       expect(debug.stepOver).toHaveBeenCalledWith(session, GS_PROCESS, 3);
       expect(posted(panel, 'init').length).toBe(before + 1);
       expect(lastPosted(panel, 'init').errorMessage).toBe('');
       expect(panel.dispose).not.toHaveBeenCalled();
+    });
+
+    it('surfaces a clear message when a step hits native-code (error 6014), without disposing', () => {
+      vi.mocked(debug.stepOver).mockReturnValueOnce({
+        completed: false,
+        errorMessage: 'a ImproperOperation occurred (error 6014), Breakpoint and single-step not supported in native code',
+      });
+      const panel = openPanel();
+      sendMessage(panel, { command: 'stepOver', level: 1 });
+
+      expect(panel.dispose).not.toHaveBeenCalled();
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/native code/i);
     });
 
     it('Step disposes the panel when the step completes the process', () => {
@@ -752,9 +776,9 @@ describe('DebuggerPanel', () => {
       expect(panel.dispose).toHaveBeenCalled();
     });
 
-    it('"Through" maps to gciStepThru (debugQueries.stepOut)', () => {
+    it('"Through" maps to gciStepThru (debugQueries.stepOut), from the selected user frame', () => {
       const panel = openPanel();
-      sendMessage(panel, { command: 'stepThrough', level: 4 });
+      sendMessage(panel, { command: 'stepThrough', level: 4 }); // display 4 → server level 4
 
       expect(debug.stepOut).toHaveBeenCalledWith(session, GS_PROCESS, 4);
     });
@@ -773,6 +797,42 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'terminate' });
 
       expect(panel.dispose).toHaveBeenCalled();
+    });
+
+    it('hands the completed result to onComplete on Resume, then disposes', () => {
+      vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true, resultOop: 0x55n });
+      const onComplete = vi.fn();
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG, onComplete);
+      const panel = lastPanel();
+      sendReady(panel);
+      sendMessage(panel, { command: 'resume' });
+
+      expect(onComplete).toHaveBeenCalledWith(0x55n);
+      expect(panel.dispose).toHaveBeenCalled();
+    });
+
+    it('hands the completed result to onComplete on step-to-completion', () => {
+      vi.mocked(debug.stepOver).mockReturnValueOnce({ completed: true, resultOop: 0x66n });
+      const onComplete = vi.fn();
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG, onComplete);
+      const panel = lastPanel();
+      sendReady(panel);
+      sendMessage(panel, { command: 'stepOver', level: 1 });
+
+      expect(onComplete).toHaveBeenCalledWith(0x66n);
+      expect(panel.dispose).toHaveBeenCalled();
+    });
+
+    it('does NOT call onComplete when Resume hits another error (refreshes instead)', () => {
+      vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: false, errorMessage: 'boom2' });
+      const onComplete = vi.fn();
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG, onComplete);
+      const panel = lastPanel();
+      sendReady(panel);
+      sendMessage(panel, { command: 'resume' });
+
+      expect(onComplete).not.toHaveBeenCalled();
+      expect(panel.dispose).not.toHaveBeenCalled();
     });
   });
 });

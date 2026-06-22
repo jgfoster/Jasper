@@ -52,6 +52,8 @@ function makeGci(overrides: Record<string, unknown> = {}) {
     GciTsClearStack: vi.fn(),
     GciTsObjExists: vi.fn(() => false),
     GciTsFetchClass: vi.fn(() => ({ result: 0n, err: { number: 0 } })),
+    // Used by the native-code stepping toggle (acquire/releaseStepping).
+    GciTsExecute: vi.fn(() => ({ result: 0n, err: { number: 0 } })),
     ...overrides,
   };
 }
@@ -435,6 +437,18 @@ describe('CodeExecutor', () => {
 
       const wrappedCode = (gci.GciTsNbExecute as Mock).mock.calls[0][1] as string;
       expect(wrappedCode).toContain("'hello' reversed");
+    });
+
+    it('runs interpreted (toggles native code off, then back on) so a halt would be steppable', async () => {
+      const editor = makeEditor("'hello' reversed");
+      setActiveEditor(editor);
+
+      await executor.displayIt();
+
+      // acquireStepping/releaseStepping drive GciTsExecute on the benign toggle method.
+      const toggleCalls = (gci.GciTsExecute as Mock).mock.calls.map((c) => c[1] as string);
+      expect(toggleCalls.some((c) => c.includes('setBreakAtStepPoint:'))).toBe(true);
+      expect(toggleCalls.some((c) => c.includes('clearBreakAtStepPoint:'))).toBe(true);
     });
   });
 
@@ -1277,13 +1291,41 @@ describe('CodeExecutor', () => {
 
       await executor.executeIt();
 
-      // The webview debugger owns the gsProcess for this error.
-      expect(DebuggerPanel.create).toHaveBeenCalledWith(session, 0x123n, expect.any(String));
+      // The webview debugger owns the gsProcess for this error. Execute It is
+      // intentionally silent, so no completion callback is passed.
+      expect(DebuggerPanel.create).toHaveBeenCalledWith(session, 0x123n, expect.any(String), undefined);
       // The DAP path must not run, and the stack must NOT be cleared — the
       // panel now owns the suspended process.
       expect(vscode.debug.startDebugging).not.toHaveBeenCalled();
       expect(revealedView()).toBe(false);
       expect(gci.GciTsClearStack).not.toHaveBeenCalled();
+    });
+
+    it('passes a completion callback to the Enhanced Debugger for a halted Display It', async () => {
+      vi.mocked(vscode.window.showErrorMessage).mockResolvedValue('Enhanced Debug' as never);
+      setup();
+
+      await executor.displayIt();
+
+      // Display It → on Resume/step-to-completion the result is rendered back in
+      // the workspace, so a completion callback IS provided.
+      expect(DebuggerPanel.create).toHaveBeenCalledWith(session, 0x123n, expect.any(String), expect.any(Function));
+    });
+
+    it('the Display It completion callback renders the result back in the workspace', async () => {
+      vi.mocked(vscode.window.showErrorMessage).mockResolvedValue('Enhanced Debug' as never);
+      setup();
+      await executor.displayIt();
+
+      // Invoke the captured callback exactly as the panel would on Resume/step-
+      // to-completion, and assert the result is displayed (overlay decoration).
+      const onComplete = vi.mocked(DebuggerPanel.create).mock.calls.at(-1)![3] as (oop: bigint) => void;
+      const editor = vscode.window.activeTextEditor as unknown as { setDecorations: ReturnType<typeof vi.fn> };
+      editor.setDecorations.mockClear();
+
+      onComplete(0x222n);
+
+      expect(editor.setDecorations).toHaveBeenCalled(); // result rendered into the workspace
     });
   });
 

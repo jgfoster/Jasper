@@ -308,18 +308,30 @@ export class DebuggerPanel {
   /** Every source URI shown in the companion editor (closed on dispose). */
   private shownSourceUris = new Set<string>();
 
-  static create(session: ActiveSession, gsProcess: bigint, errorMessage: string): void {
+  /**
+   * @param onComplete called with the process's result oop when execution
+   *   completes via Resume or step-to-completion (e.g. so a halted Display It
+   *   can render its result back in the workspace). Omitted when there's no
+   *   result to surface (Execute It, or a halt not originating from a doit).
+   */
+  static create(
+    session: ActiveSession, gsProcess: bigint, errorMessage: string,
+    onComplete?: (resultOop: bigint) => void,
+  ): void {
     const panel = vscode.window.createWebviewPanel(
       'gemstoneEnhancedDebugger',
       'Jasper Debugger',
       vscode.ViewColumn.Beside,
       { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] },
     );
-    const debugger_ = new DebuggerPanel(panel, session, gsProcess, errorMessage);
+    const debugger_ = new DebuggerPanel(panel, session, gsProcess, errorMessage, onComplete);
     if (!DebuggerPanel.panels.has(session.id)) {
       DebuggerPanel.panels.set(session.id, new Set());
     }
     DebuggerPanel.panels.get(session.id)!.add(debugger_);
+    // Disable native code for this session so the debugger can single-step
+    // (GemStone can't step native code — error 6014). Released on dispose.
+    debug.acquireStepping(session);
   }
 
   static disposeForSession(sessionId: number): void {
@@ -336,6 +348,7 @@ export class DebuggerPanel {
     private readonly gsProcess: bigint,
     // Mutable: resume-into-another-error updates it; step/restart clear it.
     private errorMessage: string,
+    private readonly onComplete?: (resultOop: bigint) => void,
   ) {
     this.panel = panel;
     this.sessionId = session.id;
@@ -386,8 +399,7 @@ export class DebuggerPanel {
       case 'stepOver':
       case 'stepInto':
       case 'stepThrough': {
-        const frame = this.frames.find(f => f.level === msg.level);
-        if (frame) this.step(msg.command, frame.serverLevel);
+        this.step(msg.command, msg.level);
         return;
       }
       case 'restartFrame': {
@@ -461,25 +473,59 @@ export class DebuggerPanel {
   private resume(): void {
     const result = debug.continueExecution(this.session, this.gsProcess);
     if (result.completed) {
-      this.panel.dispose();
+      this.onCompleted(result);
     } else {
       this.errorMessage = result.errorMessage || 'GemStone error';
       this.refresh();
     }
   }
 
-  /** Step (over/into/through) from the selected frame: dispose on completion, else refresh. */
-  private step(command: 'stepOver' | 'stepInto' | 'stepThrough', serverLevel: number): void {
+  /**
+   * The process ran to completion (via Resume or step). Hand its result to the
+   * onComplete callback (e.g. a halted Display It rendering its value back in
+   * the workspace) — BEFORE dispose, while the result oop is still fetchable —
+   * then close the panel.
+   */
+  private onCompleted(result: debug.StepResult): void {
+    if (result.resultOop != null) this.onComplete?.(result.resultOop);
+    this.panel.dispose();
+  }
+
+  /**
+   * Step over/into/through, then dispose on completion / else refresh.
+   *
+   * Steps from the selected (or topmost) USER frame's server level — NOT the
+   * process top (level 1). After a `halt`/error the process top is exception/
+   * signal machinery (which we filter out of the view); stepping over from a
+   * user frame runs that machinery to completion and stops at the next step
+   * point in the user code (e.g. the statement after `halt`), which is what the
+   * user expects from one Step Over. Stepping from level 1 would instead crawl
+   * one step point at a time through the hidden machinery.
+   *
+   * Requires native code OFF (codeExecutor toggles it before a debuggable run;
+   * the panel holds it off while open) — GemStone can't step native code (error
+   * 6014). If a step still hits that, we surface a clear message rather than
+   * fail silently. Resume is unaffected.
+   */
+  private step(command: 'stepOver' | 'stepInto' | 'stepThrough', displayLevel?: number): void {
     const fn = command === 'stepOver' ? debug.stepOver
       : command === 'stepInto' ? debug.stepInto
         : debug.stepOut; // "Through" == gciStepThru (debugQueries.stepOut)
-    const result = fn(this.session, this.gsProcess, serverLevel);
+    const frame = this.frames.find(f => f.level === displayLevel) ?? this.frames[0];
+    const level = frame?.serverLevel ?? 1;
+    const result = fn(this.session, this.gsProcess, level);
     if (result.completed) {
-      this.panel.dispose();
-    } else {
-      this.errorMessage = ''; // no longer at the original halt — clear the banner
-      this.refresh();
+      this.onCompleted(result);
+      return;
     }
+    if (result.errorMessage && /native code/i.test(result.errorMessage)) {
+      this.errorMessage = 'Stepping is unavailable while the gem runs native code '
+        + '(GEM_NATIVE_CODE_ENABLED). Use Resume — or run the gem with native code disabled to step.';
+      this.postInit(); // show the note; the stack is unchanged
+      return;
+    }
+    this.errorMessage = ''; // stepped to a new point — clear the original halt banner
+    this.refresh();
   }
 
   /** Restart the selected frame (trim the stack to it) and refresh. */
@@ -813,6 +859,9 @@ export class DebuggerPanel {
       font-family: var(--vscode-editor-font-family, monospace);
       white-space: pre-wrap;
       margin-bottom: 1rem;
+      /* Selectable so the error text can be copied (Ctrl/Cmd+C); the rest of the
+         panel stays non-selectable to keep the custom copy menu the only path. */
+      user-select: text; -webkit-user-select: text; cursor: text;
     }
     .stack { list-style: none; margin: 0; padding: 0; }
     .frame {
@@ -927,6 +976,9 @@ export class DebuggerPanel {
 
   private dispose(): void {
     DebuggerPanel.panels.get(this.sessionId)?.delete(this);
+    // Restore native code once the last debugger for this session closes
+    // (paired with acquireStepping in create).
+    debug.releaseStepping(this.session);
     // Drop the step-point highlight from the companion editor (which outlives
     // the panel) so a stale highlight doesn't linger after the debugger closes.
     this.decoratedEditor?.setDecorations(DebuggerPanel.stepPointDecoration, []);

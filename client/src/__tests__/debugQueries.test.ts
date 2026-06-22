@@ -437,4 +437,109 @@ describe('debugQueries', () => {
       expect(performCalls.some((c: unknown[]) => c[3] === '_framePerform:withArgs:onLevel:')).toBe(false);
     });
   });
+
+  describe('completion result oop', () => {
+    const GS_PROCESS = 9000n;
+    const RESULT = 0x99n;
+
+    it('continueExecution returns the result oop when the process completes', () => {
+      const session = {
+        id: 1, handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
+        gci: { GciTsContinueWith: vi.fn(() => ({ result: RESULT, err: { ...noErr } })) } as unknown as ActiveSession['gci'],
+      } as ActiveSession;
+
+      expect(debug.continueExecution(session, GS_PROCESS)).toEqual({ completed: true, resultOop: RESULT });
+    });
+
+    it('continueExecution reports the error (no result oop) when it stops again', () => {
+      const session = {
+        id: 1, handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
+        gci: { GciTsContinueWith: vi.fn(() => ({ result: 0n, err: { ...noErr, number: 2010, message: 'next error', context: 0xABn } })) } as unknown as ActiveSession['gci'],
+      } as ActiveSession;
+
+      const r = debug.continueExecution(session, GS_PROCESS);
+      expect(r.completed).toBe(false);
+      expect(r.resultOop).toBeUndefined();
+      expect(r.errorMessage).toBe('next error');
+    });
+
+    it('stepOver returns the result oop when the step completes the process', () => {
+      const session = {
+        id: 1, handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
+        gci: {
+          GciTsI64ToOop: vi.fn(() => ({ result: 0xAAn, err: { ...noErr } })),
+          GciTsPerform: vi.fn(() => ({ result: RESULT, err: { ...noErr } })),
+        } as unknown as ActiveSession['gci'],
+      } as ActiveSession;
+
+      expect(debug.stepOver(session, GS_PROCESS, 1)).toEqual({ completed: true, resultOop: RESULT });
+    });
+  });
+
+  // Native-code toggle: a benign breakpoint flips the gem to interpreted so the
+  // debugger can single-step (GemStone can't step native code, error 6014).
+  // Ref-counted per session: set on the first acquire, cleared on the last
+  // release. Each test uses a distinct session id to avoid sharing the
+  // module-level ref counter.
+  describe('stepping native-code toggle (acquire/releaseStepping)', () => {
+    let nextId = 1000;
+    function makeSession(): { session: ActiveSession; exec: ReturnType<typeof vi.fn> } {
+      const exec = vi.fn(() => ({ result: 0n, err: { ...noErr } }));
+      const gci = {
+        GciTsResolveSymbol: vi.fn(() => ({ result: 99n, err: { ...noErr } })),
+        GciTsExecute: exec,
+      };
+      const session = {
+        id: nextId++, gci: gci as unknown as ActiveSession['gci'],
+        handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
+      } as ActiveSession;
+      return { session, exec };
+    }
+    const codeOf = (exec: ReturnType<typeof vi.fn>, callIndex: number): string =>
+      exec.mock.calls[callIndex][1] as string;
+
+    it('first acquire sets the breakpoint (disables native code)', () => {
+      const { session, exec } = makeSession();
+      debug.acquireStepping(session);
+      expect(exec).toHaveBeenCalledTimes(1);
+      expect(codeOf(exec, 0)).toContain('setBreakAtStepPoint:');
+      debug.releaseStepping(session); // cleanup
+    });
+
+    it('last release clears the breakpoint (restores native code)', () => {
+      const { session, exec } = makeSession();
+      debug.acquireStepping(session);
+      debug.releaseStepping(session);
+      expect(exec).toHaveBeenCalledTimes(2);
+      expect(codeOf(exec, 1)).toContain('clearBreakAtStepPoint:');
+    });
+
+    it('is ref-counted: nested acquires set/clear the break only once (at the edges)', () => {
+      const { session, exec } = makeSession();
+      debug.acquireStepping(session); // 0→1: set
+      debug.acquireStepping(session); // 1→2: no-op
+      debug.releaseStepping(session); // 2→1: no-op
+      expect(exec).toHaveBeenCalledTimes(1); // only the initial set so far
+      debug.releaseStepping(session); // 1→0: clear
+      expect(exec).toHaveBeenCalledTimes(2);
+      expect(codeOf(exec, 0)).toContain('setBreakAtStepPoint:');
+      expect(codeOf(exec, 1)).toContain('clearBreakAtStepPoint:');
+    });
+
+    it('tracks sessions independently', () => {
+      const a = makeSession();
+      const b = makeSession();
+      debug.acquireStepping(a.session);
+      expect(a.exec).toHaveBeenCalledTimes(1);
+      expect(b.exec).not.toHaveBeenCalled(); // b untouched
+      debug.releaseStepping(a.session);
+    });
+
+    it('swallows a toggle failure (logs, does not throw)', () => {
+      const { session, exec } = makeSession();
+      exec.mockReturnValue({ result: 0n, err: { ...noErr, number: 2106, message: 'boom' } });
+      expect(() => debug.acquireStepping(session)).not.toThrow();
+      debug.releaseStepping(session);
+    });
+  });
 });
