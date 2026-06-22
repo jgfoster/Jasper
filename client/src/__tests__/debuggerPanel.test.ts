@@ -30,15 +30,25 @@ vi.mock('../debugQueries', () => ({
     receiverOop === 200n ? 'SmallInteger' : 'JasperDebugDemo'),
   getLineForIp: vi.fn(() => 12),
   getStepPoint: vi.fn(() => 2),
+  getMethodSource: vi.fn(() => '| t | t := 6 * 7. t halt'),
   clearStack: vi.fn(),
+}));
+
+// Source offsets for the step-point highlight. These are GemStone `_sourceOffsets`,
+// which are 1-BASED (index i = offset of step point i+1); the panel must convert
+// them to 0-based for doc.positionAt.
+vi.mock('../browserQueries', () => ({
+  getSourceOffsets: vi.fn(() => [1, 8, 26]),
 }));
 
 import * as vscode from 'vscode';
 import * as debug from '../debugQueries';
 import {
   DebuggerPanel, formatFrameLabel, formatFramePosition,
-  formatFrameForClipboard, formatStackForClipboard,
+  formatFrameForClipboard, formatStackForClipboard, buildMethodSourceUri,
+  filterStack, isExceptionMachinery, RawFrame,
 } from '../debuggerPanel';
+import { wrapWithTranscriptCapture } from '../transcriptCapture';
 import { ActiveSession } from '../sessionManager';
 import { GemStoneLogin } from '../loginTypes';
 
@@ -400,6 +410,156 @@ describe('DebuggerPanel', () => {
     });
   });
 
+  describe('source pane', () => {
+    // Let revealFrameSource's awaited openTextDocument/showTextDocument settle.
+    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+
+    const URI_INFO = {
+      dictName: 'UserGlobals', className: 'JasperDebugDemo', isMeta: false,
+      category: 'accessing', selector: 'accumulateFrom:to:',
+    };
+
+    // The editor showTextDocument resolved to on the most recent call.
+    async function shownEditor() {
+      const results = vi.mocked(vscode.window.showTextDocument).mock.results;
+      return await results[results.length - 1].value;
+    }
+
+    // Open the panel and load the (unfiltered, 5-frame) stack so selectFrame can
+    // map a display level back to its server level. Reveal-specific mocks are set
+    // AFTER this — fetchStack consumes only the base mocks, never the per-test
+    // `…Once` ones, which are then picked up by the single revealFrameSource call.
+    function openPanelWithStack() {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      return panel;
+    }
+
+    it('builds a gemstone:// URI of the form scheme/dict/class/side/category/selector', () => {
+      expect(buildMethodSourceUri(7, URI_INFO))
+        .toBe('gemstone://7/UserGlobals/JasperDebugDemo/instance/accessing/accumulateFrom%3Ato%3A');
+    });
+
+    it('uses the "class" side for metaclass methods', () => {
+      expect(buildMethodSourceUri(7, { ...URI_INFO, isMeta: true }))
+        .toContain('/JasperDebugDemo/class/');
+    });
+
+    it('opens the method source (gemstone://) in a group BELOW the panel, keeping focus', async () => {
+      const panel = openPanelWithStack();
+      vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce(URI_INFO); // for the reveal of frame 3
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      await flush();
+
+      const openUri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      expect(openUri.scheme).toBe('gemstone');
+      expect(openUri.toString()).toContain('JasperDebugDemo');
+
+      // Docked below: focus the panel's group, then split a new group beneath it.
+      expect(panel.reveal).toHaveBeenCalled();
+      expect(vscode.commands.executeCommand).toHaveBeenCalledWith('workbench.action.newGroupBelow');
+
+      expect(vscode.window.showTextDocument).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ preview: true, preserveFocus: true }),
+      );
+    });
+
+    it('highlights the step-point token, converting the 1-based source offset to 0-based', async () => {
+      const panel = openPanelWithStack();
+      vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce(URI_INFO);
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      await flush();
+
+      const editor = await shownEditor();
+      // step point 2 → getSourceOffsets()[1] === 8 (1-based) → positionAt(8 - 1) → (0, 7).
+      // Regression guard for C1: dropping the "-1" would land the highlight at column 8.
+      // No word range in the mock → a one-character marker, NOT the whole line.
+      const range = vi.mocked(editor.setDecorations).mock.calls[0][1][0] as vscode.Range;
+      expect(range.start.line).toBe(0);
+      expect(range.start.character).toBe(7);          // 8 (1-based) - 1, NOT 8
+      expect(range.end.character - range.start.character).toBe(1);
+      expect(editor.revealRange).toHaveBeenCalled();
+    });
+
+    it('shows the executed source read-only, stripped of the Transcript-capture glue', async () => {
+      const panel = openPanelWithStack();
+      // A true doit frame: no class>>selector at all (getMethodUriInfo AND
+      // getMethodInfo both fail to resolve a home class). Its stored source is
+      // the wrapped form; the panel must unwrap it.
+      vi.mocked(debug.getMethodInfo).mockImplementationOnce(() => { throw new Error('doit: nil inClass'); });
+      vi.mocked(debug.getMethodSource).mockReturnValueOnce(
+        wrapWithTranscriptCapture('JasperDebugDemo new run').wrappedCode,
+      );
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      await flush();
+
+      const openUri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      expect(openUri.scheme).toBe('gemstone-debug');
+      expect(openUri.path).toBe('Executed Code');
+      expect(debug.getMethodSource).toHaveBeenCalled();
+
+      // The content provider serves the UNWRAPPED user code (read-only, never dirty).
+      // (First read-only frame in the suite, so registration happens here.)
+      const reg = vi.mocked(vscode.workspace.registerTextDocumentContentProvider).mock.calls[0];
+      expect(reg[0]).toBe('gemstone-debug');
+      const provider = reg[1] as { provideTextDocumentContent(u: vscode.Uri): string };
+      expect(provider.provideTextDocumentContent(openUri)).toBe('JasperDebugDemo new run');
+    });
+
+    it('titles a read-only NON-symbol-list method by its method name (C3: never mislabel as Executed Code)', async () => {
+      const panel = openPanelWithStack();
+      // Frame 3: no dictName (getMethodUriInfo → undefined) but getMethodInfo
+      // resolves a real class → a method, NOT executed code. It must open titled
+      // by the method, not under "Executed Code".
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      await flush();
+
+      const openUri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      expect(openUri.scheme).toBe('gemstone-debug');
+      expect(openUri.path).toBe('JasperDebugDemo>>#accumulateFrom:to:');
+    });
+
+    it('does NOT highlight a read-only frame (C2 — no reliable IP→source mapping)', async () => {
+      // When we add highlighting to the read-only view, THIS test should fail —
+      // that's the reminder to add real highlight coverage for it.
+      const panel = openPanelWithStack(); // frame 3 → read-only (no gemstone:// URI)
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      await flush();
+
+      const editor = await shownEditor();
+      expect(vi.mocked(editor.setDecorations).mock.calls[0][1]).toEqual([]); // cleared, not set
+      expect(editor.revealRange).not.toHaveBeenCalled();
+    });
+
+    it('clears the highlight (no reveal) when there is no step point and no source line', async () => {
+      const panel = openPanelWithStack();
+      vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce(URI_INFO);
+      vi.mocked(debug.getStepPoint).mockReturnValueOnce(0);   // no step point (reveal)
+      vi.mocked(debug.getLineForIp).mockReturnValueOnce(0);   // unmapped IP   (reveal)
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      await flush();
+
+      const editor = await shownEditor();
+      expect(vi.mocked(editor.setDecorations).mock.calls[0][1]).toEqual([]);
+      expect(editor.revealRange).not.toHaveBeenCalled();
+    });
+
+    it('clears the step-point highlight when the panel is closed', async () => {
+      const panel = openPanelWithStack();
+      vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce(URI_INFO);
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      await flush();
+      const editor = await shownEditor();
+      vi.mocked(editor.setDecorations).mockClear();
+
+      closePanel(panel);
+
+      expect(editor.setDecorations).toHaveBeenCalledWith(expect.anything(), []);
+    });
+  });
+
   it('terminates the suspended gsProcess (via clearStack) when the panel window is closed', () => {
     DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
     const panel = lastPanel();
@@ -407,5 +567,103 @@ describe('DebuggerPanel', () => {
     expect(debug.clearStack).not.toHaveBeenCalled();
     closePanel(panel);
     expect(debug.clearStack).toHaveBeenCalledWith(session, GS_PROCESS);
+  });
+});
+
+// ── Stack filtering ────────────────────────────────────────────────
+// Models the real `JasperDebugDemo new run` halt stack (captured live, id 4):
+//   top = AbstractException signal machinery + Object>>halt,
+//   bottom = the transcript-capture doit + its block/ensure: glue.
+const DOIT = 999n;
+
+function raw(p: Partial<RawFrame> & { serverLevel: number; label: string }): RawFrame {
+  return {
+    methodOop: BigInt(p.serverLevel), homeMethodOop: BigInt(p.serverLevel),
+    isBlock: false, definingClassName: '', selector: '', isExecutedCode: false,
+    ...p,
+  };
+}
+
+// level 1 = top.
+const HALT_STACK: RawFrame[] = [
+  raw({ serverLevel: 1, label: 'AbstractException>>#_signalToDebugger', definingClassName: 'AbstractException', selector: '_signalToDebugger' }),
+  raw({ serverLevel: 2, label: 'AbstractException>>#_signal', definingClassName: 'AbstractException', selector: '_signal' }),
+  raw({ serverLevel: 3, label: 'AbstractException class>>#signal', definingClassName: 'AbstractException', selector: 'signal' }),
+  raw({ serverLevel: 4, label: 'SmallInteger (Object)>>#halt', definingClassName: 'Object', selector: 'halt' }),
+  raw({ serverLevel: 5, label: '[] in JasperDebugDemo>>#finish', definingClassName: 'JasperDebugDemo', selector: 'finish', isBlock: true, homeMethodOop: 10n }),
+  raw({ serverLevel: 6, label: 'Array (Collection)>>#do:', definingClassName: 'Collection', selector: 'do:' }),
+  raw({ serverLevel: 7, label: 'JasperDebugDemo>>#finish', definingClassName: 'JasperDebugDemo', selector: 'finish' }),
+  raw({ serverLevel: 8, label: 'JasperDebugDemo>>#accumulateFrom:to:', definingClassName: 'JasperDebugDemo', selector: 'accumulateFrom:to:' }),
+  raw({ serverLevel: 9, label: 'JasperDebugDemo>>#run', definingClassName: 'JasperDebugDemo', selector: 'run' }),
+  raw({ serverLevel: 10, label: 'Executed Code', isBlock: true, homeMethodOop: DOIT, isExecutedCode: true }),
+  raw({ serverLevel: 11, label: 'ExecBlock0 (ExecBlock)>>#ensure:', definingClassName: 'ExecBlock', selector: 'ensure:' }),
+  raw({ serverLevel: 12, label: 'Executed Code', isBlock: true, homeMethodOop: DOIT, isExecutedCode: true }),
+  raw({ serverLevel: 13, label: 'Executed Code', methodOop: DOIT, homeMethodOop: DOIT, isExecutedCode: true }),
+  // GemStone leaves a <Reenter marker> BELOW the doit; getFrameInfo can't resolve
+  // it so buildFrame yields a `<frame N>` (not executed-code). It must not block
+  // the bottom collapse (the original bug) and must itself be dropped.
+  raw({ serverLevel: 14, label: '<frame 14>' }),
+];
+
+describe('filterStack', () => {
+  it('trims halt machinery off the top and the wrapper glue off the bottom', () => {
+    const kept = filterStack(HALT_STACK);
+    // Top = the user block where halt was sent; bottom = the doit (kept); the
+    // signal frames, the wrapper frames (10, 11, 12) AND the reenter marker (14)
+    // are gone. Exactly ONE "Executed Code" frame survives.
+    expect(kept.map(f => f.serverLevel)).toEqual([5, 6, 7, 8, 9, 13]);
+    expect(kept[0].label).toBe('[] in JasperDebugDemo>>#finish');
+    expect(kept[kept.length - 1].label).toBe('Executed Code');
+    expect(kept.filter(f => f.label === 'Executed Code')).toHaveLength(1);
+    expect(kept.some(f => f.serverLevel === 14)).toBe(false); // reenter marker dropped
+  });
+
+  it('collapses the wrapper even when a non-executed-code frame sits below the doit', () => {
+    // Regression: the <Reenter marker> at the very bottom used to make the trim
+    // gate ("deepest frame is the doit") fail, leaving all the glue frames.
+    const kept = filterStack(HALT_STACK);
+    expect(kept.filter(f => f.isExecutedCode)).toHaveLength(1);
+  });
+
+  it('keeps mid-stack kernel frames (only trims contiguously from each end)', () => {
+    // Array>>do: (level 6) sits between user frames and must survive.
+    expect(filterStack(HALT_STACK).map(f => f.serverLevel)).toContain(6);
+  });
+
+  it('leaves a clean stack untouched (no machinery, no doit)', () => {
+    const plain = HALT_STACK.slice(4, 9); // frames 5..9, all user frames
+    expect(filterStack(plain)).toEqual(plain);
+  });
+
+  it('never trims the whole stack, even if every frame looks like machinery', () => {
+    const allMachinery = HALT_STACK.slice(0, 4); // the 4 signal/halt frames
+    const kept = filterStack(allMachinery);
+    expect(kept.length).toBe(1);            // keeps the last as a floor
+    expect(kept[0].serverLevel).toBe(4);
+  });
+
+  it('does not trim the bottom when the deepest frame is not a doit', () => {
+    const noDoit = HALT_STACK.slice(4, 9); // ends at run, not Executed Code
+    expect(filterStack(noDoit).map(f => f.serverLevel)).toEqual([5, 6, 7, 8, 9]);
+  });
+
+  it('returns short stacks unchanged', () => {
+    expect(filterStack([])).toEqual([]);
+    expect(filterStack([HALT_STACK[8]])).toEqual([HALT_STACK[8]]);
+  });
+});
+
+describe('isExceptionMachinery', () => {
+  it('flags AbstractException frames and halt/DNU/signal selectors', () => {
+    expect(isExceptionMachinery(HALT_STACK[0])).toBe(true);  // _signalToDebugger
+    expect(isExceptionMachinery(HALT_STACK[2])).toBe(true);  // class>>signal
+    expect(isExceptionMachinery(HALT_STACK[3])).toBe(true);  // Object>>halt
+    expect(isExceptionMachinery(raw({ serverLevel: 1, label: 'x', selector: 'doesNotUnderstand:' }))).toBe(true);
+  });
+
+  it('does not flag ordinary user/kernel frames', () => {
+    expect(isExceptionMachinery(HALT_STACK[4])).toBe(false); // [] in finish
+    expect(isExceptionMachinery(HALT_STACK[6])).toBe(false); // finish
+    expect(isExceptionMachinery(HALT_STACK[5])).toBe(false); // Collection>>do:
   });
 });

@@ -7,6 +7,7 @@ import { GtInspector } from './gtInspector';
 import { DebuggerPanel } from './debuggerPanel';
 import { clearStack } from './debugQueries';
 import { appendTranscript, showTranscript } from './transcriptChannel';
+import { wrapWithTranscriptCapture } from './transcriptCapture';
 import { GciError } from './gciLibrary';
 import { pollReadable } from './socketPoll';
 
@@ -410,31 +411,9 @@ export class CodeExecutor {
   }
 
   private wrapWithTranscriptCapture(code: string): { wrappedCode: string; codeOffset: number } {
-    // Wrap user code so that Transcript writes are captured into SessionTemps.
-    // The wrapped code:
-    //   1. Creates a capture WriteStream
-    //   2. Saves the original Transcript
-    //   3. Installs the capture stream as Transcript in SessionTemps
-    //   4. Evaluates the user code inside an ensure: block
-    //   5. Restores the original Transcript and stores captured text
-    //
-    // The user code is embedded directly in Smalltalk source (inside a block),
-    // NOT inside a string literal, so single quotes must NOT be escaped.
-    const prefix = `| __vscCapture __vscOriginal __vscResult |
-__vscCapture := WriteStream on: String new.
-__vscOriginal := SessionTemps current at: #Transcript ifAbsent: [nil].
-SessionTemps current at: #Transcript put: __vscCapture.
-[__vscResult := [`;
-    const suffix = `] value]
-  ensure: [
-    SessionTemps current at: #Transcript put: __vscOriginal.
-    SessionTemps current at: #'__vscTranscriptResult' put: __vscCapture contents.
-  ].
-__vscResult`;
-    return {
-      wrappedCode: prefix + code + suffix,
-      codeOffset: prefix.length,
-    };
+    // Delegate to the shared wrapper so the Enhanced Debugger's unwrap
+    // (transcriptCapture.unwrapTranscriptCapture) stays in lock step with it.
+    return wrapWithTranscriptCapture(code);
   }
 
   private fetchTranscriptOutput(session: ActiveSession): string {

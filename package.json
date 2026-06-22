@@ -37,6 +37,11 @@
   ],
   "main": "./client/out/extension.js",
   "contributes": {
+    "configurationDefaults": {
+      "[gemstone-smalltalk]": {
+        "editor.minimap.enabled": false
+      }
+    },
     "languages": [
       {
         "id": "gemstone-topaz",

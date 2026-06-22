@@ -1,8 +1,19 @@
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
+import * as path from 'path';
+import * as fs from 'fs';
 import { ActiveSession } from './sessionManager';
 import * as debug from './debugQueries';
+import * as queries from './browserQueries';
+import { unwrapTranscriptCapture } from './transcriptCapture';
 import { logError } from './gciLog';
+
+// The webview's DOM behavior lives in a standalone file (like listFilter.js /
+// methodListView.js) so it gets IDE support and can be jsdom-tested in isolation
+// instead of being trapped inside the inline <script> template literal. The
+// webview needs the raw source text to inject into a <script> tag, so we read it
+// at runtime rather than importing it as a compiled module.
+const debuggerViewJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'debuggerView.js'), 'utf8');
 
 /**
  * Jasper Debugger — a roomy, Smalltalk-style debugger rendered as a VS Code
@@ -26,7 +37,28 @@ import { logError } from './gciLog';
 type DebuggerInbound =
   | { command: 'ready' }
   | { command: 'copyStack' }
-  | { command: 'copyFrame'; level: number };
+  | { command: 'copyFrame'; level: number }
+  | { command: 'selectFrame'; level: number };
+
+/**
+ * Build the `gemstone://` URI for a method's source, in the exact form the
+ * GemStoneFileSystemProvider expects — and the same one the DAP
+ * `stackTraceRequest` builds for its `Source.path`. Opening this URI gives the
+ * companion source editor all the real-editor features (syntax highlight,
+ * senders/implementors, breakpoint gutters, compile-on-save).
+ *
+ * Exported so the URI format is unit-testable independently of the panel.
+ * (Sharing this resolution with the DAP path is review #5, a later Stage 1 item.)
+ */
+export function buildMethodSourceUri(sessionId: number, uriInfo: debug.MethodUriInfo): string {
+  const side = uriInfo.isMeta ? 'class' : 'instance';
+  return `gemstone://${sessionId}`
+    + `/${encodeURIComponent(uriInfo.dictName)}`
+    + `/${encodeURIComponent(uriInfo.className)}`
+    + `/${side}`
+    + `/${encodeURIComponent(uriInfo.category)}`
+    + `/${encodeURIComponent(uriInfo.selector)}`;
+}
 
 /** Resolved pieces of a frame label, before formatting. */
 export interface FrameLabelParts {
@@ -83,11 +115,20 @@ function escapeHtml(s: string): string {
 
 /** A single stack frame summary sent to the webview. */
 interface FrameSummary {
-  /** 1-based frame number (1 = top), shown so frames are easy to refer to. */
+  /** 1-based DISPLAY number (1 = top), after filtering; shown to the user. */
   level: number;
   label: string;
   /** Pre-formatted `@<stepPoint> line <line>` annotation; '' when unavailable. */
   position: string;
+}
+
+/**
+ * Host-side cached frame: a `FrameSummary` plus the real GsProcess frame level.
+ * Display levels are renumbered 1..N after filtering, but server queries
+ * (`revealFrameSource`, etc.) must use the original level — so we keep both.
+ */
+interface DisplayFrame extends FrameSummary {
+  serverLevel: number;
 }
 
 /**
@@ -111,13 +152,152 @@ export function formatStackForClipboard(errorMessage: string, frames: FrameSumma
   return lines.join('\n');
 }
 
+/** Virtual-document scheme for read-only frame source (doits + non-symbol-list methods). */
+const READONLY_SOURCE_SCHEME = 'gemstone-debug';
+
+/**
+ * A fully-resolved stack frame, before display filtering and renumbering.
+ * Carries the classification bits the stack filter needs (which `FrameSummary`,
+ * the wire/display shape, deliberately omits).
+ */
+export interface RawFrame {
+  /** Real GsProcess frame level (1 = top); preserved for server queries. */
+  serverLevel: number;
+  methodOop: bigint;
+  /** Home (enclosing) method — equal to methodOop for non-block frames. */
+  homeMethodOop: bigint;
+  isBlock: boolean;
+  /** Defining class name WITHOUT any " class" suffix (for machinery matching). */
+  definingClassName: string;
+  selector: string;
+  /** True for doit / "Executed Code" frames (no resolvable home class). */
+  isExecutedCode: boolean;
+  label: string;
+  line?: number;
+  stepPoint?: number;
+}
+
+// Exception/halt machinery, trimmed from the TOP of the stack so the debugger
+// opens on the user's frame (e.g. `[] in Foo>>bar`) instead of `signal`/`halt`.
+// `AbstractException` covers signal/_signal/_signalToDebugger/_executeHandler:
+// (instance and class side); the selectors cover Object>>halt and friends.
+const MACHINERY_SELECTORS = new Set([
+  'halt', 'halt:', 'pause', 'error:', 'signal', 'signal:',
+]);
+// Kernel block-invocation selectors that appear as transcript-capture-wrapper
+// glue at the BOTTOM (the doit evaluates its blocks via these).
+const BLOCK_EVAL_SELECTORS = new Set([
+  'value', 'value:', 'value:value:', 'value:value:value:', 'ensure:', 'ifCurtailed:', 'on:do:',
+]);
+
+/** True when a frame is exception-signalling / halt machinery. */
+export function isExceptionMachinery(f: RawFrame): boolean {
+  return f.definingClassName === 'AbstractException'
+    || f.selector.startsWith('doesNotUnderstand')
+    || f.selector.startsWith('_doesNotUnderstand')
+    || f.selector.startsWith('_signal')
+    || MACHINERY_SELECTORS.has(f.selector);
+}
+
+/**
+ * Filter a raw stack down to what's worth showing: trim exception/halt
+ * machinery from the top, and collapse the whole transcript-capture wrapper at
+ * the bottom to the single "Executed Code" doit frame. Mid-stack frames are
+ * never removed. Always keeps ≥1 frame.
+ *
+ * The bottom collapse is *anchored on the deepest `Executed Code` frame* (the
+ * doit) rather than on the literal last frame — because GemStone leaves a
+ * `<Reenter marker>` (and sometimes other cruft) *below* the doit. We keep that
+ * one doit frame, drop everything beneath it, and drop the contiguous glue
+ * above it (the doit's own block frames, which also read as "Executed Code",
+ * plus block-eval kernel frames like `ensure:`/`value`) up to the first real
+ * user frame.
+ *
+ * Heuristic, and deliberately conservative — it only trims at the two ends, so
+ * an unrecognised stack degrades to "shows a couple extra frames", never to
+ * dropping real user frames.
+ */
+export function filterStack(raws: RawFrame[]): RawFrame[] {
+  if (raws.length <= 1) return raws;
+
+  // Top: drop a contiguous run of machinery frames (never the whole stack).
+  let top = 0;
+  while (top < raws.length - 1 && isExceptionMachinery(raws[top])) top++;
+  const kept = raws.slice(top);
+
+  // Bottom: find the deepest doit (Executed Code) frame, if any.
+  let doitIdx = -1;
+  for (let i = kept.length - 1; i >= 0; i--) {
+    if (kept[i].isExecutedCode) { doitIdx = i; break; }
+  }
+  if (doitIdx === -1) return kept; // no wrapper (e.g. a breakpoint in a method)
+
+  // Walk up over the contiguous wrapper glue (doit's block frames + block-eval
+  // kernel frames) to the first real user frame; keep [user…] + the one doit.
+  let u = doitIdx - 1;
+  while (u >= 0 && (kept[u].isExecutedCode || BLOCK_EVAL_SELECTORS.has(kept[u].selector))) u--;
+  return [...kept.slice(0, u + 1), kept[doitIdx]];
+}
+
 export class DebuggerPanel {
   private static panels = new Map<number, Set<DebuggerPanel>>();
+  /**
+   * Highlight for the selected frame's current step point in the companion
+   * source editor — the standard debugger "focused stack frame" colour, boxed
+   * and on the overview ruler. It marks just the step-point token (NOT the whole
+   * line), so a line with several sends shows exactly where execution paused.
+   * One type shared by all panels (a decoration type is a style, not per-editor).
+   */
+  private static readonly stepPointDecoration = vscode.window.createTextEditorDecorationType({
+    backgroundColor: new vscode.ThemeColor('editor.focusedStackFrameHighlightBackground'),
+    border: '1px solid',
+    borderColor: new vscode.ThemeColor('editor.focusedStackFrameHighlightBackground'),
+    borderRadius: '2px',
+    overviewRulerColor: new vscode.ThemeColor('editor.focusedStackFrameHighlightBackground'),
+    overviewRulerLane: vscode.OverviewRulerLane.Full,
+  });
+
+  // ── Read-only source for frames with no gemstone:// editor ──────────
+  // "Executed Code" doits (no class at all) and methods whose class isn't in the
+  // session's symbol list (so no dictName → no gemstone:// URI) are served
+  // read-only through a content provider (never dirty, no "Untitled-N" pileup)
+  // keyed by a per-session+method virtual URI.
+  private static readOnlySources = new Map<string, string>();
+  private static providerRegistered = false;
+
+  private static ensureReadOnlySourceProvider(): void {
+    if (DebuggerPanel.providerRegistered) return;
+    DebuggerPanel.providerRegistered = true;
+    vscode.workspace.registerTextDocumentContentProvider(READONLY_SOURCE_SCHEME, {
+      provideTextDocumentContent: (uri: vscode.Uri) =>
+        DebuggerPanel.readOnlySources.get(uri.toString()) ?? '',
+    });
+  }
+
+  /** Stash a frame's read-only source and return its virtual URI; `title` is the tab label. */
+  private static stashReadOnlySource(sessionId: number, methodOop: bigint, title: string, source: string): vscode.Uri {
+    DebuggerPanel.ensureReadOnlySourceProvider();
+    // Path titles the tab; query keeps each method distinct.
+    const uri = vscode.Uri.from({
+      scheme: READONLY_SOURCE_SCHEME,
+      path: title,
+      query: `session=${sessionId}&method=${methodOop}`,
+    });
+    DebuggerPanel.readOnlySources.set(uri.toString(), source);
+    return uri;
+  }
+
   private readonly panel: vscode.WebviewPanel;
   private readonly sessionId: number;
   private disposables: vscode.Disposable[] = [];
-  /** Last fetched stack, cached so 'copyStack' need not re-query the server. */
-  private frames: FrameSummary[] = [];
+  /** Last fetched (filtered) stack, cached so copy/select need not re-query. */
+  private frames: DisplayFrame[] = [];
+  /** Column the companion source editor lives in, reused across frame selects. */
+  private sourceColumn: vscode.ViewColumn | undefined;
+  /** The editor currently carrying the step-point highlight, if any. */
+  private decoratedEditor: vscode.TextEditor | undefined;
+  /** Virtual read-only source URIs this panel stashed (pruned on dispose). */
+  private stashedSourceKeys = new Set<string>();
 
   static create(session: ActiveSession, gsProcess: bigint, errorMessage: string): void {
     const panel = vscode.window.createWebviewPanel(
@@ -165,7 +345,8 @@ export class DebuggerPanel {
         this.panel.webview.postMessage({
           command: 'init',
           errorMessage: this.errorMessage,
-          stack: this.frames,
+          // Send only the display shape; serverLevel stays host-side.
+          stack: this.frames.map(f => ({ level: f.level, label: f.label, position: f.position })),
         });
         return;
       }
@@ -180,7 +361,156 @@ export class DebuggerPanel {
         if (frame) void vscode.env.clipboard.writeText(formatFrameForClipboard(frame));
         return;
       }
+      case 'selectFrame': {
+        // Map the display level the webview reported back to the server level.
+        const frame = this.frames.find(f => f.level === msg.level);
+        if (frame) void this.revealFrameSource(frame.serverLevel);
+        return;
+      }
     }
+  }
+
+  /**
+   * Open the selected frame's source in the companion editor docked *below* the
+   * panel, and highlight the step point the IP is on.
+   *
+   * Two source kinds:
+   *  - a class>>selector method → the real `gemstone://` editor (full editing,
+   *    senders/implementors, breakpoint gutters);
+   *  - an "Executed Code" / doit frame (no home dictionary) → a read-only
+   *    virtual editor showing the executed source (so these frames still show
+   *    their code rather than opening nothing).
+   *
+   * Resolution is lazy (only the selected frame, on demand) — the cheap stack
+   * listing already happened on `ready`, so the expensive URI/source resolution
+   * (review #6) is deferred to here. Everything is best-effort: a failure to
+   * open one frame's source must never tear down the debugger.
+   */
+  private async revealFrameSource(level: number): Promise<void> {
+    try {
+      const info = debug.getFrameInfo(this.session, this.gsProcess, level);
+      // Block frames share their home method's source; resolve from the home
+      // method (blocks aren't dictionary entries) but keep the frame's own
+      // method+ip for the position (matches buildFrame's naming/position split).
+      const { homeMethodOop } = debug.getMethodBlockInfo(this.session, info.methodOop);
+      // Same classification as buildFrame's label (C3): a frame the stack list
+      // shows as a method must never open as "Executed Code", and vice-versa.
+      const home = this.resolveHomeMethod(homeMethodOop);
+
+      let uri: vscode.Uri;
+      let methodForOffsets: { className: string; isMeta: boolean; selector: string } | undefined;
+      if (home.uriInfo) {
+        // In the symbol list → the real editable gemstone:// editor.
+        uri = vscode.Uri.parse(buildMethodSourceUri(this.session.id, home.uriInfo));
+        methodForOffsets = { className: home.uriInfo.className, isMeta: home.uriInfo.isMeta, selector: home.uriInfo.selector };
+      } else {
+        // No gemstone:// URI: show the source read-only. Strip the Transcript-
+        // capture glue so a doit shows just the user's code (e.g.
+        // `JasperDebugDemo new run`). Title by the method when we have one, so a
+        // non-symbol-list method isn't mislabelled "Executed Code".
+        const source = unwrapTranscriptCapture(debug.getMethodSource(this.session, info.methodOop));
+        const title = home.isExecutedCode ? 'Executed Code' : `${home.definingClassName}>>#${home.selector}`;
+        uri = DebuggerPanel.stashReadOnlySource(this.session.id, info.methodOop, title, source);
+        this.stashedSourceKeys.add(uri.toString());
+      }
+
+      const editor = await this.showSourceEditor(uri);
+
+      // Only the editable gemstone:// method gets a step-point highlight (C2):
+      // the read-only view has no reliable IP→source mapping (executed code is
+      // unwrapped; a non-symbol-list method has no step-point offsets here).
+      // TODO(Stage "Hardening"): revisit highlighting the read-only view.
+      const range = methodForOffsets
+        ? this.stepPointRange(editor.document, info, level, methodForOffsets)
+        : undefined;
+      // Clear a stale highlight if the source moved to a different editor.
+      if (this.decoratedEditor && this.decoratedEditor !== editor) {
+        this.decoratedEditor.setDecorations(DebuggerPanel.stepPointDecoration, []);
+      }
+      if (range) {
+        editor.setDecorations(DebuggerPanel.stepPointDecoration, [range]);
+        editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+      } else {
+        editor.setDecorations(DebuggerPanel.stepPointDecoration, []);
+      }
+      this.decoratedEditor = editor;
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /**
+   * Open `uri` in the companion source editor and return it. The editor lives in
+   * a dedicated group docked *below* the panel: the first time, we focus the
+   * panel and split a new group beneath it; later selections reuse that group
+   * (remembered as `sourceColumn`). Focus stays in the panel so clicking through
+   * frames stays fluid, and the doc opens as a reused preview tab (no pile-up).
+   */
+  private async showSourceEditor(uri: vscode.Uri): Promise<vscode.TextEditor> {
+    if (this.sourceColumn === undefined) {
+      try {
+        this.panel.reveal(this.panel.viewColumn, false); // focus the panel's group…
+        await vscode.commands.executeCommand('workbench.action.newGroupBelow'); // …then split below it
+      } catch { /* best-effort layout; fall back to the active group */ }
+    }
+    const doc = await vscode.workspace.openTextDocument(uri);
+    const editor = await vscode.window.showTextDocument(doc, {
+      viewColumn: this.sourceColumn ?? vscode.ViewColumn.Active,
+      preview: true,
+      preserveFocus: true,
+    });
+    this.sourceColumn = editor.viewColumn ?? this.sourceColumn;
+    // gemstone:// docs get their language from the FS provider; the read-only
+    // executed-code scheme does not, so set it so the source is highlighted.
+    if (doc.languageId !== 'gemstone-smalltalk') {
+      await vscode.languages.setTextDocumentLanguage(doc, 'gemstone-smalltalk');
+    }
+    return editor;
+  }
+
+  /**
+   * The range to highlight for a frame's current step point — just the token at
+   * the step point, NOT the whole line. Prefers the exact step-point character
+   * offset (`getSourceOffsets`, available for class>>selector methods); falls
+   * back to the start of the IP's source line when offsets aren't available
+   * (e.g. executed-code frames). Returns undefined when there's nothing to mark.
+   */
+  private stepPointRange(
+    doc: vscode.TextDocument,
+    info: debug.FrameInfo,
+    level: number,
+    method: { className: string; isMeta: boolean; selector: string } | undefined,
+  ): vscode.Range | undefined {
+    let pos: vscode.Position | undefined;
+
+    // Exact step-point offset → the precise sub-expression start.
+    if (method) {
+      try {
+        const stepPoint = debug.getStepPoint(this.session, this.gsProcess, level);
+        if (stepPoint) {
+          // getSourceOffsets returns GemStone `_sourceOffsets`, which are
+          // 1-BASED (see getStepPointSelectorRanges.ts). doc.positionAt is
+          // 0-based, so convert — otherwise the highlight sits one char too far.
+          const offsets = queries.getSourceOffsets(this.session, method.className, method.isMeta, method.selector);
+          const offset = offsets[stepPoint - 1];
+          if (offset != null && offset >= 1 && doc.positionAt) pos = doc.positionAt(offset - 1);
+        }
+      } catch { /* best-effort; fall back to the IP line below */ }
+    }
+
+    // Fallback: the first non-whitespace token of the IP's source line.
+    if (!pos) {
+      let line = 0;
+      try { line = debug.getLineForIp(this.session, info.methodOop, info.ipOffset); } catch { /* */ }
+      if (line > 0) {
+        const col = doc.lineAt?.(line - 1)?.firstNonWhitespaceCharacterIndex ?? 0;
+        pos = new vscode.Position(line - 1, col);
+      }
+    }
+    if (!pos) return undefined;
+
+    // Mark the token at the step point (its beginning), not the whole line.
+    return doc.getWordRangeAtPosition?.(pos) ?? new vscode.Range(pos, pos.translate(0, 1));
   }
 
   /**
@@ -190,55 +520,63 @@ export class DebuggerPanel {
    * and Debug Call Stack frame-for-frame. Proves the `debugQueries` pipe works
    * from this second consumer before Stage 1 builds the real layout on top.
    */
-  private fetchStack(): FrameSummary[] {
-    const frames: FrameSummary[] = [];
+  private fetchStack(): DisplayFrame[] {
+    const raws: RawFrame[] = [];
     try {
       const depth = debug.getStackDepth(this.session, this.gsProcess);
       for (let level = 1; level <= depth; level++) {
-        frames.push(this.buildFrame(level));
+        raws.push(this.buildFrame(level));
       }
     } catch (e: unknown) {
       logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      return [];
     }
-    return frames;
+    // Trim machinery/wrapper glue, then renumber the survivors 1..N for display
+    // while keeping each one's real server level for subsequent queries.
+    return filterStack(raws).map((r, i) => ({
+      level: i + 1,
+      serverLevel: r.serverLevel,
+      label: r.label,
+      // Executed-code frames have no meaningful step point/line once unwrapped (#3).
+      position: r.isExecutedCode ? '' : formatFramePosition(r.stepPoint, r.line),
+    }));
   }
 
   /**
-   * Build a single frame summary: a `Class[ class]>>#selector` label plus the
-   * step point and source line. The label logic mirrors the DAP path exactly
-   * — only frames whose contents can't be fetched are `<frame N>`; a valid
-   * frame with no introspectable method (e.g. an executed-code or block
-   * context) is `Executed Code`, NOT "unavailable". Step point / line are
-   * best-effort and simply omitted when unavailable.
+   * Resolve a single raw frame: a `Class[ class]>>#selector` label plus the
+   * classification bits the stack filter needs. The label logic mirrors the DAP
+   * path — only frames whose contents can't be fetched are `<frame N>`; a valid
+   * frame with no introspectable method (a doit / executed-code or its blocks)
+   * is `Executed Code`. Step point / line are best-effort.
    */
-  private buildFrame(level: number): FrameSummary {
+  private buildFrame(level: number): RawFrame {
     let info: debug.FrameInfo;
     try {
       info = debug.getFrameInfo(this.session, this.gsProcess, level);
     } catch (e: unknown) {
       logError(this.sessionId, e instanceof Error ? e.message : String(e));
-      return { level, label: `<frame ${level}>`, position: '' };
+      return {
+        serverLevel: level, methodOop: 0n, homeMethodOop: 0n, isBlock: false,
+        definingClassName: '', selector: '', isExecutedCode: false, label: `<frame ${level}>`,
+      };
     }
 
-    let label: string;
+    // Block vs home method (homeMethodOop == methodOop for non-blocks).
+    let isBlock = false;
+    let homeMethodOop = info.methodOop;
     try {
-      // For a block frame, name the enclosing (home) method and prefix `[] in `,
-      // matching GsNMethod>>printOn:. homeMethodOop == methodOop for non-blocks.
-      const { isBlock, homeMethodOop } = debug.getMethodBlockInfo(this.session, info.methodOop);
+      const blockInfo = debug.getMethodBlockInfo(this.session, info.methodOop);
+      isBlock = blockInfo.isBlock;
+      homeMethodOop = blockInfo.homeMethodOop;
+    } catch { /* treat as a non-block frame */ }
 
-      // Defining class + selector come from the home method.
-      let definingClass: string;
-      let selector: string;
-      const uriInfo = debug.getMethodUriInfo(this.session, homeMethodOop);
-      if (uriInfo && uriInfo.dictName) {
-        definingClass = `${uriInfo.className}${uriInfo.isMeta ? ' class' : ''}`;
-        selector = uriInfo.selector;
-      } else {
-        const methodInfo = debug.getMethodInfo(this.session, homeMethodOop);
-        definingClass = methodInfo.className;
-        selector = methodInfo.selector;
-      }
+    // Resolve the home method's identity (the single source of truth for
+    // "is this executed code?", shared with revealFrameSource — see C3).
+    const home = this.resolveHomeMethod(homeMethodOop);
 
+    let label: string;
+    if (home.definingClassName) {
+      const definingClass = `${home.definingClassName}${home.isMeta ? ' class' : ''}`;
       // Receiver class drives the `Receiver (Defining)` disambiguation for
       // inherited methods (non-block frames only — see formatFrameLabel).
       let receiverClass: string | undefined;
@@ -247,11 +585,11 @@ export class DebuggerPanel {
           receiverClass = debug.getObjectClassName(this.session, info.receiverOop);
         } catch { /* best-effort; fall back to defining class only */ }
       }
-
-      label = formatFrameLabel({ isBlock, definingClass, selector, receiverClass });
-    } catch {
+      label = formatFrameLabel({ isBlock, definingClass, selector: home.selector, receiverClass });
+    } else {
       label = 'Executed Code';
     }
+    const isExecutedCode = home.isExecutedCode;
 
     let line: number | undefined;
     try {
@@ -263,7 +601,47 @@ export class DebuggerPanel {
       stepPoint = debug.getStepPoint(this.session, this.gsProcess, level);
     } catch { /* best-effort */ }
 
-    return { level, label, position: formatFramePosition(stepPoint, line) };
+    return {
+      serverLevel: level, methodOop: info.methodOop, homeMethodOop, isBlock,
+      definingClassName: home.definingClassName, selector: home.selector,
+      isExecutedCode, label, line, stepPoint,
+    };
+  }
+
+  /**
+   * Resolve a (home) method's display identity — the SINGLE source of truth for
+   * "is this executed code?", shared by buildFrame (labelling/classification)
+   * and revealFrameSource (source-pane routing) so the two can never disagree.
+   *
+   *  - in the session's symbol list → `uriInfo` set (editable via gemstone://);
+   *  - resolvable class but not in the symbol list → `uriInfo` undefined, but
+   *    definingClassName/selector are still set — a real method, NOT executed code;
+   *  - no resolvable class at all (a doit) → isExecutedCode true.
+   */
+  private resolveHomeMethod(homeMethodOop: bigint): {
+    uriInfo: debug.MethodUriInfo | undefined;
+    definingClassName: string;
+    selector: string;
+    isMeta: boolean;
+  } & { isExecutedCode: boolean } {
+    let uriInfo: debug.MethodUriInfo | undefined;
+    let definingClassName = '';
+    let selector = '';
+    let isMeta = false;
+    try {
+      uriInfo = debug.getMethodUriInfo(this.session, homeMethodOop);
+      if (uriInfo && uriInfo.dictName) {
+        definingClassName = uriInfo.className;
+        selector = uriInfo.selector;
+        isMeta = uriInfo.isMeta;
+      } else {
+        uriInfo = undefined; // no dictName → not usable to build a gemstone:// URI
+        const methodInfo = debug.getMethodInfo(this.session, homeMethodOop);
+        definingClassName = methodInfo.className;
+        selector = methodInfo.selector;
+      }
+    } catch { /* doit / executed code: no resolvable home class */ }
+    return { uriInfo, definingClassName, selector, isMeta, isExecutedCode: definingClassName === '' };
   }
 
   /** Dimmed "For <user> on <stone> @ <host>" subtitle from the login. */
@@ -355,89 +733,16 @@ export class DebuggerPanel {
   <div id="ctxmenu" class="ctx-menu" role="menu">
     <div class="ctx-item" id="copyFrameItem" role="menuitem">Copy Frame</div>
   </div>
+  <script nonce="${nonce}">${debuggerViewJs}</script>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
-    window.addEventListener('message', (event) => {
-      const msg = event.data;
-      if (msg.command === 'init') {
-        document.getElementById('error').textContent = msg.errorMessage || '';
-        const list = document.getElementById('stack');
-        list.innerHTML = '';
-        if (!msg.stack || msg.stack.length === 0) {
-          const li = document.createElement('li');
-          li.className = 'empty';
-          li.textContent = 'No stack frames available.';
-          list.appendChild(li);
-          return;
-        }
-        for (const frame of msg.stack) {
-          const li = document.createElement('li');
-          li.className = 'frame';
-          li.title = 'Right-click to copy this frame';
-          li.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            selectFrame(li, frame.level);
-            showMenu(e.clientX, e.clientY);
-          });
-          const lvl = document.createElement('span');
-          lvl.className = 'level';
-          lvl.textContent = frame.level;
-          const lbl = document.createElement('span');
-          lbl.textContent = frame.label;
-          li.appendChild(lvl);
-          li.appendChild(lbl);
-          if (frame.position) {
-            const pos = document.createElement('span');
-            pos.className = 'pos';
-            pos.textContent = frame.position;
-            li.appendChild(pos);
-          }
-          list.appendChild(li);
-        }
-      }
-    });
-
-    // ── Custom right-click menu (Copy Frame) ──────────────────────────
-    // The default Cut/Copy/Paste menu is suppressed, so copy lives here.
-    const menu = document.getElementById('ctxmenu');
-    let selectedLevel = null;
-    let selectedLi = null;
-
-    function selectFrame(li, level) {
-      if (selectedLi) selectedLi.classList.remove('selected');
-      selectedLi = li;
-      selectedLevel = level;
-      li.classList.add('selected');
-    }
-    function showMenu(x, y) {
-      menu.style.left = x + 'px';
-      menu.style.top = y + 'px';
-      menu.classList.add('show');
-    }
-    function hideMenu() { menu.classList.remove('show'); }
-
-    document.getElementById('copyFrameItem').addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (selectedLevel != null) vscode.postMessage({ command: 'copyFrame', level: selectedLevel });
-      hideMenu();
-    });
-
-    // Suppress the native context menu everywhere; close ours on any dismiss gesture.
-    window.addEventListener('contextmenu', (e) => { e.preventDefault(); });
-    document.addEventListener('click', hideMenu);
-    window.addEventListener('scroll', hideMenu, true);
-    window.addEventListener('blur', hideMenu);
-    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideMenu(); });
-
-    // Copy the whole stack to the clipboard (host-side write), with a brief flash.
-    const copyBtn = document.getElementById('copyBtn');
-    copyBtn.addEventListener('click', () => {
-      vscode.postMessage({ command: 'copyStack' });
-      const prev = copyBtn.textContent;
-      copyBtn.textContent = 'Copied';
-      setTimeout(() => { copyBtn.textContent = prev; }, 1200);
-    });
+    DebuggerView.init({
+      list: document.getElementById('stack'),
+      menu: document.getElementById('ctxmenu'),
+      copyFrameItem: document.getElementById('copyFrameItem'),
+      copyBtn: document.getElementById('copyBtn'),
+      error: document.getElementById('error'),
+    }, vscode);
     vscode.postMessage({ command: 'ready' });
   </script>
 </body>
@@ -446,6 +751,13 @@ export class DebuggerPanel {
 
   private dispose(): void {
     DebuggerPanel.panels.get(this.sessionId)?.delete(this);
+    // Drop the step-point highlight from the companion editor (which outlives
+    // the panel) so a stale highlight doesn't linger after the debugger closes.
+    this.decoratedEditor?.setDecorations(DebuggerPanel.stepPointDecoration, []);
+    this.decoratedEditor = undefined;
+    // Release this panel's stashed read-only source.
+    for (const key of this.stashedSourceKeys) DebuggerPanel.readOnlySources.delete(key);
+    this.stashedSourceKeys.clear();
     for (const d of this.disposables) d.dispose();
     this.disposables = [];
     // Closing the panel implicitly terminates the suspended process it owned,

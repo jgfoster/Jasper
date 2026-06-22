@@ -155,9 +155,18 @@ function createMockPanel() {
 
 function createMockTextEditor() {
   return {
-    document: { uri: Uri.file(''), languageId: '', getText: vi.fn(() => ''), lineAt: vi.fn(), lineCount: 0 },
+    document: {
+      uri: Uri.file(''), languageId: '', getText: vi.fn(() => ''), lineCount: 0,
+      lineAt: vi.fn((line: number) => ({
+        lineNumber: line, text: '', firstNonWhitespaceCharacterIndex: 0,
+        range: new Range(line, 0, line, 0),
+      })),
+      positionAt: vi.fn((offset: number) => new Position(0, offset)),
+      getWordRangeAtPosition: vi.fn(() => undefined),
+    },
     selection: new Selection(new Position(0, 0), new Position(0, 0)),
     selections: [],
+    viewColumn: undefined as number | undefined,
     setDecorations: vi.fn(),
     revealRange: vi.fn(),
   };
