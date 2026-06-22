@@ -38,7 +38,14 @@ type DebuggerInbound =
   | { command: 'ready' }
   | { command: 'copyStack' }
   | { command: 'copyFrame'; level: number }
-  | { command: 'selectFrame'; level: number };
+  | { command: 'selectFrame'; level: number }
+  | { command: 'evalInFrame'; level: number; expr: string }
+  | { command: 'resume' }
+  | { command: 'terminate' }
+  | { command: 'stepOver'; level: number }
+  | { command: 'stepInto'; level: number }
+  | { command: 'stepThrough'; level: number }
+  | { command: 'restartFrame'; level: number };
 
 /**
  * Build the `gemstone://` URI for a method's source, in the exact form the
@@ -298,6 +305,8 @@ export class DebuggerPanel {
   private decoratedEditor: vscode.TextEditor | undefined;
   /** Virtual read-only source URIs this panel stashed (pruned on dispose). */
   private stashedSourceKeys = new Set<string>();
+  /** Every source URI shown in the companion editor (closed on dispose). */
+  private shownSourceUris = new Set<string>();
 
   static create(session: ActiveSession, gsProcess: bigint, errorMessage: string): void {
     const panel = vscode.window.createWebviewPanel(
@@ -325,7 +334,8 @@ export class DebuggerPanel {
     panel: vscode.WebviewPanel,
     private readonly session: ActiveSession,
     private readonly gsProcess: bigint,
-    private readonly errorMessage: string,
+    // Mutable: resume-into-another-error updates it; step/restart clear it.
+    private errorMessage: string,
   ) {
     this.panel = panel;
     this.sessionId = session.id;
@@ -342,12 +352,7 @@ export class DebuggerPanel {
     switch (msg.command) {
       case 'ready': {
         this.frames = this.fetchStack();
-        this.panel.webview.postMessage({
-          command: 'init',
-          errorMessage: this.errorMessage,
-          // Send only the display shape; serverLevel stays host-side.
-          stack: this.frames.map(f => ({ level: f.level, label: f.label, position: f.position })),
-        });
+        this.postInit();
         return;
       }
       case 'copyStack': {
@@ -362,12 +367,126 @@ export class DebuggerPanel {
         return;
       }
       case 'selectFrame': {
-        // Map the display level the webview reported back to the server level.
+        // Map the display level the webview reported back to the server level,
+        // then drive the source pane AND the variables pane for that frame.
         const frame = this.frames.find(f => f.level === msg.level);
-        if (frame) void this.revealFrameSource(frame.serverLevel);
+        if (frame) {
+          void this.revealFrameSource(frame.serverLevel);
+          this.postVariables(frame.serverLevel);
+        }
+        return;
+      }
+      case 'evalInFrame': {
+        const frame = this.frames.find(f => f.level === msg.level);
+        this.evalInFrame(frame?.serverLevel, msg.expr);
+        return;
+      }
+      case 'resume': { this.resume(); return; }
+      case 'terminate': { this.panel.dispose(); return; } // dispose → clearStack
+      case 'stepOver':
+      case 'stepInto':
+      case 'stepThrough': {
+        const frame = this.frames.find(f => f.level === msg.level);
+        if (frame) this.step(msg.command, frame.serverLevel);
+        return;
+      }
+      case 'restartFrame': {
+        const frame = this.frames.find(f => f.level === msg.level);
+        if (frame) this.restartFrame(frame.serverLevel);
         return;
       }
     }
+  }
+
+  /** Post the current (filtered) stack to the webview; it re-renders + re-selects top. */
+  private postInit(): void {
+    this.panel.webview.postMessage({
+      command: 'init',
+      errorMessage: this.errorMessage,
+      // Send only the display shape; serverLevel stays host-side.
+      stack: this.frames.map(f => ({ level: f.level, label: f.label, position: f.position })),
+    });
+  }
+
+  /** Re-walk the (advanced) stack and re-render — used after a step / restart / resume-with-error. */
+  private refresh(): void {
+    this.frames = this.fetchStack();
+    this.postInit();
+  }
+
+  /** Fetch the selected frame's variables (self + args/temps) and post them. */
+  private postVariables(serverLevel: number): void {
+    let vars: { name: string; value: string }[] = [];
+    try {
+      vars = this.fetchVariables(serverLevel);
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+    }
+    this.panel.webview.postMessage({ command: 'variables', vars });
+  }
+
+  /**
+   * Basic variables for a frame: `self` followed by the frame's args and temps,
+   * each with its printString. (Stage 2 adds Receiver/Args grouping, the oop
+   * column, and click-to-inspect.) Each printString is best-effort.
+   */
+  private fetchVariables(serverLevel: number): { name: string; value: string }[] {
+    const info = debug.getFrameInfo(this.session, this.gsProcess, serverLevel);
+    const safePrint = (oop: bigint): string => {
+      try { return debug.getObjectPrintString(this.session, oop); }
+      catch { return '<unprintable>'; }
+    };
+    const vars = [{ name: 'self', value: safePrint(info.receiverOop) }];
+    for (let i = 0; i < info.argAndTempNames.length; i++) {
+      vars.push({ name: info.argAndTempNames[i], value: safePrint(info.argAndTempOops[i]) });
+    }
+    return vars;
+  }
+
+  /** Evaluate an expression in the selected frame and post the printString back. */
+  private evalInFrame(serverLevel: number | undefined, expr: string): void {
+    if (serverLevel == null) return;
+    let value: string;
+    let isError = false;
+    try {
+      value = debug.evaluateInFrame(this.session, this.gsProcess, expr, serverLevel);
+    } catch (e: unknown) {
+      value = `Error: ${e instanceof Error ? e.message : String(e)}`;
+      isError = true;
+    }
+    this.panel.webview.postMessage({ command: 'evalResult', expr, value, isError });
+  }
+
+  /** Resume execution: closes the panel if the process completes, else refreshes on the new error. */
+  private resume(): void {
+    const result = debug.continueExecution(this.session, this.gsProcess);
+    if (result.completed) {
+      this.panel.dispose();
+    } else {
+      this.errorMessage = result.errorMessage || 'GemStone error';
+      this.refresh();
+    }
+  }
+
+  /** Step (over/into/through) from the selected frame: dispose on completion, else refresh. */
+  private step(command: 'stepOver' | 'stepInto' | 'stepThrough', serverLevel: number): void {
+    const fn = command === 'stepOver' ? debug.stepOver
+      : command === 'stepInto' ? debug.stepInto
+        : debug.stepOut; // "Through" == gciStepThru (debugQueries.stepOut)
+    const result = fn(this.session, this.gsProcess, serverLevel);
+    if (result.completed) {
+      this.panel.dispose();
+    } else {
+      this.errorMessage = ''; // no longer at the original halt — clear the banner
+      this.refresh();
+    }
+  }
+
+  /** Restart the selected frame (trim the stack to it) and refresh. */
+  private restartFrame(serverLevel: number): void {
+    debug.trimStackToLevel(this.session, this.gsProcess, serverLevel);
+    this.errorMessage = '';
+    this.refresh();
   }
 
   /**
@@ -459,6 +578,7 @@ export class DebuggerPanel {
       preview: true,
       preserveFocus: true,
     });
+    this.shownSourceUris.add(uri.toString()); // closed with the panel (see dispose)
     this.sourceColumn = editor.viewColumn ?? this.sourceColumn;
     // gemstone:// docs get their language from the FS provider; the read-only
     // executed-code scheme does not, so set it so the source is highlighted.
@@ -720,6 +840,42 @@ export class DebuggerPanel {
     .frame .level { color: var(--vscode-descriptionForeground); margin-right: 0.6rem; }
     .frame .pos { color: var(--vscode-descriptionForeground); margin-left: 0.6rem; }
     .empty { color: var(--vscode-descriptionForeground); font-style: italic; }
+    /* Toolbar: Resume / step verbs / Restart Frame / Terminate. */
+    .toolbar { display: flex; gap: 0.3rem; margin: 0 0 0.6rem; flex-wrap: wrap; }
+    .toolbar button {
+      font-family: var(--vscode-font-family); font-size: 0.85rem;
+      color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
+      background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
+      border: none; padding: 0.25rem 0.7rem; border-radius: 2px; cursor: pointer;
+    }
+    .toolbar button:hover { background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground)); }
+    .toolbar button.danger { color: var(--vscode-errorForeground); }
+    /* Stack (left) + variables (right). */
+    .main { display: flex; gap: 0.8rem; align-items: flex-start; }
+    .main .stack { flex: 1 1 60%; min-width: 0; }
+    .vars {
+      flex: 1 1 40%; min-width: 0; max-height: 18rem; overflow: auto;
+      border-left: 1px solid var(--vscode-panel-border, transparent); padding-left: 0.6rem;
+      font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85rem;
+    }
+    .vars .var { padding: 0.15rem 0.2rem; display: flex; gap: 0.5rem; }
+    .vars .var-name { color: var(--vscode-symbolIcon-variableForeground, var(--vscode-foreground)); white-space: nowrap; }
+    .vars .var-name.self { font-style: italic; }
+    .vars .var-value { color: var(--vscode-descriptionForeground); white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+    /* Eval-in-frame bar. */
+    .evalbar { margin-top: 0.8rem; }
+    .evalbar input {
+      width: 100%; box-sizing: border-box; user-select: text; -webkit-user-select: text;
+      font-family: var(--vscode-editor-font-family, monospace);
+      color: var(--vscode-input-foreground); background: var(--vscode-input-background);
+      border: 1px solid var(--vscode-input-border, var(--vscode-panel-border, transparent));
+      padding: 0.3rem 0.5rem; border-radius: 2px;
+    }
+    .eval-result {
+      font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85rem;
+      white-space: pre-wrap; margin-top: 0.35rem; user-select: text; -webkit-user-select: text;
+    }
+    .eval-result.error { color: var(--vscode-errorForeground); }
   </style>
 </head>
 <body>
@@ -728,8 +884,24 @@ export class DebuggerPanel {
     <span class="subtitle">${subtitle}</span>
     <button id="copyBtn" class="copy-btn" title="Copy the whole stack to the clipboard">Copy Stack</button>
   </div>
+  <div class="toolbar" id="toolbar">
+    <button data-cmd="resume" title="Resume execution">Resume</button>
+    <button data-cmd="stepOver" title="Step over (from the selected frame)">Over</button>
+    <button data-cmd="stepInto" title="Step into">Into</button>
+    <button data-cmd="stepThrough" title="Step through blocks">Through</button>
+    <button data-cmd="restartFrame" title="Restart the selected frame">Restart Frame</button>
+    <button data-cmd="terminate" class="danger" title="Terminate the process">Terminate</button>
+  </div>
   <div class="error" id="error"></div>
-  <ul class="stack" id="stack"></ul>
+  <div class="main">
+    <ul class="stack" id="stack"></ul>
+    <div class="vars" id="variables"></div>
+  </div>
+  <div class="evalbar">
+    <input id="evalInput" type="text" autocomplete="off" spellcheck="false"
+           placeholder="Evaluate in the selected frame — press Enter">
+    <div class="eval-result" id="evalResult"></div>
+  </div>
   <div id="ctxmenu" class="ctx-menu" role="menu">
     <div class="ctx-item" id="copyFrameItem" role="menuitem">Copy Frame</div>
   </div>
@@ -742,6 +914,10 @@ export class DebuggerPanel {
       copyFrameItem: document.getElementById('copyFrameItem'),
       copyBtn: document.getElementById('copyBtn'),
       error: document.getElementById('error'),
+      toolbar: document.getElementById('toolbar'),
+      variables: document.getElementById('variables'),
+      evalInput: document.getElementById('evalInput'),
+      evalResult: document.getElementById('evalResult'),
     }, vscode);
     vscode.postMessage({ command: 'ready' });
   </script>
@@ -755,6 +931,9 @@ export class DebuggerPanel {
     // the panel) so a stale highlight doesn't linger after the debugger closes.
     this.decoratedEditor?.setDecorations(DebuggerPanel.stepPointDecoration, []);
     this.decoratedEditor = undefined;
+    // Close the companion source editor — it's an artifact of this debugger,
+    // so it shouldn't outlive the panel.
+    this.closeSourceEditors();
     // Release this panel's stashed read-only source.
     for (const key of this.stashedSourceKeys) DebuggerPanel.readOnlySources.delete(key);
     this.stashedSourceKeys.clear();
@@ -764,5 +943,28 @@ export class DebuggerPanel {
     // releasing the stalled GsProcess on the server (same as dismissing the
     // error notifier). clearStack is best-effort: the session may already be gone.
     debug.clearStack(this.session, this.gsProcess);
+  }
+
+  /**
+   * Close the companion source tabs this panel opened. A `gemstone://` method is
+   * closed ONLY in our own source column — never the user's own copy of the same
+   * method open elsewhere (e.g. the System Browser). Our private read-only scheme
+   * is unique to this debugger, so it's safe to close in any column. When the
+   * source column is unknown we therefore close only the read-only tabs (closing
+   * a shared `gemstone://` everywhere would be the very bug the guard prevents).
+   */
+  private closeSourceEditors(): void {
+    if (this.shownSourceUris.size === 0) return;
+    for (const group of vscode.window.tabGroups.all) {
+      const inOurColumn = this.sourceColumn !== undefined && group.viewColumn === this.sourceColumn;
+      for (const tab of group.tabs) {
+        if (!(tab.input instanceof vscode.TabInputText)) continue;
+        if (!this.shownSourceUris.has(tab.input.uri.toString())) continue;
+        if (inOurColumn || tab.input.uri.scheme === READONLY_SOURCE_SCHEME) {
+          void vscode.window.tabGroups.close(tab);
+        }
+      }
+    }
+    this.shownSourceUris.clear();
   }
 }

@@ -31,6 +31,13 @@ vi.mock('../debugQueries', () => ({
   getLineForIp: vi.fn(() => 12),
   getStepPoint: vi.fn(() => 2),
   getMethodSource: vi.fn(() => '| t | t := 6 * 7. t halt'),
+  getObjectPrintString: vi.fn((_s: unknown, oop: bigint) => `<print ${oop}>`),
+  evaluateInFrame: vi.fn(() => '42'),
+  continueExecution: vi.fn(() => ({ completed: true })),
+  stepOver: vi.fn(() => ({ completed: false })),
+  stepInto: vi.fn(() => ({ completed: false })),
+  stepOut: vi.fn(() => ({ completed: false })),
+  trimStackToLevel: vi.fn(),
   clearStack: vi.fn(),
 }));
 
@@ -94,6 +101,19 @@ function initPayload(panel: ReturnType<typeof lastPanel>) {
   const call = panel.webview.postMessage.mock.calls
     .find((c: unknown[]) => (c[0] as { command: string }).command === 'init');
   return call?.[0];
+}
+
+/** All payloads the panel posted to the webview with the given command. */
+function posted(panel: ReturnType<typeof lastPanel>, command: string) {
+  return panel.webview.postMessage.mock.calls
+    .map((c: unknown[]) => c[0] as { command: string })
+    .filter((m: { command: string }) => m.command === command);
+}
+/** The most recent payload posted with the given command (or undefined). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function lastPosted(panel: ReturnType<typeof lastPanel>, command: string): any {
+  const all = posted(panel, command);
+  return all[all.length - 1];
 }
 
 describe('formatFrameLabel', () => {
@@ -195,6 +215,9 @@ describe('DebuggerPanel', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // tabGroups.all is a plain array on the mock, not a vi.fn — reset it so a
+    // test that populates it doesn't leak into the next.
+    (vscode.window.tabGroups.all as unknown as unknown[]).length = 0;
     session = makeSession();
   });
 
@@ -558,6 +581,76 @@ describe('DebuggerPanel', () => {
 
       expect(editor.setDecorations).toHaveBeenCalledWith(expect.anything(), []);
     });
+
+    // A source editor that reports a real view column (VS Code resolves Active/
+    // Beside to one), so the panel can remember and target its source group.
+    function columnedEditor(viewColumn: number) {
+      return {
+        document: {
+          languageId: 'gemstone-smalltalk',
+          positionAt: (o: number) => new vscode.Position(0, o),
+          getWordRangeAtPosition: () => undefined,
+          lineAt: () => ({ firstNonWhitespaceCharacterIndex: 0 }),
+        },
+        viewColumn,
+        setDecorations: vi.fn(),
+        revealRange: vi.fn(),
+      };
+    }
+
+    it('closes the companion source editor when the panel is closed', async () => {
+      const panel = openPanelWithStack();
+      // Set AFTER ready so these apply to the frame-3 reveal (not the stack walk):
+      // a real gemstone:// method source, shown in source column 9.
+      vi.mocked(vscode.window.showTextDocument).mockResolvedValueOnce(columnedEditor(9) as never);
+      vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce(URI_INFO);
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      await flush();
+
+      const uri = (vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri).toString();
+      // Same method also open in the user's System Browser (column 1) — must NOT
+      // close. `label` only distinguishes the (structurally identical) tabs here.
+      const sourceTab = { label: 'source', input: new vscode.TabInputText(vscode.Uri.parse(uri)) };
+      const browserTab = { label: 'browser', input: new vscode.TabInputText(vscode.Uri.parse(uri)) };
+      const groups = vscode.window.tabGroups.all as unknown as { viewColumn: number; tabs: unknown[] }[];
+      groups.push({ viewColumn: 1, tabs: [browserTab] }, { viewColumn: 9, tabs: [sourceTab] });
+
+      closePanel(panel);
+
+      expect(vi.mocked(vscode.window.tabGroups.close)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(vscode.window.tabGroups.close)).toHaveBeenCalledWith(sourceTab);
+    });
+
+    it('closes nothing when the debugger never opened a source editor', () => {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel); // no frame selected → no source opened
+      const groups = vscode.window.tabGroups.all as unknown as { viewColumn: number; tabs: unknown[] }[];
+      groups.push({ viewColumn: 9, tabs: [{ input: new vscode.TabInputText(vscode.Uri.parse('gemstone://1/x')) }] });
+
+      closePanel(panel);
+
+      expect(vi.mocked(vscode.window.tabGroups.close)).not.toHaveBeenCalled();
+    });
+
+    it('still closes a read-only (gemstone-debug:) source even when the source column is unknown', async () => {
+      // Default mock editor has no viewColumn → sourceColumn stays undefined. The
+      // read-only scheme is unique to this debugger, so it's safe to close anywhere
+      // (a shared gemstone:// would NOT be — see the previous test's column guard).
+      const panel = openPanelWithStack(); // frame 3 → read-only (base getMethodUriInfo → undefined)
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      await flush();
+
+      const uri = (vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri);
+      expect(uri.scheme).toBe('gemstone-debug');
+      const tab = { input: new vscode.TabInputText(vscode.Uri.parse(uri.toString())) };
+      const groups = vscode.window.tabGroups.all as unknown as { viewColumn: number; tabs: unknown[] }[];
+      groups.push({ viewColumn: 1, tabs: [tab] });
+
+      closePanel(panel);
+
+      expect(vi.mocked(vscode.window.tabGroups.close)).toHaveBeenCalledWith(tab);
+    });
   });
 
   it('terminates the suspended gsProcess (via clearStack) when the panel window is closed', () => {
@@ -567,6 +660,120 @@ describe('DebuggerPanel', () => {
     expect(debug.clearStack).not.toHaveBeenCalled();
     closePanel(panel);
     expect(debug.clearStack).toHaveBeenCalledWith(session, GS_PROCESS);
+  });
+
+  describe('variables / eval / toolbar', () => {
+    // clearAllMocks() doesn't reset return values/implementations, so restore the
+    // base getFrameInfo each test (a test that overrides it would otherwise leak).
+    beforeEach(() => {
+      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
+        methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100),
+        argAndTempNames: [], argAndTempOops: [],
+      }));
+    });
+
+    function openPanel() {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      return panel;
+    }
+
+    it('posts the selected frame variables (self first, then args/temps) on selectFrame', () => {
+      // Only server level 2 carries temps; other frames keep the base shape so the
+      // 5-frame stack still renders and level 2 survives filtering (mid-stack).
+      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) =>
+        level === 2
+          ? { methodOop: 2n, ipOffset: 5, receiverOop: 300n, argAndTempNames: ['amount', 'total'], argAndTempOops: [11n, 22n] }
+          : { methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [] });
+      const panel = openPanel();
+      sendMessage(panel, { command: 'selectFrame', level: 2 });
+
+      const vars = lastPosted(panel, 'variables').vars;
+      expect(vars[0]).toEqual({ name: 'self', value: '<print 300>' });
+      expect(vars).toContainEqual({ name: 'amount', value: '<print 11>' });
+      expect(vars).toContainEqual({ name: 'total', value: '<print 22>' });
+    });
+
+    it('evaluates an expression in the selected frame and posts the result', () => {
+      vi.mocked(debug.evaluateInFrame).mockReturnValueOnce('1764');
+      const panel = openPanel();
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: '42 * 42' });
+
+      expect(debug.evaluateInFrame).toHaveBeenCalledWith(session, GS_PROCESS, '42 * 42', 3);
+      expect(lastPosted(panel, 'evalResult')).toMatchObject({ value: '1764', isError: false });
+    });
+
+    it('reports an eval error without throwing', () => {
+      vi.mocked(debug.evaluateInFrame).mockImplementationOnce(() => { throw new Error('doesNotUnderstand'); });
+      const panel = openPanel();
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: 'foo bar' });
+
+      expect(lastPosted(panel, 'evalResult')).toMatchObject({ isError: true });
+      expect(lastPosted(panel, 'evalResult').value).toContain('doesNotUnderstand');
+    });
+
+    it('Resume disposes the panel when execution completes', () => {
+      vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true });
+      const panel = openPanel();
+      sendMessage(panel, { command: 'resume' });
+
+      expect(debug.continueExecution).toHaveBeenCalledWith(session, GS_PROCESS);
+      expect(panel.dispose).toHaveBeenCalled();
+    });
+
+    it('Resume refreshes with the new error when it hits another stop', () => {
+      vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: false, errorMessage: 'next error' });
+      const panel = openPanel();
+      const before = posted(panel, 'init').length;
+      sendMessage(panel, { command: 'resume' });
+
+      expect(panel.dispose).not.toHaveBeenCalled();
+      expect(posted(panel, 'init').length).toBe(before + 1); // refreshed
+      expect(lastPosted(panel, 'init').errorMessage).toBe('next error');
+    });
+
+    it('Step Over steps from the selected frame and refreshes (clearing the error banner)', () => {
+      const panel = openPanel();
+      const before = posted(panel, 'init').length;
+      sendMessage(panel, { command: 'stepOver', level: 3 });
+
+      expect(debug.stepOver).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+      expect(posted(panel, 'init').length).toBe(before + 1);
+      expect(lastPosted(panel, 'init').errorMessage).toBe('');
+      expect(panel.dispose).not.toHaveBeenCalled();
+    });
+
+    it('Step disposes the panel when the step completes the process', () => {
+      vi.mocked(debug.stepOver).mockReturnValueOnce({ completed: true });
+      const panel = openPanel();
+      sendMessage(panel, { command: 'stepOver', level: 3 });
+
+      expect(panel.dispose).toHaveBeenCalled();
+    });
+
+    it('"Through" maps to gciStepThru (debugQueries.stepOut)', () => {
+      const panel = openPanel();
+      sendMessage(panel, { command: 'stepThrough', level: 4 });
+
+      expect(debug.stepOut).toHaveBeenCalledWith(session, GS_PROCESS, 4);
+    });
+
+    it('Restart Frame trims the stack to the selected frame and refreshes', () => {
+      const panel = openPanel();
+      const before = posted(panel, 'init').length;
+      sendMessage(panel, { command: 'restartFrame', level: 2 });
+
+      expect(debug.trimStackToLevel).toHaveBeenCalledWith(session, GS_PROCESS, 2);
+      expect(posted(panel, 'init').length).toBe(before + 1);
+    });
+
+    it('Terminate disposes the panel', () => {
+      const panel = openPanel();
+      sendMessage(panel, { command: 'terminate' });
+
+      expect(panel.dispose).toHaveBeenCalled();
+    });
   });
 });
 

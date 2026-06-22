@@ -368,4 +368,73 @@ describe('debugQueries', () => {
       expect(varying).not.toHaveBeenCalled();
     });
   });
+
+  // Regression for the eval-bar bug: typing "3 + 4" raised
+  //   NameError 2404, _framePerform:withArgs:onLevel:, There is no Symbol …
+  // because evaluateInFrame called a primitive that does NOT exist on 3.7.x (so
+  // GciTsPerform couldn't resolve the selector). The fix evaluates the
+  // expression via String>>evaluateInContext: with self = the frame receiver.
+  // (We can't run real Smalltalk in unit tests — the live image confirms
+  // `'3 + 4' evaluateInContext: nil` => 7 — so the mock supplies the printString
+  // and we assert the *right call* is made, which is what regressed.)
+  describe('evaluateInFrame ("3 + 4" regression)', () => {
+    const GS_PROCESS = 9000n;
+    const FRAME_ARRAY = 0xF0n;
+    const FRAME_RECEIVER = 0x77n; // becomes `self` for the evaluation
+    const EXPR_STRING = 0xE0n;
+    const EVAL_RESULT = 0x07n;    // the oop the evaluation returned
+
+    function evalSession() {
+      const gci = {
+        GciTsI64ToOop: vi.fn(() => ({ result: 0xAAn, err: { ...noErr } })),
+        GciTsOopToI64: vi.fn(() => ({ value: 5n, err: { ...noErr } })),
+        GciTsNewString: vi.fn(() => ({ result: EXPR_STRING, err: { ...noErr } })),
+        GciTsFetchSize: vi.fn(() => ({ result: 10n, err: { ...noErr } })),
+        // getFrameInfo reads [10]=receiver (0-indexed 9); [9]=names (0-indexed 8) = nil → skip names.
+        GciTsFetchOops: vi.fn(() => ({
+          oops: [1n, 2n, 0n, 0n, 0n, 0n, 0n, 0n, 0x14n /* OOP_NIL names */, FRAME_RECEIVER],
+          err: { ...noErr },
+        })),
+        GciTsPerform: vi.fn((_h: unknown, _r: bigint, _sOop: bigint, sel: string | null) => {
+          if (sel === '_frameContentsAt:') return { result: FRAME_ARRAY, err: { ...noErr } };
+          if (sel === 'evaluateInContext:') return { result: EVAL_RESULT, err: { ...noErr } };
+          return { result: 0n, err: { ...noErr } };
+        }),
+        // printString of the evaluation result (the EVAL_RESULT oop) is "7".
+        GciTsPerformFetchBytes: vi.fn((_h: unknown, oop: bigint) =>
+          oop === EVAL_RESULT
+            ? { bytesReturned: 1, data: '7', err: { ...noErr } }
+            : { bytesReturned: 0, data: '', err: { ...noErr } }),
+      };
+      return {
+        id: 1, handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
+        gci: gci as unknown as ActiveSession['gci'],
+      } as ActiveSession;
+    }
+
+    it('returns the result printString ("7") for "3 + 4" instead of raising', () => {
+      const session = evalSession();
+      expect(debug.evaluateInFrame(session, GS_PROCESS, '3 + 4', 3)).toBe('7');
+    });
+
+    it('evaluates via String>>evaluateInContext: with self = the frame receiver', () => {
+      const session = evalSession();
+      debug.evaluateInFrame(session, GS_PROCESS, '3 + 4', 3);
+
+      expect(session.gci.GciTsNewString).toHaveBeenCalledWith({}, '3 + 4');
+      const performCalls = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls;
+      const evalCall = performCalls.find((c: unknown[]) => c[3] === 'evaluateInContext:');
+      expect(evalCall).toBeDefined();
+      expect(evalCall![1]).toBe(EXPR_STRING);         // receiver of evaluateInContext: is the expr String
+      expect(evalCall![4]).toEqual([FRAME_RECEIVER]); // arg is the frame's receiver (self)
+    });
+
+    it('never sends the removed _framePerform:withArgs:onLevel: primitive (the original bug)', () => {
+      const session = evalSession();
+      debug.evaluateInFrame(session, GS_PROCESS, '3 + 4', 3);
+
+      const performCalls = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls;
+      expect(performCalls.some((c: unknown[]) => c[3] === '_framePerform:withArgs:onLevel:')).toBe(false);
+    });
+  });
 });

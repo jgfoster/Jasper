@@ -15,6 +15,7 @@ interface FrameSummary { level: number; label: string; position: string; }
 
 interface DebuggerViewApi {
   renderStack(listEl: HTMLElement, stack: FrameSummary[]): void;
+  renderVariables(varsEl: HTMLElement, vars: { name: string; value: string }[]): void;
   selectFrame(listEl: HTMLElement, level: number): HTMLElement | null;
   showMenu(menuEl: HTMLElement, x: number, y: number): void;
   hideMenu(menuEl: HTMLElement): void;
@@ -31,6 +32,10 @@ interface Refs {
   copyFrameItem: HTMLElement;
   copyBtn: HTMLElement;
   error: HTMLElement;
+  toolbar: HTMLElement;
+  variables: HTMLElement;
+  evalInput: HTMLInputElement;
+  evalResult: HTMLElement;
 }
 
 function api(): DebuggerViewApi {
@@ -48,8 +53,17 @@ const STACK: FrameSummary[] = [
 function setup(stack: FrameSummary[] = STACK) {
   document.body.innerHTML = `
     <button id="copyBtn">Copy Stack</button>
+    <div id="toolbar">
+      <button data-cmd="resume">Resume</button>
+      <button data-cmd="stepOver">Over</button>
+      <button data-cmd="stepInto">Into</button>
+      <button data-cmd="stepThrough">Through</button>
+      <button data-cmd="restartFrame">Restart Frame</button>
+      <button data-cmd="terminate">Terminate</button>
+    </div>
     <div id="error"></div>
-    <ul id="stack"></ul>
+    <div class="main"><ul id="stack"></ul><div id="variables"></div></div>
+    <input id="evalInput"><div id="evalResult"></div>
     <div id="ctxmenu"><div id="copyFrameItem">Copy Frame</div></div>`;
   const refs: Refs = {
     list: document.getElementById('stack')!,
@@ -57,6 +71,10 @@ function setup(stack: FrameSummary[] = STACK) {
     copyFrameItem: document.getElementById('copyFrameItem')!,
     copyBtn: document.getElementById('copyBtn')!,
     error: document.getElementById('error')!,
+    toolbar: document.getElementById('toolbar')!,
+    variables: document.getElementById('variables')!,
+    evalInput: document.getElementById('evalInput') as HTMLInputElement,
+    evalResult: document.getElementById('evalResult')!,
   };
   const vscode = { postMessage: vi.fn() };
   const ctrl = api().init(refs, vscode);
@@ -206,5 +224,109 @@ describe('DebuggerView.init — copy stack button', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('DebuggerView.renderVariables', () => {
+  beforeEach(() => { document.body.innerHTML = '<div id="variables"></div>'; });
+
+  it('renders self first (italic) then each variable name/value', () => {
+    const el = document.getElementById('variables')!;
+    api().renderVariables(el, [
+      { name: 'self', value: 'a JasperDebugDemo' },
+      { name: 'amount', value: '75' },
+    ]);
+    const rows = el.querySelectorAll('.var');
+    expect(rows).toHaveLength(2);
+    expect(rows[0].querySelector('.var-name')!.classList.contains('self')).toBe(true);
+    expect(rows[0].querySelector('.var-name')!.textContent).toBe('self');
+    expect(rows[0].querySelector('.var-value')!.textContent).toBe('a JasperDebugDemo');
+    expect(rows[1].querySelector('.var-name')!.textContent).toBe('amount');
+  });
+
+  it('shows an empty-state message when there are no variables', () => {
+    const el = document.getElementById('variables')!;
+    api().renderVariables(el, []);
+    expect(el.querySelector('.empty')!.textContent).toBe('No variables.');
+  });
+});
+
+describe('DebuggerView.init — toolbar', () => {
+  it('posts each toolbar command with the selected frame level', () => {
+    const { refs, vscode } = setup(); // default-selects top frame (level 1)
+    const click = (cmd: string) =>
+      refs.toolbar.querySelector(`button[data-cmd="${cmd}"]`)!
+        .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    click('stepOver');
+    expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'stepOver', level: 1 });
+    click('resume');
+    expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'resume', level: 1 });
+    click('terminate');
+    expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'terminate', level: 1 });
+  });
+});
+
+describe('DebuggerView.init — eval bar', () => {
+  it('posts evalInFrame for the selected frame on Enter (trimmed, non-empty)', () => {
+    const { refs, vscode } = setup();
+    refs.evalInput.value = '  amount * 2  ';
+    refs.evalInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'evalInFrame', level: 1, expr: 'amount * 2' });
+  });
+
+  it('does not post on Enter when the input is blank', () => {
+    const { refs, vscode } = setup();
+    vi.mocked(vscode.postMessage).mockClear();
+    refs.evalInput.value = '   ';
+    refs.evalInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(vscode.postMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('DebuggerView.init — inbound variables / evalResult', () => {
+  it('renders variables pushed from the host', () => {
+    const { refs } = setup();
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { command: 'variables', vars: [{ name: 'self', value: 'x' }, { name: 'n', value: '7' }] },
+    }));
+    expect(refs.variables.querySelectorAll('.var')).toHaveLength(2);
+  });
+
+  it('shows an eval result, flagging errors', () => {
+    const { refs } = setup();
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { command: 'evalResult', value: '150', isError: false },
+    }));
+    expect(refs.evalResult.textContent).toBe('150');
+    expect(refs.evalResult.classList.contains('error')).toBe(false);
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { command: 'evalResult', value: 'Error: nope', isError: true },
+    }));
+    expect(refs.evalResult.textContent).toBe('Error: nope');
+    expect(refs.evalResult.classList.contains('error')).toBe(true);
+  });
+
+  it('renders an empty string (not "undefined") when an evalResult has no value', () => {
+    const { refs } = setup();
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { command: 'evalResult', isError: false },
+    }));
+    expect(refs.evalResult.textContent).toBe('');
+  });
+
+  it('clears stale variables and eval output on a fresh init (refresh)', () => {
+    const { refs } = setup();
+    refs.variables.innerHTML = '<div class="var">stale</div>';
+    refs.evalResult.textContent = 'stale';
+    refs.evalResult.classList.add('error');
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { command: 'init', errorMessage: '', stack: STACK },
+    }));
+    expect(refs.variables.querySelector('.var')).toBeNull();
+    expect(refs.evalResult.textContent).toBe('');
+    expect(refs.evalResult.classList.contains('error')).toBe(false);
   });
 });

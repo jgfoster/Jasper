@@ -51,6 +51,32 @@
     }
   }
 
+  // Render the selected frame's variables (self first, then args/temps) into
+  // varsEl. Each is { name, value } where value is the host-computed printString.
+  function renderVariables(varsEl, vars) {
+    varsEl.innerHTML = '';
+    if (!vars || vars.length === 0) {
+      const d = document.createElement('div');
+      d.className = 'empty';
+      d.textContent = 'No variables.';
+      varsEl.appendChild(d);
+      return;
+    }
+    for (const v of vars) {
+      const row = document.createElement('div');
+      row.className = 'var';
+      const name = document.createElement('span');
+      name.className = 'var-name' + (v.name === 'self' ? ' self' : '');
+      name.textContent = v.name;
+      const val = document.createElement('span');
+      val.className = 'var-value';
+      val.textContent = v.value;
+      row.appendChild(name);
+      row.appendChild(val);
+      varsEl.appendChild(row);
+    }
+  }
+
   // Mark the frame with the given level selected, clearing any prior selection.
   // Returns the selected <li>, or null when no frame carries that level.
   function selectFrame(listEl, level) {
@@ -87,7 +113,7 @@
    * editor and highlight the current line.
    */
   function init(refs, vscode) {
-    const { list, menu, copyFrameItem, copyBtn, error } = refs;
+    const { list, menu, copyFrameItem, copyBtn, error, toolbar, variables, evalInput, evalResult } = refs;
     let selectedLevel = null;
 
     function select(level) {
@@ -126,6 +152,26 @@
       setTimeout(() => { copyBtn.textContent = prev; }, 1200);
     });
 
+    // Toolbar: each button posts its data-cmd. Step/restart act on the selected
+    // frame (level included); resume/terminate don't need a level.
+    if (toolbar) {
+      toolbar.addEventListener('click', (e) => {
+        const btn = e.target && e.target.closest ? e.target.closest('button[data-cmd]') : null;
+        if (!btn) return;
+        const command = btn.dataset.cmd;
+        vscode.postMessage(selectedLevel != null ? { command, level: selectedLevel } : { command });
+      });
+    }
+
+    // Eval-in-frame: Enter evaluates the expression in the selected frame.
+    if (evalInput) {
+      evalInput.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+        const expr = evalInput.value.trim();
+        if (expr) vscode.postMessage({ command: 'evalInFrame', level: selectedLevel, expr });
+      });
+    }
+
     // Suppress the native Cut/Copy/Paste menu everywhere; close our popup on any
     // dismiss gesture (outside click, scroll, focus loss, Escape).
     window.addEventListener('contextmenu', (e) => { e.preventDefault(); });
@@ -139,9 +185,19 @@
       const msg = event.data;
       if (msg.command === 'init') {
         if (error) error.textContent = msg.errorMessage || '';
+        // Clear stale variables / eval output; the default-select below re-fetches.
+        if (variables) variables.innerHTML = '';
+        if (evalResult) { evalResult.textContent = ''; evalResult.classList.remove('error'); }
         renderStack(list, msg.stack);
         // Default-select the top frame so the debugger opens focused on a frame.
         if (msg.stack && msg.stack.length > 0) select(msg.stack[0].level);
+      } else if (msg.command === 'variables') {
+        if (variables) renderVariables(variables, msg.vars);
+      } else if (msg.command === 'evalResult') {
+        if (evalResult) {
+          evalResult.textContent = msg.value != null ? msg.value : '';
+          evalResult.classList.toggle('error', !!msg.isError);
+        }
       }
     });
 
@@ -149,5 +205,5 @@
   }
 
   const root = typeof globalThis !== 'undefined' ? globalThis : window;
-  root.DebuggerView = { renderStack, selectFrame, showMenu, hideMenu, frameLevelOf, init };
+  root.DebuggerView = { renderStack, renderVariables, selectFrame, showMenu, hideMenu, frameLevelOf, init };
 })();

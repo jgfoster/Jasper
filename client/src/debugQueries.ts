@@ -1,6 +1,6 @@
 import { ActiveSession } from './sessionManager';
 import { OOP_NIL, OOP_TRUE, OOP_ILLEGAL, GCI_PERFORM_FLAG_ENABLE_DEBUG } from './gciConstants';
-import { logInfo, logError } from './gciLog';
+import { logInfo } from './gciLog';
 
 const MAX_RESULT = 256 * 1024;
 
@@ -544,13 +544,23 @@ export function trimStackToLevel(
 // ── Evaluate ────────────────────────────────────────────
 
 /**
- * Evaluates an expression in the context of a stack frame.
- * Returns the printString of the result.
+ * Evaluates an expression in the context of a stack frame, with `self` bound to
+ * that frame's receiver, and returns the printString of the result.
+ *
+ * Implemented via `String>>evaluateInContext:` (which compiles the expression
+ * and runs it with `self` = the given object, resolving globals through the
+ * session's symbol list). The earlier `_framePerform:withArgs:onLevel:`
+ * primitive does NOT exist in GemStone 3.7.x — and it performs a *selector*,
+ * not an expression, so it raised a NameError trying to intern the source as a
+ * Symbol. Frame arguments/temps are not yet bound here (only `self`, instVars,
+ * and globals resolve); binding temps is a later enhancement.
  */
 export function evaluateInFrame(
   session: ActiveSession, gsProcess: bigint, expression: string, level: number,
 ): string {
-  // Create a String object for the expression
+  // The frame's receiver becomes `self` for the evaluation.
+  const { receiverOop } = getFrameInfo(session, gsProcess, level);
+
   const { result: exprOop, err: strErr } = session.gci.GciTsNewString(
     session.handle, expression,
   );
@@ -558,23 +568,7 @@ export function evaluateInFrame(
     throw new Error(strErr.message || 'Cannot create expression string');
   }
 
-  // Create an empty Array for args
-  const { result: argsOop, err: arrErr } = session.gci.GciTsResolveSymbol(
-    session.handle, 'Array', OOP_NIL,
-  );
-  if (arrErr.number !== 0) {
-    throw new Error(arrErr.message || 'Cannot resolve Array class');
-  }
-  const emptyArray = gciPerform(session, argsOop, 'new');
-
-  const levelOop = intToOop(session, level);
-
-  // Send: gsProcess _framePerform: expression withArgs: #() onLevel: level
-  const resultOop = gciPerform(
-    session, gsProcess, '_framePerform:withArgs:onLevel:',
-    [exprOop, emptyArray, levelOop],
-  );
-
-  // Get printString of the result
+  // exprString evaluateInContext: receiver  →  compile + run with self = receiver.
+  const resultOop = gciPerform(session, exprOop, 'evaluateInContext:', [receiverOop]);
   return getObjectPrintString(session, resultOop);
 }
