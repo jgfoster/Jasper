@@ -32,6 +32,8 @@ vi.mock('../debugQueries', () => ({
   getStepPoint: vi.fn(() => 2),
   getMethodSource: vi.fn(() => '| t | t := 6 * 7. t halt'),
   getObjectPrintString: vi.fn((_s: unknown, oop: bigint) => `<print ${oop}>`),
+  getInstVarNames: vi.fn(() => [] as string[]),
+  getNamedInstVarOops: vi.fn(() => [] as bigint[]),
   evaluateInFrame: vi.fn(() => '42'),
   continueExecution: vi.fn(() => ({ completed: true })),
   stepOver: vi.fn(() => ({ completed: false })),
@@ -42,6 +44,9 @@ vi.mock('../debugQueries', () => ({
   acquireStepping: vi.fn(),
   releaseStepping: vi.fn(),
 }));
+
+// Clicking a variable row opens a GT Inspector — stub the static entry point.
+vi.mock('../gtInspector', () => ({ GtInspector: { create: vi.fn() } }));
 
 // Source offsets for the step-point highlight. These are GemStone `_sourceOffsets`,
 // which are 1-BASED (index i = offset of step point i+1); the panel must convert
@@ -58,6 +63,7 @@ import {
   filterStack, isExceptionMachinery, RawFrame,
 } from '../debuggerPanel';
 import { wrapWithTranscriptCapture } from '../transcriptCapture';
+import { GtInspector } from '../gtInspector';
 import { ActiveSession } from '../sessionManager';
 import { GemStoneLogin } from '../loginTypes';
 
@@ -304,8 +310,10 @@ describe('DebuggerPanel', () => {
 
       expect(html).toContain('>Call Stack<');     // pane title
       expect(html).toContain('>Variables<');       // pane title
-      expect(html).toContain('id="splitter"');     // draggable divider
+      expect(html).toContain('id="splitter"');     // draggable column divider
+      expect(html).toContain('id="hsplitter"');     // draggable panes-vs-eval divider
       expect(html).toMatch(/--stack-basis:\s*60%/); // default split, injected from the saved static
+      expect(html).toMatch(/--eval-height:\s*7rem/); // default eval-bar height, injected from the saved static
     });
 
     it('renders the toolbar as DAP-style icon buttons (codicon SVGs), not text labels', () => {
@@ -716,7 +724,7 @@ describe('DebuggerPanel', () => {
       return panel;
     }
 
-    it('posts the selected frame variables (self first, then args/temps) on selectFrame', () => {
+    it('posts the selected frame variables, grouped (Receiver + Arguments & Temps with oops) on selectFrame', () => {
       // Only server level 2 carries temps; other frames keep the base shape so the
       // 5-frame stack still renders and level 2 survives filtering (mid-stack).
       vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) =>
@@ -726,10 +734,66 @@ describe('DebuggerPanel', () => {
       const panel = openPanel();
       sendMessage(panel, { command: 'selectFrame', level: 2 });
 
-      const vars = lastPosted(panel, 'variables').vars;
-      expect(vars[0]).toEqual({ name: 'self', value: '<print 300>' });
-      expect(vars).toContainEqual({ name: 'amount', value: '<print 11>' });
-      expect(vars).toContainEqual({ name: 'total', value: '<print 22>' });
+      const groups = lastPosted(panel, 'variables').groups;
+      const receiver = groups.find((g: { kind: string }) => g.kind === 'receiver');
+      expect(receiver.vars[0]).toEqual({ name: 'self', value: '<print 300>', oop: '300' });
+      const argtemps = groups.find((g: { kind: string }) => g.kind === 'argtemps');
+      expect(argtemps.vars).toEqual([
+        { name: 'amount', value: '<print 11>', oop: '11' },
+        { name: 'total', value: '<print 22>', oop: '22' },
+      ]);
+    });
+
+    it('splits named temps from the synthetic .tN eval-stack temps into a separate group', () => {
+      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) =>
+        level === 2
+          ? { methodOop: 2n, ipOffset: 5, receiverOop: 300n, argAndTempNames: ['amount', '.t1'], argAndTempOops: [11n, 99n] }
+          : { methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [] });
+      const panel = openPanel();
+      sendMessage(panel, { command: 'selectFrame', level: 2 });
+
+      const groups = lastPosted(panel, 'variables').groups;
+      expect(groups.find((g: { kind: string }) => g.kind === 'argtemps').vars)
+        .toEqual([{ name: 'amount', value: '<print 11>', oop: '11' }]);
+      const stack = groups.find((g: { kind: string }) => g.kind === 'stacktemps');
+      expect(stack.collapsed).toBe(true);
+      expect(stack.vars).toEqual([{ name: '.t1', value: '<print 99>', oop: '99' }]);
+    });
+
+    it('hides the __vsc transcript-capture glue temps from an executed-code frame', () => {
+      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) =>
+        level === 2
+          ? { methodOop: 2n, ipOffset: 5, receiverOop: 300n,
+            argAndTempNames: ['__vscCapture', '__vscResult', 'amount'], argAndTempOops: [1n, 2n, 11n] }
+          : { methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [] });
+      const panel = openPanel();
+      sendMessage(panel, { command: 'selectFrame', level: 2 });
+
+      const groups = lastPosted(panel, 'variables').groups;
+      const argtemps = groups.find((g: { kind: string }) => g.kind === 'argtemps');
+      expect(argtemps.vars).toEqual([{ name: 'amount', value: '<print 11>', oop: '11' }]);
+      // None of the glue names leak into any group.
+      const allNames = groups.flatMap((g: { vars: { name: string }[] }) => g.vars.map(v => v.name));
+      expect(allNames.some((n: string) => n.startsWith('__vsc'))).toBe(false);
+    });
+
+    it('includes the receiver instance variables as their own group', () => {
+      vi.mocked(debug.getInstVarNames).mockReturnValueOnce(['count', 'sum']);
+      vi.mocked(debug.getNamedInstVarOops).mockReturnValueOnce([7n, 8n]);
+      const panel = openPanel();
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+
+      const groups = lastPosted(panel, 'variables').groups;
+      expect(groups.find((g: { kind: string }) => g.kind === 'instvars').vars).toEqual([
+        { name: 'count', value: '<print 7>', oop: '7' },
+        { name: 'sum', value: '<print 8>', oop: '8' },
+      ]);
+    });
+
+    it('opens a GT Inspector for a clicked variable via inspectVariable', () => {
+      const panel = openPanel();
+      sendMessage(panel, { command: 'inspectVariable', oop: '300', name: 'self' });
+      expect(GtInspector.create).toHaveBeenCalledWith(session, 300n, 'self');
     });
 
     it('evaluates an expression in the selected frame and posts the result', () => {
@@ -808,13 +872,22 @@ describe('DebuggerPanel', () => {
       expect(debug.stepOut).toHaveBeenCalledWith(session, GS_PROCESS, 4);
     });
 
-    it('Restart Frame trims the stack to the selected frame and refreshes', () => {
+    it('Restart Frame trims the stack to the selected (deeper) frame and refreshes', () => {
       const panel = openPanel();
       const before = posted(panel, 'init').length;
       sendMessage(panel, { command: 'restartFrame', level: 2 });
 
       expect(debug.trimStackToLevel).toHaveBeenCalledWith(session, GS_PROCESS, 2);
       expect(posted(panel, 'init').length).toBe(before + 1);
+    });
+
+    it('Restart Frame on the top frame shows an in-panel notice and does not trim (GemStone cannot reset the TOS IP)', () => {
+      const panel = openPanel();
+      vi.mocked(debug.trimStackToLevel).mockClear();
+      sendMessage(panel, { command: 'restartFrame', level: 1 }); // display 1 → server level 1 (top)
+
+      expect(debug.trimStackToLevel).not.toHaveBeenCalled();
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/top frame/i);
     });
 
     it('Terminate disposes the panel', () => {
@@ -872,6 +945,17 @@ describe('DebuggerPanel', () => {
 
       // Restore the default so later tests see the standard 60% split.
       sendMessage(lastPanel(), { command: 'saveLayout', stackBasis: '60%' });
+    });
+
+    it('remembers a saved eval-bar height for the next panel', () => {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      sendMessage(lastPanel(), { command: 'saveLayout', evalHeight: '160px' });
+
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      expect(lastPanel().webview.html).toMatch(/--eval-height:\s*160px/);
+
+      // Restore the default so later tests see the standard 7rem height.
+      sendMessage(lastPanel(), { command: 'saveLayout', evalHeight: '7rem' });
     });
   });
 });

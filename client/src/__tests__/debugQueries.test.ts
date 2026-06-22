@@ -438,6 +438,103 @@ describe('debugQueries', () => {
     });
   });
 
+  // When the frame has *named* args/temps, evaluateInFrame must bind them so a
+  // bare identifier like `amount` resolves — by prepending a transient
+  // SymbolDictionary {name → value} to the user's symbol list and evaluating via
+  // `evaluateInContext:symbolList:` (NOT the self-only `evaluateInContext:`).
+  describe('evaluateInFrame — binds named temps via a symbol-list dictionary', () => {
+    const GS_PROCESS = 9000n;
+    const FRAME_ARRAY = 0xF0n;
+    const NAMES_ARRAY = 0xA1n;
+    const FRAME_RECEIVER = 0x77n;
+    const AMOUNT_NAME = 0xB1n;   // the name string 'amount' in the names array
+    const AMOUNT_VALUE = 0x96n;  // oop of the temp's value (75)
+    const AMOUNT_SYMBOL = 0xC1n; // interned #amount
+    const EXPR_STRING = 0xE0n;
+    const EVAL_RESULT = 0x07n;
+
+    function tempSession() {
+      const gci = {
+        GciTsI64ToOop: vi.fn(() => ({ result: 0xAAn, err: { ...noErr } })),
+        GciTsOopToI64: vi.fn(() => ({ value: 5n, err: { ...noErr } })),
+        GciTsNewString: vi.fn(() => ({ result: EXPR_STRING, err: { ...noErr } })),
+        GciTsNewSymbol: vi.fn(() => ({ result: AMOUNT_SYMBOL, err: { ...noErr } })),
+        GciTsResolveSymbol: vi.fn((_h: unknown, name: string) => ({
+          result: name === 'SymbolDictionary' ? 0xD1n : name === 'SymbolList' ? 0xD2n : 0xD3n,
+          err: { ...noErr },
+        })),
+        // Frame array size = 11 (so values start at slot 11); names array size = 1.
+        GciTsFetchSize: vi.fn((_h: unknown, oop: bigint) =>
+          ({ result: oop === NAMES_ARRAY ? 1n : 11n, err: { ...noErr } })),
+        GciTsFetchOops: vi.fn((_h: unknown, oop: bigint) =>
+          oop === NAMES_ARRAY
+            ? { oops: [AMOUNT_NAME], err: { ...noErr } }
+            : { // frame contents: [9]=names (idx8), [10]=receiver (idx9), [11+]=values
+              oops: [1n, 2n, 0n, 0n, 0n, 0n, 0n, 0n, NAMES_ARRAY, FRAME_RECEIVER, AMOUNT_VALUE],
+              err: { ...noErr },
+            }),
+        GciTsPerform: vi.fn((_h: unknown, _r: bigint, _s: bigint, sel: string | null) => {
+          if (sel === '_frameContentsAt:') return { result: FRAME_ARRAY, err: { ...noErr } };
+          if (sel === 'new') return { result: 0xDD0n, err: { ...noErr } };          // SymbolDictionary new
+          if (sel === 'at:put:') return { result: 0n, err: { ...noErr } };
+          if (sel === 'myUserProfile') return { result: 0xDDdn, err: { ...noErr } };
+          if (sel === 'symbolList') return { result: 0xDDan, err: { ...noErr } };
+          if (sel === 'with:') return { result: 0xDDfn, err: { ...noErr } };
+          if (sel === ',') return { result: 0xDDcn, err: { ...noErr } };
+          if (sel === 'evaluateInContext:symbolList:') return { result: EVAL_RESULT, err: { ...noErr } };
+          return { result: 0n, err: { ...noErr } };
+        }),
+        GciTsPerformFetchBytes: vi.fn((_h: unknown, oop: bigint) =>
+          oop === AMOUNT_NAME
+            ? { bytesReturned: 6, data: 'amount', err: { ...noErr } }
+            : oop === EVAL_RESULT
+              ? { bytesReturned: 3, data: '150', err: { ...noErr } }
+              : { bytesReturned: 0, data: '', err: { ...noErr } }),
+      };
+      return {
+        id: 1, handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
+        gci: gci as unknown as ActiveSession['gci'],
+      } as ActiveSession;
+    }
+
+    it('evaluates via evaluateInContext:symbolList: (not the self-only path)', () => {
+      const session = tempSession();
+      expect(debug.evaluateInFrame(session, GS_PROCESS, 'amount * 2', 3)).toBe('150');
+
+      const calls = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls;
+      const sels = calls.map((c: unknown[]) => c[3]);
+      expect(sels).toContain('evaluateInContext:symbolList:');
+      expect(sels).not.toContain('evaluateInContext:');
+    });
+
+    it('interns each temp name and stores its value in the dictionary', () => {
+      const session = tempSession();
+      debug.evaluateInFrame(session, GS_PROCESS, 'amount * 2', 3);
+
+      expect(session.gci.GciTsNewSymbol).toHaveBeenCalledWith({}, 'amount');
+      const atPut = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls
+        .find((c: unknown[]) => c[3] === 'at:put:');
+      expect(atPut).toBeDefined();
+      expect(atPut![4]).toEqual([AMOUNT_SYMBOL, AMOUNT_VALUE]); // dict at: #amount put: value
+    });
+
+    it('degrades to self-only evaluateInContext: when a required global will not resolve', () => {
+      const session = tempSession();
+      // SymbolDictionary fails to resolve → no temp dictionary can be built, so
+      // buildFrameSymbolList returns null and the eval falls back to self-only.
+      (session.gci.GciTsResolveSymbol as ReturnType<typeof vi.fn>).mockImplementation(
+        (_h: unknown, name: string) => name === 'SymbolDictionary'
+          ? { result: 0n, err: { ...noErr, number: 2110, message: 'not resolved' } }
+          : { result: 0xD2n, err: { ...noErr } });
+      debug.evaluateInFrame(session, GS_PROCESS, 'amount * 2', 3);
+
+      const sels = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls
+        .map((c: unknown[]) => c[3]);
+      expect(sels).toContain('evaluateInContext:');
+      expect(sels).not.toContain('evaluateInContext:symbolList:');
+    });
+  });
+
   describe('completion result oop', () => {
     const GS_PROCESS = 9000n;
     const RESULT = 0x99n;

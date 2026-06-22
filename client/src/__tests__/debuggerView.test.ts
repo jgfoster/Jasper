@@ -15,7 +15,12 @@ interface FrameSummary { level: number; label: string; position: string; }
 
 interface DebuggerViewApi {
   renderStack(listEl: HTMLElement, stack: FrameSummary[]): void;
-  renderVariables(varsEl: HTMLElement, vars: { name: string; value: string }[]): void;
+  renderVariables(
+    varsEl: HTMLElement,
+    groups: { title: string; kind: string; collapsed?: boolean;
+      vars: { name: string; value: string; oop: string }[] }[],
+    onInspect?: (oop: string, name: string) => void,
+  ): void;
   selectFrame(listEl: HTMLElement, level: number): HTMLElement | null;
   showMenu(menuEl: HTMLElement, x: number, y: number): void;
   hideMenu(menuEl: HTMLElement): void;
@@ -40,8 +45,10 @@ interface Refs {
   variables: HTMLElement;
   evalInput: HTMLInputElement;
   evalResult: HTMLElement;
+  evalbar?: HTMLElement;
   main?: HTMLElement;
   splitter?: HTMLElement;
+  hsplitter?: HTMLElement;
 }
 
 function api(): DebuggerViewApi {
@@ -236,21 +243,49 @@ describe('DebuggerView.init — copy stack button', () => {
 describe('DebuggerView.renderVariables', () => {
   beforeEach(() => { document.body.innerHTML = '<div id="variables"></div>'; });
 
-  it('renders self first (italic) then each variable name/value', () => {
+  it('renders each group with a title and its rows (name / value / dim oop)', () => {
     const el = document.getElementById('variables')!;
     api().renderVariables(el, [
-      { name: 'self', value: 'a JasperDebugDemo' },
-      { name: 'amount', value: '75' },
+      { title: 'Receiver', kind: 'receiver', vars: [{ name: 'self', value: 'a JasperDebugDemo', oop: '100' }] },
+      { title: 'Arguments & Temps', kind: 'argtemps', vars: [{ name: 'amount', value: '75', oop: '124' }] },
     ]);
+    const titles = el.querySelectorAll('.var-group-title');
+    expect([...titles].map(t => t.textContent)).toEqual(['Receiver', 'Arguments & Temps']);
+
     const rows = el.querySelectorAll('.var');
     expect(rows).toHaveLength(2);
     expect(rows[0].querySelector('.var-name')!.classList.contains('self')).toBe(true);
     expect(rows[0].querySelector('.var-name')!.textContent).toBe('self');
     expect(rows[0].querySelector('.var-value')!.textContent).toBe('a JasperDebugDemo');
+    expect(rows[0].querySelector('.var-oop')!.textContent).toBe('100');
+    expect((rows[0] as HTMLElement).dataset.oop).toBe('100');
     expect(rows[1].querySelector('.var-name')!.textContent).toBe('amount');
+    expect(rows[1].querySelector('.var-oop')!.textContent).toBe('124');
   });
 
-  it('shows an empty-state message when there are no variables', () => {
+  it('renders the stack-temps group collapsed; clicking its title expands it', () => {
+    const el = document.getElementById('variables')!;
+    api().renderVariables(el, [
+      { title: '(stack temps)', kind: 'stacktemps', collapsed: true,
+        vars: [{ name: '.t1', value: '7', oop: '36' }] },
+    ]);
+    const group = el.querySelector('.var-group')!;
+    expect(group.classList.contains('collapsed')).toBe(true);
+    (group.querySelector('.var-group-title') as HTMLElement).click();
+    expect(group.classList.contains('collapsed')).toBe(false);
+  });
+
+  it('clicking a variable row calls onInspect with the row oop + name', () => {
+    const el = document.getElementById('variables')!;
+    const onInspect = vi.fn();
+    api().renderVariables(el, [
+      { title: 'Receiver', kind: 'receiver', vars: [{ name: 'self', value: 'x', oop: '100' }] },
+    ], onInspect);
+    (el.querySelector('.var') as HTMLElement).click();
+    expect(onInspect).toHaveBeenCalledWith('100', 'self');
+  });
+
+  it('shows an empty-state message when there are no groups', () => {
     const el = document.getElementById('variables')!;
     api().renderVariables(el, []);
     expect(el.querySelector('.empty')!.textContent).toBe('No variables.');
@@ -302,12 +337,27 @@ describe('DebuggerView.init — eval bar', () => {
 });
 
 describe('DebuggerView.init — inbound variables / evalResult', () => {
-  it('renders variables pushed from the host', () => {
+  it('renders grouped variables pushed from the host', () => {
     const { refs } = setup();
     window.dispatchEvent(new MessageEvent('message', {
-      data: { command: 'variables', vars: [{ name: 'self', value: 'x' }, { name: 'n', value: '7' }] },
+      data: { command: 'variables', groups: [
+        { title: 'Receiver', kind: 'receiver', vars: [{ name: 'self', value: 'x', oop: '100' }] },
+        { title: 'Arguments & Temps', kind: 'argtemps', vars: [{ name: 'n', value: '7', oop: '20' }] },
+      ] },
     }));
     expect(refs.variables.querySelectorAll('.var')).toHaveLength(2);
+  });
+
+  it('clicking a pushed variable row posts inspectVariable to the host', () => {
+    const { refs, vscode } = setup();
+    vi.mocked(vscode.postMessage).mockClear();
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { command: 'variables', groups: [
+        { title: 'Receiver', kind: 'receiver', vars: [{ name: 'self', value: 'x', oop: '100' }] },
+      ] },
+    }));
+    (refs.variables.querySelector('.var') as HTMLElement).click();
+    expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'inspectVariable', oop: '100', name: 'self' });
   });
 
   it('shows an eval result, flagging errors', () => {
@@ -352,7 +402,7 @@ describe('DebuggerView.init — resizable splitter', () => {
   // Build a panel DOM that includes the .main container + splitter, and a fake
   // vscode that records postMessage and round-trips getState/setState. jsdom
   // getBoundingClientRect returns zeros, so stub .main's rect to a real width.
-  function setupSplit(initialState?: { stackBasis?: string }) {
+  function setupSplit(initialState?: { stackBasis?: string; evalHeight?: string }) {
     document.body.innerHTML = `
       <div id="error"></div>
       <div class="main" id="main" style="--stack-basis: 60%;">
@@ -360,12 +410,20 @@ describe('DebuggerView.init — resizable splitter', () => {
         <div id="splitter"></div>
         <div id="variables"></div>
       </div>
+      <div id="hsplitter"></div>
+      <div id="evalbar" style="--eval-height: 7rem;">
+        <input id="evalInput"><div id="evalResult"></div>
+      </div>
       <div id="ctxmenu"><div id="copyFrameItem"></div></div>
-      <button id="copyBtn"></button><div id="toolbar"></div>
-      <input id="evalInput"><div id="evalResult"></div>`;
+      <button id="copyBtn"></button><div id="toolbar"></div>`;
     const main = document.getElementById('main')!;
     main.getBoundingClientRect = () =>
       ({ left: 0, top: 0, right: 200, bottom: 100, width: 200, height: 100, x: 0, y: 0, toJSON() {} });
+    const evalbar = document.getElementById('evalbar')!;
+    // jsdom rects are all-zero; give the eval bar a real height so the hsplitter
+    // baseline (the live eval-bar height at mousedown) is meaningful.
+    evalbar.getBoundingClientRect = () =>
+      ({ left: 0, top: 100, right: 200, bottom: 200, width: 200, height: 100, x: 0, y: 100, toJSON() {} });
     const refs: Refs = {
       list: document.getElementById('stack')!,
       menu: document.getElementById('ctxmenu')!,
@@ -376,8 +434,10 @@ describe('DebuggerView.init — resizable splitter', () => {
       variables: document.getElementById('variables')!,
       evalInput: document.getElementById('evalInput') as HTMLInputElement,
       evalResult: document.getElementById('evalResult')!,
+      evalbar,
       main,
       splitter: document.getElementById('splitter')!,
+      hsplitter: document.getElementById('hsplitter')!,
     };
     let state: unknown = initialState;
     const vscode = {
@@ -431,5 +491,39 @@ describe('DebuggerView.init — resizable splitter', () => {
     expect(vscode.postMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({ command: 'saveLayout' }),
     );
+  });
+
+  // Drag the horizontal splitter from y=50 to the given clientY. The eval bar's
+  // baseline height is the stubbed 100px; dragging UP (smaller clientY) grows it.
+  function hdrag(hsplitter: HTMLElement, toClientY: number) {
+    hsplitter.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 10, clientY: 50 }));
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 10, clientY: toClientY }));
+    window.dispatchEvent(new MouseEvent('mouseup', { clientX: 10, clientY: toClientY }));
+  }
+
+  it('restores a previously saved eval-height from webview state on init', () => {
+    const { refs } = setupSplit({ evalHeight: '12rem' });
+    expect(refs.evalbar!.style.getPropertyValue('--eval-height').trim()).toBe('12rem');
+  });
+
+  it('grows --eval-height when dragging the splitter up (baseline + (startY - y))', () => {
+    const { refs } = setupSplit();
+    // baseline 100 + (50 - 20) = 130px.
+    hdrag(refs.hsplitter!, 20);
+    expect(refs.evalbar!.style.getPropertyValue('--eval-height').trim()).toBe('130px');
+  });
+
+  it('clamps --eval-height to a 42px floor when dragging down past it', () => {
+    const { refs } = setupSplit();
+    // baseline 100 + (50 - 300) → below the floor.
+    hdrag(refs.hsplitter!, 300);
+    expect(refs.evalbar!.style.getPropertyValue('--eval-height').trim()).toBe('42px');
+  });
+
+  it('persists the eval-height on horizontal drag end via setState and saveLayout', () => {
+    const { refs, vscode } = setupSplit();
+    hdrag(refs.hsplitter!, 20); // → 130px
+    expect(vscode.setState).toHaveBeenCalledWith({ evalHeight: '130px' });
+    expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'saveLayout', evalHeight: '130px' });
   });
 });

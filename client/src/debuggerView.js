@@ -51,29 +51,60 @@
     }
   }
 
-  // Render the selected frame's variables (self first, then args/temps) into
-  // varsEl. Each is { name, value } where value is the host-computed printString.
-  function renderVariables(varsEl, vars) {
+  // Render the selected frame's variables into varsEl, grouped (Receiver /
+  // Instance variables / Arguments & Temps / stack temps). Each group is
+  // { title, kind, collapsed?, vars:[{name, value, oop}] }; value is the
+  // host-computed printString. onInspect(oop, name) is called when a row is
+  // clicked (opens a GT Inspector); it's optional so tests can omit it.
+  function renderVariables(varsEl, groups, onInspect) {
     varsEl.innerHTML = '';
-    if (!vars || vars.length === 0) {
+    if (!groups || groups.length === 0) {
       const d = document.createElement('div');
       d.className = 'empty';
       d.textContent = 'No variables.';
       varsEl.appendChild(d);
       return;
     }
-    for (const v of vars) {
-      const row = document.createElement('div');
-      row.className = 'var';
-      const name = document.createElement('span');
-      name.className = 'var-name' + (v.name === 'self' ? ' self' : '');
-      name.textContent = v.name;
-      const val = document.createElement('span');
-      val.className = 'var-value';
-      val.textContent = v.value;
-      row.appendChild(name);
-      row.appendChild(val);
-      varsEl.appendChild(row);
+    for (const g of groups) {
+      const group = document.createElement('div');
+      group.className = 'var-group' + (g.collapsed ? ' collapsed' : '');
+      group.dataset.kind = g.kind;
+
+      const title = document.createElement('div');
+      title.className = 'var-group-title';
+      title.textContent = g.title;
+      // Clicking a group title collapses/expands its body.
+      title.addEventListener('click', function () { group.classList.toggle('collapsed'); });
+      group.appendChild(title);
+
+      const body = document.createElement('div');
+      body.className = 'var-group-body';
+      for (const v of (g.vars || [])) {
+        const row = document.createElement('div');
+        row.className = 'var';
+        row.dataset.oop = v.oop;
+        row.title = 'GT Inspect';
+
+        const name = document.createElement('span');
+        name.className = 'var-name' + (v.name === 'self' ? ' self' : '');
+        name.textContent = v.name;
+        const val = document.createElement('span');
+        val.className = 'var-value';
+        val.textContent = v.value;
+        const oop = document.createElement('span');
+        oop.className = 'var-oop';
+        oop.textContent = v.oop;
+
+        row.appendChild(name);
+        row.appendChild(val);
+        row.appendChild(oop);
+        row.addEventListener('click', function () {
+          if (onInspect) onInspect(v.oop, v.name);
+        });
+        body.appendChild(row);
+      }
+      group.appendChild(body);
+      varsEl.appendChild(group);
     }
   }
 
@@ -113,7 +144,7 @@
    * editor and highlight the current line.
    */
   function init(refs, vscode) {
-    const { list, menu, copyFrameItem, copyBtn, error, toolbar, variables, evalInput, evalResult, main, splitter } = refs;
+    const { list, menu, copyFrameItem, copyBtn, error, toolbar, variables, evalInput, evalResult, main, splitter, hsplitter, evalbar } = refs;
     let selectedLevel = null;
 
     function select(level) {
@@ -180,6 +211,7 @@
       // Restore a previously saved ratio when reopening a reloaded webview.
       const saved = vscode.getState ? vscode.getState() : null;
       if (saved && saved.stackBasis) main.style.setProperty('--stack-basis', saved.stackBasis);
+      if (saved && saved.evalHeight && evalbar) evalbar.style.setProperty('--eval-height', saved.evalHeight);
 
       // The basis at mousedown, so endDrag can tell a real drag from a bare click.
       let startBasis = null;
@@ -216,6 +248,44 @@
       });
     }
 
+    // Horizontal splitter: dragging rewrites `--eval-height` (the eval bar's
+    // height). The panes flex-fill the rest, so dragging DOWN shrinks the eval bar
+    // and grows the panes (more stack frames); dragging UP grows the eval bar.
+    // Baseline is the live eval-bar height at mousedown (so the drag tracks 1:1).
+    // Persisted like the column splitter.
+    if (hsplitter && evalbar) {
+      let startY = 0;
+      let startHeight = 0;
+      function onHMove(e) {
+        // The splitter sits above the eval bar, so moving it down (clientY up)
+        // makes the eval bar smaller — hence startY - e.clientY.
+        let h = startHeight + (startY - e.clientY);
+        h = Math.max(42, Math.min(window.innerHeight * 0.75, h));
+        evalbar.style.setProperty('--eval-height', Math.round(h) + 'px');
+      }
+      function endHDrag() {
+        window.removeEventListener('mousemove', onHMove);
+        window.removeEventListener('mouseup', endHDrag);
+        hsplitter.classList.remove('dragging');
+        const height = evalbar.style.getPropertyValue('--eval-height').trim();
+        if (!height) return;
+        if (vscode.setState) {
+          const state = (vscode.getState ? vscode.getState() : null) || {};
+          state.evalHeight = height;
+          vscode.setState(state);
+        }
+        vscode.postMessage({ command: 'saveLayout', evalHeight: height });
+      }
+      hsplitter.addEventListener('mousedown', (e) => {
+        startY = e.clientY;
+        startHeight = evalbar.getBoundingClientRect().height;
+        hsplitter.classList.add('dragging');
+        e.preventDefault();
+        window.addEventListener('mousemove', onHMove);
+        window.addEventListener('mouseup', endHDrag);
+      });
+    }
+
     // Suppress the native Cut/Copy/Paste menu everywhere; close our popup on any
     // dismiss gesture (outside click, scroll, focus loss, Escape).
     window.addEventListener('contextmenu', (e) => { e.preventDefault(); });
@@ -236,7 +306,9 @@
         // Default-select the top frame so the debugger opens focused on a frame.
         if (msg.stack && msg.stack.length > 0) select(msg.stack[0].level);
       } else if (msg.command === 'variables') {
-        if (variables) renderVariables(variables, msg.vars);
+        if (variables) renderVariables(variables, msg.groups, function (oop, name) {
+          vscode.postMessage({ command: 'inspectVariable', oop: oop, name: name });
+        });
       } else if (msg.command === 'evalResult') {
         if (evalResult) {
           evalResult.textContent = msg.value != null ? msg.value : '';

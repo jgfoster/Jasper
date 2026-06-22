@@ -622,22 +622,29 @@ export function trimStackToLevel(
 // ── Evaluate ────────────────────────────────────────────
 
 /**
- * Evaluates an expression in the context of a stack frame, with `self` bound to
- * that frame's receiver, and returns the printString of the result.
+ * Evaluates an expression in the context of a stack frame and returns the
+ * printString of the result.
  *
- * Implemented via `String>>evaluateInContext:` (which compiles the expression
- * and runs it with `self` = the given object, resolving globals through the
- * session's symbol list). The earlier `_framePerform:withArgs:onLevel:`
- * primitive does NOT exist in GemStone 3.7.x — and it performs a *selector*,
- * not an expression, so it raised a NameError trying to intern the source as a
- * Symbol. Frame arguments/temps are not yet bound here (only `self`, instVars,
- * and globals resolve); binding temps is a later enhancement.
+ * `self` is always bound to the frame's receiver (so instVars and globals
+ * resolve too), via `String>>evaluateInContext:`. When the frame has named
+ * arguments/temps, they are *also* bound: a transient `SymbolDictionary`
+ * mapping each name → its current value is prepended to the user's symbol list
+ * so a bare identifier like `amount` resolves to the frame's temp
+ * (`evaluateInContext:symbolList:`). The dictionary shadows globals, while
+ * globals still resolve through the appended user list.
+ *
+ * Limitation: temps are bound for *reads* only — assigning to a temp in the
+ * eval bar writes the transient dictionary, not the live frame.
+ *
+ * (The earlier `_framePerform:withArgs:onLevel:` primitive does NOT exist on
+ * GemStone 3.7.x — and it performed a *selector*, not an expression, so it
+ * raised a NameError trying to intern the source as a Symbol.)
  */
 export function evaluateInFrame(
   session: ActiveSession, gsProcess: bigint, expression: string, level: number,
 ): string {
   // The frame's receiver becomes `self` for the evaluation.
-  const { receiverOop } = getFrameInfo(session, gsProcess, level);
+  const { receiverOop, argAndTempNames, argAndTempOops } = getFrameInfo(session, gsProcess, level);
 
   const { result: exprOop, err: strErr } = session.gci.GciTsNewString(
     session.handle, expression,
@@ -646,7 +653,61 @@ export function evaluateInFrame(
     throw new Error(strErr.message || 'Cannot create expression string');
   }
 
-  // exprString evaluateInContext: receiver  →  compile + run with self = receiver.
-  const resultOop = gciPerform(session, exprOop, 'evaluateInContext:', [receiverOop]);
+  // Bind the frame's named args/temps when present; otherwise keep the lean
+  // single-arg path (self + instVars + globals via the session's symbol list).
+  const symbolListOop = buildFrameSymbolList(session, argAndTempNames, argAndTempOops);
+  const resultOop = symbolListOop === null
+    ? gciPerform(session, exprOop, 'evaluateInContext:', [receiverOop])
+    : gciPerform(session, exprOop, 'evaluateInContext:symbolList:', [receiverOop, symbolListOop]);
   return getObjectPrintString(session, resultOop);
+}
+
+/** Resolve a global (e.g. a class name) to its OOP; null if it doesn't resolve. */
+function resolveGlobalOop(session: ActiveSession, name: string): bigint | null {
+  const { result, err } = session.gci.GciTsResolveSymbol(session.handle, name, OOP_NIL);
+  if (err.number !== 0) return null;
+  return result;
+}
+
+/**
+ * Builds a SymbolList whose first entry is a transient SymbolDictionary mapping
+ * each *named* (non-synthetic) arg/temp to its current value, prepended to the
+ * user's own symbol list — so bare identifiers like `amount` resolve to the
+ * frame's temps while globals still resolve through the appended user list.
+ * Returns null when the frame has no bindable named temps (the caller then uses
+ * the simpler `evaluateInContext:`), or if any of the required globals can't be
+ * resolved (degrade to the self-only eval rather than fail).
+ *
+ * The synthetic `.tN` eval-stack temporaries have no source name (and `.t1`
+ * isn't a legal identifier), so they are skipped.
+ */
+function buildFrameSymbolList(
+  session: ActiveSession, names: string[], oops: bigint[],
+): bigint | null {
+  const bindings: { name: string; oop: bigint }[] = [];
+  for (let i = 0; i < names.length; i++) {
+    const name = names[i];
+    const oop = oops[i];
+    if (!name || name.startsWith('.') || oop === undefined) continue;
+    bindings.push({ name, oop });
+  }
+  if (bindings.length === 0) return null;
+
+  const symDictClass = resolveGlobalOop(session, 'SymbolDictionary');
+  const symListClass = resolveGlobalOop(session, 'SymbolList');
+  const systemClass = resolveGlobalOop(session, 'System');
+  if (symDictClass === null || symListClass === null || systemClass === null) return null;
+
+  const dictOop = gciPerform(session, symDictClass, 'new');
+  for (const { name, oop } of bindings) {
+    const { result: symOop, err } = session.gci.GciTsNewSymbol(session.handle, name);
+    if (err.number !== 0) continue; // skip un-internable names defensively
+    gciPerform(session, dictOop, 'at:put:', [symOop, oop]);
+  }
+
+  // (SymbolList with: dict) , (System myUserProfile symbolList)
+  const profileOop = gciPerform(session, systemClass, 'myUserProfile');
+  const userListOop = gciPerform(session, profileOop, 'symbolList');
+  const frontOop = gciPerform(session, symListClass, 'with:', [dictOop]);
+  return gciPerform(session, frontOop, ',', [userListOop]);
 }

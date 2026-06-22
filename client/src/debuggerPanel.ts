@@ -6,6 +6,7 @@ import { ActiveSession } from './sessionManager';
 import * as debug from './debugQueries';
 import * as queries from './browserQueries';
 import { unwrapTranscriptCapture } from './transcriptCapture';
+import { GtInspector } from './gtInspector';
 import { logError } from './gciLog';
 
 // The webview's DOM behavior lives in a standalone file (like listFilter.js /
@@ -66,7 +67,29 @@ type DebuggerInbound =
   | { command: 'stepInto'; level: number }
   | { command: 'stepThrough'; level: number }
   | { command: 'restartFrame'; level: number }
-  | { command: 'saveLayout'; stackBasis: string };
+  | { command: 'inspectVariable'; oop: string; name: string }
+  | { command: 'saveLayout'; stackBasis?: string; evalHeight?: string };
+
+/** A single variable row (name / printString / oop) sent to the webview. */
+interface VarRow {
+  name: string;
+  value: string;
+  /** The variable's OOP as a decimal string (drives the dim column + GT Inspect). */
+  oop: string;
+}
+
+/**
+ * A named group of variable rows. Stage 2 splits the flat list into Receiver
+ * (`self`), Instance variables, Arguments & Temps, and a collapsed
+ * `(stack temps)` group for the synthetic eval-stack temporaries.
+ */
+interface VarGroup {
+  title: string;
+  kind: 'receiver' | 'instvars' | 'argtemps' | 'stacktemps';
+  vars: VarRow[];
+  /** Rendered collapsed by default (used for the noisy `(stack temps)` group). */
+  collapsed?: boolean;
+}
 
 /**
  * Build the `gemstone://` URI for a method's source, in the exact form the
@@ -302,6 +325,14 @@ export class DebuggerPanel {
    */
   private static savedStackBasis = '60%';
 
+  /**
+   * The eval bar's height (`--eval-height`); the hsplitter resizes it, trading
+   * space with the panes (which flex-fill the rest). Like `savedStackBasis`,
+   * remembered across panels for this window and persisted webview-side via
+   * getState/setState. Default 7rem.
+   */
+  private static savedEvalHeight = '7rem';
+
   private static ensureReadOnlySourceProvider(): void {
     if (DebuggerPanel.providerRegistered) return;
     DebuggerPanel.providerRegistered = true;
@@ -437,9 +468,20 @@ export class DebuggerPanel {
         if (frame) this.restartFrame(frame.serverLevel);
         return;
       }
+      case 'inspectVariable': {
+        // Open the clicked variable in a GT Inspector (beside), like GT Inspect.
+        try {
+          GtInspector.create(this.session, BigInt(msg.oop), msg.name);
+        } catch (e: unknown) {
+          logError(this.sessionId, e instanceof Error ? e.message : String(e));
+        }
+        return;
+      }
       case 'saveLayout': {
-        // Remember the stack/variables split so the next panel opens the same way.
-        DebuggerPanel.savedStackBasis = msg.stackBasis;
+        // Remember the splits (stack-vs-variables width, eval-bar height) so the
+        // next panel opens the same way. Each is sent only when it changed.
+        if (msg.stackBasis != null) DebuggerPanel.savedStackBasis = msg.stackBasis;
+        if (msg.evalHeight != null) DebuggerPanel.savedEvalHeight = msg.evalHeight;
         return;
       }
     }
@@ -461,33 +503,69 @@ export class DebuggerPanel {
     this.postInit();
   }
 
-  /** Fetch the selected frame's variables (self + args/temps) and post them. */
+  /** Fetch the selected frame's grouped variables and post them. */
   private postVariables(serverLevel: number): void {
-    let vars: { name: string; value: string }[] = [];
+    let groups: VarGroup[] = [];
     try {
-      vars = this.fetchVariables(serverLevel);
+      groups = this.fetchVariables(serverLevel);
     } catch (e: unknown) {
       logError(this.sessionId, e instanceof Error ? e.message : String(e));
     }
-    this.panel.webview.postMessage({ command: 'variables', vars });
+    this.panel.webview.postMessage({ command: 'variables', groups });
   }
 
   /**
-   * Basic variables for a frame: `self` followed by the frame's args and temps,
-   * each with its printString. (Stage 2 adds Receiver/Args grouping, the oop
-   * column, and click-to-inspect.) Each printString is best-effort.
+   * The selected frame's variables, split into Receiver (`self`), Instance
+   * variables (the receiver's named instVars), Arguments & Temps (the frame's
+   * *named* args/temps), and a collapsed `(stack temps)` group for the synthetic
+   * `.tN` eval-stack temporaries (which have no source name). Each printString
+   * and the instVar resolution are best-effort so one bad slot can't blank the
+   * whole pane. Each row carries its OOP for the dim column + click-to-inspect.
    */
-  private fetchVariables(serverLevel: number): { name: string; value: string }[] {
+  private fetchVariables(serverLevel: number): VarGroup[] {
     const info = debug.getFrameInfo(this.session, this.gsProcess, serverLevel);
     const safePrint = (oop: bigint): string => {
       try { return debug.getObjectPrintString(this.session, oop); }
       catch { return '<unprintable>'; }
     };
-    const vars = [{ name: 'self', value: safePrint(info.receiverOop) }];
-    for (let i = 0; i < info.argAndTempNames.length; i++) {
-      vars.push({ name: info.argAndTempNames[i], value: safePrint(info.argAndTempOops[i]) });
+    const row = (name: string, oop: bigint): VarRow =>
+      ({ name, value: safePrint(oop), oop: oop.toString() });
+
+    const groups: VarGroup[] = [];
+
+    // 1. Receiver — `self`.
+    groups.push({ title: 'Receiver', kind: 'receiver', vars: [row('self', info.receiverOop)] });
+
+    // 2. Instance variables — the receiver's named instVars (none for immediates).
+    try {
+      const ivNames = debug.getInstVarNames(this.session, info.receiverOop);
+      if (ivNames.length > 0) {
+        const ivOops = debug.getNamedInstVarOops(this.session, info.receiverOop, ivNames.length);
+        const ivVars = ivNames.map((n, i) => row(n, ivOops[i]));
+        groups.push({ title: 'Instance variables', kind: 'instvars', vars: ivVars });
+      }
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
     }
-    return vars;
+
+    // 3 + 4. Args/temps — real source names vs synthetic `.tN` eval-stack temps.
+    // `__vsc…` temps are the Transcript-capture wrapper's glue (see
+    // transcriptCapture.ts); they're hidden, just like the glue is stripped from
+    // an executed-code frame's source.
+    const named: VarRow[] = [];
+    const stackTemps: VarRow[] = [];
+    for (let i = 0; i < info.argAndTempNames.length; i++) {
+      const name = info.argAndTempNames[i];
+      if (name.startsWith('__vsc')) continue;
+      (name.startsWith('.') ? stackTemps : named).push(row(name, info.argAndTempOops[i]));
+    }
+    if (named.length > 0) {
+      groups.push({ title: 'Arguments & Temps', kind: 'argtemps', vars: named });
+    }
+    if (stackTemps.length > 0) {
+      groups.push({ title: '(stack temps)', kind: 'stacktemps', collapsed: true, vars: stackTemps });
+    }
+    return groups;
   }
 
   /** Evaluate an expression in the selected frame and post the printString back. */
@@ -563,8 +641,28 @@ export class DebuggerPanel {
     this.refresh();
   }
 
-  /** Restart the selected frame (trim the stack to it) and refresh. */
+  /**
+   * Restart the selected frame: re-enter its method from the first statement,
+   * keeping the receiver + arguments. GemStone does this via
+   * `GsProcess>>trimStackToLevel:` (the same primitive GT's `restartFrameLevel:`
+   * uses), which trims the calls made from the frame and resets the new
+   * top-of-stack to its method's first instruction.
+   *
+   * That primitive is a guarded no-op for level 1, and there is no primitive to
+   * reset the *top* frame's IP in place — so the absolute top frame can't be
+   * restarted. Tell the user instead of silently doing nothing; restart still
+   * works on any deeper frame (for a recursive call, restarting the caller frame
+   * re-enters the same method one level up).
+   */
   private restartFrame(serverLevel: number): void {
+    if (serverLevel <= 1) {
+      // Show the notice IN the panel (the banner) — a toast is easy to miss while
+      // the webview has focus. It clears on the next step/resume/restart.
+      this.errorMessage = 'Cannot restart the top frame: GemStone can only restart a frame '
+        + 'that has called another. Select a deeper frame to restart it.';
+      this.postInit();
+      return;
+    }
     debug.trimStackToLevel(this.session, this.gsProcess, serverLevel);
     this.errorMessage = '';
     this.refresh();
@@ -859,6 +957,7 @@ export class DebuggerPanel {
     const nonce = crypto.randomBytes(16).toString('hex');
     const subtitle = escapeHtml(this.sessionSubtitle());
     const stackBasis = DebuggerPanel.savedStackBasis;
+    const evalHeight = DebuggerPanel.savedEvalHeight;
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -867,10 +966,20 @@ export class DebuggerPanel {
         content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
+    /* Fill the webview column as a flex column so the panes take all available
+       height (more stack frames visible) and the eval bar stays pinned at the
+       bottom — it can never overlap the companion source editor group below. */
+    html, body { height: 100%; }
     body {
       font-family: var(--vscode-font-family);
       color: var(--vscode-foreground);
       padding: 0.75rem 1rem;
+      box-sizing: border-box;
+      height: 100vh;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
     }
     /* Suppress text selection / the default Cut-Copy-Paste affordances; the
        Copy button is the supported way to copy the stack. */
@@ -945,11 +1054,13 @@ export class DebuggerPanel {
     /* Call Stack (left) + Variables (right), divided by a draggable splitter.
        --stack-basis is the stack pane's width; the splitter drag rewrites it and
        it's persisted (see debuggerView.js / the saveLayout message). */
-    .main { display: flex; align-items: stretch; --stack-basis: 60%; }
+    /* The panes row fills the leftover vertical space (flex:1) so the Call Stack /
+       Variables get as much room as the column allows. */
+    .main { display: flex; align-items: stretch; --stack-basis: 60%; flex: 1 1 auto; min-height: 0; }
     .pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
     .stack-pane { flex: 0 0 var(--stack-basis); }
     .vars-pane { flex: 1 1 0; }
-    .main .stack { min-width: 0; max-height: 22rem; overflow: auto; }
+    .main .stack { min-width: 0; flex: 1 1 0; min-height: 0; overflow: auto; }
     /* Draggable divider: a thin hit area with a centred 1px rule that thickens
        and lights up on hover / while dragging. */
     .splitter {
@@ -964,8 +1075,21 @@ export class DebuggerPanel {
       left: 3px; width: 3px; background: var(--vscode-focusBorder);
     }
     .vars {
-      min-width: 0; max-height: 22rem; overflow: auto;
+      min-width: 0; flex: 1 1 0; min-height: 0; overflow: auto;
       font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85rem;
+    }
+    /* Horizontal divider between the panes and the eval bar: drag up to give the
+       eval bar more room (e.g. for a long result), drag down to give the panes
+       more room. Rewrites the --eval-height var (the eval bar's fixed height). */
+    .hsplitter {
+      flex: 0 0 auto; height: 9px; cursor: row-resize; position: relative; margin: 0.2rem 0;
+    }
+    .hsplitter::before {
+      content: ''; position: absolute; left: 0; right: 0; top: 4px; height: 1px;
+      background: var(--vscode-panel-border, transparent);
+    }
+    .hsplitter:hover::before, .hsplitter.dragging::before {
+      top: 3px; height: 3px; background: var(--vscode-focusBorder);
     }
     /* Only when the column is genuinely tiny: stack the Variables pane under the
        Call Stack and hide the splitter (a horizontal drag is meaningless in a
@@ -974,26 +1098,50 @@ export class DebuggerPanel {
        layout would never apply and the panel would be needlessly tall. */
     @media (max-width: 340px) {
       .main { flex-direction: column; }
-      .stack-pane, .vars-pane { flex: 0 0 auto; }
+      .stack-pane, .vars-pane { flex: 1 1 0; }
       .splitter { display: none; }
       .vars-pane { margin-top: 0.6rem; }
     }
-    .vars .var { padding: 0.15rem 0.2rem; display: flex; gap: 0.5rem; }
-    .vars .var-name { color: var(--vscode-symbolIcon-variableForeground, var(--vscode-foreground)); white-space: nowrap; }
+    /* Variable groups (Receiver / Instance variables / Arguments & Temps /
+       stack temps). Titles toggle their body; the stack-temps group is collapsed. */
+    .var-group { margin-bottom: 0.25rem; }
+    .var-group-title {
+      font-weight: 600; font-size: 0.82rem; cursor: pointer; user-select: none;
+      color: var(--vscode-foreground); padding: 0.15rem 0.2rem;
+    }
+    .var-group-title::before { content: '\\25BE\\00a0'; color: var(--vscode-descriptionForeground); }
+    .var-group.collapsed .var-group-title::before { content: '\\25B8\\00a0'; }
+    .var-group.collapsed .var-group-body { display: none; }
+    .vars .var {
+      padding: 0.15rem 0.2rem; display: flex; gap: 0.5rem; align-items: baseline;
+      cursor: pointer; border-radius: 3px;
+    }
+    .vars .var:hover { background: var(--vscode-list-hoverBackground); }
+    .vars .var-name { color: var(--vscode-symbolIcon-variableForeground, var(--vscode-foreground)); white-space: nowrap; flex: 0 0 auto; }
     .vars .var-name.self { font-style: italic; }
-    .vars .var-value { color: var(--vscode-descriptionForeground); white-space: pre; overflow: hidden; text-overflow: ellipsis; }
-    /* Eval-in-frame bar. */
-    .evalbar { margin-top: 0.8rem; }
+    .vars .var-value { color: var(--vscode-descriptionForeground); white-space: pre; overflow: hidden; text-overflow: ellipsis; flex: 1 1 auto; }
+    /* OOP shown dim at the row end, matching the GT Inspector header convention. */
+    .vars .var-oop {
+      flex: 0 0 auto; margin-left: auto; white-space: nowrap;
+      font-size: 0.78em; color: var(--vscode-descriptionForeground); opacity: 0.75;
+    }
+    /* Eval-in-frame bar: a fixed-height region at the bottom (the hsplitter
+       resizes it). The result area scrolls within it. */
+    .evalbar {
+      flex: 0 0 var(--eval-height, 7rem); min-height: 2.6rem; overflow: hidden;
+      display: flex; flex-direction: column;
+    }
     .evalbar input {
       width: 100%; box-sizing: border-box; user-select: text; -webkit-user-select: text;
       font-family: var(--vscode-editor-font-family, monospace);
       color: var(--vscode-input-foreground); background: var(--vscode-input-background);
       border: 1px solid var(--vscode-input-border, var(--vscode-panel-border, transparent));
-      padding: 0.3rem 0.5rem; border-radius: 2px;
+      padding: 0.3rem 0.5rem; border-radius: 2px; flex: 0 0 auto;
     }
     .eval-result {
       font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85rem;
       white-space: pre-wrap; margin-top: 0.35rem; user-select: text; -webkit-user-select: text;
+      flex: 1 1 auto; min-height: 0; overflow: auto;
     }
     .eval-result.error { color: var(--vscode-errorForeground); }
   </style>
@@ -1024,7 +1172,8 @@ export class DebuggerPanel {
       <div class="vars" id="variables"></div>
     </div>
   </div>
-  <div class="evalbar">
+  <div class="hsplitter" id="hsplitter" title="Drag to resize the panes vs the eval bar"></div>
+  <div class="evalbar" id="evalbar" style="--eval-height: ${evalHeight};">
     <input id="evalInput" type="text" autocomplete="off" spellcheck="false"
            placeholder="Evaluate in the selected frame — press Enter">
     <div class="eval-result" id="evalResult"></div>
@@ -1045,8 +1194,10 @@ export class DebuggerPanel {
       variables: document.getElementById('variables'),
       evalInput: document.getElementById('evalInput'),
       evalResult: document.getElementById('evalResult'),
+      evalbar: document.getElementById('evalbar'),
       main: document.getElementById('main'),
       splitter: document.getElementById('splitter'),
+      hsplitter: document.getElementById('hsplitter'),
     }, vscode);
     vscode.postMessage({ command: 'ready' });
   </script>
