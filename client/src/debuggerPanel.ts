@@ -298,6 +298,91 @@ export function filterStack(raws: RawFrame[]): RawFrame[] {
   return [...kept.slice(0, u + 1), kept[doitIdx]];
 }
 
+/**
+ * Initial-layout nudges. VS Code's stable API can't set an exact editor-group
+ * size, only step it via the relative `increase/decreaseView{Width,Height}`
+ * commands, so these are best-effort approximations (tune the step counts here):
+ *  - PANEL_WIDEN_STEPS: widen the Beside split from 50/50 toward ~60% for the
+ *    debugger (its Call Stack + Variables sit side-by-side and want the room).
+ *  - SOURCE_SHRINK_STEPS: shrink the companion source group from the 50/50
+ *    `newGroupBelow` split toward ~1/3, leaving ~2/3 for the stack/variables.
+ */
+const PANEL_WIDEN_STEPS = 2;
+const SOURCE_SHRINK_STEPS = 2;
+/** Source-group fraction of its column on first open when nothing's been saved (~1/3). */
+const DEFAULT_SOURCE_RATIO = 0.33;
+
+/**
+ * VS Code editor-group layout, as returned by the `vscode.getEditorLayout`
+ * command and accepted by `vscode.setEditorLayout`. A tree of groups; a leaf has
+ * a `size`, a branch has nested `groups`. Sizes round-trip in pixels but are
+ * treated as relative weights, so preserving their sum preserves the layout.
+ */
+export interface EditorGroupNode { size?: number; groups?: EditorGroupNode[]; }
+export interface EditorGroupLayout { orientation?: number; groups: EditorGroupNode[]; }
+
+/**
+ * Flatten a layout's leaf groups in depth-first, left-to-right order — the same
+ * order VS Code assigns ViewColumns (1-based), so leaf N maps to ViewColumn N+1.
+ * Each entry carries its parent branch so callers can find a leaf's siblings.
+ */
+export function flattenLayoutLeaves(
+  layout: EditorGroupLayout,
+): { node: EditorGroupNode; parent: EditorGroupNode }[] {
+  const acc: { node: EditorGroupNode; parent: EditorGroupNode }[] = [];
+  const root: EditorGroupNode = { groups: layout.groups };
+  const walk = (node: EditorGroupNode, parent: EditorGroupNode): void => {
+    if (node.groups && node.groups.length) {
+      for (const child of node.groups) walk(child, node);
+    } else {
+      acc.push({ node, parent });
+    }
+  };
+  for (const g of layout.groups) walk(g, root);
+  return acc;
+}
+
+/**
+ * The source group's fraction of its containing branch, or undefined if the
+ * column can't be located / measured. `sourceColumn` is 1-based (a ViewColumn).
+ */
+export function sourceRatioFromLayout(
+  layout: EditorGroupLayout | undefined, sourceColumn: number | undefined,
+): number | undefined {
+  if (!layout || !sourceColumn) return undefined;
+  const leaves = flattenLayoutLeaves(layout);
+  const leaf = leaves[sourceColumn - 1];
+  if (!leaf || leaf.node.size == null || !leaf.parent.groups) return undefined;
+  const total = leaf.parent.groups.reduce((s, g) => s + (g.size ?? 0), 0);
+  if (total <= 0) return undefined;
+  return leaf.node.size / total;
+}
+
+/**
+ * Set the source group to `ratio` of its containing branch, giving the rest to
+ * its sibling (the debugger group). Mutates `layout` in place; returns false
+ * (leaving it untouched) when the source isn't a clean two-way split we created
+ * — so an unusual user layout falls back to the step-based resize. `ratio` is
+ * clamped to a sane band so a degenerate save can't collapse a pane.
+ */
+export function setSourceRatioInLayout(
+  layout: EditorGroupLayout | undefined, sourceColumn: number | undefined, ratio: number,
+): boolean {
+  if (!layout || !sourceColumn) return false;
+  const leaves = flattenLayoutLeaves(layout);
+  const leaf = leaves[sourceColumn - 1];
+  if (!leaf || !leaf.parent.groups || leaf.parent.groups.length !== 2) return false;
+  const total = leaf.parent.groups.reduce((s, g) => s + (g.size ?? 0), 0);
+  if (total <= 0) return false;
+  const clamped = Math.max(0.1, Math.min(0.9, ratio));
+  const sourceSize = Math.round(total * clamped);
+  const sibling = leaf.parent.groups.find(g => g !== leaf.node);
+  if (!sibling) return false;
+  leaf.node.size = sourceSize;
+  sibling.size = total - sourceSize;
+  return true;
+}
+
 export class DebuggerPanel {
   private static panels = new Map<number, Set<DebuggerPanel>>();
   /**
@@ -306,6 +391,12 @@ export class DebuggerPanel {
    * and on the overview ruler. It marks just the step-point token (NOT the whole
    * line), so a line with several sends shows exactly where execution paused.
    * One type shared by all panels (a decoration type is a style, not per-editor).
+   *
+   * Dark themes use the standard `editor.focusedStackFrameHighlightBackground`
+   * theme colour. In LIGHT themes that colour is a very faint translucent yellow
+   * — and since we mark only the step-point token (not the whole line) it nearly
+   * vanishes — so the `light` override gives a stronger, more opaque fill plus a
+   * solid dark-goldenrod border to clearly box the paused token.
    */
   private static readonly stepPointDecoration = vscode.window.createTextEditorDecorationType({
     backgroundColor: new vscode.ThemeColor('editor.focusedStackFrameHighlightBackground'),
@@ -314,6 +405,11 @@ export class DebuggerPanel {
     borderRadius: '2px',
     overviewRulerColor: new vscode.ThemeColor('editor.focusedStackFrameHighlightBackground'),
     overviewRulerLane: vscode.OverviewRulerLane.Full,
+    light: {
+      backgroundColor: 'rgba(255, 197, 0, 0.45)',
+      borderColor: '#b8860b',
+      overviewRulerColor: '#b8860b',
+    },
   });
 
   // ── Read-only source for frames with no gemstone:// editor ──────────
@@ -337,9 +433,22 @@ export class DebuggerPanel {
    * The eval bar's height (`--eval-height`); the hsplitter resizes it, trading
    * space with the panes (which flex-fill the rest). Like `savedStackBasis`,
    * remembered across panels for this window and persisted webview-side via
-   * getState/setState. Default 7rem.
+   * getState/setState. Default 4rem — just the input plus a slim result strip;
+   * the old 7rem left a tall empty band below the input on first open. The
+   * hsplitter still grows it on demand (e.g. for a multi-line eval result).
    */
-  private static savedEvalHeight = '7rem';
+  private static savedEvalHeight = '4rem';
+
+  /**
+   * The companion source group's fraction of its column, remembered across
+   * debugger opens for this window so the user's drag of the panel↔source
+   * divider sticks. Unlike the two webview splitters (which we own and can read
+   * on drag-end), this is an editor-group split VS Code owns: there's no resize
+   * event, so we sample it with `vscode.getEditorLayout` on a low-frequency timer
+   * while the panel is open and re-apply it with `vscode.setEditorLayout` on the
+   * next open. Undefined until first sampled → DEFAULT_SOURCE_RATIO is used.
+   */
+  private static savedSourceRatio: number | undefined;
 
   private static ensureReadOnlySourceProvider(): void {
     if (DebuggerPanel.providerRegistered) return;
@@ -370,6 +479,21 @@ export class DebuggerPanel {
   private frames: DisplayFrame[] = [];
   /** Column the companion source editor lives in, reused across frame selects. */
   private sourceColumn: vscode.ViewColumn | undefined;
+  /**
+   * The most recent companion source editor. Its live `.viewColumn` is the
+   * authoritative current column of the source group at dispose time — VS Code
+   * renumbers ViewColumns positionally as groups are added/removed (e.g. when a
+   * GT Inspector opens Beside), so the captured `sourceColumn` number can go
+   * stale. We read this editor's column when closing so the right group matches.
+   */
+  private sourceEditor: vscode.TextEditor | undefined;
+  /** Low-frequency sampler of the source-group ratio (see savedSourceRatio); cleared on dispose. */
+  private layoutSampler: ReturnType<typeof setInterval> | undefined;
+  /**
+   * GT Inspectors opened from this debugger's Variables pane. They're artifacts
+   * of this debugger, so they're closed when it closes (see dispose).
+   */
+  private openedInspectors = new Set<GtInspector>();
   /** The editor currently carrying the step-point highlight, if any. */
   private decoratedEditor: vscode.TextEditor | undefined;
   /** Virtual read-only source URIs this panel stashed (pruned on dispose). */
@@ -430,6 +554,15 @@ export class DebuggerPanel {
       vscode.ViewColumn.Beside,
       { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] },
     );
+    // The Beside split is 50/50; nudge the (now-focused) debugger group wider
+    // toward ~60% — its stack/variables panes want more room than the code.
+    void (async () => {
+      try {
+        for (let i = 0; i < PANEL_WIDEN_STEPS; i++) {
+          await vscode.commands.executeCommand('workbench.action.increaseViewWidth');
+        }
+      } catch { /* best-effort layout */ }
+    })();
     const debugger_ = new DebuggerPanel(panel, session, gsProcess, errorMessage, onComplete);
     if (!DebuggerPanel.panels.has(session.id)) {
       DebuggerPanel.panels.set(session.id, new Set());
@@ -523,8 +656,9 @@ export class DebuggerPanel {
       }
       case 'inspectVariable': {
         // Open the clicked variable in a GT Inspector (beside), like GT Inspect.
+        // Track it so it closes with the debugger (it's an artifact of it).
         try {
-          GtInspector.create(this.session, BigInt(msg.oop), msg.name);
+          this.openedInspectors.add(GtInspector.create(this.session, BigInt(msg.oop), msg.name));
         } catch (e: unknown) {
           logError(this.sessionId, e instanceof Error ? e.message : String(e));
         }
@@ -1007,7 +1141,8 @@ export class DebuggerPanel {
    * frames stays fluid, and the doc opens as a reused preview tab (no pile-up).
    */
   private async showSourceEditor(uri: vscode.Uri): Promise<vscode.TextEditor> {
-    if (this.sourceColumn === undefined) {
+    const firstOpen = this.sourceColumn === undefined;
+    if (firstOpen) {
       try {
         this.panel.reveal(this.panel.viewColumn, false); // focus the panel's group…
         await vscode.commands.executeCommand('workbench.action.newGroupBelow'); // …then split below it
@@ -1021,12 +1156,69 @@ export class DebuggerPanel {
     });
     this.shownSourceUris.add(uri.toString()); // closed with the panel (see dispose)
     this.sourceColumn = editor.viewColumn ?? this.sourceColumn;
+    this.sourceEditor = editor; // live .viewColumn used at close time (see field doc)
+    // Size the brand-new source group: re-apply the user's remembered ratio (or
+    // the ~1/3 default). Only on first open — never override a mid-session drag.
+    if (firstOpen) {
+      await this.applySourcePaneRatio();
+      this.startLayoutSampler();
+    }
     // gemstone:// docs get their language from the FS provider; the read-only
     // executed-code scheme does not, so set it so the source is highlighted.
     if (doc.languageId !== 'gemstone-smalltalk') {
       await vscode.languages.setTextDocumentLanguage(doc, 'gemstone-smalltalk');
     }
     return editor;
+  }
+
+  /** The live column of the companion source group (survives ViewColumn renumbering). */
+  private get liveSourceColumn(): number | undefined {
+    return this.sourceEditor?.viewColumn ?? this.sourceColumn;
+  }
+
+  /**
+   * Size the (just-created) source group to the remembered ratio, or the ~1/3
+   * default. Uses `vscode.setEditorLayout` for an exact split that preserves all
+   * other groups' sizes; falls back to the imprecise relative-resize command
+   * when the layout can't be read/mapped (older VS Code, or an unusual layout).
+   */
+  private async applySourcePaneRatio(): Promise<void> {
+    const ratio = DebuggerPanel.savedSourceRatio ?? DEFAULT_SOURCE_RATIO;
+    try {
+      const layout = await vscode.commands.executeCommand<EditorGroupLayout>('vscode.getEditorLayout');
+      if (setSourceRatioInLayout(layout, this.liveSourceColumn, ratio)) {
+        await vscode.commands.executeCommand('vscode.setEditorLayout', layout);
+        return;
+      }
+    } catch { /* fall through to the step-based resize */ }
+    // The new group is still focused (showTextDocument kept focus there), so the
+    // relative resize targets it. newGroupBelow split 50/50; shrink toward ~1/3.
+    try {
+      for (let i = 0; i < SOURCE_SHRINK_STEPS; i++) {
+        await vscode.commands.executeCommand('workbench.action.decreaseViewHeight');
+      }
+    } catch { /* best-effort */ }
+  }
+
+  /**
+   * Sample the source-group ratio periodically and remember it. VS Code gives no
+   * editor-group resize event, so a low-frequency poll is the only way to capture
+   * a drag of the panel↔source divider before the panel closes (at which point
+   * the group is gone). `unref` so it never keeps the host alive.
+   */
+  private startLayoutSampler(): void {
+    if (this.layoutSampler) return;
+    this.layoutSampler = setInterval(() => void this.captureSourceRatio(), 2000);
+    this.layoutSampler.unref?.();
+  }
+
+  private async captureSourceRatio(): Promise<void> {
+    if (this.disposed || this.liveSourceColumn === undefined) return;
+    try {
+      const layout = await vscode.commands.executeCommand<EditorGroupLayout>('vscode.getEditorLayout');
+      const ratio = sourceRatioFromLayout(layout, this.liveSourceColumn);
+      if (ratio !== undefined) DebuggerPanel.savedSourceRatio = ratio;
+    } catch { /* best-effort sampling */ }
   }
 
   /**
@@ -1396,7 +1588,7 @@ export class DebuggerPanel {
     /* Eval-in-frame bar: a fixed-height region at the bottom (the hsplitter
        resizes it). The result area scrolls within it. */
     .evalbar {
-      flex: 0 0 var(--eval-height, 7rem); min-height: 2.6rem; overflow: hidden;
+      flex: 0 0 var(--eval-height, 4rem); min-height: 2.6rem; overflow: hidden;
       display: flex; flex-direction: column;
     }
     .evalbar input {
@@ -1475,6 +1667,7 @@ export class DebuggerPanel {
 
   private dispose(): void {
     this.disposed = true; // an in-flight Nb step/trim continuation must skip the dead panel
+    if (this.layoutSampler) { clearInterval(this.layoutSampler); this.layoutSampler = undefined; }
     DebuggerPanel.panels.get(this.sessionId)?.delete(this);
     // Restore native code once the last debugger for this session closes
     // (paired with acquireStepping in create).
@@ -1483,9 +1676,11 @@ export class DebuggerPanel {
     // the panel) so a stale highlight doesn't linger after the debugger closes.
     this.decoratedEditor?.setDecorations(DebuggerPanel.stepPointDecoration, []);
     this.decoratedEditor = undefined;
-    // Close the companion source editor — it's an artifact of this debugger,
-    // so it shouldn't outlive the panel.
+    // Close the companion source editor and any GT Inspectors this debugger
+    // opened — they're artifacts of this debugger and shouldn't outlive it.
     this.closeSourceEditors();
+    for (const inspector of this.openedInspectors) inspector.close();
+    this.openedInspectors.clear();
     // Release this panel's stashed read-only source.
     for (const key of this.stashedSourceKeys) DebuggerPanel.readOnlySources.delete(key);
     this.stashedSourceKeys.clear();
@@ -1507,8 +1702,13 @@ export class DebuggerPanel {
    */
   private closeSourceEditors(): void {
     if (this.shownSourceUris.size === 0) return;
+    // The source group's ViewColumn can have been renumbered since we captured
+    // it (VS Code reassigns columns positionally when groups open/close — e.g. a
+    // GT Inspector opening Beside). The live source editor reports its CURRENT
+    // column, so prefer that; fall back to the captured number.
+    const sourceColumn = this.sourceEditor?.viewColumn ?? this.sourceColumn;
     for (const group of vscode.window.tabGroups.all) {
-      const inOurColumn = this.sourceColumn !== undefined && group.viewColumn === this.sourceColumn;
+      const inOurColumn = sourceColumn !== undefined && group.viewColumn === sourceColumn;
       for (const tab of group.tabs) {
         if (!(tab.input instanceof vscode.TabInputText)) continue;
         if (!this.shownSourceUris.has(tab.input.uri.toString())) continue;
@@ -1518,5 +1718,6 @@ export class DebuggerPanel {
       }
     }
     this.shownSourceUris.clear();
+    this.sourceEditor = undefined;
   }
 }

@@ -54,7 +54,8 @@ vi.mock('../debugQueries', () => ({
 }));
 
 // Clicking a variable row opens a GT Inspector — stub the static entry point.
-vi.mock('../gtInspector', () => ({ GtInspector: { create: vi.fn() } }));
+// create() returns a closable handle so the debugger can close it on dispose.
+vi.mock('../gtInspector', () => ({ GtInspector: { create: vi.fn(() => ({ close: vi.fn() })) } }));
 
 // Source offsets for the step-point highlight. These are GemStone `_sourceOffsets`,
 // which are 1-BASED (index i = offset of step point i+1); the panel must convert
@@ -69,6 +70,7 @@ import {
   DebuggerPanel, formatFrameLabel, formatFramePosition,
   formatFrameForClipboard, formatStackForClipboard, buildMethodSourceUri,
   filterStack, isExceptionMachinery, RawFrame,
+  flattenLayoutLeaves, sourceRatioFromLayout, setSourceRatioInLayout, EditorGroupLayout,
 } from '../debuggerPanel';
 import { wrapWithTranscriptCapture } from '../transcriptCapture';
 import { GtInspector } from '../gtInspector';
@@ -77,6 +79,21 @@ import { GemStoneLogin } from '../loginTypes';
 
 const GS_PROCESS = 0x123n;
 const ERROR_MSG = 'a UndefinedObject does not understand #foo';
+
+// The static step-point highlight decoration is built once, at module import —
+// i.e. BEFORE the beforeEach vi.clearAllMocks() below wipes the mock's call
+// record. Snapshot the options it was created with here, at top level, so the
+// guard test (see "step-point highlight decoration") can still see them.
+// Identify it by its themed base `backgroundColor` (unique to this decoration).
+const stepPointDecorationOptions = vi
+  .mocked(vscode.window.createTextEditorDecorationType)
+  .mock.calls.map((c) => c[0] as vscode.DecorationRenderOptions)
+  .find(
+    (opts) =>
+      opts?.backgroundColor instanceof vscode.ThemeColor &&
+      (opts.backgroundColor as vscode.ThemeColor).id ===
+        'editor.focusedStackFrameHighlightBackground',
+  );
 
 function makeSession(): ActiveSession {
   return {
@@ -329,7 +346,7 @@ describe('DebuggerPanel', () => {
       expect(html).toContain('id="splitter"');     // draggable column divider
       expect(html).toContain('id="hsplitter"');     // draggable panes-vs-eval divider
       expect(html).toMatch(/--stack-basis:\s*60%/); // default split, injected from the saved static
-      expect(html).toMatch(/--eval-height:\s*7rem/); // default eval-bar height, injected from the saved static
+      expect(html).toMatch(/--eval-height:\s*4rem/); // default eval-bar height, injected from the saved static
     });
 
     it('renders the toolbar as DAP-style icon buttons (codicon SVGs), not text labels', () => {
@@ -531,6 +548,9 @@ describe('DebuggerPanel', () => {
       // Docked below: focus the panel's group, then split a new group beneath it.
       expect(panel.reveal).toHaveBeenCalled();
       expect(vscode.commands.executeCommand).toHaveBeenCalledWith('workbench.action.newGroupBelow');
+      // …then shrink that 50/50 source group toward ~1/3 (item #2). Guards the
+      // resize from being silently dropped — exact ratio is tuned by step count.
+      expect(vscode.commands.executeCommand).toHaveBeenCalledWith('workbench.action.decreaseViewHeight');
 
       expect(vscode.window.showTextDocument).toHaveBeenCalledWith(
         expect.anything(),
@@ -738,6 +758,61 @@ describe('DebuggerPanel', () => {
       closePanel(panel);
 
       expect(vi.mocked(vscode.window.tabGroups.close)).toHaveBeenCalledWith(tab);
+    });
+
+    it('closes the source editor AND every GT Inspector it opened, together, on close', async () => {
+      const panel = openPanelWithStack();
+      // A real gemstone:// method source, shown in source column 9.
+      vi.mocked(vscode.window.showTextDocument).mockResolvedValueOnce(columnedEditor(9) as never);
+      vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce(URI_INFO);
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      await flush();
+
+      // GT Inspect two variables → two inspectors, each a closable handle.
+      sendMessage(panel, { command: 'inspectVariable', oop: '300', name: 'self' });
+      sendMessage(panel, { command: 'inspectVariable', oop: '901', name: 'total' });
+      const inspectorCloses = vi.mocked(GtInspector.create).mock.results
+        .map((r) => (r.value as { close: ReturnType<typeof vi.fn> }).close);
+      expect(inspectorCloses).toHaveLength(2);
+
+      const uri = (vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri).toString();
+      const sourceTab = { label: 'source', input: new vscode.TabInputText(vscode.Uri.parse(uri)) };
+      const groups = vscode.window.tabGroups.all as unknown as { viewColumn: number; tabs: unknown[] }[];
+      groups.push({ viewColumn: 9, tabs: [sourceTab] });
+
+      closePanel(panel);
+
+      // The companion source tab is closed…
+      expect(vi.mocked(vscode.window.tabGroups.close)).toHaveBeenCalledWith(sourceTab);
+      // …and BOTH inspectors are closed alongside it.
+      for (const close of inspectorCloses) expect(close).toHaveBeenCalledTimes(1);
+    });
+
+    it('sizes the new source group via setEditorLayout to the saved/default ratio (#3)', async () => {
+      // getEditorLayout reports code(1) | debugger(2) / source(3). The source
+      // editor opens in column 3, so it maps to the 99-tall leaf.
+      const layout = { orientation: 0, groups: [{ size: 636 }, { size: 877, groups: [{ size: 749 }, { size: 99 }] }] };
+      // Route getEditorLayout to our sample; everything else returns undefined.
+      // mockImplementation persists past clearAllMocks, so restore it in finally.
+      vi.mocked(vscode.commands.executeCommand).mockImplementation((cmd: string) =>
+        Promise.resolve(cmd === 'vscode.getEditorLayout' ? layout : undefined) as never);
+      try {
+        const panel = openPanelWithStack();
+        vi.mocked(vscode.window.showTextDocument).mockResolvedValueOnce(columnedEditor(3) as never);
+        vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce(URI_INFO);
+        sendMessage(panel, { command: 'selectFrame', level: 3 });
+        await flush();
+
+        // Used the precise layout API, not the imprecise step-based fallback.
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith('vscode.setEditorLayout', layout);
+        expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith('workbench.action.decreaseViewHeight');
+        // Source (col 3) resized to ~1/3 of its 848-tall column; sibling gets the rest.
+        const column = layout.groups[1].groups!;
+        expect(column[1].size).toBe(Math.round(848 * 0.33));
+        expect(column[0].size).toBe(848 - Math.round(848 * 0.33));
+      } finally {
+        vi.mocked(vscode.commands.executeCommand).mockReset();
+      }
     });
   });
 
@@ -1258,8 +1333,15 @@ describe('DebuggerPanel', () => {
       DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
       expect(lastPanel().webview.html).toMatch(/--eval-height:\s*160px/);
 
-      // Restore the default so later tests see the standard 7rem height.
-      sendMessage(lastPanel(), { command: 'saveLayout', evalHeight: '7rem' });
+      // Restore the default so later tests see the standard 4rem height.
+      sendMessage(lastPanel(), { command: 'saveLayout', evalHeight: '4rem' });
+    });
+
+    it('widens the Beside split toward ~60% on create (item #2)', async () => {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      await tick(); // the widen runs in a fire-and-forget async IIFE
+      // Best-effort nudge; guards the resize from being silently dropped.
+      expect(vscode.commands.executeCommand).toHaveBeenCalledWith('workbench.action.increaseViewWidth');
     });
   });
 });
@@ -1359,5 +1441,83 @@ describe('isExceptionMachinery', () => {
     expect(isExceptionMachinery(HALT_STACK[4])).toBe(false); // [] in finish
     expect(isExceptionMachinery(HALT_STACK[6])).toBe(false); // finish
     expect(isExceptionMachinery(HALT_STACK[5])).toBe(false); // Collection>>do:
+  });
+});
+
+describe('source-pane layout persistence (#3)', () => {
+  // A real `vscode.getEditorLayout` result Eric captured: code | (debugger / source).
+  // Leaf order = ViewColumn order, so code=1, debugger=2, source=3.
+  const sample = (): EditorGroupLayout => ({
+    orientation: 0,
+    groups: [
+      { size: 636 },
+      { size: 877, groups: [{ size: 749 }, { size: 99 }] },
+    ],
+  });
+
+  it('flattens leaves in ViewColumn order (depth-first, left-to-right)', () => {
+    const leaves = flattenLayoutLeaves(sample());
+    expect(leaves.map(l => l.node.size)).toEqual([636, 749, 99]);
+  });
+
+  it('reads the source group ratio from its containing column', () => {
+    // Source is ViewColumn 3 → 99 of the 877-wide column's 848 (749+99).
+    expect(sourceRatioFromLayout(sample(), 3)).toBeCloseTo(99 / 848, 5);
+  });
+
+  it('returns undefined when the column is missing or unmeasurable', () => {
+    expect(sourceRatioFromLayout(sample(), 9)).toBeUndefined(); // column past the end
+    expect(sourceRatioFromLayout(undefined, 3)).toBeUndefined(); // no layout
+    expect(sourceRatioFromLayout(sample(), undefined)).toBeUndefined(); // no column
+  });
+
+  it('rewrites the source/sibling sizes to a ratio, preserving their sum and other groups', () => {
+    const layout = sample();
+    expect(setSourceRatioInLayout(layout, 3, 0.5)).toBe(true);
+    const column = layout.groups[1].groups!;
+    expect(column[1].size).toBe(424); // source: round(848 * 0.5)
+    expect(column[0].size).toBe(424); // sibling (debugger): the rest
+    expect(layout.groups[0].size).toBe(636); // code column untouched
+  });
+
+  it('clamps a degenerate ratio so a pane can never collapse', () => {
+    const layout = sample();
+    setSourceRatioInLayout(layout, 3, 0.99);
+    const column = layout.groups[1].groups!;
+    expect(column[1].size).toBe(Math.round(848 * 0.9)); // clamped to 0.9
+  });
+
+  it('refuses to rewrite when the source is not a clean two-way split', () => {
+    // A 3-way column isn't the pair we create (debugger / source), so leave it be.
+    const threeWay: EditorGroupLayout = {
+      orientation: 0,
+      groups: [{ size: 636 }, { size: 877, groups: [{ size: 300 }, { size: 300 }, { size: 200 }] }],
+    };
+    // Leaves: code=1, then 300=2, 300=3, 200=4 → source col 4's parent has 3 kids.
+    expect(setSourceRatioInLayout(threeWay, 4, 0.33)).toBe(false);
+    expect(threeWay.groups[1].groups!.map(g => g.size)).toEqual([300, 300, 200]); // untouched
+  });
+});
+
+describe('step-point highlight decoration', () => {
+  // Guards item #5: light themes render `editor.focusedStackFrameHighlightBackground`
+  // as a near-invisible translucent yellow, and we mark only the step-point token
+  // (not the whole line), so the bare default was almost unreadable. The decoration
+  // therefore carries a `light` override with a stronger fill + solid border. If
+  // someone strips that override (back to the faint default), these fail.
+  it('was created (snapshot captured at import time)', () => {
+    expect(stepPointDecorationOptions).toBeDefined();
+  });
+
+  it('overrides light themes with a stronger fill and a solid (non-themed) border', () => {
+    const light = stepPointDecorationOptions?.light;
+    expect(light).toBeDefined();
+    // A solid colour string, NOT a ThemeColor pointing back at the faint default.
+    expect(typeof light?.backgroundColor).toBe('string');
+    expect(typeof light?.borderColor).toBe('string');
+    expect(light?.borderColor).not.toBeInstanceOf(vscode.ThemeColor);
+    // The fill must be appreciably opaque (the faint default sits near ~0.2 alpha).
+    const alpha = Number(/rgba?\([^)]*,\s*([\d.]+)\s*\)$/.exec(String(light?.backgroundColor))?.[1] ?? '1');
+    expect(alpha).toBeGreaterThanOrEqual(0.4);
   });
 });
