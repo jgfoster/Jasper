@@ -1,6 +1,7 @@
 import { ActiveSession } from './sessionManager';
 import { OOP_NIL, OOP_TRUE, OOP_ILLEGAL, GCI_PERFORM_FLAG_ENABLE_DEBUG } from './gciConstants';
 import { logInfo, logError } from './gciLog';
+import { runNbCall, NbRunOptions } from './nbRunner';
 
 const MAX_RESULT = 256 * 1024;
 
@@ -570,6 +571,66 @@ export function stepOut(
   return performStep(session, gsProcess, 'gciStepThruFromLevel:', [levelOop]);
 }
 
+// ── Non-blocking step variants ──────────────────────────
+//
+// Same step messages as performStep, but issued via GciTsNbPerform and polled to
+// completion off the main thread (see nbRunner.ts) so a slow step — crawling
+// hidden machinery, or stepping a method that loops — never freezes the whole
+// extension host, and can be cancelled. Used by the webview debugger; the DAP
+// session keeps the simpler blocking variants (intentionally left alone).
+
+/**
+ * Issue a step message non-blocking and resolve with its StepResult. A halt /
+ * breakpoint / error stopping the process is a normal outcome (completed=false
+ * with errorMessage), NOT a thrown error — only an outright GCI failure rejects.
+ */
+function performStepNb(
+  session: ActiveSession, gsProcess: bigint, selector: string, args: bigint[], opts: NbRunOptions,
+): Promise<StepResult> {
+  return runNbCall(
+    session,
+    () => session.gci.GciTsNbPerform(
+      session.handle, gsProcess, OOP_ILLEGAL, selector, args, GCI_PERFORM_FLAG_ENABLE_DEBUG, 0,
+    ),
+    () => {
+      const { result, err } = session.gci.GciTsNbResult(session.handle);
+      if (err.number !== 0) {
+        return {
+          completed: false,
+          errorMessage: err.message || `GemStone error ${err.number}`,
+          errorContext: err.context,
+        };
+      }
+      return { completed: true, resultOop: result };
+    },
+    opts,
+  );
+}
+
+export function stepOverNb(
+  session: ActiveSession, gsProcess: bigint, level: number,
+): Promise<StepResult> {
+  const levelOop = intToOop(session, level);
+  logInfo(`[Session ${session.id}] Debug: stepOver (nb) from level ${level}`);
+  return performStepNb(session, gsProcess, 'gciStepOverFromLevel:', [levelOop], { title: 'GemStone: stepping over…' });
+}
+
+export function stepIntoNb(
+  session: ActiveSession, gsProcess: bigint, level: number,
+): Promise<StepResult> {
+  const levelOop = intToOop(session, level);
+  logInfo(`[Session ${session.id}] Debug: stepInto (nb) from level ${level}`);
+  return performStepNb(session, gsProcess, 'gciStepIntoFromLevel:', [levelOop], { title: 'GemStone: stepping into…' });
+}
+
+export function stepThruNb(
+  session: ActiveSession, gsProcess: bigint, level: number,
+): Promise<StepResult> {
+  const levelOop = intToOop(session, level);
+  logInfo(`[Session ${session.id}] Debug: stepThru (nb) from level ${level}`);
+  return performStepNb(session, gsProcess, 'gciStepThruFromLevel:', [levelOop], { title: 'GemStone: stepping through…' });
+}
+
 // ── Continue / Terminate ────────────────────────────────
 
 /**
@@ -582,8 +643,19 @@ export function continueExecution(
   session: ActiveSession, gsProcess: bigint,
 ): StepResult {
   logInfo(`[Session ${session.id}] Debug: continue`);
+  // replaceTopOfStack = OOP_ILLEGAL means "resume as-is, don't touch the top
+  // frame's evaluation stack". Per the GciTsContinueWith contract that is also
+  // the right value for a normal halt: when the top frame is AbstractException
+  // >>signal it auto-replaces TOS with nil (same as AbstractException>>resume).
+  //
+  // We previously passed OOP_NIL, which *forces* TOS := nil. That happens to be
+  // harmless for a halt (top frame is a signal frame), but after an edit-and-
+  // continue / restart-frame `trimStackToLevel:` the top frame is a method reset
+  // to its FIRST instruction with a fresh, empty evaluation stack — clobbering
+  // its TOS with nil corrupts the frame, so continuing it never returns (the gem
+  // hangs). OOP_ILLEGAL handles both cases correctly.
   const { result, err } = session.gci.GciTsContinueWith(
-    session.handle, gsProcess, OOP_NIL, null, GCI_PERFORM_FLAG_ENABLE_DEBUG,
+    session.handle, gsProcess, OOP_ILLEGAL, null, GCI_PERFORM_FLAG_ENABLE_DEBUG,
   );
   if (err.number !== 0) {
     return {
@@ -617,6 +689,33 @@ export function trimStackToLevel(
   const levelOop = intToOop(session, level);
   logInfo(`[Session ${session.id}] Debug: trimStackToLevel ${level}`);
   gciPerform(session, gsProcess, 'trimStackToLevel:', [levelOop]);
+}
+
+/**
+ * Non-blocking trimStackToLevel: (restart-frame / edit-and-continue). The public
+ * `trimStackToLevel:` evaluates unwind/ensure: blocks with an INFINITE timeout,
+ * so a hung unwind block would freeze the host on the blocking path — running it
+ * non-blocking (and cancellable) avoids that. Flags 0, matching the blocking
+ * variant (no debug-stop during the trim's unwind).
+ */
+export function trimStackToLevelNb(
+  session: ActiveSession, gsProcess: bigint, level: number,
+): Promise<void> {
+  const levelOop = intToOop(session, level);
+  logInfo(`[Session ${session.id}] Debug: trimStackToLevel (nb) ${level}`);
+  return runNbCall(
+    session,
+    () => session.gci.GciTsNbPerform(
+      session.handle, gsProcess, OOP_ILLEGAL, 'trimStackToLevel:', [levelOop], 0, 0,
+    ),
+    () => {
+      const { err } = session.gci.GciTsNbResult(session.handle);
+      if (err.number !== 0) {
+        throw new Error(err.message || `GemStone error ${err.number} in trimStackToLevel:`);
+      }
+    },
+    { title: 'GemStone: restarting frame…' },
+  );
 }
 
 // ── Evaluate ────────────────────────────────────────────

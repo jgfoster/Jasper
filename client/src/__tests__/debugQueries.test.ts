@@ -540,12 +540,19 @@ describe('debugQueries', () => {
     const RESULT = 0x99n;
 
     it('continueExecution returns the result oop when the process completes', () => {
+      const continueWith = vi.fn(() => ({ result: RESULT, err: { ...noErr } }));
       const session = {
         id: 1, handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
-        gci: { GciTsContinueWith: vi.fn(() => ({ result: RESULT, err: { ...noErr } })) } as unknown as ActiveSession['gci'],
+        gci: { GciTsContinueWith: continueWith } as unknown as ActiveSession['gci'],
       } as ActiveSession;
 
       expect(debug.continueExecution(session, GS_PROCESS)).toEqual({ completed: true, resultOop: RESULT });
+      // Resume as-is: replaceTopOfStack must be OOP_ILLEGAL, NOT OOP_NIL — forcing
+      // TOS := nil corrupts a frame re-entered by trimStackToLevel: and hangs the
+      // gem. (3rd positional arg to GciTsContinueWith.)
+      const args = continueWith.mock.calls[0] as unknown as bigint[];
+      expect(args[2]).toBe(OOP_ILLEGAL);
+      expect(args[2]).not.toBe(0x14n /* OOP_NIL */);
     });
 
     it('continueExecution reports the error (no result oop) when it stops again', () => {

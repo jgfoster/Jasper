@@ -39,7 +39,12 @@ vi.mock('../debugQueries', () => ({
   stepOver: vi.fn(() => ({ completed: false })),
   stepInto: vi.fn(() => ({ completed: false })),
   stepOut: vi.fn(() => ({ completed: false })),
+  // Non-blocking variants the webview panel now uses (resolve async).
+  stepOverNb: vi.fn(async () => ({ completed: false })),
+  stepIntoNb: vi.fn(async () => ({ completed: false })),
+  stepThruNb: vi.fn(async () => ({ completed: false })),
   trimStackToLevel: vi.fn(),
+  trimStackToLevelNb: vi.fn(async () => {}),
   clearStack: vi.fn(),
   acquireStepping: vi.fn(),
   releaseStepping: vi.fn(),
@@ -123,6 +128,14 @@ function lastPosted(panel: ReturnType<typeof lastPanel>, command: string): any {
   const all = posted(panel, command);
   return all[all.length - 1];
 }
+
+/**
+ * Yield to the microtask/timer queue so an async panel handler (step / restart /
+ * edit-and-continue now route through the awaited non-blocking Nb variants) can
+ * settle before assertions. The mocked Nb fns resolve immediately, so one tick
+ * is enough.
+ */
+const tick = (): Promise<void> => new Promise<void>(resolve => setTimeout(resolve, 0));
 
 describe('formatFrameLabel', () => {
   it('names a plain frame `Class>>#selector` when receiver matches the defining class', () => {
@@ -834,59 +847,65 @@ describe('DebuggerPanel', () => {
       expect(lastPosted(panel, 'init').errorMessage).toBe('next error');
     });
 
-    it('Step Over steps from the selected user frame (display level → server level) and refreshes, clearing the error banner', () => {
+    it('Step Over steps (non-blocking) from the selected user frame and refreshes, clearing the error banner', async () => {
       const panel = openPanel();
       const before = posted(panel, 'init').length;
       sendMessage(panel, { command: 'stepOver', level: 3 }); // display 3 → server level 3
+      await tick();
 
-      expect(debug.stepOver).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+      expect(debug.stepOverNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
       expect(posted(panel, 'init').length).toBe(before + 1);
       expect(lastPosted(panel, 'init').errorMessage).toBe('');
       expect(panel.dispose).not.toHaveBeenCalled();
     });
 
-    it('surfaces a clear message when a step hits native-code (error 6014), without disposing', () => {
-      vi.mocked(debug.stepOver).mockReturnValueOnce({
+    it('surfaces a clear message when a step hits native-code (error 6014), without disposing', async () => {
+      vi.mocked(debug.stepOverNb).mockResolvedValueOnce({
         completed: false,
         errorMessage: 'a ImproperOperation occurred (error 6014), Breakpoint and single-step not supported in native code',
       });
       const panel = openPanel();
       sendMessage(panel, { command: 'stepOver', level: 1 });
+      await tick();
 
       expect(panel.dispose).not.toHaveBeenCalled();
       expect(lastPosted(panel, 'init').errorMessage).toMatch(/native code/i);
     });
 
-    it('Step disposes the panel when the step completes the process', () => {
-      vi.mocked(debug.stepOver).mockReturnValueOnce({ completed: true });
+    it('Step disposes the panel when the step completes the process', async () => {
+      vi.mocked(debug.stepOverNb).mockResolvedValueOnce({ completed: true });
       const panel = openPanel();
       sendMessage(panel, { command: 'stepOver', level: 3 });
+      await tick();
 
       expect(panel.dispose).toHaveBeenCalled();
     });
 
-    it('"Through" maps to gciStepThru (debugQueries.stepOut), from the selected user frame', () => {
+    it('"Through" maps to gciStepThru (debugQueries.stepThruNb), from the selected user frame', async () => {
       const panel = openPanel();
       sendMessage(panel, { command: 'stepThrough', level: 4 }); // display 4 → server level 4
+      await tick();
 
-      expect(debug.stepOut).toHaveBeenCalledWith(session, GS_PROCESS, 4);
+      expect(debug.stepThruNb).toHaveBeenCalledWith(session, GS_PROCESS, 4);
     });
 
-    it('Restart Frame trims the stack to the selected (deeper) frame and refreshes', () => {
+    it('Restart Frame trims the stack (non-blocking) to the selected (deeper) frame and refreshes', async () => {
       const panel = openPanel();
       const before = posted(panel, 'init').length;
       sendMessage(panel, { command: 'restartFrame', level: 2 });
+      await tick();
 
-      expect(debug.trimStackToLevel).toHaveBeenCalledWith(session, GS_PROCESS, 2);
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 2);
       expect(posted(panel, 'init').length).toBe(before + 1);
     });
 
-    it('Restart Frame on the top frame shows an in-panel notice and does not trim (GemStone cannot reset the TOS IP)', () => {
+    it('Restart Frame on the top frame shows an in-panel notice and does not trim (GemStone cannot reset the TOS IP)', async () => {
       const panel = openPanel();
-      vi.mocked(debug.trimStackToLevel).mockClear();
+      vi.mocked(debug.trimStackToLevelNb).mockClear();
       sendMessage(panel, { command: 'restartFrame', level: 1 }); // display 1 → server level 1 (top)
+      await tick();
 
-      expect(debug.trimStackToLevel).not.toHaveBeenCalled();
+      expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();
       expect(lastPosted(panel, 'init').errorMessage).toMatch(/top frame/i);
     });
 
@@ -909,13 +928,14 @@ describe('DebuggerPanel', () => {
       expect(panel.dispose).toHaveBeenCalled();
     });
 
-    it('hands the completed result to onComplete on step-to-completion', () => {
-      vi.mocked(debug.stepOver).mockReturnValueOnce({ completed: true, resultOop: 0x66n });
+    it('hands the completed result to onComplete on step-to-completion', async () => {
+      vi.mocked(debug.stepOverNb).mockResolvedValueOnce({ completed: true, resultOop: 0x66n });
       const onComplete = vi.fn();
       DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG, onComplete);
       const panel = lastPanel();
       sendReady(panel);
       sendMessage(panel, { command: 'stepOver', level: 1 });
+      await tick();
 
       expect(onComplete).toHaveBeenCalledWith(0x66n);
       expect(panel.dispose).toHaveBeenCalled();
@@ -931,6 +951,171 @@ describe('DebuggerPanel', () => {
 
       expect(onComplete).not.toHaveBeenCalled();
       expect(panel.dispose).not.toHaveBeenCalled();
+    });
+
+    it('does NOT silently drop a second op while one is in flight — it posts a busy notice', async () => {
+      let release: (r: debug.StepResult) => void = () => {};
+      vi.mocked(debug.stepOverNb).mockReturnValueOnce(new Promise<debug.StepResult>(res => { release = res; }));
+      const panel = openPanel();
+      sendMessage(panel, { command: 'stepOver', level: 3 }); // starts, stays pending
+      await tick();
+      expect(debug.stepOverNb).toHaveBeenCalledTimes(1);
+
+      sendMessage(panel, { command: 'stepOver', level: 3 }); // while the first is in flight
+      await tick();
+      expect(debug.stepOverNb).toHaveBeenCalledTimes(1);                 // not started again
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/still running/i); // user is told
+
+      release({ completed: false }); // let the first finish so the panel settles
+      await tick();
+    });
+
+    it('releases the in-flight guard after a FAILED op so the next op still runs (no permanent wedge)', async () => {
+      vi.mocked(debug.stepOverNb).mockRejectedValueOnce(new Error('boom'));
+      const panel = openPanel();
+      sendMessage(panel, { command: 'stepOver', level: 3 });
+      await tick();
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/failed/i);
+
+      sendMessage(panel, { command: 'stepOver', level: 3 }); // guard must be released
+      await tick();
+      expect(debug.stepOverNb).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('edit-and-continue (save companion source)', () => {
+    // Let revealFrameSource's awaited openTextDocument/showTextDocument settle so
+    // editableSourceUri is set before we fire the save.
+    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+
+    const URI_INFO = {
+      dictName: 'UserGlobals', className: 'JasperDebugDemo', isMeta: false,
+      category: 'accessing', selector: 'accumulateFrom:to:',
+    };
+
+    beforeEach(() => {
+      // Restore the base getFrameInfo (mockImplementation leaks past clearAllMocks).
+      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
+        methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100),
+        argAndTempNames: [], argAndTempOops: [],
+      }));
+    });
+
+    /** The save listener the panel registered in its constructor. */
+    function saveListener(): (doc: vscode.TextDocument) => void {
+      return vi.mocked(vscode.workspace.onDidSaveTextDocument).mock.calls[0][0];
+    }
+
+    /**
+     * Open a panel, load the 5-frame stack, and select `displayLevel` as an
+     * EDITABLE gemstone:// frame (URI_INFO supplied to the single reveal). Returns
+     * the panel and the source URI the panel opened (== the doc the user saves).
+     */
+    async function openWithEditableFrame(displayLevel: number) {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel); // fetchStack uses the base (undefined URI) mocks
+      vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce(URI_INFO); // for the reveal only
+      sendMessage(panel, { command: 'selectFrame', level: displayLevel });
+      await flush();
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      return { panel, uri };
+    }
+
+    it('re-enters the selected (deeper) frame when its source is saved and recompiled', async () => {
+      const { panel, uri } = await openWithEditableFrame(3); // display 3 → server level 3
+      const before = posted(panel, 'init').length;
+      saveListener()({ uri } as vscode.TextDocument);
+      await tick(); // editAndContinue awaits the non-blocking trim
+
+      // trimStackToLevel installs the recompiled method + resets the frame to its
+      // first instruction (the old activation held the pre-edit GsNMethod).
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+      expect(posted(panel, 'init').length).toBe(before + 1); // refreshed
+    });
+
+    it('does NOT re-enter when the recompile failed (GemStone error diagnostic on the URI)', async () => {
+      const { panel, uri } = await openWithEditableFrame(3);
+      // getDiagnostics is overloaded ([Uri, Diagnostic[]][] | Diagnostic[]); cast
+      // past the union to the single-URI Diagnostic[] shape the panel calls with.
+      vi.mocked(vscode.languages.getDiagnostics).mockReturnValueOnce(
+        [{ severity: vscode.DiagnosticSeverity.Error }] as never,
+      );
+      const before = posted(panel, 'init').length;
+      saveListener()({ uri } as vscode.TextDocument);
+      await tick();
+
+      expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();
+      expect(posted(panel, 'init').length).toBe(before); // no refresh
+    });
+
+    it('ignores a save of some OTHER document (not the selected frame source)', async () => {
+      const { panel } = await openWithEditableFrame(3);
+      const before = posted(panel, 'init').length;
+      saveListener()({ uri: vscode.Uri.parse('gemstone://1/Other/Foo/instance/x/bar') } as vscode.TextDocument);
+      await tick();
+
+      expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();
+      expect(posted(panel, 'init').length).toBe(before);
+    });
+
+    it('ignores a save when the selected frame is read-only (no editable gemstone:// source)', async () => {
+      // Frame 3 with the base (undefined URI) mocks resolves read-only.
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      await flush();
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      saveListener()({ uri } as vscode.TextDocument);
+      await tick();
+
+      expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();
+    });
+
+    it('shows an in-panel notice and does NOT trim when the edited frame is the top frame', async () => {
+      const { panel, uri } = await openWithEditableFrame(1); // display 1 → server level 1 (top)
+      saveListener()({ uri } as vscode.TextDocument);
+      await tick();
+
+      expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/top frame/i);
+    });
+
+    it('BLOCKS Resume after a top-frame recompile (continuing the stale activation would hang the gem)', async () => {
+      const { panel, uri } = await openWithEditableFrame(1); // top frame → stale activation
+      saveListener()({ uri } as vscode.TextDocument);
+      await tick();
+      vi.mocked(debug.continueExecution).mockClear();
+      sendMessage(panel, { command: 'resume' });
+
+      expect(debug.continueExecution).not.toHaveBeenCalled();
+      expect(panel.dispose).not.toHaveBeenCalled();
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/recompiled/i);
+    });
+
+    it('BLOCKS Step after a top-frame recompile', async () => {
+      const { panel, uri } = await openWithEditableFrame(1);
+      saveListener()({ uri } as vscode.TextDocument);
+      await tick();
+      vi.mocked(debug.stepOverNb).mockClear();
+      sendMessage(panel, { command: 'stepOver', level: 1 });
+      await tick();
+
+      expect(debug.stepOverNb).not.toHaveBeenCalled();
+    });
+
+    it('re-enables Resume once a deeper frame is restarted (the trim discards the stale activation)', async () => {
+      const { panel, uri } = await openWithEditableFrame(1);
+      saveListener()({ uri } as vscode.TextDocument);        // stale top activation (sync guard)
+      await tick();
+      sendMessage(panel, { command: 'restartFrame', level: 2 }); // deeper trim clears it
+      await tick();                                              // let the async trim settle
+      vi.mocked(debug.continueExecution).mockClear();
+      sendMessage(panel, { command: 'resume' });
+
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 2);
+      expect(debug.continueExecution).toHaveBeenCalled(); // no longer blocked
     });
   });
 

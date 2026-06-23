@@ -8,12 +8,8 @@ import { DebuggerPanel } from './debuggerPanel';
 import { clearStack, getObjectPrintString, acquireStepping, releaseStepping } from './debugQueries';
 import { appendTranscript, showTranscript } from './transcriptChannel';
 import { wrapWithTranscriptCapture } from './transcriptCapture';
-import { GciError } from './gciLibrary';
-import { pollReadable } from './socketPoll';
+import { pollNbToCompletion, NbCancelledError } from './nbRunner';
 
-const BACKOFF_INTERVALS = [10, 10, 20, 40, 80, 160, 320, 500];
-const MAX_INTERVAL = 500;
-const PROGRESS_THRESHOLD_MS = 2000;
 const MAX_RESULT_SIZE = 64 * 1024;
 
 // Decoration type for Display It results.
@@ -57,12 +53,6 @@ const DISPLAY_RESULT_CONTEXT = 'gemstone.displayResultVisible';
 // Max characters shown in the inline overlay before truncating (full value
 // is always available via the hover and the Expand action).
 const MAX_OVERLAY_PREVIEW = 100;
-
-class ExecutionCancelledError extends Error {
-  constructor() {
-    super('Execution cancelled');
-  }
-}
 
 class DebuggableError extends Error {
   constructor(message: string, public readonly context: bigint) {
@@ -199,7 +189,7 @@ export class CodeExecutor {
         vscode.window.setStatusBarMessage('GemStone: Executed successfully.', 3000);
       }
     } catch (e: unknown) {
-      if (e instanceof ExecutionCancelledError) return;
+      if (e instanceof NbCancelledError) return;
       const msg = e instanceof Error ? e.message : String(e);
       logError(session.id, msg);
 
@@ -636,107 +626,14 @@ __t`;
     return new vscode.Range(pos, lineEnd);
   }
 
-  /**
-   * Checks whether a non-blocking call's result is ready, returning the same
-   * { result: 1=ready, 0=pending, -1=error } shape as GciTsNbPoll.
-   *
-   * GciTsNbPoll doesn't exist before GemStone 3.7. When it's unavailable we
-   * poll the session socket directly (GciTsSocket + native poll), exactly as
-   * the GciTsNbResult docs prescribe.
-   */
-  private pollNbResultReady(session: ActiveSession): { result: number; err: GciError } {
-    if (session.gci.isAvailable('GciTsNbPoll')) {
-      return session.gci.GciTsNbPoll(session.handle, 0);
-    }
-    const { fd, err } = session.gci.GciTsSocket(session.handle);
-    if (err.number !== 0 || fd < 0) {
-      return { result: -1, err };
-    }
-    const ready = pollReadable(fd, 0);
-    return {
-      result: ready,
-      err: ready === -1
-        ? ({ number: -1, message: 'Failed to poll the GemStone session socket' } as GciError)
-        : err,
-    };
-  }
-
   private pollForCompletion<T>(
     session: ActiveSession, onReady: () => T,
   ): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      let pollIndex = 0;
-      let elapsedMs = 0;
-      let progressShown = false;
-      let softBreakSent = false;
-      let progressResolve: (() => void) | null = null;
-
-      const finishProgress = () => {
-        if (progressResolve) {
-          progressResolve();
-          progressResolve = null;
-        }
-      };
-
-      const doPoll = () => {
-        const { result: pollResult, err: pollErr } = this.pollNbResultReady(session);
-
-        if (pollResult === 1) {
-          finishProgress();
-          try {
-            resolve(onReady());
-          } catch (e) {
-            reject(e);
-          }
-          return;
-        }
-
-        if (pollResult === -1) {
-          finishProgress();
-          const msg = pollErr.message || `GemStone poll error ${pollErr.number}`;
-          reject(new Error(msg));
-          return;
-        }
-
-        const interval = pollIndex < BACKOFF_INTERVALS.length
-          ? BACKOFF_INTERVALS[pollIndex]
-          : MAX_INTERVAL;
-        pollIndex++;
-        elapsedMs += interval;
-
-        if (elapsedMs >= PROGRESS_THRESHOLD_MS && !progressShown) {
-          progressShown = true;
-          vscode.window.withProgress(
-            {
-              location: vscode.ProgressLocation.Notification,
-              title: softBreakSent
-                ? 'GemStone: Soft break sent. Waiting...'
-                : 'GemStone: Executing...',
-              cancellable: true,
-            },
-            (_progress, token) => {
-              token.onCancellationRequested(() => {
-                if (!softBreakSent) {
-                  session.gci.GciTsBreak(session.handle, false);
-                  softBreakSent = true;
-                } else {
-                  session.gci.GciTsBreak(session.handle, true);
-                  finishProgress();
-                  reject(new ExecutionCancelledError());
-                }
-              });
-              return new Promise<void>(res => {
-                progressResolve = res;
-              });
-            },
-          );
-        }
-
-        setTimeout(doPoll, interval);
-      };
-
-      doPoll();
-    });
+    // Delegates to the shared non-blocking poll loop (nbRunner) so Execute/Display
+    // It and the debugger's step/trim share ONE cancel/break/backoff/progress
+    // implementation (no divergence). The Nb call is already started by the caller
+    // (GciTsNbExecute above), so we only poll it to completion here.
+    return pollNbToCompletion(session, onReady, { title: 'GemStone: Executing…' });
   }
 
   private pollForResult(session: ActiveSession): Promise<string> {
@@ -851,7 +748,7 @@ __t`;
       logResult(session.id, `OOP ${oop}`);
       GtInspector.create(session, oop, label);
     } catch (e: unknown) {
-      if (e instanceof ExecutionCancelledError) return;
+      if (e instanceof NbCancelledError) return;
       const msg = e instanceof Error ? e.message : String(e);
       logError(session.id, msg);
 
@@ -966,7 +863,7 @@ __t`;
       logResult(session.id, `OOP ${oop}`);
       inspectorProvider.addRoot(session.id, oop, label);
     } catch (e: unknown) {
-      if (e instanceof ExecutionCancelledError) return;
+      if (e instanceof NbCancelledError) return;
       const msg = e instanceof Error ? e.message : String(e);
       logError(session.id, msg);
 

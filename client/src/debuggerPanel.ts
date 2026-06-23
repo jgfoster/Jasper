@@ -8,6 +8,7 @@ import * as queries from './browserQueries';
 import { unwrapTranscriptCapture } from './transcriptCapture';
 import { GtInspector } from './gtInspector';
 import { logError } from './gciLog';
+import { NbCancelledError } from './nbRunner';
 
 // The webview's DOM behavior lives in a standalone file (like listFilter.js /
 // methodListView.js) so it gets IDE support and can be jsdom-tested in isolation
@@ -368,6 +369,33 @@ export class DebuggerPanel {
   private stashedSourceKeys = new Set<string>();
   /** Every source URI shown in the companion editor (closed on dispose). */
   private shownSourceUris = new Set<string>();
+  /** Server level of the currently-selected frame (drives edit-and-continue). */
+  private selectedServerLevel: number | undefined;
+  /**
+   * The `gemstone://` URI of the selected frame's source IFF it is an editable
+   * method — set by revealFrameSource, cleared for read-only (doit) frames.
+   * Saving this exact document triggers edit-and-continue for the selected frame.
+   */
+  private editableSourceUri: string | undefined;
+  /**
+   * True once the TOP frame's method has been recompiled in place but could not
+   * be re-entered (GemStone has no primitive to reset the top-of-stack IP — see
+   * editAndContinue). The suspended top activation is then stale: continuing or
+   * stepping it via GciTsContinueWith / gciStep… does NOT return (it hangs the
+   * gem, freezing the whole extension host — confirmed 2026-06-22). So while this
+   * is set, Resume/Step are refused with guidance; it clears the moment a trim
+   * (Restart a deeper frame / deep edit-and-continue) rebuilds the stack.
+   */
+  private staleTopActivation = false;
+  /**
+   * True while a non-blocking GCI operation (step / trim) is in flight. Only one
+   * GciTsNb… call may be outstanding per session, and overlapping a blocking
+   * Resume on top of one is illegal — so step/resume/restart are ignored while
+   * set. Cleared when the operation settles (resolve / reject / cancel).
+   */
+  private nbBusy = false;
+  /** Set in dispose() so an in-flight Nb op's continuation skips touching a dead panel. */
+  private disposed = false;
 
   /**
    * @param onComplete called with the process's result oop when execution
@@ -420,6 +448,13 @@ export class DebuggerPanel {
       null,
       this.disposables,
     );
+    // Edit-and-continue: saving the selected frame's source recompiles it (the
+    // gemstone:// FS provider) and then re-enters the recompiled method.
+    vscode.workspace.onDidSaveTextDocument(
+      (doc) => this.onSourceSaved(doc),
+      null,
+      this.disposables,
+    );
   }
 
   private handleMessage(msg: DebuggerInbound): void {
@@ -445,6 +480,7 @@ export class DebuggerPanel {
         // then drive the source pane AND the variables pane for that frame.
         const frame = this.frames.find(f => f.level === msg.level);
         if (frame) {
+          this.selectedServerLevel = frame.serverLevel;
           void this.revealFrameSource(frame.serverLevel);
           this.postVariables(frame.serverLevel);
         }
@@ -460,12 +496,12 @@ export class DebuggerPanel {
       case 'stepOver':
       case 'stepInto':
       case 'stepThrough': {
-        this.step(msg.command, msg.level);
+        void this.step(msg.command, msg.level);
         return;
       }
       case 'restartFrame': {
         const frame = this.frames.find(f => f.level === msg.level);
-        if (frame) this.restartFrame(frame.serverLevel);
+        if (frame) void this.restartFrame(frame.serverLevel);
         return;
       }
       case 'inspectVariable': {
@@ -584,6 +620,15 @@ export class DebuggerPanel {
 
   /** Resume execution: closes the panel if the process completes, else refreshes on the new error. */
   private resume(): void {
+    if (this.guardStaleTopActivation('Resume')) return;
+    // Don't issue a blocking continue while a non-blocking step/trim is in flight
+    // (only one GCI call per session). Resume itself is still BLOCKING — 3.7.x has
+    // no GciTsNbContinue — so a long/looping Resume can still stall the host until
+    // it returns; making Resume non-blocking needs a worker thread (tracked).
+    if (this.nbBusy) {
+      this.notifyBusy('Resume');
+      return;
+    }
     const result = debug.continueExecution(this.session, this.gsProcess);
     if (result.completed) {
       this.onCompleted(result);
@@ -591,6 +636,22 @@ export class DebuggerPanel {
       this.errorMessage = result.errorMessage || 'GemStone error';
       this.refresh();
     }
+  }
+
+  /**
+   * Refuse a Resume/Step when the top activation is stale (its method was
+   * recompiled in place and couldn't be re-entered). Continuing/stepping it would
+   * hang the gem and freeze the extension host. Returns true if the action was
+   * blocked (the caller must bail). The only safe escapes are Restart on a deeper
+   * frame (re-enters the recompiled code) or Terminate.
+   */
+  private guardStaleTopActivation(action: string): boolean {
+    if (!this.staleTopActivation) return false;
+    this.errorMessage = `${action} is unavailable: the top frame's method was recompiled, so its `
+      + 'suspended activation can no longer be continued (GemStone would hang). Restart a deeper '
+      + 'frame to re-enter the recompiled code, or Terminate the process.';
+    this.postInit();
+    return true;
   }
 
   /**
@@ -620,25 +681,79 @@ export class DebuggerPanel {
    * 6014). If a step still hits that, we surface a clear message rather than
    * fail silently. Resume is unaffected.
    */
-  private step(command: 'stepOver' | 'stepInto' | 'stepThrough', displayLevel?: number): void {
-    const fn = command === 'stepOver' ? debug.stepOver
-      : command === 'stepInto' ? debug.stepInto
-        : debug.stepOut; // "Through" == gciStepThru (debugQueries.stepOut)
+  private async step(command: 'stepOver' | 'stepInto' | 'stepThrough', displayLevel?: number): Promise<void> {
+    if (this.guardStaleTopActivation('Step')) return;
+    const fn = command === 'stepOver' ? debug.stepOverNb
+      : command === 'stepInto' ? debug.stepIntoNb
+        : debug.stepThruNb; // "Through" == gciStepThru
     const frame = this.frames.find(f => f.level === displayLevel) ?? this.frames[0];
     const level = frame?.serverLevel ?? 1;
-    const result = fn(this.session, this.gsProcess, level);
-    if (result.completed) {
-      this.onCompleted(result);
-      return;
+    await this.runNb('Step', async () => {
+      // Non-blocking + cancellable: a step that crawls hidden machinery or steps
+      // a looping method no longer freezes the extension host (see nbRunner.ts).
+      const result = await fn(this.session, this.gsProcess, level);
+      if (this.disposed) return; // panel closed while the step ran
+      if (result.completed) {
+        this.onCompleted(result);
+        return;
+      }
+      if (result.errorMessage && /native code/i.test(result.errorMessage)) {
+        this.errorMessage = 'Stepping is unavailable while the gem runs native code '
+          + '(GEM_NATIVE_CODE_ENABLED). Use Resume — or run the gem with native code disabled to step.';
+        this.postInit(); // show the note; the stack is unchanged
+        return;
+      }
+      this.errorMessage = ''; // stepped to a new point — clear the original halt banner
+      this.refresh();
+    });
+  }
+
+  /**
+   * Report a failed/cancelled non-blocking op in the panel banner (best-effort —
+   * does nothing if the panel was disposed mid-flight). A user cancel (hard
+   * break) is surfaced as "<action> cancelled", anything else as a failure.
+   */
+  private handleNbError(action: string, e: unknown): void {
+    if (this.disposed) return;
+    if (e instanceof NbCancelledError) {
+      this.errorMessage = `${action} cancelled.`;
+    } else {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      this.errorMessage = `${action} failed: ${e instanceof Error ? e.message : String(e)}`;
     }
-    if (result.errorMessage && /native code/i.test(result.errorMessage)) {
-      this.errorMessage = 'Stepping is unavailable while the gem runs native code '
-        + '(GEM_NATIVE_CODE_ENABLED). Use Resume — or run the gem with native code disabled to step.';
-      this.postInit(); // show the note; the stack is unchanged
-      return;
-    }
-    this.errorMessage = ''; // stepped to a new point — clear the original halt banner
     this.refresh();
+  }
+
+  /**
+   * Run a non-blocking debugger op (step / trim) under the single-in-flight
+   * guard. Owns the `nbBusy` lifecycle in a `finally` so it can NEVER leak — a
+   * leaked flag would silently wedge the debugger (every later step/resume/
+   * restart becomes a no-op). `op` does the work and its own post-processing; a
+   * thrown error (including a user cancel) is surfaced via handleNbError. If an
+   * op is already in flight the request is NOT silently dropped — the user is
+   * told to retry (otherwise a save-driven edit-and-continue or a click would
+   * just vanish).
+   */
+  private async runNb(action: string, op: () => Promise<void>): Promise<void> {
+    if (this.nbBusy) {
+      this.notifyBusy(action);
+      return;
+    }
+    this.nbBusy = true;
+    try {
+      await op();
+    } catch (e: unknown) {
+      this.handleNbError(action, e);
+    } finally {
+      this.nbBusy = false;
+    }
+  }
+
+  /** Tell the user another debugger op is still running rather than dropping theirs. */
+  private notifyBusy(action: string): void {
+    if (this.disposed) return;
+    this.errorMessage = `Another debugger operation is still running — wait for it to finish, then retry ${action}.`;
+    this.postInit();
   }
 
   /**
@@ -654,7 +769,7 @@ export class DebuggerPanel {
    * works on any deeper frame (for a recursive call, restarting the caller frame
    * re-enters the same method one level up).
    */
-  private restartFrame(serverLevel: number): void {
+  private async restartFrame(serverLevel: number): Promise<void> {
     if (serverLevel <= 1) {
       // Show the notice IN the panel (the banner) — a toast is easy to miss while
       // the webview has focus. It clears on the next step/resume/restart.
@@ -663,9 +778,73 @@ export class DebuggerPanel {
       this.postInit();
       return;
     }
-    debug.trimStackToLevel(this.session, this.gsProcess, serverLevel);
-    this.errorMessage = '';
-    this.refresh();
+    await this.runNb('Restart frame', async () => {
+      await debug.trimStackToLevelNb(this.session, this.gsProcess, serverLevel);
+      if (this.disposed) return;
+      this.staleTopActivation = false; // the trim discarded any stale top activation
+      this.errorMessage = '';
+      this.refresh();
+    });
+  }
+
+  /**
+   * Edit-and-continue. The companion source editor IS a real `gemstone://`
+   * editor, so saving it already recompiles the method (the FS provider's
+   * writeFile). We hook the *post*-save moment: when the saved document is the
+   * selected frame's editable source AND the recompile succeeded, re-enter the
+   * recompiled method so execution picks up the new code.
+   *
+   * Only the selected frame's editable source counts — a read-only doit, or a
+   * save of some unrelated method, is ignored (`editableSourceUri` gates it).
+   *
+   * A failed recompile leaves the OLD method installed and an error diagnostic
+   * on the URI (the FS provider sets it and does NOT rethrow, so this save still
+   * fires) — we detect that and do nothing, so the user just fixes and re-saves.
+   */
+  private onSourceSaved(doc: vscode.TextDocument): void {
+    if (this.editableSourceUri === undefined || this.selectedServerLevel === undefined) return;
+    if (doc.uri.toString() !== this.editableSourceUri) return;
+    // The recompile failed if the FS provider left an error diagnostic on the URI
+    // (it sets one and does NOT rethrow, so this save still fires) — then we leave
+    // the old method installed and do nothing; the user fixes and re-saves.
+    const failed = vscode.languages
+      .getDiagnostics(doc.uri)
+      .some((d) => d.severity === vscode.DiagnosticSeverity.Error);
+    if (failed) return;
+    void this.editAndContinue(this.selectedServerLevel);
+  }
+
+  /**
+   * Re-enter the (just-recompiled) selected frame's method. Reuses the restart
+   * mechanism: `trimStackToLevel:` installs the recompiled home method on the
+   * frame and resets it to its method's first instruction (the running activation
+   * still held the OLD GsNMethod and could not continue on it). Execution then
+   * flows into the new code on the next step/resume.
+   *
+   * Same GemStone limitation as Restart Frame: the primitive is a guarded no-op
+   * for the absolute top frame (level 1), so an edit there can't be re-entered in
+   * place — we tell the user instead of silently doing nothing. (After a halt/
+   * error the user's frame is normally below the trimmed signal machinery, so its
+   * server level is ≥ 2 and edit-and-continue works.)
+   */
+  private async editAndContinue(serverLevel: number): Promise<void> {
+    if (serverLevel <= 1) {
+      // The top method is now recompiled but its activation can't be re-entered;
+      // mark it stale so Resume/Step refuse to continue it (would hang the gem).
+      this.staleTopActivation = true;
+      this.errorMessage = 'Saved and recompiled — but GemStone cannot re-enter the top frame in '
+        + 'place, so its suspended activation can no longer be continued. Restart a deeper frame '
+        + 'to re-enter the recompiled code, or Terminate the process. (Resume/Step are disabled.)';
+      this.postInit();
+      return;
+    }
+    await this.runNb('Edit-and-continue', async () => {
+      await debug.trimStackToLevelNb(this.session, this.gsProcess, serverLevel);
+      if (this.disposed) return;
+      this.staleTopActivation = false; // the trim rebuilt the stack from a fresh activation
+      this.errorMessage = '';
+      this.refresh();
+    });
   }
 
   /**
@@ -701,7 +880,11 @@ export class DebuggerPanel {
         // In the symbol list → the real editable gemstone:// editor.
         uri = vscode.Uri.parse(buildMethodSourceUri(this.session.id, home.uriInfo));
         methodForOffsets = { className: home.uriInfo.className, isMeta: home.uriInfo.isMeta, selector: home.uriInfo.selector };
+        // Saving this document triggers edit-and-continue for the selected frame.
+        this.editableSourceUri = uri.toString();
       } else {
+        // A read-only doit / non-symbol-list method can't be edited-and-continued.
+        this.editableSourceUri = undefined;
         // No gemstone:// URI: show the source read-only. Strip the Transcript-
         // capture glue so a doit shows just the user's code (e.g.
         // `JasperDebugDemo new run`). Title by the method when we have one, so a
@@ -1206,6 +1389,7 @@ export class DebuggerPanel {
   }
 
   private dispose(): void {
+    this.disposed = true; // an in-flight Nb step/trim continuation must skip the dead panel
     DebuggerPanel.panels.get(this.sessionId)?.delete(this);
     // Restore native code once the last debugger for this session closes
     // (paired with acquireStepping in create).

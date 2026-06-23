@@ -1,0 +1,129 @@
+import { describe, it, expect, vi } from 'vitest';
+
+vi.mock('vscode', () => import('../__mocks__/vscode'));
+
+import * as vscode from 'vscode';
+import { runNbCall, pollNbResultReady, NbCancelledError } from '../nbRunner';
+import { ActiveSession } from '../sessionManager';
+
+const noErr = { number: 0 } as const;
+
+/**
+ * Fake session whose gci returns a scripted sequence of poll results. Each
+ * pollNbResultReady consumes the next entry (1 = ready, 0 = pending, -1 = error).
+ */
+function makeSession(pollResults: { result: number; err?: unknown }[]): ActiveSession {
+  let i = 0;
+  const gci = {
+    isAvailable: (name: string) => name === 'GciTsNbPoll',
+    GciTsNbPoll: vi.fn(() => {
+      const r = pollResults[Math.min(i, pollResults.length - 1)];
+      i++;
+      return { result: r.result, err: (r.err ?? noErr) };
+    }),
+    GciTsBreak: vi.fn(() => ({ result: 0, err: noErr })),
+    GciTsSocket: vi.fn(() => ({ fd: 3, err: noErr })),
+  };
+  return { id: 1, handle: { h: 1 }, gci } as unknown as ActiveSession;
+}
+
+describe('runNbCall', () => {
+  it('rejects if the start call fails (no polling)', async () => {
+    const session = makeSession([{ result: 1 }]);
+    const onReady = vi.fn();
+    await expect(
+      runNbCall(session, () => ({ success: false, err: { number: 5, message: 'boom' } as never }), onReady),
+    ).rejects.toThrow('boom');
+    expect(onReady).not.toHaveBeenCalled();
+  });
+
+  it('calls onReady and resolves with its value once the poll reports ready', async () => {
+    const session = makeSession([{ result: 1 }]); // ready on first poll
+    const result = await runNbCall(
+      session,
+      () => ({ success: true, err: noErr as never }),
+      () => 'the-result',
+    );
+    expect(result).toBe('the-result');
+  });
+
+  it('rejects when polling reports an error (-1)', async () => {
+    const session = makeSession([{ result: -1, err: { number: 7, message: 'pollbad' } }]);
+    await expect(
+      runNbCall(session, () => ({ success: true, err: noErr as never }), () => 'unused'),
+    ).rejects.toThrow('pollbad');
+  });
+
+  it('keeps polling while pending, then resolves when ready', async () => {
+    const session = makeSession([{ result: 0 }, { result: 0 }, { result: 1 }]);
+    const result = await runNbCall(
+      session,
+      () => ({ success: true, err: noErr as never }),
+      () => 42,
+    );
+    expect(result).toBe(42);
+    expect(session.gci.GciTsNbPoll).toHaveBeenCalledTimes(3);
+  });
+
+  it('propagates an error thrown by onReady (e.g. a fetch failure)', async () => {
+    const session = makeSession([{ result: 1 }]);
+    await expect(
+      runNbCall(session, () => ({ success: true, err: noErr as never }), () => { throw new Error('fetch failed'); }),
+    ).rejects.toThrow('fetch failed');
+  });
+});
+
+describe('pollNbResultReady', () => {
+  it('uses GciTsNbPoll when available', () => {
+    const session = makeSession([{ result: 1 }]);
+    expect(pollNbResultReady(session).result).toBe(1);
+    expect(session.gci.GciTsNbPoll).toHaveBeenCalled();
+  });
+
+  it('falls back to the session socket when GciTsNbPoll is unavailable', () => {
+    const gci = {
+      isAvailable: () => false, // GciTsNbPoll absent (pre-3.7)
+      GciTsSocket: vi.fn(() => ({ fd: -1, err: { number: 0 } })), // bad fd → -1
+    };
+    const session = { id: 1, handle: { h: 1 }, gci } as unknown as ActiveSession;
+    expect(pollNbResultReady(session).result).toBe(-1);
+    expect(gci.GciTsSocket).toHaveBeenCalled();
+  });
+});
+
+describe('runNbCall — cancellation', () => {
+  // Drive the progress/cancel path: override withProgress to capture the
+  // cancellation handler the loop registers, and use fake timers to cross the
+  // ~2s progress threshold without real waiting.
+  it('first cancel soft-breaks + reports progress; second hard-breaks + rejects NbCancelledError', async () => {
+    vi.useFakeTimers();
+    try {
+      const session = makeSession([{ result: 0 }]); // always pending → loop keeps polling
+      const reportSpy = vi.fn();
+      let cancelHandler: (() => void) | undefined;
+      vi.mocked(vscode.window.withProgress).mockImplementation((_opts: unknown, task: unknown) => {
+        const token = { onCancellationRequested: (cb: () => void) => { cancelHandler = cb; return { dispose() {} }; } };
+        return (task as (p: unknown, t: unknown) => Promise<unknown>)({ report: reportSpy }, token);
+      });
+
+      const p = runNbCall(session, () => ({ success: true, err: noErr as never }), () => 'unused');
+      // Advance past PROGRESS_THRESHOLD_MS (2000) so the progress block runs and
+      // registers the cancellation handler.
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(cancelHandler).toBeTypeOf('function');
+
+      cancelHandler!(); // first cancel → soft break + acknowledgement
+      expect(session.gci.GciTsBreak).toHaveBeenCalledWith(session.handle, false);
+      expect(reportSpy).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringMatching(/break/i) }));
+
+      cancelHandler!(); // second cancel → hard break + reject
+      expect(session.gci.GciTsBreak).toHaveBeenCalledWith(session.handle, true);
+      await expect(p).rejects.toBeInstanceOf(NbCancelledError);
+
+      vi.clearAllTimers();
+    } finally {
+      vi.useRealTimers();
+      vi.mocked(vscode.window.withProgress).mockReset();
+    }
+  });
+});
