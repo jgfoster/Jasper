@@ -21,7 +21,7 @@ vi.mock('../browserQueries', () => ({
 }));
 
 import { Uri, FileSystemError, FilePermission, window, languages } from '../__mocks__/vscode';
-import { GemStoneFileSystemProvider, buildMethodUri, buildNewMethodUri } from '../gemstoneFileSystemProvider';
+import { GemStoneFileSystemProvider, buildMethodUri, buildNewMethodUri, buildClassDefinitionUri } from '../gemstoneFileSystemProvider';
 import { SessionManager } from '../sessionManager';
 import * as queries from '../browserQueries';
 import { BrowserQueryError } from '../browserQueries';
@@ -196,6 +196,7 @@ describe('GemStoneFileSystemProvider', () => {
     it('compiles a class definition on save', () => {
       const uri = Uri.parse('gemstone://1/Globals/Array/definition');
       const source = "Object subclass: 'Array'\n  instVarNames: #()";
+      vi.mocked(queries.compileClassDefinition).mockReturnValueOnce('Array');
       provider.writeFile(uri, encode(source), { create: false, overwrite: true });
       expect(queries.compileClassDefinition).toHaveBeenCalledWith(expect.anything(), source);
     });
@@ -211,8 +212,152 @@ describe('GemStoneFileSystemProvider', () => {
     it('compiles new-class on save', () => {
       const uri = Uri.parse('gemstone://1/UserGlobals/new-class');
       const source = "Object subclass: 'MyClass'\n  inDictionary: UserGlobals";
+      vi.mocked(queries.compileClassDefinition).mockReturnValueOnce('MyClass');
       provider.writeFile(uri, encode(source), { create: true, overwrite: true });
       expect(queries.compileClassDefinition).toHaveBeenCalledWith(expect.anything(), source);
+    });
+
+    it('shows a success message with the class name when new-class compiles', () => {
+      const uri = Uri.parse('gemstone://1/UserGlobals/new-class');
+      vi.mocked(queries.compileClassDefinition).mockReturnValueOnce('MyClass');
+
+      provider.writeFile(uri, encode("Object subclass: 'MyClass'"), { create: true, overwrite: true });
+
+      expect(window.showInformationMessage).toHaveBeenCalledWith('Class created: MyClass');
+    });
+
+    it('emits onClassDefinitionCompiled when new-class compiles successfully', async () => {
+      const newClassUri = Uri.parse('gemstone://1/UserGlobals/new-class');
+      const source = "Object subclass: 'MyClass'\n  inDictionary: UserGlobals";
+      vi.mocked(queries.compileClassDefinition).mockReturnValueOnce('MyClass');
+      const listener = vi.fn();
+      provider.onClassDefinitionCompiled(listener);
+
+      provider.writeFile(newClassUri, encode(source), { create: true, overwrite: true });
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      const event = listener.mock.calls[0][0];
+      expect(event.previousUri.toString()).toBe(newClassUri.toString());
+      expect(event.uri.toString()).toBe('gemstone://1/UserGlobals/MyClass/definition');
+      expect(event.previousUriIsTemplate).toBe(true);
+    });
+
+    it('fires onDidChangeFile with the new-class uri on successful compile', () => {
+      const newClassUri = Uri.parse('gemstone://1/UserGlobals/new-class');
+      vi.mocked(queries.compileClassDefinition).mockReturnValueOnce('MyClass');
+      const listener = vi.fn();
+      provider.onDidChangeFile(listener);
+
+      provider.writeFile(newClassUri, encode("Object subclass: 'MyClass'"), { create: true, overwrite: true });
+
+      expect(listener).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ type: 1, uri: newClassUri }),
+        ]),
+      );
+    });
+
+    it('does not fire onClassDefinitionCompiled and sets a diagnostic when new-class compilation throws', async () => {
+      const newClassUri = Uri.parse('gemstone://1/UserGlobals/new-class');
+      const source = "Object subclass: 'MyClass'\n  inDictionary: UserGlobals";
+      vi.mocked(queries.compileClassDefinition).mockImplementationOnce(() => {
+        throw new BrowserQueryError('Class not found', 0);
+      });
+      const listener = vi.fn();
+      provider.onClassDefinitionCompiled(listener);
+
+      expect(() => provider.writeFile(newClassUri, encode(source), { create: true, overwrite: true }))
+        .not.toThrow();
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(listener).not.toHaveBeenCalled();
+      const collection = vi.mocked(languages.createDiagnosticCollection).mock.results[0].value;
+      expect(collection.set).toHaveBeenCalledWith(
+        newClassUri,
+        expect.arrayContaining([
+          expect.objectContaining({ message: 'Class not found' }),
+        ]),
+      );
+    });
+
+
+    it('shows a success message with the class name when an existing class definition is saved', () => {
+      const uri = Uri.parse('gemstone://1/Globals/Array/definition');
+      vi.mocked(queries.compileClassDefinition).mockReturnValueOnce('Array');
+
+      provider.writeFile(uri, encode("Object subclass: 'Array'\n  instVarNames: #()"), { create: false, overwrite: true });
+
+      expect(window.showInformationMessage).toHaveBeenCalledWith('Class definition updated for Array');
+    });
+
+    it('emits onClassDefinitionCompiled when an existing class definition is saved with unchanged name', async () => {
+      const uri = Uri.parse('gemstone://1/Globals/Array/definition');
+      vi.mocked(queries.compileClassDefinition).mockReturnValueOnce('Array');
+      const listener = vi.fn();
+      provider.onClassDefinitionCompiled(listener);
+
+      provider.writeFile(uri, encode("Object subclass: 'Array'\n  instVarNames: #()"), { create: false, overwrite: true });
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      const event = listener.mock.calls[0][0];
+      expect(event.previousUriIsTemplate).toBe(false);
+      expect(event.uri.toString()).toBe(uri.toString());
+      expect(event.previousUri.toString()).toBe(uri.toString());
+    });
+
+    it('emits onClassDefinitionCompiled with the new uri when an existing class definition is saved with a changed name', async () => {
+      const previousUri = Uri.parse('gemstone://1/Globals/Array/definition');
+      vi.mocked(queries.compileClassDefinition).mockReturnValueOnce('RenamedArray');
+      const listener = vi.fn();
+      provider.onClassDefinitionCompiled(listener);
+
+      provider.writeFile(previousUri, encode("Object subclass: 'RenamedArray'\n  instVarNames: #()"), { create: false, overwrite: true });
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      const event = listener.mock.calls[0][0];
+      expect(event.previousUriIsTemplate).toBe(false);
+      expect(event.previousUri.toString()).toBe(previousUri.toString());
+      expect(event.uri.toString()).toBe('gemstone://1/Globals/RenamedArray/definition');
+    });
+
+    it('does not fire onClassDefinitionCompiled and sets a diagnostic when an existing class definition save throws', async () => {
+      const uri = Uri.parse('gemstone://1/Globals/Array/definition');
+      vi.mocked(queries.compileClassDefinition).mockImplementationOnce(() => {
+        throw new BrowserQueryError('Syntax error', 0);
+      });
+      const listener = vi.fn();
+      provider.onClassDefinitionCompiled(listener);
+
+      expect(() => provider.writeFile(uri, encode("Object subclass: 'Array'"), { create: false, overwrite: true }))
+        .not.toThrow();
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(listener).not.toHaveBeenCalled();
+      const collection = vi.mocked(languages.createDiagnosticCollection).mock.results[0].value;
+      expect(collection.set).toHaveBeenCalledWith(
+        uri,
+        expect.arrayContaining([
+          expect.objectContaining({ message: 'Syntax error' }),
+        ]),
+      );
+    });
+
+    it('fires onDidChangeFile with the definition uri on successful compile', () => {
+      const uri = Uri.parse('gemstone://1/Globals/Array/definition');
+      vi.mocked(queries.compileClassDefinition).mockReturnValueOnce('Array');
+      const listener = vi.fn();
+      provider.onDidChangeFile(listener);
+
+      provider.writeFile(uri, encode("Object subclass: 'Array'\n  instVarNames: #()"), { create: false, overwrite: true });
+
+      expect(listener).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ type: 1, uri }),
+        ]),
+      );
     });
 
     describe('mirror sync after save', () => {
@@ -229,14 +374,49 @@ describe('GemStoneFileSystemProvider', () => {
         expect(em.syncClass).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'Globals', 'Array');
       });
 
-      it('debounced-refreshes after a new-class save (no class name in the URI)', () => {
+      it('syncs the compiled class name after a definition save with unchanged name', () => {
+        vi.mocked(queries.compileClassDefinition).mockReturnValueOnce('Array');
+        const em = makeExportManager();
+        const p = new GemStoneFileSystemProvider(makeSessionManager(), em as unknown as ExportManager);
+        p.writeFile(
+          Uri.parse('gemstone://1/Globals/Array/definition'),
+          encode("Object subclass: 'Array'\n  instVarNames: #()"), { create: false, overwrite: true },
+        );
+        expect(em.syncClass).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'Globals', 'Array');
+      });
+
+      it('syncs the new class name after a definition save that renames the class', () => {
+        vi.mocked(queries.compileClassDefinition).mockReturnValueOnce('RenamedArray');
+        const em = makeExportManager();
+        const p = new GemStoneFileSystemProvider(makeSessionManager(), em as unknown as ExportManager);
+        p.writeFile(
+          Uri.parse('gemstone://1/Globals/Array/definition'),
+          encode("Object subclass: 'RenamedArray'\n  instVarNames: #()"), { create: false, overwrite: true },
+        );
+        expect(em.syncClass).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'Globals', 'RenamedArray');
+      });
+
+      it('syncs the compiled class name after a new-class save', () => {
+        vi.mocked(queries.compileClassDefinition).mockReturnValueOnce('Foo');
         const em = makeExportManager();
         const p = new GemStoneFileSystemProvider(makeSessionManager(), em as unknown as ExportManager);
         p.writeFile(
           Uri.parse('gemstone://1/UserGlobals/new-class'),
           encode("Object subclass: 'Foo'\n  inDictionary: UserGlobals"), { create: true, overwrite: true },
         );
-        expect(em.scheduleRefresh).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }));
+        expect(em.syncClass).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'UserGlobals', 'Foo');
+      });
+
+      it('does not call syncClass when new-class compilation throws', () => {
+        vi.mocked(queries.compileClassDefinition).mockImplementationOnce(() => {
+          throw new BrowserQueryError('Syntax error', 0);
+        });
+        const em = makeExportManager();
+        const p = new GemStoneFileSystemProvider(makeSessionManager(), em as unknown as ExportManager);
+        expect(() => p.writeFile(
+          Uri.parse('gemstone://1/UserGlobals/new-class'),
+          encode("Object subclass: 'MyClass'\n  inDictionary: UserGlobals"), { create: true, overwrite: true },
+        )).not.toThrow();
         expect(em.syncClass).not.toHaveBeenCalled();
       });
 
@@ -273,10 +453,10 @@ describe('GemStoneFileSystemProvider', () => {
        const event = listener.mock.calls[0][0];
        expect(event.previousUri.toString()).toBe(newMethodUri.toString());
        expect(event.uri.toString()).toBe('gemstone://1/Globals/Array/instance/accessing/foo');
-       expect(event.isNewMethod).toBe(true);
+       expect(event.previousUriIsTemplate).toBe(true);
      });
 
-     it('emits onMethodCompiled with isNewMethod false when an existing method is saved with unchanged selector', async () => {
+     it('emits onMethodCompiled when an existing method is saved with unchanged selector', async () => {
        const methodUri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A');
        vi.mocked(queries.compileMethod).mockReturnValueOnce('Compiled: Array >> at:');
        const listener = vi.fn();
@@ -287,12 +467,12 @@ describe('GemStoneFileSystemProvider', () => {
 
        expect(listener).toHaveBeenCalledTimes(1);
        const event = listener.mock.calls[0][0];
-       expect(event.isNewMethod).toBe(false);
+       expect(event.previousUriIsTemplate).toBe(false);
        expect(event.uri.toString()).toBe(methodUri.toString());
        expect(event.previousUri.toString()).toBe(methodUri.toString());
      });
 
-     it('emits onMethodCompiled with isNewMethod false when an existing method is saved with a changed selector', async () => {
+     it('emits onMethodCompiled when an existing method is saved with a changed selector', async () => {
        const previousUri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A');
        vi.mocked(queries.compileMethod).mockReturnValueOnce('Compiled: Array >> newSelector');
        const listener = vi.fn();
@@ -303,7 +483,7 @@ describe('GemStoneFileSystemProvider', () => {
 
        expect(listener).toHaveBeenCalledTimes(1);
        const event = listener.mock.calls[0][0];
-       expect(event.isNewMethod).toBe(false);
+       expect(event.previousUriIsTemplate).toBe(false);
        expect(event.previousUri.toString()).toBe(previousUri.toString());
        expect(event.uri.toString()).toBe('gemstone://1/Globals/Array/instance/accessing/newSelector');
      });
@@ -653,5 +833,42 @@ describe('buildNewMethodUri', () => {
   it('throws when category contains a slash', () => {
     expect(() => buildNewMethodUri(1, 'Globals', 'Array', false, 'accessing/stuff', 0))
       .toThrow("Method category name must not contain '/': accessing/stuff");
+  });
+});
+
+describe('buildClassDefinitionUri', () => {
+  it('uses the gemstone scheme', () => {
+    const uri = buildClassDefinitionUri(42, 'Globals', 'Array');
+    expect(uri.scheme).toBe('gemstone');
+  });
+
+  it('uses the session id as the authority', () => {
+    const uri = buildClassDefinitionUri(42, 'Globals', 'Array');
+    expect(uri.authority).toBe('42');
+  });
+
+  it('places the dictionary name at path segment 1', () => {
+    const uri = buildClassDefinitionUri(1, 'UserGlobals', 'Array');
+    expect(uri.path.split('/')[1]).toBe('UserGlobals');
+  });
+
+  it('places the class name at path segment 2', () => {
+    const uri = buildClassDefinitionUri(1, 'Globals', 'MyClass');
+    expect(uri.path.split('/')[2]).toBe('MyClass');
+  });
+
+  it('places "definition" at path segment 3', () => {
+    const uri = buildClassDefinitionUri(1, 'Globals', 'Array');
+    expect(uri.path.split('/')[3]).toBe('definition');
+  });
+
+  it('throws when dictName contains a slash', () => {
+    expect(() => buildClassDefinitionUri(1, 'User/Globals', 'Array'))
+      .toThrow("Dictionary name must not contain '/': User/Globals");
+  });
+
+  it('throws when className contains a slash', () => {
+    expect(() => buildClassDefinitionUri(1, 'Globals', 'My/Class'))
+      .toThrow("Class name must not contain '/': My/Class");
   });
 });

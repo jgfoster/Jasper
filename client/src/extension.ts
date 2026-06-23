@@ -25,7 +25,7 @@ import { CodeExecutor } from './codeExecutor';
 import { SystemBrowser } from './systemBrowser';
 import { GlobalsBrowser } from './globalsBrowser';
 import { GtInspector } from './gtInspector';
-import { GemStoneFileSystemProvider, MethodCompiledEvent } from './gemstoneFileSystemProvider';
+import { GemStoneFileSystemProvider, MethodCompiledEvent, ClassDefinitionCompiledEvent } from './gemstoneFileSystemProvider';
 import { openWorkspace } from './workspace';
 import { GemStoneDebugSession } from './gemstoneDebugSession';
 import { InspectorTreeProvider, InspectorNode } from './inspectorTreeProvider';
@@ -105,7 +105,16 @@ export async function handleMethodCompiled(event: MethodCompiledEvent) {
   
   await openTextEditorOn(event.uri);
   
-  if (event.isNewMethod) {
+  if (event.previousUriIsTemplate) {
+    await closeTextEditorOn(event.previousUri);
+  }
+}
+
+export async function handleClassDefinitionCompiled(event: ClassDefinitionCompiledEvent) {
+  if (event.uri.toString() !== event.previousUri.toString()) {
+    await openTextEditorOn(event.uri);
+  }
+  if (event.previousUriIsTemplate) {
     await closeTextEditorOn(event.previousUri);
   }
 }
@@ -318,7 +327,8 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    gemstoneFs.onMethodCompiled(handleMethodCompiled)
+    gemstoneFs.onMethodCompiled(handleMethodCompiled),
+    gemstoneFs.onClassDefinitionCompiled(handleClassDefinitionCompiled),
   );
 
   context.subscriptions.push(
