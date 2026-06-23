@@ -242,6 +242,13 @@ const BLOCK_EVAL_SELECTORS = new Set([
   'value', 'value:', 'value:value:', 'value:value:value:', 'ensure:', 'ifCurtailed:', 'on:do:',
 ]);
 
+// GemStone rtErrUncontinuable (ErrorSymbols #rtErrUncontinuable → 6011): raised
+// when execution is asked to continue past an uncontinuable point — e.g. trying
+// to single-step *over* an unhandled `halt`/error. The step drives the signal to
+// `_uncontinuableError` rather than returning, so the user must Resume or
+// Terminate instead. ("Not trappable with Exceptions" per the kernel.)
+const GS_ERR_UNCONTINUABLE = 6011;
+
 /** True when a frame is exception-signalling / halt machinery. */
 export function isExceptionMachinery(f: RawFrame): boolean {
   return f.definingClassName === 'AbstractException'
@@ -387,6 +394,16 @@ export class DebuggerPanel {
    * (Restart a deeper frame / deep edit-and-continue) rebuilds the stack.
    */
   private staleTopActivation = false;
+  /**
+   * True once the process has hit an uncontinuable state (GemStone error 6011 —
+   * e.g. a step drove an unhandled `halt`/error to `_uncontinuableError`). The
+   * process is then dead-ended: neither Resume nor Step can recover it (each
+   * retry just re-signals 6011 and GemStone grows the exception-chain message),
+   * so while set we refuse both with a Terminate-only banner and make NO further
+   * GCI call. Cleared by a trim (Restart a deeper frame / deep edit-and-continue),
+   * which rebuilds the stack from a fresh activation.
+   */
+  private uncontinuable = false;
   /**
    * True while a non-blocking GCI operation (step / trim) is in flight. Only one
    * GciTsNb… call may be outstanding per session, and overlapping a blocking
@@ -621,6 +638,7 @@ export class DebuggerPanel {
   /** Resume execution: closes the panel if the process completes, else refreshes on the new error. */
   private resume(): void {
     if (this.guardStaleTopActivation('Resume')) return;
+    if (this.guardUncontinuable()) return;
     // Don't issue a blocking continue while a non-blocking step/trim is in flight
     // (only one GCI call per session). Resume itself is still BLOCKING — 3.7.x has
     // no GciTsNbContinue — so a long/looping Resume can still stall the host until
@@ -632,6 +650,12 @@ export class DebuggerPanel {
     const result = debug.continueExecution(this.session, this.gsProcess);
     if (result.completed) {
       this.onCompleted(result);
+    } else if (result.errorNumber === GS_ERR_UNCONTINUABLE) {
+      // The process is dead-ended; don't refresh (that would surface the
+      // uncontinuable machinery wall) — show the fixed Terminate-only banner.
+      this.uncontinuable = true;
+      this.errorMessage = DebuggerPanel.UNCONTINUABLE_MSG;
+      this.postInit();
     } else {
       this.errorMessage = result.errorMessage || 'GemStone error';
       this.refresh();
@@ -645,6 +669,27 @@ export class DebuggerPanel {
    * blocked (the caller must bail). The only safe escapes are Restart on a deeper
    * frame (re-enters the recompiled code) or Terminate.
    */
+  // Shown whenever the process is uncontinuable (error 6011). Fixed text so
+  // retrying Resume/Step never grows GemStone's accumulating exception-chain
+  // message — and steers the user to the only thing that works: Terminate.
+  private static readonly UNCONTINUABLE_MSG =
+    "Execution can't be continued — this stepped into an unhandled halt or error and GemStone "
+    + 'marked the process uncontinuable (error 6011). Terminate (■) and re-run; Resume and Step '
+    + 'cannot recover it. (To pass a halt next time, use Resume instead of Step.)';
+
+  /**
+   * Refuse a Resume/Step once the process is uncontinuable (6011). Returns true
+   * if the action was blocked (caller must bail). Makes NO GCI call — so a retry
+   * can't re-signal 6011 and grow GemStone's exception-chain message. The only
+   * escape is Restart a deeper frame (which clears the flag) or Terminate.
+   */
+  private guardUncontinuable(): boolean {
+    if (!this.uncontinuable) return false;
+    this.errorMessage = DebuggerPanel.UNCONTINUABLE_MSG;
+    this.postInit();
+    return true;
+  }
+
   private guardStaleTopActivation(action: string): boolean {
     if (!this.staleTopActivation) return false;
     this.errorMessage = `${action} is unavailable: the top frame's method was recompiled, so its `
@@ -683,6 +728,7 @@ export class DebuggerPanel {
    */
   private async step(command: 'stepOver' | 'stepInto' | 'stepThrough', displayLevel?: number): Promise<void> {
     if (this.guardStaleTopActivation('Step')) return;
+    if (this.guardUncontinuable()) return;
     const fn = command === 'stepOver' ? debug.stepOverNb
       : command === 'stepInto' ? debug.stepIntoNb
         : debug.stepThruNb; // "Through" == gciStepThru
@@ -695,6 +741,16 @@ export class DebuggerPanel {
       if (this.disposed) return; // panel closed while the step ran
       if (result.completed) {
         this.onCompleted(result);
+        return;
+      }
+      if (result.errorNumber === GS_ERR_UNCONTINUABLE) {
+        // Stepping *over* an unhandled halt/error drove its signal to
+        // `_uncontinuableError`; the process is now dead-ended. Mark it so
+        // Resume/Step are refused (no GCI retry → no growing message), keep the
+        // pre-step stack, and steer the user to Terminate.
+        this.uncontinuable = true;
+        this.errorMessage = DebuggerPanel.UNCONTINUABLE_MSG;
+        this.postInit(); // show the note; the stack is unchanged
         return;
       }
       if (result.errorMessage && /native code/i.test(result.errorMessage)) {
@@ -782,6 +838,7 @@ export class DebuggerPanel {
       await debug.trimStackToLevelNb(this.session, this.gsProcess, serverLevel);
       if (this.disposed) return;
       this.staleTopActivation = false; // the trim discarded any stale top activation
+      this.uncontinuable = false;      // …and a fresh activation is continuable again
       this.errorMessage = '';
       this.refresh();
     });
@@ -842,6 +899,7 @@ export class DebuggerPanel {
       await debug.trimStackToLevelNb(this.session, this.gsProcess, serverLevel);
       if (this.disposed) return;
       this.staleTopActivation = false; // the trim rebuilt the stack from a fresh activation
+      this.uncontinuable = false;      // …which is continuable again
       this.errorMessage = '';
       this.refresh();
     });
@@ -876,6 +934,11 @@ export class DebuggerPanel {
 
       let uri: vscode.Uri;
       let methodForOffsets: { className: string; isMeta: boolean; selector: string } | undefined;
+      // For a read-only view we can still highlight the step point IF the
+      // displayed source matches the server's method source 1:1 (a raw Debug It
+      // doit). Set to the frame's method OOP in that case; left undefined when
+      // the source was unwrapped (offsets would point into the wrapped source).
+      let readOnlyOffsetMethodOop: bigint | undefined;
       if (home.uriInfo) {
         // In the symbol list → the real editable gemstone:// editor.
         uri = vscode.Uri.parse(buildMethodSourceUri(this.session.id, home.uriInfo));
@@ -889,21 +952,37 @@ export class DebuggerPanel {
         // capture glue so a doit shows just the user's code (e.g.
         // `JasperDebugDemo new run`). Title by the method when we have one, so a
         // non-symbol-list method isn't mislabelled "Executed Code".
-        const source = unwrapTranscriptCapture(debug.getMethodSource(this.session, info.methodOop));
+        //
+        // Source AND offsets come from the HOME method, never the block's own
+        // GsNMethod. A block's `_sourceOffsets` covers only its own step points,
+        // but `_stepPointAt:` reports the frame's step point in HOME-method
+        // numbering — so pairing a home step point with a block's short offsets
+        // array overruns it (undefined) and the highlight collapses to the line.
+        // The home method's offsets include every block's step points, so they
+        // line up. (This mirrors the editable path, which uses home offsets.)
+        const rawSource = debug.getMethodSource(this.session, homeMethodOop);
+        const source = unwrapTranscriptCapture(rawSource);
+        // If unwrapping was a no-op the displayed source is the server source,
+        // so the server's step-point offsets map onto it directly (Debug It).
+        // If it stripped a wrapper, the offsets refer to the wrapped source and
+        // would mis-highlight, so leave highlighting off (as before).
+        if (source === rawSource) readOnlyOffsetMethodOop = homeMethodOop;
         const title = home.isExecutedCode ? 'Executed Code' : `${home.definingClassName}>>#${home.selector}`;
-        uri = DebuggerPanel.stashReadOnlySource(this.session.id, info.methodOop, title, source);
+        uri = DebuggerPanel.stashReadOnlySource(this.session.id, homeMethodOop, title, source);
         this.stashedSourceKeys.add(uri.toString());
       }
 
       const editor = await this.showSourceEditor(uri);
 
-      // Only the editable gemstone:// method gets a step-point highlight (C2):
-      // the read-only view has no reliable IP→source mapping (executed code is
-      // unwrapped; a non-symbol-list method has no step-point offsets here).
-      // TODO(Stage "Hardening"): revisit highlighting the read-only view.
+      // Highlight the current step point: from class>>selector offsets for an
+      // editable method, or from the method OOP for an un-wrapped read-only doit
+      // (Debug It). A wrapped/unwrappable read-only view stays un-highlighted —
+      // its offsets wouldn't line up with the displayed source.
       const range = methodForOffsets
         ? this.stepPointRange(editor.document, info, level, methodForOffsets)
-        : undefined;
+        : readOnlyOffsetMethodOop !== undefined
+          ? this.stepPointRange(editor.document, info, level, undefined, readOnlyOffsetMethodOop)
+          : undefined;
       // Clear a stale highlight if the source moved to a different editor.
       if (this.decoratedEditor && this.decoratedEditor !== editor) {
         this.decoratedEditor.setDecorations(DebuggerPanel.stepPointDecoration, []);
@@ -962,18 +1041,24 @@ export class DebuggerPanel {
     info: debug.FrameInfo,
     level: number,
     method: { className: string; isMeta: boolean; selector: string } | undefined,
+    readOnlyMethodOop?: bigint,
   ): vscode.Range | undefined {
     let pos: vscode.Position | undefined;
 
-    // Exact step-point offset → the precise sub-expression start.
-    if (method) {
+    // Exact step-point offset → the precise sub-expression start. The offsets
+    // come from class>>selector for an editable method, or straight from the
+    // method OOP for a raw doit (Debug It), whose displayed source matches the
+    // server source 1:1 so the offsets line up.
+    if (method || readOnlyMethodOop !== undefined) {
       try {
         const stepPoint = debug.getStepPoint(this.session, this.gsProcess, level);
         if (stepPoint) {
           // getSourceOffsets returns GemStone `_sourceOffsets`, which are
           // 1-BASED (see getStepPointSelectorRanges.ts). doc.positionAt is
           // 0-based, so convert — otherwise the highlight sits one char too far.
-          const offsets = queries.getSourceOffsets(this.session, method.className, method.isMeta, method.selector);
+          const offsets = method
+            ? queries.getSourceOffsets(this.session, method.className, method.isMeta, method.selector)
+            : debug.getSourceOffsetsForMethod(this.session, readOnlyMethodOop!);
           const offset = offsets[stepPoint - 1];
           if (offset != null && offset >= 1 && doc.positionAt) pos = doc.positionAt(offset - 1);
         }

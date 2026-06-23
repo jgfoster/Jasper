@@ -565,6 +565,9 @@ describe('debugQueries', () => {
       expect(r.completed).toBe(false);
       expect(r.resultOop).toBeUndefined();
       expect(r.errorMessage).toBe('next error');
+      // The error NUMBER must propagate — the webview's uncontinuable (6011)
+      // guard keys off StepResult.errorNumber, not the (localizable) message.
+      expect(r.errorNumber).toBe(2010);
     });
 
     it('stepOver returns the result oop when the step completes the process', () => {
@@ -577,6 +580,39 @@ describe('debugQueries', () => {
       } as ActiveSession;
 
       expect(debug.stepOver(session, GS_PROCESS, 1)).toEqual({ completed: true, resultOop: RESULT });
+    });
+
+    it('stepOver (blocking) propagates the GemStone error number when the step stops on an error', () => {
+      const session = {
+        id: 1, handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
+        gci: {
+          GciTsI64ToOop: vi.fn(() => ({ result: 0xAAn, err: { ...noErr } })),
+          GciTsPerform: vi.fn(() => ({ result: 0n, err: { ...noErr, number: 6011, message: 'uncontinuable', context: 0xABn } })),
+        } as unknown as ActiveSession['gci'],
+      } as ActiveSession;
+
+      const r = debug.stepOver(session, GS_PROCESS, 1);
+      expect(r.completed).toBe(false);
+      expect(r.errorNumber).toBe(6011);
+      expect(r.errorContext).toBe(0xABn);
+    });
+
+    it('stepOverNb (non-blocking) propagates the error number on a stop (e.g. 6011 uncontinuable)', async () => {
+      const session = {
+        id: 1, handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
+        gci: {
+          isAvailable: (n: string) => n === 'GciTsNbPoll',
+          GciTsI64ToOop: vi.fn(() => ({ result: 0xAAn, err: { ...noErr } })),
+          GciTsNbPerform: vi.fn(() => ({ success: true, err: { ...noErr } })),
+          GciTsNbPoll: vi.fn(() => ({ result: 1, err: { ...noErr } })), // ready immediately
+          GciTsNbResult: vi.fn(() => ({ result: 0n, err: { ...noErr, number: 6011, message: 'a UncontinuableError occurred (error 6011)', context: 0xABn } })),
+        } as unknown as ActiveSession['gci'],
+      } as ActiveSession;
+
+      const r = await debug.stepOverNb(session, GS_PROCESS, 1);
+      expect(r.completed).toBe(false);
+      expect(r.errorNumber).toBe(6011);
+      expect(r.errorContext).toBe(0xABn);
     });
   });
 

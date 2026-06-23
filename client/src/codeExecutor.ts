@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { SessionManager, ActiveSession } from './sessionManager';
-import { OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG } from './gciConstants';
+import { OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG, GCI_PERFORM_FLAG_SINGLE_STEP } from './gciConstants';
 import { logQuery, logResult, logError, logInfo } from './gciLog';
 import { InspectorTreeProvider } from './inspectorTreeProvider';
 import { GtInspector } from './gtInspector';
@@ -110,14 +110,19 @@ export class CodeExecutor {
   }
 
   async displayIt(): Promise<void> {
-    return this.execute(true);
+    return this.execute('display');
   }
 
   async executeIt(): Promise<void> {
-    return this.execute(false);
+    return this.execute('execute');
   }
 
-  private async execute(displayResult: boolean): Promise<void> {
+  async debugIt(): Promise<void> {
+    return this.execute('debug');
+  }
+
+  private async execute(mode: 'display' | 'execute' | 'debug'): Promise<void> {
+    const displayResult = mode === 'display';
     const session = await this.sessionManager.resolveSession();
     if (!session) return;
 
@@ -149,9 +154,19 @@ export class CodeExecutor {
     const oopClassString = this.resolveOopClassString(session);
     if (oopClassString === undefined) return;
 
-    const label = displayResult ? 'Display It' : 'Execute It';
+    const label = mode === 'display' ? 'Display It'
+      : mode === 'debug' ? 'Debug It' : 'Execute It';
     logQuery(session.id, label, code);
-    const { wrappedCode, codeOffset } = this.wrapWithTranscriptCapture(code);
+    // Debug It runs the raw selection, NOT the transcript-capture wrapper. The
+    // wrapper nests the code as `[[ <code> ] value] ensure: [...]`, so a
+    // single-step halt lands on the OUTER block and Step Over treats the inner
+    // `[<code>] value` send as one atomic unit — stepping clean over all the
+    // user's code into the ensure: cleanup. Running unwrapped makes step point 1
+    // the user's first statement so stepping advances through it. (Transcript
+    // capture is sacrificed while debugging — an acceptable trade.)
+    const { wrappedCode, codeOffset } = mode === 'debug'
+      ? { wrappedCode: code, codeOffset: 0 }
+      : this.wrapWithTranscriptCapture(code);
 
     // Dim the selected code while executing
     const execRange = new vscode.Range(selection.start, selection.end);
@@ -163,10 +178,14 @@ export class CodeExecutor {
     // must START interpreted. Released in finally; if it halts, the debugger
     // panel holds its own ref to keep native off while it's open.
     acquireStepping(session);
+    // Debug It adds the single-step flag so the server breaks on the first
+    // statement of the compiled code and we open the debugger sitting there.
+    const execFlags = GCI_PERFORM_FLAG_ENABLE_DEBUG
+      | (mode === 'debug' ? GCI_PERFORM_FLAG_SINGLE_STEP : 0);
     try {
       const { success, err: startErr } = session.gci.GciTsNbExecute(
         session.handle, wrappedCode, oopClassString,
-        OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG, 0,
+        OOP_ILLEGAL, OOP_NIL, execFlags, 0,
       );
       if (!success) {
         const msg = startErr.message || `error ${startErr.number}`;
@@ -194,6 +213,20 @@ export class CodeExecutor {
       logError(session.id, msg);
 
       if (e instanceof DebuggableError) {
+        if (mode === 'debug') {
+          // Debug It: the single-step flag halted on the first statement —
+          // this is an intentional stop, not an error. Open the Enhanced
+          // debugger directly on that halt, with no inline diagnostic and no
+          // chooser prompt. The panel takes its own stepping ref; if it fails
+          // to open, release the suspended process so it doesn't stall.
+          try {
+            DebuggerPanel.create(session, e.context, 'Debug It');
+          } catch (panelErr: unknown) {
+            logError(session.id, panelErr instanceof Error ? panelErr.message : String(panelErr));
+            clearStack(session, e.context);
+          }
+          return;
+        }
         // Try to show as inline diagnostic first; fall back to debug dialog
         this.showCompileError(editor, selection, code, codeOffset, msg);
         // For a Display It, resuming/stepping to completion should render the

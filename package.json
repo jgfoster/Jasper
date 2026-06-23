@@ -500,6 +500,12 @@
         "icon": "$(run)"
       },
       {
+        "command": "gemstone.debugIt",
+        "title": "Debug It",
+        "category": "GemStone",
+        "icon": "$(debug-alt)"
+      },
+      {
         "command": "gemstone.copyDisplayItResult",
         "title": "Copy Display It Result",
         "category": "GemStone"
@@ -1036,6 +1042,11 @@
           "group": "1_gemstone@3"
         },
         {
+          "command": "gemstone.debugIt",
+          "when": "editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing",
+          "group": "1_gemstone@4"
+        },
+        {
           "command": "gemstone.sendersOf",
           "when": "editorTextFocus && resourceLangId == gemstone-smalltalk",
           "group": "2_navigation@0"
@@ -1122,6 +1133,12 @@
         "command": "gemstone.executeIt",
         "key": "ctrl+k e",
         "mac": "cmd+k e",
+        "when": "editorTextFocus && gemstone.hasActiveSession && !gemstone.executing"
+      },
+      {
+        "command": "gemstone.debugIt",
+        "key": "ctrl+k r",
+        "mac": "cmd+k r",
         "when": "editorTextFocus && gemstone.hasActiveSession && !gemstone.executing"
       },
       {

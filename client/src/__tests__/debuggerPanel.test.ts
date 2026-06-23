@@ -30,6 +30,9 @@ vi.mock('../debugQueries', () => ({
     receiverOop === 200n ? 'SmallInteger' : 'JasperDebugDemo'),
   getLineForIp: vi.fn(() => 12),
   getStepPoint: vi.fn(() => 2),
+  // Source offsets fetched straight from a method OOP (read-only doit / non-
+  // symbol-list method). Same 1-based shape as browserQueries.getSourceOffsets.
+  getSourceOffsetsForMethod: vi.fn(() => [1, 8, 26]),
   getMethodSource: vi.fn(() => '| t | t := 6 * 7. t halt'),
   getObjectPrintString: vi.fn((_s: unknown, oop: bigint) => `<print ${oop}>`),
   getInstVarNames: vi.fn(() => [] as string[]),
@@ -592,10 +595,47 @@ describe('DebuggerPanel', () => {
       expect(openUri.path).toBe('JasperDebugDemo>>#accumulateFrom:to:');
     });
 
-    it('does NOT highlight a read-only frame (C2 — no reliable IP→source mapping)', async () => {
-      // When we add highlighting to the read-only view, THIS test should fail —
-      // that's the reminder to add real highlight coverage for it.
-      const panel = openPanelWithStack(); // frame 3 → read-only (no gemstone:// URI)
+    it('highlights a read-only frame whose source matches the server source 1:1', async () => {
+      // A non-symbol-list method (or a raw Debug It doit) is shown unmodified —
+      // nothing was unwrapped — so the server step-point offsets map onto the
+      // displayed source directly and the step point IS highlighted.
+      const panel = openPanelWithStack(); // frame 3 → read-only, source has no wrapper
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      await flush();
+
+      const editor = await shownEditor();
+      // step point 2 → getSourceOffsetsForMethod()[1] === 8 (1-based) → positionAt(7) → (0, 7).
+      const range = vi.mocked(editor.setDecorations).mock.calls[0][1][0] as vscode.Range;
+      expect(range.start.line).toBe(0);
+      expect(range.start.character).toBe(7);
+      expect(editor.revealRange).toHaveBeenCalled();
+    });
+
+    it('highlights a read-only BLOCK frame from its HOME method, not the block method', async () => {
+      // Regression: a block's own GsNMethod carries a SHORT _sourceOffsets (its
+      // own step points only), but _stepPointAt: reports the frame's step point
+      // in HOME-method numbering. Pairing a home step point with the block's
+      // short offsets overruns the array → undefined → highlight collapses to the
+      // line. Source AND offsets must come from the home method. Here the block's
+      // method (frame 3 → 3n) differs from its home (999n).
+      const panel = openPanelWithStack();
+      vi.mocked(debug.getMethodBlockInfo).mockReturnValueOnce({ isBlock: true, homeMethodOop: 999n });
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      await flush();
+
+      expect(debug.getMethodSource).toHaveBeenCalledWith(session, 999n);
+      expect(debug.getSourceOffsetsForMethod).toHaveBeenCalledWith(session, 999n);
+    });
+
+    it('does NOT highlight a read-only frame whose source was unwrapped', async () => {
+      // A true doit whose stored source is the transcript-capture-wrapped form:
+      // the panel unwraps it for display, so the server's offsets refer to the
+      // wrapped source and no longer line up — highlighting stays off.
+      const panel = openPanelWithStack();
+      vi.mocked(debug.getMethodInfo).mockImplementationOnce(() => { throw new Error('doit: nil inClass'); });
+      vi.mocked(debug.getMethodSource).mockReturnValueOnce(
+        wrapWithTranscriptCapture('JasperDebugDemo new run').wrappedCode,
+      );
       sendMessage(panel, { command: 'selectFrame', level: 3 });
       await flush();
 
@@ -872,6 +912,77 @@ describe('DebuggerPanel', () => {
       expect(lastPosted(panel, 'init').errorMessage).toMatch(/native code/i);
     });
 
+    it('guides the user (no dispose, no refresh) when a step hits an unhandled halt (error 6011)', async () => {
+      // Stepping OVER an unhandled halt drives the signal to _uncontinuableError
+      // (rtErrUncontinuable = 6011). The process is dead-ended: don't refresh into
+      // that machinery wall — keep the pre-step stack and steer to Terminate.
+      vi.mocked(debug.stepOverNb).mockResolvedValueOnce({
+        completed: false,
+        errorNumber: 6011,
+        errorMessage: 'a UncontinuableError occurred (error 6011), reason:rtErrUncontinuable',
+      });
+      const panel = openPanel();
+      vi.mocked(debug.getStackDepth).mockClear(); // refresh() re-walks the stack via fetchStack
+      sendMessage(panel, { command: 'stepOver', level: 1 });
+      await tick();
+
+      expect(panel.dispose).not.toHaveBeenCalled();
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/uncontinuable/i);
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/Terminate/i);
+      expect(debug.getStackDepth).not.toHaveBeenCalled(); // did NOT refresh into the new stack
+    });
+
+    it('once uncontinuable (6011), refuses a later Resume and Step with NO further GCI call (no growing message)', async () => {
+      vi.mocked(debug.stepOverNb).mockResolvedValueOnce({
+        completed: false, errorNumber: 6011, errorMessage: 'a UncontinuableError occurred (error 6011)',
+      });
+      const panel = openPanel();
+      sendMessage(panel, { command: 'stepOver', level: 1 }); // sets the uncontinuable flag
+      await tick();
+
+      // A retry must NOT hit the server again — that's what grows GemStone's
+      // accumulating exception-chain message that Eric saw.
+      vi.mocked(debug.continueExecution).mockClear();
+      vi.mocked(debug.stepOverNb).mockClear();
+      sendMessage(panel, { command: 'resume' });
+      sendMessage(panel, { command: 'stepOver', level: 1 });
+      await tick();
+
+      expect(debug.continueExecution).not.toHaveBeenCalled();
+      expect(debug.stepOverNb).not.toHaveBeenCalled();
+      expect(panel.dispose).not.toHaveBeenCalled();
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/uncontinuable/i);
+    });
+
+    it('Resume that hits 6011 shows the Terminate-only banner without refreshing', () => {
+      vi.mocked(debug.continueExecution).mockReturnValueOnce({
+        completed: false, errorNumber: 6011, errorMessage: 'a UncontinuableError occurred (error 6011)',
+      });
+      const panel = openPanel();
+      const before = posted(panel, 'init').length;
+      sendMessage(panel, { command: 'resume' });
+
+      expect(panel.dispose).not.toHaveBeenCalled();
+      expect(posted(panel, 'init').length).toBe(before + 1); // postInit, not a stack refresh
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/uncontinuable/i);
+    });
+
+    it('re-enables Resume after an uncontinuable (6011) once a deeper frame is restarted', async () => {
+      vi.mocked(debug.stepOverNb).mockResolvedValueOnce({
+        completed: false, errorNumber: 6011, errorMessage: 'a UncontinuableError occurred (error 6011)',
+      });
+      const panel = openPanel();
+      sendMessage(panel, { command: 'stepOver', level: 1 }); // → uncontinuable
+      await tick();
+      sendMessage(panel, { command: 'restartFrame', level: 2 }); // deeper trim clears the flag
+      await tick();
+      vi.mocked(debug.continueExecution).mockClear();
+      sendMessage(panel, { command: 'resume' });
+
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 2);
+      expect(debug.continueExecution).toHaveBeenCalled(); // no longer guarded
+    });
+
     it('Step disposes the panel when the step completes the process', async () => {
       vi.mocked(debug.stepOverNb).mockResolvedValueOnce({ completed: true });
       const panel = openPanel();
@@ -879,6 +990,14 @@ describe('DebuggerPanel', () => {
       await tick();
 
       expect(panel.dispose).toHaveBeenCalled();
+    });
+
+    it('"Into" maps to gciStepInto (debugQueries.stepIntoNb), from the selected user frame', async () => {
+      const panel = openPanel();
+      sendMessage(panel, { command: 'stepInto', level: 3 }); // display 3 → server level 3
+      await tick();
+
+      expect(debug.stepIntoNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
     });
 
     it('"Through" maps to gciStepThru (debugQueries.stepThruNb), from the selected user frame', async () => {

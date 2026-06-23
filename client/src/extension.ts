@@ -930,6 +930,10 @@ export function activate(context: vscode.ExtensionContext) {
       codeExecutor.executeIt();
     }),
 
+    vscode.commands.registerCommand('gemstone.debugIt', () => {
+      codeExecutor.debugIt();
+    }),
+
     vscode.commands.registerCommand('gemstone.copyDisplayItResult', () => {
       codeExecutor.copyLastResult();
     }),

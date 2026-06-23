@@ -241,6 +241,29 @@ export function getLineForIp(
 }
 
 /**
+ * Returns a method's source offsets — GemStone `_sourceOffsets`, a 1-based array
+ * where index i holds the source-string character offset of step point i. Mirrors
+ * queries.getSourceOffsets but works straight from the method OOP, so it serves
+ * executed-code (doit) frames, which have no class>>selector to look up. Returns
+ * an empty array on any failure (best-effort; callers fall back to line-level).
+ */
+export function getSourceOffsetsForMethod(
+  session: ActiveSession, methodOop: bigint,
+): number[] {
+  const arrayOop = gciPerform(session, methodOop, '_sourceOffsets');
+  if (arrayOop === OOP_NIL) return [];
+  const { result: sizeRaw, err: sizeErr } = session.gci.GciTsFetchSize(session.handle, arrayOop);
+  if (sizeErr.number !== 0) return [];
+  const size = Number(sizeRaw);
+  if (size <= 0) return [];
+  const { oops, err: fetchErr } = session.gci.GciTsFetchOops(
+    session.handle, arrayOop, 1n, size,
+  );
+  if (fetchErr.number !== 0) return [];
+  return oops.map(oop => oopToInt(session, oop));
+}
+
+/**
  * Returns the step point for the frame at the given level (1-based, 1 = top),
  * or undefined when the frame has no step point. Uses GsProcess>>_stepPointAt:,
  * the same primitive the topaz debugger uses — it accounts for native-stack
@@ -458,6 +481,8 @@ export interface StepResult {
   resultOop?: bigint;
   errorMessage?: string;
   errorContext?: bigint;
+  /** GemStone error number when the op stopped on an error (0/undefined otherwise). */
+  errorNumber?: number;
 }
 
 // ── Native-code toggle for stepping ─────────────────────────────────────────
@@ -541,6 +566,7 @@ function performStep(
       completed: false,
       errorMessage: err.message || `GemStone error ${err.number}`,
       errorContext: err.context,
+      errorNumber: err.number,
     };
   }
   // gciStep…FromLevel: returns the completion result when the process finishes.
@@ -599,6 +625,7 @@ function performStepNb(
           completed: false,
           errorMessage: err.message || `GemStone error ${err.number}`,
           errorContext: err.context,
+          errorNumber: err.number,
         };
       }
       return { completed: true, resultOop: result };
@@ -662,6 +689,7 @@ export function continueExecution(
       completed: false,
       errorMessage: err.message || `GemStone error ${err.number}`,
       errorContext: err.context,
+      errorNumber: err.number,
     };
   }
   // On normal completion GciTsContinueWith returns the process's result oop.

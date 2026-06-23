@@ -29,6 +29,7 @@ import * as vscode from 'vscode';
 import { __resetConfig } from '../__mocks__/vscode';
 import { appendTranscript, showTranscript } from '../transcriptChannel';
 import { pollReadable } from '../socketPoll';
+import { GCI_PERFORM_FLAG_ENABLE_DEBUG, GCI_PERFORM_FLAG_SINGLE_STEP } from '../gciConstants';
 
 /** Set the gemstone.displayItMode setting for the current test. */
 function setDisplayItMode(mode: 'overlay' | 'insert'): void {
@@ -449,6 +450,133 @@ describe('CodeExecutor', () => {
       const toggleCalls = (gci.GciTsExecute as Mock).mock.calls.map((c) => c[1] as string);
       expect(toggleCalls.some((c) => c.includes('setBreakAtStepPoint:'))).toBe(true);
       expect(toggleCalls.some((c) => c.includes('clearBreakAtStepPoint:'))).toBe(true);
+    });
+  });
+
+  // ── Debug It ───────────────────────────────────────────────
+  //
+  // Debug It runs the selection with the single-step flag so the server breaks
+  // on the FIRST statement, and opens the Enhanced debugger directly on that
+  // halt. Two things make stepping actually work and must not regress:
+  //   1. the single-step flag is OR'd into the exec flags (display/execute must
+  //      NOT set it), and
+  //   2. the RAW selection is sent — no transcript-capture wrapper — so the
+  //      halt lands on the user's code, not the wrapper's outer block.
+
+  describe('debugIt', () => {
+    /** The flags argument (param 5) of the most recent GciTsNbExecute call. */
+    function lastExecFlags(): number {
+      const calls = (gci.GciTsNbExecute as Mock).mock.calls;
+      return calls[calls.length - 1][5] as number;
+    }
+    /** The code argument (param 1) of the most recent GciTsNbExecute call. */
+    function lastExecCode(): string {
+      const calls = (gci.GciTsNbExecute as Mock).mock.calls;
+      return calls[calls.length - 1][1] as string;
+    }
+
+    it('sets the single-step flag so the server breaks on the first statement', async () => {
+      setActiveEditor(makeEditor('Array new add: 1; add: 2'));
+
+      await executor.debugIt();
+
+      expect(lastExecFlags()).toBe(GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_SINGLE_STEP);
+    });
+
+    it('does NOT set the single-step flag for Execute It or Display It', async () => {
+      setActiveEditor(makeEditor('Array new add: 1; add: 2'));
+      await executor.executeIt();
+      expect(lastExecFlags()).toBe(GCI_PERFORM_FLAG_ENABLE_DEBUG);
+      expect(lastExecFlags() & GCI_PERFORM_FLAG_SINGLE_STEP).toBe(0);
+
+      (gci.GciTsNbExecute as Mock).mockClear();
+      setActiveEditor(makeEditor('3 + 4'));
+      await executor.displayIt();
+      expect(lastExecFlags()).toBe(GCI_PERFORM_FLAG_ENABLE_DEBUG);
+      expect(lastExecFlags() & GCI_PERFORM_FLAG_SINGLE_STEP).toBe(0);
+    });
+
+    it('runs the RAW selection — no transcript-capture wrapper — so the halt lands on user code', async () => {
+      const code = 'Array new add: 1; add: 2';
+      setActiveEditor(makeEditor(code));
+
+      await executor.debugIt();
+
+      // The wrapper nests code in `[[ <code> ] value]` and declares `__vscCapture`
+      // temps; Debug It must send the selection verbatim instead.
+      expect(lastExecCode()).toBe(code);
+      expect(lastExecCode()).not.toContain('__vscCapture');
+    });
+
+    it('still wraps Execute It in the transcript-capture glue (contrast with Debug It)', async () => {
+      setActiveEditor(makeEditor('Array new add: 1; add: 2'));
+
+      await executor.executeIt();
+
+      expect(lastExecCode()).toContain('__vscCapture');
+    });
+  });
+
+  // ── Debug It opens the Enhanced debugger directly on a halt ──
+  //
+  // Unlike Execute It (which prompts the user to pick a debugger on an error),
+  // Debug It's halt is an intentional first-statement stop, so it opens the
+  // Enhanced debugger straight away — no modal chooser, no DAP, and it must NOT
+  // clear the stack (the panel owns the suspended process).
+
+  describe('debugIt opens the Enhanced debugger on the first-statement halt', () => {
+    function debuggableGci() {
+      // Non-nil context (≠ OOP_NIL) makes fetchResultOop throw a DebuggableError,
+      // exactly as the single-step breakpoint would on the server.
+      return makeGci({
+        GciTsNbResult: vi.fn(() => ({
+          result: 0x01n,
+          err: { number: 6001, message: 'halt at step 1', context: 0x123n },
+        })),
+      });
+    }
+
+    function setup() {
+      gci = debuggableGci();
+      session = makeSession(gci);
+      executor = new CodeExecutor(makeSessionManager(session));
+      setActiveEditor(makeEditor('Array new add: 1; add: 2'));
+    }
+
+    it('opens the Enhanced Debugger panel directly, with no completion callback', async () => {
+      setup();
+
+      await executor.debugIt();
+
+      // 3 args: no onComplete (Debug It is silent on resume-to-completion).
+      expect(DebuggerPanel.create).toHaveBeenCalledWith(session, 0x123n, 'Debug It');
+    });
+
+    it('does NOT show the debugger chooser prompt or start the DAP debugger', async () => {
+      setup();
+
+      await executor.debugIt();
+
+      expect(vscode.window.showErrorMessage).not.toHaveBeenCalled();
+      expect(vscode.debug.startDebugging).not.toHaveBeenCalled();
+    });
+
+    it('does NOT clear the stack — the Enhanced debugger owns the suspended process', async () => {
+      setup();
+
+      await executor.debugIt();
+
+      expect(gci.GciTsClearStack).not.toHaveBeenCalled();
+    });
+
+    it('clears the stack if the Enhanced Debugger panel fails to open', async () => {
+      setup();
+      vi.mocked(DebuggerPanel.create).mockImplementationOnce(() => { throw new Error('panel boom'); });
+
+      await executor.debugIt();
+
+      // Nothing owns the process when the panel throws, so it must be released.
+      expect(gci.GciTsClearStack).toHaveBeenCalledWith(session.handle, 0x123n);
     });
   });
 
