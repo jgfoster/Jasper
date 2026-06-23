@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('vscode', () => import('../__mocks__/vscode'));
 
@@ -51,6 +51,8 @@ vi.mock('../debugQueries', () => ({
   clearStack: vi.fn(),
   acquireStepping: vi.fn(),
   releaseStepping: vi.fn(),
+  // Create-method-from-DNU detection — defaults to "not a DNU" (no Create button).
+  getDoesNotUnderstandInfo: vi.fn(() => undefined),
 }));
 
 // Clicking a variable row opens a GT Inspector — stub the static entry point.
@@ -67,7 +69,7 @@ vi.mock('../browserQueries', () => ({
 import * as vscode from 'vscode';
 import * as debug from '../debugQueries';
 import {
-  DebuggerPanel, formatFrameLabel, formatFramePosition,
+  DebuggerPanel, formatFrameLabel, formatFramePosition, buildMethodStub,
   formatFrameForClipboard, formatStackForClipboard, buildMethodSourceUri,
   filterStack, isExceptionMachinery, RawFrame,
   flattenLayoutLeaves, sourceRatioFromLayout, setSourceRatioInLayout, EditorGroupLayout,
@@ -213,6 +215,24 @@ describe('formatFramePosition', () => {
   it('omits a line of 0 (an unmapped IP has no source line)', () => {
     expect(formatFramePosition(2, 0)).toBe('@2');
     expect(formatFramePosition(undefined, 0)).toBe('');
+  });
+});
+
+describe('buildMethodStub', () => {
+  it('builds a keyword signature pairing each keyword with a generated arg', () => {
+    expect(buildMethodStub('fourtyTwo:bar:', 2)).toMatch(/^fourtyTwo: arg1 bar: arg2\n/);
+  });
+
+  it('builds a binary signature with one argument', () => {
+    expect(buildMethodStub('+', 1)).toMatch(/^\+ arg1\n/);
+  });
+
+  it('builds a bare unary signature', () => {
+    expect(buildMethodStub('makeWidget', 0)).toMatch(/^makeWidget\n/);
+  });
+
+  it('includes a placeholder body so the method compiles as-is', () => {
+    expect(buildMethodStub('foo', 0)).toContain('^nil');
   });
 });
 
@@ -1313,6 +1333,190 @@ describe('DebuggerPanel', () => {
     });
   });
 
+  describe('create-method-from-DNU', () => {
+    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+
+    const DNU = {
+      className: 'JasperDebugDemo', isMeta: false, dictName: 'UserGlobals',
+      selector: 'fourtyTwo:bar:', argCount: 2,
+    };
+
+    // getDoesNotUnderstandInfo's mockReturnValue persists past clearAllMocks, so
+    // restore "not a DNU" afterwards to keep later describes isolated.
+    afterEach(() => {
+      vi.mocked(debug.getDoesNotUnderstandInfo).mockReturnValue(undefined);
+      // getMethodInfo overrides below leak past clearAllMocks — restore the base.
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 1n) return { className: 'JasperDebugDemo', selector: 'finish' };
+        if (oop === 2n) return { className: 'Object', selector: 'halt' };
+        return { className: 'JasperDebugDemo', selector: 'accumulateFrom:to:' };
+      });
+    });
+
+    /**
+     * Open a panel parked on a doesNotUnderstand:. By default the top two frames
+     * are DNU machinery (defaultAction, doesNotUnderstand:) so they're trimmed and
+     * the topmost DISPLAYED frame — the re-enterable sender — is server level 3.
+     */
+    function openWithDnu() {
+      vi.mocked(debug.getDoesNotUnderstandInfo).mockReturnValue(DNU);
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 1n) return { className: 'MessageNotUnderstood', selector: 'defaultAction' };
+        if (oop === 2n) return { className: 'Object', selector: 'doesNotUnderstand:' };
+        return { className: 'JasperDebugDemo', selector: 'accumulateFrom:to:' };
+      });
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      return panel;
+    }
+
+    function saveListener(): (doc: vscode.TextDocument) => void {
+      return vi.mocked(vscode.workspace.onDidSaveTextDocument).mock.calls[0][0];
+    }
+
+    it('includes the DNU info in the init payload when parked on a doesNotUnderstand:', () => {
+      const panel = openWithDnu();
+      expect(initPayload(panel).dnu).toEqual({
+        selector: 'fourtyTwo:bar:', className: 'JasperDebugDemo', isMeta: false,
+      });
+    });
+
+    it('omits dnu from the init payload when not a DNU', () => {
+      vi.mocked(debug.getDoesNotUnderstandInfo).mockReturnValue(undefined);
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      expect(initPayload(panel).dnu).toBeUndefined();
+    });
+
+    it('opens a pre-filled new-method template BELOW the panel and hints to fill+save', async () => {
+      const panel = openWithDnu();
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+      sendMessage(panel, { command: 'createDnuMethod' });
+      await flush();
+
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      // gemstone:// new-method URI for the receiver's class/dict (the FS provider
+      // serves the template; the selector is parsed from the saved source).
+      expect(uri.toString()).toContain('/UserGlobals/JasperDebugDemo/instance/');
+      expect(uri.toString()).toContain('new-method');
+      // Docked BELOW the panel (not Beside) like the companion source.
+      expect(vscode.commands.executeCommand).toHaveBeenCalledWith('workbench.action.newGroupBelow');
+      // The generic template was replaced with the real signature + body stub.
+      const editor = await vi.mocked(vscode.window.showTextDocument).mock.results.at(-1)!.value;
+      expect(editor.edit).toHaveBeenCalled();
+      // A lightweight banner update (NOT a full init, which would re-select the top
+      // frame and steal focus from the new-method editor) tells the user to fill in
+      // + save (Ctrl+S). The Create button is gone (no init re-render needed).
+      expect(lastPosted(panel, 'banner').text).toMatch(/save.*Ctrl/i);
+      expect(posted(panel, 'init').length).toBe(1); // only the original ready init
+    });
+
+    it('re-enters the sender frame (trim, NOT resume) on a clean compile, leaving Resume to the user', async () => {
+      const panel = openWithDnu();
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+      sendMessage(panel, { command: 'createDnuMethod' });
+      await flush();
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+
+      saveListener()({ uri } as vscode.TextDocument);
+      await tick();
+      // Trim re-enters the sender (server level 3, below the trimmed DNU machinery)
+      // so the user's next Resume re-runs the send. We must NOT auto-resume — the
+      // blocking continueExecution of a parked DNU hung the gem and crashed the host.
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+      expect(debug.continueExecution).not.toHaveBeenCalled();
+      expect(panel.dispose).not.toHaveBeenCalled();
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/resume/i);
+    });
+
+    it('closes the created method tab on debugger close (FS-provider URI form, : not %3A)', async () => {
+      const panel = openWithDnu();
+      sendMessage(panel, { command: 'createDnuMethod' });
+      await flush();
+      // The FS provider swaps the template tab to this real method URI on save —
+      // built via vscode.Uri.from (keyword ':' left un-encoded). closeSourceEditors
+      // must match THIS form; buildMethodSourceUri's %3A encoding would not, and the
+      // tab would linger ("stuck around"). Guards that regression.
+      const compiledUri = vscode.Uri.from({
+        scheme: 'gemstone', authority: '1',
+        path: '/UserGlobals/JasperDebugDemo/instance/as yet unclassified/fourtyTwo:bar:',
+      });
+      const methodTab = { label: 'fourtyTwo:bar:', input: new vscode.TabInputText(compiledUri) };
+      const groups = vscode.window.tabGroups.all as unknown as { viewColumn: number; tabs: unknown[] }[];
+      groups.push({ viewColumn: 9, tabs: [methodTab] });
+
+      closePanel(panel);
+      expect(vi.mocked(vscode.window.tabGroups.close)).toHaveBeenCalledWith(methodTab);
+    });
+
+    it('does NOT trim (and keeps the template pending) when the compile fails', async () => {
+      const panel = openWithDnu();
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+      sendMessage(panel, { command: 'createDnuMethod' });
+      await flush();
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+
+      vi.mocked(vscode.languages.getDiagnostics).mockReturnValueOnce(
+        [{ severity: vscode.DiagnosticSeverity.Error }] as never,
+      );
+      saveListener()({ uri } as vscode.TextDocument);
+      await tick();
+      expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();
+
+      // Re-save after fixing (clean diagnostics) — the pending state survived.
+      saveListener()({ uri } as vscode.TextDocument);
+      await tick();
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+    });
+
+    it('does NOT trim a workspace/Executed Code sender — tells the user to re-run', async () => {
+      // All frames resolve as Executed Code (no class) → the sender can't be
+      // re-entered (kernel trim sends compiledMethodAt: to nil); never attempt it.
+      vi.mocked(debug.getDoesNotUnderstandInfo).mockReturnValue(DNU);
+      vi.mocked(debug.getMethodInfo).mockImplementation(() => { throw new Error('doit: no class'); });
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      sendMessage(panel, { command: 'createDnuMethod' });
+      await flush();
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+
+      saveListener()({ uri } as vscode.TextDocument);
+      await tick();
+      expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();
+      expect(debug.continueExecution).not.toHaveBeenCalled();
+      // Doesn't trim, but DOES tell the user to Resume (manual Resume works — the
+      // kernel's defaultAction re-performs the send). Must NOT auto-resume.
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/resume/i);
+    });
+
+    it('refuses to create when the class has no home dictionary (not in the symbol list)', async () => {
+      vi.mocked(debug.getDoesNotUnderstandInfo).mockReturnValue({ ...DNU, dictName: '' });
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+      sendMessage(panel, { command: 'createDnuMethod' });
+      await flush();
+
+      expect(vscode.workspace.openTextDocument).not.toHaveBeenCalled();
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/symbol list/i);
+    });
+
+    it('keeps the Create button suppressed once a create is underway (re-detect returns it)', async () => {
+      const panel = openWithDnu();
+      expect(initPayload(panel).dnu).toBeTruthy(); // shown initially
+      sendMessage(panel, { command: 'createDnuMethod' });
+      await flush();
+      // A refresh while editing must NOT re-offer the button (method-in-progress).
+      sendMessage(panel, { command: 'stepOver', level: 1 });
+      await tick();
+      expect(lastPosted(panel, 'init').dnu).toBeUndefined();
+    });
+  });
+
   describe('layout persistence', () => {
     it('remembers a saved split so the next panel opens with it', () => {
       DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
@@ -1426,6 +1630,26 @@ describe('filterStack', () => {
   it('returns short stacks unchanged', () => {
     expect(filterStack([])).toEqual([]);
     expect(filterStack([HALT_STACK[8]])).toEqual([HALT_STACK[8]]);
+  });
+
+  // The real parked doesNotUnderstand: stack (captured live, error 2010): under
+  // GCI debug it parks in the unhandled-error path, so the TOP frame is
+  // MessageNotUnderstood>>defaultAction (NOT signal) — which must still be trimmed
+  // so the debugger opens on the user's frame (here, Executed Code).
+  const DNU_STACK: RawFrame[] = [
+    raw({ serverLevel: 1, label: 'MessageNotUnderstood>>#defaultAction', definingClassName: 'MessageNotUnderstood', selector: 'defaultAction' }),
+    raw({ serverLevel: 2, label: 'MessageNotUnderstood (AbstractException)>>#_defaultAction', definingClassName: 'AbstractException', selector: '_defaultAction' }),
+    raw({ serverLevel: 3, label: 'MessageNotUnderstood (AbstractException)>>#_signal', definingClassName: 'AbstractException', selector: '_signal' }),
+    raw({ serverLevel: 4, label: 'MessageNotUnderstood (AbstractException)>>#signal', definingClassName: 'AbstractException', selector: 'signal' }),
+    raw({ serverLevel: 5, label: 'SmallInteger (Object)>>#doesNotUnderstand:', definingClassName: 'Object', selector: 'doesNotUnderstand:' }),
+    raw({ serverLevel: 6, label: 'SmallInteger (Object)>>#_doesNotUnderstand:args:envId:reason:', definingClassName: 'Object', selector: '_doesNotUnderstand:args:envId:reason:' }),
+    raw({ serverLevel: 7, label: 'Executed Code', methodOop: DOIT, homeMethodOop: DOIT, isExecutedCode: true }),
+  ];
+
+  it('trims the doesNotUnderstand: machinery (incl. defaultAction) down to the user frame', () => {
+    const kept = filterStack(DNU_STACK);
+    expect(kept.map(f => f.serverLevel)).toEqual([7]); // just the Executed Code sender
+    expect(kept[0].label).toBe('Executed Code');
   });
 });
 

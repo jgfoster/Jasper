@@ -21,6 +21,11 @@ interface DebuggerViewApi {
       vars: { name: string; value: string; oop: string }[] }[],
     onInspect?: (oop: string, name: string) => void,
   ): void;
+  renderDnu(
+    dnuBarEl: HTMLElement,
+    dnu: { selector: string; className: string; isMeta: boolean } | null | undefined,
+    onCreate?: () => void,
+  ): void;
   selectFrame(listEl: HTMLElement, level: number): HTMLElement | null;
   showMenu(menuEl: HTMLElement, x: number, y: number): void;
   hideMenu(menuEl: HTMLElement): void;
@@ -41,6 +46,7 @@ interface Refs {
   copyFrameItem: HTMLElement;
   copyBtn: HTMLElement;
   error: HTMLElement;
+  dnuBar?: HTMLElement;
   toolbar: HTMLElement;
   variables: HTMLElement;
   evalInput: HTMLInputElement;
@@ -63,7 +69,7 @@ const STACK: FrameSummary[] = [
 
 // Build the panel's DOM (the elements debuggerPanel.ts's getHtml renders) and
 // wire DebuggerView to a fake vscode whose postMessage we can assert on.
-function setup(stack: FrameSummary[] = STACK) {
+function setup(stack: FrameSummary[] = STACK, dnu?: { selector: string; className: string; isMeta: boolean }) {
   document.body.innerHTML = `
     <button id="copyBtn">Copy Stack</button>
     <div id="toolbar">
@@ -75,6 +81,7 @@ function setup(stack: FrameSummary[] = STACK) {
       <button data-cmd="terminate">Terminate</button>
     </div>
     <div id="error"></div>
+    <div id="dnuBar"></div>
     <div class="main"><ul id="stack"></ul><div id="variables"></div></div>
     <input id="evalInput"><div id="evalResult"></div>
     <div id="ctxmenu"><div id="copyFrameItem">Copy Frame</div></div>`;
@@ -84,6 +91,7 @@ function setup(stack: FrameSummary[] = STACK) {
     copyFrameItem: document.getElementById('copyFrameItem')!,
     copyBtn: document.getElementById('copyBtn')!,
     error: document.getElementById('error')!,
+    dnuBar: document.getElementById('dnuBar')!,
     toolbar: document.getElementById('toolbar')!,
     variables: document.getElementById('variables')!,
     evalInput: document.getElementById('evalInput') as HTMLInputElement,
@@ -93,7 +101,7 @@ function setup(stack: FrameSummary[] = STACK) {
   const ctrl = api().init(refs, vscode);
   // Deliver the host's init payload, as the webview does on load.
   window.dispatchEvent(new MessageEvent('message', {
-    data: { command: 'init', errorMessage: 'boom', stack },
+    data: { command: 'init', errorMessage: 'boom', stack, dnu },
   }));
   return { refs, vscode, ctrl };
 }
@@ -525,5 +533,64 @@ describe('DebuggerView.init — resizable splitter', () => {
     hdrag(refs.hsplitter!, 20); // → 130px
     expect(vscode.setState).toHaveBeenCalledWith({ evalHeight: '130px' });
     expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'saveLayout', evalHeight: '130px' });
+  });
+});
+
+describe('DebuggerView.renderDnu (create-method-from-DNU)', () => {
+  beforeEach(() => { document.body.innerHTML = '<div id="dnuBar"></div>'; });
+
+  it('renders a "Create #selector in Class" button for an instance-side DNU', () => {
+    const bar = document.getElementById('dnuBar')!;
+    api().renderDnu(bar, { selector: 'fourtyTwo:bar:', className: 'SmallInteger', isMeta: false });
+    const btn = bar.querySelector('button.dnu-btn') as HTMLButtonElement;
+    expect(btn).toBeTruthy();
+    expect(btn.textContent).toBe('Create #fourtyTwo:bar: in SmallInteger');
+  });
+
+  it('appends " class" to the class name for a class-side DNU', () => {
+    const bar = document.getElementById('dnuBar')!;
+    api().renderDnu(bar, { selector: 'makeWidget', className: 'JasperDebugDemo', isMeta: true });
+    expect(bar.querySelector('button.dnu-btn')!.textContent).toBe('Create #makeWidget in JasperDebugDemo class');
+  });
+
+  it('clears the bar (no button) when there is no DNU', () => {
+    const bar = document.getElementById('dnuBar')!;
+    api().renderDnu(bar, { selector: 'x', className: 'Y', isMeta: false });
+    api().renderDnu(bar, null);
+    expect(bar.querySelector('button.dnu-btn')).toBeNull();
+  });
+
+  it('invokes onCreate when the button is clicked', () => {
+    const bar = document.getElementById('dnuBar')!;
+    const onCreate = vi.fn();
+    api().renderDnu(bar, { selector: 'x', className: 'Y', isMeta: false }, onCreate);
+    (bar.querySelector('button.dnu-btn') as HTMLButtonElement).click();
+    expect(onCreate).toHaveBeenCalledTimes(1);
+  });
+
+});
+
+describe('DebuggerView init — DNU button wiring', () => {
+  it('renders the Create button from the init payload and posts createDnuMethod on click', () => {
+    const { refs, vscode } = setup(STACK, { selector: 'foo:', className: 'Array', isMeta: false });
+    const btn = refs.dnuBar!.querySelector('button.dnu-btn') as HTMLButtonElement;
+    expect(btn.textContent).toBe('Create #foo: in Array');
+    btn.click();
+    expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'createDnuMethod' });
+  });
+
+  it('shows no Create button when the init payload has no dnu', () => {
+    const { refs } = setup(); // dnu omitted
+    expect(refs.dnuBar!.querySelector('button.dnu-btn')).toBeNull();
+  });
+
+  it('a "banner" message sets the error text and clears the Create button (no re-render)', () => {
+    const { refs } = setup(STACK, { selector: 'foo:', className: 'Array', isMeta: false });
+    expect(refs.dnuBar!.querySelector('button.dnu-btn')).toBeTruthy();
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { command: 'banner', text: 'Fill in the body, then save (Ctrl+S).' },
+    }));
+    expect(refs.error.textContent).toBe('Fill in the body, then save (Ctrl+S).');
+    expect(refs.dnuBar!.querySelector('button.dnu-btn')).toBeNull(); // button cleared
   });
 });

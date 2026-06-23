@@ -282,6 +282,53 @@ describe('debugQueries', () => {
     });
   });
 
+  describe('getDoesNotUnderstandInfo', () => {
+    const GS_PROCESS = 0x123n;
+
+    function sessionReturning(data: string): ActiveSession {
+      const session = createMockSession();
+      (session.gci as unknown as Record<string, unknown>).GciTsResolveSymbol = vi.fn(() => ({
+        result: 9000n, err: { ...noErr },
+      }));
+      (session.gci as unknown as Record<string, unknown>).GciTsExecuteFetchBytes = vi.fn(() => ({
+        bytesReturned: 0, data, err: { ...noErr },
+      }));
+      return session;
+    }
+
+    it('parses an instance-side DNU (keyword selector) into DnuInfo', () => {
+      const session = sessionReturning('SmallInteger\tinstance\tGlobals\tfourtyTwo:bar:\t2');
+      expect(debug.getDoesNotUnderstandInfo(session, GS_PROCESS)).toEqual({
+        className: 'SmallInteger', isMeta: false, dictName: 'Globals',
+        selector: 'fourtyTwo:bar:', argCount: 2,
+      });
+    });
+
+    it('parses a class-side DNU (message sent to a class)', () => {
+      const session = sessionReturning('JasperDebugDemo\tclass\tUserGlobals\tmakeWidget\t0');
+      expect(debug.getDoesNotUnderstandInfo(session, GS_PROCESS)).toEqual({
+        className: 'JasperDebugDemo', isMeta: true, dictName: 'UserGlobals',
+        selector: 'makeWidget', argCount: 0,
+      });
+    });
+
+    it('returns undefined when the process is not parked on a doesNotUnderstand:', () => {
+      // The doit returns '' when no DNU frame is found.
+      expect(debug.getDoesNotUnderstandInfo(sessionReturning(''), GS_PROCESS)).toBeUndefined();
+    });
+
+    it('returns undefined when the execute fails', () => {
+      const session = createMockSession();
+      (session.gci as unknown as Record<string, unknown>).GciTsResolveSymbol = vi.fn(() => ({
+        result: 9000n, err: { ...noErr },
+      }));
+      (session.gci as unknown as Record<string, unknown>).GciTsExecuteFetchBytes = vi.fn(() => ({
+        bytesReturned: 0, data: '', err: { ...noErr, number: 1, message: 'boom' },
+      }));
+      expect(debug.getDoesNotUnderstandInfo(session, GS_PROCESS)).toBeUndefined();
+    });
+  });
+
   describe('getInstVarNames', () => {
     it('does not send multi-word selectors', () => {
       const session = createMockSession();

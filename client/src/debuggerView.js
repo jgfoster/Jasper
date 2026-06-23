@@ -108,6 +108,22 @@
     }
   }
 
+  // Render (or clear) the "Create #selector in Class" action shown when the
+  // process is parked on a doesNotUnderstand:. `dnu` is { selector, className,
+  // isMeta } or null/undefined (nothing to create). onCreate is called when the
+  // button is clicked (posts createDnuMethod); optional so tests can omit it.
+  function renderDnu(dnuBarEl, dnu, onCreate) {
+    if (!dnuBarEl) return;
+    dnuBarEl.innerHTML = '';
+    if (!dnu) return;
+    const btn = document.createElement('button');
+    btn.className = 'dnu-btn';
+    btn.textContent = 'Create #' + dnu.selector + ' in ' + dnu.className + (dnu.isMeta ? ' class' : '');
+    btn.title = 'Create the missing method, then re-run the send into it';
+    if (onCreate) btn.addEventListener('click', onCreate);
+    dnuBarEl.appendChild(btn);
+  }
+
   // Mark the frame with the given level selected, clearing any prior selection.
   // Returns the selected <li>, or null when no frame carries that level.
   function selectFrame(listEl, level) {
@@ -144,7 +160,7 @@
    * editor and highlight the current line.
    */
   function init(refs, vscode) {
-    const { list, menu, copyFrameItem, copyBtn, error, toolbar, variables, evalInput, evalResult, main, splitter, hsplitter, evalbar } = refs;
+    const { list, menu, copyFrameItem, copyBtn, error, dnuBar, toolbar, variables, evalInput, evalResult, main, splitter, hsplitter, evalbar } = refs;
     let selectedLevel = null;
 
     function select(level) {
@@ -299,6 +315,8 @@
       const msg = event.data;
       if (msg.command === 'init') {
         if (error) error.textContent = msg.errorMessage || '';
+        // Show the create-method action when parked on a doesNotUnderstand:.
+        renderDnu(dnuBar, msg.dnu, function () { vscode.postMessage({ command: 'createDnuMethod' }); });
         // Clear stale variables / eval output; the default-select below re-fetches.
         if (variables) variables.innerHTML = '';
         if (evalResult) { evalResult.textContent = ''; evalResult.classList.remove('error'); }
@@ -309,6 +327,12 @@
         if (variables) renderVariables(variables, msg.groups, function (oop, name) {
           vscode.postMessage({ command: 'inspectVariable', oop: oop, name: name });
         });
+      } else if (msg.command === 'banner') {
+        // Lightweight banner-only update (no stack re-render / frame re-select, so
+        // it won't steal focus): set the error/guidance text and clear the DNU
+        // Create button. Used while a created method is being edited.
+        if (error) error.textContent = msg.text || '';
+        if (dnuBar) dnuBar.innerHTML = '';
       } else if (msg.command === 'evalResult') {
         if (evalResult) {
           evalResult.textContent = msg.value != null ? msg.value : '';
@@ -321,5 +345,5 @@
   }
 
   const root = typeof globalThis !== 'undefined' ? globalThis : window;
-  root.DebuggerView = { renderStack, renderVariables, selectFrame, showMenu, hideMenu, frameLevelOf, init };
+  root.DebuggerView = { renderStack, renderVariables, renderDnu, selectFrame, showMenu, hideMenu, frameLevelOf, init };
 })();

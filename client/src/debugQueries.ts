@@ -230,6 +230,98 @@ export function getMethodSource(session: ActiveSession, methodOop: bigint): stri
 }
 
 /**
+ * The pieces needed to create the method a `doesNotUnderstand:` is asking for.
+ * `className` is the (non-meta) name of the class the method should be added to;
+ * `isMeta` is true when the unknown message was sent to a *class* (so a
+ * class-side method is wanted). `dictName` is the dictionary that class lives in
+ * (for the gemstone:// new-method URI); '' when the class isn't in the user's
+ * symbol list. `selector` / `argCount` come straight from the failed send.
+ */
+export interface DnuInfo {
+  className: string;
+  isMeta: boolean;
+  dictName: string;
+  selector: string;
+  argCount: number;
+}
+
+/**
+ * If the suspended process is parked on a `doesNotUnderstand:` (a
+ * MessageNotUnderstood), return what's needed to create the missing method;
+ * otherwise undefined. Walks the process's frames top-down for the
+ * `Object>>doesNotUnderstand: aMessageDescriptor` frame, then reads the receiver
+ * and the descriptor (`aMessageDescriptor at: 1` is the selector, `at: 2` the
+ * args — see Object>>doesNotUnderstand:). A class receiver means the missing
+ * method is class-side.
+ *
+ * One Smalltalk round-trip (mirrors getMethodUriInfo's execute-and-split shape);
+ * returns undefined on any failure so callers degrade to "no Create button".
+ */
+export function getDoesNotUnderstandInfo(
+  session: ActiveSession, gsProcess: bigint,
+): DnuInfo | undefined {
+  try {
+    const { result: classUtf8, err: resErr } = session.gci.GciTsResolveSymbol(
+      session.handle, 'Utf8', OOP_NIL,
+    );
+    if (resErr.number !== 0) return undefined;
+
+    // Walk all frames for the doesNotUnderstand:/_doesNotUnderstand:… machinery
+    // (selectors containing 'doesNotUnderstand'). `dnuTop` is the `doesNotUnderstand:`
+    // frame (it carries `aMessageDescriptor` — `at: 1` selector, `at: 2` args);
+    // `dnuBot` is the deepest such frame, so `dnuBot + 1` is the sender frame that
+    // made the failing send (the one to restart). A class receiver ⇒ class-side.
+    const code = `| p depth dnuTop dnuBot |
+p := Object _objectForOop: ${gsProcess}.
+depth := p localStackDepth.
+dnuTop := nil. dnuBot := nil.
+1 to: depth do: [:i | | m sel |
+  m := (p _frameContentsAt: i) at: 1.
+  sel := m isNil ifTrue: [nil] ifFalse: [m selector].
+  (sel notNil and: [ (sel asString indexOfSubCollection: 'doesNotUnderstand') > 0 ]) ifTrue: [
+    dnuTop isNil ifTrue: [ dnuTop := i ].
+    dnuBot := i ] ].
+dnuTop isNil
+  ifTrue: [ '' ]
+  ifFalse: [ | arr rcvr descr sel base meta dn |
+    arr := p _frameContentsAt: dnuTop.
+    rcvr := arr at: 10.
+    descr := arr at: 11.
+    sel := descr at: 1.
+    (rcvr isKindOf: Class)
+      ifTrue: [ base := rcvr. meta := true ]
+      ifFalse: [ base := rcvr class. meta := false ].
+    dn := ''.
+    System myUserProfile symbolList do: [:d |
+      (d includesKey: base name asSymbol) ifTrue: [ dn := d name ] ].
+    base name asString, String tab,
+      (meta ifTrue: ['class'] ifFalse: ['instance']), String tab,
+      dn, String tab,
+      sel asString, String tab,
+      (descr at: 2) size printString ]`;
+
+    const { data, err } = session.gci.GciTsExecuteFetchBytes(
+      session.handle, code, -1, classUtf8, OOP_ILLEGAL, OOP_NIL, 64 * 1024,
+    );
+    if (err.number !== 0) return undefined;
+    if (data === '') return undefined; // not parked on a doesNotUnderstand:
+
+    const parts = data.split('\t');
+    if (parts.length < 5) return undefined;
+    const argCount = parseInt(parts[4], 10);
+    return {
+      className: parts[0],
+      isMeta: parts[1] === 'class',
+      dictName: parts[2],
+      selector: parts[3],
+      argCount: Number.isNaN(argCount) ? 0 : argCount,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Maps an IP offset to a source line number.
  */
 export function getLineForIp(

@@ -69,6 +69,7 @@ type DebuggerInbound =
   | { command: 'stepThrough'; level: number }
   | { command: 'restartFrame'; level: number }
   | { command: 'inspectVariable'; oop: string; name: string }
+  | { command: 'createDnuMethod' }
   | { command: 'saveLayout'; stackBasis?: string; evalHeight?: string };
 
 /** A single variable row (name / printString / oop) sent to the webview. */
@@ -156,6 +157,34 @@ export function formatFramePosition(stepPoint?: number, line?: number): string {
   return parts.join(' ');
 }
 
+/** Default category for a method created from a `doesNotUnderstand:`. */
+const DNU_METHOD_CATEGORY = 'as yet unclassified';
+
+/**
+ * Build a method-template stub for a selector that wasn't understood: the real
+ * signature on the first line (so saving compiles the intended method) followed
+ * by a comment and a `^nil` placeholder body the user fills in. Handles all three
+ * selector shapes — unary (`foo`), binary (`+ arg1`), and keyword
+ * (`at: arg1 put: arg2`). Pure/exported so the templating is unit-testable.
+ */
+export function buildMethodStub(selector: string, argCount: number): string {
+  let signature: string;
+  if (selector.includes(':')) {
+    // Keyword selector: pair each keyword with a generated argument name.
+    const keywords = selector.split(':').filter(k => k.length > 0);
+    signature = keywords.map((kw, i) => `${kw}: arg${i + 1}`).join(' ');
+  } else if (argCount > 0) {
+    signature = `${selector} arg1`; // binary selector (e.g. + or <=)
+  } else {
+    signature = selector; // unary
+  }
+  // Keep the comment short so it fits a normal-width source pane (the long
+  // version ran off the right edge), and have it state the save step explicitly.
+  return `${signature}\n`
+    + '\t"Fill in the body, then save (Ctrl+S) to create this method."\n'
+    + '\t^nil\n';
+}
+
 /** Minimal HTML-escape for interpolating session text into the page. */
 function escapeHtml(s: string): string {
   return s
@@ -181,6 +210,8 @@ interface FrameSummary {
  */
 interface DisplayFrame extends FrameSummary {
   serverLevel: number;
+  /** True for a doit / "Executed Code" frame (no class → can't be restarted/re-entered). */
+  isExecutedCode: boolean;
 }
 
 /**
@@ -233,8 +264,12 @@ export interface RawFrame {
 // opens on the user's frame (e.g. `[] in Foo>>bar`) instead of `signal`/`halt`.
 // `AbstractException` covers signal/_signal/_signalToDebugger/_executeHandler:
 // (instance and class side); the selectors cover Object>>halt and friends.
+// `defaultAction`/`_defaultAction` are the unhandled-error path a `doesNotUnderstand:`
+// parks in under GCI debug (MessageNotUnderstood>>defaultAction → _defaultAction →
+// _signal → signal → doesNotUnderstand: → _doesNotUnderstand:…); trimming them opens
+// the debugger on the user's frame (e.g. Executed Code) rather than this machinery.
 const MACHINERY_SELECTORS = new Set([
-  'halt', 'halt:', 'pause', 'error:', 'signal', 'signal:',
+  'halt', 'halt:', 'pause', 'error:', 'signal', 'signal:', 'defaultAction', '_defaultAction',
 ]);
 // Kernel block-invocation selectors that appear as transcript-capture-wrapper
 // glue at the BOTTOM (the doit evaluates its blocks via these).
@@ -509,6 +544,33 @@ export class DebuggerPanel {
    */
   private editableSourceUri: string | undefined;
   /**
+   * When the suspended process is parked on a `doesNotUnderstand:`, the info
+   * needed to offer "Create #<selector> in <Class>" — re-detected whenever the
+   * stack is (re)fetched, undefined otherwise. Drives the webview's Create button.
+   */
+  private dnuInfo: debug.DnuInfo | undefined;
+  /**
+   * While a create-method-from-DNU template is being edited, the `gemstone://`
+   * new-method URI of that template, and the server level of the frame that made
+   * the failed send. Saving the template (a clean compile) restarts that sender
+   * frame so the send re-dispatches into the freshly-created method.
+   */
+  private pendingDnuMethodUri: string | undefined;
+  private pendingDnuSelector: string | undefined;
+  /**
+   * Suppresses the "Create #sel" button once a create is underway or resolved, so
+   * it never reappears for the SAME parked doesNotUnderstand: (the method now
+   * exists, but the suspended process still has the DNU frame on its stack). Reset
+   * when a successful trim rebuilds the stack (a genuinely new DNU may then appear).
+   */
+  private dnuSuppressed = false;
+  /**
+   * gemstone:// URIs of DNU method templates this panel opened AND the methods
+   * they compile to — closed on dispose regardless of column (we created them, so
+   * unlike a shared method open in the System Browser they're safe to close).
+   */
+  private dnuMethodUris = new Set<string>();
+  /**
    * True once the TOP frame's method has been recompiled in place but could not
    * be re-entered (GemStone has no primitive to reset the top-of-stack IP — see
    * editAndContinue). The suspended top activation is then stale: continuing or
@@ -611,6 +673,7 @@ export class DebuggerPanel {
     switch (msg.command) {
       case 'ready': {
         this.frames = this.fetchStack();
+        this.dnuInfo = this.detectDnu();
         this.postInit();
         return;
       }
@@ -654,6 +717,7 @@ export class DebuggerPanel {
         if (frame) void this.restartFrame(frame.serverLevel);
         return;
       }
+      case 'createDnuMethod': { void this.createDnuMethod(); return; }
       case 'inspectVariable': {
         // Open the clicked variable in a GT Inspector (beside), like GT Inspect.
         // Track it so it closes with the debugger (it's an artifact of it).
@@ -681,13 +745,190 @@ export class DebuggerPanel {
       errorMessage: this.errorMessage,
       // Send only the display shape; serverLevel stays host-side.
       stack: this.frames.map(f => ({ level: f.level, label: f.label, position: f.position })),
+      // When parked on a doesNotUnderstand:, drive the "Create #sel in Class" button.
+      dnu: this.dnuInfo
+        ? { selector: this.dnuInfo.selector, className: this.dnuInfo.className, isMeta: this.dnuInfo.isMeta }
+        : undefined,
     });
   }
 
   /** Re-walk the (advanced) stack and re-render — used after a step / restart / resume-with-error. */
   private refresh(): void {
     this.frames = this.fetchStack();
+    this.dnuInfo = this.detectDnu();
     this.postInit();
+  }
+
+  /**
+   * Detect whether the process is parked on a `doesNotUnderstand:` and, if so,
+   * what method the user could create. Best-effort: any failure → undefined (the
+   * Create button just doesn't appear).
+   */
+  private detectDnu(): debug.DnuInfo | undefined {
+    // Suppress the Create button while a create is being edited (pendingDnuMethodUri)
+    // or after one is resolved for this parked DNU (dnuSuppressed) — the method now
+    // exists, but the suspended process still has the doesNotUnderstand: frame, so
+    // re-detecting it would wrongly re-offer "Create".
+    if (this.pendingDnuMethodUri !== undefined || this.dnuSuppressed) return undefined;
+    try {
+      return debug.getDoesNotUnderstandInfo(this.session, this.gsProcess);
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      return undefined;
+    }
+  }
+
+  /**
+   * Create-method-from-DNU. Open a `gemstone://` new-method template pre-filled
+   * with the unknown selector's signature in the receiver's class, then remember
+   * it so the next save (a clean compile) restarts the frame that made the failed
+   * send — re-dispatching it into the new method. The user fills in the body.
+   */
+  /**
+   * Build a `gemstone://` method URI EXACTLY as GemStoneFileSystemProvider's
+   * `buildMethodUri` does — `vscode.Uri.from` (which leaves `:` un-encoded in the
+   * path), NOT `buildMethodSourceUri`'s `encodeURIComponent` (which yields `%3A`).
+   * The two produce different `.toString()`s for keyword selectors, so matching
+   * the FS provider's form is what lets us recognise (and close) the tab it opens.
+   * `selector` may be `new-method` for the template URI. Env 0 (no query).
+   */
+  private gemstoneMethodUri(dictName: string, className: string, isMeta: boolean, selector: string): vscode.Uri {
+    return vscode.Uri.from({
+      scheme: 'gemstone',
+      authority: String(this.session.id),
+      path: `/${dictName}/${className}/${isMeta ? 'class' : 'instance'}/${DNU_METHOD_CATEGORY}/${selector}`,
+    });
+  }
+
+  private async createDnuMethod(): Promise<void> {
+    const dnu = this.dnuInfo;
+    if (!dnu) return;
+    if (!dnu.dictName) {
+      // No home dictionary → we can't build an editable gemstone:// URI for it.
+      this.errorMessage = `Can't create #${dnu.selector}: ${dnu.className} isn't in your symbol `
+        + 'list, so its source has no home dictionary. Add the class to a dictionary first.';
+      this.postInit();
+      return;
+    }
+    // selector 'new-method' makes this the FS provider's new-method template URI.
+    const uri = this.gemstoneMethodUri(dnu.dictName, dnu.className, dnu.isMeta, 'new-method');
+    // On a clean save the FS provider swaps the template tab to this real method
+    // URI — built EXACTLY as the provider builds it (vscode.Uri.from leaves ':'
+    // un-encoded, unlike buildMethodSourceUri's encodeURIComponent → '%3A'), so the
+    // strings match and closeSourceEditors actually closes it (else it lingered).
+    const compiledUri = this.gemstoneMethodUri(dnu.dictName, dnu.className, dnu.isMeta, dnu.selector);
+    try {
+      await this.openTemplateEditor(uri, buildMethodStub(dnu.selector, dnu.argCount));
+      this.pendingDnuMethodUri = uri.toString();
+      this.dnuMethodUris.add(uri.toString());
+      this.dnuMethodUris.add(compiledUri.toString());
+      this.pendingDnuSelector = dnu.selector;
+      // Replace the DNU error with what-to-do guidance — the most visible spot, and
+      // the next step is the user's (the original complaint was that nothing said to
+      // fill in + save). Use a lightweight banner update (NOT postInit): postInit
+      // re-renders the stack and re-selects the top frame, which reopens the frame
+      // source in the source column and steals focus from the new-method editor we
+      // just opened. The banner update clears the Create button and keeps focus on
+      // the new-method tab so the user can type immediately.
+      this.errorMessage = `Editing new method #${dnu.selector} below — fill in the body, then save it `
+        + '(Ctrl+S / Cmd+S) to create the method. Then press Resume (▶) to run it.';
+      this.panel.webview.postMessage({ command: 'banner', text: this.errorMessage });
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      this.errorMessage = `Could not open a method template: ${e instanceof Error ? e.message : String(e)}`;
+      this.postInit();
+    }
+  }
+
+  /**
+   * Open a new-method template editor in the companion source group docked BELOW
+   * the panel (the same place frame source opens — not Beside, which the user saw
+   * as "to the side"), focused so they can type, and replace the FS provider's
+   * generic template with `stub` (the real selector signature + a placeholder
+   * body). Mirrors showSourceEditor's docking so the first open splits a group
+   * beneath the panel; later opens reuse that group.
+   */
+  private async openTemplateEditor(uri: vscode.Uri, stub: string): Promise<vscode.TextEditor> {
+    const firstOpen = this.sourceColumn === undefined;
+    if (firstOpen) {
+      try {
+        this.panel.reveal(this.panel.viewColumn, false); // focus the panel's group…
+        await vscode.commands.executeCommand('workbench.action.newGroupBelow'); // …split below it
+      } catch { /* best-effort layout; fall back to the active group */ }
+    }
+    const doc = await vscode.workspace.openTextDocument(uri);
+    const editor = await vscode.window.showTextDocument(doc, {
+      viewColumn: this.sourceColumn ?? vscode.ViewColumn.Active,
+      preview: false,        // a real tab the user edits, not a throwaway preview
+      preserveFocus: false,  // focus the editor so the user can fill in the body
+    });
+    this.sourceColumn = editor.viewColumn ?? this.sourceColumn;
+    this.sourceEditor = editor;
+    // Replace the whole document with the pre-filled stub.
+    const lastLine = Math.max(0, editor.document.lineCount - 1);
+    const end = editor.document.lineAt(lastLine).range.end;
+    await editor.edit(b => b.replace(new vscode.Range(new vscode.Position(0, 0), end), stub));
+    this.shownSourceUris.add(uri.toString()); // closed with the panel
+    if (firstOpen) await this.applySourcePaneRatio();
+    return editor;
+  }
+
+  /**
+   * True if the last compile of `uri` failed — the FS provider left an
+   * Error-severity diagnostic (and did NOT rethrow, so the save still fired).
+   */
+  private recompileFailed(uri: vscode.Uri): boolean {
+    return vscode.languages
+      .getDiagnostics(uri)
+      .some((d) => d.severity === vscode.DiagnosticSeverity.Error);
+  }
+
+  /**
+   * After a DNU method is created (clean compile), re-enter the frame that made
+   * the send so a (user-initiated) Resume re-dispatches into the new method —
+   * then leave the process suspended for the user to press Resume. We do NOT
+   * auto-resume: resuming the parked doesNotUnderstand: machinery directly
+   * (continueExecution / forcing a value) hung the gem and crashed the host.
+   *
+   * `this.frames[0]` is the topmost user frame (the DNU machinery is trimmed from
+   * the display), i.e. the sender. Trimming to it (`trimStackToLevel:`,
+   * non-blocking) resets it to its method's first instruction, so the user's next
+   * Resume is an ordinary resume of a clean frame — which re-runs the send.
+   *
+   * A workspace/"Executed Code" sender has no class, so GemStone can't re-enter it
+   * (the kernel trim does `oldHome inClass compiledMethodAt:…`, which is sent to
+   * nil). The method still exists — tell the user to re-run their expression.
+   */
+  private async finishDnuMethod(selector: string): Promise<void> {
+    const sel = selector ? `#${selector}` : 'the method';
+    this.dnuSuppressed = true; // method exists now; never re-offer Create for this DNU
+    const sender = this.frames[0];
+    // Either way, the user finishes with Resume (▶): GemStone's
+    // MessageNotUnderstood>>defaultAction re-performs the now-understood send on
+    // resume, so the original expression evaluates to the new method's result.
+    // (We never auto-resume — resuming the parked DNU machinery from the save
+    // handler hung the gem and crashed the host. Manual Resume is safe.)
+    if (!sender || sender.isExecutedCode || sender.serverLevel <= 1) {
+      // Workspace/"Executed Code" (or top) sender — can't be re-entered in place
+      // (the kernel trim sends compiledMethodAt: to its nil class), so don't trim.
+      this.errorMessage = `Created ${sel} — press Resume (▶) to re-run the send into the new method.`;
+      this.postInit();
+      return;
+    }
+    // A real method sender — re-enter it (non-blocking trim) so the user's Resume
+    // re-runs the send from a clean frame, and they can also step into the method.
+    await this.runNb('Create method', async () => {
+      await debug.trimStackToLevelNb(this.session, this.gsProcess, sender.serverLevel);
+      if (this.disposed) return;
+      this.staleTopActivation = false; // the trim rebuilt the stack from a fresh activation
+      this.uncontinuable = false;
+      this.dnuSuppressed = false;       // fresh stack — a new DNU may legitimately appear
+      this.frames = this.fetchStack();
+      this.dnuInfo = this.detectDnu();
+      this.errorMessage = `Created ${sel} — re-entered the frame where it was sent. `
+        + 'Press Resume (▶) to run the new method, or step into it.';
+      this.postInit(); // re-selects the re-entered sender frame + shows the banner
+    });
   }
 
   /** Fetch the selected frame's grouped variables and post them. */
@@ -993,15 +1234,25 @@ export class DebuggerPanel {
    * fires) — we detect that and do nothing, so the user just fixes and re-saves.
    */
   private onSourceSaved(doc: vscode.TextDocument): void {
+    // Create-method-from-DNU: saving the pre-filled template compiles the new
+    // method; on a clean compile, resume so the send re-dispatches into it. A bad
+    // compile keeps the pending state so the user can fix the squiggle and re-save.
+    if (this.pendingDnuMethodUri !== undefined && doc.uri.toString() === this.pendingDnuMethodUri) {
+      if (this.recompileFailed(doc.uri)) return;
+      const selector = this.pendingDnuSelector ?? '';
+      this.pendingDnuMethodUri = undefined;
+      this.pendingDnuSelector = undefined;
+      this.dnuInfo = undefined; // the method now exists
+      this.finishDnuMethod(selector);
+      return;
+    }
+
     if (this.editableSourceUri === undefined || this.selectedServerLevel === undefined) return;
     if (doc.uri.toString() !== this.editableSourceUri) return;
     // The recompile failed if the FS provider left an error diagnostic on the URI
     // (it sets one and does NOT rethrow, so this save still fires) — then we leave
     // the old method installed and do nothing; the user fixes and re-saves.
-    const failed = vscode.languages
-      .getDiagnostics(doc.uri)
-      .some((d) => d.severity === vscode.DiagnosticSeverity.Error);
-    if (failed) return;
+    if (this.recompileFailed(doc.uri)) return;
     void this.editAndContinue(this.selectedServerLevel);
   }
 
@@ -1296,6 +1547,7 @@ export class DebuggerPanel {
       level: i + 1,
       serverLevel: r.serverLevel,
       label: r.label,
+      isExecutedCode: r.isExecutedCode,
       // Executed-code frames have no meaningful step point/line once unwrapped (#3).
       position: r.isExecutedCode ? '' : formatFramePosition(r.stepPoint, r.line),
     }));
@@ -1468,6 +1720,17 @@ export class DebuggerPanel {
          panel stays non-selectable to keep the custom copy menu the only path. */
       user-select: text; -webkit-user-select: text; cursor: text;
     }
+    /* "Create #selector in Class" action shown when parked on a doesNotUnderstand:.
+       Styled as a prominent primary button just below the error banner. */
+    .dnu-bar { margin: 0 0 0.75rem; }
+    .dnu-bar:empty { display: none; }
+    .dnu-btn {
+      font-family: var(--vscode-font-family);
+      color: var(--vscode-button-foreground);
+      background: var(--vscode-button-background);
+      border: none; padding: 0.3rem 0.8rem; border-radius: 2px; cursor: pointer;
+    }
+    .dnu-btn:hover { background: var(--vscode-button-hoverBackground); }
     .stack { list-style: none; margin: 0; padding: 0; }
     .frame {
       font-family: var(--vscode-editor-font-family, monospace);
@@ -1621,6 +1884,7 @@ export class DebuggerPanel {
     <button data-cmd="terminate" class="danger" title="Terminate the process" aria-label="Terminate the process">${TOOLBAR_ICONS.terminate}</button>
   </div>
   <div class="error" id="error"></div>
+  <div class="dnu-bar" id="dnuBar"></div>
   <div class="main" id="main" style="--stack-basis: ${stackBasis};">
     <div class="pane stack-pane">
       <div class="pane-title">Call Stack</div>
@@ -1650,6 +1914,7 @@ export class DebuggerPanel {
       copyFrameItem: document.getElementById('copyFrameItem'),
       copyBtn: document.getElementById('copyBtn'),
       error: document.getElementById('error'),
+      dnuBar: document.getElementById('dnuBar'),
       toolbar: document.getElementById('toolbar'),
       variables: document.getElementById('variables'),
       evalInput: document.getElementById('evalInput'),
@@ -1701,7 +1966,7 @@ export class DebuggerPanel {
    * a shared `gemstone://` everywhere would be the very bug the guard prevents).
    */
   private closeSourceEditors(): void {
-    if (this.shownSourceUris.size === 0) return;
+    if (this.shownSourceUris.size === 0 && this.dnuMethodUris.size === 0) return;
     // The source group's ViewColumn can have been renumbered since we captured
     // it (VS Code reassigns columns positionally when groups open/close — e.g. a
     // GT Inspector opening Beside). The live source editor reports its CURRENT
@@ -1711,13 +1976,19 @@ export class DebuggerPanel {
       const inOurColumn = sourceColumn !== undefined && group.viewColumn === sourceColumn;
       for (const tab of group.tabs) {
         if (!(tab.input instanceof vscode.TabInputText)) continue;
-        if (!this.shownSourceUris.has(tab.input.uri.toString())) continue;
+        const uriStr = tab.input.uri.toString();
+        // A DNU template / its compiled method was created BY this debugger, so
+        // it's safe to close in ANY column (the FS provider may have swapped the
+        // template tab to the compiled method, and possibly into another column).
+        if (this.dnuMethodUris.has(uriStr)) { void vscode.window.tabGroups.close(tab); continue; }
+        if (!this.shownSourceUris.has(uriStr)) continue;
         if (inOurColumn || tab.input.uri.scheme === READONLY_SOURCE_SCHEME) {
           void vscode.window.tabGroups.close(tab);
         }
       }
     }
     this.shownSourceUris.clear();
+    this.dnuMethodUris.clear();
     this.sourceEditor = undefined;
   }
 }

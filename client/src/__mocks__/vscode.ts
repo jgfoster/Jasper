@@ -169,6 +169,10 @@ function createMockTextEditor() {
     viewColumn: undefined as number | undefined,
     setDecorations: vi.fn(),
     revealRange: vi.fn(),
+    edit: vi.fn(async (cb: (b: { replace: typeof vi.fn; insert: typeof vi.fn; delete: typeof vi.fn }) => void) => {
+      cb({ replace: vi.fn(), insert: vi.fn(), delete: vi.fn() } as never);
+      return true;
+    }),
   };
 }
 
