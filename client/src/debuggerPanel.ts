@@ -73,7 +73,26 @@ type DebuggerInbound =
   | { command: 'revertVariable'; level: number; kind: 'instvar' | 'temp'; index: number }
   | { command: 'createDnuMethod' }
   | { command: 'implementInReceiver'; level: number }
+  | { command: 'implementSubclassResponsibility' }
   | { command: 'saveLayout'; stackBasis?: string; evalHeight?: string };
+
+/**
+ * What's needed to offer "Implement #<selector>" when the process is parked on a
+ * `subclassResponsibility` (T4). Detected client-side from the raw stack: the
+ * abstract method is the frame just below the `subclassResponsibility[:]` marker,
+ * so `selector`/`definingClassName` come from that frame and `senderServerLevel`
+ * is the frame below it (the caller, for re-dispatch on save). `definingClassName`
+ * bounds the implement target — you implement at-or-below the abstract class.
+ */
+interface SubclassRespInfo {
+  selector: string;
+  /** Server level of the abstract-method frame (its receiver → the implement target). */
+  abstractServerLevel: number;
+  /** Server level of the frame that called the abstract method (-1 if none). */
+  senderServerLevel: number;
+  /** The abstract method's defining class — the upper bound for the class picker. */
+  definingClassName: string;
+}
 
 /** A single variable row (name / printString / oop) sent to the webview. */
 interface VarRow {
@@ -309,8 +328,13 @@ export interface RawFrame {
 // parks in under GCI debug (MessageNotUnderstood>>defaultAction → _defaultAction →
 // _signal → signal → doesNotUnderstand: → _doesNotUnderstand:…); trimming them opens
 // the debugger on the user's frame (e.g. Executed Code) rather than this machinery.
+// `subclassResponsibility`/`subclassResponsibility:` are the abstract-method markers
+// (`subclassResponsibility` → `self error:`; the `:` form signals Error 2008 directly).
+// Trimming them opens the debugger on the abstract method itself (the frame just below,
+// e.g. `LargeNegativeInteger(Integer)>>foo`) — the method T4 offers to implement.
 const MACHINERY_SELECTORS = new Set([
   'halt', 'halt:', 'pause', 'error:', 'signal', 'signal:', 'defaultAction', '_defaultAction',
+  'subclassResponsibility', 'subclassResponsibility:',
 ]);
 // Kernel block-invocation selectors that appear as transcript-capture-wrapper
 // glue at the BOTTOM (the doit evaluates its blocks via these).
@@ -682,6 +706,28 @@ export class DebuggerPanel {
    *  the method they just implemented higher up the chain. */
   private pendingOverrideShadowedBy: string | undefined;
   /**
+   * Set for a T4 (subclassResponsibility) implement: the server level of the
+   * frame that SENT the abstract method (the caller). Unlike a plain override
+   * (option B), an abstract method that's on the stack won't dispatch into the
+   * new method on a bare Resume — its activation already returned to the abstract
+   * stub — so on a clean save we re-enter this sender (when re-enterable) so the
+   * send re-dispatches into the concrete method. Undefined for a normal override.
+   */
+  private pendingOverrideReEnterSenderLevel: number | undefined;
+  /**
+   * When the suspended process is parked on a `subclassResponsibility` (an abstract
+   * method that should have been overridden in a concrete subclass), the info
+   * needed to offer "Implement #<selector>" (T4). Re-detected whenever the stack is
+   * (re)fetched, undefined otherwise. Drives the webview's Implement button.
+   */
+  private subclassRespInfo: SubclassRespInfo | undefined;
+  /**
+   * Suppresses the "Implement #sel" button once a T4 implement is underway/resolved
+   * for the SAME parked subclassResponsibility (mirrors `dnuSuppressed`). Reset when
+   * a trim rebuilds the stack (a genuinely new abstract-method stop may then appear).
+   */
+  private srSuppressed = false;
+  /**
    * Suppresses the "Create #sel" button once a create is underway or resolved, so
    * it never reappears for the SAME parked doesNotUnderstand: (the method now
    * exists, but the suspended process still has the DNU frame on its stack). Reset
@@ -811,6 +857,7 @@ export class DebuggerPanel {
       case 'ready': {
         this.frames = this.fetchStack();
         this.dnuInfo = this.detectDnu();
+        this.subclassRespInfo = this.detectSubclassResp();
         this.postInit();
         return;
       }
@@ -856,6 +903,7 @@ export class DebuggerPanel {
       }
       case 'createDnuMethod': { void this.createDnuMethod(); return; }
       case 'implementInReceiver': { void this.implementInReceiver(msg.level); return; }
+      case 'implementSubclassResponsibility': { void this.implementSubclassResponsibility(); return; }
       case 'setVariable': {
         const frame = this.frames.find(f => f.level === msg.level);
         this.setVariable(frame?.serverLevel, msg.kind, msg.index, msg.expr);
@@ -900,6 +948,9 @@ export class DebuggerPanel {
       dnu: this.dnuInfo
         ? { selector: this.dnuInfo.selector, className: this.dnuInfo.className, isMeta: this.dnuInfo.isMeta }
         : undefined,
+      // When parked on a subclassResponsibility, drive the "Implement #sel" button (T4).
+      // The target class is chosen via picker, so only the selector is sent.
+      subclassResp: this.subclassRespInfo ? { selector: this.subclassRespInfo.selector } : undefined,
     });
   }
 
@@ -907,6 +958,7 @@ export class DebuggerPanel {
   private refresh(): void {
     this.frames = this.fetchStack();
     this.dnuInfo = this.detectDnu();
+    this.subclassRespInfo = this.detectSubclassResp();
     this.postInit();
   }
 
@@ -927,6 +979,35 @@ export class DebuggerPanel {
       logError(this.sessionId, e instanceof Error ? e.message : String(e));
       return undefined;
     }
+  }
+
+  /**
+   * Detect whether the process is parked on a `subclassResponsibility` (T4): scan
+   * the RAW stack (pre-trim) for the `subclassResponsibility[:]` marker frame — the
+   * frame just below it is the abstract method whose selector should be implemented
+   * concretely. Client-side only (no GCI round-trip): the marker, the abstract
+   * method's selector + defining class, and the caller's level all come from frames
+   * the panel already built. Suppressed while a DNU is offered (DNU takes
+   * precedence), while a T4 template is being edited, or once resolved (srSuppressed).
+   */
+  private detectSubclassResp(): SubclassRespInfo | undefined {
+    if (this.dnuInfo || this.srSuppressed || this.pendingOverrideUri !== undefined) return undefined;
+    const raws = this.rawFrames;
+    const srIdx = raws.findIndex(
+      r => r.selector === 'subclassResponsibility' || r.selector === 'subclassResponsibility:');
+    // Need the abstract method frame just below the marker. (srIdx+1 must exist.)
+    if (srIdx === -1 || srIdx + 1 >= raws.length) return undefined;
+    const abstractFrame = raws[srIdx + 1];
+    // Only a real method can be implemented/overridden — never a block or doit.
+    if (!abstractFrame.selector || abstractFrame.isBlock || abstractFrame.isExecutedCode) return undefined;
+    if (!abstractFrame.definingClassName) return undefined;
+    const sender = raws[srIdx + 2];
+    return {
+      selector: abstractFrame.selector,
+      abstractServerLevel: abstractFrame.serverLevel,
+      senderServerLevel: sender ? sender.serverLevel : -1,
+      definingClassName: abstractFrame.definingClassName,
+    };
   }
 
   /**
@@ -1038,10 +1119,71 @@ export class DebuggerPanel {
       this.postInit();
       return;
     }
+    await this.pickAndOpenImplementTemplate({
+      selector, chain, contextLabel: `${frame.label}@sv${frame.serverLevel}`,
+    });
+  }
 
+  /**
+   * "Implement #<selector>" for a `subclassResponsibility` stop (T4): the process
+   * is parked because an abstract method (a `^self subclassResponsibility` stub)
+   * was invoked on a concrete subclass that didn't override it. Offer to implement
+   * that selector concretely. Reuses the override harness (chain QuickPick + stub),
+   * with two differences from T3:
+   *  - the candidate chain is BOUNDED at the abstract method's defining class
+   *    (you implement at-or-below the abstract class, never above it — a concrete
+   *    Object/Number method would defeat the abstract contract for OTHER subclasses);
+   *  - on a clean save we re-enter the CALLER (the sender of the abstract method),
+   *    because the abstract activation already returned its stub — a bare Resume
+   *    wouldn't dispatch into the new method (see finishOverrideMethod / DNU).
+   */
+  private async implementSubclassResponsibility(): Promise<void> {
+    const info = this.subclassRespInfo;
+    if (!info) return;
+    let receiverOop: bigint;
+    try {
+      receiverOop = debug.getFrameInfo(this.session, this.gsProcess, info.abstractServerLevel).receiverOop;
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      this.errorMessage = `Could not resolve the receiver of #${info.selector}.`;
+      this.postInit();
+      return;
+    }
+    let chain = debug.getReceiverClassChain(this.session, receiverOop, info.selector);
+    // Bound the chain at the abstract method's defining class (inclusive).
+    const boundIdx = chain.findIndex(c => c.className === info.definingClassName);
+    if (boundIdx >= 0) chain = chain.slice(0, boundIdx + 1);
+    if (chain.length === 0) {
+      this.errorMessage = `Could not resolve the receiver's class to implement #${info.selector}.`;
+      this.postInit();
+      return;
+    }
+    await this.pickAndOpenImplementTemplate({
+      selector: info.selector, chain,
+      contextLabel: `subclassResponsibility #${info.selector}`,
+      reEnterSenderLevel: info.senderServerLevel,
+    });
+  }
+
+  /**
+   * Shared tail for T3 (implementInReceiver) and T4 (implementSubclassResponsibility):
+   * pick a target class from `chain` (QuickPick when >1; receiver's class
+   * pre-selected), then open an editor — a pre-filled stub for a class that doesn't
+   * implement the selector, or the EXISTING source for one that does (never
+   * clobbered). Records the pending-override state so the next clean save runs
+   * `finishOverrideMethod`. `reEnterSenderLevel` (T4 only) makes that save re-enter
+   * the caller so the send re-dispatches into the new method.
+   */
+  private async pickAndOpenImplementTemplate(opts: {
+    selector: string;
+    chain: debug.ClassHomeInfo[];
+    contextLabel: string;
+    reEnterSenderLevel?: number;
+  }): Promise<void> {
+    const { selector, chain, reEnterSenderLevel } = opts;
     // One candidate → go straight in. Several → let the user pick where in the
     // chain to implement (receiver's class first; each marked override vs edit).
-    logInfo(`[Jasper Debugger] implementInReceiver #${selector}: chain = `
+    logInfo(`[Jasper Debugger] implement #${selector}: chain = `
       + chain.map(c => `${c.className}${c.implementsSelector ? '(impl)' : ''}`).join(' → '));
     let targetIndex = 0;
     if (chain.length > 1) {
@@ -1050,12 +1192,12 @@ export class DebuggerPanel {
           label: c.className,
           description: !c.dictName ? '(not in your symbol list)'
             : c.implementsSelector ? `already implements #${selector} — opens it to edit (in ${c.dictName})`
-            : `override here (in ${c.dictName})`,
+            : `implement here (in ${c.dictName})`,
           index: i,
         })),
         {
           placeHolder: `Implement #${selector} in which class? (receiver is ${chain[0].className})`,
-          // The right-click happens IN the webview, which keeps/regains focus —
+          // The pick is triggered from the webview, which keeps/regains focus —
           // without this the QuickPick loses focus and auto-dismisses before the
           // user can see it (it just flashes). Keep it open until an explicit pick.
           ignoreFocusOut: true,
@@ -1091,8 +1233,9 @@ export class DebuggerPanel {
       ? compiledUri
       : this.gemstoneMethodUri(target.dictName, target.className, target.isMeta, 'new-method');
     logInfo(`[Jasper Debugger] implement #${selector} in ${target.className} `
-      + `(${editingExisting ? 'edit existing' : 'new override'}); overridden frame = `
-      + `${frame.label}@sv${frame.serverLevel}${shadowedBy ? `; shadowed by ${shadowedBy}` : ''}`);
+      + `(${editingExisting ? 'edit existing' : 'new method'}); from `
+      + `${opts.contextLabel}${shadowedBy ? `; shadowed by ${shadowedBy}` : ''}`
+      + `${reEnterSenderLevel !== undefined ? `; re-enter sender sv${reEnterSenderLevel}` : ''}`);
     try {
       await this.openTemplateEditor(
         openUri, editingExisting ? undefined : buildMethodStub(selector, selectorArgCount(selector)));
@@ -1100,14 +1243,19 @@ export class DebuggerPanel {
       this.pendingOverrideSelector = selector;
       this.pendingOverrideShadowedBy = shadowedBy;
       this.pendingOverrideTargetClass = target.className;
+      this.pendingOverrideReEnterSenderLevel = reEnterSenderLevel;
       this.dnuMethodUris.add(openUri.toString());  // closed with the panel
       this.dnuMethodUris.add(compiledUri.toString());
       DebuggerPanel.persistLiveSourceUris();
       // Banner-only guidance (NOT postInit — that re-selects the top frame and
       // steals focus from the editor we just opened; see createDnuMethod).
       const verb = editingExisting ? `Editing existing #${selector} in` : `Editing new method #${selector} in`;
-      let text = `${verb} ${target.className} below — edit the body, then save it (Ctrl+S / Cmd+S). `
-        + `It's then used on the next #${selector} send.`;
+      // T4 (re-enter sender): the abstract method is on the stack, so the new method
+      // is reached by re-dispatching the send — not "the next send" (T3 / option B).
+      const usage = reEnterSenderLevel !== undefined
+        ? `On a clean save the call to #${selector} is re-dispatched into it (or re-run the expression).`
+        : `It's then used on the next #${selector} send.`;
+      let text = `${verb} ${target.className} below — edit the body, then save it (Ctrl+S / Cmd+S). ${usage}`;
       if (shadowedBy) {
         text += ` NOTE: ${shadowedBy} already implements #${selector}, so a ${chain[0].className} still `
           + `uses ${shadowedBy}>>#${selector}, not ${target.className}'s.`;
@@ -1122,16 +1270,24 @@ export class DebuggerPanel {
   }
 
   /**
-   * After an override method is saved (clean compile), DON'T auto-restart anything
-   * (option B — predictable, no surprising stack jumps): the method now exists and
-   * is used on the NEXT send of the selector. The call already on the stack keeps
-   * running the method it dispatched to; the user Resumes (later sends — e.g. the
-   * next loop iteration — use the new one) or re-runs. We just refresh + explain.
-   * (Unlike DNU, where the send is parked unhandled and MUST be re-dispatched, an
-   * override's send already succeeded into the inherited method.)
+   * After an implement/override method is saved (clean compile).
+   *
+   * For a plain T3 override (`reEnterSenderLevel` undefined) DON'T auto-restart
+   * anything (option B — predictable, no surprising stack jumps): the method now
+   * exists and is used on the NEXT send of the selector. The call already on the
+   * stack keeps running the method it dispatched to; the user Resumes (later sends
+   * use the new one) or re-runs. (An override's send already succeeded into the
+   * inherited method, so the current activation is legitimate.)
+   *
+   * For a T4 subclassResponsibility implement (`reEnterSenderLevel` set) the abstract
+   * activation already returned its stub, so a bare Resume would NOT dispatch into
+   * the new method — re-enter the CALLER (when it's a re-enterable method frame, like
+   * the DNU path) so a Resume re-sends the selector and finds the concrete method;
+   * for a workspace/"Executed Code" caller, tell the user to re-run the expression.
    */
   private async finishOverrideMethod(
     selector: string, shadowedBy: string | undefined, targetClass: string,
+    reEnterSenderLevel?: number,
   ): Promise<void> {
     const sel = selector ? `#${selector}` : 'the method';
     const inTarget = targetClass ? ` in ${targetClass}` : '';
@@ -1140,9 +1296,46 @@ export class DebuggerPanel {
     const shadowNote = shadowedBy
       ? ` NOTE: ${shadowedBy} already implements ${sel}, so ${shadowedBy}>>${sel} still wins for this receiver.`
       : '';
+
+    // T4: re-dispatch from the caller of the abstract method.
+    if (reEnterSenderLevel !== undefined) {
+      const senderRaw = reEnterSenderLevel >= 0
+        ? this.rawFrames.find(r => r.serverLevel === reEnterSenderLevel)
+        : undefined;
+      if (!senderRaw || senderRaw.isExecutedCode || reEnterSenderLevel <= 1) {
+        // Workspace/"Executed Code" (or top) caller — can't be re-entered in place
+        // (the kernel trim sends compiledMethodAt: to its nil class), so don't trim.
+        this.srSuppressed = true; // the method exists now; don't re-offer Implement
+        this.frames = this.fetchStack();
+        this.dnuInfo = this.detectDnu();
+        this.subclassRespInfo = this.detectSubclassResp();
+        this.errorMessage = `Saved ${sel}${inTarget} — re-run the expression to dispatch into the new `
+          + `method. (Resume just finishes the abstract stub, which returns the receiver.)${shadowNote}`;
+        this.postInit();
+        return;
+      }
+      // A real method caller — re-enter it (non-blocking trim) so the user's Resume
+      // re-sends the selector from a clean frame, dispatching into the new method.
+      await this.runNb('Implement method', async () => {
+        await debug.trimStackToLevelNb(this.session, this.gsProcess, reEnterSenderLevel);
+        if (this.disposed) return;
+        this.staleTopActivation = false; // the trim rebuilt the stack from a fresh activation
+        this.uncontinuable = false;
+        this.srSuppressed = false;        // fresh stack — a new abstract stop may legitimately appear
+        this.frames = this.fetchStack();
+        this.dnuInfo = this.detectDnu();
+        this.subclassRespInfo = this.detectSubclassResp();
+        this.errorMessage = `Saved ${sel}${inTarget} — re-entered the caller. Press Resume (▶) to `
+          + `re-send ${sel} into the new method, or step into it.${shadowNote}`;
+        this.postInit();
+      });
+      return;
+    }
+
     this.dnuSuppressed = false;
     this.frames = this.fetchStack();   // labels/source may have shifted; no trim
     this.dnuInfo = this.detectDnu();
+    this.subclassRespInfo = this.detectSubclassResp();
     this.errorMessage = `Saved ${sel}${inTarget} — used on the next ${sel} send. Resume (▶) to continue `
       + '(the call now on the stack finishes with the previously-found version), or re-run the '
       + `expression.${shadowNote}`;
@@ -1722,11 +1915,13 @@ export class DebuggerPanel {
       const selector = this.pendingOverrideSelector ?? '';
       const shadowedBy = this.pendingOverrideShadowedBy;
       const targetClass = this.pendingOverrideTargetClass ?? '';
+      const reEnterSenderLevel = this.pendingOverrideReEnterSenderLevel;
       this.pendingOverrideUri = undefined;
       this.pendingOverrideSelector = undefined;
       this.pendingOverrideShadowedBy = undefined;
       this.pendingOverrideTargetClass = undefined;
-      void this.finishOverrideMethod(selector, shadowedBy, targetClass);
+      this.pendingOverrideReEnterSenderLevel = undefined;
+      void this.finishOverrideMethod(selector, shadowedBy, targetClass, reEnterSenderLevel);
       return;
     }
 

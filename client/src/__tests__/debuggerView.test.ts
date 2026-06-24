@@ -32,6 +32,11 @@ interface DebuggerViewApi {
     dnu: { selector: string; className: string; isMeta: boolean } | null | undefined,
     onCreate?: () => void,
   ): void;
+  renderSubclassResp(
+    dnuBarEl: HTMLElement,
+    sr: { selector: string } | null | undefined,
+    onImplement?: () => void,
+  ): void;
   selectFrame(listEl: HTMLElement, level: number): HTMLElement | null;
   showMenu(menuEl: HTMLElement, x: number, y: number): void;
   hideMenu(menuEl: HTMLElement): void;
@@ -78,7 +83,11 @@ const STACK: FrameSummary[] = [
 
 // Build the panel's DOM (the elements debuggerPanel.ts's getHtml renders) and
 // wire DebuggerView to a fake vscode whose postMessage we can assert on.
-function setup(stack: FrameSummary[] = STACK, dnu?: { selector: string; className: string; isMeta: boolean }) {
+function setup(
+  stack: FrameSummary[] = STACK,
+  dnu?: { selector: string; className: string; isMeta: boolean },
+  subclassResp?: { selector: string },
+) {
   document.body.innerHTML = `
     <button id="copyBtn">Copy Stack</button>
     <div id="toolbar">
@@ -114,7 +123,7 @@ function setup(stack: FrameSummary[] = STACK, dnu?: { selector: string; classNam
   const ctrl = api().init(refs, vscode);
   // Deliver the host's init payload, as the webview does on load.
   window.dispatchEvent(new MessageEvent('message', {
-    data: { command: 'init', errorMessage: 'boom', stack, dnu },
+    data: { command: 'init', errorMessage: 'boom', stack, dnu, subclassResp },
   }));
   return { refs, vscode, ctrl };
 }
@@ -798,6 +807,33 @@ describe('DebuggerView.renderDnu (create-method-from-DNU)', () => {
 
 });
 
+describe('DebuggerView.renderSubclassResp (T4)', () => {
+  beforeEach(() => { document.body.innerHTML = '<div id="dnuBar"></div>'; });
+
+  it('renders an "Implement #selector" button (no class — chosen via picker)', () => {
+    const bar = document.getElementById('dnuBar')!;
+    api().renderSubclassResp(bar, { selector: 'foo' });
+    const btn = bar.querySelector('button.dnu-btn') as HTMLButtonElement;
+    expect(btn).toBeTruthy();
+    expect(btn.textContent).toBe('Implement #foo');
+  });
+
+  it('clears the bar (no button) when there is no subclassResponsibility', () => {
+    const bar = document.getElementById('dnuBar')!;
+    api().renderSubclassResp(bar, { selector: 'foo' });
+    api().renderSubclassResp(bar, null);
+    expect(bar.querySelector('button.dnu-btn')).toBeNull();
+  });
+
+  it('invokes onImplement when the button is clicked', () => {
+    const bar = document.getElementById('dnuBar')!;
+    const onImplement = vi.fn();
+    api().renderSubclassResp(bar, { selector: 'foo' }, onImplement);
+    (bar.querySelector('button.dnu-btn') as HTMLButtonElement).click();
+    expect(onImplement).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('DebuggerView init — DNU button wiring', () => {
   it('renders the Create button from the init payload and posts createDnuMethod on click', () => {
     const { refs, vscode } = setup(STACK, { selector: 'foo:', className: 'Array', isMeta: false });
@@ -820,5 +856,19 @@ describe('DebuggerView init — DNU button wiring', () => {
     }));
     expect(refs.error.textContent).toBe('Fill in the body, then save (Ctrl+S).');
     expect(refs.dnuBar!.querySelector('button.dnu-btn')).toBeNull(); // button cleared
+  });
+
+  it('renders the Implement button from the init payload and posts implementSubclassResponsibility', () => {
+    const { refs, vscode } = setup(STACK, undefined, { selector: 'foo' });
+    const btn = refs.dnuBar!.querySelector('button.dnu-btn') as HTMLButtonElement;
+    expect(btn.textContent).toBe('Implement #foo');
+    btn.click();
+    expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'implementSubclassResponsibility' });
+  });
+
+  it('shows the DNU Create button (not the Implement button) when both are present', () => {
+    const { refs } = setup(STACK, { selector: 'foo:', className: 'Array', isMeta: false }, { selector: 'foo' });
+    const btn = refs.dnuBar!.querySelector('button.dnu-btn') as HTMLButtonElement;
+    expect(btn.textContent).toContain('Create #foo:'); // DNU wins; Implement not rendered
   });
 });

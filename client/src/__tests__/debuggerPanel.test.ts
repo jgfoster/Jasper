@@ -79,7 +79,7 @@ vi.mock('../browserQueries', () => ({
 import * as vscode from 'vscode';
 import * as debug from '../debugQueries';
 import {
-  DebuggerPanel, formatFrameLabel, formatFramePosition, buildMethodStub,
+  DebuggerPanel, formatFrameLabel, formatFramePosition, buildMethodStub, selectorArgCount,
   formatFrameForClipboard, formatStackForClipboard, buildMethodSourceUri,
   filterStack, isExceptionMachinery, RawFrame,
   flattenLayoutLeaves, sourceRatioFromLayout, setSourceRatioInLayout, EditorGroupLayout,
@@ -243,6 +243,25 @@ describe('buildMethodStub', () => {
 
   it('includes a placeholder body so the method compiles as-is', () => {
     expect(buildMethodStub('foo', 0)).toContain('^nil');
+  });
+});
+
+describe('selectorArgCount', () => {
+  it('counts the colons of a keyword selector', () => {
+    expect(selectorArgCount('fourtyTwo:bar:')).toBe(2);
+    expect(selectorArgCount('at:put:')).toBe(2);
+    expect(selectorArgCount('foo:')).toBe(1);
+  });
+
+  it('treats a binary selector as one argument', () => {
+    expect(selectorArgCount('+')).toBe(1);
+    expect(selectorArgCount('>=')).toBe(1);
+    expect(selectorArgCount(',')).toBe(1);
+  });
+
+  it('treats a unary selector as zero arguments', () => {
+    expect(selectorArgCount('makeWidget')).toBe(0);
+    expect(selectorArgCount('foo')).toBe(0);
   });
 });
 
@@ -1420,6 +1439,14 @@ describe('DebuggerPanel', () => {
         await tick();
         expect(debug.stepIntoNb).toHaveBeenCalledWith(session, GS_PROCESS, 1);
       });
+
+      it('Step Through likewise steps the stop frame, not the doit home', async () => {
+        setUpWrappedDoit();
+        const panel = openPanel();
+        sendMessage(panel, { command: 'stepThrough', level: 1 });
+        await tick();
+        expect(debug.stepThruNb).toHaveBeenCalledWith(session, GS_PROCESS, 1);
+      });
     });
 
     it('surfaces a clear message when a step hits native-code (error 6014), without disposing', async () => {
@@ -2074,7 +2101,7 @@ describe('DebuggerPanel', () => {
       const items = vi.mocked(vscode.window.showQuickPick).mock.calls.at(-1)![0] as
         { label: string; description: string }[];
       expect(items.map(i => i.label)).toEqual(['Interval', 'SequenceableCollection', 'Collection', 'Object']);
-      expect(items[0].description).toMatch(/override here/i);
+      expect(items[0].description).toMatch(/implement here/i);
       expect(items[2].description).toMatch(/already implements/i);
       // A stub template for the chosen (non-implementing) superclass.
       const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
@@ -2133,6 +2160,162 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'implementInReceiver', level: 2 });
       await flush();
       expect(vscode.window.showQuickPick).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('implement subclassResponsibility (T4)', () => {
+    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+
+    // A subclassResponsibility stop: the `subclassResponsibility` marker frame on
+    // top, the abstract method (`Integer>>foo`, receiver LargeNegativeInteger)
+    // below it, then a re-enterable caller, then a deeper frame. getMethodInfo
+    // overrides leak past clearAllMocks — restore the base shape in afterEach.
+    afterEach(() => {
+      vi.mocked(debug.getStackDepth).mockImplementation(() => 5);
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 1n) return { className: 'JasperDebugDemo', selector: 'finish' };
+        if (oop === 2n) return { className: 'Object', selector: 'halt' };
+        return { className: 'JasperDebugDemo', selector: 'accumulateFrom:to:' };
+      });
+      vi.mocked(debug.getDoesNotUnderstandInfo).mockReturnValue(undefined);
+    });
+
+    // serverLevel → method identity. Level 1 is the marker, level 2 the abstract
+    // method, level 3 a re-enterable caller, level 4 a deeper user method.
+    function setUpSubclassRespStack(senderIsExecutedCode = false) {
+      vi.mocked(debug.getStackDepth).mockImplementation(() => 4);
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 1n) return { className: 'Object', selector: 'subclassResponsibility' };
+        if (oop === 2n) return { className: 'Integer', selector: 'foo' };
+        if (oop === 3n) {
+          if (senderIsExecutedCode) throw new Error('doit'); // no class → Executed Code
+          return { className: 'SomeClass', selector: 'bar' };
+        }
+        return { className: 'JasperDebugDemo', selector: 'run' };
+      });
+    }
+
+    // Receiver chain for #foo: the concrete class, an intermediate, the abstract
+    // definer (which "implements" #foo only as the subclassResponsibility stub),
+    // then classes ABOVE the definer — which T4 must trim away.
+    const SR_CHAIN = [
+      { className: 'LargeNegativeInteger', isMeta: false, dictName: 'Globals', implementsSelector: false },
+      { className: 'LargeInteger', isMeta: false, dictName: 'Globals', implementsSelector: false },
+      { className: 'Integer', isMeta: false, dictName: 'Globals', implementsSelector: true },
+      { className: 'Number', isMeta: false, dictName: 'Kernel', implementsSelector: false },
+      { className: 'Object', isMeta: false, dictName: 'Kernel', implementsSelector: true },
+    ];
+
+    function openPanel() {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      return panel;
+    }
+
+    function saveListener(): (doc: vscode.TextDocument) => void {
+      return vi.mocked(vscode.workspace.onDidSaveTextDocument).mock.calls[0][0];
+    }
+
+    it('opens the debugger on the abstract method (subclassResponsibility frame trimmed)', () => {
+      setUpSubclassRespStack();
+      const stack = initPayload(openPanel()).stack;
+      // The marker frame is trimmed; the abstract method `Integer>>foo` is the top.
+      expect(stack[0].label).toContain('foo');
+      expect(stack.some((f: { label: string }) => /subclassResponsibility/.test(f.label))).toBe(false);
+    });
+
+    it('offers the "Implement #sel" action when parked on a subclassResponsibility', () => {
+      setUpSubclassRespStack();
+      expect(initPayload(openPanel()).subclassResp).toEqual({ selector: 'foo' });
+    });
+
+    it('does NOT offer the implement action when a doesNotUnderstand: is also parked (DNU wins)', () => {
+      setUpSubclassRespStack();
+      vi.mocked(debug.getDoesNotUnderstandInfo).mockReturnValue(
+        { className: 'Foo', isMeta: false, dictName: 'Globals', selector: 'bar', argCount: 0 });
+      const payload = initPayload(openPanel());
+      expect(payload.subclassResp).toBeUndefined();
+      expect(payload.dnu).toBeTruthy();
+    });
+
+    it('QuickPicks the chain BOUNDED at the abstract definer, then opens a stub', async () => {
+      setUpSubclassRespStack();
+      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce(SR_CHAIN);
+      vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
+        async (items: unknown) => (items as { index: number }[])[0] as never); // LargeNegativeInteger
+      const panel = openPanel();
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+      sendMessage(panel, { command: 'implementSubclassResponsibility' });
+      await flush();
+
+      // Bounded at Integer (the definer) — Number/Object above it are dropped.
+      const items = vi.mocked(vscode.window.showQuickPick).mock.calls.at(-1)![0] as { label: string }[];
+      expect(items.map(i => i.label)).toEqual(['LargeNegativeInteger', 'LargeInteger', 'Integer']);
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      expect(uri.toString()).toContain('/Globals/LargeNegativeInteger/instance/');
+      expect(uri.toString()).toContain('new-method');
+    });
+
+    it('on a clean save, re-enters the caller so Resume re-dispatches into the new method', async () => {
+      setUpSubclassRespStack(); // caller (level 3) is a re-enterable method frame
+      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce(SR_CHAIN);
+      vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
+        async (items: unknown) => (items as { index: number }[])[0] as never);
+      const panel = openPanel();
+      sendMessage(panel, { command: 'implementSubclassResponsibility' });
+      await flush();
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
+
+      saveListener()({ uri } as vscode.TextDocument);
+      await tick();
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3); // the caller's level
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/re-entered the caller/i);
+    });
+
+    it('tells the user to re-run when the caller is workspace/Executed Code (no trim)', async () => {
+      setUpSubclassRespStack(true); // caller is a doit → not re-enterable
+      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce(SR_CHAIN);
+      vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
+        async (items: unknown) => (items as { index: number }[])[0] as never);
+      const panel = openPanel();
+      sendMessage(panel, { command: 'implementSubclassResponsibility' });
+      await flush();
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
+
+      saveListener()({ uri } as vscode.TextDocument);
+      await tick();
+      expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/re-run the expression/i);
+    });
+
+    it('stops offering Implement after a re-run save (srSuppressed) — the method now exists', async () => {
+      setUpSubclassRespStack(true);
+      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce(SR_CHAIN);
+      vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
+        async (items: unknown) => (items as { index: number }[])[0] as never);
+      const panel = openPanel();
+      expect(initPayload(panel).subclassResp).toEqual({ selector: 'foo' }); // offered at first
+      sendMessage(panel, { command: 'implementSubclassResponsibility' });
+      await flush();
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
+
+      saveListener()({ uri } as vscode.TextDocument);
+      await tick();
+      // The same subclassResponsibility is still parked, but the button must NOT
+      // re-appear (the method exists now) — like dnuSuppressed.
+      expect(lastPosted(panel, 'init').subclassResp).toBeUndefined();
+    });
+
+    it('does NOT offer Implement when the frame below the marker is not a real method', () => {
+      // Defensive guard: an Executed-Code / block frame can't be implemented in.
+      vi.mocked(debug.getStackDepth).mockImplementation(() => 3);
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 1n) return { className: 'Object', selector: 'subclassResponsibility' };
+        if (oop === 2n) throw new Error('doit'); // frame below the marker → Executed Code
+        return { className: 'JasperDebugDemo', selector: 'run' };
+      });
+      expect(initPayload(openPanel()).subclassResp).toBeUndefined();
     });
   });
 
@@ -2269,6 +2452,26 @@ describe('filterStack', () => {
     const kept = filterStack(DNU_STACK);
     expect(kept.map(f => f.serverLevel)).toEqual([7]); // just the Executed Code sender
     expect(kept[0].label).toBe('Executed Code');
+  });
+
+  // A subclassResponsibility stop (T4): `subclassResponsibility` → `self error:` →
+  // signal machinery. All of it is trimmed (incl. the marker) so the debugger opens
+  // on the abstract method itself — the method T4 offers to implement.
+  const SUBCLASS_RESP_STACK: RawFrame[] = [
+    raw({ serverLevel: 1, label: 'AbstractException class>>#signal', definingClassName: 'AbstractException', selector: 'signal' }),
+    raw({ serverLevel: 2, label: 'LargeNegativeInteger (Object)>>#error:', definingClassName: 'Object', selector: 'error:' }),
+    raw({ serverLevel: 3, label: 'LargeNegativeInteger (Object)>>#subclassResponsibility', definingClassName: 'Object', selector: 'subclassResponsibility' }),
+    raw({ serverLevel: 4, label: 'LargeNegativeInteger (Integer)>>#foo', definingClassName: 'Integer', selector: 'foo' }),
+    raw({ serverLevel: 5, label: 'Executed Code', methodOop: DOIT, homeMethodOop: DOIT, isExecutedCode: true }),
+  ];
+
+  it('trims the subclassResponsibility machinery down to the abstract method', () => {
+    const kept = filterStack(SUBCLASS_RESP_STACK);
+    // The signal/error:/subclassResponsibility marker frames are gone; the abstract
+    // method `foo` (level 4) is the top frame, the doit sender below it.
+    expect(kept.map(f => f.serverLevel)).toEqual([4, 5]);
+    expect(kept[0].label).toContain('foo');
+    expect(kept.some(f => /subclassResponsibility/.test(f.selector))).toBe(false);
   });
 });
 

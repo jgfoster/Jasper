@@ -241,6 +241,24 @@
     dnuBarEl.appendChild(btn);
   }
 
+  // Render (or clear) the "Implement #selector" action shown when the process is
+  // parked on a subclassResponsibility (T4) — an abstract method invoked on a
+  // concrete subclass that didn't override it. The target class is chosen via a
+  // picker (like the override flow), so only the selector is shown on the button.
+  // `sr` is { selector } or null/undefined (nothing to implement). Shares the
+  // dnuBar; DNU and subclassResponsibility are mutually-exclusive parked states.
+  function renderSubclassResp(dnuBarEl, sr, onImplement) {
+    if (!dnuBarEl) return;
+    dnuBarEl.innerHTML = '';
+    if (!sr) return;
+    const btn = document.createElement('button');
+    btn.className = 'dnu-btn';
+    btn.textContent = 'Implement #' + sr.selector;
+    btn.title = 'Implement this abstract (subclassResponsibility) method in a concrete class';
+    if (onImplement) btn.addEventListener('click', onImplement);
+    dnuBarEl.appendChild(btn);
+  }
+
   // Mark the frame with the given level selected, clearing any prior selection.
   // Returns the selected <li>, or null when no frame carries that level.
   function selectFrame(listEl, level) {
@@ -496,8 +514,14 @@
       const msg = event.data;
       if (msg.command === 'init') {
         if (error) error.textContent = msg.errorMessage || '';
-        // Show the create-method action when parked on a doesNotUnderstand:.
+        // Show the create-method action when parked on a doesNotUnderstand:, or the
+        // implement action when parked on a subclassResponsibility (T4). Mutually
+        // exclusive; renderDnu(undefined) clears the bar before the SR button renders.
         renderDnu(dnuBar, msg.dnu, function () { vscode.postMessage({ command: 'createDnuMethod' }); });
+        if (!msg.dnu) {
+          renderSubclassResp(dnuBar, msg.subclassResp,
+            function () { vscode.postMessage({ command: 'implementSubclassResponsibility' }); });
+        }
         // Clear stale variables / eval output; the default-select below re-fetches.
         if (variables) variables.innerHTML = '';
         if (evalResult) { evalResult.textContent = ''; evalResult.classList.remove('error'); }
@@ -530,5 +554,5 @@
   }
 
   const root = typeof globalThis !== 'undefined' ? globalThis : window;
-  root.DebuggerView = { renderStack, renderVariables, renderDnu, selectFrame, showMenu, hideMenu, frameLevelOf, init };
+  root.DebuggerView = { renderStack, renderVariables, renderDnu, renderSubclassResp, selectFrame, showMenu, hideMenu, frameLevelOf, init };
 })();
