@@ -60,6 +60,8 @@ vi.mock('../debugQueries', () => ({
   releaseStepping: vi.fn(),
   // Create-method-from-DNU detection — defaults to "not a DNU" (no Create button).
   getDoesNotUnderstandInfo: vi.fn(() => undefined),
+  // Implement-in-receiver (override): resolve the receiver's class + home dict.
+  getClassHomeInfo: vi.fn(() => ({ className: 'SmallInteger', isMeta: false, dictName: 'Globals' })),
 }));
 
 // Clicking a variable row opens a GT Inspector — stub the static entry point.
@@ -474,7 +476,7 @@ describe('DebuggerPanel', () => {
       const panel = lastPanel();
       sendReady(panel);
 
-      expect(initPayload(panel).stack).toEqual([
+      expect(initPayload(panel).stack).toMatchObject([
         { level: 1, label: '[] in JasperDebugDemo>>#finish', position: '@2 line 12' },
         { level: 2, label: 'SmallInteger (Object)>>#halt', position: '@2 line 12' },
         { level: 3, label: 'JasperDebugDemo>>#accumulateFrom:to:', position: '@2 line 12' },
@@ -510,7 +512,7 @@ describe('DebuggerPanel', () => {
       const panel = lastPanel();
       sendReady(panel);
 
-      expect(initPayload(panel).stack[0]).toEqual({ level: 1, label: '<frame 1>', position: '' });
+      expect(initPayload(panel).stack[0]).toMatchObject({ level: 1, label: '<frame 1>', position: '' });
     });
 
     // An "unprintable" / unresolvable receiver: getObjectClassName throws. The
@@ -527,9 +529,10 @@ describe('DebuggerPanel', () => {
       sendReady(panel);
 
       // Without the receiver class there is no `Receiver (Defining)` form —
-      // just the plain defining-class label.
-      expect(initPayload(panel).stack[1]).toEqual({
-        level: 2, label: 'Object>>#halt', position: '@2 line 12',
+      // just the plain defining-class label, and the frame isn't overridable
+      // (we can't tell the receiver inherited the method).
+      expect(initPayload(panel).stack[1]).toMatchObject({
+        level: 2, label: 'Object>>#halt', position: '@2 line 12', overridable: false,
       });
     });
 
@@ -1885,6 +1888,101 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'stepOver', level: 1 });
       await tick();
       expect(lastPosted(panel, 'init').dnu).toBeUndefined();
+    });
+  });
+
+  describe('implement in receiver (override)', () => {
+    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+
+    // The base stack's level-2 frame is an inherited method: receiver is a
+    // SmallInteger (oop 200) while the method (#halt) is defined in Object.
+    function openPanel() {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      return panel;
+    }
+
+    function saveListener(): (doc: vscode.TextDocument) => void {
+      return vi.mocked(vscode.workspace.onDidSaveTextDocument).mock.calls[0][0];
+    }
+
+    it('marks an inherited-method frame overridable, carrying the receiver class', () => {
+      const overridable = initPayload(openPanel()).stack.find((f: { overridable?: boolean }) => f.overridable);
+      expect(overridable.receiverClass).toBe('SmallInteger');   // the receiver's class…
+      expect(overridable.label).toContain('Object');            // …while the method lives in Object
+    });
+
+    it('does NOT mark a frame overridable when the receiver IS the defining class', () => {
+      const selfFrames = initPayload(openPanel()).stack
+        .filter((f: { receiverClass?: string }) => f.receiverClass === 'JasperDebugDemo');
+      expect(selfFrames.length).toBeGreaterThan(0);
+      for (const f of selfFrames) expect(f.overridable).toBeFalsy();
+    });
+
+    it('opens a new-method template for the receiver class + frame selector, with banner help (no init)', async () => {
+      const panel = openPanel();
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+      sendMessage(panel, { command: 'implementInReceiver', level: 2 });
+      await flush();
+
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      // gemstone:// new-method URI targeting the RECEIVER's class + home dict.
+      expect(uri.toString()).toContain('/Globals/SmallInteger/instance/');
+      expect(uri.toString()).toContain('new-method');
+      expect(vscode.commands.executeCommand).toHaveBeenCalledWith('workbench.action.newGroupBelow');
+      const editor = await vi.mocked(vscode.window.showTextDocument).mock.results.at(-1)!.value;
+      expect(editor.edit).toHaveBeenCalled(); // generic template replaced with the #halt stub
+      // Banner help (NOT a full init that would re-select the top frame + steal focus).
+      const banner = lastPosted(panel, 'banner');
+      expect(banner.text).toContain('#halt');
+      expect(banner.text).toContain('SmallInteger');
+      expect(posted(panel, 'init').length).toBe(1); // only the original ready init
+    });
+
+    it('re-enters the sender frame (trim, NOT resume) on a clean compile', async () => {
+      const panel = openPanel();
+      sendMessage(panel, { command: 'implementInReceiver', level: 2 });
+      await flush();
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
+
+      saveListener()({ uri } as vscode.TextDocument);
+      await tick();
+      // The overridden frame is server level 2; its caller (the sender) is level 3.
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+      expect(debug.continueExecution).not.toHaveBeenCalled(); // never auto-resume
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/resume/i);
+    });
+
+    it('does NOT trim and keeps the template pending when the compile fails', async () => {
+      const panel = openPanel();
+      sendMessage(panel, { command: 'implementInReceiver', level: 2 });
+      await flush();
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
+
+      vi.mocked(vscode.languages.getDiagnostics).mockReturnValueOnce(
+        [{ severity: vscode.DiagnosticSeverity.Error }] as never,
+      );
+      saveListener()({ uri } as vscode.TextDocument);
+      await tick();
+      expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();
+
+      saveListener()({ uri } as vscode.TextDocument); // re-save after fixing
+      await tick();
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+    });
+
+    it('refuses to implement when the receiver class has no home dictionary', async () => {
+      vi.mocked(debug.getClassHomeInfo).mockReturnValueOnce(
+        { className: 'SmallInteger', isMeta: false, dictName: '' },
+      );
+      const panel = openPanel();
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+      sendMessage(panel, { command: 'implementInReceiver', level: 2 });
+      await flush();
+
+      expect(vscode.workspace.openTextDocument).not.toHaveBeenCalled();
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/symbol list/i);
     });
   });
 

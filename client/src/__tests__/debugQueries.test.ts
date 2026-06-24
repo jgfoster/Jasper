@@ -329,6 +329,53 @@ describe('debugQueries', () => {
     });
   });
 
+  describe('getClassHomeInfo', () => {
+    const RECEIVER_OOP = 0x456n;
+
+    function sessionReturning(data: string): ActiveSession {
+      const session = createMockSession();
+      (session.gci as unknown as Record<string, unknown>).GciTsResolveSymbol = vi.fn(() => ({
+        result: 9000n, err: { ...noErr },
+      }));
+      (session.gci as unknown as Record<string, unknown>).GciTsExecuteFetchBytes = vi.fn(() => ({
+        bytesReturned: 0, data, err: { ...noErr },
+      }));
+      return session;
+    }
+
+    it('resolves an instance receiver to its class + home dictionary', () => {
+      const session = sessionReturning('SmallInteger\tinstance\tGlobals');
+      expect(debug.getClassHomeInfo(session, RECEIVER_OOP)).toEqual({
+        className: 'SmallInteger', isMeta: false, dictName: 'Globals',
+      });
+    });
+
+    it('resolves a class receiver to its class-side', () => {
+      const session = sessionReturning('JasperDebugDemo\tclass\tUserGlobals');
+      expect(debug.getClassHomeInfo(session, RECEIVER_OOP)).toEqual({
+        className: 'JasperDebugDemo', isMeta: true, dictName: 'UserGlobals',
+      });
+    });
+
+    it('returns a blank dictName when the class is not in the symbol list', () => {
+      const session = sessionReturning('Loner\tinstance\t');
+      expect(debug.getClassHomeInfo(session, RECEIVER_OOP)).toEqual({
+        className: 'Loner', isMeta: false, dictName: '',
+      });
+    });
+
+    it('returns undefined when the execute fails', () => {
+      const session = createMockSession();
+      (session.gci as unknown as Record<string, unknown>).GciTsResolveSymbol = vi.fn(() => ({
+        result: 9000n, err: { ...noErr },
+      }));
+      (session.gci as unknown as Record<string, unknown>).GciTsExecuteFetchBytes = vi.fn(() => ({
+        bytesReturned: 0, data: '', err: { ...noErr, number: 1, message: 'boom' },
+      }));
+      expect(debug.getClassHomeInfo(session, RECEIVER_OOP)).toBeUndefined();
+    });
+  });
+
   describe('getInstVarNames', () => {
     it('does not send multi-word selectors', () => {
       const session = createMockSession();

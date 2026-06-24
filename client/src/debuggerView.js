@@ -277,8 +277,12 @@
    * editor and highlight the current line.
    */
   function init(refs, vscode) {
-    const { list, menu, copyFrameItem, copyBtn, error, dnuBar, toolbar, variables, evalInput, evalResult, main, splitter, hsplitter, evalbar, varMenu, varInspectItem } = refs;
+    const { list, menu, copyFrameItem, frameImplItem, copyBtn, error, dnuBar, toolbar, variables, evalInput, evalResult, main, splitter, hsplitter, evalbar, varMenu, varInspectItem } = refs;
     let selectedLevel = null;
+    // The last-rendered stack (frame summaries), so the right-click menu can read
+    // a frame's `overridable` / `receiverClass` to decide whether to offer the
+    // "Implement in <receiverClass>" override action.
+    let currentStack = [];
     // The currently-open variable evaluator (so setVariableResult can flag an
     // error on it, and opening another closes it) + the row a right-click menu
     // targets.
@@ -320,13 +324,24 @@
       if (level != null) select(level);
     });
 
-    // Right-click selects the frame AND opens the custom copy popup.
+    // Right-click selects the frame AND opens the custom popup. The "Implement in
+    // <receiverClass>" item is shown only for an overridable frame (an inherited
+    // method — see buildFrame), labelled with the receiver's class.
     list.addEventListener('contextmenu', (e) => {
       const level = frameLevelOf(e.target);
       if (level == null) return;
       e.preventDefault();
       e.stopPropagation();
       select(level);
+      if (frameImplItem) {
+        const frame = currentStack.find((f) => f.level === level);
+        if (frame && frame.overridable) {
+          frameImplItem.textContent = 'Implement in ' + (frame.receiverClass || 'receiver');
+          frameImplItem.style.display = '';
+        } else {
+          frameImplItem.style.display = 'none';
+        }
+      }
       showMenu(menu, e.clientX, e.clientY);
     });
 
@@ -335,6 +350,14 @@
       if (selectedLevel != null) vscode.postMessage({ command: 'copyFrame', level: selectedLevel });
       hideMenu(menu);
     });
+
+    if (frameImplItem) {
+      frameImplItem.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (selectedLevel != null) vscode.postMessage({ command: 'implementInReceiver', level: selectedLevel });
+        hideMenu(menu);
+      });
+    }
 
     // Variable context menu: GT Inspect the right-clicked variable.
     if (varInspectItem) {
@@ -474,6 +497,7 @@
         // Clear stale variables / eval output; the default-select below re-fetches.
         if (variables) variables.innerHTML = '';
         if (evalResult) { evalResult.textContent = ''; evalResult.classList.remove('error'); }
+        currentStack = msg.stack || [];
         renderStack(list, msg.stack);
         // Default-select the top frame so the debugger opens focused on a frame.
         if (msg.stack && msg.stack.length > 0) select(msg.stack[0].level);

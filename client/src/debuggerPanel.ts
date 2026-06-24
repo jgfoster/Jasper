@@ -72,6 +72,7 @@ type DebuggerInbound =
   | { command: 'setVariable'; level: number; kind: 'instvar' | 'temp'; index: number; expr: string }
   | { command: 'revertVariable'; level: number; kind: 'instvar' | 'temp'; index: number }
   | { command: 'createDnuMethod' }
+  | { command: 'implementInReceiver'; level: number }
   | { command: 'saveLayout'; stackBasis?: string; evalHeight?: string };
 
 /** A single variable row (name / printString / oop) sent to the webview. */
@@ -200,6 +201,17 @@ export function buildMethodStub(selector: string, argCount: number): string {
     + '\t^nil\n';
 }
 
+/**
+ * Argument count implied by a selector: the number of colons for a keyword
+ * selector, 1 for a binary selector (an operator like `+` / `<=`), else 0
+ * (unary). Used to stub an override whose selector comes from the frame (the
+ * DNU path instead reads the arg count off the failed send's descriptor).
+ */
+export function selectorArgCount(selector: string): number {
+  if (selector.includes(':')) return (selector.match(/:/g) ?? []).length;
+  return /^[A-Za-z_]/.test(selector) ? 0 : 1;
+}
+
 /** Minimal HTML-escape for interpolating session text into the page. */
 function escapeHtml(s: string): string {
   return s
@@ -216,6 +228,10 @@ interface FrameSummary {
   label: string;
   /** Pre-formatted `@<stepPoint> line <line>` annotation; '' when unavailable. */
   position: string;
+  /** True when the running method was inherited → offer "Implement in <receiverClass>". */
+  overridable?: boolean;
+  /** Receiver's class name, for the override menu item's label. */
+  receiverClass?: string;
 }
 
 /**
@@ -270,6 +286,16 @@ export interface RawFrame {
   selector: string;
   /** True for doit / "Executed Code" frames (no resolvable home class). */
   isExecutedCode: boolean;
+  /** Receiver's actual class name (non-block frames only); drives override detection. */
+  receiverClassName?: string;
+  /**
+   * True when the running method was INHERITED — the receiver's class differs
+   * from the method's defining class (a real, non-doit method frame). This is
+   * exactly when "Implement <selector> in <ReceiverClass>" is offered (override).
+   * The home-dictionary check (is the receiver class editable?) is deferred to
+   * click time, to keep buildFrame off the extra per-frame server round-trip.
+   */
+  overridable?: boolean;
   label: string;
   line?: number;
   stepPoint?: number;
@@ -641,6 +667,17 @@ export class DebuggerPanel {
   private pendingDnuMethodUri: string | undefined;
   private pendingDnuSelector: string | undefined;
   /**
+   * While an "Implement in <receiverClass>" override template is being edited:
+   * the `gemstone://` new-method URI, the selector being implemented, and the
+   * server level of the SENDER frame (the caller of the overridden method).
+   * Saving the template (a clean compile) re-enters that sender so a Resume
+   * re-dispatches the send into the freshly-created override (so the frame is
+   * "reset to that method"). Undefined sender → can't re-enter; just refresh.
+   */
+  private pendingOverrideUri: string | undefined;
+  private pendingOverrideSelector: string | undefined;
+  private pendingOverrideSenderLevel: number | undefined;
+  /**
    * Suppresses the "Create #sel" button once a create is underway or resolved, so
    * it never reappears for the SAME parked doesNotUnderstand: (the method now
    * exists, but the suspended process still has the DNU frame on its stack). Reset
@@ -814,6 +851,7 @@ export class DebuggerPanel {
         return;
       }
       case 'createDnuMethod': { void this.createDnuMethod(); return; }
+      case 'implementInReceiver': { void this.implementInReceiver(msg.level); return; }
       case 'setVariable': {
         const frame = this.frames.find(f => f.level === msg.level);
         this.setVariable(frame?.serverLevel, msg.kind, msg.index, msg.expr);
@@ -850,7 +888,10 @@ export class DebuggerPanel {
       command: 'init',
       errorMessage: this.errorMessage,
       // Send only the display shape; serverLevel stays host-side.
-      stack: this.frames.map(f => ({ level: f.level, label: f.label, position: f.position })),
+      stack: this.frames.map(f => ({
+        level: f.level, label: f.label, position: f.position,
+        overridable: f.overridable, receiverClass: f.receiverClass,
+      })),
       // When parked on a doesNotUnderstand:, drive the "Create #sel in Class" button.
       dnu: this.dnuInfo
         ? { selector: this.dnuInfo.selector, className: this.dnuInfo.className, isMeta: this.dnuInfo.isMeta }
@@ -945,6 +986,105 @@ export class DebuggerPanel {
       this.errorMessage = `Could not open a method template: ${e instanceof Error ? e.message : String(e)}`;
       this.postInit();
     }
+  }
+
+  /**
+   * "Implement <selector> in <ReceiverClass>" (T2/T3 override): the selected
+   * frame is running a method the receiver INHERITED; open a template to create
+   * that selector in the receiver's OWN class. Reuses the create-method-from-DNU
+   * machinery (template editor + buildMethodStub), but the target class comes
+   * from the receiver (getClassHomeInfo) and the selector/arg-count from the
+   * frame. On a clean save, `finishOverrideMethod` re-enters the SENDER so a
+   * Resume re-dispatches the send into the new override (the frame is "reset to
+   * that method"). Degrades with the same in-band error help as the DNU path.
+   */
+  private async implementInReceiver(displayLevel: number): Promise<void> {
+    const frame = this.frames.find(f => f.level === displayLevel);
+    if (!frame || !frame.overridable) return;
+    const raw = this.rawFrames.find(r => r.serverLevel === frame.serverLevel);
+    const selector = raw?.selector;
+    if (!selector) return;
+
+    let receiverOop: bigint;
+    try {
+      receiverOop = debug.getFrameInfo(this.session, this.gsProcess, frame.serverLevel).receiverOop;
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      this.errorMessage = `Could not resolve the receiver of ${frame.label}.`;
+      this.postInit();
+      return;
+    }
+    const target = debug.getClassHomeInfo(this.session, receiverOop);
+    if (!target) {
+      this.errorMessage = `Could not resolve the receiver's class to implement #${selector}.`;
+      this.postInit();
+      return;
+    }
+    if (!target.dictName) {
+      // No home dictionary → no editable gemstone:// URI (same guard as the DNU path).
+      this.errorMessage = `Can't implement #${selector}: ${target.className} isn't in your symbol `
+        + 'list, so its source has no home dictionary. Add the class to a dictionary first.';
+      this.postInit();
+      return;
+    }
+
+    const uri = this.gemstoneMethodUri(target.dictName, target.className, target.isMeta, 'new-method');
+    // On a clean save the FS provider swaps the template tab to the real method
+    // URI — built EXACTLY as the provider builds it (see createDnuMethod) so the
+    // close-on-dispose match works.
+    const compiledUri = this.gemstoneMethodUri(target.dictName, target.className, target.isMeta, selector);
+    // The caller of the overridden frame — re-entered on save so the send
+    // re-dispatches into the new override. The displayed stack is ordered
+    // top(1)→base(N), so the sender is the NEXT-deeper displayed frame.
+    const idx = this.frames.indexOf(frame);
+    const sender = idx >= 0 ? this.frames[idx + 1] : undefined;
+    try {
+      await this.openTemplateEditor(uri, buildMethodStub(selector, selectorArgCount(selector)));
+      this.pendingOverrideUri = uri.toString();
+      this.pendingOverrideSelector = selector;
+      this.pendingOverrideSenderLevel =
+        sender && !sender.isExecutedCode && sender.serverLevel > 1 ? sender.serverLevel : undefined;
+      this.dnuMethodUris.add(uri.toString());      // closed with the panel
+      this.dnuMethodUris.add(compiledUri.toString());
+      DebuggerPanel.persistLiveSourceUris();
+      // Banner-only guidance (NOT postInit — that re-selects the top frame and
+      // steals focus from the template we just opened; see createDnuMethod).
+      this.errorMessage = `Editing new method #${selector} in ${target.className} below — fill in the `
+        + 'body, then save it (Ctrl+S / Cmd+S) to create it. The frame will then re-enter the new method.';
+      this.panel.webview.postMessage({ command: 'banner', text: this.errorMessage });
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      this.errorMessage = `Could not open a method template: ${e instanceof Error ? e.message : String(e)}`;
+      this.postInit();
+    }
+  }
+
+  /**
+   * After an override method is created (clean compile), re-enter the sender of
+   * the overridden frame (non-blocking trim) so the user's next Resume re-runs
+   * the send and method lookup finds the new override — the frame is reset to
+   * the new method. When there's no re-enterable sender (a workspace/top caller),
+   * the method still exists; tell the user to re-run. Mirrors finishDnuMethod.
+   */
+  private async finishOverrideMethod(selector: string, senderLevel: number | undefined): Promise<void> {
+    const sel = selector ? `#${selector}` : 'the method';
+    if (senderLevel === undefined) {
+      this.errorMessage = `Created ${sel} — press Resume (▶) or re-run the send to dispatch into the new method.`;
+      this.postInit();
+      return;
+    }
+    await this.runNb('Implement in receiver', async () => {
+      await debug.trimStackToLevelNb(this.session, this.gsProcess, senderLevel);
+      if (this.disposed) return;
+      this.staleTopActivation = false; // the trim rebuilt the stack from a fresh activation
+      this.uncontinuable = false;
+      this.dnuSuppressed = false;
+      this.frames = this.fetchStack();
+      this.dnuInfo = this.detectDnu();
+      this.errorMessage = `Created ${sel} — re-entered the calling frame. Press Resume (▶) to `
+        + 'dispatch into the new method, or step into it.';
+      this.postInit();
+    });
   }
 
   /**
@@ -1491,6 +1631,20 @@ export class DebuggerPanel {
       return;
     }
 
+    // Implement-in-receiver (override): saving the template creates the method in
+    // the receiver's class; on a clean compile, re-enter the sender so Resume
+    // re-dispatches into it. A bad compile keeps the pending state for a re-save.
+    if (this.pendingOverrideUri !== undefined && doc.uri.toString() === this.pendingOverrideUri) {
+      if (this.recompileFailed(doc.uri)) return;
+      const selector = this.pendingOverrideSelector ?? '';
+      const senderLevel = this.pendingOverrideSenderLevel;
+      this.pendingOverrideUri = undefined;
+      this.pendingOverrideSelector = undefined;
+      this.pendingOverrideSenderLevel = undefined;
+      void this.finishOverrideMethod(selector, senderLevel);
+      return;
+    }
+
     if (this.editableSourceUri === undefined || this.selectedServerLevel === undefined) return;
     if (doc.uri.toString() !== this.editableSourceUri) return;
     // The recompile failed if the FS provider left an error diagnostic on the URI
@@ -1842,6 +1996,8 @@ export class DebuggerPanel {
       serverLevel: r.serverLevel,
       label: r.label,
       isExecutedCode: r.isExecutedCode,
+      overridable: r.overridable,
+      receiverClass: r.receiverClassName,
       // Executed-code frames have no meaningful step point/line once unwrapped (#3).
       position: r.isExecutedCode ? '' : formatFramePosition(r.stepPoint, r.line),
     }));
@@ -1880,11 +2036,11 @@ export class DebuggerPanel {
     const home = this.resolveHomeMethod(homeMethodOop);
 
     let label: string;
+    let receiverClass: string | undefined;
     if (home.definingClassName) {
       const definingClass = `${home.definingClassName}${home.isMeta ? ' class' : ''}`;
       // Receiver class drives the `Receiver (Defining)` disambiguation for
       // inherited methods (non-block frames only — see formatFrameLabel).
-      let receiverClass: string | undefined;
       if (!isBlock) {
         try {
           receiverClass = debug.getObjectClassName(this.session, info.receiverOop);
@@ -1895,6 +2051,13 @@ export class DebuggerPanel {
       label = 'Executed Code';
     }
     const isExecutedCode = home.isExecutedCode;
+    // The running method was inherited iff the receiver's class differs from the
+    // method's defining class — the precise condition for offering "Implement in
+    // <ReceiverClass>" (override). (getObjectClassName returns "Foo class" for a
+    // class receiver, so a class-side inherited method qualifies too.)
+    const overridable = !isBlock && !isExecutedCode && !!receiverClass
+      && receiverClass !== home.definingClassName
+      && receiverClass !== `${home.definingClassName} class`;
 
     let line: number | undefined;
     try {
@@ -1909,7 +2072,7 @@ export class DebuggerPanel {
     return {
       serverLevel: level, methodOop: info.methodOop, homeMethodOop, isBlock,
       definingClassName: home.definingClassName, selector: home.selector,
-      isExecutedCode, label, line, stepPoint,
+      isExecutedCode, receiverClassName: receiverClass, overridable, label, line, stepPoint,
     };
   }
 
@@ -2234,6 +2397,7 @@ export class DebuggerPanel {
   </div>
   <div id="ctxmenu" class="ctx-menu" role="menu">
     <div class="ctx-item" id="copyFrameItem" role="menuitem">Copy Frame</div>
+    <div class="ctx-item" id="frameImplItem" role="menuitem" style="display:none;">Implement in receiver</div>
   </div>
   <div id="varctxmenu" class="ctx-menu" role="menu">
     <div class="ctx-item" id="varInspectItem" role="menuitem">GT Inspect</div>
@@ -2245,6 +2409,7 @@ export class DebuggerPanel {
       list: document.getElementById('stack'),
       menu: document.getElementById('ctxmenu'),
       copyFrameItem: document.getElementById('copyFrameItem'),
+      frameImplItem: document.getElementById('frameImplItem'),
       copyBtn: document.getElementById('copyBtn'),
       error: document.getElementById('error'),
       dnuBar: document.getElementById('dnuBar'),

@@ -11,7 +11,7 @@ beforeAll(() => {
   new Function(source)();
 });
 
-interface FrameSummary { level: number; label: string; position: string; }
+interface FrameSummary { level: number; label: string; position: string; overridable?: boolean; receiverClass?: string; }
 
 interface DebuggerViewApi {
   renderStack(listEl: HTMLElement, stack: FrameSummary[]): void;
@@ -50,6 +50,7 @@ interface Refs {
   list: HTMLElement;
   menu: HTMLElement;
   copyFrameItem: HTMLElement;
+  frameImplItem?: HTMLElement;
   copyBtn: HTMLElement;
   error: HTMLElement;
   dnuBar?: HTMLElement;
@@ -71,7 +72,7 @@ function api(): DebuggerViewApi {
 
 const STACK: FrameSummary[] = [
   { level: 1, label: '[] in JasperDebugDemo>>#finish', position: '@2 line 12' },
-  { level: 2, label: 'SmallInteger (Object)>>#halt', position: '@2 line 12' },
+  { level: 2, label: 'SmallInteger (Object)>>#halt', position: '@2 line 12', overridable: true, receiverClass: 'SmallInteger' },
   { level: 3, label: 'JasperDebugDemo>>#accumulateFrom:to:', position: '' },
 ];
 
@@ -92,12 +93,13 @@ function setup(stack: FrameSummary[] = STACK, dnu?: { selector: string; classNam
     <div id="dnuBar"></div>
     <div class="main"><ul id="stack"></ul><div id="variables"></div></div>
     <input id="evalInput"><div id="evalResult"></div>
-    <div id="ctxmenu"><div id="copyFrameItem">Copy Frame</div></div>
+    <div id="ctxmenu"><div id="copyFrameItem">Copy Frame</div><div id="frameImplItem" style="display:none;">Implement in receiver</div></div>
     <div id="varctxmenu"><div id="varInspectItem">GT Inspect</div></div>`;
   const refs: Refs = {
     list: document.getElementById('stack')!,
     menu: document.getElementById('ctxmenu')!,
     copyFrameItem: document.getElementById('copyFrameItem')!,
+    frameImplItem: document.getElementById('frameImplItem')!,
     copyBtn: document.getElementById('copyBtn')!,
     error: document.getElementById('error')!,
     dnuBar: document.getElementById('dnuBar')!,
@@ -238,6 +240,27 @@ describe('DebuggerView.init — right-click copy popup', () => {
   it('a right-click outside any frame does not open the menu', () => {
     const { refs } = setup();
     refs.list.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(refs.menu.classList.contains('show')).toBe(false);
+  });
+
+  it('shows "Implement in <receiverClass>" only on an overridable frame', () => {
+    const { refs } = setup();
+    // Frame 2 is an inherited method (overridable) → item shown + labelled.
+    frame(refs, 2).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(refs.frameImplItem!.style.display).not.toBe('none');
+    expect(refs.frameImplItem!.textContent).toBe('Implement in SmallInteger');
+
+    // Frame 1 is NOT overridable → item hidden.
+    frame(refs, 1).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(refs.frameImplItem!.style.display).toBe('none');
+  });
+
+  it('clicking Implement posts implementInReceiver for the selected level and hides the menu', () => {
+    const { refs, vscode } = setup();
+    frame(refs, 2).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    refs.frameImplItem!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'implementInReceiver', level: 2 });
     expect(refs.menu.classList.contains('show')).toBe(false);
   });
 });

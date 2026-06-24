@@ -230,6 +230,59 @@ export function getMethodSource(session: ActiveSession, methodOop: bigint): stri
 }
 
 /**
+ * Where to add a method on a given object's class. `className` is the (non-meta)
+ * class name; `isMeta` is true when the object IS a class (so a class-side
+ * method is wanted). `dictName` is the dictionary that class lives in (for the
+ * gemstone:// new-method URI); '' when the class isn't in the user's symbol
+ * list. Mirrors the class-resolution tail of DnuInfo, but for an arbitrary
+ * object (a debugger frame's receiver) rather than a doesNotUnderstand: send.
+ */
+export interface ClassHomeInfo {
+  className: string;
+  isMeta: boolean;
+  dictName: string;
+}
+
+/**
+ * Resolve where a method would be added on `receiverOop`'s class — used to
+ * implement (override) an inherited method in the receiver's OWN class from the
+ * debugger. A class receiver resolves to its class-side; the home dictionary is
+ * found by NAME key in the user's symbol list (see the symbol-list home-dict
+ * gotcha). Returns undefined on any failure so callers degrade gracefully.
+ */
+export function getClassHomeInfo(session: ActiveSession, receiverOop: bigint): ClassHomeInfo | undefined {
+  try {
+    const { result: classUtf8, err: resErr } = session.gci.GciTsResolveSymbol(
+      session.handle, 'Utf8', OOP_NIL,
+    );
+    if (resErr.number !== 0) return undefined;
+
+    const code = `| rcvr base meta dn |
+rcvr := Object _objectForOop: ${receiverOop}.
+(rcvr isKindOf: Class)
+  ifTrue: [ base := rcvr. meta := true ]
+  ifFalse: [ base := rcvr class. meta := false ].
+dn := ''.
+System myUserProfile symbolList do: [:d |
+  (d includesKey: base name asSymbol) ifTrue: [ dn := d name ]].
+base name asString, String tab,
+  (meta ifTrue: ['class'] ifFalse: ['instance']), String tab,
+  dn`;
+
+    const { data, err } = session.gci.GciTsExecuteFetchBytes(
+      session.handle, code, -1, classUtf8, OOP_ILLEGAL, OOP_NIL, 64 * 1024,
+    );
+    if (err.number !== 0) return undefined;
+
+    const parts = data.split('\t');
+    if (parts.length < 3) return undefined;
+    return { className: parts[0], isMeta: parts[1] === 'class', dictName: parts[2] };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * The pieces needed to create the method a `doesNotUnderstand:` is asking for.
  * `className` is the (non-meta) name of the class the method should be added to;
  * `isMeta` is true when the unknown message was sent to a *class* (so a
