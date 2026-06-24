@@ -69,6 +69,8 @@ type DebuggerInbound =
   | { command: 'stepThrough'; level: number }
   | { command: 'restartFrame'; level: number }
   | { command: 'inspectVariable'; oop: string; name: string }
+  | { command: 'setVariable'; level: number; kind: 'instvar' | 'temp'; index: number; expr: string }
+  | { command: 'revertVariable'; level: number; kind: 'instvar' | 'temp'; index: number }
   | { command: 'createDnuMethod' }
   | { command: 'saveLayout'; stackBasis?: string; evalHeight?: string };
 
@@ -78,6 +80,19 @@ interface VarRow {
   value: string;
   /** The variable's OOP as a decimal string (drives the dim column + GT Inspect). */
   oop: string;
+  /**
+   * When present, this row is editable via the variable evaluator (T1). Carries
+   * the server-side write target: `instvar` → `instVarAt:put:` on the receiver,
+   * `temp` → `_frameAt:tempAt:put:` on the frame. `index` is 1-based. Absent for
+   * the (non-editable) `self` receiver row.
+   */
+  edit?: { kind: 'instvar' | 'temp'; index: number };
+  /**
+   * True when this slot has been edited away from its original value this halt,
+   * so the webview shows a revert (↺) icon. Set only when true (so unchanged
+   * rows stay lean); see the per-panel undo state in DebuggerPanel.
+   */
+  revertible?: boolean;
 }
 
 /**
@@ -608,6 +623,19 @@ export class DebuggerPanel {
   private disposed = false;
 
   /**
+   * Variable-revert (single-level undo) state, scoped to the current halt.
+   * `undoOriginals` maps a slot key (`level:kind:index`) → the OOP the slot held
+   * before its FIRST edit this halt; `undoDirty` is the subset whose value still
+   * differs from that original (drives the ↺ revert icon). `undoPinned` is the
+   * non-immediate originals saved against GC via `saveObjs` — released together
+   * (never per-slot, since the export set isn't ref-counted) by clearUndoState()
+   * on any stack-mutating op and on dispose. See setVariable / revertVariable.
+   */
+  private undoOriginals = new Map<string, bigint>();
+  private undoDirty = new Set<string>();
+  private undoPinned: bigint[] = [];
+
+  /**
    * @param onComplete called with the process's result oop when execution
    *   completes via Resume or step-to-completion (e.g. so a halted Display It
    *   can render its result back in the workspace). Omitted when there's no
@@ -725,6 +753,16 @@ export class DebuggerPanel {
         return;
       }
       case 'createDnuMethod': { void this.createDnuMethod(); return; }
+      case 'setVariable': {
+        const frame = this.frames.find(f => f.level === msg.level);
+        this.setVariable(frame?.serverLevel, msg.kind, msg.index, msg.expr);
+        return;
+      }
+      case 'revertVariable': {
+        const frame = this.frames.find(f => f.level === msg.level);
+        this.revertVariable(frame?.serverLevel, msg.kind, msg.index);
+        return;
+      }
       case 'inspectVariable': {
         // Open the clicked variable in a GT Inspector (beside), like GT Inspect.
         // Track it so it closes with the debugger (it's an artifact of it).
@@ -963,20 +1001,28 @@ export class DebuggerPanel {
       try { return debug.getObjectPrintString(this.session, oop); }
       catch { return '<unprintable>'; }
     };
-    const row = (name: string, oop: bigint): VarRow =>
-      ({ name, value: safePrint(oop), oop: oop.toString() });
+    const row = (name: string, oop: bigint, edit?: VarRow['edit']): VarRow => {
+      // Stamp `revertible` only when this slot has been edited away from its
+      // original this halt (the webview then shows the ↺ icon). Left undefined
+      // otherwise so unchanged rows stay lean.
+      const revertible = edit && this.undoDirty.has(this.undoKey(serverLevel, edit.kind, edit.index))
+        ? true : undefined;
+      return { name, value: safePrint(oop), oop: oop.toString(), edit, revertible };
+    };
 
     const groups: VarGroup[] = [];
 
-    // 1. Receiver — `self`.
+    // 1. Receiver — `self`. Not editable (you can't reassign a frame's receiver),
+    // so no `edit` metadata: the webview renders it read-only.
     groups.push({ title: 'Receiver', kind: 'receiver', vars: [row('self', info.receiverOop)] });
 
     // 2. Instance variables — the receiver's named instVars (none for immediates).
+    // Editable via `instVarAt:put:` (1-based index).
     try {
       const ivNames = debug.getInstVarNames(this.session, info.receiverOop);
       if (ivNames.length > 0) {
         const ivOops = debug.getNamedInstVarOops(this.session, info.receiverOop, ivNames.length);
-        const ivVars = ivNames.map((n, i) => row(n, ivOops[i]));
+        const ivVars = ivNames.map((n, i) => row(n, ivOops[i], { kind: 'instvar', index: i + 1 }));
         groups.push({ title: 'Instance variables', kind: 'instvars', vars: ivVars });
       }
     } catch (e: unknown) {
@@ -987,12 +1033,20 @@ export class DebuggerPanel {
     // `__vsc…` temps are the Transcript-capture wrapper's glue (see
     // transcriptCapture.ts); they're hidden, just like the glue is stripped from
     // an executed-code frame's source.
+    // The write primitive `_frameAt:tempAt:put:` indexes the *unfiltered*
+    // argAndTempNames array (1-based), so a NAMED temp's editable index is `i + 1`
+    // even though we drop `__vsc` glue. The synthetic `.tN` eval-stack temps are
+    // left read-only: they appear in the names array but sit past the method's
+    // declared argsAndTemps offsets, so the primitive can't address them ("method
+    // temp or arg not found"). (They stay viewable + GT-Inspectable, like `self`.)
     const named: VarRow[] = [];
     const stackTemps: VarRow[] = [];
     for (let i = 0; i < info.argAndTempNames.length; i++) {
       const name = info.argAndTempNames[i];
       if (name.startsWith('__vsc')) continue;
-      (name.startsWith('.') ? stackTemps : named).push(row(name, info.argAndTempOops[i]));
+      const isStackTemp = name.startsWith('.');
+      const r = row(name, info.argAndTempOops[i], isStackTemp ? undefined : { kind: 'temp', index: i + 1 });
+      (isStackTemp ? stackTemps : named).push(r);
     }
     if (named.length > 0) {
       groups.push({ title: 'Arguments & Temps', kind: 'argtemps', vars: named });
@@ -1017,6 +1071,120 @@ export class DebuggerPanel {
     this.panel.webview.postMessage({ command: 'evalResult', expr, value, isError });
   }
 
+  /**
+   * Assign a variable from the variable evaluator (T1): evaluate `expr` in the
+   * frame, then write the resulting object into the receiver's instVar or the
+   * frame's temp. On success, re-fetch ALL variables so every row's printString,
+   * OOP (dim column) and GT-Inspect target reflect the new object — the old OOP
+   * is stale once the slot points at a different object. On a compile/runtime
+   * error nothing is written and the error is sent back so the webview keeps the
+   * editor open.
+   */
+  private setVariable(
+    serverLevel: number | undefined, kind: 'instvar' | 'temp', index: number, expr: string,
+  ): void {
+    if (serverLevel == null) return;
+    // Writing is a blocking GCI perform; refuse while a non-blocking step/trim
+    // owns the session's single in-flight call.
+    if (this.nbBusy) {
+      this.notifyBusy('Set variable');
+      this.panel.webview.postMessage({ command: 'setVariableResult', ok: false, error: 'Busy — try again' });
+      return;
+    }
+    try {
+      const valueOop = debug.evaluateInFrameToOop(this.session, this.gsProcess, expr, serverLevel);
+      const info = debug.getFrameInfo(this.session, this.gsProcess, serverLevel);
+      // Capture + pin the slot's pre-edit value BEFORE overwriting it (first edit
+      // only), so revert can restore the exact original object.
+      this.captureUndoOriginal(serverLevel, kind, index, info);
+      if (kind === 'instvar') {
+        debug.setInstVar(this.session, info.receiverOop, index, valueOop);
+      } else {
+        debug.setFrameTemp(this.session, this.gsProcess, serverLevel, index, valueOop);
+      }
+      this.undoDirty.add(this.undoKey(serverLevel, kind, index));
+      this.panel.webview.postMessage({ command: 'setVariableResult', ok: true });
+      this.postVariables(serverLevel);
+    } catch (e: unknown) {
+      const error = e instanceof Error ? e.message : String(e);
+      logError(this.sessionId, error);
+      this.panel.webview.postMessage({ command: 'setVariableResult', ok: false, error });
+    }
+  }
+
+  private undoKey(level: number, kind: 'instvar' | 'temp', index: number): string {
+    return `${level}:${kind}:${index}`;
+  }
+
+  /**
+   * Record (once per slot, this halt) the value a slot holds before its first
+   * edit, and pin it against GC so revert can write the exact original object
+   * back. Immediates aren't pinned (they can't be collected). `info` is the
+   * already-fetched frame contents for `level`.
+   */
+  private captureUndoOriginal(
+    level: number, kind: 'instvar' | 'temp', index: number, info: debug.FrameInfo,
+  ): void {
+    const key = this.undoKey(level, kind, index);
+    if (this.undoOriginals.has(key)) return; // keep the FIRST original
+    const originalOop = kind === 'instvar'
+      ? debug.getInstVarOop(this.session, info.receiverOop, index)
+      : info.argAndTempOops[index - 1];
+    if (originalOop === undefined) return; // defensive: nothing to remember
+    this.undoOriginals.set(key, originalOop);
+    if (!debug.isSpecialOop(this.session, originalOop)) {
+      debug.saveObjs(this.session, [originalOop]);
+      this.undoPinned.push(originalOop);
+    }
+  }
+
+  /**
+   * Revert a slot to the value it held before its first edit this halt (the ↺
+   * icon). Writes the stored original OOP straight back (no re-evaluation), then
+   * refreshes — the row is no longer dirty, so the icon disappears. The pin is
+   * NOT released here (the slot re-references the object anyway); pins are freed
+   * en masse by clearUndoState(). No-op if the slot has no stored original.
+   */
+  private revertVariable(
+    serverLevel: number | undefined, kind: 'instvar' | 'temp', index: number,
+  ): void {
+    if (serverLevel == null) return;
+    const key = this.undoKey(serverLevel, kind, index);
+    const originalOop = this.undoOriginals.get(key);
+    if (originalOop === undefined) return; // nothing recorded for this slot
+    // A blocking write can't share the session with an in-flight non-blocking op.
+    if (this.nbBusy) { this.notifyBusy('Revert variable'); return; }
+    try {
+      if (kind === 'instvar') {
+        const receiverOop = debug.getFrameInfo(this.session, this.gsProcess, serverLevel).receiverOop;
+        debug.setInstVar(this.session, receiverOop, index, originalOop);
+      } else {
+        debug.setFrameTemp(this.session, this.gsProcess, serverLevel, index, originalOop);
+      }
+      this.undoDirty.delete(key);
+      this.postVariables(serverLevel);
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /**
+   * Drop all variable-revert state and release every pinned original. Called on
+   * any stack-mutating op (step / resume / restart) and on dispose — once the
+   * stack moves, the stored `{level,index}` slots are no longer valid, and we
+   * must not leak the session's export set. Best-effort release (a failure here
+   * must not break dispose).
+   */
+  private clearUndoState(): void {
+    if (this.undoPinned.length > 0) {
+      try { debug.releaseObjs(this.session, this.undoPinned); }
+      catch (e: unknown) { logError(this.sessionId, e instanceof Error ? e.message : String(e)); }
+    }
+    this.undoPinned = [];
+    this.undoOriginals.clear();
+    this.undoDirty.clear();
+  }
+
   /** Resume execution: closes the panel if the process completes, else refreshes on the new error. */
   private resume(): void {
     if (this.guardStaleTopActivation('Resume')) return;
@@ -1029,6 +1197,8 @@ export class DebuggerPanel {
       this.notifyBusy('Resume');
       return;
     }
+    // Leaving this halt: drop revert state + release pinned originals.
+    this.clearUndoState();
     const result = debug.continueExecution(this.session, this.gsProcess);
     if (result.completed) {
       this.onCompleted(result);
@@ -1117,6 +1287,8 @@ export class DebuggerPanel {
     const frame = this.frames.find(f => f.level === displayLevel) ?? this.frames[0];
     const level = frame?.serverLevel ?? 1;
     await this.runNb('Step', async () => {
+      // Stepping moves the stack → the prior halt's revert slots are now invalid.
+      this.clearUndoState();
       // Non-blocking + cancellable: a step that crawls hidden machinery or steps
       // a looping method no longer freezes the extension host (see nbRunner.ts).
       const result = await fn(this.session, this.gsProcess, level);
@@ -1217,6 +1389,8 @@ export class DebuggerPanel {
       return;
     }
     await this.runNb('Restart frame', async () => {
+      // The trim rebuilds the stack → revert slots no longer apply.
+      this.clearUndoState();
       await debug.trimStackToLevelNb(this.session, this.gsProcess, serverLevel);
       if (this.disposed) return;
       this.staleTopActivation = false; // the trim discarded any stale top activation
@@ -1893,12 +2067,48 @@ export class DebuggerPanel {
     .var-group.collapsed .var-group-body { display: none; }
     .vars .var {
       padding: 0.15rem 0.2rem; display: flex; gap: 0.5rem; align-items: baseline;
-      cursor: pointer; border-radius: 3px;
+      cursor: default; border-radius: 3px;
     }
+    /* Only editable rows invite a click (left-click opens the variable evaluator);
+       the pointer cursor signals they're interactive. */
+    .vars .var.editable { cursor: pointer; }
+    /* While editing, let the error message wrap onto its own line under the input. */
+    .vars .var.editing { flex-wrap: wrap; }
     .vars .var:hover { background: var(--vscode-list-hoverBackground); }
+    /* Inline variable evaluator: replaces the value cell in place, prefilled with
+       the printString. .error flags a rejected (compile/runtime) expression. */
+    .vars .var-edit {
+      flex: 1 1 auto; min-width: 0; box-sizing: border-box; user-select: text; -webkit-user-select: text;
+      font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85em;
+      color: var(--vscode-input-foreground); background: var(--vscode-input-background);
+      border: 1px solid var(--vscode-focusBorder, var(--vscode-input-border, transparent));
+      padding: 0.05rem 0.25rem; border-radius: 2px;
+    }
+    .vars .var-edit.error {
+      border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+      background: var(--vscode-inputValidation-errorBackground, var(--vscode-input-background));
+      outline: 1px solid var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+    }
+    /* The rejected-expression message, on its own line below the input.
+       Selectable so the user can copy the real error text. */
+    .vars .var-edit-error {
+      flex: 1 0 100%; margin-top: 0.15rem; padding-left: 0.1rem;
+      color: var(--vscode-errorForeground); font-size: 0.78em; white-space: pre-wrap; word-break: break-word;
+      user-select: text; -webkit-user-select: text; cursor: text;
+    }
     .vars .var-name { color: var(--vscode-symbolIcon-variableForeground, var(--vscode-foreground)); white-space: nowrap; flex: 0 0 auto; }
     .vars .var-name.self { font-style: italic; }
-    .vars .var-value { color: var(--vscode-descriptionForeground); white-space: pre; overflow: hidden; text-overflow: ellipsis; flex: 1 1 auto; }
+    /* The value hugs its content (shrink-and-ellipsize, not grow) so the revert
+       icon can sit right after it; min-width:0 lets the ellipsis kick in. */
+    .vars .var-value { color: var(--vscode-descriptionForeground); white-space: pre; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 0; }
+    /* Revert (↺) icon on an edited row — immediately to the right of the value.
+       A long printString ellipsizes (the value shrinks), so the icon stays glued
+       to the value and never scrolls off; the dim OOP stays pinned far right. */
+    .vars .var-revert {
+      flex: 0 0 auto; cursor: pointer; user-select: none;
+      color: var(--vscode-descriptionForeground); opacity: 0.8;
+    }
+    .vars .var-revert:hover { opacity: 1; color: var(--vscode-foreground); }
     /* OOP shown dim at the row end, matching the GT Inspector header convention. */
     .vars .var-oop {
       flex: 0 0 auto; margin-left: auto; white-space: nowrap;
@@ -1961,6 +2171,9 @@ export class DebuggerPanel {
   <div id="ctxmenu" class="ctx-menu" role="menu">
     <div class="ctx-item" id="copyFrameItem" role="menuitem">Copy Frame</div>
   </div>
+  <div id="varctxmenu" class="ctx-menu" role="menu">
+    <div class="ctx-item" id="varInspectItem" role="menuitem">GT Inspect</div>
+  </div>
   <script nonce="${nonce}">${debuggerViewJs}</script>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
@@ -1979,6 +2192,8 @@ export class DebuggerPanel {
       main: document.getElementById('main'),
       splitter: document.getElementById('splitter'),
       hsplitter: document.getElementById('hsplitter'),
+      varMenu: document.getElementById('varctxmenu'),
+      varInspectItem: document.getElementById('varInspectItem'),
     }, vscode);
     vscode.postMessage({ command: 'ready' });
   </script>
@@ -1990,6 +2205,9 @@ export class DebuggerPanel {
     this.disposed = true; // an in-flight Nb step/trim continuation must skip the dead panel
     if (this.layoutSampler) { clearInterval(this.layoutSampler); this.layoutSampler = undefined; }
     DebuggerPanel.panels.get(this.sessionId)?.delete(this);
+    // Release any pinned revert originals so closing the debugger never leaks the
+    // session's export set.
+    this.clearUndoState();
     // Restore native code once the last debugger for this session closes
     // (paired with acquireStepping in create).
     debug.releaseStepping(this.session);

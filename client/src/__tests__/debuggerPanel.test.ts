@@ -38,6 +38,13 @@ vi.mock('../debugQueries', () => ({
   getInstVarNames: vi.fn(() => [] as string[]),
   getNamedInstVarOops: vi.fn(() => [] as bigint[]),
   evaluateInFrame: vi.fn(() => '42'),
+  evaluateInFrameToOop: vi.fn(() => 999n),
+  setFrameTemp: vi.fn(),
+  setInstVar: vi.fn(),
+  getInstVarOop: vi.fn(() => 700n),
+  isSpecialOop: vi.fn(() => false),
+  saveObjs: vi.fn(),
+  releaseObjs: vi.fn(),
   continueExecution: vi.fn(() => ({ completed: true })),
   stepOver: vi.fn(() => ({ completed: false })),
   stepInto: vi.fn(() => ({ completed: false })),
@@ -298,6 +305,28 @@ describe('DebuggerPanel', () => {
     expect(html).toContain('For DataCurator on gs64stone @ devhost');
     // The subtitle uses the dimmed description color.
     expect(html).toMatch(/\.subtitle\s*\{[^}]*--vscode-descriptionForeground/);
+  });
+
+  it('styles editable variable rows with a pointer cursor (the editable affordance)', () => {
+    DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+    const html = lastPanel().webview.html;
+
+    // Editable rows get a pointer cursor; the base row stays a plain default
+    // (so `self` and other non-editable rows don't look clickable).
+    expect(html).toMatch(/\.var\.editable\s*\{[^}]*cursor:\s*pointer/);
+    expect(html).toMatch(/\.vars \.var\s*\{[^}]*cursor:\s*default/);
+  });
+
+  it('styles a rejected variable expression with an error border + visible message line', () => {
+    DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+    const html = lastPanel().webview.html;
+
+    // The editor's .error state recolors the border to the validation-error color…
+    expect(html).toMatch(/\.var-edit\.error\s*\{[^}]*--vscode-inputValidation-errorBorder/);
+    // …and the message line below it uses the error foreground color…
+    expect(html).toMatch(/\.var-edit-error\s*\{[^}]*--vscode-errorForeground/);
+    // …and is text-selectable so the real error can be copied out.
+    expect(html).toMatch(/\.var-edit-error\s*\{[^}]*user-select:\s*text/);
   });
 
   it('HTML-escapes session text so it cannot inject markup into the page', () => {
@@ -990,8 +1019,8 @@ describe('DebuggerPanel', () => {
       expect(receiver.vars[0]).toEqual({ name: 'self', value: '<print 300>', oop: '300' });
       const argtemps = groups.find((g: { kind: string }) => g.kind === 'argtemps');
       expect(argtemps.vars).toEqual([
-        { name: 'amount', value: '<print 11>', oop: '11' },
-        { name: 'total', value: '<print 22>', oop: '22' },
+        { name: 'amount', value: '<print 11>', oop: '11', edit: { kind: 'temp', index: 1 } },
+        { name: 'total', value: '<print 22>', oop: '22', edit: { kind: 'temp', index: 2 } },
       ]);
     });
 
@@ -1004,11 +1033,16 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'selectFrame', level: 2 });
 
       const groups = lastPosted(panel, 'variables').groups;
+      // A named temp carries its 1-based write index into the unfiltered
+      // argAndTempNames (`amount` is #1). The `.tN` eval-stack temps are NOT
+      // editable — they sit past the method's argsAndTemps offsets, so the write
+      // primitive can't address them — so they carry NO edit metadata.
       expect(groups.find((g: { kind: string }) => g.kind === 'argtemps').vars)
-        .toEqual([{ name: 'amount', value: '<print 11>', oop: '11' }]);
+        .toEqual([{ name: 'amount', value: '<print 11>', oop: '11', edit: { kind: 'temp', index: 1 } }]);
       const stack = groups.find((g: { kind: string }) => g.kind === 'stacktemps');
       expect(stack.collapsed).toBe(true);
       expect(stack.vars).toEqual([{ name: '.t1', value: '<print 99>', oop: '99' }]);
+      expect(stack.vars[0].edit).toBeUndefined();
     });
 
     it('hides the __vsc transcript-capture glue temps from an executed-code frame', () => {
@@ -1022,7 +1056,9 @@ describe('DebuggerPanel', () => {
 
       const groups = lastPosted(panel, 'variables').groups;
       const argtemps = groups.find((g: { kind: string }) => g.kind === 'argtemps');
-      expect(argtemps.vars).toEqual([{ name: 'amount', value: '<print 11>', oop: '11' }]);
+      // `amount` sits at unfiltered index 3 (after the two __vsc glue temps),
+      // so its 1-based write index is 3 even though the glue rows are hidden.
+      expect(argtemps.vars).toEqual([{ name: 'amount', value: '<print 11>', oop: '11', edit: { kind: 'temp', index: 3 } }]);
       // None of the glue names leak into any group.
       const allNames = groups.flatMap((g: { vars: { name: string }[] }) => g.vars.map(v => v.name));
       expect(allNames.some((n: string) => n.startsWith('__vsc'))).toBe(false);
@@ -1036,8 +1072,8 @@ describe('DebuggerPanel', () => {
 
       const groups = lastPosted(panel, 'variables').groups;
       expect(groups.find((g: { kind: string }) => g.kind === 'instvars').vars).toEqual([
-        { name: 'count', value: '<print 7>', oop: '7' },
-        { name: 'sum', value: '<print 8>', oop: '8' },
+        { name: 'count', value: '<print 7>', oop: '7', edit: { kind: 'instvar', index: 1 } },
+        { name: 'sum', value: '<print 8>', oop: '8', edit: { kind: 'instvar', index: 2 } },
       ]);
     });
 
@@ -1045,6 +1081,171 @@ describe('DebuggerPanel', () => {
       const panel = openPanel();
       sendMessage(panel, { command: 'inspectVariable', oop: '300', name: 'self' });
       expect(GtInspector.create).toHaveBeenCalledWith(session, 300n, 'self');
+    });
+
+    it('setVariable (instvar) evaluates the expr, writes via instVarAt:put:, refreshes, and reports ok', () => {
+      vi.mocked(debug.evaluateInFrameToOop).mockReturnValueOnce(777n);
+      const panel = openPanel();
+      const before = posted(panel, 'variables').length;
+      sendMessage(panel, { command: 'setVariable', level: 3, kind: 'instvar', index: 2, expr: '99' });
+
+      expect(debug.evaluateInFrameToOop).toHaveBeenCalledWith(session, GS_PROCESS, '99', expect.any(Number));
+      expect(debug.setInstVar).toHaveBeenCalledWith(session, expect.any(BigInt), 2, 777n);
+      // Re-fetched variables so every row's printString + OOP reflect the new object.
+      expect(posted(panel, 'variables').length).toBe(before + 1);
+      expect(lastPosted(panel, 'setVariableResult')).toEqual({ command: 'setVariableResult', ok: true });
+    });
+
+    it('setVariable (temp) writes via _frameAt:tempAt:put:, refreshes, and reports ok', () => {
+      vi.mocked(debug.evaluateInFrameToOop).mockReturnValueOnce(555n);
+      const panel = openPanel();
+      const before = posted(panel, 'variables').length;
+      sendMessage(panel, { command: 'setVariable', level: 3, kind: 'temp', index: 4, expr: 'self' });
+
+      expect(debug.setFrameTemp).toHaveBeenCalledWith(session, GS_PROCESS, expect.any(Number), 4, 555n);
+      expect(debug.setInstVar).not.toHaveBeenCalled(); // a temp write must NOT touch instVars
+      expect(posted(panel, 'variables').length).toBe(before + 1);
+      expect(lastPosted(panel, 'setVariableResult')).toEqual({ command: 'setVariableResult', ok: true });
+    });
+
+    it('setVariable refuses (and reports !ok) while a non-blocking step is in flight', async () => {
+      let release: (r: debug.StepResult) => void = () => {};
+      vi.mocked(debug.stepOverNb).mockReturnValueOnce(new Promise<debug.StepResult>(res => { release = res; }));
+      const panel = openPanel();
+      sendMessage(panel, { command: 'stepOver', level: 3 }); // holds the session's single GCI call
+      await tick();
+
+      sendMessage(panel, { command: 'setVariable', level: 3, kind: 'instvar', index: 1, expr: '99' });
+      // A blocking frame write can't share the session with an in-flight step.
+      expect(debug.evaluateInFrameToOop).not.toHaveBeenCalled();
+      expect(debug.setInstVar).not.toHaveBeenCalled();
+      expect(lastPosted(panel, 'setVariableResult').ok).toBe(false);
+
+      release({ completed: false }); // let the step settle
+      await tick();
+    });
+
+    it('setVariable reports a compile/runtime error (and does NOT refresh) so the editor stays open', () => {
+      vi.mocked(debug.evaluateInFrameToOop).mockImplementationOnce(() => { throw new Error('a parse error'); });
+      const panel = openPanel();
+      const before = posted(panel, 'variables').length;
+      sendMessage(panel, { command: 'setVariable', level: 3, kind: 'instvar', index: 1, expr: 'bogus +' });
+
+      expect(debug.setInstVar).not.toHaveBeenCalled();
+      expect(posted(panel, 'variables').length).toBe(before); // no refresh on failure
+      const res = lastPosted(panel, 'setVariableResult');
+      expect(res.ok).toBe(false);
+      expect(res.error).toContain('a parse error');
+    });
+
+    describe('variable revert (single-level undo)', () => {
+      // A frame (level 2) with one named temp `amount` (#1, value oop 11) and a
+      // receiver (300) with one instVar `count` (#1). getInstVarOop returns the
+      // instVar's *original* oop (700) when captured before the first edit.
+      beforeEach(() => {
+        vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) =>
+          level === 2
+            ? { methodOop: 2n, ipOffset: 5, receiverOop: 300n, argAndTempNames: ['amount'], argAndTempOops: [11n] }
+            : { methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [] });
+        vi.mocked(debug.getInstVarNames).mockReturnValue(['count']);
+        vi.mocked(debug.getNamedInstVarOops).mockReturnValue([700n]);
+        vi.mocked(debug.getInstVarOop).mockReturnValue(700n);
+      });
+
+      // mockReturnValue is sticky past clearAllMocks; restore factory defaults so
+      // these don't bleed into sibling tests (getFrameInfo is reset by the outer
+      // beforeEach, so it's not listed here).
+      afterEach(() => {
+        vi.mocked(debug.getInstVarNames).mockReturnValue([]);
+        vi.mocked(debug.getNamedInstVarOops).mockReturnValue([]);
+        vi.mocked(debug.getInstVarOop).mockReturnValue(700n);
+        vi.mocked(debug.isSpecialOop).mockReturnValue(false);
+        vi.mocked(debug.evaluateInFrameToOop).mockReturnValue(999n);
+        vi.mocked(debug.continueExecution).mockReturnValue({ completed: true });
+      });
+
+      const editInstVar = (panel: ReturnType<typeof lastPanel>, expr = '99') =>
+        sendMessage(panel, { command: 'setVariable', level: 2, kind: 'instvar', index: 1, expr });
+
+      it('captures + pins the original on the FIRST edit only (not on the second)', () => {
+        vi.mocked(debug.evaluateInFrameToOop).mockReturnValue(999n);
+        const panel = openPanel();
+        editInstVar(panel, '99');
+        editInstVar(panel, '123');
+
+        expect(debug.getInstVarOop).toHaveBeenCalledTimes(1);          // captured once
+        expect(debug.saveObjs).toHaveBeenCalledTimes(1);               // pinned once
+        expect(debug.saveObjs).toHaveBeenCalledWith(session, [700n]);  // the original oop
+      });
+
+      it('does NOT pin an immediate (special) original', () => {
+        vi.mocked(debug.isSpecialOop).mockReturnValue(true);
+        const panel = openPanel();
+        editInstVar(panel);
+        expect(debug.saveObjs).not.toHaveBeenCalled();
+      });
+
+      it('marks the edited row revertible (and only that row)', () => {
+        const panel = openPanel();
+        editInstVar(panel);
+        const groups = lastPosted(panel, 'variables').groups;
+        const count = groups.find((g: { kind: string }) => g.kind === 'instvars').vars[0];
+        expect(count).toMatchObject({ name: 'count', revertible: true });
+        // `self` (read-only) never becomes revertible.
+        const self = groups.find((g: { kind: string }) => g.kind === 'receiver').vars[0];
+        expect(self.revertible).toBeUndefined();
+      });
+
+      it('revertVariable writes the stored original back and clears the dirty flag', () => {
+        const panel = openPanel();
+        editInstVar(panel);
+        sendMessage(panel, { command: 'revertVariable', level: 2, kind: 'instvar', index: 1 });
+
+        // The LAST instVar write restores the original (700), not the edit (999).
+        expect(debug.setInstVar).toHaveBeenLastCalledWith(session, 300n, 1, 700n);
+        const count = lastPosted(panel, 'variables').groups
+          .find((g: { kind: string }) => g.kind === 'instvars').vars[0];
+        expect(count.revertible).toBeUndefined(); // icon gone after revert
+      });
+
+      it('revertVariable on a slot with no recorded original is a no-op', () => {
+        const panel = openPanel();
+        sendMessage(panel, { command: 'revertVariable', level: 2, kind: 'instvar', index: 1 });
+        expect(debug.setInstVar).not.toHaveBeenCalled();
+      });
+
+      it('reverts a frame temp via the original oop', () => {
+        vi.mocked(debug.evaluateInFrameToOop).mockReturnValue(999n);
+        const panel = openPanel();
+        sendMessage(panel, { command: 'setVariable', level: 2, kind: 'temp', index: 1, expr: '99' });
+        sendMessage(panel, { command: 'revertVariable', level: 2, kind: 'temp', index: 1 });
+
+        // Original temp value (oop 11, from argAndTempOops[0]) written back.
+        expect(debug.setFrameTemp).toHaveBeenLastCalledWith(session, GS_PROCESS, expect.any(Number), 1, 11n);
+      });
+
+      it('releases pinned originals on Resume (leaving the halt)', () => {
+        vi.mocked(debug.continueExecution).mockReturnValue({ completed: false, errorMessage: 'next halt' });
+        const panel = openPanel();
+        editInstVar(panel); // pins 700
+        sendMessage(panel, { command: 'resume' });
+        expect(debug.releaseObjs).toHaveBeenCalledWith(session, [700n]);
+      });
+
+      it('releases pinned originals when the debugger is CLOSED (no export-set leak)', () => {
+        const panel = openPanel();
+        editInstVar(panel); // pins 700
+        closePanel(panel);  // user closes the debugger window
+        expect(debug.releaseObjs).toHaveBeenCalledWith(session, [700n]);
+      });
+
+      it('releases pinned originals on Step (stack moved)', async () => {
+        const panel = openPanel();
+        editInstVar(panel); // pins 700
+        sendMessage(panel, { command: 'stepOver', level: 2 });
+        await tick();
+        expect(debug.releaseObjs).toHaveBeenCalledWith(session, [700n]);
+      });
     });
 
     it('evaluates an expression in the selected frame and posts the result', () => {

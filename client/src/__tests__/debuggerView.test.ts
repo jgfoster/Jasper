@@ -18,8 +18,14 @@ interface DebuggerViewApi {
   renderVariables(
     varsEl: HTMLElement,
     groups: { title: string; kind: string; collapsed?: boolean;
-      vars: { name: string; value: string; oop: string }[] }[],
-    onInspect?: (oop: string, name: string) => void,
+      vars: { name: string; value: string; oop: string;
+        edit?: { kind: string; index: number }; revertible?: boolean }[] }[],
+    handlers?: {
+      contextMenu?: (e: Event, oop: string, name: string) => void;
+      commit?: (edit: { kind: string; index: number }, expr: string) => void;
+      revert?: (edit: { kind: string; index: number }) => void;
+      setActiveEditor?: (ctrl: unknown) => void;
+    },
   ): void;
   renderDnu(
     dnuBarEl: HTMLElement,
@@ -55,6 +61,8 @@ interface Refs {
   main?: HTMLElement;
   splitter?: HTMLElement;
   hsplitter?: HTMLElement;
+  varMenu?: HTMLElement;
+  varInspectItem?: HTMLElement;
 }
 
 function api(): DebuggerViewApi {
@@ -84,7 +92,8 @@ function setup(stack: FrameSummary[] = STACK, dnu?: { selector: string; classNam
     <div id="dnuBar"></div>
     <div class="main"><ul id="stack"></ul><div id="variables"></div></div>
     <input id="evalInput"><div id="evalResult"></div>
-    <div id="ctxmenu"><div id="copyFrameItem">Copy Frame</div></div>`;
+    <div id="ctxmenu"><div id="copyFrameItem">Copy Frame</div></div>
+    <div id="varctxmenu"><div id="varInspectItem">GT Inspect</div></div>`;
   const refs: Refs = {
     list: document.getElementById('stack')!,
     menu: document.getElementById('ctxmenu')!,
@@ -96,6 +105,8 @@ function setup(stack: FrameSummary[] = STACK, dnu?: { selector: string; classNam
     variables: document.getElementById('variables')!,
     evalInput: document.getElementById('evalInput') as HTMLInputElement,
     evalResult: document.getElementById('evalResult')!,
+    varMenu: document.getElementById('varctxmenu')!,
+    varInspectItem: document.getElementById('varInspectItem')!,
   };
   const vscode = { postMessage: vi.fn() };
   const ctrl = api().init(refs, vscode);
@@ -283,14 +294,124 @@ describe('DebuggerView.renderVariables', () => {
     expect(group.classList.contains('collapsed')).toBe(false);
   });
 
-  it('clicking a variable row calls onInspect with the row oop + name', () => {
+  it('right-clicking a row invokes the contextMenu handler with the row oop + name (GT Inspect)', () => {
     const el = document.getElementById('variables')!;
-    const onInspect = vi.fn();
+    const contextMenu = vi.fn();
     api().renderVariables(el, [
       { title: 'Receiver', kind: 'receiver', vars: [{ name: 'self', value: 'x', oop: '100' }] },
-    ], onInspect);
+    ], { contextMenu });
+    (el.querySelector('.var') as HTMLElement)
+      .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
+    expect(contextMenu).toHaveBeenCalled();
+    expect(contextMenu.mock.calls[0].slice(1)).toEqual(['100', 'self']);
+  });
+
+  it('marks editable rows (with edit metadata) and leaves self read-only', () => {
+    const el = document.getElementById('variables')!;
+    api().renderVariables(el, [
+      { title: 'Receiver', kind: 'receiver', vars: [{ name: 'self', value: 'x', oop: '100' }] },
+      { title: 'Instance variables', kind: 'instvars',
+        vars: [{ name: 'total', value: '0', oop: '200', edit: { kind: 'instvar', index: 1 } }] },
+    ]);
+    const rows = el.querySelectorAll('.var');
+    expect(rows[0].classList.contains('editable')).toBe(false); // self
+    expect(rows[1].classList.contains('editable')).toBe(true);  // total
+  });
+
+  it('left-clicking an editable row opens an inline editor prefilled with the printString', () => {
+    const el = document.getElementById('variables')!;
+    api().renderVariables(el, [
+      { title: 'Instance variables', kind: 'instvars',
+        vars: [{ name: 'total', value: '42', oop: '200', edit: { kind: 'instvar', index: 1 } }] },
+    ]);
     (el.querySelector('.var') as HTMLElement).click();
-    expect(onInspect).toHaveBeenCalledWith('100', 'self');
+    const input = el.querySelector('.var-edit') as HTMLInputElement;
+    expect(input).not.toBeNull();
+    expect(input.value).toBe('42');
+  });
+
+  it('left-clicking a read-only stack temp (no edit metadata) does NOT open an editor', () => {
+    const el = document.getElementById('variables')!;
+    api().renderVariables(el, [
+      { title: '(stack temps)', kind: 'stacktemps', vars: [{ name: '.t1', value: '7', oop: '36' }] },
+    ]);
+    const row = el.querySelector('.var') as HTMLElement;
+    expect(row.classList.contains('editable')).toBe(false);
+    row.click();
+    expect(el.querySelector('.var-edit')).toBeNull();
+  });
+
+  it('shows the revert icon only on revertible rows; clicking it calls revert (not the editor)', () => {
+    const el = document.getElementById('variables')!;
+    const revert = vi.fn();
+    api().renderVariables(el, [
+      { title: 'Instance variables', kind: 'instvars', vars: [
+        { name: 'count', value: '9', oop: '200', edit: { kind: 'instvar', index: 1 }, revertible: true },
+        { name: 'sum', value: '0', oop: '201', edit: { kind: 'instvar', index: 2 } },
+      ] },
+    ], { revert });
+    const rows = el.querySelectorAll('.var');
+    const revIcon = rows[0].querySelector('.var-revert') as HTMLElement;
+    expect(revIcon).not.toBeNull();
+    expect(rows[1].querySelector('.var-revert')).toBeNull(); // not revertible → no icon
+
+    revIcon.click();
+    expect(revert).toHaveBeenCalledWith({ kind: 'instvar', index: 1 });
+    // The click must NOT open the inline editor on that row.
+    expect(rows[0].querySelector('.var-edit')).toBeNull();
+  });
+
+  it('left-clicking the read-only self row does NOT open an editor', () => {
+    const el = document.getElementById('variables')!;
+    api().renderVariables(el, [
+      { title: 'Receiver', kind: 'receiver', vars: [{ name: 'self', value: 'x', oop: '100' }] },
+    ]);
+    (el.querySelector('.var') as HTMLElement).click();
+    expect(el.querySelector('.var-edit')).toBeNull();
+  });
+
+  it('Enter in the inline editor calls commit with the edit target + trimmed expression', () => {
+    const el = document.getElementById('variables')!;
+    const commit = vi.fn();
+    api().renderVariables(el, [
+      { title: 'Instance variables', kind: 'instvars',
+        vars: [{ name: 'total', value: '42', oop: '200', edit: { kind: 'instvar', index: 1 } }] },
+    ], { commit });
+    (el.querySelector('.var') as HTMLElement).click();
+    const input = el.querySelector('.var-edit') as HTMLInputElement;
+    input.value = '  99  ';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(commit).toHaveBeenCalledWith({ kind: 'instvar', index: 1 }, '99');
+    // Stays open (so an error can be fixed); not removed on commit.
+    expect(el.querySelector('.var-edit')).not.toBeNull();
+  });
+
+  it('blurring the inline editor cancels it (when there is no error)', async () => {
+    const el = document.getElementById('variables')!;
+    api().renderVariables(el, [
+      { title: 'Instance variables', kind: 'instvars',
+        vars: [{ name: 'total', value: '42', oop: '200', edit: { kind: 'instvar', index: 1 } }] },
+    ]);
+    (el.querySelector('.var') as HTMLElement).click();
+    (el.querySelector('.var-edit') as HTMLInputElement).dispatchEvent(new FocusEvent('blur'));
+    await new Promise(r => setTimeout(r, 0)); // blur-close is deferred a tick
+    expect(el.querySelector('.var-edit')).toBeNull();
+  });
+
+  it('Esc cancels the inline editor and restores the displayed value', () => {
+    const el = document.getElementById('variables')!;
+    const commit = vi.fn();
+    api().renderVariables(el, [
+      { title: 'Instance variables', kind: 'instvars',
+        vars: [{ name: 'total', value: '42', oop: '200', edit: { kind: 'instvar', index: 1 } }] },
+    ], { commit });
+    (el.querySelector('.var') as HTMLElement).click();
+    const input = el.querySelector('.var-edit') as HTMLInputElement;
+    input.value = '99';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(el.querySelector('.var-edit')).toBeNull();
+    expect(commit).not.toHaveBeenCalled();
+    expect((el.querySelector('.var-value') as HTMLElement).style.display).toBe('');
   });
 
   it('shows an empty-state message when there are no groups', () => {
@@ -356,7 +477,7 @@ describe('DebuggerView.init — inbound variables / evalResult', () => {
     expect(refs.variables.querySelectorAll('.var')).toHaveLength(2);
   });
 
-  it('clicking a pushed variable row posts inspectVariable to the host', () => {
+  it('right-clicking a pushed variable row then GT Inspect posts inspectVariable to the host', () => {
     const { refs, vscode } = setup();
     vi.mocked(vscode.postMessage).mockClear();
     window.dispatchEvent(new MessageEvent('message', {
@@ -364,8 +485,91 @@ describe('DebuggerView.init — inbound variables / evalResult', () => {
         { title: 'Receiver', kind: 'receiver', vars: [{ name: 'self', value: 'x', oop: '100' }] },
       ] },
     }));
-    (refs.variables.querySelector('.var') as HTMLElement).click();
+    (refs.variables.querySelector('.var') as HTMLElement)
+      .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
+    expect(refs.varMenu!.classList.contains('show')).toBe(true);
+    (refs.varInspectItem as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'inspectVariable', oop: '100', name: 'self' });
+  });
+
+  it('Enter in an editable pushed row posts setVariable with the selected frame level', () => {
+    const { refs, vscode } = setup(); // top frame (level 1) selected by default
+    vi.mocked(vscode.postMessage).mockClear();
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { command: 'variables', groups: [
+        { title: 'Instance variables', kind: 'instvars',
+          vars: [{ name: 'total', value: '0', oop: '200', edit: { kind: 'instvar', index: 1 } }] },
+      ] },
+    }));
+    (refs.variables.querySelector('.var') as HTMLElement).click();
+    const input = refs.variables.querySelector('.var-edit') as HTMLInputElement;
+    input.value = '99';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(vscode.postMessage).toHaveBeenCalledWith(
+      { command: 'setVariable', level: 1, kind: 'instvar', index: 1, expr: '99' });
+  });
+
+  it('setVariableResult failure flags the open editor (keeps it open) instead of closing it', () => {
+    const { refs } = setup();
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { command: 'variables', groups: [
+        { title: 'Instance variables', kind: 'instvars',
+          vars: [{ name: 'total', value: '0', oop: '200', edit: { kind: 'instvar', index: 1 } }] },
+      ] },
+    }));
+    (refs.variables.querySelector('.var') as HTMLElement).click();
+    const input = refs.variables.querySelector('.var-edit') as HTMLInputElement;
+    input.value = 'bogus +';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { command: 'setVariableResult', ok: false, error: 'a parse error' },
+    }));
+    const stillOpen = refs.variables.querySelector('.var-edit') as HTMLInputElement;
+    expect(stillOpen).not.toBeNull();
+    expect(stillOpen.classList.contains('error')).toBe(true);
+    expect(stillOpen.title).toBe('a parse error');
+    // A visible message line (not just a hover tooltip) names the failure.
+    const errLine = refs.variables.querySelector('.var-edit-error') as HTMLElement;
+    expect(errLine).not.toBeNull();
+    expect(errLine.textContent).toBe('a parse error');
+  });
+
+  it('clicking the revert icon on a pushed row posts revertVariable with the frame level', () => {
+    const { refs, vscode } = setup(); // top frame (level 1) selected by default
+    vi.mocked(vscode.postMessage).mockClear();
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { command: 'variables', groups: [
+        { title: 'Instance variables', kind: 'instvars', vars: [
+          { name: 'count', value: '9', oop: '200', edit: { kind: 'instvar', index: 1 }, revertible: true },
+        ] },
+      ] },
+    }));
+    (refs.variables.querySelector('.var-revert') as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(vscode.postMessage).toHaveBeenCalledWith(
+      { command: 'revertVariable', level: 1, kind: 'instvar', index: 1 });
+  });
+
+  it('keeps an errored editor open when the input is blurred (so the message stays copyable)', async () => {
+    const { refs } = setup();
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { command: 'variables', groups: [
+        { title: 'Instance variables', kind: 'instvars',
+          vars: [{ name: 'total', value: '0', oop: '200', edit: { kind: 'instvar', index: 1 } }] },
+      ] },
+    }));
+    (refs.variables.querySelector('.var') as HTMLElement).click();
+    const input = refs.variables.querySelector('.var-edit') as HTMLInputElement;
+    input.value = 'bogus +';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { command: 'setVariableResult', ok: false, error: 'a parse error' },
+    }));
+    // Click on the message line to copy it → the input blurs; the editor must NOT
+    // vanish (it would before the fix), so the text remains selectable.
+    input.dispatchEvent(new FocusEvent('blur'));
+    await new Promise(r => setTimeout(r, 0));
+    expect(refs.variables.querySelector('.var-edit')).not.toBeNull();
+    expect(refs.variables.querySelector('.var-edit-error')!.textContent).toBe('a parse error');
   });
 
   it('shows an eval result, flagging errors', () => {
