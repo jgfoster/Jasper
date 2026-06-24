@@ -336,7 +336,11 @@
       if (frameImplItem) {
         const frame = currentStack.find((f) => f.level === level);
         if (frame && frame.overridable) {
-          frameImplItem.textContent = 'Implement in ' + (frame.receiverClass || 'receiver');
+          // Ellipsis signals that clicking opens a class picker (an overridable
+          // frame always has several candidates: the receiver's class up through
+          // the class that defines the method). The frame label already names the
+          // receiver, so the menu item doesn't repeat it.
+          frameImplItem.textContent = 'Implement in…';
           frameImplItem.style.display = '';
         } else {
           frameImplItem.style.display = 'none';

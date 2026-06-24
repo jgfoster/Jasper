@@ -243,12 +243,13 @@ describe('DebuggerView.init — right-click copy popup', () => {
     expect(refs.menu.classList.contains('show')).toBe(false);
   });
 
-  it('shows "Implement in <receiverClass>" only on an overridable frame', () => {
+  it('shows "Implement in…" (a picker follows) only on an overridable frame', () => {
     const { refs } = setup();
-    // Frame 2 is an inherited method (overridable) → item shown + labelled.
+    // Frame 2 is an inherited method (overridable) → item shown; the ellipsis
+    // signals the class picker (an overridable frame always has several targets).
     frame(refs, 2).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
     expect(refs.frameImplItem!.style.display).not.toBe('none');
-    expect(refs.frameImplItem!.textContent).toBe('Implement in SmallInteger');
+    expect(refs.frameImplItem!.textContent).toBe('Implement in…');
 
     // Frame 1 is NOT overridable → item hidden.
     frame(refs, 1).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));

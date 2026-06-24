@@ -2476,7 +2476,7 @@ export class DebuggerPanel {
   </div>
   <div id="ctxmenu" class="ctx-menu" role="menu">
     <div class="ctx-item" id="copyFrameItem" role="menuitem">Copy Frame</div>
-    <div class="ctx-item" id="frameImplItem" role="menuitem" style="display:none;">Implement in receiver</div>
+    <div class="ctx-item" id="frameImplItem" role="menuitem" style="display:none;">Implement in…</div>
   </div>
   <div id="varctxmenu" class="ctx-menu" role="menu">
     <div class="ctx-item" id="varInspectItem" role="menuitem">GT Inspect</div>
