@@ -1097,6 +1097,9 @@ export class DebuggerPanel {
     // top(1)→base(N), so the sender is the NEXT-deeper displayed frame.
     const idx = this.frames.indexOf(frame);
     const sender = idx >= 0 ? this.frames[idx + 1] : undefined;
+    logInfo(`[Jasper Debugger] implement #${selector} in ${target.className}: `
+      + `overridden frame = ${frame.label}@sv${frame.serverLevel} (display ${frame.level}); `
+      + `sender = ${sender ? `${sender.label}@sv${sender.serverLevel} executedCode=${sender.isExecutedCode}` : 'none'}`);
     try {
       await this.openTemplateEditor(
         openUri, editingExisting ? undefined : buildMethodStub(selector, selectorArgCount(selector)));
@@ -1671,6 +1674,8 @@ export class DebuggerPanel {
    * re-enters the same method one level up).
    */
   private async restartFrame(serverLevel: number): Promise<void> {
+    logInfo(`[Jasper Debugger] restartFrame: trimming to serverLevel ${serverLevel} `
+      + `(stack tops: ${this.frames.slice(0, 4).map(f => `${f.level}=${f.label}@sv${f.serverLevel}`).join(', ')})`);
     if (serverLevel <= 1) {
       // Show the notice IN the panel (the banner) — a toast is easy to miss while
       // the webview has focus. It clears on the next step/resume/restart.
