@@ -56,3 +56,23 @@ export function unwrapTranscriptCapture(source: string): string {
   }
   return source;
 }
+
+/**
+ * How far `unwrapTranscriptCapture` shifts the source: the character offset, in
+ * the server's stored (wrapped) source, at which the displayed user code begins.
+ *
+ * The displayed source is a contiguous substring of the stored source, so the
+ * server's `_sourceOffsets` map onto the displayed source by subtracting this
+ * shift. Returns 0 when `source` isn't a recognised wrapper (a raw Debug It /
+ * non-symbol-list method, shown 1:1) so callers can treat both cases uniformly.
+ */
+export function transcriptCaptureUserCodeOffset(source: string): number {
+  const leadingWs = source.length - source.trimStart().length;
+  const trimmed = source.trim();
+  if (!(trimmed.startsWith(TRANSCRIPT_CAPTURE_PREFIX) && trimmed.endsWith(TRANSCRIPT_CAPTURE_SUFFIX))) {
+    return 0;
+  }
+  const inner = trimmed.slice(TRANSCRIPT_CAPTURE_PREFIX.length, trimmed.length - TRANSCRIPT_CAPTURE_SUFFIX.length);
+  const innerLeadingWs = inner.length - inner.trimStart().length;
+  return leadingWs + TRANSCRIPT_CAPTURE_PREFIX.length + innerLeadingWs;
+}

@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import { ActiveSession } from './sessionManager';
 import * as debug from './debugQueries';
 import * as queries from './browserQueries';
-import { unwrapTranscriptCapture } from './transcriptCapture';
+import { unwrapTranscriptCapture, transcriptCaptureUserCodeOffset } from './transcriptCapture';
 import { GtInspector } from './gtInspector';
 import { logError } from './gciLog';
 import { NbCancelledError } from './nbRunner';
@@ -512,6 +512,13 @@ export class DebuggerPanel {
   private disposables: vscode.Disposable[] = [];
   /** Last fetched (filtered) stack, cached so copy/select need not re-query. */
   private frames: DisplayFrame[] = [];
+  /**
+   * The UN-filtered raw stack from the same fetch. `filterStack` collapses a
+   * doit's wrapper/block frames into a single "Executed Code" frame, discarding
+   * the frame execution actually stopped in — so the highlight path consults
+   * these to find the true stop frame (see `stopFrameLevel`).
+   */
+  private rawFrames: RawFrame[] = [];
   /** Column the companion source editor lives in, reused across frame selects. */
   private sourceColumn: vscode.ViewColumn | undefined;
   /**
@@ -1319,11 +1326,14 @@ export class DebuggerPanel {
 
       let uri: vscode.Uri;
       let methodForOffsets: { className: string; isMeta: boolean; selector: string } | undefined;
-      // For a read-only view we can still highlight the step point IF the
-      // displayed source matches the server's method source 1:1 (a raw Debug It
-      // doit). Set to the frame's method OOP in that case; left undefined when
-      // the source was unwrapped (offsets would point into the wrapped source).
+      // For a read-only view we still highlight the step point from the frame's
+      // method OOP. The server's step-point offsets are in the stored source's
+      // coordinates; when the displayed source was unwrapped from the Transcript-
+      // capture glue (Display It / Execute It / Inspect It), shift them by the
+      // stripped prefix so they land in the user code. `readOnlyOffsetShift` is 0
+      // for a raw Debug It / non-symbol-list method shown 1:1.
       let readOnlyOffsetMethodOop: bigint | undefined;
+      let readOnlyOffsetShift = 0;
       if (home.uriInfo) {
         // In the symbol list → the real editable gemstone:// editor.
         uri = vscode.Uri.parse(buildMethodSourceUri(this.session.id, home.uriInfo));
@@ -1347,11 +1357,12 @@ export class DebuggerPanel {
         // line up. (This mirrors the editable path, which uses home offsets.)
         const rawSource = debug.getMethodSource(this.session, homeMethodOop);
         const source = unwrapTranscriptCapture(rawSource);
-        // If unwrapping was a no-op the displayed source is the server source,
-        // so the server's step-point offsets map onto it directly (Debug It).
-        // If it stripped a wrapper, the offsets refer to the wrapped source and
-        // would mis-highlight, so leave highlighting off (as before).
-        if (source === rawSource) readOnlyOffsetMethodOop = homeMethodOop;
+        // Highlight from the home method's offsets, shifted into the displayed
+        // source's coordinates. The shift is 0 when nothing was unwrapped (the
+        // displayed source IS the server source — a raw Debug It), and the
+        // stripped-prefix length when the Transcript-capture glue was removed.
+        readOnlyOffsetMethodOop = homeMethodOop;
+        readOnlyOffsetShift = transcriptCaptureUserCodeOffset(rawSource);
         const title = home.isExecutedCode ? 'Executed Code' : `${home.definingClassName}>>#${home.selector}`;
         uri = DebuggerPanel.stashReadOnlySource(this.session.id, homeMethodOop, title, source);
         this.stashedSourceKeys.add(uri.toString());
@@ -1359,14 +1370,27 @@ export class DebuggerPanel {
 
       const editor = await this.showSourceEditor(uri);
 
+      // For a collapsed "Executed Code" doit frame, the displayed level is the
+      // deepest doit frame, but execution actually stopped in a nested wrapper
+      // block above it (Display It / Execute It / Inspect It). Query the step
+      // point from the true stop frame so the marker lands on the user's halt
+      // rather than the wrapper glue. Other frames show un-collapsed, so they
+      // stop where they display (highlightLevel === level).
+      const highlightLevel = home.isExecutedCode ? this.stopFrameLevel(homeMethodOop, level) : level;
+      let highlightInfo = info;
+      if (highlightLevel !== level) {
+        try { highlightInfo = debug.getFrameInfo(this.session, this.gsProcess, highlightLevel); }
+        catch { /* keep the displayed frame's info for the line fallback */ }
+      }
+
       // Highlight the current step point: from class>>selector offsets for an
-      // editable method, or from the method OOP for an un-wrapped read-only doit
-      // (Debug It). A wrapped/unwrappable read-only view stays un-highlighted —
-      // its offsets wouldn't line up with the displayed source.
+      // editable method, or from the method OOP for a read-only doit — shifting
+      // the offsets into the displayed source when the Transcript-capture glue
+      // was stripped (Display It / Execute It / Inspect It).
       const range = methodForOffsets
-        ? this.stepPointRange(editor.document, info, level, methodForOffsets)
+        ? this.stepPointRange(editor.document, highlightInfo, highlightLevel, methodForOffsets)
         : readOnlyOffsetMethodOop !== undefined
-          ? this.stepPointRange(editor.document, info, level, undefined, readOnlyOffsetMethodOop)
+          ? this.stepPointRange(editor.document, highlightInfo, highlightLevel, undefined, readOnlyOffsetMethodOop, readOnlyOffsetShift)
           : undefined;
       // Clear a stale highlight if the source moved to a different editor.
       if (this.decoratedEditor && this.decoratedEditor !== editor) {
@@ -1473,6 +1497,27 @@ export class DebuggerPanel {
   }
 
   /**
+   * The server level of the frame execution actually stopped in, for a collapsed
+   * "Executed Code" doit frame. `filterStack` keeps only the DEEPEST executed-code
+   * frame (the doit home), but for wrapped code (Display It / Execute It / Inspect
+   * It) the halt is in a nested wrapper block ABOVE it. All of the doit's frames —
+   * the wrapper blocks and the doit home — share its `homeMethodOop`, while
+   * machinery and unrelated user-method frames do not, so the stop frame is the
+   * TOPMOST raw frame (lowest server level) with that home method.
+   *
+   * Resolves to the doit home itself when nothing nests above it (a raw Debug It,
+   * or a doit that just called into a user method), and to `fallbackLevel` if the
+   * raws are unavailable — so the caller can use it unconditionally.
+   */
+  private stopFrameLevel(homeMethodOop: bigint, fallbackLevel: number): number {
+    // rawFrames is in server order (top first), so the first match is the topmost.
+    for (const r of this.rawFrames) {
+      if (r.homeMethodOop === homeMethodOop) return r.serverLevel;
+    }
+    return fallbackLevel;
+  }
+
+  /**
    * The range to highlight for a frame's current step point — just the token at
    * the step point, NOT the whole line. Prefers the exact step-point character
    * offset (`getSourceOffsets`, available for class>>selector methods); falls
@@ -1485,13 +1530,15 @@ export class DebuggerPanel {
     level: number,
     method: { className: string; isMeta: boolean; selector: string } | undefined,
     readOnlyMethodOop?: bigint,
+    readOnlyOffsetShift = 0,
   ): vscode.Range | undefined {
     let pos: vscode.Position | undefined;
 
     // Exact step-point offset → the precise sub-expression start. The offsets
     // come from class>>selector for an editable method, or straight from the
-    // method OOP for a raw doit (Debug It), whose displayed source matches the
-    // server source 1:1 so the offsets line up.
+    // method OOP for a read-only doit. For a doit shown with its Transcript-
+    // capture glue stripped, the offsets are in the stored (wrapped) source's
+    // coordinates, so shift them into the displayed source.
     if (method || readOnlyMethodOop !== undefined) {
       try {
         const stepPoint = debug.getStepPoint(this.session, this.gsProcess, level);
@@ -1503,13 +1550,20 @@ export class DebuggerPanel {
             ? queries.getSourceOffsets(this.session, method.className, method.isMeta, method.selector)
             : debug.getSourceOffsetsForMethod(this.session, readOnlyMethodOop!);
           const offset = offsets[stepPoint - 1];
-          if (offset != null && offset >= 1 && doc.positionAt) pos = doc.positionAt(offset - 1);
+          const displayOffset = offset != null ? offset - 1 - readOnlyOffsetShift : -1;
+          // A negative offset means the step point sits before the displayed
+          // source (in the stripped Transcript-capture prefix) — skip it rather
+          // than let positionAt clamp the highlight to the document start.
+          if (displayOffset >= 0 && doc.positionAt) pos = doc.positionAt(displayOffset);
         }
       } catch { /* best-effort; fall back to the IP line below */ }
     }
 
-    // Fallback: the first non-whitespace token of the IP's source line.
-    if (!pos) {
+    // Fallback: the first non-whitespace token of the IP's source line. Only
+    // valid when the displayed source's line numbering matches the server's —
+    // i.e. an editable method or a 1:1 read-only doit. A stripped wrapper shifts
+    // every line, so skip the fallback there (the offset path above is exact).
+    if (!pos && readOnlyOffsetShift === 0) {
       let line = 0;
       try { line = debug.getLineForIp(this.session, info.methodOop, info.ipOffset); } catch { /* */ }
       if (line > 0) {
@@ -1539,8 +1593,10 @@ export class DebuggerPanel {
       }
     } catch (e: unknown) {
       logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      this.rawFrames = [];
       return [];
     }
+    this.rawFrames = raws; // retained for stopFrameLevel (pre-collapse lookup)
     // Trim machinery/wrapper glue, then renumber the survivors 1..N for display
     // while keeping each one's real server level for subsequent queries.
     return filterStack(raws).map((r, i) => ({
