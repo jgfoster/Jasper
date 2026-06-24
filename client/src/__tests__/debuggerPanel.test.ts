@@ -1895,6 +1895,16 @@ describe('DebuggerPanel', () => {
   describe('implement in receiver (override)', () => {
     const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
+    // getMethodInfo overrides (in the doit-sender test) leak past clearAllMocks —
+    // restore the base so later tests see the standard 5-frame stack.
+    afterEach(() => {
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 1n) return { className: 'JasperDebugDemo', selector: 'finish' };
+        if (oop === 2n) return { className: 'Object', selector: 'halt' };
+        return { className: 'JasperDebugDemo', selector: 'accumulateFrom:to:' };
+      });
+    });
+
     // The base stack's level-2 frame is an inherited method: receiver is a
     // SmallInteger (oop 200) while the method (#halt) is defined in Object.
     function openPanel() {
@@ -2049,6 +2059,32 @@ describe('DebuggerPanel', () => {
       saveListener()({ uri: vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] } as vscode.TextDocument);
       await tick();
       expect(lastPosted(panel, 'init').errorMessage).toMatch(/Interval already implements/i);
+    });
+
+    it('tells the user to re-run (not Resume) when the caller is a non-re-enterable doit', async () => {
+      // Stack where the overridden frame's only caller is Executed Code: make the
+      // frame BELOW the inherited one a doit so the sender isn't re-enterable.
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 1n) return { className: 'JasperDebugDemo', selector: 'finish' };
+        if (oop === 2n) return { className: 'Object', selector: 'halt' };
+        if (oop === 3n) throw new Error('doit: no class'); // sender of frame 2 → Executed Code
+        return { className: 'JasperDebugDemo', selector: 'accumulateFrom:to:' };
+      });
+      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce([
+        { className: 'Interval', isMeta: false, dictName: 'Globals', implementsSelector: false },
+        { className: 'SequenceableCollection', isMeta: false, dictName: 'Kernel', implementsSelector: false },
+      ]);
+      vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
+        async (items: unknown) => (items as { index: number }[])[1] as never);
+      const panel = openPanel();
+      sendMessage(panel, { command: 'implementInReceiver', level: 2 });
+      await flush();
+      saveListener()({ uri: vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] } as vscode.TextDocument);
+      await tick();
+
+      expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();          // can't re-enter a doit
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/re-run the expression/i);
+      expect(lastPosted(panel, 'init').errorMessage).not.toMatch(/dispatch into it, or step/i);
     });
 
     it('opens nothing when the inheritance-chain QuickPick is cancelled', async () => {

@@ -677,6 +677,8 @@ export class DebuggerPanel {
   private pendingOverrideUri: string | undefined;
   private pendingOverrideSelector: string | undefined;
   private pendingOverrideSenderLevel: number | undefined;
+  /** The class the pending override is being implemented in (for the save message). */
+  private pendingOverrideTargetClass: string | undefined;
   /** Set when the chosen target is shadowed by a more-specific subclass impl;
    *  surfaced after save so the user understands why the re-entered frame still
    *  shows the subclass method, not the one they just implemented. */
@@ -1103,6 +1105,7 @@ export class DebuggerPanel {
       this.pendingOverrideSenderLevel =
         sender && !sender.isExecutedCode && sender.serverLevel > 1 ? sender.serverLevel : undefined;
       this.pendingOverrideShadowedBy = shadowedBy;
+      this.pendingOverrideTargetClass = target.className;
       this.dnuMethodUris.add(openUri.toString());  // closed with the panel
       this.dnuMethodUris.add(compiledUri.toString());
       DebuggerPanel.persistLiveSourceUris();
@@ -1132,16 +1135,24 @@ export class DebuggerPanel {
    * the method still exists; tell the user to re-run. Mirrors finishDnuMethod.
    */
   private async finishOverrideMethod(
-    selector: string, senderLevel: number | undefined, shadowedBy: string | undefined,
+    selector: string, senderLevel: number | undefined,
+    shadowedBy: string | undefined, targetClass: string,
   ): Promise<void> {
     const sel = selector ? `#${selector}` : 'the method';
+    const inTarget = targetClass ? ` in ${targetClass}` : '';
     // When a more-specific subclass already implements the selector, the receiver
     // keeps using THAT method — explain why the frame won't show the new one.
     const shadowNote = shadowedBy
-      ? ` (NOTE: ${shadowedBy} already implements ${sel}, so the frame still shows ${shadowedBy}>>${sel}.)`
+      ? ` NOTE: ${shadowedBy} already implements ${sel}, so the frame still shows ${shadowedBy}>>${sel}.`
       : '';
     if (senderLevel === undefined) {
-      this.errorMessage = `Saved ${sel} — press Resume (▶) or re-run the send to dispatch into it.${shadowNote}`;
+      // No re-enterable caller (the send came straight from a workspace doit, or
+      // the only caller is the top frame) — we CAN'T re-dispatch in place. Resume
+      // would just finish the inherited version that's already running, NOT the
+      // new override. The honest next step is to re-run the expression.
+      this.errorMessage = `Saved ${sel}${inTarget}. The current frame is still running the inherited `
+        + 'version it already entered — re-run the expression to dispatch into the new method. '
+        + `(Resume here just finishes the old one.)${shadowNote}`;
       this.postInit();
       return;
     }
@@ -1153,8 +1164,8 @@ export class DebuggerPanel {
       this.dnuSuppressed = false;
       this.frames = this.fetchStack();
       this.dnuInfo = this.detectDnu();
-      this.errorMessage = `Saved ${sel} — re-entered the calling frame. Press Resume (▶) to `
-        + `dispatch into it, or step into it.${shadowNote}`;
+      this.errorMessage = `Saved ${sel}${inTarget} — re-entered the calling frame. Press Resume (▶) `
+        + `to re-send and dispatch into it, or step into it.${shadowNote}`;
       this.postInit();
     });
   }
@@ -1716,11 +1727,13 @@ export class DebuggerPanel {
       const selector = this.pendingOverrideSelector ?? '';
       const senderLevel = this.pendingOverrideSenderLevel;
       const shadowedBy = this.pendingOverrideShadowedBy;
+      const targetClass = this.pendingOverrideTargetClass ?? '';
       this.pendingOverrideUri = undefined;
       this.pendingOverrideSelector = undefined;
       this.pendingOverrideSenderLevel = undefined;
       this.pendingOverrideShadowedBy = undefined;
-      void this.finishOverrideMethod(selector, senderLevel, shadowedBy);
+      this.pendingOverrideTargetClass = undefined;
+      void this.finishOverrideMethod(selector, senderLevel, shadowedBy, targetClass);
       return;
     }
 
