@@ -241,44 +241,66 @@ export interface ClassHomeInfo {
   className: string;
   isMeta: boolean;
   dictName: string;
+  /** True when this class ALREADY implements the selector (it's an edit target,
+   *  and — if more specific than the chosen target — a shadowing implementation). */
+  implementsSelector?: boolean;
 }
 
 /**
- * Resolve where a method would be added on `receiverOop`'s class — used to
- * implement (override) an inherited method in the receiver's OWN class from the
- * debugger. A class receiver resolves to its class-side; the home dictionary is
- * found by NAME key in the user's symbol list (see the symbol-list home-dict
- * gotcha). Returns undefined on any failure so callers degrade gracefully.
+ * The receiver's full class chain — its class and every superclass up to Object
+ * — as candidate places to implement (override) `selector`. Ordered
+ * most-specific first (the receiver's class), so callers can pre-select it. A
+ * class receiver walks its class-side chain (isMeta true throughout). For each
+ * class: its home dictionary (found by NAME key in the user's symbol list — see
+ * the symbol-list home-dict gotcha; '' when not in the symbol list, so not an
+ * editable target) and whether it ALREADY implements `selector` (so the caller
+ * can open the existing source instead of clobbering it with a stub, and warn
+ * about a subclass implementation shadowing a superclass override). Returns []
+ * on any failure so callers degrade gracefully.
  */
-export function getClassHomeInfo(session: ActiveSession, receiverOop: bigint): ClassHomeInfo | undefined {
+export function getReceiverClassChain(
+  session: ActiveSession, receiverOop: bigint, selector: string,
+): ClassHomeInfo[] {
   try {
     const { result: classUtf8, err: resErr } = session.gci.GciTsResolveSymbol(
       session.handle, 'Utf8', OOP_NIL,
     );
-    if (resErr.number !== 0) return undefined;
+    if (resErr.number !== 0) return [];
 
-    const code = `| rcvr base meta dn |
+    // selector is a method selector (no quotes), but guard the quote anyway.
+    const sel = selector.replace(/'/g, "''");
+    const code = `| rcvr meta cls sel rows nm dn impl |
 rcvr := Object _objectForOop: ${receiverOop}.
 (rcvr isKindOf: Class)
-  ifTrue: [ base := rcvr. meta := true ]
-  ifFalse: [ base := rcvr class. meta := false ].
-dn := ''.
-System myUserProfile symbolList do: [:d |
-  (d includesKey: base name asSymbol) ifTrue: [ dn := d name ]].
-base name asString, String tab,
-  (meta ifTrue: ['class'] ifFalse: ['instance']), String tab,
-  dn`;
+  ifTrue: [ cls := rcvr. meta := true ]
+  ifFalse: [ cls := rcvr class. meta := false ].
+sel := '${sel}' asSymbol.
+rows := OrderedCollection new.
+[ cls notNil ] whileTrue: [
+  nm := cls theNonMetaClass name asString.
+  dn := ''.
+  System myUserProfile symbolList do: [:d |
+    (d includesKey: nm asSymbol) ifTrue: [ dn := d name ]].
+  impl := cls includesSelector: sel.
+  rows add: nm, String tab, (meta ifTrue: ['class'] ifFalse: ['instance']), String tab, dn,
+    String tab, (impl ifTrue: ['1'] ifFalse: ['0']).
+  cls := cls superclass ].
+rows inject: '' into: [:acc :r | acc isEmpty ifTrue: [r] ifFalse: [acc, (String with: Character lf), r]]`;
 
     const { data, err } = session.gci.GciTsExecuteFetchBytes(
       session.handle, code, -1, classUtf8, OOP_ILLEGAL, OOP_NIL, 64 * 1024,
     );
-    if (err.number !== 0) return undefined;
+    if (err.number !== 0) return [];
 
-    const parts = data.split('\t');
-    if (parts.length < 3) return undefined;
-    return { className: parts[0], isMeta: parts[1] === 'class', dictName: parts[2] };
+    return data.split('\n').filter(line => line.length > 0).map(line => {
+      const parts = line.split('\t');
+      return {
+        className: parts[0], isMeta: parts[1] === 'class', dictName: parts[2] ?? '',
+        implementsSelector: parts[3] === '1',
+      };
+    });
   } catch {
-    return undefined;
+    return [];
   }
 }
 

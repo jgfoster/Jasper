@@ -60,8 +60,9 @@ vi.mock('../debugQueries', () => ({
   releaseStepping: vi.fn(),
   // Create-method-from-DNU detection — defaults to "not a DNU" (no Create button).
   getDoesNotUnderstandInfo: vi.fn(() => undefined),
-  // Implement-in-receiver (override): resolve the receiver's class + home dict.
-  getClassHomeInfo: vi.fn(() => ({ className: 'SmallInteger', isMeta: false, dictName: 'Globals' })),
+  // Implement-in-receiver (override): the receiver's inheritance chain (default
+  // is a single class → no QuickPick; tests override it for the multi-class case).
+  getReceiverClassChain: vi.fn(() => [{ className: 'SmallInteger', isMeta: false, dictName: 'Globals' }]),
 }));
 
 // Clicking a variable row opens a GT Inspector — stub the static entry point.
@@ -1973,8 +1974,8 @@ describe('DebuggerPanel', () => {
     });
 
     it('refuses to implement when the receiver class has no home dictionary', async () => {
-      vi.mocked(debug.getClassHomeInfo).mockReturnValueOnce(
-        { className: 'SmallInteger', isMeta: false, dictName: '' },
+      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce(
+        [{ className: 'SmallInteger', isMeta: false, dictName: '' }],
       );
       const panel = openPanel();
       vi.mocked(vscode.workspace.openTextDocument).mockClear();
@@ -1983,6 +1984,90 @@ describe('DebuggerPanel', () => {
 
       expect(vscode.workspace.openTextDocument).not.toHaveBeenCalled();
       expect(lastPosted(panel, 'init').errorMessage).toMatch(/symbol list/i);
+    });
+
+    // The receiver (Interval) chain for #asOrderedCollection: two override targets
+    // then the class that already implements it (Collection) and Object.
+    const CHAIN = [
+      { className: 'Interval', isMeta: false, dictName: 'Globals', implementsSelector: false },
+      { className: 'SequenceableCollection', isMeta: false, dictName: 'Kernel', implementsSelector: false },
+      { className: 'Collection', isMeta: false, dictName: 'Kernel', implementsSelector: true },
+      { className: 'Object', isMeta: false, dictName: 'Kernel', implementsSelector: true },
+    ];
+
+    it('QuickPicks the full chain (override vs already-implements) and opens the chosen class', async () => {
+      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce(CHAIN);
+      // Choose SequenceableCollection (index 1) — a superclass override target.
+      vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
+        async (items: unknown) => (items as { index: number }[])[1] as never);
+      const panel = openPanel();
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+      sendMessage(panel, { command: 'implementInReceiver', level: 2 });
+      await flush();
+
+      // The picker offered the whole chain, receiver first; classes that already
+      // implement the selector are marked as edit (not override) targets.
+      const items = vi.mocked(vscode.window.showQuickPick).mock.calls.at(-1)![0] as
+        { label: string; description: string }[];
+      expect(items.map(i => i.label)).toEqual(['Interval', 'SequenceableCollection', 'Collection', 'Object']);
+      expect(items[0].description).toMatch(/override here/i);
+      expect(items[2].description).toMatch(/already implements/i);
+      // A stub template for the chosen (non-implementing) superclass.
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      expect(uri.toString()).toContain('/Kernel/SequenceableCollection/instance/');
+      expect(uri.toString()).toContain('new-method');
+    });
+
+    it('opens the EXISTING source (no stub) when the chosen class already implements it', async () => {
+      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce(CHAIN);
+      vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
+        async (items: unknown) => (items as { index: number }[])[2] as never); // Collection (implements it)
+      const panel = openPanel();
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+      sendMessage(panel, { command: 'implementInReceiver', level: 2 });
+      await flush();
+
+      // The real method URI (not a new-method template), and NOT clobbered by a stub.
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      expect(uri.toString()).toContain('/Kernel/Collection/instance/');
+      expect(uri.toString()).not.toContain('new-method');
+      const editor = await vi.mocked(vscode.window.showTextDocument).mock.results.at(-1)!.value;
+      expect(editor.edit).not.toHaveBeenCalled(); // existing source left intact
+    });
+
+    it('warns that a subclass implementation shadows an override placed higher up', async () => {
+      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce([
+        { className: 'Interval', isMeta: false, dictName: 'Globals', implementsSelector: true },  // active impl
+        { className: 'SequenceableCollection', isMeta: false, dictName: 'Kernel', implementsSelector: false },
+      ]);
+      vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
+        async (items: unknown) => (items as { index: number }[])[1] as never); // implement in the superclass
+      const panel = openPanel();
+      sendMessage(panel, { command: 'implementInReceiver', level: 2 });
+      await flush();
+      // Save → the banner/init message explains Interval still shadows it.
+      saveListener()({ uri: vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] } as vscode.TextDocument);
+      await tick();
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/Interval already implements/i);
+    });
+
+    it('opens nothing when the inheritance-chain QuickPick is cancelled', async () => {
+      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce(CHAIN);
+      vi.mocked(vscode.window.showQuickPick).mockResolvedValueOnce(undefined as never);
+      const panel = openPanel();
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+      sendMessage(panel, { command: 'implementInReceiver', level: 2 });
+      await flush();
+
+      expect(vscode.workspace.openTextDocument).not.toHaveBeenCalled();
+    });
+
+    it('skips the QuickPick when the chain has a single class', async () => {
+      // Default mock chain is single-element → straight to the template, no prompt.
+      const panel = openPanel();
+      sendMessage(panel, { command: 'implementInReceiver', level: 2 });
+      await flush();
+      expect(vscode.window.showQuickPick).not.toHaveBeenCalled();
     });
   });
 

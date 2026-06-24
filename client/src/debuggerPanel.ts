@@ -677,6 +677,10 @@ export class DebuggerPanel {
   private pendingOverrideUri: string | undefined;
   private pendingOverrideSelector: string | undefined;
   private pendingOverrideSenderLevel: number | undefined;
+  /** Set when the chosen target is shadowed by a more-specific subclass impl;
+   *  surfaced after save so the user understands why the re-entered frame still
+   *  shows the subclass method, not the one they just implemented. */
+  private pendingOverrideShadowedBy: string | undefined;
   /**
    * Suppresses the "Create #sel" button once a create is underway or resolved, so
    * it never reappears for the SAME parked doesNotUnderstand: (the method now
@@ -990,13 +994,25 @@ export class DebuggerPanel {
 
   /**
    * "Implement <selector> in <ReceiverClass>" (T2/T3 override): the selected
-   * frame is running a method the receiver INHERITED; open a template to create
-   * that selector in the receiver's OWN class. Reuses the create-method-from-DNU
-   * machinery (template editor + buildMethodStub), but the target class comes
-   * from the receiver (getClassHomeInfo) and the selector/arg-count from the
-   * frame. On a clean save, `finishOverrideMethod` re-enters the SENDER so a
-   * Resume re-dispatches the send into the new override (the frame is "reset to
-   * that method"). Degrades with the same in-band error help as the DNU path.
+   * frame is running a method the receiver INHERITED; open an editor to implement
+   * that selector somewhere along the receiver's inheritance chain. The candidate
+   * classes (getReceiverClassChain — the receiver's class up through Object) and
+   * the selector/arg-count come from the frame. With more than one candidate, a
+   * QuickPick lets the user choose where in the hierarchy to implement (the
+   * receiver's class is pre-selected); each entry notes its home dictionary and
+   * whether it ALREADY implements the selector.
+   *
+   * For a class that does NOT yet implement it → a pre-filled stub (reuses the
+   * create-method-from-DNU template machinery). For one that ALREADY does → its
+   * EXISTING source opens (never clobbered with a stub). Either way, on a clean
+   * save `finishOverrideMethod` re-enters the SENDER so a Resume re-dispatches the
+   * send into the new code (the frame is "reset to that method").
+   *
+   * SHADOWING: if a SUBCLASS between the receiver and the chosen target already
+   * implements the selector, method lookup for this receiver still finds that
+   * subclass method, so the re-entered frame shows the subclass — not the new
+   * one. We detect that and tell the user why. Degrades with the same in-band
+   * error help as the DNU path.
    */
   private async implementInReceiver(displayLevel: number): Promise<void> {
     const frame = this.frames.find(f => f.level === displayLevel);
@@ -1014,12 +1030,34 @@ export class DebuggerPanel {
       this.postInit();
       return;
     }
-    const target = debug.getClassHomeInfo(this.session, receiverOop);
-    if (!target) {
+    // The receiver's class and every superclass up to Object — each a place the
+    // selector could be implemented, flagged with whether it already is.
+    const chain = debug.getReceiverClassChain(this.session, receiverOop, selector);
+    if (chain.length === 0) {
       this.errorMessage = `Could not resolve the receiver's class to implement #${selector}.`;
       this.postInit();
       return;
     }
+
+    // One candidate → go straight in. Several → let the user pick where in the
+    // chain to implement (receiver's class first; each marked override vs edit).
+    let targetIndex = 0;
+    if (chain.length > 1) {
+      const pick = await vscode.window.showQuickPick(
+        chain.map((c, i) => ({
+          label: c.className,
+          description: !c.dictName ? '(not in your symbol list)'
+            : c.implementsSelector ? `already implements #${selector} — opens it to edit (in ${c.dictName})`
+            : `override here (in ${c.dictName})`,
+          index: i,
+        })),
+        { placeHolder: `Implement #${selector} in which class? (receiver is ${chain[0].className})` },
+      );
+      if (this.disposed) return;          // panel closed while the pick was open
+      if (!pick) return;                  // user cancelled — open nothing
+      targetIndex = pick.index;
+    }
+    const target = chain[targetIndex];
     if (!target.dictName) {
       // No home dictionary → no editable gemstone:// URI (same guard as the DNU path).
       this.errorMessage = `Can't implement #${selector}: ${target.className} isn't in your symbol `
@@ -1028,30 +1066,49 @@ export class DebuggerPanel {
       return;
     }
 
-    const uri = this.gemstoneMethodUri(target.dictName, target.className, target.isMeta, 'new-method');
-    // On a clean save the FS provider swaps the template tab to the real method
-    // URI — built EXACTLY as the provider builds it (see createDnuMethod) so the
-    // close-on-dispose match works.
+    // Shadowing: the method actually used by this receiver is the FIRST class in
+    // the chain (most specific) that implements the selector. If that class is
+    // strictly below the chosen target, the new/edited target method is shadowed.
+    const activeIndex = chain.findIndex(c => c.implementsSelector);
+    const shadowedBy = activeIndex >= 0 && activeIndex < targetIndex ? chain[activeIndex].className : undefined;
+
+    // For a class that already implements the selector, open its EXISTING source
+    // (no stub → never clobber a real method). Otherwise open a pre-filled stub.
+    const editingExisting = target.implementsSelector === true;
     const compiledUri = this.gemstoneMethodUri(target.dictName, target.className, target.isMeta, selector);
+    // selector 'new-method' is the FS provider's template URI; for an edit we open
+    // the real method URI directly. Built EXACTLY as the provider builds it (see
+    // createDnuMethod) so the close-on-dispose match works.
+    const openUri = editingExisting
+      ? compiledUri
+      : this.gemstoneMethodUri(target.dictName, target.className, target.isMeta, 'new-method');
     // The caller of the overridden frame — re-entered on save so the send
-    // re-dispatches into the new override. The displayed stack is ordered
+    // re-dispatches into the new code. The displayed stack is ordered
     // top(1)→base(N), so the sender is the NEXT-deeper displayed frame.
     const idx = this.frames.indexOf(frame);
     const sender = idx >= 0 ? this.frames[idx + 1] : undefined;
     try {
-      await this.openTemplateEditor(uri, buildMethodStub(selector, selectorArgCount(selector)));
-      this.pendingOverrideUri = uri.toString();
+      await this.openTemplateEditor(
+        openUri, editingExisting ? undefined : buildMethodStub(selector, selectorArgCount(selector)));
+      this.pendingOverrideUri = openUri.toString();
       this.pendingOverrideSelector = selector;
       this.pendingOverrideSenderLevel =
         sender && !sender.isExecutedCode && sender.serverLevel > 1 ? sender.serverLevel : undefined;
-      this.dnuMethodUris.add(uri.toString());      // closed with the panel
+      this.pendingOverrideShadowedBy = shadowedBy;
+      this.dnuMethodUris.add(openUri.toString());  // closed with the panel
       this.dnuMethodUris.add(compiledUri.toString());
       DebuggerPanel.persistLiveSourceUris();
       // Banner-only guidance (NOT postInit — that re-selects the top frame and
-      // steals focus from the template we just opened; see createDnuMethod).
-      this.errorMessage = `Editing new method #${selector} in ${target.className} below — fill in the `
-        + 'body, then save it (Ctrl+S / Cmd+S) to create it. The frame will then re-enter the new method.';
-      this.panel.webview.postMessage({ command: 'banner', text: this.errorMessage });
+      // steals focus from the editor we just opened; see createDnuMethod).
+      const verb = editingExisting ? `Editing existing #${selector} in` : `Editing new method #${selector} in`;
+      let text = `${verb} ${target.className} below — edit the body, then save it (Ctrl+S / Cmd+S). `
+        + 'The frame will then re-enter it.';
+      if (shadowedBy) {
+        text += ` NOTE: ${shadowedBy} already implements #${selector}, so a ${chain[0].className} still `
+          + `uses ${shadowedBy}>>#${selector} — the frame will show that, not ${target.className}'s.`;
+      }
+      this.errorMessage = text;
+      this.panel.webview.postMessage({ command: 'banner', text });
     } catch (e: unknown) {
       logError(this.sessionId, e instanceof Error ? e.message : String(e));
       this.errorMessage = `Could not open a method template: ${e instanceof Error ? e.message : String(e)}`;
@@ -1066,10 +1123,17 @@ export class DebuggerPanel {
    * the new method. When there's no re-enterable sender (a workspace/top caller),
    * the method still exists; tell the user to re-run. Mirrors finishDnuMethod.
    */
-  private async finishOverrideMethod(selector: string, senderLevel: number | undefined): Promise<void> {
+  private async finishOverrideMethod(
+    selector: string, senderLevel: number | undefined, shadowedBy: string | undefined,
+  ): Promise<void> {
     const sel = selector ? `#${selector}` : 'the method';
+    // When a more-specific subclass already implements the selector, the receiver
+    // keeps using THAT method — explain why the frame won't show the new one.
+    const shadowNote = shadowedBy
+      ? ` (NOTE: ${shadowedBy} already implements ${sel}, so the frame still shows ${shadowedBy}>>${sel}.)`
+      : '';
     if (senderLevel === undefined) {
-      this.errorMessage = `Created ${sel} — press Resume (▶) or re-run the send to dispatch into the new method.`;
+      this.errorMessage = `Saved ${sel} — press Resume (▶) or re-run the send to dispatch into it.${shadowNote}`;
       this.postInit();
       return;
     }
@@ -1081,8 +1145,8 @@ export class DebuggerPanel {
       this.dnuSuppressed = false;
       this.frames = this.fetchStack();
       this.dnuInfo = this.detectDnu();
-      this.errorMessage = `Created ${sel} — re-entered the calling frame. Press Resume (▶) to `
-        + 'dispatch into the new method, or step into it.';
+      this.errorMessage = `Saved ${sel} — re-entered the calling frame. Press Resume (▶) to `
+        + `dispatch into it, or step into it.${shadowNote}`;
       this.postInit();
     });
   }
@@ -1095,7 +1159,7 @@ export class DebuggerPanel {
    * body). Mirrors showSourceEditor's docking so the first open splits a group
    * beneath the panel; later opens reuse that group.
    */
-  private async openTemplateEditor(uri: vscode.Uri, stub: string): Promise<vscode.TextEditor> {
+  private async openTemplateEditor(uri: vscode.Uri, stub?: string): Promise<vscode.TextEditor> {
     const firstOpen = this.sourceColumn === undefined;
     if (firstOpen) {
       try {
@@ -1111,10 +1175,15 @@ export class DebuggerPanel {
     });
     this.sourceColumn = editor.viewColumn ?? this.sourceColumn;
     this.sourceEditor = editor;
-    // Replace the whole document with the pre-filled stub.
-    const lastLine = Math.max(0, editor.document.lineCount - 1);
-    const end = editor.document.lineAt(lastLine).range.end;
-    await editor.edit(b => b.replace(new vscode.Range(new vscode.Position(0, 0), end), stub));
+    // Replace the whole document with the pre-filled stub — but ONLY for a fresh
+    // template. When `stub` is omitted (implementing in a class that ALREADY has
+    // the selector), leave the FS provider's existing source so we never clobber
+    // a real method with a placeholder body.
+    if (stub !== undefined) {
+      const lastLine = Math.max(0, editor.document.lineCount - 1);
+      const end = editor.document.lineAt(lastLine).range.end;
+      await editor.edit(b => b.replace(new vscode.Range(new vscode.Position(0, 0), end), stub));
+    }
     this.shownSourceUris.add(uri.toString()); // closed with the panel
     DebuggerPanel.persistLiveSourceUris();
     if (firstOpen) await this.applySourcePaneRatio();
@@ -1638,10 +1707,12 @@ export class DebuggerPanel {
       if (this.recompileFailed(doc.uri)) return;
       const selector = this.pendingOverrideSelector ?? '';
       const senderLevel = this.pendingOverrideSenderLevel;
+      const shadowedBy = this.pendingOverrideShadowedBy;
       this.pendingOverrideUri = undefined;
       this.pendingOverrideSelector = undefined;
       this.pendingOverrideSenderLevel = undefined;
-      void this.finishOverrideMethod(selector, senderLevel);
+      this.pendingOverrideShadowedBy = undefined;
+      void this.finishOverrideMethod(selector, senderLevel, shadowedBy);
       return;
     }
 
