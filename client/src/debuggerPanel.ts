@@ -667,21 +667,19 @@ export class DebuggerPanel {
   private pendingDnuMethodUri: string | undefined;
   private pendingDnuSelector: string | undefined;
   /**
-   * While an "Implement in <receiverClass>" override template is being edited:
-   * the `gemstone://` new-method URI, the selector being implemented, and the
-   * server level of the SENDER frame (the caller of the overridden method).
-   * Saving the template (a clean compile) re-enters that sender so a Resume
-   * re-dispatches the send into the freshly-created override (so the frame is
-   * "reset to that method"). Undefined sender → can't re-enter; just refresh.
+   * While an "Implement in <class>" template is being edited: the `gemstone://`
+   * URI being edited (a new-method template, or the real method when editing an
+   * existing one), the selector, and the target class (for the save message).
+   * Saving (a clean compile) just refreshes + explains — option B, no auto-trim;
+   * the new method is used on the NEXT send of the selector.
    */
   private pendingOverrideUri: string | undefined;
   private pendingOverrideSelector: string | undefined;
-  private pendingOverrideSenderLevel: number | undefined;
   /** The class the pending override is being implemented in (for the save message). */
   private pendingOverrideTargetClass: string | undefined;
   /** Set when the chosen target is shadowed by a more-specific subclass impl;
-   *  surfaced after save so the user understands why the re-entered frame still
-   *  shows the subclass method, not the one they just implemented. */
+   *  surfaced after save so the user understands why a new send still won't reach
+   *  the method they just implemented higher up the chain. */
   private pendingOverrideShadowedBy: string | undefined;
   /**
    * Suppresses the "Create #sel" button once a create is underway or resolved, so
@@ -1092,21 +1090,14 @@ export class DebuggerPanel {
     const openUri = editingExisting
       ? compiledUri
       : this.gemstoneMethodUri(target.dictName, target.className, target.isMeta, 'new-method');
-    // The caller of the overridden frame — re-entered on save so the send
-    // re-dispatches into the new code. The displayed stack is ordered
-    // top(1)→base(N), so the sender is the NEXT-deeper displayed frame.
-    const idx = this.frames.indexOf(frame);
-    const sender = idx >= 0 ? this.frames[idx + 1] : undefined;
-    logInfo(`[Jasper Debugger] implement #${selector} in ${target.className}: `
-      + `overridden frame = ${frame.label}@sv${frame.serverLevel} (display ${frame.level}); `
-      + `sender = ${sender ? `${sender.label}@sv${sender.serverLevel} executedCode=${sender.isExecutedCode}` : 'none'}`);
+    logInfo(`[Jasper Debugger] implement #${selector} in ${target.className} `
+      + `(${editingExisting ? 'edit existing' : 'new override'}); overridden frame = `
+      + `${frame.label}@sv${frame.serverLevel}${shadowedBy ? `; shadowed by ${shadowedBy}` : ''}`);
     try {
       await this.openTemplateEditor(
         openUri, editingExisting ? undefined : buildMethodStub(selector, selectorArgCount(selector)));
       this.pendingOverrideUri = openUri.toString();
       this.pendingOverrideSelector = selector;
-      this.pendingOverrideSenderLevel =
-        sender && !sender.isExecutedCode && sender.serverLevel > 1 ? sender.serverLevel : undefined;
       this.pendingOverrideShadowedBy = shadowedBy;
       this.pendingOverrideTargetClass = target.className;
       this.dnuMethodUris.add(openUri.toString());  // closed with the panel
@@ -1116,10 +1107,10 @@ export class DebuggerPanel {
       // steals focus from the editor we just opened; see createDnuMethod).
       const verb = editingExisting ? `Editing existing #${selector} in` : `Editing new method #${selector} in`;
       let text = `${verb} ${target.className} below — edit the body, then save it (Ctrl+S / Cmd+S). `
-        + 'The frame will then re-enter it.';
+        + `It's then used on the next #${selector} send.`;
       if (shadowedBy) {
         text += ` NOTE: ${shadowedBy} already implements #${selector}, so a ${chain[0].className} still `
-          + `uses ${shadowedBy}>>#${selector} — the frame will show that, not ${target.className}'s.`;
+          + `uses ${shadowedBy}>>#${selector}, not ${target.className}'s.`;
       }
       this.errorMessage = text;
       this.panel.webview.postMessage({ command: 'banner', text });
@@ -1131,48 +1122,31 @@ export class DebuggerPanel {
   }
 
   /**
-   * After an override method is created (clean compile), re-enter the sender of
-   * the overridden frame (non-blocking trim) so the user's next Resume re-runs
-   * the send and method lookup finds the new override — the frame is reset to
-   * the new method. When there's no re-enterable sender (a workspace/top caller),
-   * the method still exists; tell the user to re-run. Mirrors finishDnuMethod.
+   * After an override method is saved (clean compile), DON'T auto-restart anything
+   * (option B — predictable, no surprising stack jumps): the method now exists and
+   * is used on the NEXT send of the selector. The call already on the stack keeps
+   * running the method it dispatched to; the user Resumes (later sends — e.g. the
+   * next loop iteration — use the new one) or re-runs. We just refresh + explain.
+   * (Unlike DNU, where the send is parked unhandled and MUST be re-dispatched, an
+   * override's send already succeeded into the inherited method.)
    */
   private async finishOverrideMethod(
-    selector: string, senderLevel: number | undefined,
-    shadowedBy: string | undefined, targetClass: string,
+    selector: string, shadowedBy: string | undefined, targetClass: string,
   ): Promise<void> {
     const sel = selector ? `#${selector}` : 'the method';
     const inTarget = targetClass ? ` in ${targetClass}` : '';
     // When a more-specific subclass already implements the selector, the receiver
-    // keeps using THAT method — explain why the frame won't show the new one.
+    // keeps using THAT method — explain why a new send still won't reach this one.
     const shadowNote = shadowedBy
-      ? ` NOTE: ${shadowedBy} already implements ${sel}, so the frame still shows ${shadowedBy}>>${sel}.`
+      ? ` NOTE: ${shadowedBy} already implements ${sel}, so ${shadowedBy}>>${sel} still wins for this receiver.`
       : '';
-    if (senderLevel === undefined) {
-      // No re-enterable caller (the send came from a workspace doit/block, or the
-      // only caller is the top frame), so we can't re-dispatch THIS in-flight call
-      // in place. But the method now exists: the next time the selector is sent it
-      // dispatches into the new version — so Resume (which finishes the in-flight
-      // call with the old method, then continues — e.g. the next loop iteration)
-      // or a fresh re-run will use it.
-      this.errorMessage = `Saved ${sel}${inTarget} — used on the next ${sel} send. Resume (▶) to `
-        + 'continue (the call now on the stack finishes with the previously-found version), or '
-        + `re-run the expression.${shadowNote}`;
-      this.postInit();
-      return;
-    }
-    await this.runNb('Implement in receiver', async () => {
-      await debug.trimStackToLevelNb(this.session, this.gsProcess, senderLevel);
-      if (this.disposed) return;
-      this.staleTopActivation = false; // the trim rebuilt the stack from a fresh activation
-      this.uncontinuable = false;
-      this.dnuSuppressed = false;
-      this.frames = this.fetchStack();
-      this.dnuInfo = this.detectDnu();
-      this.errorMessage = `Saved ${sel}${inTarget} — re-entered the calling frame. Press Resume (▶) `
-        + `to re-send and dispatch into it, or step into it.${shadowNote}`;
-      this.postInit();
-    });
+    this.dnuSuppressed = false;
+    this.frames = this.fetchStack();   // labels/source may have shifted; no trim
+    this.dnuInfo = this.detectDnu();
+    this.errorMessage = `Saved ${sel}${inTarget} — used on the next ${sel} send. Resume (▶) to continue `
+      + '(the call now on the stack finishes with the previously-found version), or re-run the '
+      + `expression.${shadowNote}`;
+    this.postInit();
   }
 
   /**
@@ -1676,8 +1650,6 @@ export class DebuggerPanel {
    * re-enters the same method one level up).
    */
   private async restartFrame(serverLevel: number): Promise<void> {
-    logInfo(`[Jasper Debugger] restartFrame: trimming to serverLevel ${serverLevel} `
-      + `(stack tops: ${this.frames.slice(0, 4).map(f => `${f.level}=${f.label}@sv${f.serverLevel}`).join(', ')})`);
     if (serverLevel <= 1) {
       // Show the notice IN the panel (the banner) — a toast is easy to miss while
       // the webview has focus. It clears on the next step/resume/restart.
@@ -1727,20 +1699,18 @@ export class DebuggerPanel {
     }
 
     // Implement-in-receiver (override): saving the template creates the method in
-    // the receiver's class; on a clean compile, re-enter the sender so Resume
-    // re-dispatches into it. A bad compile keeps the pending state for a re-save.
+    // the chosen class; on a clean compile we just refresh + explain (no trim —
+    // option B). A bad compile keeps the pending state for a re-save.
     if (this.pendingOverrideUri !== undefined && doc.uri.toString() === this.pendingOverrideUri) {
       if (this.recompileFailed(doc.uri)) return;
       const selector = this.pendingOverrideSelector ?? '';
-      const senderLevel = this.pendingOverrideSenderLevel;
       const shadowedBy = this.pendingOverrideShadowedBy;
       const targetClass = this.pendingOverrideTargetClass ?? '';
       this.pendingOverrideUri = undefined;
       this.pendingOverrideSelector = undefined;
-      this.pendingOverrideSenderLevel = undefined;
       this.pendingOverrideShadowedBy = undefined;
       this.pendingOverrideTargetClass = undefined;
-      void this.finishOverrideMethod(selector, senderLevel, shadowedBy, targetClass);
+      void this.finishOverrideMethod(selector, shadowedBy, targetClass);
       return;
     }
 

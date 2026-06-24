@@ -1951,7 +1951,7 @@ describe('DebuggerPanel', () => {
       expect(posted(panel, 'init').length).toBe(1); // only the original ready init
     });
 
-    it('re-enters the sender frame (trim, NOT resume) on a clean compile', async () => {
+    it('on a clean save, refreshes with a "used on next send" message and does NOT trim/resume (option B)', async () => {
       const panel = openPanel();
       sendMessage(panel, { command: 'implementInReceiver', level: 2 });
       await flush();
@@ -1959,13 +1959,13 @@ describe('DebuggerPanel', () => {
 
       saveListener()({ uri } as vscode.TextDocument);
       await tick();
-      // The overridden frame is server level 2; its caller (the sender) is level 3.
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
-      expect(debug.continueExecution).not.toHaveBeenCalled(); // never auto-resume
-      expect(lastPosted(panel, 'init').errorMessage).toMatch(/resume/i);
+      // Option B: no auto-restart and never auto-resume — just refresh + explain.
+      expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();
+      expect(debug.continueExecution).not.toHaveBeenCalled();
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/used on the next/i);
     });
 
-    it('does NOT trim and keeps the template pending when the compile fails', async () => {
+    it('keeps the template pending on a failed compile, then finishes on a clean re-save', async () => {
       const panel = openPanel();
       sendMessage(panel, { command: 'implementInReceiver', level: 2 });
       await flush();
@@ -1976,11 +1976,12 @@ describe('DebuggerPanel', () => {
       );
       saveListener()({ uri } as vscode.TextDocument);
       await tick();
-      expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();
+      // Bad compile → finish not run yet (no "saved" message).
+      expect(posted(panel, 'init').some((m: { errorMessage?: string }) => /used on the next/i.test(m.errorMessage ?? ''))).toBe(false);
 
-      saveListener()({ uri } as vscode.TextDocument); // re-save after fixing
+      saveListener()({ uri } as vscode.TextDocument); // re-save after fixing → pending survived
       await tick();
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/used on the next/i);
     });
 
     it('refuses to implement when the receiver class has no home dictionary', async () => {
@@ -2055,36 +2056,11 @@ describe('DebuggerPanel', () => {
       const panel = openPanel();
       sendMessage(panel, { command: 'implementInReceiver', level: 2 });
       await flush();
-      // Save → the banner/init message explains Interval still shadows it.
+      // Save → the message explains Interval still shadows it (no trim — option B).
       saveListener()({ uri: vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] } as vscode.TextDocument);
       await tick();
+      expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();
       expect(lastPosted(panel, 'init').errorMessage).toMatch(/Interval already implements/i);
-    });
-
-    it('explains "used on the next send" (no in-place trim) when the caller is a non-re-enterable doit', async () => {
-      // Stack where the overridden frame's only caller is Executed Code: make the
-      // frame BELOW the inherited one a doit so the sender isn't re-enterable.
-      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
-        if (oop === 1n) return { className: 'JasperDebugDemo', selector: 'finish' };
-        if (oop === 2n) return { className: 'Object', selector: 'halt' };
-        if (oop === 3n) throw new Error('doit: no class'); // sender of frame 2 → Executed Code
-        return { className: 'JasperDebugDemo', selector: 'accumulateFrom:to:' };
-      });
-      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce([
-        { className: 'Interval', isMeta: false, dictName: 'Globals', implementsSelector: false },
-        { className: 'SequenceableCollection', isMeta: false, dictName: 'Kernel', implementsSelector: false },
-      ]);
-      vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
-        async (items: unknown) => (items as { index: number }[])[1] as never);
-      const panel = openPanel();
-      sendMessage(panel, { command: 'implementInReceiver', level: 2 });
-      await flush();
-      saveListener()({ uri: vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] } as vscode.TextDocument);
-      await tick();
-
-      expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();          // can't re-enter a doit
-      expect(lastPosted(panel, 'init').errorMessage).toMatch(/used on the next/i);
-      expect(lastPosted(panel, 'init').errorMessage).toMatch(/re-run the expression/i);
     });
 
     it('opens nothing when the inheritance-chain QuickPick is cancelled', async () => {
