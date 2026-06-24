@@ -500,6 +500,67 @@ export class DebuggerPanel {
    */
   private static savedSourceRatio: number | undefined;
 
+  /**
+   * Workspace-state key + handle for reaping orphaned companion source tabs.
+   *
+   * The companion source editor is a real text-editor tab (a `gemstone://`
+   * method or our `gemstone-debug:` doc), which VS Code persists and restores
+   * across a window close — unlike the webview panel, which is dropped (we
+   * register no serializer). So if the window is closed while a debugger is
+   * open, `dispose()` → `closeSourceEditors()` can't win the shutdown race (the
+   * async tab close isn't persisted), and the source tab comes back next launch
+   * orphaned — and broken, since there's no live session to resolve `gemstone://`.
+   *
+   * Fix: keep the set of currently-open debugger source URIs in `workspaceState`
+   * (rewritten as the union of all live panels whenever it changes; emptied on
+   * clean dispose). On the next activation `initSourceTabCleanup` closes whatever
+   * is left over — exactly the tabs a window-close-with-debugger-open orphaned —
+   * then re-arms a fresh set. Tracking only our own URIs means a System Browser
+   * tab the user opened independently is never touched.
+   */
+  private static orphanState: vscode.Memento | undefined;
+  private static readonly ORPHAN_SOURCE_KEY = 'jasper.debugger.orphanSourceUris';
+
+  /**
+   * Arm orphan-source-tab cleanup for this window: close any source tab a prior
+   * session left open at window close, then re-arm a fresh (empty) set. Call once
+   * from `activate()` with `context.workspaceState`.
+   */
+  static initSourceTabCleanup(state: vscode.Memento): void {
+    DebuggerPanel.orphanState = state;
+    const orphans = state.get<string[]>(DebuggerPanel.ORPHAN_SOURCE_KEY, []);
+    // Re-arm immediately; live panels re-populate as they open source editors.
+    void state.update(DebuggerPanel.ORPHAN_SOURCE_KEY, undefined);
+    if (orphans.length === 0) return;
+    const wanted = new Set(orphans);
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        if (tab.input instanceof vscode.TabInputText && wanted.has(tab.input.uri.toString())) {
+          void vscode.window.tabGroups.close(tab);
+        }
+      }
+    }
+  }
+
+  /**
+   * Rewrite the persisted orphan set as the union of every live panel's open
+   * source URIs. Called after any panel opens/closes a source tab so the set
+   * always reflects what's currently open — if the window dies abruptly, the
+   * leftover set is exactly what needs reaping next launch. No-op until armed.
+   */
+  private static persistLiveSourceUris(): void {
+    const state = DebuggerPanel.orphanState;
+    if (!state) return;
+    const uris = new Set<string>();
+    for (const set of DebuggerPanel.panels.values()) {
+      for (const dbg of set) {
+        for (const u of dbg.shownSourceUris) uris.add(u);
+        for (const u of dbg.dnuMethodUris) uris.add(u);
+      }
+    }
+    void state.update(DebuggerPanel.ORPHAN_SOURCE_KEY, uris.size ? Array.from(uris) : undefined);
+  }
+
   private static ensureReadOnlySourceProvider(): void {
     if (DebuggerPanel.providerRegistered) return;
     DebuggerPanel.providerRegistered = true;
@@ -867,6 +928,7 @@ export class DebuggerPanel {
       this.pendingDnuMethodUri = uri.toString();
       this.dnuMethodUris.add(uri.toString());
       this.dnuMethodUris.add(compiledUri.toString());
+      DebuggerPanel.persistLiveSourceUris();
       this.pendingDnuSelector = dnu.selector;
       // Replace the DNU error with what-to-do guidance — the most visible spot, and
       // the next step is the user's (the original complaint was that nothing said to
@@ -914,6 +976,7 @@ export class DebuggerPanel {
     const end = editor.document.lineAt(lastLine).range.end;
     await editor.edit(b => b.replace(new vscode.Range(new vscode.Position(0, 0), end), stub));
     this.shownSourceUris.add(uri.toString()); // closed with the panel
+    DebuggerPanel.persistLiveSourceUris();
     if (firstOpen) await this.applySourcePaneRatio();
     return editor;
   }
@@ -1604,6 +1667,7 @@ export class DebuggerPanel {
       preserveFocus: true,
     });
     this.shownSourceUris.add(uri.toString()); // closed with the panel (see dispose)
+    DebuggerPanel.persistLiveSourceUris();
     this.sourceColumn = editor.viewColumn ?? this.sourceColumn;
     this.sourceEditor = editor; // live .viewColumn used at close time (see field doc)
     // Size the brand-new source group: re-apply the user's remembered ratio (or
@@ -2218,6 +2282,10 @@ export class DebuggerPanel {
     // Close the companion source editor and any GT Inspectors this debugger
     // opened — they're artifacts of this debugger and shouldn't outlive it.
     this.closeSourceEditors();
+    // Drop this panel's source tabs from the persisted orphan set (it was already
+    // removed from `panels` above, so the union now excludes it). A clean dispose
+    // thus leaves nothing to reap; only a window-close-with-debugger-open does.
+    DebuggerPanel.persistLiveSourceUris();
     for (const inspector of this.openedInspectors) inspector.close();
     this.openedInspectors.clear();
     // Release this panel's stashed read-only source.

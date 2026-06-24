@@ -126,6 +126,11 @@ export function activate(context: vscode.ExtensionContext) {
 
   initializeBundledGci(context.extensionPath);
 
+  // Reap any companion debugger source tab a prior session left open when its
+  // window was closed with the Enhanced Debugger still up (it restores orphaned
+  // and broken — no session to resolve gemstone://). See DebuggerPanel.
+  DebuggerPanel.initSourceTabCleanup(context.workspaceState);
+
   try {
     initializeExtensionFolder();
   } catch (error) {

@@ -966,6 +966,73 @@ describe('DebuggerPanel', () => {
         vi.mocked(vscode.commands.executeCommand).mockReset();
       }
     });
+
+    // ── Orphaned companion source tabs across a VS Code window close ──────
+    // The webview panel is NOT restored across a window close (no serializer),
+    // but its companion source editor is a real text-editor tab, which VS Code
+    // always restores — orphaned and broken (no live session to resolve
+    // gemstone://). We persist the open source URIs to workspaceState and reap
+    // the leftovers on the next activation.
+    const ORPHAN_KEY = 'jasper.debugger.orphanSourceUris';
+    function fakeMemento(initial: Record<string, unknown> = {}): vscode.Memento {
+      const store = new Map<string, unknown>(Object.entries(initial));
+      return {
+        get: (key: string, def?: unknown) => (store.has(key) ? store.get(key) : def),
+        update: (key: string, val: unknown) => {
+          if (val === undefined) store.delete(key); else store.set(key, val);
+          return Promise.resolve();
+        },
+        keys: () => Array.from(store.keys()),
+      } as unknown as vscode.Memento;
+    }
+
+    it('reaps a debugger source tab a prior session left open, then re-arms the set', () => {
+      const orphan = 'gemstone://1/UserGlobals/JasperDebugDemo/instance/accessing/finish';
+      const memento = fakeMemento({ [ORPHAN_KEY]: [orphan] });
+      const orphanTab = { input: new vscode.TabInputText(vscode.Uri.parse(orphan)) };
+      // An unrelated tab the user opened independently (e.g. System Browser) — never ours.
+      const otherTab = { input: new vscode.TabInputText(vscode.Uri.parse('gemstone://1/UserGlobals/Foo/instance/x/bar')) };
+      const groups = vscode.window.tabGroups.all as unknown as { viewColumn: number; tabs: unknown[] }[];
+      groups.push({ viewColumn: 1, tabs: [orphanTab, otherTab] });
+
+      DebuggerPanel.initSourceTabCleanup(memento);
+
+      expect(vi.mocked(vscode.window.tabGroups.close)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(vscode.window.tabGroups.close)).toHaveBeenCalledWith(orphanTab);
+      // The set is re-armed (emptied) so this session starts tracking fresh.
+      expect(memento.get(ORPHAN_KEY)).toBeUndefined();
+    });
+
+    it('persists an opened source URI so an abrupt window close can reap it next launch', async () => {
+      const memento = fakeMemento();
+      DebuggerPanel.initSourceTabCleanup(memento);
+      const panel = openPanelWithStack();
+      vi.mocked(vscode.window.showTextDocument).mockResolvedValueOnce(columnedEditor(9) as never);
+      vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce({ ...URI_INFO, selector: 'orphanProbeA' });
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      await flush();
+
+      const uri = (vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri).toString();
+      expect(uri).toContain('orphanProbeA');                       // our just-opened source…
+      expect(memento.get(ORPHAN_KEY) as string[]).toContain(uri);  // …is now tracked for reaping.
+    });
+
+    it('drops the URI from the tracked set on a clean panel close (nothing to reap)', async () => {
+      const memento = fakeMemento();
+      DebuggerPanel.initSourceTabCleanup(memento);
+      const panel = openPanelWithStack();
+      vi.mocked(vscode.window.showTextDocument).mockResolvedValueOnce(columnedEditor(9) as never);
+      vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce({ ...URI_INFO, selector: 'orphanProbeB' });
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      await flush();
+      const uri = (vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri).toString();
+      expect(memento.get(ORPHAN_KEY) as string[]).toContain(uri); // tracked while open…
+
+      closePanel(panel);
+
+      // …and dropped on a clean dispose, so the next launch has nothing to reap.
+      expect((memento.get(ORPHAN_KEY) as string[] | undefined) ?? []).not.toContain(uri);
+    });
   });
 
   it('terminates the suspended gsProcess (via clearStack) when the panel window is closed', () => {
