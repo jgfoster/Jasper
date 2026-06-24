@@ -29,7 +29,7 @@ export class GtInspector {
   private currentOop: bigint;
   private currentLabel: string;
 
-  static create(session: ActiveSession, oop: bigint, label: string): void {
+  static create(session: ActiveSession, oop: bigint, label: string): GtInspector {
     const panel = vscode.window.createWebviewPanel(
       'gemstoneSuperInspector',
       'Inspector',
@@ -41,6 +41,16 @@ export class GtInspector {
       GtInspector.panels.set(session.id, new Set());
     }
     GtInspector.panels.get(session.id)!.add(inspector);
+    return inspector;
+  }
+
+  /**
+   * Close this inspector's panel. Used by an owner (e.g. the debugger that
+   * opened it) to tear it down; disposing the panel fires onDidDispose →
+   * `dispose()`, which de-registers it from the per-session set.
+   */
+  close(): void {
+    this.panel.dispose();
   }
 
   static disposeForSession(sessionId: number): void {

@@ -1,16 +1,15 @@
 import * as vscode from 'vscode';
 import { SessionManager, ActiveSession } from './sessionManager';
-import { OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG } from './gciConstants';
+import { OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG, GCI_PERFORM_FLAG_SINGLE_STEP } from './gciConstants';
 import { logQuery, logResult, logError, logInfo } from './gciLog';
 import { InspectorTreeProvider } from './inspectorTreeProvider';
 import { GtInspector } from './gtInspector';
+import { DebuggerPanel } from './debuggerPanel';
+import { clearStack, getObjectPrintString, acquireStepping, releaseStepping } from './debugQueries';
 import { appendTranscript, showTranscript } from './transcriptChannel';
-import { GciError } from './gciLibrary';
-import { pollReadable } from './socketPoll';
+import { wrapWithTranscriptCapture } from './transcriptCapture';
+import { pollNbToCompletion, NbCancelledError } from './nbRunner';
 
-const BACKOFF_INTERVALS = [10, 10, 20, 40, 80, 160, 320, 500];
-const MAX_INTERVAL = 500;
-const PROGRESS_THRESHOLD_MS = 2000;
 const MAX_RESULT_SIZE = 64 * 1024;
 
 // Decoration type for Display It results.
@@ -54,12 +53,6 @@ const DISPLAY_RESULT_CONTEXT = 'gemstone.displayResultVisible';
 // Max characters shown in the inline overlay before truncating (full value
 // is always available via the hover and the Expand action).
 const MAX_OVERLAY_PREVIEW = 100;
-
-class ExecutionCancelledError extends Error {
-  constructor() {
-    super('Execution cancelled');
-  }
-}
 
 class DebuggableError extends Error {
   constructor(message: string, public readonly context: bigint) {
@@ -117,14 +110,19 @@ export class CodeExecutor {
   }
 
   async displayIt(): Promise<void> {
-    return this.execute(true);
+    return this.execute('display');
   }
 
   async executeIt(): Promise<void> {
-    return this.execute(false);
+    return this.execute('execute');
   }
 
-  private async execute(displayResult: boolean): Promise<void> {
+  async debugIt(): Promise<void> {
+    return this.execute('debug');
+  }
+
+  private async execute(mode: 'display' | 'execute' | 'debug'): Promise<void> {
+    const displayResult = mode === 'display';
     const session = await this.sessionManager.resolveSession();
     if (!session) return;
 
@@ -156,19 +154,38 @@ export class CodeExecutor {
     const oopClassString = this.resolveOopClassString(session);
     if (oopClassString === undefined) return;
 
-    const label = displayResult ? 'Display It' : 'Execute It';
+    const label = mode === 'display' ? 'Display It'
+      : mode === 'debug' ? 'Debug It' : 'Execute It';
     logQuery(session.id, label, code);
-    const { wrappedCode, codeOffset } = this.wrapWithTranscriptCapture(code);
+    // Debug It runs the raw selection, NOT the transcript-capture wrapper. The
+    // wrapper nests the code as `[[ <code> ] value] ensure: [...]`, so a
+    // single-step halt lands on the OUTER block and Step Over treats the inner
+    // `[<code>] value` send as one atomic unit — stepping clean over all the
+    // user's code into the ensure: cleanup. Running unwrapped makes step point 1
+    // the user's first statement so stepping advances through it. (Transcript
+    // capture is sacrificed while debugging — an acceptable trade.)
+    const { wrappedCode, codeOffset } = mode === 'debug'
+      ? { wrappedCode: code, codeOffset: 0 }
+      : this.wrapWithTranscriptCapture(code);
 
     // Dim the selected code while executing
     const execRange = new vscode.Range(selection.start, selection.end);
     editor.setDecorations(executingDecorationType, [execRange]);
     
     this.setExecuting(session.id, true);
+    // Run interpreted (native code off) so a halt/error is steppable in the
+    // debugger — GemStone can't step native code (error 6014), and the process
+    // must START interpreted. Released in finally; if it halts, the debugger
+    // panel holds its own ref to keep native off while it's open.
+    acquireStepping(session);
+    // Debug It adds the single-step flag so the server breaks on the first
+    // statement of the compiled code and we open the debugger sitting there.
+    const execFlags = GCI_PERFORM_FLAG_ENABLE_DEBUG
+      | (mode === 'debug' ? GCI_PERFORM_FLAG_SINGLE_STEP : 0);
     try {
       const { success, err: startErr } = session.gci.GciTsNbExecute(
         session.handle, wrappedCode, oopClassString,
-        OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG, 0,
+        OOP_ILLEGAL, OOP_NIL, execFlags, 0,
       );
       if (!success) {
         const msg = startErr.message || `error ${startErr.number}`;
@@ -186,32 +203,111 @@ export class CodeExecutor {
       this.diagnostics.delete(editor.document.uri);
 
       if (displayResult) {
-        const mode = vscode.workspace
-          .getConfiguration('gemstone')
-          .get<string>('displayItMode', 'overlay');
-        if (mode === 'insert') {
-          await this.insertResult(editor, selection, resultString);
-        } else {
-          this.showResultOverlay(editor, selection, resultString);
-        }
+        await this.displayExecutionResult(editor, selection, resultString);
       } else {
         vscode.window.setStatusBarMessage('GemStone: Executed successfully.', 3000);
       }
     } catch (e: unknown) {
-      if (e instanceof ExecutionCancelledError) return;
+      if (e instanceof NbCancelledError) return;
       const msg = e instanceof Error ? e.message : String(e);
       logError(session.id, msg);
 
       if (e instanceof DebuggableError) {
+        if (mode === 'debug') {
+          // Debug It: the single-step flag halted on the first statement —
+          // this is an intentional stop, not an error. Open the Enhanced
+          // debugger directly on that halt, with no inline diagnostic and no
+          // chooser prompt. The panel takes its own stepping ref; if it fails
+          // to open, release the suspended process so it doesn't stall.
+          try {
+            DebuggerPanel.create(session, e.context, 'Debug It');
+          } catch (panelErr: unknown) {
+            logError(session.id, panelErr instanceof Error ? panelErr.message : String(panelErr));
+            clearStack(session, e.context);
+          }
+          return;
+        }
         // Try to show as inline diagnostic first; fall back to debug dialog
         this.showCompileError(editor, selection, code, codeOffset, msg);
-        await this.handleDebuggableError(session, e, msg);
+        // For a Display It, resuming/stepping to completion should render the
+        // result back in the workspace, just as if it had never halted. (Execute
+        // It is intentionally silent, so no callback.)
+        const onComplete = displayResult
+          ? (resultOop: bigint): void => {
+              const transcript = this.fetchTranscriptOutput(session);
+              if (transcript) appendTranscript(transcript);
+              const resultString = getObjectPrintString(session, resultOop, MAX_RESULT_SIZE);
+              // Capture the editor's column now, while it is still visible — by the
+              // next tick (after the panel disposes) editor.viewColumn may be
+              // undefined and the result would drift to whatever column is active.
+              const column = editor.viewColumn ?? vscode.ViewColumn.Active;
+              // The debugger panel disposes immediately after this callback,
+              // stealing focus from the workspace editor. Render once that has
+              // settled (next tick), refocusing the editor first — the result's
+              // Backspace/Enter keybindings require editorTextFocus, so otherwise
+              // the result shows but can't be dismissed/expanded from the keyboard.
+              setTimeout(() => {
+                this.renderResultWithFocus(editor, selection, resultString, column)
+                  .catch(err => logError(session.id, err instanceof Error ? err.message : String(err)));
+              }, 0);
+            }
+          : undefined;
+        await this.promptDebuggableError(session, e.context, msg, onComplete);
       } else {
         this.showCompileError(editor, selection, code, codeOffset, msg);
       }
     } finally {
       editor.setDecorations(executingDecorationType, []);
+      releaseStepping(session);
       this.setExecuting(session.id, false);
+    }
+  }
+
+  /**
+   * Render a Display-It result after refocusing its editor. Used only by the
+   * debugger's resume-to-completion path: the Enhanced Debugger panel takes
+   * focus and then disposes, so the workspace editor must be re-focused before
+   * the result is shown — the Backspace (dismiss) / Enter (expand) keybindings
+   * are gated on editorTextFocus. Falls back to the captured editor reference if
+   * the document can no longer be shown (e.g. it was closed).
+   */
+  private async renderResultWithFocus(
+    editor: vscode.TextEditor,
+    selection: vscode.Selection,
+    resultString: string,
+    column: vscode.ViewColumn,
+  ): Promise<void> {
+    let target = editor;
+    try {
+      target = await vscode.window.showTextDocument(editor.document, {
+        viewColumn: column,
+        preserveFocus: false,
+        preview: false,
+      });
+    } catch {
+      // Document gone/unopenable — render on the captured editor as a fallback.
+    }
+    await this.displayExecutionResult(target, selection, resultString);
+  }
+
+  /**
+   * Display a Display-It result in the editor — overlay (non-destructive,
+   * default) or inline insert, per the `gemstone.displayItMode` setting. Shared
+   * by the normal Display It and the debugger's resume-to-completion path so a
+   * halted Display It renders its result identically once resumed.
+   */
+  private async displayExecutionResult(
+    editor: vscode.TextEditor,
+    selection: vscode.Selection,
+    resultString: string,
+  ): Promise<void> {
+    const mode = vscode.workspace
+      .getConfiguration('gemstone')
+      .get<string>('displayItMode', 'overlay');
+    if (mode === 'insert') {
+      await this.insertResult(editor, selection, resultString);
+    } else {
+      this.showResultOverlay(editor, selection, resultString);
     }
   }
 
@@ -408,31 +504,9 @@ export class CodeExecutor {
   }
 
   private wrapWithTranscriptCapture(code: string): { wrappedCode: string; codeOffset: number } {
-    // Wrap user code so that Transcript writes are captured into SessionTemps.
-    // The wrapped code:
-    //   1. Creates a capture WriteStream
-    //   2. Saves the original Transcript
-    //   3. Installs the capture stream as Transcript in SessionTemps
-    //   4. Evaluates the user code inside an ensure: block
-    //   5. Restores the original Transcript and stores captured text
-    //
-    // The user code is embedded directly in Smalltalk source (inside a block),
-    // NOT inside a string literal, so single quotes must NOT be escaped.
-    const prefix = `| __vscCapture __vscOriginal __vscResult |
-__vscCapture := WriteStream on: String new.
-__vscOriginal := SessionTemps current at: #Transcript ifAbsent: [nil].
-SessionTemps current at: #Transcript put: __vscCapture.
-[__vscResult := [`;
-    const suffix = `] value]
-  ensure: [
-    SessionTemps current at: #Transcript put: __vscOriginal.
-    SessionTemps current at: #'__vscTranscriptResult' put: __vscCapture contents.
-  ].
-__vscResult`;
-    return {
-      wrappedCode: prefix + code + suffix,
-      codeOffset: prefix.length,
-    };
+    // Delegate to the shared wrapper so the Enhanced Debugger's unwrap
+    // (transcriptCapture.unwrapTranscriptCapture) stays in lock step with it.
+    return wrapWithTranscriptCapture(code);
   }
 
   private fetchTranscriptOutput(session: ActiveSession): string {
@@ -516,21 +590,45 @@ __t`;
     });
   }
 
-  private async handleDebuggableError(session: ActiveSession, e: DebuggableError, msg: string): Promise<void> {
+  /**
+   * Single shared notifier for a debuggable GemStone error. Offers two
+   * debuggers — the DAP "Debug" (Run and Debug view) and the webview
+   * "Enhanced Debug" — plus the implicit Cancel/dismiss. Whichever debugger the
+   * user picks OWNS the suspended `gsProcess`; dismissing clears the stack so
+   * the process is released. The two debuggers never coexist on one process.
+   */
+  private async promptDebuggableError(
+    session: ActiveSession, gsProcess: bigint, msg: string,
+    onComplete?: (resultOop: bigint) => void,
+  ): Promise<void> {
+    // Button array order maps to right-to-left placement in the modal, so
+    // 'Enhanced Debug' first puts it to the RIGHT of 'Debug'.
     const choice = await vscode.window.showErrorMessage(
-      `GemStone error: ${msg}`, { modal: true }, 'Debug'
+      `GemStone error: ${msg}`, { modal: true }, 'Enhanced Debug', 'Debug',
     );
     if (choice === 'Debug') {
-      vscode.debug.startDebugging(undefined, {
+      await vscode.debug.startDebugging(undefined, {
         type: 'gemstone',
         name: 'GemStone Error',
         request: 'attach',
         sessionId: session.id,
-        gsProcess: e.context.toString(),
+        gsProcess: gsProcess.toString(),
         errorMessage: msg,
       }, { suppressSaveBeforeStart: true });
+      // Reveal the Run and Debug view so the call stack is immediately visible
+      // instead of silently populating a hidden view.
+      await vscode.commands.executeCommand('workbench.view.debug');
+    } else if (choice === 'Enhanced Debug') {
+      try {
+        DebuggerPanel.create(session, gsProcess, msg, onComplete);
+      } catch (err: unknown) {
+        // If the panel fails to open, nothing owns the suspended process, so
+        // release it rather than leaving it stalled on the server.
+        logError(session.id, err instanceof Error ? err.message : String(err));
+        clearStack(session, gsProcess);
+      }
     } else {
-      try { session.gci.GciTsClearStack(session.handle, e.context); } catch { /* ignore */ }
+      clearStack(session, gsProcess);
     }
   }
 
@@ -561,107 +659,14 @@ __t`;
     return new vscode.Range(pos, lineEnd);
   }
 
-  /**
-   * Checks whether a non-blocking call's result is ready, returning the same
-   * { result: 1=ready, 0=pending, -1=error } shape as GciTsNbPoll.
-   *
-   * GciTsNbPoll doesn't exist before GemStone 3.7. When it's unavailable we
-   * poll the session socket directly (GciTsSocket + native poll), exactly as
-   * the GciTsNbResult docs prescribe.
-   */
-  private pollNbResultReady(session: ActiveSession): { result: number; err: GciError } {
-    if (session.gci.isAvailable('GciTsNbPoll')) {
-      return session.gci.GciTsNbPoll(session.handle, 0);
-    }
-    const { fd, err } = session.gci.GciTsSocket(session.handle);
-    if (err.number !== 0 || fd < 0) {
-      return { result: -1, err };
-    }
-    const ready = pollReadable(fd, 0);
-    return {
-      result: ready,
-      err: ready === -1
-        ? ({ number: -1, message: 'Failed to poll the GemStone session socket' } as GciError)
-        : err,
-    };
-  }
-
   private pollForCompletion<T>(
     session: ActiveSession, onReady: () => T,
   ): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      let pollIndex = 0;
-      let elapsedMs = 0;
-      let progressShown = false;
-      let softBreakSent = false;
-      let progressResolve: (() => void) | null = null;
-
-      const finishProgress = () => {
-        if (progressResolve) {
-          progressResolve();
-          progressResolve = null;
-        }
-      };
-
-      const doPoll = () => {
-        const { result: pollResult, err: pollErr } = this.pollNbResultReady(session);
-
-        if (pollResult === 1) {
-          finishProgress();
-          try {
-            resolve(onReady());
-          } catch (e) {
-            reject(e);
-          }
-          return;
-        }
-
-        if (pollResult === -1) {
-          finishProgress();
-          const msg = pollErr.message || `GemStone poll error ${pollErr.number}`;
-          reject(new Error(msg));
-          return;
-        }
-
-        const interval = pollIndex < BACKOFF_INTERVALS.length
-          ? BACKOFF_INTERVALS[pollIndex]
-          : MAX_INTERVAL;
-        pollIndex++;
-        elapsedMs += interval;
-
-        if (elapsedMs >= PROGRESS_THRESHOLD_MS && !progressShown) {
-          progressShown = true;
-          vscode.window.withProgress(
-            {
-              location: vscode.ProgressLocation.Notification,
-              title: softBreakSent
-                ? 'GemStone: Soft break sent. Waiting...'
-                : 'GemStone: Executing...',
-              cancellable: true,
-            },
-            (_progress, token) => {
-              token.onCancellationRequested(() => {
-                if (!softBreakSent) {
-                  session.gci.GciTsBreak(session.handle, false);
-                  softBreakSent = true;
-                } else {
-                  session.gci.GciTsBreak(session.handle, true);
-                  finishProgress();
-                  reject(new ExecutionCancelledError());
-                }
-              });
-              return new Promise<void>(res => {
-                progressResolve = res;
-              });
-            },
-          );
-        }
-
-        setTimeout(doPoll, interval);
-      };
-
-      doPoll();
-    });
+    // Delegates to the shared non-blocking poll loop (nbRunner) so Execute/Display
+    // It and the debugger's step/trim share ONE cancel/break/backoff/progress
+    // implementation (no divergence). The Nb call is already started by the caller
+    // (GciTsNbExecute above), so we only poll it to completion here.
+    return pollNbToCompletion(session, onReady, { title: 'GemStone: Executing…' });
   }
 
   private pollForResult(session: ActiveSession): Promise<string> {
@@ -751,6 +756,11 @@ __t`;
       editor.setDecorations(executingDecorationType, [editor.selection]);
     }
 
+    // Run interpreted (native code off) so a halt/error is steppable in the
+    // debugger — GemStone can't step native code (error 6014), and the process
+    // must START interpreted. Released in finally; if it halts, the debugger
+    // panel holds its own ref to keep native off while it's open.
+    acquireStepping(session);
     try {
       const { success, err: startErr } = session.gci.GciTsNbExecute(
         session.handle, wrappedCode, oopClassString,
@@ -771,26 +781,18 @@ __t`;
       logResult(session.id, `OOP ${oop}`);
       GtInspector.create(session, oop, label);
     } catch (e: unknown) {
-      if (e instanceof ExecutionCancelledError) return;
+      if (e instanceof NbCancelledError) return;
       const msg = e instanceof Error ? e.message : String(e);
       logError(session.id, msg);
 
       if (e instanceof DebuggableError) {
-        const choice = await vscode.window.showErrorMessage(
-          `GemStone error: ${msg}`, { modal: true }, 'Debug', 'Dismiss',
-        );
-        if (choice === 'Debug') {
-          vscode.debug.startDebugging(undefined, {
-            type: 'gemstone',
-            name: 'GemStone Error',
-            request: 'attach',
-            sessionId: session.id,
-            gsProcess: e.context.toString(),
-            errorMessage: msg,
-          }, { suppressSaveBeforeStart: true });
-        } else {
-          try { session.gci.GciTsClearStack(session.handle, e.context); } catch { /* ignore */ }
-        }
+        // If it halts, resuming/stepping to completion should still open the
+        // GT inspector on the result — mirroring the success path above.
+        await this.promptDebuggableError(session, e.context, msg, (resultOop: bigint) => {
+          const transcript = this.fetchTranscriptOutput(session);
+          if (transcript) appendTranscript(transcript);
+          GtInspector.create(session, resultOop, label);
+        });
       } else {
         vscode.window.showErrorMessage(`GemStone execution error: ${msg}`);
       }
@@ -798,6 +800,7 @@ __t`;
       if (editor) {
         editor.setDecorations(executingDecorationType, []);
       }
+      releaseStepping(session);
       this.setExecuting(session.id, false);
     }
   }
@@ -868,6 +871,11 @@ __t`;
     }
 
     this.setExecuting(session.id, true);
+    // Run interpreted (native code off) so a halt/error is steppable in the
+    // debugger — GemStone can't step native code (error 6014), and the process
+    // must START interpreted. Released in finally; if it halts, the debugger
+    // panel holds its own ref to keep native off while it's open.
+    acquireStepping(session);
     try {
       const { success, err: startErr } = session.gci.GciTsNbExecute(
         session.handle, wrappedCode, oopClassString,
@@ -888,12 +896,18 @@ __t`;
       logResult(session.id, `OOP ${oop}`);
       inspectorProvider.addRoot(session.id, oop, label);
     } catch (e: unknown) {
-      if (e instanceof ExecutionCancelledError) return;
+      if (e instanceof NbCancelledError) return;
       const msg = e instanceof Error ? e.message : String(e);
       logError(session.id, msg);
 
       if (e instanceof DebuggableError) {
-        await this.handleDebuggableError(session, e, msg);
+        // If it halts, resuming/stepping to completion should still inspect the
+        // result — mirroring the success path above.
+        await this.promptDebuggableError(session, e.context, msg, (resultOop: bigint) => {
+          const transcript = this.fetchTranscriptOutput(session);
+          if (transcript) appendTranscript(transcript);
+          inspectorProvider.addRoot(session.id, resultOop, label);
+        });
       } else {
         vscode.window.showErrorMessage(`GemStone execution error: ${msg}`);
       }
@@ -901,6 +915,7 @@ __t`;
       if (editor) {
         editor.setDecorations(executingDecorationType, []);
       }
+      releaseStepping(session);
       this.setExecuting(session.id, false);
     }
   }

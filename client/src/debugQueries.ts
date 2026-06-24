@@ -1,6 +1,7 @@
 import { ActiveSession } from './sessionManager';
-import { OOP_NIL, OOP_ILLEGAL, GCI_PERFORM_FLAG_ENABLE_DEBUG } from './gciConstants';
+import { OOP_NIL, OOP_TRUE, OOP_ILLEGAL, GCI_PERFORM_FLAG_ENABLE_DEBUG } from './gciConstants';
 import { logInfo, logError } from './gciLog';
+import { runNbCall, NbRunOptions } from './nbRunner';
 
 const MAX_RESULT = 256 * 1024;
 
@@ -59,6 +60,18 @@ export interface FrameInfo {
 export interface MethodInfo {
   className: string;
   selector: string;
+}
+
+export interface MethodBlockInfo {
+  /** True when the frame's method is the compiled method of a block. */
+  isBlock: boolean;
+  /**
+   * Oop of the home (enclosing) method. GsNMethod>>homeMethod returns self for
+   * non-block methods, so this is always safe to use for naming. A block
+   * method's own inClass/selector are NOT the displayable class/selector
+   * (inClass returns the home method), so resolve names from this oop.
+   */
+  homeMethodOop: bigint;
 }
 
 export interface MethodUriInfo {
@@ -152,6 +165,20 @@ export function getMethodInfo(session: ActiveSession, methodOop: bigint): Method
 }
 
 /**
+ * Reports whether a frame's method is a block method, plus the oop of its home
+ * (enclosing) method. Used to render block frames as `[] in Class>>selector`,
+ * mirroring GsNMethod>>printOn:. Resolve the displayed class/selector from
+ * homeMethodOop, not the block method itself.
+ */
+export function getMethodBlockInfo(
+  session: ActiveSession, methodOop: bigint,
+): MethodBlockInfo {
+  const isBlock = gciPerform(session, methodOop, 'isMethodForBlock') === OOP_TRUE;
+  const homeMethodOop = gciPerform(session, methodOop, 'homeMethod');
+  return { isBlock, homeMethodOop };
+}
+
+/**
  * Returns everything needed to construct a gemstone:// URI for a method.
  * Uses a single Smalltalk execution to minimise GCI round-trips.
  */
@@ -203,6 +230,98 @@ export function getMethodSource(session: ActiveSession, methodOop: bigint): stri
 }
 
 /**
+ * The pieces needed to create the method a `doesNotUnderstand:` is asking for.
+ * `className` is the (non-meta) name of the class the method should be added to;
+ * `isMeta` is true when the unknown message was sent to a *class* (so a
+ * class-side method is wanted). `dictName` is the dictionary that class lives in
+ * (for the gemstone:// new-method URI); '' when the class isn't in the user's
+ * symbol list. `selector` / `argCount` come straight from the failed send.
+ */
+export interface DnuInfo {
+  className: string;
+  isMeta: boolean;
+  dictName: string;
+  selector: string;
+  argCount: number;
+}
+
+/**
+ * If the suspended process is parked on a `doesNotUnderstand:` (a
+ * MessageNotUnderstood), return what's needed to create the missing method;
+ * otherwise undefined. Walks the process's frames top-down for the
+ * `Object>>doesNotUnderstand: aMessageDescriptor` frame, then reads the receiver
+ * and the descriptor (`aMessageDescriptor at: 1` is the selector, `at: 2` the
+ * args — see Object>>doesNotUnderstand:). A class receiver means the missing
+ * method is class-side.
+ *
+ * One Smalltalk round-trip (mirrors getMethodUriInfo's execute-and-split shape);
+ * returns undefined on any failure so callers degrade to "no Create button".
+ */
+export function getDoesNotUnderstandInfo(
+  session: ActiveSession, gsProcess: bigint,
+): DnuInfo | undefined {
+  try {
+    const { result: classUtf8, err: resErr } = session.gci.GciTsResolveSymbol(
+      session.handle, 'Utf8', OOP_NIL,
+    );
+    if (resErr.number !== 0) return undefined;
+
+    // Walk all frames for the doesNotUnderstand:/_doesNotUnderstand:… machinery
+    // (selectors containing 'doesNotUnderstand'). `dnuTop` is the `doesNotUnderstand:`
+    // frame (it carries `aMessageDescriptor` — `at: 1` selector, `at: 2` args);
+    // `dnuBot` is the deepest such frame, so `dnuBot + 1` is the sender frame that
+    // made the failing send (the one to restart). A class receiver ⇒ class-side.
+    const code = `| p depth dnuTop dnuBot |
+p := Object _objectForOop: ${gsProcess}.
+depth := p localStackDepth.
+dnuTop := nil. dnuBot := nil.
+1 to: depth do: [:i | | m sel |
+  m := (p _frameContentsAt: i) at: 1.
+  sel := m isNil ifTrue: [nil] ifFalse: [m selector].
+  (sel notNil and: [ (sel asString indexOfSubCollection: 'doesNotUnderstand') > 0 ]) ifTrue: [
+    dnuTop isNil ifTrue: [ dnuTop := i ].
+    dnuBot := i ] ].
+dnuTop isNil
+  ifTrue: [ '' ]
+  ifFalse: [ | arr rcvr descr sel base meta dn |
+    arr := p _frameContentsAt: dnuTop.
+    rcvr := arr at: 10.
+    descr := arr at: 11.
+    sel := descr at: 1.
+    (rcvr isKindOf: Class)
+      ifTrue: [ base := rcvr. meta := true ]
+      ifFalse: [ base := rcvr class. meta := false ].
+    dn := ''.
+    System myUserProfile symbolList do: [:d |
+      (d includesKey: base name asSymbol) ifTrue: [ dn := d name ] ].
+    base name asString, String tab,
+      (meta ifTrue: ['class'] ifFalse: ['instance']), String tab,
+      dn, String tab,
+      sel asString, String tab,
+      (descr at: 2) size printString ]`;
+
+    const { data, err } = session.gci.GciTsExecuteFetchBytes(
+      session.handle, code, -1, classUtf8, OOP_ILLEGAL, OOP_NIL, 64 * 1024,
+    );
+    if (err.number !== 0) return undefined;
+    if (data === '') return undefined; // not parked on a doesNotUnderstand:
+
+    const parts = data.split('\t');
+    if (parts.length < 5) return undefined;
+    const argCount = parseInt(parts[4], 10);
+    return {
+      className: parts[0],
+      isMeta: parts[1] === 'class',
+      dictName: parts[2],
+      selector: parts[3],
+      argCount: Number.isNaN(argCount) ? 0 : argCount,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Maps an IP offset to a source line number.
  */
 export function getLineForIp(
@@ -211,6 +330,44 @@ export function getLineForIp(
   const ipOop = intToOop(session, ipOffset);
   const lineOop = gciPerform(session, methodOop, '_lineNumberForIp:', [ipOop]);
   return oopToInt(session, lineOop);
+}
+
+/**
+ * Returns a method's source offsets — GemStone `_sourceOffsets`, a 1-based array
+ * where index i holds the source-string character offset of step point i. Mirrors
+ * queries.getSourceOffsets but works straight from the method OOP, so it serves
+ * executed-code (doit) frames, which have no class>>selector to look up. Returns
+ * an empty array on any failure (best-effort; callers fall back to line-level).
+ */
+export function getSourceOffsetsForMethod(
+  session: ActiveSession, methodOop: bigint,
+): number[] {
+  const arrayOop = gciPerform(session, methodOop, '_sourceOffsets');
+  if (arrayOop === OOP_NIL) return [];
+  const { result: sizeRaw, err: sizeErr } = session.gci.GciTsFetchSize(session.handle, arrayOop);
+  if (sizeErr.number !== 0) return [];
+  const size = Number(sizeRaw);
+  if (size <= 0) return [];
+  const { oops, err: fetchErr } = session.gci.GciTsFetchOops(
+    session.handle, arrayOop, 1n, size,
+  );
+  if (fetchErr.number !== 0) return [];
+  return oops.map(oop => oopToInt(session, oop));
+}
+
+/**
+ * Returns the step point for the frame at the given level (1-based, 1 = top),
+ * or undefined when the frame has no step point. Uses GsProcess>>_stepPointAt:,
+ * the same primitive the topaz debugger uses — it accounts for native-stack
+ * and async-callee frames, which a raw ipOffset→stepPoint mapping would not.
+ */
+export function getStepPoint(
+  session: ActiveSession, gsProcess: bigint, level: number,
+): number | undefined {
+  const levelOop = intToOop(session, level);
+  const resultOop = gciPerform(session, gsProcess, '_stepPointAt:', [levelOop]);
+  if (resultOop === OOP_NIL) return undefined;
+  return oopToInt(session, resultOop);
 }
 
 // ── Variables ───────────────────────────────────────────
@@ -406,6 +563,84 @@ export function getDictionaryEntries(
 // ── Stepping ────────────────────────────────────────────
 
 /**
+ * Outcome of a step/continue. `completed` means the process ran to completion
+ * (not stopped at another step point/error); when it does, `resultOop` is the
+ * process's result — for a wrapped doit, the user code's value — which the
+ * caller can display (e.g. a halted Display It that the user resumes).
+ */
+export interface StepResult {
+  completed: boolean;
+  resultOop?: bigint;
+  errorMessage?: string;
+  errorContext?: bigint;
+  /** GemStone error number when the op stopped on an error (0/undefined otherwise). */
+  errorNumber?: number;
+}
+
+// ── Native-code toggle for stepping ─────────────────────────────────────────
+//
+// GemStone cannot single-step or set breakpoints in NATIVE code (error 6014):
+// a `halt`/error parks execution in native signal machinery that can't be
+// stepped while the gem runs native code (GemNativeCodeEnabled, on by default).
+// Setting ANY breakpoint flips the gem to interpreted execution, which makes
+// stepping work — this is how topaz steps. So we toggle a breakpoint in a
+// benign kernel method as the switch, and clear it once the last debugger for a
+// session closes, restoring native-code performance for normal execution.
+//
+// Ref-counted per session: concurrent debuggers share one toggle — the break is
+// set on the first acquire and cleared on the last release. Best-effort:
+// failures are logged, not thrown (the debugger still opens; stepping degrades).
+
+/** Benign kernel method whose breakpoint we toggle to disable/enable native code. */
+const NATIVE_CODE_TOGGLE = 'GsSshSocket class>>exampleUserId';
+const steppingRefs = new Map<number, number>();
+
+function setNativeCodeBreak(session: ActiveSession, on: boolean): void {
+  const selector = on ? 'setBreakAtStepPoint:' : 'clearBreakAtStepPoint:';
+  const code = `(GsSshSocket class compiledMethodAt: #exampleUserId) ${selector} 1`;
+  // sourceOop is the class of the source string (String); contextObject is
+  // OOP_ILLEGAL — matching the working GciTsExecute calling convention.
+  const { result: strClass, err: resErr } = session.gci.GciTsResolveSymbol(
+    session.handle, 'String', OOP_NIL,
+  );
+  if (resErr.number !== 0) {
+    logError(session.id, `[Jasper Debugger] could not resolve String for native-code toggle: ${resErr.message || resErr.number}`);
+    return;
+  }
+  const { err } = session.gci.GciTsExecute(
+    session.handle, code, strClass, OOP_ILLEGAL, OOP_NIL, 0, 0,
+  );
+  if (err.number !== 0) {
+    logError(session.id, `[Jasper Debugger] could not ${on ? 'set' : 'clear'} native-code toggle (${NATIVE_CODE_TOGGLE}): ${err.message || err.number}`);
+  }
+}
+
+/**
+ * Disable native code for the session so the debugger can single-step. Sets the
+ * benign toggle breakpoint on the first hold for the session. Ref-counted —
+ * pair every call with releaseStepping.
+ */
+export function acquireStepping(session: ActiveSession): void {
+  const n = steppingRefs.get(session.id) ?? 0;
+  if (n === 0) setNativeCodeBreak(session, true);
+  steppingRefs.set(session.id, n + 1);
+}
+
+/**
+ * Release one stepping hold; restores native code (clears the toggle) once the
+ * last debugger for the session closes.
+ */
+export function releaseStepping(session: ActiveSession): void {
+  const n = steppingRefs.get(session.id) ?? 0;
+  if (n <= 1) {
+    steppingRefs.delete(session.id);
+    if (n === 1) setNativeCodeBreak(session, false);
+  } else {
+    steppingRefs.set(session.id, n - 1);
+  }
+}
+
+/**
  * Sends a step message (e.g. gciStepOverFromLevel:) to the GsProcess
  * via blocking GciTsPerform. The step message both configures and
  * executes the step — it blocks until the process stops at the next
@@ -413,8 +648,8 @@ export function getDictionaryEntries(
  */
 function performStep(
   session: ActiveSession, gsProcess: bigint, selector: string, args: bigint[],
-): { completed: boolean; errorMessage?: string; errorContext?: bigint } {
-  const { err } = session.gci.GciTsPerform(
+): StepResult {
+  const { result, err } = session.gci.GciTsPerform(
     session.handle, gsProcess, OOP_ILLEGAL, selector, args,
     GCI_PERFORM_FLAG_ENABLE_DEBUG, 0,
   );
@@ -423,14 +658,16 @@ function performStep(
       completed: false,
       errorMessage: err.message || `GemStone error ${err.number}`,
       errorContext: err.context,
+      errorNumber: err.number,
     };
   }
-  return { completed: true };
+  // gciStep…FromLevel: returns the completion result when the process finishes.
+  return { completed: true, resultOop: result };
 }
 
 export function stepOver(
   session: ActiveSession, gsProcess: bigint, level: number,
-): { completed: boolean; errorMessage?: string; errorContext?: bigint } {
+): StepResult {
   const levelOop = intToOop(session, level);
   logInfo(`[Session ${session.id}] Debug: stepOver from level ${level}`);
   return performStep(session, gsProcess, 'gciStepOverFromLevel:', [levelOop]);
@@ -438,7 +675,7 @@ export function stepOver(
 
 export function stepInto(
   session: ActiveSession, gsProcess: bigint, level: number,
-): { completed: boolean; errorMessage?: string; errorContext?: bigint } {
+): StepResult {
   const levelOop = intToOop(session, level);
   logInfo(`[Session ${session.id}] Debug: stepInto from level ${level}`);
   return performStep(session, gsProcess, 'gciStepIntoFromLevel:', [levelOop]);
@@ -446,10 +683,71 @@ export function stepInto(
 
 export function stepOut(
   session: ActiveSession, gsProcess: bigint, level: number,
-): { completed: boolean; errorMessage?: string; errorContext?: bigint } {
+): StepResult {
   const levelOop = intToOop(session, level);
   logInfo(`[Session ${session.id}] Debug: stepThru from level ${level}`);
   return performStep(session, gsProcess, 'gciStepThruFromLevel:', [levelOop]);
+}
+
+// ── Non-blocking step variants ──────────────────────────
+//
+// Same step messages as performStep, but issued via GciTsNbPerform and polled to
+// completion off the main thread (see nbRunner.ts) so a slow step — crawling
+// hidden machinery, or stepping a method that loops — never freezes the whole
+// extension host, and can be cancelled. Used by the webview debugger; the DAP
+// session keeps the simpler blocking variants (intentionally left alone).
+
+/**
+ * Issue a step message non-blocking and resolve with its StepResult. A halt /
+ * breakpoint / error stopping the process is a normal outcome (completed=false
+ * with errorMessage), NOT a thrown error — only an outright GCI failure rejects.
+ */
+function performStepNb(
+  session: ActiveSession, gsProcess: bigint, selector: string, args: bigint[], opts: NbRunOptions,
+): Promise<StepResult> {
+  return runNbCall(
+    session,
+    () => session.gci.GciTsNbPerform(
+      session.handle, gsProcess, OOP_ILLEGAL, selector, args, GCI_PERFORM_FLAG_ENABLE_DEBUG, 0,
+    ),
+    () => {
+      const { result, err } = session.gci.GciTsNbResult(session.handle);
+      if (err.number !== 0) {
+        return {
+          completed: false,
+          errorMessage: err.message || `GemStone error ${err.number}`,
+          errorContext: err.context,
+          errorNumber: err.number,
+        };
+      }
+      return { completed: true, resultOop: result };
+    },
+    opts,
+  );
+}
+
+export function stepOverNb(
+  session: ActiveSession, gsProcess: bigint, level: number,
+): Promise<StepResult> {
+  const levelOop = intToOop(session, level);
+  logInfo(`[Session ${session.id}] Debug: stepOver (nb) from level ${level}`);
+  return performStepNb(session, gsProcess, 'gciStepOverFromLevel:', [levelOop], { title: 'GemStone: stepping over…' });
+}
+
+export function stepIntoNb(
+  session: ActiveSession, gsProcess: bigint, level: number,
+): Promise<StepResult> {
+  const levelOop = intToOop(session, level);
+  logInfo(`[Session ${session.id}] Debug: stepInto (nb) from level ${level}`);
+  return performStepNb(session, gsProcess, 'gciStepIntoFromLevel:', [levelOop], { title: 'GemStone: stepping into…' });
+}
+
+export function stepThruNb(
+  session: ActiveSession, gsProcess: bigint, level: number,
+): Promise<StepResult> {
+  const levelOop = intToOop(session, level);
+  logInfo(`[Session ${session.id}] Debug: stepThru (nb) from level ${level}`);
+  return performStepNb(session, gsProcess, 'gciStepThruFromLevel:', [levelOop], { title: 'GemStone: stepping through…' });
 }
 
 // ── Continue / Terminate ────────────────────────────────
@@ -462,19 +760,32 @@ export function stepOut(
  */
 export function continueExecution(
   session: ActiveSession, gsProcess: bigint,
-): { completed: boolean; errorMessage?: string; errorContext?: bigint } {
+): StepResult {
   logInfo(`[Session ${session.id}] Debug: continue`);
-  const { err } = session.gci.GciTsContinueWith(
-    session.handle, gsProcess, OOP_NIL, null, GCI_PERFORM_FLAG_ENABLE_DEBUG,
+  // replaceTopOfStack = OOP_ILLEGAL means "resume as-is, don't touch the top
+  // frame's evaluation stack". Per the GciTsContinueWith contract that is also
+  // the right value for a normal halt: when the top frame is AbstractException
+  // >>signal it auto-replaces TOS with nil (same as AbstractException>>resume).
+  //
+  // We previously passed OOP_NIL, which *forces* TOS := nil. That happens to be
+  // harmless for a halt (top frame is a signal frame), but after an edit-and-
+  // continue / restart-frame `trimStackToLevel:` the top frame is a method reset
+  // to its FIRST instruction with a fresh, empty evaluation stack — clobbering
+  // its TOS with nil corrupts the frame, so continuing it never returns (the gem
+  // hangs). OOP_ILLEGAL handles both cases correctly.
+  const { result, err } = session.gci.GciTsContinueWith(
+    session.handle, gsProcess, OOP_ILLEGAL, null, GCI_PERFORM_FLAG_ENABLE_DEBUG,
   );
   if (err.number !== 0) {
     return {
       completed: false,
       errorMessage: err.message || `GemStone error ${err.number}`,
       errorContext: err.context,
+      errorNumber: err.number,
     };
   }
-  return { completed: true };
+  // On normal completion GciTsContinueWith returns the process's result oop.
+  return { completed: true, resultOop: result };
 }
 
 /**
@@ -500,16 +811,60 @@ export function trimStackToLevel(
   gciPerform(session, gsProcess, 'trimStackToLevel:', [levelOop]);
 }
 
+/**
+ * Non-blocking trimStackToLevel: (restart-frame / edit-and-continue). The public
+ * `trimStackToLevel:` evaluates unwind/ensure: blocks with an INFINITE timeout,
+ * so a hung unwind block would freeze the host on the blocking path — running it
+ * non-blocking (and cancellable) avoids that. Flags 0, matching the blocking
+ * variant (no debug-stop during the trim's unwind).
+ */
+export function trimStackToLevelNb(
+  session: ActiveSession, gsProcess: bigint, level: number,
+): Promise<void> {
+  const levelOop = intToOop(session, level);
+  logInfo(`[Session ${session.id}] Debug: trimStackToLevel (nb) ${level}`);
+  return runNbCall(
+    session,
+    () => session.gci.GciTsNbPerform(
+      session.handle, gsProcess, OOP_ILLEGAL, 'trimStackToLevel:', [levelOop], 0, 0,
+    ),
+    () => {
+      const { err } = session.gci.GciTsNbResult(session.handle);
+      if (err.number !== 0) {
+        throw new Error(err.message || `GemStone error ${err.number} in trimStackToLevel:`);
+      }
+    },
+    { title: 'GemStone: restarting frame…' },
+  );
+}
+
 // ── Evaluate ────────────────────────────────────────────
 
 /**
- * Evaluates an expression in the context of a stack frame.
- * Returns the printString of the result.
+ * Evaluates an expression in the context of a stack frame and returns the
+ * printString of the result.
+ *
+ * `self` is always bound to the frame's receiver (so instVars and globals
+ * resolve too), via `String>>evaluateInContext:`. When the frame has named
+ * arguments/temps, they are *also* bound: a transient `SymbolDictionary`
+ * mapping each name → its current value is prepended to the user's symbol list
+ * so a bare identifier like `amount` resolves to the frame's temp
+ * (`evaluateInContext:symbolList:`). The dictionary shadows globals, while
+ * globals still resolve through the appended user list.
+ *
+ * Limitation: temps are bound for *reads* only — assigning to a temp in the
+ * eval bar writes the transient dictionary, not the live frame.
+ *
+ * (The earlier `_framePerform:withArgs:onLevel:` primitive does NOT exist on
+ * GemStone 3.7.x — and it performed a *selector*, not an expression, so it
+ * raised a NameError trying to intern the source as a Symbol.)
  */
 export function evaluateInFrame(
   session: ActiveSession, gsProcess: bigint, expression: string, level: number,
 ): string {
-  // Create a String object for the expression
+  // The frame's receiver becomes `self` for the evaluation.
+  const { receiverOop, argAndTempNames, argAndTempOops } = getFrameInfo(session, gsProcess, level);
+
   const { result: exprOop, err: strErr } = session.gci.GciTsNewString(
     session.handle, expression,
   );
@@ -517,23 +872,61 @@ export function evaluateInFrame(
     throw new Error(strErr.message || 'Cannot create expression string');
   }
 
-  // Create an empty Array for args
-  const { result: argsOop, err: arrErr } = session.gci.GciTsResolveSymbol(
-    session.handle, 'Array', OOP_NIL,
-  );
-  if (arrErr.number !== 0) {
-    throw new Error(arrErr.message || 'Cannot resolve Array class');
-  }
-  const emptyArray = gciPerform(session, argsOop, 'new');
-
-  const levelOop = intToOop(session, level);
-
-  // Send: gsProcess _framePerform: expression withArgs: #() onLevel: level
-  const resultOop = gciPerform(
-    session, gsProcess, '_framePerform:withArgs:onLevel:',
-    [exprOop, emptyArray, levelOop],
-  );
-
-  // Get printString of the result
+  // Bind the frame's named args/temps when present; otherwise keep the lean
+  // single-arg path (self + instVars + globals via the session's symbol list).
+  const symbolListOop = buildFrameSymbolList(session, argAndTempNames, argAndTempOops);
+  const resultOop = symbolListOop === null
+    ? gciPerform(session, exprOop, 'evaluateInContext:', [receiverOop])
+    : gciPerform(session, exprOop, 'evaluateInContext:symbolList:', [receiverOop, symbolListOop]);
   return getObjectPrintString(session, resultOop);
+}
+
+/** Resolve a global (e.g. a class name) to its OOP; null if it doesn't resolve. */
+function resolveGlobalOop(session: ActiveSession, name: string): bigint | null {
+  const { result, err } = session.gci.GciTsResolveSymbol(session.handle, name, OOP_NIL);
+  if (err.number !== 0) return null;
+  return result;
+}
+
+/**
+ * Builds a SymbolList whose first entry is a transient SymbolDictionary mapping
+ * each *named* (non-synthetic) arg/temp to its current value, prepended to the
+ * user's own symbol list — so bare identifiers like `amount` resolve to the
+ * frame's temps while globals still resolve through the appended user list.
+ * Returns null when the frame has no bindable named temps (the caller then uses
+ * the simpler `evaluateInContext:`), or if any of the required globals can't be
+ * resolved (degrade to the self-only eval rather than fail).
+ *
+ * The synthetic `.tN` eval-stack temporaries have no source name (and `.t1`
+ * isn't a legal identifier), so they are skipped.
+ */
+function buildFrameSymbolList(
+  session: ActiveSession, names: string[], oops: bigint[],
+): bigint | null {
+  const bindings: { name: string; oop: bigint }[] = [];
+  for (let i = 0; i < names.length; i++) {
+    const name = names[i];
+    const oop = oops[i];
+    if (!name || name.startsWith('.') || oop === undefined) continue;
+    bindings.push({ name, oop });
+  }
+  if (bindings.length === 0) return null;
+
+  const symDictClass = resolveGlobalOop(session, 'SymbolDictionary');
+  const symListClass = resolveGlobalOop(session, 'SymbolList');
+  const systemClass = resolveGlobalOop(session, 'System');
+  if (symDictClass === null || symListClass === null || systemClass === null) return null;
+
+  const dictOop = gciPerform(session, symDictClass, 'new');
+  for (const { name, oop } of bindings) {
+    const { result: symOop, err } = session.gci.GciTsNewSymbol(session.handle, name);
+    if (err.number !== 0) continue; // skip un-internable names defensively
+    gciPerform(session, dictOop, 'at:put:', [symOop, oop]);
+  }
+
+  // (SymbolList with: dict) , (System myUserProfile symbolList)
+  const profileOop = gciPerform(session, systemClass, 'myUserProfile');
+  const userListOop = gciPerform(session, profileOop, 'symbolList');
+  const frontOop = gciPerform(session, symListClass, 'with:', [dictOop]);
+  return gciPerform(session, frontOop, ',', [userListOop]);
 }

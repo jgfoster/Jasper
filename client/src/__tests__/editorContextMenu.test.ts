@@ -18,8 +18,8 @@ function getMenuItem(command: string): MenuItem | undefined {
 }
 
 describe('editor/context menu', () => {
-  it('shows exactly seven GemStone actions in the editor context menu', () => {
-    expect(editorContext).toHaveLength(7);
+  it('shows exactly eight GemStone actions in the editor context menu', () => {
+    expect(editorContext).toHaveLength(8);
   });
 
   it('shows "Display It" in gemstone documents when code execution is available', () => {
@@ -39,6 +39,11 @@ describe('editor/context menu', () => {
 
   it('shows "Execute It" in gemstone documents when code execution is available', () => {
     expect(getMenuItem('gemstone.executeIt')?.when)
+      .toBe(`editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing`);
+  });
+
+  it('shows "Debug It" in gemstone documents when code execution is available', () => {
+    expect(getMenuItem('gemstone.debugIt')?.when)
       .toBe(`editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing`);
   });
 

@@ -49,6 +49,7 @@ describe('keybindings', () => {
     const expected: Record<string, string> = {
       d: 'gemstone.displayIt',
       e: 'gemstone.executeIt',
+      r: 'gemstone.debugIt',
       i: 'gemstone.inspectIt',
       o: 'gemstone.superInspectIt',
       b: 'gemstone.openBrowser',
@@ -96,7 +97,7 @@ describe('keybindings', () => {
   });
 
   it('should gate editor commands on editorTextFocus and !executing', () => {
-    const editorCommands = ['gemstone.displayIt', 'gemstone.executeIt', 'gemstone.inspectIt'];
+    const editorCommands = ['gemstone.displayIt', 'gemstone.executeIt', 'gemstone.debugIt', 'gemstone.inspectIt'];
     for (const kb of keybindings) {
       if (editorCommands.includes(kb.command)) {
         expect(kb.when).toContain('editorTextFocus');

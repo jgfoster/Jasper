@@ -25,6 +25,7 @@ import { CodeExecutor } from './codeExecutor';
 import { SystemBrowser } from './systemBrowser';
 import { GlobalsBrowser } from './globalsBrowser';
 import { GtInspector } from './gtInspector';
+import { DebuggerPanel } from './debuggerPanel';
 import { GemStoneFileSystemProvider, MethodCompiledEvent, ClassDefinitionCompiledEvent } from './gemstoneFileSystemProvider';
 import { openWorkspace } from './workspace';
 import { GemStoneDebugSession } from './gemstoneDebugSession';
@@ -859,6 +860,9 @@ export function activate(context: vscode.ExtensionContext) {
       SystemBrowser.disposeForSession(session.id);
       GlobalsBrowser.disposeForSession(session.id);
       GtInspector.disposeForSession(session.id);
+      // Dispose before logout so each panel's dispose() can still release its
+      // suspended GsProcess against a live handle.
+      DebuggerPanel.disposeForSession(session.id);
       sessionManager.logout(session.id);
       treeProvider.refresh();
       inspectorProvider.removeSessionItems(session.id);
@@ -924,6 +928,10 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('gemstone.executeIt', () => {
       codeExecutor.executeIt();
+    }),
+
+    vscode.commands.registerCommand('gemstone.debugIt', () => {
+      codeExecutor.debugIt();
     }),
 
     vscode.commands.registerCommand('gemstone.copyDisplayItResult', () => {

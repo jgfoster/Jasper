@@ -20,6 +20,10 @@ export const OOP_Four = 0x22n;
 
 // Perform flags (from gcicmn.ht)
 export const GCI_PERFORM_FLAG_ENABLE_DEBUG = 1;
+// Place a single-step breakpoint at the start of the executed code and run to
+// it, so execution halts on the first statement (Pharo-style "Debug It").
+// Implies GCI_PERFORM_FLAG_INTERPRETED (native code off, required for stepping).
+export const GCI_PERFORM_FLAG_SINGLE_STEP = 4;
 
 // Class OOPs (from gcioop.ht)
 export const OOP_CLASS_BOOLEAN = 68097n;
