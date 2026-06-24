@@ -4,6 +4,26 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-06-24
+
+### Added
+
+- **Enhanced Debugger (work in progress) — a webview, Smalltalk-style debugger offered alongside the existing DAP debugger.** When an error is debuggable, the notifier now offers **Enhanced Debug** beside the existing **Debug**; whichever you pick owns the suspended `GsProcess`, so the two debuggers never coexist on one process. The Enhanced Debugger opens a roomy panel modeled on the Pharo/GT debugger:
+  - **Call stack** rendered as a numbered frame list with `Class>>#selector` labels, step point and source line (`@N line M`), a `[] in ` prefix for blocks, and `ReceiverClass (DefiningClass)` disambiguation for inherited methods (matching `GsNMethod>>_descrForStackPadTo:rcvr:`). The stack is filtered to user frames — the top exception/halt machinery and the bottom transcript-capture wrapper are trimmed, and frames renumbered 1..N.
+  - **Companion source pane** docked below the panel with the selected frame's source and a step-point highlight on the current token (a darker amber override for light themes); read-only "Executed Code" doit frames show their unwrapped source.
+  - **Variables pane** grouped into Receiver (`self`) / Instance variables / Arguments & Temps / a collapsed "(stack temps)" group, each row carrying its oop; click a row to open a GT Inspector on that object.
+  - **Eval-in-frame bar** that evaluates an expression in the selected frame — binding the frame's named args/temps via a transient symbol dictionary (`evaluateInContext:symbolList:`) so locals resolve, not just `self`/globals.
+  - **Toolbar** with the DAP codicon glyphs for Resume / Step Over / Step Into / Step Through / Restart Frame / Terminate. Stepping past a halt or error finally works: because GemStone can't single-step native code (error 6014), the debugger flips the gem to interpreted execution (ref-counted, via a benign kernel breakpoint, restoring the user's native-code state when the last debugger closes) before the run. Step and stack-trim run non-blocking (`GciTsNbPerform` + a shared poll loop) so a long step no longer freezes the extension host and is cancellable.
+  - **Edit-and-continue:** saving a frame's companion source recompiles the method and re-enters that frame (`trimStackToLevel:`) so Resume re-runs it; the absolute top frame can't be reset in place (a GemStone limitation), so it's marked stale with guidance rather than hanging.
+  - **Create-method-from-DNU:** when parked on a `doesNotUnderstand:`, offers "Create #&lt;selector&gt; in &lt;Class&gt;", opening a pre-filled new-method template; on a clean save it re-enters the sending frame so Resume runs into the new method.
+  - **`Debug It`** command (`gemstone.debugIt`, editor context menu, `Ctrl+K R`) runs the selection with single-step so the server breaks on the first statement (no injected halt), opening the Enhanced Debugger directly on the halt.
+  - **Display It / Inspect It / GT Inspect It** that halt now render their result (overlay / inspector / GT inspector) once resumed or stepped to completion; Execute It stays intentionally silent. ([#123](https://github.com/jgfoster/Jasper/pull/123))
+
+### Changed
+
+- **New class definitions now open automatically after compiling**, matching the new-method behavior. Previously, saving a new class compiled it silently but left you staring at the blank template — you had to close the tab and find the class in the browser yourself. Now the placeholder tab closes and the real definition tab opens; the same navigation also fires when saving an existing definition, in case the class name changed. The mirror sync now keys off the class name GemStone actually compiled rather than the URI, so it stays accurate even when the name changed on save. ([#121](https://github.com/jgfoster/Jasper/pull/121))
+- Dependency update: undici 7.25.0 → 7.28.0. ([#122](https://github.com/jgfoster/Jasper/pull/122))
+
 ## [1.6.6] - 2026-06-18
 
 ### Added
