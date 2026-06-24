@@ -1149,13 +1149,15 @@ export class DebuggerPanel {
       ? ` NOTE: ${shadowedBy} already implements ${sel}, so the frame still shows ${shadowedBy}>>${sel}.`
       : '';
     if (senderLevel === undefined) {
-      // No re-enterable caller (the send came straight from a workspace doit, or
-      // the only caller is the top frame) — we CAN'T re-dispatch in place. Resume
-      // would just finish the inherited version that's already running, NOT the
-      // new override. The honest next step is to re-run the expression.
-      this.errorMessage = `Saved ${sel}${inTarget}. The current frame is still running the inherited `
-        + 'version it already entered — re-run the expression to dispatch into the new method. '
-        + `(Resume here just finishes the old one.)${shadowNote}`;
+      // No re-enterable caller (the send came from a workspace doit/block, or the
+      // only caller is the top frame), so we can't re-dispatch THIS in-flight call
+      // in place. But the method now exists: the next time the selector is sent it
+      // dispatches into the new version — so Resume (which finishes the in-flight
+      // call with the old method, then continues — e.g. the next loop iteration)
+      // or a fresh re-run will use it.
+      this.errorMessage = `Saved ${sel}${inTarget} — used on the next ${sel} send. Resume (▶) to `
+        + 'continue (the call now on the stack finishes with the previously-found version), or '
+        + `re-run the expression.${shadowNote}`;
       this.postInit();
       return;
     }

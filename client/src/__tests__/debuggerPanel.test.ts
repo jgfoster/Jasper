@@ -2061,7 +2061,7 @@ describe('DebuggerPanel', () => {
       expect(lastPosted(panel, 'init').errorMessage).toMatch(/Interval already implements/i);
     });
 
-    it('tells the user to re-run (not Resume) when the caller is a non-re-enterable doit', async () => {
+    it('explains "used on the next send" (no in-place trim) when the caller is a non-re-enterable doit', async () => {
       // Stack where the overridden frame's only caller is Executed Code: make the
       // frame BELOW the inherited one a doit so the sender isn't re-enterable.
       vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
@@ -2083,8 +2083,8 @@ describe('DebuggerPanel', () => {
       await tick();
 
       expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();          // can't re-enter a doit
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/used on the next/i);
       expect(lastPosted(panel, 'init').errorMessage).toMatch(/re-run the expression/i);
-      expect(lastPosted(panel, 'init').errorMessage).not.toMatch(/dispatch into it, or step/i);
     });
 
     it('opens nothing when the inheritance-chain QuickPick is cancelled', async () => {
