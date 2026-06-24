@@ -1543,6 +1543,15 @@ export class DebuggerPanel {
    * user expects from one Step Over. Stepping from level 1 would instead crawl
    * one step point at a time through the hidden machinery.
    *
+   * For a collapsed "Executed Code" doit frame, the displayed level is the
+   * DEEPEST doit frame (the doit home), but for wrapped code (Display It /
+   * Execute It / Inspect It) the halt is in a nested wrapper block ABOVE it.
+   * Stepping from the doit-home level would step OVER the whole user block —
+   * running every remaining statement to completion in one Step (the step-at-
+   * halt bug: a single Step ran the process to the end). So we step from the
+   * TRUE stop frame (the same `stopFrameLevel` the highlight uses) — one Step
+   * then advances one user statement, never auto-completing past a halt.
+   *
    * Requires native code OFF (codeExecutor toggles it before a debuggable run;
    * the panel holds it off while open) — GemStone can't step native code (error
    * 6014). If a step still hits that, we surface a clear message rather than
@@ -1555,7 +1564,14 @@ export class DebuggerPanel {
       : command === 'stepInto' ? debug.stepIntoNb
         : debug.stepThruNb; // "Through" == gciStepThru
     const frame = this.frames.find(f => f.level === displayLevel) ?? this.frames[0];
-    const level = frame?.serverLevel ?? 1;
+    let level = frame?.serverLevel ?? 1;
+    // Redirect a step on a collapsed doit frame to its true stop frame (the
+    // nested wrapper block where the halt actually is), or one Step at a halt
+    // steps over the entire user block to completion. Mirrors revealFrameSource.
+    if (frame?.isExecutedCode) {
+      const raw = this.rawFrames.find(r => r.serverLevel === frame.serverLevel);
+      if (raw) level = this.stopFrameLevel(raw.homeMethodOop, frame.serverLevel);
+    }
     await this.runNb('Step', async () => {
       // Stepping moves the stack → the prior halt's revert slots are now invalid.
       this.clearUndoState();

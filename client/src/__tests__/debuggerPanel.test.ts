@@ -1369,6 +1369,59 @@ describe('DebuggerPanel', () => {
       expect(panel.dispose).not.toHaveBeenCalled();
     });
 
+    // The step-at-halt fix: a Step on a collapsed "Executed Code" doit frame must
+    // step from the TRUE stop frame (the nested wrapper block where the halt is),
+    // not the collapsed doit-home level — else a single Step at a halt steps over
+    // the whole user block and runs the process to completion (the reported bug).
+    describe('step at a halt steps the stop frame, not the collapsed doit', () => {
+      // These overrides leak past clearAllMocks — restore the factory defaults.
+      afterEach(() => {
+        vi.mocked(debug.getStackDepth).mockImplementation(() => 5);
+        vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => ({
+          isBlock: methodOop === 1n, homeMethodOop: methodOop,
+        }));
+        vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+          if (oop === 1n) return { className: 'JasperDebugDemo', selector: 'finish' };
+          if (oop === 2n) return { className: 'Object', selector: 'halt' };
+          return { className: 'JasperDebugDemo', selector: 'accumulateFrom:to:' };
+        });
+      });
+
+      // 3 frames all sharing the doit home (30n) → filterStack collapses them into
+      // ONE Executed Code frame (serverLevel 3, the deepest). Execution actually
+      // stopped in the top wrapper block (serverLevel 1, the user's halt).
+      function setUpWrappedDoit() {
+        vi.mocked(debug.getStackDepth).mockImplementation(() => 3);
+        vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
+          methodOop: BigInt(level), ipOffset: 5, receiverOop: 100n,
+          argAndTempNames: [], argAndTempOops: [],
+        }));
+        vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => ({
+          isBlock: methodOop !== 3n, homeMethodOop: 30n,
+        }));
+        vi.mocked(debug.getMethodInfo).mockImplementation(() => { throw new Error('doit'); });
+      }
+
+      it('Step Over redirects from the collapsed doit (server level 3) to the stop frame (level 1)', async () => {
+        setUpWrappedDoit();
+        const panel = openPanel();
+        expect(initPayload(panel).stack).toHaveLength(1); // collapsed to one frame
+        sendMessage(panel, { command: 'stepOver', level: 1 }); // the single displayed frame
+        await tick();
+        // Without the fix this would step from the doit-home server level (3),
+        // running the whole user block to completion; the stop frame is level 1.
+        expect(debug.stepOverNb).toHaveBeenCalledWith(session, GS_PROCESS, 1);
+      });
+
+      it('Step Into likewise steps the stop frame, not the doit home', async () => {
+        setUpWrappedDoit();
+        const panel = openPanel();
+        sendMessage(panel, { command: 'stepInto', level: 1 });
+        await tick();
+        expect(debug.stepIntoNb).toHaveBeenCalledWith(session, GS_PROCESS, 1);
+      });
+    });
+
     it('surfaces a clear message when a step hits native-code (error 6014), without disposing', async () => {
       vi.mocked(debug.stepOverNb).mockResolvedValueOnce({
         completed: false,
