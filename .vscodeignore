@@ -23,10 +23,13 @@ mcp-server/node_modules/**
 !node_modules/koffi/build/**
 
 client/src/**
-# listFilter.js and methodListView.js are read at runtime via fs.readFileSync and injected into the
-# webview as <script> tags. They must ship as standalone files — they cannot be compiled into the bundle.
+# listFilter.js, methodListView.js, and debuggerView.js are read at runtime via fs.readFileSync and
+# injected into webviews as <script> tags. They must ship as standalone files — they cannot be compiled
+# into the bundle. (debuggerView.js is read at module load by debuggerPanel.ts, which extension.ts imports
+# eagerly, so omitting it here makes loading the packaged extension.js throw and activation fail entirely.)
 !client/src/listFilter.js
 !client/src/methodListView.js
+!client/src/debuggerView.js
 server/src/**
 mcp-server/src/**
 

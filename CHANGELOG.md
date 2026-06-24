@@ -4,6 +4,12 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-06-24
+
+### Fixed
+
+- **The Marketplace build of 1.7.0 failed to activate at all** — every command (the first one most users hit being the Databases refresh button) reported `command 'gemstone.refreshDatabases' not found`, while the same build run from the Extension Development Host worked. The Enhanced Debugger's webview script, `client/src/debuggerView.js`, is read from disk at module load by `debuggerPanel.ts` (which `extension.ts` imports eagerly), but it was never whitelisted in `.vscodeignore`, so the broad `client/src/**` ignore rule dropped it from the packaged `.vsix`. Loading the bundled `extension.js` then threw `ENOENT` before `activate()` ran, leaving no commands registered. The file is now shipped, and a guard test asserts every runtime-read `client/src/*.js` asset is present on disk and whitelisted so this class of packaging regression can't recur.
+
 ## [1.7.0] - 2026-06-24
 
 ### Added
