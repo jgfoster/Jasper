@@ -7,7 +7,7 @@ import * as debug from './debugQueries';
 import * as queries from './browserQueries';
 import { unwrapTranscriptCapture, transcriptCaptureUserCodeOffset } from './transcriptCapture';
 import { GtInspector } from './gtInspector';
-import { logError } from './gciLog';
+import { logError, logInfo } from './gciLog';
 import { NbCancelledError } from './nbRunner';
 
 // The webview's DOM behavior lives in a standalone file (like listFilter.js /
@@ -1041,6 +1041,8 @@ export class DebuggerPanel {
 
     // One candidate → go straight in. Several → let the user pick where in the
     // chain to implement (receiver's class first; each marked override vs edit).
+    logInfo(`[Jasper Debugger] implementInReceiver #${selector}: chain = `
+      + chain.map(c => `${c.className}${c.implementsSelector ? '(impl)' : ''}`).join(' → '));
     let targetIndex = 0;
     if (chain.length > 1) {
       const pick = await vscode.window.showQuickPick(
@@ -1051,7 +1053,13 @@ export class DebuggerPanel {
             : `override here (in ${c.dictName})`,
           index: i,
         })),
-        { placeHolder: `Implement #${selector} in which class? (receiver is ${chain[0].className})` },
+        {
+          placeHolder: `Implement #${selector} in which class? (receiver is ${chain[0].className})`,
+          // The right-click happens IN the webview, which keeps/regains focus —
+          // without this the QuickPick loses focus and auto-dismisses before the
+          // user can see it (it just flashes). Keep it open until an explicit pick.
+          ignoreFocusOut: true,
+        },
       );
       if (this.disposed) return;          // panel closed while the pick was open
       if (!pick) return;                  // user cancelled — open nothing
