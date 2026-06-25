@@ -11,7 +11,7 @@ beforeAll(() => {
   new Function(source)();
 });
 
-interface FrameSummary { level: number; label: string; position: string; overridable?: boolean; receiverClass?: string; }
+interface FrameSummary { level: number; label: string; position: string; overridable?: boolean; receiverClass?: string; homeDisplayLevel?: number; }
 
 interface DebuggerViewApi {
   renderStack(listEl: HTMLElement, stack: FrameSummary[]): void;
@@ -55,6 +55,7 @@ interface Refs {
   list: HTMLElement;
   menu: HTMLElement;
   copyFrameItem: HTMLElement;
+  homeFrameItem?: HTMLElement;
   frameImplItem?: HTMLElement;
   copyBtn: HTMLElement;
   error: HTMLElement;
@@ -102,12 +103,13 @@ function setup(
     <div id="dnuBar"></div>
     <div class="main"><ul id="stack"></ul><div id="variables"></div></div>
     <input id="evalInput"><div id="evalResult"></div>
-    <div id="ctxmenu"><div id="copyFrameItem">Copy Frame</div><div id="frameImplItem" style="display:none;">Implement in receiver</div></div>
+    <div id="ctxmenu"><div id="copyFrameItem">Copy Frame</div><div id="homeFrameItem" style="display:none;">Go to home method</div><div id="frameImplItem" style="display:none;">Implement in receiver</div></div>
     <div id="varctxmenu"><div id="varInspectItem">GT Inspect</div></div>`;
   const refs: Refs = {
     list: document.getElementById('stack')!,
     menu: document.getElementById('ctxmenu')!,
     copyFrameItem: document.getElementById('copyFrameItem')!,
+    homeFrameItem: document.getElementById('homeFrameItem')!,
     frameImplItem: document.getElementById('frameImplItem')!,
     copyBtn: document.getElementById('copyBtn')!,
     error: document.getElementById('error')!,
@@ -272,6 +274,66 @@ describe('DebuggerView.init — right-click copy popup', () => {
 
     expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'implementInReceiver', level: 2 });
     expect(refs.menu.classList.contains('show')).toBe(false);
+  });
+
+  // A block frame whose home method is on the stack carries homeDisplayLevel,
+  // which drives the "Go to home method" navigation item.
+  const BLOCK_STACK: FrameSummary[] = [
+    { level: 1, label: '[] in JasperDebugDemo>>#finish', position: '@2 line 12', homeDisplayLevel: 3 },
+    { level: 2, label: 'Collection>>#do:', position: '@1 line 1' },
+    { level: 3, label: 'JasperDebugDemo>>#finish', position: '@4 line 20' },
+  ];
+
+  it('shows "Go to home method" only on a block frame whose home is on the stack', () => {
+    const { refs } = setup(BLOCK_STACK);
+    frame(refs, 1).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(refs.homeFrameItem!.style.display).not.toBe('none');
+
+    // The home method frame itself (no homeDisplayLevel) doesn't offer it.
+    frame(refs, 3).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(refs.homeFrameItem!.style.display).toBe('none');
+  });
+
+  it('clicking "Go to home method" selects the home frame (drives its source + variables)', () => {
+    const { refs, vscode } = setup(BLOCK_STACK);
+    frame(refs, 1).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    vscode.postMessage.mockClear(); // drop the right-click's own selectFrame(1)
+    refs.homeFrameItem!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    // Navigation reuses selectFrame, so the host opens the home frame like a click.
+    expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'selectFrame', level: 3 });
+    expect(frame(refs, 3).classList.contains('selected')).toBe(true);
+    expect(refs.menu.classList.contains('show')).toBe(false);
+  });
+
+  // Several blocks nested in one method: each block row carries the SAME
+  // homeDisplayLevel (the host resolves them all to the one home activation).
+  const NESTED_BLOCK_STACK: FrameSummary[] = [
+    { level: 1, label: '[] in JasperDebugDemo>>#foo', position: '@2 line 3', homeDisplayLevel: 5 },
+    { level: 2, label: 'Collection>>#do:', position: '@1 line 1' },
+    { level: 3, label: '[] in JasperDebugDemo>>#foo', position: '@2 line 2', homeDisplayLevel: 5 },
+    { level: 4, label: 'Collection>>#do:', position: '@1 line 1' },
+    { level: 5, label: 'JasperDebugDemo>>#foo', position: '@6 line 10' },
+  ];
+
+  it('offers home navigation on EVERY nested block row, each pointing at the shared home', () => {
+    const { refs } = setup(NESTED_BLOCK_STACK);
+    for (const lvl of [1, 3]) {
+      frame(refs, lvl).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      expect(refs.homeFrameItem!.style.display).not.toBe('none');
+    }
+  });
+
+  it('navigates to the shared home from a nested block other than the top one', () => {
+    const { refs, vscode } = setup(NESTED_BLOCK_STACK);
+    // Right-click the MIDDLE block (3), not the default-selected top frame, to
+    // prove the click reads the right-clicked row's homeDisplayLevel.
+    frame(refs, 3).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    vscode.postMessage.mockClear();
+    refs.homeFrameItem!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'selectFrame', level: 5 });
+    expect(frame(refs, 5).classList.contains('selected')).toBe(true);
   });
 });
 

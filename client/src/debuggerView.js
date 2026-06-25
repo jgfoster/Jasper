@@ -295,7 +295,7 @@
    * editor and highlight the current line.
    */
   function init(refs, vscode) {
-    const { list, menu, copyFrameItem, frameImplItem, copyBtn, error, dnuBar, toolbar, variables, evalInput, evalResult, main, splitter, hsplitter, evalbar, varMenu, varInspectItem } = refs;
+    const { list, menu, copyFrameItem, homeFrameItem, frameImplItem, copyBtn, error, dnuBar, toolbar, variables, evalInput, evalResult, main, splitter, hsplitter, evalbar, varMenu, varInspectItem } = refs;
     let selectedLevel = null;
     // The last-rendered stack (frame summaries), so the right-click menu can read
     // a frame's `overridable` / `receiverClass` to decide whether to offer the
@@ -351,8 +351,13 @@
       e.preventDefault();
       e.stopPropagation();
       select(level);
+      const frame = currentStack.find((f) => f.level === level);
+      // "Go to home method" — only for a block frame whose home method is also on
+      // the visible stack (host sets homeDisplayLevel to that frame's level).
+      if (homeFrameItem) {
+        homeFrameItem.style.display = frame && frame.homeDisplayLevel != null ? '' : 'none';
+      }
       if (frameImplItem) {
-        const frame = currentStack.find((f) => f.level === level);
         if (frame && frame.overridable) {
           // Ellipsis signals that clicking opens a class picker (an overridable
           // frame always has several candidates: the receiver's class up through
@@ -372,6 +377,17 @@
       if (selectedLevel != null) vscode.postMessage({ command: 'copyFrame', level: selectedLevel });
       hideMenu(menu);
     });
+
+    if (homeFrameItem) {
+      homeFrameItem.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const frame = currentStack.find((f) => f.level === selectedLevel);
+        // Selecting the home frame drives the source + variables panes for it,
+        // exactly like clicking it in the stack list.
+        if (frame && frame.homeDisplayLevel != null) select(frame.homeDisplayLevel);
+        hideMenu(menu);
+      });
+    }
 
     if (frameImplItem) {
       frameImplItem.addEventListener('click', (e) => {

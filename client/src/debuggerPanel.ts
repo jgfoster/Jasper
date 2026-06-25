@@ -262,6 +262,13 @@ interface DisplayFrame extends FrameSummary {
   serverLevel: number;
   /** True for a doit / "Executed Code" frame (no class → can't be restarted/re-entered). */
   isExecutedCode: boolean;
+  /**
+   * Display level of this (block) frame's HOME method frame, when it's a block
+   * whose home method is also on the visible stack — drives the "Go to home
+   * method" menu item. Undefined for non-block frames and blocks whose home
+   * isn't shown (already returned, or filtered out).
+   */
+  homeDisplayLevel?: number;
 }
 
 /**
@@ -943,6 +950,7 @@ export class DebuggerPanel {
       stack: this.frames.map(f => ({
         level: f.level, label: f.label, position: f.position,
         overridable: f.overridable, receiverClass: f.receiverClass,
+        homeDisplayLevel: f.homeDisplayLevel,
       })),
       // When parked on a doesNotUnderstand:, drive the "Create #sel in Class" button.
       dnu: this.dnuInfo
@@ -1859,6 +1867,11 @@ export class DebuggerPanel {
    * re-enters the same method one level up).
    */
   private async restartFrame(serverLevel: number): Promise<void> {
+    // A block frame can't be restarted on its own — retarget to its home
+    // method's activation and re-run the whole home method (GT's behaviour, and
+    // the only way to restart a block parked at the very top frame). A non-block
+    // frame, or a block whose home has already returned, is left as-is.
+    serverLevel = this.homeMethodFrameLevel(serverLevel);
     if (serverLevel <= 1) {
       // Show the notice IN the panel (the banner) — a toast is easy to miss while
       // the webview has focus. It clears on the next step/resume/restart.
@@ -1948,6 +1961,11 @@ export class DebuggerPanel {
    * server level is ≥ 2 and edit-and-continue works.)
    */
   private async editAndContinue(serverLevel: number): Promise<void> {
+    // A block frame's editable source IS its home method (revealFrameSource
+    // points editableSourceUri there), so the save already recompiled the home
+    // method — re-enter at the home method's activation, not the block, to pick
+    // up the new code. Mirrors restartFrame; a non-block frame is left as-is.
+    serverLevel = this.homeMethodFrameLevel(serverLevel);
     if (serverLevel <= 1) {
       // The top method is now recompiled but its activation can't be re-entered;
       // mark it stale so Resume/Step refuse to continue it (would hang the gem).
@@ -2190,6 +2208,35 @@ export class DebuggerPanel {
   }
 
   /**
+   * Map a block frame's server level to the server level of its HOME method's
+   * activation on the stack — the frame Navigate / Restart / edit-and-continue
+   * act on. You can't meaningfully restart a block in isolation (its home
+   * method's temps/iteration state are mid-flight, and a block at the very top
+   * frame can't be reset in place at all); re-running the whole home method from
+   * its first statement is the operation that makes sense — this matches GT.
+   *
+   * A block always runs ABOVE its home method, so the home activation is the
+   * nearest frame BELOW the block (deeper — higher server level) whose method IS
+   * the home method (non-block, `methodOop === homeMethodOop`). This is the
+   * opposite direction from `stopFrameLevel`, which finds the TOPMOST frame
+   * sharing a home method (the true stop frame, for stepping/highlighting).
+   *
+   * Returns the input level unchanged for a non-block frame, or when the home
+   * method isn't on the stack (a stored block invoked after its home returned) —
+   * the caller then acts on the frame as-is.
+   */
+  private homeMethodFrameLevel(serverLevel: number): number {
+    const raw = this.rawFrames.find(r => r.serverLevel === serverLevel);
+    if (!raw || !raw.isBlock) return serverLevel;
+    for (const r of this.rawFrames) {
+      if (r.serverLevel > serverLevel && !r.isBlock && r.methodOop === raw.homeMethodOop) {
+        return r.serverLevel;
+      }
+    }
+    return serverLevel; // home method not on the stack → act on the block frame itself
+  }
+
+  /**
    * The range to highlight for a frame's current step point — just the token at
    * the step point, NOT the whole line. Prefers the exact step-point character
    * offset (`getSourceOffsets`, available for class>>selector methods); falls
@@ -2271,16 +2318,35 @@ export class DebuggerPanel {
     this.rawFrames = raws; // retained for stopFrameLevel (pre-collapse lookup)
     // Trim machinery/wrapper glue, then renumber the survivors 1..N for display
     // while keeping each one's real server level for subsequent queries.
-    return filterStack(raws).map((r, i) => ({
-      level: i + 1,
-      serverLevel: r.serverLevel,
-      label: r.label,
-      isExecutedCode: r.isExecutedCode,
-      overridable: r.overridable,
-      receiverClass: r.receiverClassName,
-      // Executed-code frames have no meaningful step point/line once unwrapped (#3).
-      position: r.isExecutedCode ? '' : formatFramePosition(r.stepPoint, r.line),
-    }));
+    const kept = filterStack(raws);
+    // serverLevel → display level, so a block frame can point at its home frame.
+    const displayLevelByServer = new Map<number, number>();
+    kept.forEach((r, i) => displayLevelByServer.set(r.serverLevel, i + 1));
+    return kept.map((r, i) => {
+      // "Go to home method" target: for a block frame, the display level of its
+      // home method's activation — but only when that frame is itself visible
+      // and isn't this very frame (homeMethodFrameLevel returns the input level
+      // when the home method has already returned / was filtered out).
+      let homeDisplayLevel: number | undefined;
+      if (r.isBlock) {
+        const homeServer = this.homeMethodFrameLevel(r.serverLevel);
+        if (homeServer !== r.serverLevel) {
+          const dl = displayLevelByServer.get(homeServer);
+          if (dl !== undefined && dl !== i + 1) homeDisplayLevel = dl;
+        }
+      }
+      return {
+        level: i + 1,
+        serverLevel: r.serverLevel,
+        label: r.label,
+        isExecutedCode: r.isExecutedCode,
+        overridable: r.overridable,
+        receiverClass: r.receiverClassName,
+        homeDisplayLevel,
+        // Executed-code frames have no meaningful step point/line once unwrapped (#3).
+        position: r.isExecutedCode ? '' : formatFramePosition(r.stepPoint, r.line),
+      };
+    });
   }
 
   /**
@@ -2677,6 +2743,7 @@ export class DebuggerPanel {
   </div>
   <div id="ctxmenu" class="ctx-menu" role="menu">
     <div class="ctx-item" id="copyFrameItem" role="menuitem">Copy Frame</div>
+    <div class="ctx-item" id="homeFrameItem" role="menuitem" style="display:none;">Go to home method</div>
     <div class="ctx-item" id="frameImplItem" role="menuitem" style="display:none;">Implement in…</div>
   </div>
   <div id="varctxmenu" class="ctx-menu" role="menu">
@@ -2689,6 +2756,7 @@ export class DebuggerPanel {
       list: document.getElementById('stack'),
       menu: document.getElementById('ctxmenu'),
       copyFrameItem: document.getElementById('copyFrameItem'),
+      homeFrameItem: document.getElementById('homeFrameItem'),
       frameImplItem: document.getElementById('frameImplItem'),
       copyBtn: document.getElementById('copyBtn'),
       error: document.getElementById('error'),

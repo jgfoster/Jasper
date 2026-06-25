@@ -1788,6 +1788,294 @@ describe('DebuggerPanel', () => {
     });
   });
 
+  // A block frame can't be restarted / re-entered on its own — Restart Frame,
+  // edit-and-continue, and the "Go to home method" navigation item all target its
+  // HOME method's activation, which always sits DEEPER on the stack. Models
+  // `JasperDebugDemo>>finish` running a block:
+  //   server 1 — `[] in JasperDebugDemo>>finish`  (block; home method oop 10n)
+  //   server 2 — `Collection>>do:`                (kernel)
+  //   server 3 — `JasperDebugDemo>>finish`        (the block's HOME method; oop 10n)
+  //   server 4 — `JasperDebugDemo>>run`           (the caller)
+  describe('block-frame home method (navigate / restart / re-enter)', () => {
+    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+    const URI_INFO = {
+      dictName: 'UserGlobals', className: 'JasperDebugDemo', isMeta: false,
+      category: 'running', selector: 'finish',
+    };
+
+    // mockImplementation leaks past clearAllMocks — restore the factory defaults.
+    afterEach(() => {
+      vi.mocked(debug.getStackDepth).mockImplementation(() => 5);
+      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
+        methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100),
+        argAndTempNames: [], argAndTempOops: [],
+      }));
+      vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => ({
+        isBlock: methodOop === 1n, homeMethodOop: methodOop,
+      }));
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 1n) return { className: 'JasperDebugDemo', selector: 'finish' };
+        if (oop === 2n) return { className: 'Object', selector: 'halt' };
+        return { className: 'JasperDebugDemo', selector: 'accumulateFrom:to:' };
+      });
+    });
+
+    /**
+     * Configure the 4-frame block stack above. `blockHomeOop` is the block
+     * frame's home method oop — 10n (the `finish` frame at server 3 IS on the
+     * stack) by default, or something absent (e.g. 99n) to model a stored block
+     * invoked after its home method already returned.
+     */
+    function openBlockStack(blockHomeOop = 10n) {
+      vi.mocked(debug.getStackDepth).mockImplementation(() => 4);
+      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
+        methodOop: level === 3 ? 10n : BigInt(level), // the home method's own activation
+        ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [],
+      }));
+      vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => ({
+        isBlock: methodOop === 1n,
+        homeMethodOop: methodOop === 1n ? blockHomeOop : methodOop,
+      }));
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 10n) return { className: 'JasperDebugDemo', selector: 'finish' };
+        if (oop === 2n) return { className: 'Collection', selector: 'do:' };
+        if (oop === 4n) return { className: 'JasperDebugDemo', selector: 'run' };
+        return { className: 'JasperDebugDemo', selector: 'finish' };
+      });
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      return panel;
+    }
+
+    it('tells the webview the block frame can navigate to its home method (display level 3)', () => {
+      const panel = openBlockStack();
+      const stack = initPayload(panel).stack;
+
+      // The block frame is display 1; its home method `finish` is display 3.
+      expect(stack[0].homeDisplayLevel).toBe(3);
+      // The home method frame, and the plain frames, offer no such navigation.
+      expect(stack[2].homeDisplayLevel).toBeUndefined();
+      expect(stack[1].homeDisplayLevel).toBeUndefined();
+      expect(stack[3].homeDisplayLevel).toBeUndefined();
+    });
+
+    it('offers no home navigation when the block\'s home method has already returned', () => {
+      const panel = openBlockStack(99n); // home oop not present on the stack
+      expect(initPayload(panel).stack[0].homeDisplayLevel).toBeUndefined();
+    });
+
+    it('Restart on a block frame re-runs its HOME method (trims to the deeper home activation)', async () => {
+      const panel = openBlockStack();
+      sendMessage(panel, { command: 'restartFrame', level: 1 }); // the top block frame
+      await tick();
+
+      // Retargeted from the block (server 1) to its home method (server 3) — so it
+      // trims there, NOT refusing as it would for a genuine top frame.
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+      expect(lastPosted(panel, 'init').errorMessage).not.toMatch(/top frame/i);
+    });
+
+    it('Restart on a block frame whose home already returned falls back to the top-frame notice', async () => {
+      const panel = openBlockStack(99n); // no home activation to retarget to
+      vi.mocked(debug.trimStackToLevelNb).mockClear();
+      sendMessage(panel, { command: 'restartFrame', level: 1 });
+      await tick();
+
+      expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/top frame/i);
+    });
+
+    it('Saving a block frame\'s (home-method) source re-enters at the home activation', async () => {
+      const panel = openBlockStack();
+      vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce(URI_INFO); // the reveal → editable
+      sendMessage(panel, { command: 'selectFrame', level: 1 }); // select the block frame
+      await flush();
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      const saveListener = vi.mocked(vscode.workspace.onDidSaveTextDocument).mock.calls[0][0];
+      saveListener({ uri } as vscode.TextDocument);
+      await tick();
+
+      // Re-enters the HOME method (server 3), not the block (server 1) — and so
+      // never marks the activation stale the way a true top-frame edit would.
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+      expect(lastPosted(panel, 'init').errorMessage).not.toMatch(/recompiled/i);
+    });
+
+    // Several blocks nested inside ONE method (GemStone's `homeMethod` resolves
+    // transitively, so EVERY nested block's homeMethodOop is the outermost method,
+    // not its lexically-enclosing block). The home activation is the single
+    // non-block `foo` frame at the very bottom; every block must resolve to it.
+    //   server 1 — `[] in foo`  (innermost block; home oop 100n)
+    //   server 2 — `Collection>>do:`
+    //   server 3 — `[] in foo`  (middle block;    home oop 100n)
+    //   server 4 — `Collection>>do:`
+    //   server 5 — `[] in foo`  (outermost block; home oop 100n)
+    //   server 6 — `Collection>>do:`
+    //   server 7 — `JasperDebugDemo>>foo`  (the shared HOME method; oop 100n)
+    function openNestedBlockStack() {
+      const HOME = 100n;
+      vi.mocked(debug.getStackDepth).mockImplementation(() => 7);
+      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
+        methodOop: level === 7 ? HOME : BigInt(level), // the home method's own activation
+        ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [],
+      }));
+      // Odd levels 1/3/5 are the nested blocks; all share the one home method.
+      vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => {
+        const isBlock = methodOop === 1n || methodOop === 3n || methodOop === 5n;
+        return { isBlock, homeMethodOop: isBlock ? HOME : methodOop };
+      });
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === HOME) return { className: 'JasperDebugDemo', selector: 'foo' };
+        return { className: 'Collection', selector: 'do:' }; // the even (kernel) frames
+      });
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      return panel;
+    }
+
+    it('points every nested block frame at the SAME home method frame (display level 7)', () => {
+      const panel = openNestedBlockStack();
+      const stack = initPayload(panel).stack;
+
+      // All three blocks (display 1, 3, 5) navigate to the one `foo` frame (7).
+      expect(stack[0].homeDisplayLevel).toBe(7);
+      expect(stack[2].homeDisplayLevel).toBe(7);
+      expect(stack[4].homeDisplayLevel).toBe(7);
+      // The kernel `do:` frames and the home method itself offer no navigation.
+      expect(stack[1].homeDisplayLevel).toBeUndefined();
+      expect(stack[3].homeDisplayLevel).toBeUndefined();
+      expect(stack[5].homeDisplayLevel).toBeUndefined();
+      expect(stack[6].homeDisplayLevel).toBeUndefined();
+    });
+
+    it('Restart from the INNERMOST nested block re-runs the shared home method (trims to 7)', async () => {
+      const panel = openNestedBlockStack();
+      sendMessage(panel, { command: 'restartFrame', level: 1 });
+      await tick();
+
+      // The whole home method re-runs from the top — the inner AND outer blocks
+      // above the home frame are all discarded by the trim.
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 7);
+      expect(lastPosted(panel, 'init').errorMessage).not.toMatch(/top frame/i);
+    });
+
+    it('Restart from an OUTER nested block resolves to the same home method (not the inner block)', async () => {
+      const panel = openNestedBlockStack();
+      sendMessage(panel, { command: 'restartFrame', level: 5 }); // the outermost block
+      await tick();
+
+      // homeMethodFrameLevel skips the deeper kernel frame and lands on `foo` (7),
+      // never on the still-deeper nothing — there's exactly one home activation.
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 7);
+    });
+
+    it('Saving from a nested block re-enters the shared home method (trims to 7)', async () => {
+      const panel = openNestedBlockStack();
+      vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce(URI_INFO); // reveal → editable
+      sendMessage(panel, { command: 'selectFrame', level: 3 }); // select the middle block
+      await flush();
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      const saveListener = vi.mocked(vscode.workspace.onDidSaveTextDocument).mock.calls[0][0];
+      saveListener({ uri } as vscode.TextDocument);
+      await tick();
+
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 7);
+    });
+
+    // A block sitting MID-stack (a frame above it, its home below) — the case
+    // where the old code already "worked" by restarting the block in place. The
+    // retarget changes that: it re-runs the whole home method instead.
+    //   server 1 — `SomeClass>>callee`   (a method the block called → above it)
+    //   server 2 — `[] in foo`           (the block; home oop 10n)
+    //   server 3 — `Collection>>do:`
+    //   server 4 — `JasperDebugDemo>>foo` (the block's HOME method; oop 10n)
+    function openMidBlockStack() {
+      vi.mocked(debug.getStackDepth).mockImplementation(() => 4);
+      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
+        methodOop: level === 4 ? 10n : BigInt(level), // home activation is server 4
+        ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [],
+      }));
+      vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => ({
+        isBlock: methodOop === 2n, // only the mid frame is a block
+        homeMethodOop: methodOop === 2n ? 10n : methodOop,
+      }));
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 10n) return { className: 'JasperDebugDemo', selector: 'foo' };
+        if (oop === 1n) return { className: 'SomeClass', selector: 'callee' };
+        return { className: 'Collection', selector: 'do:' };
+      });
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      return panel;
+    }
+
+    it('Restart from a MID-stack block re-runs the home method, not the block in place', async () => {
+      const panel = openMidBlockStack();
+      sendMessage(panel, { command: 'restartFrame', level: 2 }); // the mid-stack block
+      await tick();
+
+      // Retargets DOWN to the home method (server 4) — NOT a trim to the block's
+      // own level (2), which would merely restart the block in place (the old
+      // behaviour, before block frames retargeted to their home method).
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 4);
+      expect(debug.trimStackToLevelNb).not.toHaveBeenCalledWith(session, GS_PROCESS, 2);
+    });
+
+    // Recursion: the SAME home METHOD (`foo`) is on the stack more than once, each
+    // activation owning its own block. A block's home activation is the NEAREST
+    // `foo` BELOW it — restart/re-enter must re-run THAT activation, not the
+    // deepest `foo` (which would discard a whole extra recursion level). This is
+    // the case that separates "nearest below" from a naive "deepest match".
+    //   server 1 — `[] in foo`  (block of the INNER foo; home oop 100n)
+    //   server 2 — `Collection>>do:`
+    //   server 3 — `JasperDebugDemo>>foo`  (inner activation; oop 100n)
+    //   server 4 — `[] in foo`  (block of the OUTER foo; home oop 100n)
+    //   server 5 — `Collection>>do:`
+    //   server 6 — `JasperDebugDemo>>foo`  (outer activation; oop 100n)
+    function openRecursiveBlockStack() {
+      const HOME = 100n;
+      vi.mocked(debug.getStackDepth).mockImplementation(() => 6);
+      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
+        methodOop: (level === 3 || level === 6) ? HOME : BigInt(level), // two `foo` activations
+        ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [],
+      }));
+      vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => {
+        const isBlock = methodOop === 1n || methodOop === 4n;
+        return { isBlock, homeMethodOop: isBlock ? HOME : methodOop };
+      });
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === HOME) return { className: 'JasperDebugDemo', selector: 'foo' };
+        return { className: 'Collection', selector: 'do:' };
+      });
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      return panel;
+    }
+
+    it('resolves each recursive block to its NEAREST home activation, not the deepest', () => {
+      const stack = initPayload(openRecursiveBlockStack()).stack;
+      // Inner block (display 1) → inner foo (3); outer block (display 4) → outer foo
+      // (6). Both share the home METHOD oop, but navigate to DIFFERENT activations.
+      expect(stack[0].homeDisplayLevel).toBe(3);
+      expect(stack[3].homeDisplayLevel).toBe(6);
+    });
+
+    it('Restart from a recursive block re-runs its OWN (nearest) home activation', async () => {
+      const panel = openRecursiveBlockStack();
+      sendMessage(panel, { command: 'restartFrame', level: 1 }); // the inner block
+      await tick();
+
+      // Trims to the inner foo (server 3), NOT the deeper outer foo (server 6) —
+      // restarting the inner recursion level, not unwinding an extra one.
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+      expect(debug.trimStackToLevelNb).not.toHaveBeenCalledWith(session, GS_PROCESS, 6);
+    });
+  });
+
   describe('create-method-from-DNU', () => {
     const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
