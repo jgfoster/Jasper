@@ -719,7 +719,7 @@ describe('DebuggerPanel', () => {
       expect(debug.getSourceOffsetsForMethod).toHaveBeenCalledWith(session, 999n);
     });
 
-    it('highlights an unwrapped read-only frame, shifting offsets into the displayed source (T0)', async () => {
+    it('highlights an unwrapped read-only frame, shifting offsets into the displayed source (step-point highlight)', async () => {
       // A doit whose stored source is the Transcript-capture-wrapped form
       // (Display It / Execute It / Inspect It). The panel unwraps it for display,
       // so the server's offsets — in WRAPPED coordinates — must be shifted back
@@ -770,7 +770,7 @@ describe('DebuggerPanel', () => {
     // but execution stopped in the TOP block (the user's halt). The highlight
     // must use that top frame's step point, not the collapsed doit frame's
     // (which sits out in the wrapper glue, after the user code).
-    describe('collapsed executed-code highlight (T0 stop frame)', () => {
+    describe('collapsed executed-code highlight (step-point highlight on the stop frame)', () => {
       // These overrides leak past clearAllMocks — restore the factory defaults.
       afterEach(() => {
         vi.mocked(debug.getStackDepth).mockImplementation(() => 5);
@@ -2163,7 +2163,7 @@ describe('DebuggerPanel', () => {
     });
   });
 
-  describe('implement subclassResponsibility (T4)', () => {
+  describe('implement subclassResponsibility (implement an abstract method)', () => {
     const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
     // A subclassResponsibility stop: the `subclassResponsibility` marker frame on
@@ -2197,7 +2197,7 @@ describe('DebuggerPanel', () => {
 
     // Receiver chain for #foo: the concrete class, an intermediate, the abstract
     // definer (which "implements" #foo only as the subclassResponsibility stub),
-    // then classes ABOVE the definer — which T4 must trim away.
+    // then classes ABOVE the definer — which the implement action must trim away.
     const SR_CHAIN = [
       { className: 'LargeNegativeInteger', isMeta: false, dictName: 'Globals', implementsSelector: false },
       { className: 'LargeInteger', isMeta: false, dictName: 'Globals', implementsSelector: false },
@@ -2316,6 +2316,172 @@ describe('DebuggerPanel', () => {
         return { className: 'JasperDebugDemo', selector: 'run' };
       });
       expect(initPayload(openPanel()).subclassResp).toBeUndefined();
+    });
+  });
+
+  // Class-side (metaclass) parallels of the instance-side debugger coverage:
+  // editable variables, implement-in override, subclassResponsibility, and
+  // doesNotUnderstand. The receiver here is a CLASS, so getObjectClassName
+  // returns "Foo class" and the gemstone:// URIs must target `/class/` rather
+  // than `/instance/`. Mirrors the hardening item-A live verification
+  // (JasperMaker* / JasperClassSideDemo).
+  describe('class-side coverage (metaclass receivers)', () => {
+    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+
+    // getMethodInfo / getObjectClassName / getDoesNotUnderstandInfo / getStackDepth
+    // mockImplementations leak past clearAllMocks — restore the base 5-frame stack.
+    afterEach(() => {
+      vi.mocked(debug.getStackDepth).mockImplementation(() => 5);
+      vi.mocked(debug.getObjectClassName).mockImplementation((_s: unknown, receiverOop: bigint) =>
+        receiverOop === 200n ? 'SmallInteger' : 'JasperDebugDemo');
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 1n) return { className: 'JasperDebugDemo', selector: 'finish' };
+        if (oop === 2n) return { className: 'Object', selector: 'halt' };
+        return { className: 'JasperDebugDemo', selector: 'accumulateFrom:to:' };
+      });
+      vi.mocked(debug.getDoesNotUnderstandInfo).mockReturnValue(undefined);
+    });
+
+    function openPanel() {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      return panel;
+    }
+
+    // Make the level-2 frame (receiverOop 200) a class-side method `buildIt`
+    // inherited from JasperMakerBase, run with `receiverClassName` as the receiver.
+    function classSideInheritedAtLevel2(receiverClassName: string) {
+      vi.mocked(debug.getObjectClassName).mockImplementation((_s: unknown, receiverOop: bigint) =>
+        receiverOop === 200n ? receiverClassName : 'JasperDebugDemo');
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 1n) return { className: 'JasperDebugDemo', selector: 'finish' };
+        if (oop === 2n) return { className: 'JasperMakerBase', selector: 'buildIt' };
+        return { className: 'JasperDebugDemo', selector: 'accumulateFrom:to:' };
+      });
+    }
+
+    // --- Implement-in override (override an inherited method in the receiver's class), class side ---
+
+    it('marks an inherited CLASS-SIDE frame overridable, carrying the receiver metaclass', () => {
+      classSideInheritedAtLevel2('JasperMakerLeaf class');
+      const overridable = initPayload(openPanel()).stack.find((f: { overridable?: boolean }) => f.overridable);
+      expect(overridable.receiverClass).toBe('JasperMakerLeaf class'); // the receiver's metaclass…
+      expect(overridable.label).toContain('JasperMakerBase');          // …while the method lives in the superclass
+    });
+
+    it('does NOT mark a CLASS-SIDE frame overridable when the receiver IS the defining class', () => {
+      // Receiver is JasperMakerBase itself → "JasperMakerBase class"; the
+      // `receiverClass !== definingClassName + " class"` guard must suppress it.
+      classSideInheritedAtLevel2('JasperMakerBase class');
+      const selfFrames = initPayload(openPanel()).stack
+        .filter((f: { receiverClass?: string }) => f.receiverClass === 'JasperMakerBase class');
+      expect(selfFrames.length).toBeGreaterThan(0);
+      for (const f of selfFrames) expect(f.overridable).toBeFalsy();
+    });
+
+    it('implementInReceiver opens a CLASS-side new-method template for a metaclass receiver', async () => {
+      classSideInheritedAtLevel2('JasperMakerLeaf class');
+      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce(
+        [{ className: 'JasperMakerLeaf', isMeta: true, dictName: 'UserGlobals' }]);
+      const panel = openPanel();
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+      sendMessage(panel, { command: 'implementInReceiver', level: 2 });
+      await flush();
+
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      expect(uri.toString()).toContain('/UserGlobals/JasperMakerLeaf/class/');
+      expect(uri.toString()).toContain('new-method');
+    });
+
+    // --- subclassResponsibility (implement an abstract method), class side ---
+
+    it('implementSubclassResponsibility opens a CLASS-side stub for a metaclass receiver', async () => {
+      vi.mocked(debug.getStackDepth).mockImplementation(() => 4);
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 1n) return { className: 'Object', selector: 'subclassResponsibility' };
+        if (oop === 2n) return { className: 'JasperAbstractMaker', selector: 'defaultInstance' };
+        if (oop === 3n) return { className: 'SomeClass', selector: 'bar' };
+        return { className: 'JasperDebugDemo', selector: 'run' };
+      });
+      // Class-side receiver chain, bounded at the abstract definer (isMeta throughout).
+      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce([
+        { className: 'JasperConcreteMaker', isMeta: true, dictName: 'UserGlobals', implementsSelector: false },
+        { className: 'JasperAbstractMaker', isMeta: true, dictName: 'UserGlobals', implementsSelector: true },
+      ]);
+      vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
+        async (items: unknown) => (items as { index: number }[])[0] as never); // JasperConcreteMaker class
+      const panel = openPanel();
+      expect(initPayload(panel).subclassResp).toEqual({ selector: 'defaultInstance' });
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+      sendMessage(panel, { command: 'implementSubclassResponsibility' });
+      await flush();
+
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      expect(uri.toString()).toContain('/UserGlobals/JasperConcreteMaker/class/');
+      expect(uri.toString()).toContain('new-method');
+    });
+
+    // --- DNU (create-method), class side: receiver IS a class ---
+
+    const DNU_META = {
+      className: 'JasperClassSideDemo', isMeta: true, dictName: 'UserGlobals',
+      selector: 'makeFancyThing:', argCount: 1,
+    };
+
+    function openWithClassDnu() {
+      vi.mocked(debug.getDoesNotUnderstandInfo).mockReturnValue(DNU_META);
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 1n) return { className: 'MessageNotUnderstood', selector: 'defaultAction' };
+        if (oop === 2n) return { className: 'Object', selector: 'doesNotUnderstand:' };
+        return { className: 'JasperDebugDemo', selector: 'accumulateFrom:to:' };
+      });
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      return panel;
+    }
+
+    it('carries isMeta in the DNU init payload when the receiver is a class', () => {
+      const panel = openWithClassDnu();
+      expect(initPayload(panel).dnu).toEqual({
+        selector: 'makeFancyThing:', className: 'JasperClassSideDemo', isMeta: true,
+      });
+    });
+
+    it('createDnuMethod opens a CLASS-side new-method URI for a class receiver', async () => {
+      const panel = openWithClassDnu();
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+      sendMessage(panel, { command: 'createDnuMethod' });
+      await flush();
+
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      expect(uri.toString()).toContain('/UserGlobals/JasperClassSideDemo/class/');
+      expect(uri.toString()).toContain('new-method');
+    });
+
+    // --- editable Variables on a class-side frame (classInstVars) ---
+
+    it('shows + edits a class-instance variable on a class-side frame (receiver is a class)', () => {
+      // Frame at level 3 (receiverOop 300) has a class receiver; its named
+      // instVars are the class-instance variables (e.g. `registry`).
+      vi.mocked(debug.getObjectClassName).mockImplementation((_s: unknown, receiverOop: bigint) =>
+        receiverOop === 300n ? 'JasperClassSideDemo class' : 'JasperDebugDemo');
+      vi.mocked(debug.getInstVarNames).mockReturnValueOnce(['registry']);
+      vi.mocked(debug.getNamedInstVarOops).mockReturnValueOnce([7n]);
+      vi.mocked(debug.evaluateInFrameToOop).mockReturnValueOnce(777n);
+      const panel = openPanel();
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+
+      // The class-instance var renders in the instvars group with edit metadata.
+      const groups = lastPosted(panel, 'variables').groups;
+      expect(groups.find((g: { kind: string }) => g.kind === 'instvars').vars).toEqual([
+        { name: 'registry', value: '<print 7>', oop: '7', edit: { kind: 'instvar', index: 1 } },
+      ]);
+      // Writing it routes through the same instVarAt:put: primitive, class receiver.
+      sendMessage(panel, { command: 'setVariable', level: 3, kind: 'instvar', index: 1, expr: 'Array new' });
+      expect(debug.setInstVar).toHaveBeenCalledWith(session, expect.any(BigInt), 1, 777n);
+      expect(lastPosted(panel, 'setVariableResult')).toEqual({ command: 'setVariableResult', ok: true });
     });
   });
 
@@ -2454,9 +2620,9 @@ describe('filterStack', () => {
     expect(kept[0].label).toBe('Executed Code');
   });
 
-  // A subclassResponsibility stop (T4): `subclassResponsibility` → `self error:` →
+  // A subclassResponsibility stop: `subclassResponsibility` → `self error:` →
   // signal machinery. All of it is trimmed (incl. the marker) so the debugger opens
-  // on the abstract method itself — the method T4 offers to implement.
+  // on the abstract method itself — the method the implement action offers to fill in.
   const SUBCLASS_RESP_STACK: RawFrame[] = [
     raw({ serverLevel: 1, label: 'AbstractException class>>#signal', definingClassName: 'AbstractException', selector: 'signal' }),
     raw({ serverLevel: 2, label: 'LargeNegativeInteger (Object)>>#error:', definingClassName: 'Object', selector: 'error:' }),

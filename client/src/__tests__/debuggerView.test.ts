@@ -807,7 +807,7 @@ describe('DebuggerView.renderDnu (create-method-from-DNU)', () => {
 
 });
 
-describe('DebuggerView.renderSubclassResp (T4)', () => {
+describe('DebuggerView.renderSubclassResp (subclassResponsibility implement action)', () => {
   beforeEach(() => { document.body.innerHTML = '<div id="dnuBar"></div>'; });
 
   it('renders an "Implement #selector" button (no class — chosen via picker)', () => {
