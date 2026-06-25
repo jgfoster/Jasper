@@ -120,6 +120,13 @@ export async function handleClassDefinitionCompiled(event: ClassDefinitionCompil
   }
 }
 
+// Getting Started onboarding. The walkthrough auto-opens once per machine on the
+// first successful connect; this globalState key records that it has been shown.
+// Clear it via the `gemstone.resetGettingStarted` command to make it auto-open
+// again on the next connect.
+const GETTING_STARTED_SEEN_KEY = 'gemstone.hasSeenGettingStarted';
+const GETTING_STARTED_WALKTHROUGH_ID = 'gemtalksystems.gemstone-ide#gemstoneGettingStarted';
+
 export function activate(context: vscode.ExtensionContext) {
   jasperChannel = vscode.window.createOutputChannel('Jasper');
   context.subscriptions.push(jasperChannel);
@@ -607,6 +614,34 @@ export function activate(context: vscode.ExtensionContext) {
       LoginEditorPanel.show(storage, context.secrets, treeProvider, copy, sysadminStorage);
     }),
 
+    vscode.commands.registerCommand('gemstone.openWalkthrough', () => {
+      void vscode.commands.executeCommand(
+        'workbench.action.openWalkthrough',
+        GETTING_STARTED_WALKTHROUGH_ID,
+        false,
+      );
+    }),
+
+    vscode.commands.registerCommand('gemstone.openWorkspace', async () => {
+      await openWorkspace();
+    }),
+
+    vscode.commands.registerCommand('gemstone.resetGettingStarted', async () => {
+      await context.globalState.update(GETTING_STARTED_SEEN_KEY, undefined);
+      const openNow = 'Open Walkthrough Now';
+      const choice = await vscode.window.showInformationMessage(
+        'Getting Started reset — the walkthrough will open automatically on your next connect.',
+        openNow,
+      );
+      if (choice === openNow) {
+        void vscode.commands.executeCommand(
+          'workbench.action.openWalkthrough',
+          GETTING_STARTED_WALKTHROUGH_ID,
+          false,
+        );
+      }
+    }),
+
     vscode.commands.registerCommand('gemstone.login', async (item: GemStoneLoginItem) => {
       if (!vscode.workspace.workspaceFolders?.length) {
         vscode.window.showErrorMessage(
@@ -786,7 +821,20 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showErrorMessage(`Login failed: ${msg}`);
         return;
       }
-      await openWorkspace();
+      // We no longer auto-open a workspace on every connect (it left a dirty,
+      // hot-exit-restored buffer behind). Instead, on the *first* successful
+      // connect, open the Getting Started walkthrough once — a richer, native,
+      // dismissible onboarding card that links to the on-demand workspace. The
+      // workspace stays available afterward via the gemstone.openWorkspace
+      // command and the Logins & Sessions welcome view.
+      if (!context.globalState.get<boolean>(GETTING_STARTED_SEEN_KEY)) {
+        void context.globalState.update(GETTING_STARTED_SEEN_KEY, true);
+        void vscode.commands.executeCommand(
+          'workbench.action.openWalkthrough',
+          GETTING_STARTED_WALKTHROUGH_ID,
+          false,
+        );
+      }
     }),
 
     vscode.commands.registerCommand('gemstone.sessionCommit', async (item: GemStoneSessionItem) => {
