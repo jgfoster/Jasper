@@ -4,6 +4,10 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+### Changed
+
+- **Logging in no longer auto-opens a "Workspace" scratch buffer.** The old behavior opened an untitled `Workspace` document on every connect; because an untitled doc carrying content is permanently dirty, VS Code nagged to save it on exit and hot-exit kept restoring it. Instead, the **first** successful connect now opens a native **"Get Started with GemStone"** walkthrough — a dismissible Welcome-tab card with steps (connect → open a workspace → Display It → Inspect It), each of which checks itself off as you do it. The scratch workspace is still one click away on demand: a new **`GemStone: Open Getting Started Workspace`** command (also surfaced as a button in the empty **Logins & Sessions** view and as a walkthrough step) opens the same untitled buffer as before. The walkthrough shows once per machine; reopen it anytime from **Help → Welcome** or the Command Palette, and a **`GemStone: Reset Getting Started`** command makes it auto-open again on your next connect. A "Reopen this walkthrough later" step documents both inside the walkthrough itself.
+
 ## [1.7.1] - 2026-06-24
 
 ### Fixed

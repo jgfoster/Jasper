@@ -341,6 +341,10 @@
     },
     "viewsWelcome": [
       {
+        "view": "gemstoneLogins",
+        "contents": "New to GemStone? Start with the guided walkthrough.\n[Get Started with GemStone](command:gemstone.openWalkthrough)\nOr jump straight into a scratch workspace.\n[Open Getting Started Workspace](command:gemstone.openWorkspace)\nThen add a login to connect to a stone.\n[Add a Login](command:gemstone.login)"
+      },
+      {
         "view": "gemstoneInspector",
         "contents": "No objects inspected yet.\nSelect code and press Cmd+K I to inspect.",
         "when": "isMac"
@@ -373,6 +377,67 @@
         "view": "gemstoneProcesses",
         "contents": "No running GemStone processes.\n[Refresh](command:gemstone.refreshProcesses)",
         "when": "!gemstone.isWindows || gemstone.wslAvailable"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "gemstoneGettingStarted",
+        "title": "Get Started with GemStone",
+        "description": "Connect to a stone and explore Smalltalk expressions in Jasper.",
+        "steps": [
+          {
+            "id": "connect",
+            "title": "Connect to a stone",
+            "description": "Add a login in the Logins & Sessions view and click it to connect.\n[Add a Login](command:gemstone.login)",
+            "media": {
+              "markdown": "resources/walkthrough/connect.md"
+            },
+            "completionEvents": [
+              "onCommand:gemstone.login"
+            ]
+          },
+          {
+            "id": "openWorkspace",
+            "title": "Open a workspace",
+            "description": "Open a scratch buffer to try out Smalltalk expressions.\n[Open Workspace](command:gemstone.openWorkspace)",
+            "media": {
+              "markdown": "resources/walkthrough/workspace.md"
+            },
+            "completionEvents": [
+              "onCommand:gemstone.openWorkspace"
+            ]
+          },
+          {
+            "id": "displayIt",
+            "title": "Run your first expression",
+            "description": "Select an expression and Display It to evaluate it inline.\n[Display It](command:gemstone.displayIt)",
+            "media": {
+              "markdown": "resources/walkthrough/displayIt.md"
+            },
+            "completionEvents": [
+              "onCommand:gemstone.displayIt"
+            ]
+          },
+          {
+            "id": "inspectIt",
+            "title": "Inspect an object",
+            "description": "Inspect It opens the result in the Inspector to drill into its fields.\n[Inspect It](command:gemstone.inspectIt)",
+            "media": {
+              "markdown": "resources/walkthrough/inspectIt.md"
+            },
+            "completionEvents": [
+              "onCommand:gemstone.inspectIt"
+            ]
+          },
+          {
+            "id": "reopen",
+            "title": "Reopen this walkthrough later",
+            "description": "Closed this? Reopen it anytime from Help → Welcome, or the Command Palette.\n[Open Walkthrough...](command:welcome.showAllWalkthroughs)",
+            "media": {
+              "markdown": "resources/walkthrough/reopen.md"
+            }
+          }
+        ]
       }
     ],
     "commands": [
@@ -486,6 +551,23 @@
         "title": "Export Classes to Files",
         "category": "GemStone",
         "icon": "$(cloud-download)"
+      },
+      {
+        "command": "gemstone.openWorkspace",
+        "title": "Open Getting Started Workspace",
+        "category": "GemStone",
+        "icon": "$(notebook)"
+      },
+      {
+        "command": "gemstone.openWalkthrough",
+        "title": "Get Started with GemStone",
+        "category": "GemStone",
+        "icon": "$(mortar-board)"
+      },
+      {
+        "command": "gemstone.resetGettingStarted",
+        "title": "Reset Getting Started (Show Walkthrough on Next Connect)",
+        "category": "GemStone"
       },
       {
         "command": "gemstone.displayIt",
@@ -826,9 +908,14 @@
       ],
       "view/title": [
         {
+          "command": "gemstone.openWalkthrough",
+          "when": "view == gemstoneVersions",
+          "group": "navigation@0"
+        },
+        {
           "command": "gemstone.addLogin",
           "when": "view == gemstoneLogins",
-          "group": "navigation"
+          "group": "navigation@1"
         },
         {
           "command": "gemstone.clearInspector",
