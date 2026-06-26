@@ -412,6 +412,21 @@ describe('SystemBrowser', () => {
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
         command: 'loadMethodCategories',
         items: ['** ALL METHODS **', 'Instance Creation'],
+        selected: '** ALL METHODS **',
+      });
+    });
+
+    it('toggling to the class side populates the method list automatically', () => {
+      messageHandler({ command: 'ready' });
+      messageHandler({ command: 'selectDictionary', index: 1 });
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      messageHandler({ command: 'selectClass', name: 'Array' });
+      messageHandler({ command: 'toggleSide', isMeta: true });
+
+      expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
+        command: 'loadMethods',
+        items: ['new', 'new:'],
+        methodOverrideBits: {},
       });
     });
 
@@ -1774,6 +1789,7 @@ describe('SystemBrowser', () => {
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
         command: 'loadMethodCategories',
         items: ['** ALL METHODS **', 'Instance Creation'],
+        selected: '** ALL METHODS **',
       });
     });
 

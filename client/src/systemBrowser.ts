@@ -539,7 +539,7 @@ export class SystemBrowser {
           this.applyClassSelection(message.name as string, false, true);
           break;
         case 'toggleSide':
-          this.handleToggleSide(message.isMeta as boolean);
+          this.handleToggleSide(message.isMeta as boolean, true);
           break;
         case 'selectMethodCategory':
           this.handleSelectMethodCategory(message.name as string);
@@ -812,13 +812,26 @@ export class SystemBrowser {
     }
   }
 
-  private handleToggleSide(isMeta: boolean): void {
+  /**
+   * Toggles the instance / class side for the currently selected class and
+   * clears the method selection (category + method).
+   *
+   * When `autoSelectAllMethodsCategory` is set and a class is selected,
+   * re-selects the "all methods" pseudo-category so the Methods column
+   * re-fills for the newly toggled side; otherwise it just reloads the method
+   * categories.
+   */
+  private handleToggleSide(isMeta: boolean, autoSelectAllMethodsCategory = false): void {
     this.state.isMeta = isMeta;
     this.state.selectedMethodCategory = null;
     this.state.selectedMethod = null;
 
     if (this.state.selectedClass) {
-      this.loadMethodCategories();
+      if (autoSelectAllMethodsCategory) {
+        this.selectAllMethods();
+      } else {
+        this.loadMethodCategories();
+      }
     }
   }
 
