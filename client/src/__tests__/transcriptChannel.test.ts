@@ -3,11 +3,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('vscode', () => import('../__mocks__/vscode'));
 
 import { window } from 'vscode';
-import { getTranscriptChannel, appendTranscript, showTranscript } from '../transcriptChannel';
+import { getTranscriptChannel, appendTranscript, showTranscript, _resetTranscriptChannelForTests } from '../transcriptChannel';
 
 describe('transcriptChannel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The channel is a module-level singleton; reset it so each test re-creates
+    // it. Otherwise "creates an output channel" only passes when it runs first
+    // (the create call happens once per process, and clearAllMocks wipes the
+    // record) — an order dependency under sequence.shuffle.
+    _resetTranscriptChannelForTests();
   });
 
   describe('getTranscriptChannel', () => {

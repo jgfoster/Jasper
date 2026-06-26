@@ -88,6 +88,11 @@ describe('runQuickSetup', () => {
   let originalPlatform: string;
 
   beforeEach(() => {
+    // Clear call history between tests; without this, mock.calls accumulate and
+    // assertions like `showWarningMessage.not.toHaveBeenCalled()` become
+    // order-dependent (a prior test's calls leak in under sequence.shuffle).
+    // The mock return values are re-established below, so clearing is safe.
+    vi.clearAllMocks();
     originalPlatform = process.platform;
     setPlatform('darwin');
     mockSharedMemory(SHMMAX_1GB, SHMALL_1GB);

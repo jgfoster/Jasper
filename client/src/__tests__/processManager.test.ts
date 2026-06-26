@@ -101,6 +101,13 @@ describe('ProcessManager', () => {
   afterEach(() => {
     Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
     vi.mocked(spawn).mockReset();
+    // Restore the wslBridge mock defaults. Several tests set needsWsl→true (or
+    // a wslExecSync return) with sticky overrides; without resetting them here
+    // they leak into blocks that don't reset them (e.g. startNetldi), making
+    // those tests fail under sequence.shuffle (getEnvironment then takes the WSL
+    // path and calls a storage method the test stub doesn't provide).
+    vi.mocked(wslBridge.needsWsl).mockReset().mockReturnValue(false);
+    vi.mocked(wslBridge.wslExecSync).mockReset();
   });
 
   // ── runCommand spawn behaviour ────────────────────────────
