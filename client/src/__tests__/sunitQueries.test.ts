@@ -275,6 +275,46 @@ describe('sunitQueries', () => {
     });
   });
 
+  describe('runFailingTests', () => {
+    it('parses failed/errored tab-separated rows', () => {
+      const session = createMockSession(
+        'MyTestCase\ttestFails\tfailed\tTestFailure: nope\n' +
+        'MyTestCase\ttestBad\terror\tMessageNotUnderstood: boom\n',
+      );
+      const results = sunit.runFailingTests(session);
+      expect(results).toHaveLength(2);
+      expect(results[0]).toEqual({
+        className: 'MyTestCase', selector: 'testFails',
+        status: 'failed', message: 'TestFailure: nope', durationMs: 0,
+      });
+      expect(results[1].status).toBe('error');
+    });
+
+    // Blocking-call guard: the GCI executor holds the session for the entire
+    // doit, so an unbounded suite — most dangerously the no-args path, which on
+    // a full image is hundreds of base-library TestCases — can wedge a live
+    // session. The query must refuse oversized selections in Smalltalk *before*
+    // running any suite, on every selection path (an explicit list or a wide
+    // glob can be just as large as discover-all).
+    const lastCode = (session: ActiveSession) =>
+      (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock.calls[0][1] as string;
+
+    it.each<[string, (s: ActiveSession) => void]>([
+      ['no-args (discover-all)', (s) => sunit.runFailingTests(s)],
+      ['explicit classNames', (s) => sunit.runFailingTests(s, ['A', 'B'])],
+      ['classNamePattern', (s) => sunit.runFailingTests(s, undefined, 'Foo*')],
+    ])('caps the number of classes run in one call (%s)', (_label, run) => {
+      const session = createMockSession('');
+      run(session);
+      const code = lastCode(session);
+      expect(code).toContain('classes size > 100');
+      expect(code).toContain('Error signal:');
+      // The guard must precede the suite-running loop, or it can't prevent the
+      // wedge it exists to stop.
+      expect(code.indexOf('classes size > 100')).toBeLessThan(code.indexOf('cls suite run'));
+    });
+  });
+
   describe('error handling', () => {
     it('throws SunitQueryError on GCI error', () => {
       const session = createMockSession('');
