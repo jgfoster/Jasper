@@ -431,6 +431,28 @@ export function getSourceOffsetsForMethod(
 }
 
 /**
+ * Set a step-point breakpoint on a method addressed by its OOP — for "Run to
+ * Cursor" on an Executed Code (doit) frame, whose anonymous `GsNMethod` has no
+ * class>>selector to resolve. `setBreakAtStepPoint:` is method-wide (it resolves
+ * the step point to the owning block via `_meth_ip_ForStepPoint:`), so a break at
+ * a user-code step point in a nested block halts when reached. Performed straight
+ * on the method OOP — the same way `getSourceOffsetsForMethod` reads
+ * `_sourceOffsets`.
+ */
+export function setBreakAtStepPointByOop(
+  session: ActiveSession, methodOop: bigint, stepPoint: number,
+): void {
+  gciPerform(session, methodOop, 'setBreakAtStepPoint:', [intToOop(session, stepPoint)]);
+}
+
+/** Clear a step-point breakpoint set by OOP (see setBreakAtStepPointByOop). */
+export function clearBreakAtStepPointByOop(
+  session: ActiveSession, methodOop: bigint, stepPoint: number,
+): void {
+  gciPerform(session, methodOop, 'clearBreakAtStepPoint:', [intToOop(session, stepPoint)]);
+}
+
+/**
  * Returns the step point for the frame at the given level (1-based, 1 = top),
  * or undefined when the frame has no step point. Uses GsProcess>>_stepPointAt:,
  * the same primitive the topaz debugger uses — it accounts for native-stack

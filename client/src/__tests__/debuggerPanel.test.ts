@@ -43,6 +43,9 @@ vi.mock('../debugQueries', () => ({
   // Source offsets fetched straight from a method OOP (read-only doit / non-
   // symbol-list method). Same 1-based shape as browserQueries.getSourceOffsets.
   getSourceOffsetsForMethod: vi.fn(() => [1, 8, 26]),
+  // Run to Cursor in a doit frame breaks/clears by the method OOP (no class>>selector).
+  setBreakAtStepPointByOop: vi.fn(),
+  clearBreakAtStepPointByOop: vi.fn(),
   getMethodSource: vi.fn(() => '| t | t := 6 * 7. t halt'),
   getObjectPrintString: vi.fn((_s: unknown, oop: bigint) => `<print ${oop}>`),
   getInstVarNames: vi.fn(() => [] as string[]),
@@ -90,12 +93,16 @@ vi.mock('../gtInspector', () => ({ GtInspector: { create: vi.fn(() => ({ close: 
 // them to 0-based for doc.positionAt.
 vi.mock('../browserQueries', () => ({
   getSourceOffsets: vi.fn(() => [1, 8, 26]),
+  // Run to Cursor (#2) sets a temporary step-point break, then clears it.
+  setBreakAtStepPoint: vi.fn(() => 'ok'),
+  clearBreakAtStepPoint: vi.fn(() => 'ok'),
 }));
 
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as debug from '../debugQueries';
+import * as queries from '../browserQueries';
 import {
   DebuggerPanel, formatFrameLabel, formatFramePosition, buildMethodStub, selectorArgCount,
   formatFrameForClipboard, buildMethodSourceUri,
@@ -553,9 +560,11 @@ describe('DebuggerPanel', () => {
       const html = lastPanel().webview.html;
 
       // Each control keeps its data-cmd (wiring) but now carries an inline SVG glyph.
-      for (const cmd of ['resume', 'stepOver', 'stepInto', 'stepThrough', 'restartFrame', 'terminate']) {
+      for (const cmd of ['resume', 'runToCursor', 'stepOver', 'stepInto', 'stepThrough', 'restartFrame', 'terminate']) {
         expect(html).toMatch(new RegExp(`data-cmd="${cmd}"[^>]*>\\s*<svg`));
       }
+      // Run to Cursor starts disabled (enabled only when a breakable frame is selected).
+      expect(html).toMatch(/data-cmd="runToCursor"[^>]*\bdisabled\b/);
       // The old text labels are gone (names live in title/aria-label tooltips).
       expect(html).toContain('aria-label="Resume execution"');
       expect(html).not.toMatch(/data-cmd="resume"[^>]*>Resume</);
@@ -1355,6 +1364,33 @@ describe('DebuggerPanel', () => {
       ]);
     });
 
+    it('alphabetizes instVars and named args/temps while preserving each slot write index', () => {
+      // Source order is deliberately NON-alphabetical to prove the rows are sorted
+      // for display but each keeps its original 1-based write index.
+      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) =>
+        level === 2
+          ? { methodOop: 2n, ipOffset: 5, receiverOop: 300n, argAndTempNames: ['total', 'amount'], argAndTempOops: [22n, 11n] }
+          : { methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [] });
+      // Receiver (oop 300) reports instVars in non-alphabetical order too.
+      vi.mocked(debug.getInstVarNames).mockImplementation((_s: unknown, oop: bigint) =>
+        oop === 300n ? ['zebra', 'apple'] : []);
+      vi.mocked(debug.getNamedInstVarOops).mockReturnValue([71n, 72n]);
+      const panel = openPanel();
+      sendMessage(panel, { command: 'selectFrame', level: 2 });
+
+      const groups = lastPosted(panel, 'variables').groups;
+      // instVars sorted apple < zebra; indices stay source-order (zebra=1, apple=2).
+      expect(groups.find((g: { kind: string }) => g.kind === 'instvars').vars).toEqual([
+        { name: 'apple', value: '<print 72>', oop: '72', edit: { kind: 'instvar', index: 2 } },
+        { name: 'zebra', value: '<print 71>', oop: '71', edit: { kind: 'instvar', index: 1 } },
+      ]);
+      // Named args/temps sorted amount < total; indices stay source-order (total=1, amount=2).
+      expect(groups.find((g: { kind: string }) => g.kind === 'argtemps').vars).toEqual([
+        { name: 'amount', value: '<print 11>', oop: '11', edit: { kind: 'temp', index: 2 } },
+        { name: 'total', value: '<print 22>', oop: '22', edit: { kind: 'temp', index: 1 } },
+      ]);
+    });
+
     it('splits named temps from the synthetic .tN eval-stack temps into a separate group', () => {
       vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) =>
         level === 2
@@ -1615,6 +1651,236 @@ describe('DebuggerPanel', () => {
       expect(panel.dispose).not.toHaveBeenCalled();
       expect(posted(panel, 'init').length).toBe(before + 1); // refreshed
       expect(lastPosted(panel, 'init').errorMessage).toBe('next error');
+    });
+
+    // Run to Cursor (#2): a Resume bracketed by a temporary step-point breakpoint at
+    // the cursor's line in the (editable) source pane. The break is set, the
+    // process continues, and the break is cleared afterward — unless the user owns
+    // a break there. Non-breakable frames fall back to a plain Resume + flash.
+    describe('Run to Cursor (#2)', () => {
+      const RT_URI_INFO = {
+        dictName: 'UserGlobals', className: 'JasperDebugDemo', isMeta: false,
+        category: 'accessing', selector: 'accumulateFrom:to:',
+      };
+      const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+
+      beforeEach(() => {
+        // No user breakpoints unless a test adds one (the mock array is shared).
+        (vscode.debug as unknown as { breakpoints: unknown[] }).breakpoints = [];
+      });
+
+      // Open a panel whose frames are breakable (home method in the symbol list),
+      // reveal frame 3's editable source, and place the cursor at (cursorLine0,
+      // cursorChar0) (both 0-based). `source`/`offsets` default to a 3-line method
+      // whose step points are at 1-based source offsets [3, 9, 14].
+      async function openWithCursor(
+        cursorLine0: number, cursorChar0 = 0,
+        source = 'line1\nline2\nline3', offsets = [3, 9, 14],
+      ) {
+        vi.mocked(debug.getMethodUriInfo).mockReturnValue(RT_URI_INFO); // every frame breakable + editable
+        vi.mocked(debug.getMethodSource).mockReturnValue(source);
+        vi.mocked(debug.getSourceOffsetsForMethod).mockReturnValue(offsets);
+        const panel = openPanel();
+        sendMessage(panel, { command: 'selectFrame', level: 3 });
+        await flush();
+        const results = vi.mocked(vscode.window.showTextDocument).mock.results;
+        const editor = await results[results.length - 1].value;
+        // The mock doesn't wire the editor's uri to the opened doc — do it so the
+        // "is the source pane showing this frame?" guard sees a match.
+        editor.document.uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
+        editor.selection = new vscode.Selection(
+          new vscode.Position(cursorLine0, cursorChar0), new vscode.Position(cursorLine0, cursorChar0),
+        );
+        return panel;
+      }
+
+      it('sets a temp break at the cursor step point, resumes, then clears it', async () => {
+        vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true });
+        const panel = await openWithCursor(1); // line 2 → step point 2 (offset 9)
+        sendMessage(panel, { command: 'runToCursor', level: 3 });
+
+        expect(queries.setBreakAtStepPoint)
+          .toHaveBeenCalledWith(session, 'JasperDebugDemo', false, 'accumulateFrom:to:', 2);
+        expect(debug.continueExecution).toHaveBeenCalledWith(session, GS_PROCESS);
+        // Cleared afterward (so it never lingers on the method) — same step point.
+        expect(queries.clearBreakAtStepPoint)
+          .toHaveBeenCalledWith(session, 'JasperDebugDemo', false, 'accumulateFrom:to:', 2);
+        expect(panel.dispose).toHaveBeenCalled(); // completed → closed
+      });
+
+      it('refreshes (stack/variables update) when the run re-halts at the cursor', async () => {
+        vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: false, errorMessage: '' });
+        const panel = await openWithCursor(0); // line 1 → step point 1 (offset 3)
+        const before = posted(panel, 'init').length;
+        sendMessage(panel, { command: 'runToCursor', level: 3 });
+
+        expect(queries.setBreakAtStepPoint)
+          .toHaveBeenCalledWith(session, 'JasperDebugDemo', false, 'accumulateFrom:to:', 1);
+        expect(queries.clearBreakAtStepPoint).toHaveBeenCalled();
+        expect(panel.dispose).not.toHaveBeenCalled();
+        expect(posted(panel, 'init').length).toBe(before + 1); // refreshed → variables re-fetch
+      });
+
+      it("does NOT clear a break the user already set at the cursor's step point", async () => {
+        vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true });
+        const panel = await openWithCursor(1); // line 2 → actualLine 2 (0-based line 1)
+        const openUri = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
+        (vscode.debug as unknown as { breakpoints: unknown[] }).breakpoints = [
+          new vscode.SourceBreakpoint(new vscode.Location(openUri, new vscode.Range(1, 0, 1, 0)), true),
+        ];
+        sendMessage(panel, { command: 'runToCursor', level: 3 });
+
+        expect(queries.setBreakAtStepPoint).toHaveBeenCalled();
+        expect(queries.clearBreakAtStepPoint).not.toHaveBeenCalled(); // it's the user's break
+      });
+
+      it('falls back to a flash + plain Resume when the source pane is not showing the frame', () => {
+        // No selectFrame sent → no source editor revealed → no usable cursor target.
+        vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true });
+        const panel = openPanel();
+        sendMessage(panel, { command: 'runToCursor', level: 3 });
+
+        expect(queries.setBreakAtStepPoint).not.toHaveBeenCalled();
+        expect(debug.setBreakAtStepPointByOop).not.toHaveBeenCalled();
+        expect(lastPosted(panel, 'flash').text).toMatch(/cursor/i);
+        expect(debug.continueExecution).toHaveBeenCalledWith(session, GS_PROCESS); // resumed anyway
+      });
+
+      // Executed Code (doit) frame: its anonymous GsNMethod has no class>>selector,
+      // so the temp break is set/cleared BY OOP (debug.setBreakAtStepPointByOop).
+      it('runs to cursor in a doit frame by setting + clearing the break by method OOP', async () => {
+        vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true });
+        // A single-frame doit stack: getMethodInfo throws (no home class) → the frame
+        // is "Executed Code"; source is shown read-only (gemstone-debug:), unwrapped.
+        vi.mocked(debug.getStackDepth).mockReturnValue(1);
+        vi.mocked(debug.getFrameInfo).mockReturnValue({
+          methodOop: 50n, ipOffset: 5, receiverOop: 0n, argAndTempNames: [], argAndTempOops: [],
+        });
+        vi.mocked(debug.getMethodBlockInfo).mockReturnValue({ isBlock: false, homeMethodOop: 50n });
+        vi.mocked(debug.getMethodUriInfo).mockReturnValue(undefined);
+        vi.mocked(debug.getMethodInfo).mockImplementation(() => { throw new Error('doit: nil inClass'); });
+        // Not wrapped → shift 0; offsets [3, 9, 14] like the editable case.
+        vi.mocked(debug.getMethodSource).mockReturnValue('line1\nline2\nline3');
+        vi.mocked(debug.getSourceOffsetsForMethod).mockReturnValue([3, 9, 14]);
+
+        const panel = openPanel();
+        sendMessage(panel, { command: 'selectFrame', level: 1 });
+        await flush();
+        const results = vi.mocked(vscode.window.showTextDocument).mock.results;
+        const editor = await results[results.length - 1].value;
+        editor.document.uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
+        editor.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(1, 0)); // line 2 → sp2
+
+        sendMessage(panel, { command: 'runToCursor', level: 1 });
+
+        // Break set + cleared BY OOP (50n) at step point 2; the class>>selector path is NOT used.
+        expect(debug.setBreakAtStepPointByOop).toHaveBeenCalledWith(session, 50n, 2);
+        expect(debug.clearBreakAtStepPointByOop).toHaveBeenCalledWith(session, 50n, 2);
+        expect(queries.setBreakAtStepPoint).not.toHaveBeenCalled();
+        expect(debug.continueExecution).toHaveBeenCalledWith(session, GS_PROCESS);
+      });
+
+      // A WRAPPED doit (Execute/Display/Inspect It): the displayed source is the
+      // user code UNWRAPPED from the transcript-capture glue, so the cursor offset
+      // must be shifted back into the stored (wrapped) coords where `_sourceOffsets`
+      // live. Locks in the offset-shift math (the doit test above is shift 0).
+      it('applies the transcript-capture offset shift for a wrapped doit', async () => {
+        vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true });
+        // User code is 'X\nY Z'; wrap it exactly as CodeExecutor does. The user code
+        // begins at `codeOffset` in the stored source (= the shift).
+        const userCode = 'X\nY Z';
+        const { wrappedCode, codeOffset } = wrapWithTranscriptCapture(userCode);
+        // Step points (1-based stored offsets) for X, Y, Z in the WRAPPED source:
+        // X@userOffset0 → stored codeOffset+1; Y@2 → codeOffset+3; Z@4 → codeOffset+5.
+        const offsets = [codeOffset + 1, codeOffset + 3, codeOffset + 5];
+
+        vi.mocked(debug.getStackDepth).mockReturnValue(1);
+        vi.mocked(debug.getFrameInfo).mockReturnValue({
+          methodOop: 60n, ipOffset: 5, receiverOop: 0n, argAndTempNames: [], argAndTempOops: [],
+        });
+        vi.mocked(debug.getMethodBlockInfo).mockReturnValue({ isBlock: false, homeMethodOop: 60n });
+        vi.mocked(debug.getMethodUriInfo).mockReturnValue(undefined);
+        vi.mocked(debug.getMethodInfo).mockImplementation(() => { throw new Error('doit: nil inClass'); });
+        vi.mocked(debug.getMethodSource).mockReturnValue(wrappedCode);
+        vi.mocked(debug.getSourceOffsetsForMethod).mockReturnValue(offsets);
+
+        const panel = openPanel();
+        sendMessage(panel, { command: 'selectFrame', level: 1 });
+        await flush();
+        const results = vi.mocked(vscode.window.showTextDocument).mock.results;
+        const editor = await results[results.length - 1].value;
+        editor.document.uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
+        // Cursor on `Z` in the DISPLAYED (unwrapped) source: line 2 (0-based 1), col 2.
+        editor.selection = new vscode.Selection(new vscode.Position(1, 2), new vscode.Position(1, 2));
+
+        sendMessage(panel, { command: 'runToCursor', level: 1 });
+
+        // The cursor (displayed offset 4) + shift lands on Z's stored step point (sp3).
+        // If the shift were dropped, it would map to X/Y instead.
+        expect(debug.setBreakAtStepPointByOop).toHaveBeenCalledWith(session, 60n, 3);
+      });
+
+      // Column-aware: the cursor's COLUMN picks the step point, not just its line.
+      // `hdr\nself do: [:e | body ]`: line 2 holds step points for self (sp1@5),
+      // do: (sp2@10) and the block body (sp3@20, all 1-based source offsets).
+      it("breaks INSIDE a one-line block at the cursor column, not at the block's leftmost step point", async () => {
+        vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true });
+        // Cursor at line 2 col 15 → offset 19 → nearest on-line step point is the
+        // block body (sp3@20), NOT the leftmost self/do: (the old line-based bug).
+        const panel = await openWithCursor(1, 15, 'hdr\nself do: [:e | body ]', [5, 10, 20]);
+        sendMessage(panel, { command: 'runToCursor', level: 3 });
+
+        expect(queries.setBreakAtStepPoint)
+          .toHaveBeenCalledWith(session, 'JasperDebugDemo', false, 'accumulateFrom:to:', 3);
+      });
+
+      // The `minute := (...) asInteger` report: cursor on `asInteger` (late on the
+      // line) must NOT snap to the `:=` store step point (leftmost on the line).
+      it('breaks at the step point nearest the cursor column, not the leftmost on the line', async () => {
+        vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true });
+        // `x := a asInteger` — sp1@1 (`x`, the store, col 0), sp2@6 (`a`, col 5),
+        // sp3@8 (`asInteger`, col 7). Cursor on `asInteger` (col 7) → nearest sp3.
+        const panel = await openWithCursor(0, 7, 'x := a asInteger', [1, 6, 8]);
+        sendMessage(panel, { command: 'runToCursor', level: 3 });
+
+        expect(queries.setBreakAtStepPoint)
+          .toHaveBeenCalledWith(session, 'JasperDebugDemo', false, 'accumulateFrom:to:', 3);
+      });
+
+      // A BLOCK frame: its own method (1n) differs from its HOME method (99n). The
+      // displayed source IS the home method, so the break must target the HOME
+      // (its `_sourceOffsets` + class>>selector), NOT the block's own method.
+      it('runs to cursor on a block frame against its HOME method, not the block', async () => {
+        vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true });
+        vi.mocked(debug.getStackDepth).mockReturnValue(1);
+        vi.mocked(debug.getFrameInfo).mockReturnValue({
+          methodOop: 1n, ipOffset: 5, receiverOop: 300n, argAndTempNames: [], argAndTempOops: [],
+        });
+        // isBlock, with the enclosing (home) method a DIFFERENT oop (99n).
+        vi.mocked(debug.getMethodBlockInfo).mockReturnValue({ isBlock: true, homeMethodOop: 99n });
+        // Only the HOME method (99n) is an editable symbol-list method.
+        vi.mocked(debug.getMethodUriInfo).mockImplementation((_s: unknown, oop: bigint) =>
+          oop === 99n ? RT_URI_INFO : undefined);
+        vi.mocked(debug.getMethodSource).mockReturnValue('line1\nline2\nline3');
+        vi.mocked(debug.getSourceOffsetsForMethod).mockReturnValue([3, 9, 14]);
+
+        const panel = openPanel();
+        sendMessage(panel, { command: 'selectFrame', level: 1 });
+        await flush();
+        const results = vi.mocked(vscode.window.showTextDocument).mock.results;
+        const editor = await results[results.length - 1].value;
+        editor.document.uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
+        editor.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(1, 0)); // line 2 → sp2
+
+        sendMessage(panel, { command: 'runToCursor', level: 1 });
+
+        // Resolved via the HOME method (99n): source/offsets fetched for 99n and the
+        // break set by the home's class>>selector (a block-method break would be by OOP).
+        expect(debug.getSourceOffsetsForMethod).toHaveBeenCalledWith(session, 99n);
+        expect(queries.setBreakAtStepPoint)
+          .toHaveBeenCalledWith(session, 'JasperDebugDemo', false, 'accumulateFrom:to:', 2);
+        expect(debug.setBreakAtStepPointByOop).not.toHaveBeenCalled();
+      });
     });
 
     it('Step Over steps (non-blocking) from the selected user frame and refreshes, clearing the error banner', async () => {
@@ -3056,7 +3322,7 @@ const DOIT = 999n;
 function raw(p: Partial<RawFrame> & { serverLevel: number; label: string }): RawFrame {
   return {
     methodOop: BigInt(p.serverLevel), homeMethodOop: BigInt(p.serverLevel),
-    isBlock: false, definingClassName: '', selector: '', isExecutedCode: false,
+    isBlock: false, definingClassName: '', selector: '', isExecutedCode: false, breakable: false,
     ...p,
   };
 }

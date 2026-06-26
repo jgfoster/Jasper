@@ -6,6 +6,7 @@ import { ActiveSession } from './sessionManager';
 import * as debug from './debugQueries';
 import * as queries from './browserQueries';
 import { unwrapTranscriptCapture, transcriptCaptureUserCodeOffset } from './transcriptCapture';
+import { buildLineOffsets, mapOffsetToStepPoint } from './breakpointManager';
 import { GtInspector } from './gtInspector';
 import { logError, logInfo } from './gciLog';
 import { NbCancelledError } from './nbRunner';
@@ -28,6 +29,10 @@ const debuggerViewJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'debugg
  */
 const TOOLBAR_ICONS: Record<string, string> = {
   resume: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M14.578 7.149L7.578 2.186C7.397 2.058 7.198 2 7.003 2C6.484 2 6 2.411 6 3.002V13.003C6 13.594 6.485 14.005 7.004 14.005C7.201 14.005 7.403 13.946 7.585 13.815L14.585 8.777C15.142 8.376 15.139 7.546 14.579 7.15L14.578 7.149ZM7.5 12.027V3.969L13.14 7.968L7.5 12.027ZM3.5 2.75V13.25C3.5 13.664 3.164 14 2.75 14C2.336 14 2 13.664 2 13.25V2.75C2 2.336 2.336 2 2.75 2C3.164 2 3.5 2.336 3.5 2.75Z"/></svg>',
+  // "Run to Cursor" (#2): a play triangle aimed at a vertical bar — run until the
+  // cursor (the bar). Reads as "continue to this point", distinct from the plain
+  // Resume glyph.
+  runToCursor: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3 3.8v8.4a.6.6 0 0 0 .92.5l6.3-4.2a.6.6 0 0 0 0-1L3.92 3.3A.6.6 0 0 0 3 3.8z"/><path d="M12.25 3a.75.75 0 0 1 .75.75v8.5a.75.75 0 0 1-1.5 0v-8.5A.75.75 0 0 1 12.25 3z"/></svg>',
   stepOver: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M9.99993 13C9.99993 14.103 9.10293 15 7.99993 15C6.89693 15 5.99993 14.103 5.99993 13C5.99993 11.897 6.89693 11 7.99993 11C9.10293 11 9.99993 11.897 9.99993 13ZM13.2499 2C12.8359 2 12.4999 2.336 12.4999 2.75V4.027C11.3829 2.759 9.75993 2 7.99993 2C5.03293 2 2.47993 4.211 2.06093 7.144C2.00193 7.554 2.28793 7.934 2.69793 7.993C2.73393 7.999 2.76993 8.001 2.80493 8.001C3.17193 8.001 3.49293 7.731 3.54693 7.357C3.86093 5.159 5.77593 3.501 8.00093 3.501C9.52993 3.501 10.9199 4.264 11.7439 5.501H9.75093C9.33693 5.501 9.00093 5.837 9.00093 6.251C9.00093 6.665 9.33693 7.001 9.75093 7.001H13.2509C13.6649 7.001 14.0009 6.665 14.0009 6.251V2.751C14.0009 2.337 13.6649 2.001 13.2509 2.001L13.2499 2Z"/></svg>',
   stepInto: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M10 13C10 14.103 9.10304 15 8.00004 15C6.89704 15 6.00004 14.103 6.00004 13C6.00004 11.897 6.89704 11 8.00004 11C9.10304 11 10 11.897 10 13ZM12.03 5.22C11.737 4.927 11.262 4.927 10.969 5.22L8.74904 7.44V1.75C8.74904 1.336 8.41304 1 7.99904 1C7.58504 1 7.24904 1.336 7.24904 1.75V7.439L5.02904 5.219C4.73604 4.926 4.26104 4.926 3.96804 5.219C3.67504 5.512 3.67504 5.987 3.96804 6.28L7.46804 9.78C7.61404 9.926 7.80604 10 7.99804 10C8.19004 10 8.38204 9.927 8.52804 9.78L12.028 6.28C12.321 5.987 12.321 5.512 12.028 5.219L12.03 5.22Z"/></svg>',
   // "Through" = step through blocks (gciStepThru). The `indent` arrow (turns down
@@ -70,6 +75,7 @@ type DebuggerInbound =
   | { command: 'selectFrame'; level: number }
   | { command: 'evalInFrame'; level: number; expr: string }
   | { command: 'resume' }
+  | { command: 'runToCursor'; level: number }
   | { command: 'terminate' }
   | { command: 'stepOver'; level: number }
   | { command: 'stepInto'; level: number }
@@ -258,6 +264,13 @@ interface FrameSummary {
   overridable?: boolean;
   /** Receiver's class name, for the override menu item's label. */
   receiverClass?: string;
+  /**
+   * True when this frame resolved to a home method we can set a step-point break
+   * in (editable method → by class>>selector; doit / non-symbol-list → by method
+   * OOP). Drives whether "Run to Cursor" (#2) is enabled; false only for an
+   * unresolvable `<frame N>`.
+   */
+  breakable?: boolean;
 }
 
 /**
@@ -388,6 +401,12 @@ export interface RawFrame {
    * click time, to keep buildFrame off the extra per-frame server round-trip.
    */
   overridable?: boolean;
+  /**
+   * True when a home method was resolved (homeMethodOop ≠ 0) — a step-point break
+   * can be set in it (editable → by class>>selector; doit / non-symbol-list → by
+   * method OOP). Drives "Run to Cursor" (#2); false only for an unresolvable frame.
+   */
+  breakable: boolean;
   label: string;
   line?: number;
   stepPoint?: number;
@@ -750,6 +769,13 @@ export class DebuggerPanel {
    */
   private editableSourceUri: string | undefined;
   /**
+   * The URI the companion editor currently shows for the selected frame — the
+   * editable `gemstone://` method OR the read-only `gemstone-debug:` doit source.
+   * Set by revealFrameSource for BOTH. "Run to Cursor" uses it to confirm the
+   * cursor refers to the selected frame's source before mapping it.
+   */
+  private shownFrameSourceUri: string | undefined;
+  /**
    * When the suspended process is parked on a `doesNotUnderstand:`, the info
    * needed to offer "Create #<selector> in <Class>" — re-detected whenever the
    * stack is (re)fetched, undefined otherwise. Drives the webview's Create button.
@@ -965,6 +991,7 @@ export class DebuggerPanel {
         return;
       }
       case 'resume': { this.resume(); return; }
+      case 'runToCursor': { this.runToCursor(msg.level); return; }
       case 'terminate': { this.panel.dispose(); return; } // dispose → clearStack
       case 'stepOver':
       case 'stepInto':
@@ -1019,7 +1046,7 @@ export class DebuggerPanel {
       stack: this.frames.map(f => ({
         level: f.level, label: f.label, position: f.position,
         overridable: f.overridable, receiverClass: f.receiverClass,
-        homeDisplayLevel: f.homeDisplayLevel,
+        breakable: f.breakable, homeDisplayLevel: f.homeDisplayLevel,
       })),
       // When parked on a doesNotUnderstand:, drive the "Create #sel in Class" button.
       dnu: this.dnuInfo
@@ -1550,6 +1577,10 @@ export class DebuggerPanel {
       return { name, value: safePrint(oop), oop: oop.toString(), edit, revertible };
     };
 
+    // Alphabetical (case-insensitive) order for the instVar + named arg/temp rows.
+    const byName = (a: VarRow, b: VarRow): number =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+
     const groups: VarGroup[] = [];
 
     // 1. Receiver — `self`. Not editable (you can't reassign a frame's receiver),
@@ -1562,7 +1593,11 @@ export class DebuggerPanel {
       const ivNames = debug.getInstVarNames(this.session, info.receiverOop);
       if (ivNames.length > 0) {
         const ivOops = debug.getNamedInstVarOops(this.session, info.receiverOop, ivNames.length);
+        // Build with the slot's real 1-based index (the `instVarAt:put:` target),
+        // THEN sort by name — each row keeps its own index, so alphabetizing the
+        // display never disturbs the write path.
         const ivVars = ivNames.map((n, i) => row(n, ivOops[i], { kind: 'instvar', index: i + 1 }));
+        ivVars.sort(byName);
         groups.push({ title: 'Instance variables', kind: 'instvars', vars: ivVars });
       }
     } catch (e: unknown) {
@@ -1589,6 +1624,11 @@ export class DebuggerPanel {
       (isStackTemp ? stackTemps : named).push(r);
     }
     if (named.length > 0) {
+      // Alphabetize for findability; each row keeps its original `edit.index`
+      // (the `_frameAt:tempAt:put:` target), so sorting the display is safe. The
+      // synthetic `.tN` stack temps keep their natural order (sorting `.t1/.t10/.t2`
+      // alphabetically would just look wrong).
+      named.sort(byName);
       groups.push({ title: 'Arguments & Temps', kind: 'argtemps', vars: named });
     }
     if (stackTemps.length > 0) {
@@ -1837,6 +1877,16 @@ export class DebuggerPanel {
     // Leaving this halt: drop revert state + release pinned originals.
     this.clearUndoState();
     const result = debug.continueExecution(this.session, this.gsProcess);
+    this.handleContinueResult(result);
+  }
+
+  /**
+   * Dispatch the outcome of a blocking `continueExecution` (Resume / Run to Cursor):
+   * close on completion, show the fixed Terminate-only banner if the process is
+   * now uncontinuable (6011), else refresh on the new stop. Shared so Run to Cursor
+   * lands a hit exactly like a Resume that re-halted.
+   */
+  private handleContinueResult(result: debug.StepResult): void {
     if (result.completed) {
       this.onCompleted(result);
     } else if (result.errorNumber === GS_ERR_UNCONTINUABLE) {
@@ -1849,6 +1899,186 @@ export class DebuggerPanel {
       this.errorMessage = result.errorMessage || 'GemStone error';
       this.refresh();
     }
+  }
+
+  /**
+   * "Run to Cursor" (#2): run until execution reaches the step point nearest the
+   * cursor in the companion source pane, then stop there exactly as a halt would —
+   * variables, stack and step-point highlight all refresh.
+   *
+   * Under the cover it's a Resume bracketed by a TEMPORARY step-point breakpoint:
+   * we map the cursor to a step point in the selected frame's (editable) home
+   * method, `setBreakAtStepPoint:`, continue, then clear that break in a `finally`
+   * so it never lingers — whether the run hit it, ran to completion, or stopped
+   * elsewhere. The break is cleared ONLY when we own it; if the user already has a
+   * persistent breakpoint at that step point we leave it (Run to Cursor must not
+   * silently delete the user's break).
+   *
+   * Two break paths: an editable (`gemstone://`) method → by class>>selector, with
+   * a guard so we don't delete the user's own breakpoint; a doit / "Executed Code"
+   * (or non-symbol-list) frame → by the home method's OOP (no class>>selector). The
+   * home method's `_sourceOffsets` is method-wide (spans nested blocks), so a doit
+   * cursor maps to a real step point too. Falls back to a plain Resume (with a
+   * brief flash) when there's no usable target.
+   */
+  private runToCursor(displayLevel: number): void {
+    if (this.guardStaleTopActivation('Run to Cursor')) return;
+    if (this.guardUncontinuable()) return;
+    if (this.nbBusy) { this.notifyBusy('Run to Cursor'); return; }
+
+    const target = this.resolveRunToTarget(displayLevel);
+    if (!target) {
+      this.flash('Run to Cursor: place the cursor on a code line in the source pane — resuming instead.');
+      this.resume();
+      return;
+    }
+
+    // Don't clear a break the USER already set at this step point (editable
+    // frames only; a read-only doit can't carry a user line breakpoint).
+    const userOwns = target.byName ? this.userBreakAt(target.byName.uri, target.byName.actualLine) : false;
+    const setBreak = (): void => {
+      if (target.byName) {
+        queries.setBreakAtStepPoint(
+          this.session, target.byName.className, target.byName.isMeta, target.byName.selector, target.stepPoint,
+        );
+      } else {
+        debug.setBreakAtStepPointByOop(this.session, target.homeMethodOop, target.stepPoint);
+      }
+    };
+    const clearBreak = (): void => {
+      if (target.byName) {
+        queries.clearBreakAtStepPoint(
+          this.session, target.byName.className, target.byName.isMeta, target.byName.selector, target.stepPoint,
+        );
+      } else {
+        debug.clearBreakAtStepPointByOop(this.session, target.homeMethodOop, target.stepPoint);
+      }
+    };
+
+    try {
+      setBreak();
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      this.flash('Run to Cursor: could not set a temporary breakpoint — resuming instead.');
+      this.resume();
+      return;
+    }
+
+    // Leaving this halt: drop revert state + release pinned originals (as Resume).
+    this.clearUndoState();
+    let result: debug.StepResult;
+    try {
+      result = debug.continueExecution(this.session, this.gsProcess);
+    } finally {
+      if (!userOwns) {
+        try { clearBreak(); }
+        catch (e: unknown) { logError(this.sessionId, e instanceof Error ? e.message : String(e)); }
+      }
+    }
+    this.handleContinueResult(result);
+  }
+
+  /**
+   * Resolve the "Run to Cursor" target from the selected frame + the cursor in the
+   * companion source editor, or undefined when there's no usable target. Requires
+   * the source pane to be showing that frame's source (editable OR read-only doit)
+   * so the cursor refers to it. Column-aware via the exact cursor offset.
+   *
+   * For a read-only doit the displayed source is UNWRAPPED from the transcript-
+   * capture glue, so its step-point offsets (stored in WRAPPED coords) are shifted
+   * by the stripped prefix — add the shift back to put the cursor in stored coords
+   * before mapping. An editable method is shown 1:1 (shift 0). The returned
+   * `byName` is present only for an editable method (break by class>>selector with
+   * the user-break guard); absent for a doit (break by the home method's OOP).
+   */
+  private resolveRunToTarget(displayLevel: number): {
+    homeMethodOop: bigint;
+    stepPoint: number;
+    byName?: { className: string; isMeta: boolean; selector: string; uri: string; actualLine: number };
+  } | undefined {
+    const frame = this.frames.find(f => f.level === displayLevel);
+    if (!frame) return undefined;
+    const editor = this.sourceEditor;
+    // The cursor only refers to this frame's source when the companion editor is
+    // showing it (editable gemstone:// or read-only gemstone-debug:).
+    if (!editor || this.shownFrameSourceUri === undefined
+      || editor.document.uri.toString() !== this.shownFrameSourceUri) return undefined;
+
+    const raw = this.rawFrames.find(r => r.serverLevel === frame.serverLevel);
+    if (!raw || raw.homeMethodOop === 0n) return undefined; // an unresolvable <frame N>
+    const home = this.resolveHomeMethod(raw.homeMethodOop);
+
+    let rawSource: string;
+    let offsets: number[];
+    try {
+      rawSource = debug.getMethodSource(this.session, raw.homeMethodOop);
+      offsets = debug.getSourceOffsetsForMethod(this.session, raw.homeMethodOop);
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      return undefined;
+    }
+
+    // The editable source is shown 1:1 (shift 0); a doit shows the user code
+    // unwrapped from the transcript-capture glue, so its step-point offsets are
+    // shifted by the stripped prefix.
+    const shift = home.uriInfo ? 0 : transcriptCaptureUserCodeOffset(rawSource);
+    const displayedSource = home.uriInfo ? rawSource : unwrapTranscriptCapture(rawSource);
+
+    // The cursor's offset in the DISPLAYED source, shifted into STORED coords (where
+    // `offsets` live), so a doit's wrapped step points line up with the cursor.
+    const dispLineOffsets = buildLineOffsets(displayedSource);
+    const pos = editor.selection.active;
+    const dispLineStart = dispLineOffsets[pos.line + 1];
+    if (dispLineStart === undefined) return undefined; // cursor past the source (stale editor)
+    const cursorOffset = dispLineStart + pos.character + shift;
+
+    // Column-aware map needs the cursor's line bounds in STORED coords.
+    const storedLineOffsets = shift === 0 ? dispLineOffsets : buildLineOffsets(rawSource);
+    let storedLine = 1;
+    for (let l = 1; l < storedLineOffsets.length; l++) {
+      if (storedLineOffsets[l] <= cursorOffset) storedLine = l; else break;
+    }
+    const lineStart = storedLineOffsets[storedLine];
+    const lineEnd = storedLineOffsets[storedLine + 1] ?? rawSource.length; // end exclusive
+    const mapped = mapOffsetToStepPoint(cursorOffset, offsets, lineStart, lineEnd);
+    if (!mapped) return undefined;
+
+    if (!home.uriInfo) {
+      // Doit / non-symbol-list: break by the method's OOP (no class>>selector).
+      return { homeMethodOop: raw.homeMethodOop, stepPoint: mapped.stepPoint };
+    }
+    // Editable method: break by class>>selector + guard a user line breakpoint.
+    // `mapped.offset` is a 1-based stored position == displayed position (shift 0).
+    let actualLine = 1;
+    for (let l = 1; l < dispLineOffsets.length; l++) {
+      if (dispLineOffsets[l] <= mapped.offset - 1) actualLine = l; else break;
+    }
+    return {
+      homeMethodOop: raw.homeMethodOop,
+      stepPoint: mapped.stepPoint,
+      byName: {
+        className: home.uriInfo.className, isMeta: home.uriInfo.isMeta, selector: home.uriInfo.selector,
+        uri: this.shownFrameSourceUri, actualLine,
+      },
+    };
+  }
+
+  /**
+   * True when the user already has an enabled breakpoint on `line` (1-based) of
+   * `uri` — so Run to Cursor must NOT clear the step-point break afterward (it's the
+   * user's, not our temporary one).
+   */
+  private userBreakAt(uri: string, line: number): boolean {
+    return vscode.debug.breakpoints.some(bp =>
+      bp instanceof vscode.SourceBreakpoint && bp.enabled
+      && bp.location.uri.toString() === uri
+      && bp.location.range.start.line === line - 1);
+  }
+
+  /** Post a brief, self-dismissing status flash to the webview (transient; doesn't disturb the error banner). */
+  private flash(text: string): void {
+    if (this.disposed) return;
+    this.panel.webview.postMessage({ command: 'flash', text });
   }
 
   /**
@@ -2223,6 +2453,9 @@ export class DebuggerPanel {
         this.stashedSourceKeys.add(uri.toString());
       }
 
+      // Remember what the source pane is showing for this frame (editable or
+      // read-only doit), so "Run to Cursor" can confirm the cursor refers to it.
+      this.shownFrameSourceUri = uri.toString();
       const editor = await this.showSourceEditor(uri);
 
       // For a collapsed "Executed Code" doit frame, the displayed level is the
@@ -2508,6 +2741,7 @@ export class DebuggerPanel {
         isExecutedCode: r.isExecutedCode,
         overridable: r.overridable,
         receiverClass: r.receiverClassName,
+        breakable: r.breakable,
         homeDisplayLevel,
         // Executed-code frames have no meaningful step point/line once unwrapped (#3).
         position: r.isExecutedCode ? '' : formatFramePosition(r.stepPoint, r.line),
@@ -2530,7 +2764,8 @@ export class DebuggerPanel {
       logError(this.sessionId, e instanceof Error ? e.message : String(e));
       return {
         serverLevel: level, methodOop: 0n, homeMethodOop: 0n, isBlock: false,
-        definingClassName: '', selector: '', isExecutedCode: false, label: `<frame ${level}>`,
+        definingClassName: '', selector: '', isExecutedCode: false, breakable: false,
+        label: `<frame ${level}>`,
       };
     }
 
@@ -2581,10 +2816,18 @@ export class DebuggerPanel {
       stepPoint = debug.getStepPoint(this.session, this.gsProcess, level);
     } catch { /* best-effort */ }
 
+    // Breakable iff we resolved a home method to set a step-point break in —
+    // drives "Run to Cursor" (#2). The home method's `_sourceOffsets` is method-
+    // wide (it spans every nested block — verified on the stone), so a cursor in a
+    // doit's user code maps to a real step point too. An editable method breaks by
+    // class>>selector; a doit / non-symbol-list method breaks by its method OOP.
+    // Only an unresolvable `<frame N>` (homeMethodOop 0) can't be broken.
+    const breakable = homeMethodOop !== 0n;
+
     return {
       serverLevel: level, methodOop: info.methodOop, homeMethodOop, isBlock,
       definingClassName: home.definingClassName, selector: home.selector,
-      isExecutedCode, receiverClassName: receiverClass, overridable, label, line, stepPoint,
+      isExecutedCode, receiverClassName: receiverClass, overridable, breakable, label, line, stepPoint,
     };
   }
 
@@ -2707,6 +2950,17 @@ export class DebuggerPanel {
          panel stays non-selectable to keep the custom copy menu the only path. */
       user-select: text; -webkit-user-select: text; cursor: text;
     }
+    /* Transient status flash (e.g. Run to Cursor falling back to a plain Resume).
+       Self-dismisses; sits above the error banner and never clobbers it. The
+       show class fades it in (and is removed on a timer to fade it out). */
+    .flash {
+      color: var(--vscode-notificationsInfoIcon-foreground, var(--vscode-foreground));
+      background: var(--vscode-editorWidget-background, transparent);
+      border: 1px solid var(--vscode-widget-border, transparent);
+      border-radius: 4px; padding: 0.25rem 0.6rem; margin-bottom: 0.6rem;
+      font-size: 0.9rem; opacity: 0; transition: opacity 0.15s ease-in-out;
+    }
+    .flash.show { opacity: 1; }
     /* "Create #selector in Class" action shown when parked on a doesNotUnderstand:.
        Styled as a prominent primary button just below the error banner. */
     .dnu-bar { margin: 0 0 0.75rem; }
@@ -2761,6 +3015,10 @@ export class DebuggerPanel {
     .toolbar button svg { width: 16px; height: 16px; display: block; pointer-events: none; }
     .toolbar button:hover { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
     .toolbar button.danger { color: var(--vscode-debugIcon-stopForeground, var(--vscode-errorForeground)); }
+    /* A disabled control (e.g. Run to Cursor on a non-breakable doit frame) dims and
+       drops its hover affordance, so it reads as unavailable. */
+    .toolbar button:disabled { opacity: 0.35; cursor: default; }
+    .toolbar button:disabled:hover { background: transparent; }
     /* Call Stack (left) + Variables (right), divided by a draggable splitter.
        --stack-basis is the stack pane's width; the splitter drag rewrites it and
        it's persisted (see debuggerView.js / the saveLayout message). */
@@ -2909,12 +3167,14 @@ export class DebuggerPanel {
   </div>
   <div class="toolbar" id="toolbar">
     <button data-cmd="resume" title="Resume execution" aria-label="Resume execution">${TOOLBAR_ICONS.resume}</button>
+    <button data-cmd="runToCursor" id="runToCursorBtn" disabled title="Run to Cursor" aria-label="Run to Cursor">${TOOLBAR_ICONS.runToCursor}</button>
     <button data-cmd="stepOver" title="Step over (from the selected frame)" aria-label="Step over">${TOOLBAR_ICONS.stepOver}</button>
     <button data-cmd="stepInto" title="Step into" aria-label="Step into">${TOOLBAR_ICONS.stepInto}</button>
     <button data-cmd="stepThrough" title="Step through blocks" aria-label="Step through blocks">${TOOLBAR_ICONS.stepThrough}</button>
     <button data-cmd="restartFrame" title="Restart the selected frame" aria-label="Restart the selected frame">${TOOLBAR_ICONS.restartFrame}</button>
     <button data-cmd="terminate" class="danger" title="Terminate the process" aria-label="Terminate the process">${TOOLBAR_ICONS.terminate}</button>
   </div>
+  <div class="flash" id="flash" style="display:none;"></div>
   <div class="error" id="error"></div>
   <div class="dnu-bar" id="dnuBar"></div>
   <div class="main" id="main" style="--stack-basis: ${stackBasis};">
@@ -2957,8 +3217,10 @@ export class DebuggerPanel {
       savePath: document.getElementById('savePath'),
       copyPathBtn: document.getElementById('copyPathBtn'),
       error: document.getElementById('error'),
+      flash: document.getElementById('flash'),
       dnuBar: document.getElementById('dnuBar'),
       toolbar: document.getElementById('toolbar'),
+      runToCursorBtn: document.getElementById('runToCursorBtn'),
       variables: document.getElementById('variables'),
       evalInput: document.getElementById('evalInput'),
       evalResult: document.getElementById('evalResult'),

@@ -295,7 +295,7 @@
    * editor and highlight the current line.
    */
   function init(refs, vscode) {
-    const { list, menu, copyFrameItem, homeFrameItem, frameImplItem, copyBtn, dumpBtn, saveNotice, savePath, copyPathBtn, error, dnuBar, toolbar, variables, evalInput, evalResult, main, splitter, hsplitter, evalbar, varMenu, varInspectItem } = refs;
+    const { list, menu, copyFrameItem, homeFrameItem, frameImplItem, copyBtn, dumpBtn, saveNotice, savePath, copyPathBtn, error, flash, dnuBar, toolbar, runToCursorBtn, variables, evalInput, evalResult, main, splitter, hsplitter, evalbar, varMenu, varInspectItem } = refs;
     let dumpedPath = null; // the last-dumped file path, for the Copy-path button
     let saveNoticeTimer = null;
     const COPY_GLYPH = copyPathBtn ? copyPathBtn.textContent : '';
@@ -338,10 +338,24 @@
       setActiveEditor: setActiveVarEditor,
     };
 
+    // Enable "Run to Cursor" only when the selected frame is breakable (an editable
+    // method we can set a step-point break in). A doit / "Executed Code" frame has
+    // no such method, so the button is disabled there (host also guards).
+    function updateRunToCursor(level) {
+      if (!runToCursorBtn) return;
+      const frame = currentStack.find(function (f) { return f.level === level; });
+      const breakable = !!(frame && frame.breakable);
+      runToCursorBtn.disabled = !breakable;
+      runToCursorBtn.title = breakable
+        ? 'Run to Cursor'
+        : 'Run to Cursor — not available on this frame';
+    }
+
     function select(level) {
       if (level == null) return;
       selectFrame(list, level);
       selectedLevel = level;
+      updateRunToCursor(level);
       vscode.postMessage({ command: 'selectFrame', level });
     }
 
@@ -413,6 +427,26 @@
         if (varMenuTarget) vscode.postMessage({ command: 'inspectVariable', oop: varMenuTarget.oop, name: varMenuTarget.name });
         if (varMenu) hideMenu(varMenu);
       });
+    }
+
+    // Show a transient status line (e.g. Run to Cursor falling back to a plain
+    // Resume), then fade it out after a few seconds. Independent of the error
+    // banner — a later init/refresh won't clobber it, and it won't clobber the
+    // error text. A new flash resets the timer.
+    let flashTimer = null;
+    function showFlash(text) {
+      if (!flash) return;
+      if (flashTimer) { clearTimeout(flashTimer); flashTimer = null; }
+      if (!text) { flash.classList.remove('show'); flash.style.display = 'none'; flash.textContent = ''; return; }
+      flash.textContent = text;
+      flash.style.display = '';
+      // Force a reflow so the opacity transition runs from 0 even on a re-show.
+      void flash.offsetWidth;
+      flash.classList.add('show');
+      flashTimer = setTimeout(function () {
+        flash.classList.remove('show');
+        flashTimer = setTimeout(function () { flash.style.display = 'none'; flash.textContent = ''; flashTimer = null; }, 200);
+      }, 3500);
     }
 
     // Briefly swap an icon button's glyph to a check to confirm the action fired
@@ -597,6 +631,9 @@
         // Success → the host also posts 'variables', which re-renders (and so
         // removes the editor) with fresh printStrings + OOPs.
         if (!msg.ok && activeVarEditor) activeVarEditor.showError(msg.error);
+      } else if (msg.command === 'flash') {
+        // Transient status (Run to Cursor fallback, etc.) — shown briefly, then fades.
+        showFlash(msg.text);
       } else if (msg.command === 'banner') {
         // Lightweight banner-only update (no stack re-render / frame re-select, so
         // it won't steal focus): set the error/guidance text and clear the DNU

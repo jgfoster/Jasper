@@ -11,7 +11,7 @@ beforeAll(() => {
   new Function(source)();
 });
 
-interface FrameSummary { level: number; label: string; position: string; overridable?: boolean; receiverClass?: string; homeDisplayLevel?: number; }
+interface FrameSummary { level: number; label: string; position: string; overridable?: boolean; receiverClass?: string; breakable?: boolean; homeDisplayLevel?: number; }
 
 interface DebuggerViewApi {
   renderStack(listEl: HTMLElement, stack: FrameSummary[]): void;
@@ -63,8 +63,10 @@ interface Refs {
   savePath?: HTMLElement;
   copyPathBtn?: HTMLElement;
   error: HTMLElement;
+  flash?: HTMLElement;
   dnuBar?: HTMLElement;
   toolbar: HTMLElement;
+  runToCursorBtn?: HTMLButtonElement;
   variables: HTMLElement;
   evalInput: HTMLInputElement;
   evalResult: HTMLElement;
@@ -99,12 +101,14 @@ function setup(
     <span id="saveNotice" style="display:none;"><span id="savePath"></span><span id="copyPathBtn">⧉</span></span>
     <div id="toolbar">
       <button data-cmd="resume">Resume</button>
+      <button data-cmd="runToCursor" id="runToCursorBtn" disabled>Run to Cursor</button>
       <button data-cmd="stepOver">Over</button>
       <button data-cmd="stepInto">Into</button>
       <button data-cmd="stepThrough">Through</button>
       <button data-cmd="restartFrame">Restart Frame</button>
       <button data-cmd="terminate">Terminate</button>
     </div>
+    <div id="flash" style="display:none;"></div>
     <div id="error"></div>
     <div id="dnuBar"></div>
     <div class="main"><ul id="stack"></ul><div id="variables"></div></div>
@@ -123,8 +127,10 @@ function setup(
     savePath: document.getElementById('savePath')!,
     copyPathBtn: document.getElementById('copyPathBtn')!,
     error: document.getElementById('error')!,
+    flash: document.getElementById('flash')!,
     dnuBar: document.getElementById('dnuBar')!,
     toolbar: document.getElementById('toolbar')!,
+    runToCursorBtn: document.getElementById('runToCursorBtn') as HTMLButtonElement,
     variables: document.getElementById('variables')!,
     evalInput: document.getElementById('evalInput') as HTMLInputElement,
     evalResult: document.getElementById('evalResult')!,
@@ -610,6 +616,46 @@ describe('DebuggerView.init — toolbar', () => {
     btn.appendChild(icon);
     icon.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'stepInto', level: 1 });
+  });
+});
+
+describe('DebuggerView.init — Run to Cursor (#2)', () => {
+  it('enables Run to Cursor only when the selected frame is breakable', () => {
+    const stack: FrameSummary[] = [
+      { level: 1, label: 'JasperDebugDemo>>#m', position: '', breakable: true },
+      { level: 2, label: 'Executed Code', position: '', breakable: false },
+    ];
+    const { refs } = setup(stack); // default-selects the (breakable) top frame
+    expect(refs.runToCursorBtn!.disabled).toBe(false);
+
+    // Selecting the non-breakable doit frame disables it.
+    frame(refs, 2).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(refs.runToCursorBtn!.disabled).toBe(true);
+
+    // Back to the breakable frame re-enables it.
+    frame(refs, 1).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(refs.runToCursorBtn!.disabled).toBe(false);
+  });
+
+  it('posts runToCursor with the selected frame level when clicked', () => {
+    const stack: FrameSummary[] = [{ level: 1, label: 'JasperDebugDemo>>#m', position: '', breakable: true }];
+    const { refs, vscode } = setup(stack);
+    expect(refs.runToCursorBtn!.disabled).toBe(false);
+
+    refs.runToCursorBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'runToCursor', level: 1 });
+  });
+
+  it('shows a transient flash message without clobbering the error banner', () => {
+    const { refs } = setup(); // init set error to 'boom'
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { command: 'flash', text: 'place the cursor on a code line' },
+    }));
+
+    expect(refs.flash!.textContent).toBe('place the cursor on a code line');
+    expect(refs.flash!.style.display).not.toBe('none');
+    expect(refs.flash!.classList.contains('show')).toBe(true);
+    expect(refs.error.textContent).toBe('boom'); // error banner untouched
   });
 });
 

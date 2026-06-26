@@ -6,6 +6,16 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ### Added
 
+- **Enhanced Debugger: Run to Cursor.** A new **Run to Cursor** toolbar button (next
+  to Resume) runs execution until it reaches the step point nearest the cursor in
+  the companion source pane, then stops there like a halt (stack, variables, and
+  the step-point highlight all refresh). It's column-aware — clicking `asInteger` in
+  `x := (...) asInteger`, or inside a one-line block, breaks at that spot rather
+  than the leftmost step point on the line. Under the cover it sets a temporary
+  step-point breakpoint, resumes, and clears that break afterward — leaving any
+  breakpoint you set yourself untouched. Works in "Executed Code" (doit) frames
+  too — the temporary break is set on the doit's method by OOP. With no usable
+  cursor target it falls back to a plain Resume with a brief notice.
 - **Enhanced Debugger: richer Copy Stack and a new Dump Stack to File.** The Copy
   Stack toolbar button now copies the *full* stack with each frame's variable
   values (receiver / instance vars / args / temps), not just the frame labels. A
