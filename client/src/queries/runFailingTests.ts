@@ -8,6 +8,17 @@ import { TestRunResult } from './runTestMethod';
 // per entry leaves headroom for ~250 failures in a single round trip.
 const MAX_MSG = 1024;
 
+// Hard cap on how many TestCase subclasses a single call will run. The GCI
+// executor is a *synchronous, blocking* call (see McpSession / queryHarness):
+// while a doit runs, nothing else on that session can proceed. Running an
+// unbounded suite — most dangerously the no-args discover-all path, which on a
+// full image resolves to hundreds of base-library TestCases — blocks the
+// session for minutes and wedges outright if any single test hangs. So we
+// refuse oversized selections in Smalltalk before any suite runs and tell the
+// caller to narrow the scope. A typical project's own test set is well under
+// this; "run literally everything" is the footgun, not a real workflow.
+const MAX_RUN_CLASSES = 100;
+
 // Run SUnit suites and return only the failed/errored results — the agent
 // equivalent of `run_tests.sh | grep -A20 'Test failures:'`.
 //
@@ -16,6 +27,11 @@ const MAX_MSG = 1024;
 // discovered TestCase subclasses; otherwise every TestCase subclass in the
 // user's symbolList is run. With explicit classNames, missing names are
 // skipped silently rather than aborting the run.
+//
+// Whatever the path, if the selection resolves to more than MAX_RUN_CLASSES
+// classes the call raises before running anything (the blocking-call guard —
+// see MAX_RUN_CLASSES). The no-args path on a full image always trips this, so
+// in practice "run everything" must be narrowed with a pattern.
 //
 // Single round-trip by design: iteration happens in Smalltalk so an N-class
 // invocation is one GCI call, not N.
@@ -54,6 +70,10 @@ export function runFailingTests(
   // came from treating a transfer protocol as if it were storage.
   const code = `| ws classes captureMessage |
 classes := ${classesExpr}.
+classes size > ${MAX_RUN_CLASSES} ifTrue: [
+  ^Error signal: 'runFailingTests: ', classes size printString,
+    ' test classes selected — too many to run in one blocking call (limit ${MAX_RUN_CLASSES}). ',
+    'Narrow the run with classNamePattern (e.g. ''MyApp*'') or pass explicit classNames.'].
 captureMessage := [:t |
   | captured |
   captured := nil.
@@ -115,7 +135,7 @@ ws contents encodeAsUTF8`;
 // into `classes := <expr>` — Smalltalk does not allow temp declarations in
 // expression position. Without the wrap, the no-args call path produced a
 // CompileError "expected a primary expression" before any test could run.
-const DISCOVER_ALL_TEST_CLASSES = `[| sl seen list |
+export const DISCOVER_ALL_TEST_CLASSES = `[| sl seen list |
 sl := System myUserProfile symbolList.
 seen := IdentitySet new.
 list := OrderedCollection new.

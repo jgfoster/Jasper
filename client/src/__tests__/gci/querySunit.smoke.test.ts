@@ -10,13 +10,38 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { runTestMethod } from '../../queries/runTestMethod';
 import { runTestClass } from '../../queries/runTestClass';
-import { runFailingTests } from '../../queries/runFailingTests';
+import { runFailingTests, DISCOVER_ALL_TEST_CLASSES } from '../../queries/runFailingTests';
 import { describeTestFailure } from '../../queries/describeTestFailure';
+import { splitLines } from '../../queries/util';
+import { QueryExecutor } from '../../queries/types';
 import { HarnessSession, login } from './queryHarness';
 import {
   installProbeFixture, uninstallProbeFixture,
   PROBE_TEST_CLASS, PROBE_PASSING_SELECTOR, PROBE_FAILING_SELECTOR, PROBE_ERRORING_SELECTOR,
 } from './probeFixture';
+
+// Run the production discover-all fragment and return one row per discovered
+// TestCase subclass — the exact class set the no-args path of runFailingTests
+// feeds to `suite run`. Exercising it directly lets the round-2 (compiles) and
+// round-5 (deduped + abstract-free) regressions be tested WITHOUT running the
+// entire image's SUnit suite. That full run is the wrong tool for a smoke test:
+// it's unbounded, grows as the image gains tests, and — because the GCI
+// executor is a synchronous blocking call — can't be interrupted by a vitest
+// timeout, so a single slow or blocking image test hangs the whole run.
+function discoverAllTestClasses(
+  exec: QueryExecutor,
+): { name: string; isAbstract: boolean }[] {
+  const code = `| classes ws |
+classes := ${DISCOVER_ALL_TEST_CLASSES}.
+ws := WriteStream on: Unicode7 new.
+classes do: [:c |
+  ws nextPutAll: c name; tab; nextPutAll: c isAbstract printString; lf].
+ws contents encodeAsUTF8`;
+  return splitLines(exec('discoverAllTestClasses', code)).map(line => {
+    const [name, isAbstract] = line.split('\t');
+    return { name: name || '', isAbstract: isAbstract === 'true' };
+  });
+}
 
 describe('SUnit queries (live GCI)', () => {
   let s: HarnessSession;
@@ -106,34 +131,56 @@ describe('SUnit queries (live GCI)', () => {
       expect(probeFailures.length).toBeGreaterThanOrEqual(2);
     });
 
-    it('with no arguments runs without a CompileError (the round-2 regression)', () => {
-      // We don't assert on full content because the suite is the entire
-      // stone — could be huge and slow. The point of this test is to
-      // confirm the discover-all Smalltalk fragment compiles. If the
-      // round-2 "expected a primary expression" bug returns, the call
-      // throws here.
-      expect(() => runFailingTests(s.exec)).not.toThrow();
-    }, 120_000);
+    // The no-args path walks every TestCase subclass in the symbolList
+    // (DISCOVER_ALL_TEST_CLASSES) and runs each one's suite. We deliberately
+    // do NOT exercise that end-to-end here — running the whole stone's suite
+    // hangs the smoke run (see discoverAllTestClasses above for why). The
+    // round-2 and round-5 regressions both live in the discovery fragment, so
+    // we test it directly: fast, bounded, and immune to a blocking image test.
 
-    // Round-5: duplicate (className, selector) pairs in the no-args
-    // output. Root cause: an abstract TestCase's `suite` cascades into
-    // its concrete subclasses, so when we ALSO include those subclasses
-    // directly we run every leaf test twice. Fix: skip abstract classes
-    // in discover-all.
-    //
-    // The probe stone has 2 abstract TestCases parenting ~22 leaves
-    // each; pre-fix this test would have observed 45 duplicate pairs.
-    // Post-fix every pair must be unique.
-    it('with no arguments returns unique (className, selector) pairs', () => {
-      const results = runFailingTests(s.exec);
+    it('the discover-all fragment compiles and runs (the round-2 regression)', () => {
+      // Round-2 was a CompileError ("expected a primary expression") from
+      // un-wrapped temp declarations in expression position. Running the exact
+      // production fragment proves it still compiles; a regression throws here.
+      expect(() => discoverAllTestClasses(s.exec)).not.toThrow();
+    });
+
+    it('discovers our probe class among the TestCase subclasses', () => {
+      // Confirms discovery returns a real, non-empty set (and sees our
+      // installed fixture), so the dedup/abstract assertions below have teeth.
+      const names = discoverAllTestClasses(s.exec).map(c => c.name);
+      expect(names).toContain(PROBE_TEST_CLASS);
+    });
+
+    // Round-5: duplicate (className, selector) pairs in the no-args output.
+    // Root cause: an abstract TestCase's `suite` cascades into its concrete
+    // subclasses, so when discover-all ALSO included those subclasses
+    // directly, every leaf test ran twice. Fix: dedup the class set
+    // (IdentitySet) and skip abstract classes. Both invariants live at the
+    // discovery level — the duplicate *pairs* were just the downstream
+    // symptom — so we assert them on the discovered set directly.
+    it('discovers a deduped, abstract-free class set (the round-5 regression)', () => {
+      const classes = discoverAllTestClasses(s.exec);
+
       const counts = new Map<string, number>();
-      for (const r of results) {
-        const key = `${r.className}|${r.selector}`;
-        counts.set(key, (counts.get(key) ?? 0) + 1);
+      for (const c of classes) {
+        counts.set(c.name, (counts.get(c.name) ?? 0) + 1);
       }
       const dupes = [...counts.entries()].filter(([, n]) => n > 1);
       expect(dupes).toEqual([]);
-    }, 120_000);
+
+      const abstract = classes.filter(c => c.isAbstract).map(c => c.name);
+      expect(abstract).toEqual([]);
+    });
+
+    // The blocking-call guard, end-to-end: a real image has far more than the
+    // 100-class cap, so the no-args path must fail fast with a "narrow it"
+    // error rather than block the session while it runs hundreds of suites.
+    // Before the cap, THIS is the call that ran the entire image and hung the
+    // smoke run. The throw proves it can no longer wedge a live session.
+    it('refuses the unbounded no-args run instead of wedging the session', () => {
+      expect(() => runFailingTests(s.exec)).toThrow(/too many to run|Narrow the run/);
+    });
   });
 
   describe('describeTestFailure', () => {

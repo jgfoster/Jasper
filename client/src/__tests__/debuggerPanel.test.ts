@@ -126,6 +126,30 @@ const stepPointDecorationOptions = vi
         'editor.focusedStackFrameHighlightBackground',
   );
 
+// Snapshot every debugQueries mock's factory implementation at module load —
+// BEFORE any test overrides one. Many tests install sticky mockImplementation/
+// mockReturnValue overrides (e.g. getMethodInfo, getFrameInfo, getStackDepth)
+// which vi.clearAllMocks() does NOT undo, so an override would otherwise leak
+// into every later test. The beforeEach below re-applies these snapshots so each
+// test starts from the factory defaults regardless of run order (sequence.shuffle).
+const debugDefaults: Array<[string, ((...args: unknown[]) => unknown) | undefined]> =
+  Object.keys(debug).map((k) => {
+    const fn = (debug as Record<string, unknown>)[k];
+    const impl = vi.isMockFunction(fn) ? fn.getMockImplementation() : undefined;
+    return [k, impl as ((...args: unknown[]) => unknown) | undefined];
+  });
+
+function restoreDebugDefaults(): void {
+  for (const [k, impl] of debugDefaults) {
+    const fn = (debug as Record<string, unknown>)[k];
+    if (!vi.isMockFunction(fn)) continue;
+    // mockReset() also flushes any leftover *Once override queued by a test that
+    // didn't consume it; then re-install the captured factory implementation.
+    fn.mockReset();
+    if (impl) fn.mockImplementation(impl as unknown as (...args: never[]) => never);
+  }
+}
+
 function makeSession(): ActiveSession {
   return {
     id: 1,
@@ -399,6 +423,16 @@ describe('DebuggerPanel', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // clearAllMocks() clears call history but NOT mockImplementation overrides;
+    // re-apply the captured factory defaults so a sticky override from one test
+    // doesn't leak into the next under sequence.shuffle.
+    restoreDebugDefaults();
+    // The read-only content provider is registered once per module lifetime
+    // (guarded by the static providerRegistered flag); reset it (and the backing
+    // source map) so every test re-registers as needed instead of depending on
+    // whichever read-only-frame test happened to run first.
+    (DebuggerPanel as unknown as { providerRegistered: boolean }).providerRegistered = false;
+    (DebuggerPanel as unknown as { readOnlySources: Map<string, string> }).readOnlySources.clear();
     // tabGroups.all is a plain array on the mock, not a vi.fn — reset it so a
     // test that populates it doesn't leak into the next.
     (vscode.window.tabGroups.all as unknown as unknown[]).length = 0;

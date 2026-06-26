@@ -552,7 +552,10 @@ describe('FileInManager', () => {
     });
 
     it('shows error when class deletion fails', () => {
-      vi.mocked(queries.deleteClass).mockImplementation(() => {
+      // Once-only: a sticky mockImplementation here survives the suite's
+      // clearAllMocks() and makes deleteClass throw in every later test under
+      // sequence.shuffle (breaking the happy-path removeClassFile assertions).
+      vi.mocked(queries.deleteClass).mockImplementationOnce(() => {
         throw new Error('GCI error');
       });
 
@@ -565,7 +568,8 @@ describe('FileInManager', () => {
     });
 
     it('shows error when dictionary deletion fails', () => {
-      vi.mocked(queries.removeDictionary).mockImplementation(() => {
+      // Once-only — see the note on the class-deletion test above.
+      vi.mocked(queries.removeDictionary).mockImplementationOnce(() => {
         throw new Error('GCI error');
       });
 

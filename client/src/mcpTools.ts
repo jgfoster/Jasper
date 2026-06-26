@@ -488,7 +488,9 @@ export function registerMcpTools(
     'equivalent of "run the suite and grep for failures." Class selection: ' +
     'explicit `classNames` wins; otherwise `classNamePattern` (glob: `*` matches ' +
     'any chars, `#` matches one) filters discovered TestCase subclasses; ' +
-    'otherwise every TestCase subclass in the symbolList is run. The message ' +
+    'otherwise every TestCase subclass in the symbolList is run. The run is ' +
+    'capped at 100 classes (running more in one blocking call wedges the session); ' +
+    'an oversized selection errors and asks you to narrow it. The message ' +
     'column carries the actual exception class + messageText (e.g. ' +
     '`MessageNotUnderstood: nil does not understand #foo`), captured by ' +
     're-running each failing test with its own AbstractException handler. ' +
@@ -497,8 +499,9 @@ export function registerMcpTools(
     'lines: status, className, selector, message.',
     {
       classNames: z.array(z.string()).optional().describe(
-        'TestCase subclass names to run. Omit to run every TestCase in the symbolList, ' +
-        'or pair with classNamePattern for glob filtering.',
+        'TestCase subclass names to run. Omit to run every TestCase in the symbolList ' +
+        '(capped at 100 — a full image has hundreds, so omitting usually errors and asks ' +
+        'you to narrow with classNamePattern), or pair with classNamePattern for glob filtering.',
       ),
       classNamePattern: z.string().optional().describe(
         'GemStone glob pattern (`*` = any chars, `#` = one char) to filter discovered ' +

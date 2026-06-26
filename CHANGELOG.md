@@ -4,9 +4,35 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+### Added
+
+- **Enhanced Debugger: richer Copy Stack and a new Dump Stack to File.** The Copy
+  Stack toolbar button now copies the *full* stack with each frame's variable
+  values (receiver / instance vars / args / temps), not just the frame labels. A
+  new **Dump Stack to File** action writes that same detailed stack to a file,
+  with a button to copy the saved path.
+- **Enhanced Debugger: "Go to home method" for block frames.** Right-click a block
+  frame → **Go to home method** to jump to its home method's activation on the
+  stack. Navigate / Restart / recompile-and-continue on a block frame now act on
+  that home-method activation, since a block can't be meaningfully restarted in
+  isolation (matching GT).
+
+## [1.7.2] - 2026-06-26
+
+### Added
+
+- **Enhanced Debugger (work in progress): editable variables, implement-from-frame, and step/stop fixes.** Continuing the webview debugger introduced in 1.7.0:
+  - **Editable Variables pane.** Left-click an instance variable or named arg/temp to edit it inline (prefilled with its `printString`); Enter evaluates the expression in the frame and assigns the result (`instVarAt:put:` / `_frameAt:tempAt:put:`). A single-level revert restores the original object — pinned against GC (`GciTsSaveObjs`) so undo can never hit a scavenged/reused OOP, and released on any stack-mutating op or dispose so the session's export set never leaks. Evaluator errors are now selectable/copyable. `self`, `(stack temps)`, and unaddressable slots stay read-only; GT Inspect moved to a right-click menu now that left-click edits.
+  - **Implement-from-frame.** Right-click an inherited-method frame → **Implement in…** to add an override anywhere along the receiver's class chain (each candidate marked with its home dictionary and whether it already implements the selector; an existing implementation opens its source rather than being clobbered with a stub). When parked on a `subclassResponsibility`, an **Implement #sel** button does the same, bounded at the abstract definer. On a clean save the sender is re-entered so Resume re-dispatches into the new method, with an honest message when the call site (a workspace doit or the top frame) can't be re-entered in place.
+  - **Step/stop fixes at a halt.** Step-point highlighting now works for Display It / Execute It / Inspect It (the offset is translated from the stored wrapped source into the displayed user code), and a Step on a halted "Executed Code" frame now advances exactly one user statement instead of running the process to completion. The companion source tab orphaned by closing a VS Code window with the debugger open is now reaped on the next launch. ([#124](https://github.com/jgfoster/Jasper/pull/124))
+
 ### Changed
 
 - **Logging in no longer auto-opens a "Workspace" scratch buffer.** The old behavior opened an untitled `Workspace` document on every connect; because an untitled doc carrying content is permanently dirty, VS Code nagged to save it on exit and hot-exit kept restoring it. Instead, the **first** successful connect now opens a native **"Get Started with GemStone"** walkthrough — a dismissible Welcome-tab card with steps (connect → open a workspace → Display It → Inspect It), each of which checks itself off as you do it. The scratch workspace is still one click away on demand: a new **`GemStone: Open Getting Started Workspace`** command (also surfaced as a button in the empty **Logins & Sessions** view and as a walkthrough step) opens the same untitled buffer as before. The walkthrough shows once per machine; reopen it anytime from **Help → Welcome** or the Command Palette, and a **`GemStone: Reset Getting Started`** command makes it auto-open again on your next connect. A "Reopen this walkthrough later" step documents both inside the walkthrough itself.
+
+### Fixed
+
+- **`list_failing_tests` can no longer wedge a session by running the entire image.** Omitting `classNames` (or passing a very broad pattern) discovered every `TestCase` subclass in the symbolList — hundreds on a full image — and ran them all in one synchronous, blocking GCI call, tying up the session for minutes; the GCI smoke suite hung outright, since a blocking call can't be interrupted by a test timeout. The query now refuses a selection larger than 100 classes before running anything and asks you to narrow it with `classNamePattern` or explicit `classNames`. The SUnit smoke tests that drove the no-args path were rewritten to exercise the discovery fragment directly instead of running the whole image.
 
 ## [1.7.1] - 2026-06-24
 
