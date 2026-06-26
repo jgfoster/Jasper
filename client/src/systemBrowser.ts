@@ -536,7 +536,7 @@ export class SystemBrowser {
           this.handleSelectCategory(message.name as string);
           break;
         case 'selectClass':
-          this.handleSelectClass(message.name as string);
+          this.applyClassSelection(message.name as string, false, true);
           break;
         case 'toggleSide':
           this.handleToggleSide(message.isMeta as boolean);
@@ -763,8 +763,10 @@ export class SystemBrowser {
     });
   }
 
-  private handleSelectClass(className: string): void {
-    this.applyClassSelection(className);
+  // Loads method categories and auto-selects the "all methods" pseudo-category.
+  private selectAllMethods(): void {
+    this.loadMethodCategories('** ALL METHODS **');
+    this.handleSelectMethodCategory('** ALL METHODS **');
   }
 
   /**
@@ -782,14 +784,24 @@ export class SystemBrowser {
    * `openClassFile` separately afterwards. The column click leaves the
    * editor untouched on purpose — clicking a class shouldn't shove a new
    * file in front of whatever the user was editing.
+   *
+   * `skipClassBrowser` suppresses the Class Definition panel refresh (used
+   * when the Class Browser is already handling the selection independently).
+   * `autoSelectAllMethodsCategory` auto-selects the "all methods"
+   * pseudo-category so the Methods column fills immediately; when false, only
+   * the method-category list is loaded with no category pre-selected.
    */
-  private applyClassSelection(className: string, skipClassBrowser = false): void {
+  private applyClassSelection(className: string, skipClassBrowser = false, autoSelectAllMethodsCategory = false): void {
     this.state.selectedClass = className;
     this.state.selectedMethodCategory = null;
     this.state.selectedMethod = null;
     this.panel.title = `Browser: ${className}`;
 
-    this.loadMethodCategories();
+    if (autoSelectAllMethodsCategory) {
+      this.selectAllMethods();
+    } else {
+      this.loadMethodCategories();
+    }
 
     if (!skipClassBrowser) {
       const dictIndex = this.state.selectedDictIndex;
@@ -912,6 +924,11 @@ export class SystemBrowser {
     if (openFile) this.openClassFile(className, selector, isMeta);
   }
 
+  /**
+   * Navigates the browser to a class without targeting a specific method.
+   * Auto-selects "all methods" so the Methods column fills immediately —
+   * distinguishing it from `handleNavigateTo`, which navigates to a specific method.
+   */
   private handleNavigateToClass(dictName: string, className: string): void {
     const dictIndex = this.state.dictionaries.indexOf(dictName) + 1;
     if (dictIndex === 0) return;
@@ -928,28 +945,13 @@ export class SystemBrowser {
       this.panel.webview.postMessage({ command: 'selectCategoryItem', name: '** ALL CLASSES **' });
     }
 
-    this.handleSelectClass(className);
-
-    this.panel.webview.postMessage({
-      command: 'loadClassCategories',
-      items: this.state.classCategories,
-      selected: this.state.selectedCategory,
-    });
     this.panel.webview.postMessage({
       command: 'loadClasses',
       items: this.state.classes,
       selected: className,
     });
-    this.panel.webview.postMessage({
-      command: 'loadMethodCategories',
-      items: this.state.methodCategories,
-      selected: this.state.selectedMethodCategory,
-    });
-    this.panel.webview.postMessage({
-      command: 'loadMethods',
-      items: [],
-      selected: null,
-    });
+
+    this.applyClassSelection(className, false, true);
   }
 
   private handleRefresh(): void {
@@ -1085,7 +1087,7 @@ export class SystemBrowser {
     // Route through the canonical class-selection helper so the Class
     // Definition panel updates too — the earlier inline mutations did
     // not, so a hierarchy-view click left Class Definition stale.
-    this.applyClassSelection(className);
+    this.applyClassSelection(className, false, true);
     this.openClassFile(className);
   }
 

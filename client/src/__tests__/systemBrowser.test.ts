@@ -385,6 +385,20 @@ describe('SystemBrowser', () => {
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
         command: 'loadMethodCategories',
         items: ['** ALL METHODS **', 'Accessing', 'Comparing'],
+        selected: '** ALL METHODS **',
+      });
+    });
+
+    it('selecting a class populates the method list automatically', () => {
+      messageHandler({ command: 'ready' });
+      messageHandler({ command: 'selectDictionary', index: 1 });
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      messageHandler({ command: 'selectClass', name: 'Array' });
+
+      expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
+        command: 'loadMethods',
+        items: ['=', 'hash', 'name', 'name:'],
+        methodOverrideBits: {},
       });
     });
 
@@ -784,6 +798,7 @@ describe('SystemBrowser', () => {
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
         command: 'loadMethodCategories',
         items: ['** ALL METHODS **', 'Accessing', 'Comparing'],
+        selected: '** ALL METHODS **',
       });
     });
 
@@ -821,6 +836,7 @@ describe('SystemBrowser', () => {
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
         command: 'loadMethodCategories',
         items: ['** ALL METHODS **', 'Accessing', 'Comparing'],
+        selected: '** ALL METHODS **',
       });
     });
 
@@ -1557,6 +1573,7 @@ describe('SystemBrowser', () => {
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
         command: 'loadMethodCategories',
         items: ['** ALL METHODS **', 'Accessing', 'Comparing'],
+        selected: '** ALL METHODS **',
       });
     });
 
@@ -1669,6 +1686,7 @@ describe('SystemBrowser', () => {
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
         command: 'loadMethodCategories',
         items: ['** ALL METHODS **', 'Accessing', 'Comparing'],
+        selected: '** ALL METHODS **',
       });
     });
   });
@@ -1959,7 +1977,7 @@ describe('SystemBrowser', () => {
     });
 
     // Regression: navigateTo previously updated the column-list state
-    // inline (skipping handleSelectClass), so the Class Definition panel
+    // inline (bypassing applyClassSelection), so the Class Definition panel
     // didn't refresh when an Implementors-of / Senders-of jump landed on
     // a different class. Now routed through applyClassSelection so the
     // Class Definition tracks the column-list selection.
@@ -2119,12 +2137,38 @@ describe('SystemBrowser', () => {
       );
     });
 
-    it('clears the method list', () => {
+    it('auto-selects all methods so the Methods column fills', () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
       SystemBrowser.navigateToClass(session.id, 'UserGlobals', 'Array');
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
-        { command: 'loadMethods', items: [], selected: null },
+        expect.objectContaining({ command: 'loadMethods', items: ['=', 'hash', 'name', 'name:'], methodOverrideBits: {} }),
       );
+    });
+
+    it('posts loadMethodCategories with all-methods pre-selected', () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      SystemBrowser.navigateToClass(session.id, 'UserGlobals', 'Array');
+      expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'loadMethodCategories', selected: '** ALL METHODS **' }),
+      );
+    });
+
+    it('keeps method override markers when navigating to a class', () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      vi.mocked(queries.getClassEnvironments).mockReturnValue([
+        { isMeta: false, envId: 0, category: 'Accessing', selectors: ['name', 'name:'],
+          methodOverrideBits: { name: 1 } },
+        { isMeta: false, envId: 0, category: 'Comparing', selectors: ['=', 'hash'],
+          methodOverrideBits: { '=': 3 } },
+      ]);
+
+      SystemBrowser.navigateToClass(session.id, 'UserGlobals', 'Array');
+
+      const calls = vi.mocked(mockPanel.webview.postMessage).mock.calls
+        .map(c => c[0] as { command: string; methodOverrideBits?: Record<string, number> })
+        .filter(m => m.command === 'loadMethods');
+      const last = calls[calls.length - 1];
+      expect(last.methodOverrideBits).toEqual({ name: 1, '=': 3 });
     });
 
     it('navigates only the most recently active browser', () => {
