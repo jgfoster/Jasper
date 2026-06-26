@@ -530,7 +530,7 @@ export class SystemBrowser {
           this.handleReady();
           break;
         case 'selectDictionary':
-          this.handleSelectDictionary(message.index as number);
+          this.handleSelectDictionary(message.index as number, false, true);
           break;
         case 'selectCategory':
           this.handleSelectCategory(message.name as string);
@@ -678,7 +678,17 @@ export class SystemBrowser {
     }
   }
 
-  private async handleSelectDictionary(dictIndex: number, skipPanels = false): Promise<void> {
+  /**
+   * Selecting a dictionary resets the downstream selection (category, class,
+   * method) and loads the dictionary's class categories into the Classes
+   * column.
+   *
+   * `skipPanels` suppresses opening the Globals / Class browser panels.
+   * `autoSelectAllClassesCategory` auto-selects the "all classes"
+   * pseudo-category so the Classes column fills immediately instead of
+   * staying blank until the user clicks a category.
+   */
+  private async handleSelectDictionary(dictIndex: number, skipPanels = false, autoSelectAllClassesCategory = false): Promise<void> {
     this.state.selectedDictIndex = dictIndex;
     this.state.selectedCategory = null;
     this.state.selectedClass = null;
@@ -704,7 +714,12 @@ export class SystemBrowser {
     this.panel.webview.postMessage({
       command: 'loadClassCategories',
       items: this.state.classCategories,
+      selected: autoSelectAllClassesCategory ? '** ALL CLASSES **' : undefined,
     });
+
+    if (autoSelectAllClassesCategory) {
+      this.handleSelectCategory('** ALL CLASSES **');
+    }
 
     if (skipPanels) return;
 

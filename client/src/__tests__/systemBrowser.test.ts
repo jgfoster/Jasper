@@ -341,6 +341,17 @@ describe('SystemBrowser', () => {
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
         command: 'loadClassCategories',
         items: ['** ALL CLASSES **', 'Collections', 'Kernel'],
+        selected: '** ALL CLASSES **',
+      });
+    });
+
+    it('selecting a dictionary populates the class list automatically', () => {
+      messageHandler({ command: 'ready' });
+      messageHandler({ command: 'selectDictionary', index: 1 });
+
+      expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
+        command: 'loadClasses',
+        items: ['Array', 'Bag', 'Set'],
       });
     });
 
@@ -1476,6 +1487,7 @@ describe('SystemBrowser', () => {
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
         command: 'loadClassCategories',
         items: ['** ALL CLASSES **', 'Collections', 'Kernel'],
+        selected: '** ALL CLASSES **',
       });
     });
 
