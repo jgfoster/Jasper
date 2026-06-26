@@ -6,6 +6,18 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ### Added
 
+- **Enhanced Debugger: inline variable values in the source pane.** An
+  **Inline values: on/off** toggle (a CodeLens at the top of the source pane)
+  annotates the code with each in-scope variable's value — dimmed, inlay-hint-styled
+  text aligned in a column to the right of the code (instance variables, arguments,
+  temporaries, and `self`). By default each variable is shown once, at its first
+  *use* — declarations (the `| temps |` line, block args `:x`, and the method
+  signature) are skipped, so a tight loop doesn't repeat the same value on every
+  line. A companion **Every line: on/off** toggle (shown while the overlay is on)
+  switches to annotating every line that references a variable — handy in a long
+  method. Only variables that actually appear in the visible source are shown
+  (identifiers inside comments and string literals are ignored); hover an
+  annotation for the full printString. Off by default; remembered for the session.
 - **Enhanced Debugger: Run to Cursor.** A new **Run to Cursor** toolbar button (next
   to Resume) runs execution until it reaches the step point nearest the cursor in
   the companion source pane, then stops there like a halt (stack, variables, and

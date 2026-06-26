@@ -82,6 +82,14 @@ vi.mock('../debugQueries', () => ({
     serverLevel: l, group: 'receiver' as const, name: 'self',
     value: `<print ${l * 100}>`, oop: `${l * 100}`,
   }))),
+  // Single-frame variables in one round trip (drives the Variables pane + inline
+  // overlay). Default = just the receiver row (self oop = level*100), matching the
+  // old getFrameInfo default; tests override per level for instVars/temps. The
+  // server doit already filters __vsc glue, classifies .tN stack temps, and emits
+  // each editable slot's 1-based write index, so rows arrive grouped + indexed.
+  fetchFrameVariables: vi.fn((_s: unknown, _p: unknown, level: number) => [
+    { group: 'receiver' as const, name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 },
+  ]),
 }));
 
 // Clicking a variable row opens a GT Inspector — stub the static entry point.
@@ -109,7 +117,9 @@ import {
   filterStack, isExceptionMachinery, RawFrame,
   flattenLayoutLeaves, sourceRatioFromLayout, setSourceRatioInLayout, EditorGroupLayout,
   formatDetailedStack, stackDumpFileName, stackDumpTimestamp, DetailedStackFrame,
+  computeInlineValueLines, shortenInlineValue, maskCommentsAndStrings, InlineVar,
 } from '../debuggerPanel';
+import { InlineValuesCodeLensProvider } from '../inlineValuesCodeLens';
 import { wrapWithTranscriptCapture, TRANSCRIPT_CAPTURE_PREFIX } from '../transcriptCapture';
 import { GtInspector } from '../gtInspector';
 import { ActiveSession } from '../sessionManager';
@@ -1345,12 +1355,15 @@ describe('DebuggerPanel', () => {
     }
 
     it('posts the selected frame variables, grouped (Receiver + Arguments & Temps with oops) on selectFrame', () => {
-      // Only server level 2 carries temps; other frames keep the base shape so the
-      // 5-frame stack still renders and level 2 survives filtering (mid-stack).
-      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) =>
+      // The one-trip query returns grouped rows; only level 2 carries temps.
+      vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
         level === 2
-          ? { methodOop: 2n, ipOffset: 5, receiverOop: 300n, argAndTempNames: ['amount', 'total'], argAndTempOops: [11n, 22n] }
-          : { methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [] });
+          ? [
+            { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
+            { group: 'argtemps', name: 'amount', value: '<print 11>', oop: '11', index: 1 },
+            { group: 'argtemps', name: 'total', value: '<print 22>', oop: '22', index: 2 },
+          ]
+          : [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
       const panel = openPanel();
       sendMessage(panel, { command: 'selectFrame', level: 2 });
 
@@ -1365,16 +1378,18 @@ describe('DebuggerPanel', () => {
     });
 
     it('alphabetizes instVars and named args/temps while preserving each slot write index', () => {
-      // Source order is deliberately NON-alphabetical to prove the rows are sorted
-      // for display but each keeps its original 1-based write index.
-      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) =>
+      // Rows arrive in deliberately NON-alphabetical order to prove the client
+      // sorts them for display while each keeps its server-assigned write index.
+      vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
         level === 2
-          ? { methodOop: 2n, ipOffset: 5, receiverOop: 300n, argAndTempNames: ['total', 'amount'], argAndTempOops: [22n, 11n] }
-          : { methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [] });
-      // Receiver (oop 300) reports instVars in non-alphabetical order too.
-      vi.mocked(debug.getInstVarNames).mockImplementation((_s: unknown, oop: bigint) =>
-        oop === 300n ? ['zebra', 'apple'] : []);
-      vi.mocked(debug.getNamedInstVarOops).mockReturnValue([71n, 72n]);
+          ? [
+            { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
+            { group: 'instvars', name: 'zebra', value: '<print 71>', oop: '71', index: 1 },
+            { group: 'instvars', name: 'apple', value: '<print 72>', oop: '72', index: 2 },
+            { group: 'argtemps', name: 'total', value: '<print 22>', oop: '22', index: 1 },
+            { group: 'argtemps', name: 'amount', value: '<print 11>', oop: '11', index: 2 },
+          ]
+          : [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
       const panel = openPanel();
       sendMessage(panel, { command: 'selectFrame', level: 2 });
 
@@ -1392,48 +1407,37 @@ describe('DebuggerPanel', () => {
     });
 
     it('splits named temps from the synthetic .tN eval-stack temps into a separate group', () => {
-      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) =>
+      // The server classifies `.tN` as group 'stacktemps' (read-only — no index).
+      vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
         level === 2
-          ? { methodOop: 2n, ipOffset: 5, receiverOop: 300n, argAndTempNames: ['amount', '.t1'], argAndTempOops: [11n, 99n] }
-          : { methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [] });
+          ? [
+            { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
+            { group: 'argtemps', name: 'amount', value: '<print 11>', oop: '11', index: 1 },
+            { group: 'stacktemps', name: '.t1', value: '<print 99>', oop: '99', index: 0 },
+          ]
+          : [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
       const panel = openPanel();
       sendMessage(panel, { command: 'selectFrame', level: 2 });
 
       const groups = lastPosted(panel, 'variables').groups;
-      // A named temp carries its 1-based write index into the unfiltered
-      // argAndTempNames (`amount` is #1). The `.tN` eval-stack temps are NOT
-      // editable — they sit past the method's argsAndTemps offsets, so the write
-      // primitive can't address them — so they carry NO edit metadata.
       expect(groups.find((g: { kind: string }) => g.kind === 'argtemps').vars)
         .toEqual([{ name: 'amount', value: '<print 11>', oop: '11', edit: { kind: 'temp', index: 1 } }]);
       const stack = groups.find((g: { kind: string }) => g.kind === 'stacktemps');
       expect(stack.collapsed).toBe(true);
+      // Stack temps are NOT editable — the client leaves their edit metadata off.
       expect(stack.vars).toEqual([{ name: '.t1', value: '<print 99>', oop: '99' }]);
       expect(stack.vars[0].edit).toBeUndefined();
     });
 
-    it('hides the __vsc transcript-capture glue temps from an executed-code frame', () => {
-      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) =>
-        level === 2
-          ? { methodOop: 2n, ipOffset: 5, receiverOop: 300n,
-            argAndTempNames: ['__vscCapture', '__vscResult', 'amount'], argAndTempOops: [1n, 2n, 11n] }
-          : { methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [] });
-      const panel = openPanel();
-      sendMessage(panel, { command: 'selectFrame', level: 2 });
-
-      const groups = lastPosted(panel, 'variables').groups;
-      const argtemps = groups.find((g: { kind: string }) => g.kind === 'argtemps');
-      // `amount` sits at unfiltered index 3 (after the two __vsc glue temps),
-      // so its 1-based write index is 3 even though the glue rows are hidden.
-      expect(argtemps.vars).toEqual([{ name: 'amount', value: '<print 11>', oop: '11', edit: { kind: 'temp', index: 3 } }]);
-      // None of the glue names leak into any group.
-      const allNames = groups.flatMap((g: { vars: { name: string }[] }) => g.vars.map(v => v.name));
-      expect(allNames.some((n: string) => n.startsWith('__vsc'))).toBe(false);
-    });
-
     it('includes the receiver instance variables as their own group', () => {
-      vi.mocked(debug.getInstVarNames).mockReturnValueOnce(['count', 'sum']);
-      vi.mocked(debug.getNamedInstVarOops).mockReturnValueOnce([7n, 8n]);
+      vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
+        level === 3
+          ? [
+            { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
+            { group: 'instvars', name: 'count', value: '<print 7>', oop: '7', index: 1 },
+            { group: 'instvars', name: 'sum', value: '<print 8>', oop: '8', index: 2 },
+          ]
+          : [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
       const panel = openPanel();
       sendMessage(panel, { command: 'selectFrame', level: 3 });
 
@@ -1442,6 +1446,25 @@ describe('DebuggerPanel', () => {
         { name: 'count', value: '<print 7>', oop: '7', edit: { kind: 'instvar', index: 1 } },
         { name: 'sum', value: '<print 8>', oop: '8', edit: { kind: 'instvar', index: 2 } },
       ]);
+    });
+
+    it('caches a frame’s variables — re-rendering it (e.g. toggling inline values) does not re-fetch', () => {
+      const panel = openPanel();
+      vi.mocked(debug.fetchFrameVariables).mockClear();
+      // Two renders of the SAME frame (the path a toggle/overlay re-render takes).
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      expect(vi.mocked(debug.fetchFrameVariables)).toHaveBeenCalledTimes(1);
+    });
+
+    it('re-fetches after the stack moves (cache invalidated on step)', async () => {
+      const panel = openPanel();
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      vi.mocked(debug.fetchFrameVariables).mockClear();
+      sendMessage(panel, { command: 'stepOver', level: 3 });
+      await new Promise(r => setTimeout(r, 0)); // let the non-blocking step settle
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      expect(vi.mocked(debug.fetchFrameVariables)).toHaveBeenCalled();
     });
 
     it('opens a GT Inspector for a clicked variable via inspectVariable', () => {
@@ -1510,25 +1533,33 @@ describe('DebuggerPanel', () => {
       // receiver (300) with one instVar `count` (#1). getInstVarOop returns the
       // instVar's *original* oop (700) when captured before the first edit.
       beforeEach(() => {
+        // The WRITE path still uses getFrameInfo (receiverOop) + getInstVarOop
+        // (capture original); the PANE display now comes from fetchFrameVariables.
         vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) =>
           level === 2
             ? { methodOop: 2n, ipOffset: 5, receiverOop: 300n, argAndTempNames: ['amount'], argAndTempOops: [11n] }
             : { methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [] });
-        vi.mocked(debug.getInstVarNames).mockReturnValue(['count']);
-        vi.mocked(debug.getNamedInstVarOops).mockReturnValue([700n]);
         vi.mocked(debug.getInstVarOop).mockReturnValue(700n);
+        vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
+          level === 2
+            ? [
+              { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
+              { group: 'instvars', name: 'count', value: '<print 700>', oop: '700', index: 1 },
+              { group: 'argtemps', name: 'amount', value: '<print 11>', oop: '11', index: 1 },
+            ]
+            : [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
       });
 
       // mockReturnValue is sticky past clearAllMocks; restore factory defaults so
       // these don't bleed into sibling tests (getFrameInfo is reset by the outer
       // beforeEach, so it's not listed here).
       afterEach(() => {
-        vi.mocked(debug.getInstVarNames).mockReturnValue([]);
-        vi.mocked(debug.getNamedInstVarOops).mockReturnValue([]);
         vi.mocked(debug.getInstVarOop).mockReturnValue(700n);
         vi.mocked(debug.isSpecialOop).mockReturnValue(false);
         vi.mocked(debug.evaluateInFrameToOop).mockReturnValue(999n);
         vi.mocked(debug.continueExecution).mockReturnValue({ completed: true });
+        vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
+          [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
       });
 
       const editInstVar = (panel: ReturnType<typeof lastPanel>, expr = '99') =>
@@ -3262,8 +3293,14 @@ describe('DebuggerPanel', () => {
       // instVars are the class-instance variables (e.g. `registry`).
       vi.mocked(debug.getObjectClassName).mockImplementation((_s: unknown, receiverOop: bigint) =>
         receiverOop === 300n ? 'JasperClassSideDemo class' : 'JasperDebugDemo');
-      vi.mocked(debug.getInstVarNames).mockReturnValueOnce(['registry']);
-      vi.mocked(debug.getNamedInstVarOops).mockReturnValueOnce([7n]);
+      // The one-trip query returns the class-instance var as an instvars row.
+      vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
+        level === 3
+          ? [
+            { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
+            { group: 'instvars', name: 'registry', value: '<print 7>', oop: '7', index: 1 },
+          ]
+          : [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
       vi.mocked(debug.evaluateInFrameToOop).mockReturnValueOnce(777n);
       const panel = openPanel();
       sendMessage(panel, { command: 'selectFrame', level: 3 });
@@ -3526,5 +3563,237 @@ describe('step-point highlight decoration', () => {
     // The fill must be appreciably opaque (the faint default sits near ~0.2 alpha).
     const alpha = Number(/rgba?\([^)]*,\s*([\d.]+)\s*\)$/.exec(String(light?.backgroundColor))?.[1] ?? '1');
     expect(alpha).toBeGreaterThanOrEqual(0.4);
+  });
+});
+
+// ── Inline values (#5) — pure overlay computation ──────────────────────────
+describe('shortenInlineValue', () => {
+  it('passes a short single-line value through untouched', () => {
+    expect(shortenInlineValue('75')).toBe('75');
+  });
+
+  it('collapses newlines and runs of whitespace to single spaces', () => {
+    expect(shortenInlineValue('a Point(\n  1\n  2\n)')).toBe('a Point( 1 2 )');
+  });
+
+  it('truncates past the limit with an ellipsis', () => {
+    expect(shortenInlineValue('abcdefghij', 5)).toBe('abcd…');
+    expect(shortenInlineValue('abcdefghij', 5).length).toBe(5);
+  });
+
+  it('keeps wide collection values short by default', () => {
+    expect(shortenInlineValue('an OrderedCollection(3 7 2 9 4 100 200 300 400 500)').length)
+      .toBeLessThanOrEqual(40);
+  });
+});
+
+describe('computeInlineValueLines', () => {
+  const vars: InlineVar[] = [
+    { name: 'self', value: 'an Account', full: 'an Account' },
+    { name: 'balance', value: '200', full: '200' },
+    { name: 'amount', value: '75', full: '75' },
+    { name: 'unused', value: '999', full: '999' },
+  ];
+
+  it('shows each variable once, on its first referencing line', () => {
+    const lines = [
+      'withdraw: amount',
+      '  | newBalance |',
+      '  newBalance := balance - amount.',
+      '  ^balance',
+    ];
+    const overlay = computeInlineValueLines(lines, vars);
+    // amount → line 0 (first use); balance → line 2 (first use); never repeated.
+    expect(overlay.map(o => o.line)).toEqual([0, 2]);
+    expect(overlay[0].label).toBe('amount = 75');
+    expect(overlay[1].label).toBe('balance = 200');
+  });
+
+  it('skips the temp-declaration line so values land at first real use', () => {
+    const lines = [
+      '| numbers sum evens |',
+      'numbers := (1 to: 10) asOrderedCollection.',
+      'sum := numbers inject: 0 into: [:a :b | a + b].',
+      'evens := numbers select: [:n | n even].',
+    ];
+    const v: InlineVar[] = [
+      { name: 'numbers', value: 'anOC…', full: 'anOrderedCollection(1 2 3)' },
+      { name: 'sum', value: '55', full: '55' },
+      { name: 'evens', value: 'anOC…', full: 'anOrderedCollection(2 4)' },
+    ];
+    const overlay = computeInlineValueLines(lines, v);
+    // Nothing on the declaration line; each var at its first assignment/use.
+    expect(overlay.map(o => o.line)).toEqual([1, 2, 3]);
+    expect(overlay[0].label).toBe('numbers = anOC…');
+    expect(overlay[1].label).toBe('sum = 55');
+    expect(overlay[2].label).toBe('evens = anOC…');
+  });
+
+  it('does not repeat a value across a tight loop (the clutter case)', () => {
+    const lines = ['| total |', 'total := 0.', 'total := total + 1.', 'total'];
+    const overlay = computeInlineValueLines(lines, [{ name: 'total', value: '25', full: '25' }]);
+    expect(overlay).toHaveLength(1);
+    expect(overlay[0].line).toBe(1); // line 0 is the `| total |` declaration — skipped
+    expect(overlay[0].label).toBe('total = 25');
+  });
+
+  it('omits variables never referenced in the source (no clutter)', () => {
+    const overlay = computeInlineValueLines(['^balance'], vars);
+    expect(overlay).toHaveLength(1);
+    expect(overlay[0].label).toBe('balance = 200');
+    expect(JSON.stringify(overlay)).not.toContain('unused');
+  });
+
+  it('matches whole identifiers only (balance must not hit in subBalance)', () => {
+    const overlay = computeInlineValueLines(['  subBalance := 1.'], vars);
+    expect(overlay).toHaveLength(0);
+  });
+
+  it('separates two values that share their first-reference line', () => {
+    const overlay = computeInlineValueLines(['^amount + balance'], vars);
+    expect(overlay).toHaveLength(1);
+    expect(overlay[0].label).toBe('amount = 75   •   balance = 200');
+    expect(overlay[0].vars).toHaveLength(2);
+  });
+
+  it('lets a later (shadowing) entry win on a name clash', () => {
+    const shadowing: InlineVar[] = [
+      { name: 'x', value: 'IV', full: 'IV' },   // instVar
+      { name: 'x', value: 'TEMP', full: 'TEMP' }, // arg/temp shadows it
+    ];
+    const overlay = computeInlineValueLines(['^x'], shadowing);
+    expect(overlay[0].label).toBe('x = TEMP');
+  });
+
+  it('carries full (un-truncated) values for the hover', () => {
+    const long: InlineVar[] = [{ name: 'c', value: 'an Ord…', full: 'an OrderedCollection(1 2 3 4 5)' }];
+    const overlay = computeInlineValueLines(['^c'], long);
+    expect(overlay[0].vars[0].full).toBe('an OrderedCollection(1 2 3 4 5)');
+    expect(overlay[0].label).toBe('c = an Ord…');
+  });
+
+  it('aligns annotations into one column past the widest line (padCh)', () => {
+    const lines = ['x', 'a longer line referencing y'];
+    const overlay = computeInlineValueLines(lines, [
+      { name: 'x', value: '1', full: '1' },
+      { name: 'y', value: '2', full: '2' },
+    ]);
+    // Both annotations should land at the same column: line.length + padCh equal.
+    const col = (o: { line: number; padCh: number }) => lines[o.line].length + o.padCh;
+    expect(col(overlay[0])).toBe(col(overlay[1]));
+    // The short line gets more padding than the long one.
+    expect(overlay[0].padCh).toBeGreaterThan(overlay[1].padCh);
+  });
+
+  it('aligns to the widest ANNOTATED line, not a long line with no values', () => {
+    // A long line that has no in-scope var must not shove the column right.
+    const lines = ['aVeryLongMethodCallWithNoLocalVariablesAtAllHere foo: 1.', 'x'];
+    const overlay = computeInlineValueLines(lines, [{ name: 'x', value: '1', full: '1' }]);
+    expect(overlay).toHaveLength(1);
+    expect(overlay[0].line).toBe(1);
+    // Column tracks the tiny annotated line ('x'), so padding stays the minimum
+    // gap (3) — NOT pushed out by the long line above (which would give ~40+).
+    expect(overlay[0].padCh).toBe(3);
+  });
+
+  it('skips the method signature line (keyword args show at first body use)', () => {
+    const lines = ['readFrom: aStream', '  | bc |', '  aStream peek.', '  bc := aStream next.'];
+    const v: InlineVar[] = [
+      { name: 'aStream', value: 'aStream…', full: 'aStream...' },
+      { name: 'bc', value: 'nil', full: 'nil' },
+    ];
+    const overlay = computeInlineValueLines(lines, v, { signatureLine: true });
+    // Not on the signature (line 0) nor the temp decl (line 1); aStream at line 2.
+    expect(overlay.map(o => o.line)).toEqual([2, 3]);
+    expect(overlay[0].label).toBe('aStream = aStream…');
+    expect(overlay[1].label).toBe('bc = nil');
+  });
+
+  it('skips a block-argument declaration (:x) but annotates its use', () => {
+    const overlay = computeInlineValueLines(['nums do: [:x | x squared]'],
+      [{ name: 'x', value: '7', full: '7' }]);
+    expect(overlay).toHaveLength(1);
+    // The `:x` binding is skipped; the `x` in `x squared` is the annotated use.
+    expect(overlay[0].label).toBe('x = 7');
+  });
+
+  it('perLine mode annotates every line that references a variable', () => {
+    const lines = ['total := 0.', 'total := total + 1.', '^total'];
+    const v: InlineVar[] = [{ name: 'total', value: '25', full: '25' }];
+    const overlay = computeInlineValueLines(lines, v, { perLine: true });
+    expect(overlay.map(o => o.line)).toEqual([0, 1, 2]);
+    expect(overlay.every(o => o.label === 'total = 25')).toBe(true);
+  });
+
+  it('does not match an identifier that appears only in a comment', () => {
+    const lines = ['"returns aString parsed"', '^self parse: aString'];
+    const v: InlineVar[] = [{ name: 'aString', value: "'50'", full: "'50'" }];
+    const overlay = computeInlineValueLines(lines, v, { perLine: true });
+    // Only the real use on line 1, never the comment on line 0.
+    expect(overlay.map(o => o.line)).toEqual([1]);
+  });
+
+  it('does not match an identifier inside a multi-line comment', () => {
+    const lines = ['foo', '"a comment', ' mentioning total again', ' total total"', '^total'];
+    const v: InlineVar[] = [{ name: 'total', value: '7', full: '7' }];
+    const overlay = computeInlineValueLines(lines, v, { perLine: true });
+    expect(overlay.map(o => o.line)).toEqual([4]);
+  });
+
+  it('does not match an identifier inside a string literal', () => {
+    const lines = ["x := 'the value is amount'.", '^amount'];
+    const v: InlineVar[] = [{ name: 'amount', value: '9', full: '9' }];
+    const overlay = computeInlineValueLines(lines, v, { perLine: true });
+    expect(overlay.map(o => o.line)).toEqual([1]);
+  });
+});
+
+describe('maskCommentsAndStrings', () => {
+  it('blanks comments and strings but preserves length and newlines', () => {
+    const src = 'x := 1. "set x" y := \'hi\'.';
+    const masked = maskCommentsAndStrings(src);
+    expect(masked.length).toBe(src.length);
+    expect(masked).toBe('x := 1.         y :=     .');
+  });
+
+  it('keeps a $" / $\' character literal as code (not a delimiter)', () => {
+    const src = "c := $\". d := $'. e := 1.";
+    // No real comment/string opens, so nothing past the char literals is blanked.
+    expect(maskCommentsAndStrings(src)).toBe(src);
+  });
+
+  it('preserves newlines across a multi-line comment', () => {
+    const masked = maskCommentsAndStrings('a "c1\nc2" b');
+    expect(masked.split('\n')).toHaveLength(2);
+    expect(masked).toBe('a    \n    b');
+  });
+});
+
+describe('InlineValuesCodeLensProvider', () => {
+  const doc = (uri: string) => ({ uri: { toString: () => uri } }) as unknown as vscode.TextDocument;
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('emits no lens for a doc no live debugger is showing (e.g. a browser editor)', () => {
+    vi.spyOn(DebuggerPanel, 'isLiveSourceUri').mockReturnValue(false);
+    const lenses = new InlineValuesCodeLensProvider().provideCodeLenses(doc('gemstone://x'));
+    expect(lenses).toEqual([]);
+  });
+
+  it('emits an "off" lens (with the doc URI as the command arg) for a live source', () => {
+    vi.spyOn(DebuggerPanel, 'isLiveSourceUri').mockReturnValue(true);
+    vi.spyOn(DebuggerPanel, 'isInlineValuesEnabledFor').mockReturnValue(false);
+    const lenses = new InlineValuesCodeLensProvider().provideCodeLenses(doc('gemstone://m'));
+    expect(lenses).toHaveLength(1);
+    expect(lenses[0].command?.command).toBe('gemstone.toggleInlineValues');
+    expect(lenses[0].command?.arguments).toEqual(['gemstone://m']);
+    expect(lenses[0].command?.title).toContain('off');
+  });
+
+  it('reflects the on state in the lens title', () => {
+    vi.spyOn(DebuggerPanel, 'isLiveSourceUri').mockReturnValue(true);
+    vi.spyOn(DebuggerPanel, 'isInlineValuesEnabledFor').mockReturnValue(true);
+    const lenses = new InlineValuesCodeLensProvider().provideCodeLenses(doc('gemstone-debug://d'));
+    expect(lenses[0].command?.title).toContain('on');
   });
 });

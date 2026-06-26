@@ -837,3 +837,34 @@ describe('parseStackDump (#10/#11 whole-stack dump payload)', () => {
     ]);
   });
 });
+
+describe('parseFrameVars (#5 single-frame one-trip payload)', () => {
+  const line = (...fields: string[]) => fields.join('\t');
+
+  it('parses group / name / value / oop / index from each line', () => {
+    const payload = [
+      line('receiver', 'self', 'a JasperFoo', '100', '0'),
+      line('instvars', 'count', '7', '14', '1'),
+      line('argtemps', 'x', 'nil', '20', '2'),
+      line('stacktemps', '.t1', 'true', '26', '0'),
+    ].join('\n');
+
+    expect(debug.parseFrameVars(payload)).toEqual([
+      { group: 'receiver', name: 'self', value: 'a JasperFoo', oop: '100', index: 0 },
+      { group: 'instvars', name: 'count', value: '7', oop: '14', index: 1 },
+      { group: 'argtemps', name: 'x', value: 'nil', oop: '20', index: 2 },
+      { group: 'stacktemps', name: '.t1', value: 'true', oop: '26', index: 0 },
+    ]);
+  });
+
+  it('un-escapes delimiters in name/value and skips malformed lines', () => {
+    const payload = ['', line('argtemps', 's', 'a\\tb\\nc', '42', '1'), 'junk\ttoo\tfew'].join('\n');
+    expect(debug.parseFrameVars(payload)).toEqual([
+      { group: 'argtemps', name: 's', value: 'a\tb\nc', oop: '42', index: 1 },
+    ]);
+  });
+
+  it('returns [] for empty input', () => {
+    expect(debug.parseFrameVars('')).toEqual([]);
+  });
+});

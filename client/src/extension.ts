@@ -26,6 +26,7 @@ import { SystemBrowser } from './systemBrowser';
 import { GlobalsBrowser } from './globalsBrowser';
 import { GtInspector } from './gtInspector';
 import { DebuggerPanel } from './debuggerPanel';
+import { InlineValuesCodeLensProvider } from './inlineValuesCodeLens';
 import { GemStoneFileSystemProvider, MethodCompiledEvent, ClassDefinitionCompiledEvent } from './gemstoneFileSystemProvider';
 import { openWorkspace } from './workspace';
 import { GemStoneDebugSession } from './gemstoneDebugSession';
@@ -137,6 +138,25 @@ export function activate(context: vscode.ExtensionContext) {
   // window was closed with the Enhanced Debugger still up (it restores orphaned
   // and broken — no session to resolve gemstone://). See DebuggerPanel.
   DebuggerPanel.initSourceTabCleanup(context.workspaceState);
+
+  // Inline-value overlay (#5): a source-pane CodeLens toggles it. The lens is
+  // emitted only for source docs a live debugger is showing; the command it fires
+  // carries that doc's URI so the right panel toggles.
+  const inlineValuesLens = new InlineValuesCodeLensProvider();
+  DebuggerPanel.setSourceCodeLensProvider(inlineValuesLens);
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'gemstone.toggleInlineValues',
+      (uri?: unknown) => DebuggerPanel.toggleInlineValuesForUri(typeof uri === 'string' ? uri : undefined),
+    ),
+    vscode.commands.registerCommand(
+      'gemstone.toggleInlineValuesPerLine',
+      (uri?: unknown) => DebuggerPanel.toggleInlineValuesPerLineForUri(typeof uri === 'string' ? uri : undefined),
+    ),
+    vscode.languages.registerCodeLensProvider(
+      [{ scheme: 'gemstone' }, { scheme: 'gemstone-debug' }], inlineValuesLens,
+    ),
+  );
 
   try {
     initializeExtensionFolder();

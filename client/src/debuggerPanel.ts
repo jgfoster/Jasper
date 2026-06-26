@@ -244,6 +244,191 @@ export function selectorArgCount(selector: string): number {
   return /^[A-Za-z_]/.test(selector) ? 0 : 1;
 }
 
+/** An in-scope variable for the inline-values overlay (#5). */
+export interface InlineVar {
+  /** Source name (instVar / arg / temp / `self`). */
+  name: string;
+  /** Short, single-line printString already truncated for inline display. */
+  value: string;
+  /** Full printString, shown on hover (un-truncated, may be multi-line). */
+  full: string;
+}
+
+/** One source line's inline overlay: the rendered text + per-var hover parts. */
+export interface InlineValueLine {
+  /** 0-based document line index. */
+  line: number;
+  /** The end-of-line annotation, e.g. `amount = 75`. */
+  label: string;
+  /** The variables shown on this line, in first-appearance order (for hover). */
+  vars: InlineVar[];
+  /**
+   * Left padding (in monospace `ch`) so every annotation lines up in a single
+   * right-hand column clear of the code, rather than floating just past each
+   * line's own text. The panel turns this into the decoration's `margin-left`.
+   */
+  padCh: number;
+}
+
+/** Options controlling how the inline-value overlay is laid out (#5). */
+export interface InlineValueOpts {
+  /**
+   * When true, annotate EVERY line that references a variable (so a name used on
+   * many lines shows on each), instead of just its first use. Helpful for finding
+   * a value anywhere in a long method; busier. Toggled by the second CodeLens.
+   */
+  perLine?: boolean;
+  /**
+   * True when line 0 is a method signature (`foo: arg` / `at: k put: v`) rather
+   * than executed-code (a doit). The signature only DECLARES its keyword args, so
+   * the whole line is skipped — the args' values show at their first body use.
+   */
+  signatureLine?: boolean;
+}
+
+/** Whole Smalltalk identifiers (so `total` never matches inside `subtotal`). */
+const INLINE_IDENTIFIER_RE = /[A-Za-z_][A-Za-z0-9_]*/g;
+/**
+ * A temporaries declaration — `| a b c |` (names + whitespace between two bars).
+ * Identifiers inside one are declarations, NOT uses, so the overlay skips them:
+ * a variable's value should appear where it's first *used/assigned*, not on the
+ * `| … |` line. (A bitOr like `a | b | c` can false-match; harmless and rare in
+ * debugger source.)
+ */
+const INLINE_TEMPDECL_RE = /\|[A-Za-z0-9_\s]*\|/g;
+/**
+ * A block-argument declaration — `:each` in `[:each | …]` (a colon NOT preceded
+ * by an identifier char, so a keyword message like `at:key` is excluded). Like a
+ * temp declaration, this is a binding site, not a use, so it's skipped.
+ */
+const INLINE_BLOCKARG_RE = /(?<![A-Za-z0-9_]):[A-Za-z_][A-Za-z0-9_]*/g;
+/** Gap (in columns) between the widest annotated line and the values column. */
+const INLINE_VALUE_GAP = 3;
+/** Separator between two values that share one line. */
+const INLINE_VALUE_SEP = '   •   ';
+/** Don't push the values column past this column even if an annotated line is wider. */
+const INLINE_VALUE_MAX_COL = 48;
+
+/**
+ * Collapse a printString to a single short line for the inline overlay: newlines
+ * and tabs become spaces, runs of whitespace collapse, and anything past
+ * `maxLen` is elided with `…`. The full value is always kept for the hover. The
+ * cap is generous (not pixel-perfect — VS Code gives an extension no editor-width
+ * API, so we can't truly clip to the right boundary) but keeps a giant collection
+ * from running the line off-screen.
+ */
+export function shortenInlineValue(value: string, maxLen = 40): string {
+  const oneLine = value.replace(/\s+/g, ' ').trim();
+  return oneLine.length > maxLen ? `${oneLine.slice(0, maxLen - 1)}…` : oneLine;
+}
+
+/**
+ * Blank out Smalltalk comments (`"…"`) and string literals (`'…'`) — replacing
+ * their characters (delimiters included) with spaces while preserving newlines
+ * and every character position — so the overlay never matches an identifier that
+ * only appears inside a comment or string. Comments span multiple lines, so this
+ * scans the whole source, not line by line. Doubled quotes (`""` / `''`) are the
+ * in-literal escapes; a `$"`/`$'` character literal is NOT a delimiter.
+ */
+export function maskCommentsAndStrings(text: string): string {
+  const out = text.split('');
+  const blank = (k: number): void => { if (text[k] !== '\n') out[k] = ' '; };
+  let i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    if (c === '$') { i += 2; continue; }        // character literal: `$x`, `$"`, `$'`
+    if (c === '"' || c === "'") {               // comment or string
+      const quote = c;
+      blank(i); i++;
+      while (i < text.length) {
+        if (text[i] === quote) {
+          if (text[i + 1] === quote) { blank(i); blank(i + 1); i += 2; continue; } // escaped
+          blank(i); i++; break;                  // closing delimiter
+        }
+        blank(i); i++;
+      }
+      continue;
+    }
+    i++;
+  }
+  return out.join('');
+}
+
+/** Char ranges on `line` that are binding sites (temp decls + block args). */
+function declarationSpans(line: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  for (const d of line.matchAll(INLINE_TEMPDECL_RE)) spans.push([d.index ?? 0, (d.index ?? 0) + d[0].length]);
+  for (const b of line.matchAll(INLINE_BLOCKARG_RE)) spans.push([b.index ?? 0, (b.index ?? 0) + b[0].length]);
+  return spans;
+}
+
+/**
+ * Compute the inline-value overlay for a method's source (#5). By default each
+ * in-scope variable is shown ONCE, on the first line that USES it — declarations
+ * (the `| … |` temps line, block args `:x`, and the method signature) are skipped
+ * so a value lands where it's first assigned/read, and a tight loop like
+ * `total := total + each` doesn't repeat the same value on every line. With
+ * `opts.perLine`, every referencing line is annotated instead. Variables never
+ * referenced in the visible source are omitted. Annotations align in one
+ * right-hand column a fixed gap past the widest ANNOTATED line (capped) — aligning
+ * to annotated lines, not the widest line overall, keeps one long line (e.g. a
+ * wide temps declaration) from shoving the whole column off-screen.
+ *
+ * Pure + exported for unit testing; the panel turns the result into decorations.
+ * `vars` is the in-scope set (later entries win on a name clash, so a shadowing
+ * arg/temp overrides an instVar of the same name — the caller pushes receiver →
+ * instVars → args/temps in that order).
+ */
+export function computeInlineValueLines(
+  srcLines: string[], vars: InlineVar[], opts: InlineValueOpts = {},
+): InlineValueLine[] {
+  const byName = new Map<string, InlineVar>();
+  for (const v of vars) byName.set(v.name, v);
+
+  // Match against a copy with comments + string literals blanked out (spaces, so
+  // positions/lengths are unchanged) — an identifier that only appears in a
+  // comment or a string is not a variable reference. (Multi-line comments are why
+  // this masks the whole source, not each line.)
+  const lines = maskCommentsAndStrings(srcLines.join('\n')).split('\n');
+
+  // Pass 1: which variables to show on which lines (applying decl-skip + mode).
+  const shown = new Set<string>(); // first-use dedup (ignored when perLine)
+  const hits: Array<{ line: number; vars: InlineVar[] }> = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (opts.signatureLine && i === 0) continue; // signature declares args only
+    const spans = declarationSpans(lines[i]);
+    const inDecl = (at: number): boolean => spans.some(([s, e]) => at >= s && at < e);
+
+    const lineVars: InlineVar[] = [];
+    const seenOnLine = new Set<string>();
+    for (const m of lines[i].matchAll(INLINE_IDENTIFIER_RE)) {
+      const name = m[0];
+      if (seenOnLine.has(name) || (!opts.perLine && shown.has(name))) continue;
+      // Skip a declaration occurrence WITHOUT marking it shown, so the variable
+      // still gets annotated at its first real use further down.
+      if (inDecl(m.index ?? 0)) continue;
+      const v = byName.get(name);
+      if (!v) continue;
+      seenOnLine.add(name);
+      if (!opts.perLine) shown.add(name);
+      lineVars.push(v);
+    }
+    if (lineVars.length > 0) hits.push({ line: i, vars: lineVars });
+  }
+
+  // The column sits a fixed gap past the widest ANNOTATED line (capped).
+  const widestAnnotated = hits.reduce((m, h) => Math.max(m, lines[h.line].length), 0);
+  const targetCol = Math.min(widestAnnotated, INLINE_VALUE_MAX_COL) + INLINE_VALUE_GAP;
+
+  // Pass 2: render label + alignment padding.
+  return hits.map(h => ({
+    line: h.line,
+    vars: h.vars,
+    label: h.vars.map(v => `${v.name} = ${v.value}`).join(INLINE_VALUE_SEP),
+    padCh: Math.max(INLINE_VALUE_GAP, targetCol - lines[h.line].length),
+  }));
+}
+
 /** Minimal HTML-escape for interpolating session text into the page. */
 function escapeHtml(s: string): string {
   return s
@@ -604,6 +789,23 @@ export class DebuggerPanel {
     },
   });
 
+  /**
+   * Inline-value overlay (#5): a dim, inlay-hint-styled annotation appended at
+   * end-of-line showing each referenced variable's value. Styling lives on the
+   * type; the per-line text (`after.contentText`) and hover are supplied per
+   * decoration. `textDecoration` is the standard CSS-injection escape hatch to
+   * shrink the font and give the chip a little padding (there's no first-class
+   * font-size field on a decoration attachment). Off unless the user toggles it.
+   */
+  private static readonly inlineValueDecoration = vscode.window.createTextEditorDecorationType({
+    after: {
+      color: new vscode.ThemeColor('editorInlayHint.foreground'),
+      backgroundColor: new vscode.ThemeColor('editorInlayHint.background'),
+      fontStyle: 'normal',
+      textDecoration: 'none; font-size: 0.85em; padding: 0 4px; border-radius: 4px;',
+    },
+  });
+
   // ── Read-only source for frames with no gemstone:// editor ──────────
   // "Executed Code" doits (no class at all) and methods whose class isn't in the
   // session's symbol list (so no dictName → no gemstone:// URI) are served
@@ -620,6 +822,16 @@ export class DebuggerPanel {
    * cross-restart persistence would need globalState — deferred.) Default 60%.
    */
   private static savedStackBasis = '60%';
+
+  /**
+   * Whether the inline-value overlay (#5) is on. Off by default — it can clutter
+   * a large method — and toggled per source pane via the editor-title button.
+   * Remembered window-wide (like `savedStackBasis`) so the choice carries from
+   * one debugger to the next.
+   */
+  private static savedInlineValuesEnabled = false;
+  /** Window-remembered inline-value mode (see `inlineValuesPerLine`). */
+  private static savedInlineValuesPerLine = false;
 
   /**
    * The eval bar's height (`--eval-height`); the hsplitter resizes it, trading
@@ -756,6 +968,25 @@ export class DebuggerPanel {
   private openedInspectors = new Set<GtInspector>();
   /** The editor currently carrying the step-point highlight, if any. */
   private decoratedEditor: vscode.TextEditor | undefined;
+  /** Whether this panel's inline-value overlay (#5) is currently shown. */
+  private inlineValuesEnabled = DebuggerPanel.savedInlineValuesEnabled;
+  /** Inline-value mode: false = once at first use (default), true = every reference. */
+  private inlineValuesPerLine = DebuggerPanel.savedInlineValuesPerLine;
+  /** The editor currently carrying the inline-value overlay, if any. */
+  private inlineDecoratedEditor: vscode.TextEditor | undefined;
+  /**
+   * The selected frame's variable groups, cached so toggling the inline overlay
+   * (or its mode) re-renders from memory instead of re-running N blocking
+   * getObjectPrintString round-trips per click. Keyed by server level; dropped
+   * when the stack moves (refresh) or a value is edited (set/revert).
+   */
+  private varGroupsCache: { level: number; groups: VarGroup[] } | undefined;
+  /**
+   * True when the source pane currently shows a method (its line 0 is a selector
+   * signature) rather than executed code — so the overlay skips the signature's
+   * keyword-arg declarations. Set by revealFrameSource.
+   */
+  private shownFrameIsMethod = false;
   /** Virtual read-only source URIs this panel stashed (pruned on dispose). */
   private stashedSourceKeys = new Set<string>();
   /** Every source URI shown in the companion editor (closed on dispose). */
@@ -1060,6 +1291,7 @@ export class DebuggerPanel {
 
   /** Re-walk the (advanced) stack and re-render — used after a step / restart / resume-with-error. */
   private refresh(): void {
+    this.invalidateVariablesCache(); // the stack moved — cached values are stale
     this.frames = this.fetchStack();
     this.dnuInfo = this.detectDnu();
     this.subclassRespInfo = this.detectSubclassResp();
@@ -1547,7 +1779,7 @@ export class DebuggerPanel {
   private postVariables(serverLevel: number): void {
     let groups: VarGroup[] = [];
     try {
-      groups = this.fetchVariables(serverLevel);
+      groups = this.variablesForFrame(serverLevel);
     } catch (e: unknown) {
       logError(this.sessionId, e instanceof Error ? e.message : String(e));
     }
@@ -1555,82 +1787,68 @@ export class DebuggerPanel {
   }
 
   /**
+   * The selected frame's variable groups, fetched once per (frame, value-state)
+   * and cached — the Variables pane AND the inline overlay (#5) share this, so a
+   * frame select costs one fetch and toggling the overlay costs none. The cache
+   * is invalidated by `invalidateVariablesCache()` when the stack moves or a value
+   * is edited.
+   */
+  private variablesForFrame(serverLevel: number): VarGroup[] {
+    if (this.varGroupsCache?.level === serverLevel) return this.varGroupsCache.groups;
+    const groups = this.fetchVariables(serverLevel);
+    this.varGroupsCache = { level: serverLevel, groups };
+    return groups;
+  }
+
+  /** Drop the cached variable groups (stack moved, or a value was edited). */
+  private invalidateVariablesCache(): void {
+    this.varGroupsCache = undefined;
+  }
+
+  /**
    * The selected frame's variables, split into Receiver (`self`), Instance
    * variables (the receiver's named instVars), Arguments & Temps (the frame's
    * *named* args/temps), and a collapsed `(stack temps)` group for the synthetic
-   * `.tN` eval-stack temporaries (which have no source name). Each printString
-   * and the instVar resolution are best-effort so one bad slot can't blank the
-   * whole pane. Each row carries its OOP for the dim column + click-to-inspect.
+   * `.tN` eval-stack temporaries (which have no source name). Each row carries its
+   * OOP for the dim column + click-to-inspect.
+   *
+   * One server round trip via `fetchFrameVariables` (the doit gathers every
+   * receiver/instVar/arg/temp + printString + oop + write index at once) instead
+   * of the old 3 + N blocking calls — so a frame select, and especially toggling
+   * the inline overlay, no longer stalls. The server already filters `__vsc` glue
+   * and classifies `.tN` stack temps; the edit-index + grouping rules below match
+   * the previous per-call build exactly.
    */
   private fetchVariables(serverLevel: number): VarGroup[] {
-    const info = debug.getFrameInfo(this.session, this.gsProcess, serverLevel);
-    const safePrint = (oop: bigint): string => {
-      try { return debug.getObjectPrintString(this.session, oop); }
-      catch { return '<unprintable>'; }
-    };
-    const row = (name: string, oop: bigint, edit?: VarRow['edit']): VarRow => {
+    const rows = debug.fetchFrameVariables(this.session, this.gsProcess, serverLevel);
+
+    const toRow = (r: debug.FrameVarRow, edit?: VarRow['edit']): VarRow => {
       // Stamp `revertible` only when this slot has been edited away from its
-      // original this halt (the webview then shows the ↺ icon). Left undefined
-      // otherwise so unchanged rows stay lean.
+      // original this halt (the webview then shows the ↺ icon).
       const revertible = edit && this.undoDirty.has(this.undoKey(serverLevel, edit.kind, edit.index))
         ? true : undefined;
-      return { name, value: safePrint(oop), oop: oop.toString(), edit, revertible };
+      return { name: r.name, value: r.value, oop: r.oop, edit, revertible };
     };
-
-    // Alphabetical (case-insensitive) order for the instVar + named arg/temp rows.
     const byName = (a: VarRow, b: VarRow): number =>
       a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
 
+    // `self` (read-only), instVars (editable via `instVarAt:put:`), named
+    // args/temps (editable via `_frameAt:tempAt:put:`), and read-only `.tN` stack
+    // temps. The server emits the 1-based write index per editable slot; instVars
+    // and named temps are alphabetized for findability (each row keeps its own
+    // index, so sorting the display never disturbs the write path).
+    const receiver = rows.filter(r => r.group === 'receiver').map(r => toRow(r));
+    const instVars = rows.filter(r => r.group === 'instvars')
+      .map(r => toRow(r, { kind: 'instvar', index: r.index })).sort(byName);
+    const argTemps = rows.filter(r => r.group === 'argtemps')
+      .map(r => toRow(r, { kind: 'temp', index: r.index })).sort(byName);
+    // Stack temps keep natural order (sorting `.t1/.t10/.t2` would look wrong).
+    const stackTemps = rows.filter(r => r.group === 'stacktemps').map(r => toRow(r));
+
     const groups: VarGroup[] = [];
-
-    // 1. Receiver — `self`. Not editable (you can't reassign a frame's receiver),
-    // so no `edit` metadata: the webview renders it read-only.
-    groups.push({ title: 'Receiver', kind: 'receiver', vars: [row('self', info.receiverOop)] });
-
-    // 2. Instance variables — the receiver's named instVars (none for immediates).
-    // Editable via `instVarAt:put:` (1-based index).
-    try {
-      const ivNames = debug.getInstVarNames(this.session, info.receiverOop);
-      if (ivNames.length > 0) {
-        const ivOops = debug.getNamedInstVarOops(this.session, info.receiverOop, ivNames.length);
-        // Build with the slot's real 1-based index (the `instVarAt:put:` target),
-        // THEN sort by name — each row keeps its own index, so alphabetizing the
-        // display never disturbs the write path.
-        const ivVars = ivNames.map((n, i) => row(n, ivOops[i], { kind: 'instvar', index: i + 1 }));
-        ivVars.sort(byName);
-        groups.push({ title: 'Instance variables', kind: 'instvars', vars: ivVars });
-      }
-    } catch (e: unknown) {
-      logError(this.sessionId, e instanceof Error ? e.message : String(e));
-    }
-
-    // 3 + 4. Args/temps — real source names vs synthetic `.tN` eval-stack temps.
-    // `__vsc…` temps are the Transcript-capture wrapper's glue (see
-    // transcriptCapture.ts); they're hidden, just like the glue is stripped from
-    // an executed-code frame's source.
-    // The write primitive `_frameAt:tempAt:put:` indexes the *unfiltered*
-    // argAndTempNames array (1-based), so a NAMED temp's editable index is `i + 1`
-    // even though we drop `__vsc` glue. The synthetic `.tN` eval-stack temps are
-    // left read-only: they appear in the names array but sit past the method's
-    // declared argsAndTemps offsets, so the primitive can't address them ("method
-    // temp or arg not found"). (They stay viewable + GT-Inspectable, like `self`.)
-    const named: VarRow[] = [];
-    const stackTemps: VarRow[] = [];
-    for (let i = 0; i < info.argAndTempNames.length; i++) {
-      const name = info.argAndTempNames[i];
-      if (name.startsWith('__vsc')) continue;
-      const isStackTemp = name.startsWith('.');
-      const r = row(name, info.argAndTempOops[i], isStackTemp ? undefined : { kind: 'temp', index: i + 1 });
-      (isStackTemp ? stackTemps : named).push(r);
-    }
-    if (named.length > 0) {
-      // Alphabetize for findability; each row keeps its original `edit.index`
-      // (the `_frameAt:tempAt:put:` target), so sorting the display is safe. The
-      // synthetic `.tN` stack temps keep their natural order (sorting `.t1/.t10/.t2`
-      // alphabetically would just look wrong).
-      named.sort(byName);
-      groups.push({ title: 'Arguments & Temps', kind: 'argtemps', vars: named });
-    }
+    if (receiver.length > 0) groups.push({ title: 'Receiver', kind: 'receiver', vars: receiver });
+    if (instVars.length > 0) groups.push({ title: 'Instance variables', kind: 'instvars', vars: instVars });
+    if (argTemps.length > 0) groups.push({ title: 'Arguments & Temps', kind: 'argtemps', vars: argTemps });
     if (stackTemps.length > 0) {
       groups.push({ title: '(stack temps)', kind: 'stacktemps', collapsed: true, vars: stackTemps });
     }
@@ -1781,7 +1999,11 @@ export class DebuggerPanel {
       }
       this.undoDirty.add(this.undoKey(serverLevel, kind, index));
       this.panel.webview.postMessage({ command: 'setVariableResult', ok: true });
+      this.invalidateVariablesCache(); // the slot points at a new object — re-fetch
       this.postVariables(serverLevel);
+      // The slot now points at a new object — refresh the inline overlay so its
+      // value (and hover) track, just like the Variables pane.
+      if (this.sourceEditor) this.updateInlineValues(this.sourceEditor, serverLevel);
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : String(e);
       logError(this.sessionId, error);
@@ -1839,7 +2061,10 @@ export class DebuggerPanel {
         debug.setFrameTemp(this.session, this.gsProcess, serverLevel, index, originalOop);
       }
       this.undoDirty.delete(key);
+      this.invalidateVariablesCache(); // slot restored to its original object
       this.postVariables(serverLevel);
+      // Keep the inline overlay in step with the reverted value.
+      if (this.sourceEditor) this.updateInlineValues(this.sourceEditor, serverLevel);
     } catch (e: unknown) {
       logError(this.sessionId, e instanceof Error ? e.message : String(e));
     }
@@ -2456,6 +2681,9 @@ export class DebuggerPanel {
       // Remember what the source pane is showing for this frame (editable or
       // read-only doit), so "Run to Cursor" can confirm the cursor refers to it.
       this.shownFrameSourceUri = uri.toString();
+      // A method's line 0 is its selector signature (skip its arg declarations in
+      // the overlay); an executed-code doit's line 0 is real code.
+      this.shownFrameIsMethod = !home.isExecutedCode;
       const editor = await this.showSourceEditor(uri);
 
       // For a collapsed "Executed Code" doit frame, the displayed level is the
@@ -2491,9 +2719,162 @@ export class DebuggerPanel {
         editor.setDecorations(DebuggerPanel.stepPointDecoration, []);
       }
       this.decoratedEditor = editor;
+      // Refresh the inline-value overlay for the frame now shown (#5). No-op
+      // when the user hasn't toggled it on.
+      this.updateInlineValues(editor, level);
     } catch (e: unknown) {
       logError(this.sessionId, e instanceof Error ? e.message : String(e));
     }
+  }
+
+  /**
+   * Render (or clear) the inline-value overlay (#5) on `editor` for the frame at
+   * `serverLevel`. Reuses the same `fetchVariables` round trip as the Variables
+   * pane, flattens the editable groups (receiver / instVars / args & temps — the
+   * synthetic stack temps have no source name, so they're skipped) into the
+   * in-scope set, and decorates each source line that references one of them.
+   * Off → just clears any existing overlay. Best-effort: a failed fetch leaves
+   * the source clean rather than throwing on the hot path.
+   */
+  private updateInlineValues(editor: vscode.TextEditor, serverLevel: number): void {
+    if (this.inlineDecoratedEditor && this.inlineDecoratedEditor !== editor) {
+      this.inlineDecoratedEditor.setDecorations(DebuggerPanel.inlineValueDecoration, []);
+      this.inlineDecoratedEditor = undefined;
+    }
+    if (!this.inlineValuesEnabled) {
+      editor.setDecorations(DebuggerPanel.inlineValueDecoration, []);
+      return;
+    }
+    try {
+      const vars = this.inlineVarsForFrame(serverLevel);
+      const lines = editor.document.getText().split('\n');
+      const overlay = computeInlineValueLines(lines, vars, {
+        perLine: this.inlineValuesPerLine,
+        signatureLine: this.shownFrameIsMethod,
+      });
+      const decorations: vscode.DecorationOptions[] = overlay.map(o => {
+        const line = editor.document.lineAt(o.line);
+        const hover = new vscode.MarkdownString(
+          o.vars.map(v => `**${v.name}** = ${v.full}`).join('  \n'),
+        );
+        return {
+          range: new vscode.Range(line.range.end, line.range.end),
+          hoverMessage: hover,
+          // `padCh` left-pads each annotation so they align in one right-hand
+          // column, out of the way of the code (see computeInlineValueLines).
+          renderOptions: { after: { contentText: o.label, margin: `0 0 0 ${o.padCh}ch` } },
+        };
+      });
+      editor.setDecorations(DebuggerPanel.inlineValueDecoration, decorations);
+      this.inlineDecoratedEditor = editor;
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /**
+   * The in-scope, named variables for `serverLevel` as inline-overlay rows, in
+   * receiver → instVars → args/temps order (so a shadowing temp overrides an
+   * instVar of the same name; `computeInlineValueLines` lets later entries win).
+   * The collapsed `(stack temps)` group is dropped — those `.tN` temporaries have
+   * no source name to match.
+   */
+  private inlineVarsForFrame(serverLevel: number): InlineVar[] {
+    const vars: InlineVar[] = [];
+    for (const group of this.variablesForFrame(serverLevel)) {
+      if (group.kind === 'stacktemps') continue;
+      for (const v of group.vars) {
+        vars.push({ name: v.name, value: shortenInlineValue(v.value), full: v.value });
+      }
+    }
+    return vars;
+  }
+
+  /**
+   * Toggle the inline-value overlay (#5) for this panel, remember the choice
+   * window-wide, and re-render the current source pane. Driven by the
+   * `gemstone.toggleInlineValues` editor-title button.
+   */
+  toggleInlineValues(): void {
+    this.inlineValuesEnabled = !this.inlineValuesEnabled;
+    DebuggerPanel.savedInlineValuesEnabled = this.inlineValuesEnabled;
+    if (this.sourceEditor && this.selectedServerLevel !== undefined) {
+      this.updateInlineValues(this.sourceEditor, this.selectedServerLevel);
+    }
+    // Flip the source-pane CodeLens label (on/off) to match — and reveal/hide the
+    // companion "every line" lens, which only shows while the overlay is on.
+    DebuggerPanel.refreshSourceCodeLenses();
+  }
+
+  /**
+   * Toggle the inline-value MODE (once-at-first-use ↔ every reference) for this
+   * panel, remember it window-wide, and re-render. Driven by the second
+   * source-pane CodeLens, shown only while the overlay is on.
+   */
+  toggleInlineValuesPerLine(): void {
+    this.inlineValuesPerLine = !this.inlineValuesPerLine;
+    DebuggerPanel.savedInlineValuesPerLine = this.inlineValuesPerLine;
+    if (this.inlineValuesEnabled && this.sourceEditor && this.selectedServerLevel !== undefined) {
+      this.updateInlineValues(this.sourceEditor, this.selectedServerLevel);
+    }
+    DebuggerPanel.refreshSourceCodeLenses();
+  }
+
+  /**
+   * Forward the `gemstone.toggleInlineValues` command (fired by the source-pane
+   * CodeLens, which passes the document URI) to the owning panel. Falls back to
+   * the active editor's URI when called without one.
+   */
+  static toggleInlineValuesForUri(uriStr?: string): void {
+    const uri = uriStr ?? vscode.window.activeTextEditor?.document.uri.toString();
+    const dbg = uri ? DebuggerPanel.panelForSourceUri(uri) : undefined;
+    if (dbg) dbg.toggleInlineValues();
+  }
+
+  /** As `toggleInlineValuesForUri`, but for the every-line MODE (second lens). */
+  static toggleInlineValuesPerLineForUri(uriStr?: string): void {
+    const uri = uriStr ?? vscode.window.activeTextEditor?.document.uri.toString();
+    const dbg = uri ? DebuggerPanel.panelForSourceUri(uri) : undefined;
+    if (dbg) dbg.toggleInlineValuesPerLine();
+  }
+
+  /** The live panel currently showing `uriStr` in its companion source pane, if any. */
+  private static panelForSourceUri(uriStr: string): DebuggerPanel | undefined {
+    for (const set of DebuggerPanel.panels.values()) {
+      for (const dbg of set) {
+        if (dbg.shownSourceUris.has(uriStr)) return dbg;
+      }
+    }
+    return undefined;
+  }
+
+  /** True when `uriStr` is a source pane some live debugger is currently showing. */
+  static isLiveSourceUri(uriStr: string): boolean {
+    return DebuggerPanel.panelForSourceUri(uriStr) !== undefined;
+  }
+
+  /** Whether the panel showing `uriStr` has its inline-value overlay on. */
+  static isInlineValuesEnabledFor(uriStr: string): boolean {
+    return DebuggerPanel.panelForSourceUri(uriStr)?.inlineValuesEnabled ?? false;
+  }
+
+  /** Whether the panel showing `uriStr` is in every-line mode (vs first-use). */
+  static isInlineValuesPerLineFor(uriStr: string): boolean {
+    return DebuggerPanel.panelForSourceUri(uriStr)?.inlineValuesPerLine ?? false;
+  }
+
+  /**
+   * The source-pane CodeLens provider, registered once in `activate()`. The
+   * panel pokes it (via `refreshSourceCodeLenses`) whenever a source pane opens,
+   * the shown frame changes, the overlay toggles, or a panel closes — so the
+   * "Inline values: on/off" lens appears, flips, and disappears in step.
+   */
+  private static codeLensProvider: { refresh(): void } | undefined;
+  static setSourceCodeLensProvider(p: { refresh(): void }): void {
+    DebuggerPanel.codeLensProvider = p;
+  }
+  private static refreshSourceCodeLenses(): void {
+    DebuggerPanel.codeLensProvider?.refresh();
   }
 
   /**
@@ -2519,6 +2900,7 @@ export class DebuggerPanel {
     });
     this.shownSourceUris.add(uri.toString()); // closed with the panel (see dispose)
     DebuggerPanel.persistLiveSourceUris();
+    DebuggerPanel.refreshSourceCodeLenses(); // surface the inline-values lens on this doc
     this.sourceColumn = editor.viewColumn ?? this.sourceColumn;
     this.sourceEditor = editor; // live .viewColumn used at close time (see field doc)
     // Size the brand-new source group: re-apply the user's remembered ratio (or
@@ -3251,6 +3633,12 @@ export class DebuggerPanel {
     // the panel) so a stale highlight doesn't linger after the debugger closes.
     this.decoratedEditor?.setDecorations(DebuggerPanel.stepPointDecoration, []);
     this.decoratedEditor = undefined;
+    // Likewise drop the inline-value overlay from the (outliving) source editor.
+    this.inlineDecoratedEditor?.setDecorations(DebuggerPanel.inlineValueDecoration, []);
+    this.inlineDecoratedEditor = undefined;
+    // The source pane is going away — drop its inline-values CodeLens too. (This
+    // panel was already removed from `panels` above, so the lens won't re-appear.)
+    DebuggerPanel.refreshSourceCodeLenses();
     // Close the companion source editor and any GT Inspectors this debugger
     // opened — they're artifacts of this debugger and shouldn't outlive it.
     this.closeSourceEditors();

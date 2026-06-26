@@ -221,5 +221,40 @@ foo
       expect(provider.resolveCodeLens(lenses[0]).command?.title).toBe('1 sender');
       expect(provider.resolveCodeLens(lenses[1]).command?.title).toBe('1 implementor');
     });
+
+    it('caches counts so a re-resolve does not re-run the server lookup', () => {
+      // A re-resolve happens whenever another CodeLens provider on the same
+      // document changes (e.g. the debugger's inline-values toggle). The count
+      // must come from cache then — no extra sendersOf/implementorsOf calls.
+      const session = createMockSession();
+      sessionManager.getSelectedSession = () => session;
+      (queries.sendersOf as ReturnType<typeof vi.fn>).mockReturnValue([{}, {}, {}]);
+
+      const doc = createMockDocument(`method: MyClass
+foo
+  ^ 42
+%`);
+      const lenses = provider.provideCodeLenses(doc as any);
+      expect(provider.resolveCodeLens(lenses[0]).command?.title).toBe('3 senders');
+      // Re-provide + re-resolve (fresh lens objects, as VS Code does on a refresh).
+      const again = provider.provideCodeLenses(doc as any);
+      expect(provider.resolveCodeLens(again[0]).command?.title).toBe('3 senders');
+      expect(queries.sendersOf as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(1);
+    });
+
+    it('refresh() clears the count cache (so a recompile can recount)', () => {
+      const session = createMockSession();
+      sessionManager.getSelectedSession = () => session;
+      (queries.sendersOf as ReturnType<typeof vi.fn>).mockReturnValue([{}, {}, {}]);
+
+      const doc = createMockDocument(`method: MyClass
+foo
+  ^ 42
+%`);
+      provider.resolveCodeLens(provider.provideCodeLenses(doc as any)[0]);
+      provider.refresh();
+      provider.resolveCodeLens(provider.provideCodeLenses(doc as any)[0]);
+      expect(queries.sendersOf as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(2);
+    });
   });
 });

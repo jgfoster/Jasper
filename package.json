@@ -588,6 +588,17 @@
         "icon": "$(debug-alt)"
       },
       {
+        "command": "gemstone.toggleInlineValues",
+        "title": "Toggle Inline Variable Values",
+        "category": "GemStone",
+        "icon": "$(symbol-variable)"
+      },
+      {
+        "command": "gemstone.toggleInlineValuesPerLine",
+        "title": "Toggle Inline Values On Every Line",
+        "category": "GemStone"
+      },
+      {
         "command": "gemstone.copyDisplayItResult",
         "title": "Copy Display It Result",
         "category": "GemStone"
@@ -889,6 +900,14 @@
     ],
     "menus": {
       "commandPalette": [
+        {
+          "command": "gemstone.toggleInlineValues",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.toggleInlineValuesPerLine",
+          "when": "false"
+        },
         {
           "command": "gemstone.enableGtPerfTracking",
           "when": "!gemstone.gtPerfTracking"
