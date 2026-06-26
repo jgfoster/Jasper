@@ -50,7 +50,7 @@ To add a new GemStone version to the CI matrix, add an entry to `client/.gemston
 
 ## Continuous integration
 
-GitLab CI (`.gitlab-ci.yml`) runs `npm run compile` and `npm test` on every push. The pipeline runs on Node 24.15.0 (matching `.nvmrc`) and uploads the built `client/out/`, `server/out/`, and `mcp-server/out/` directories as artifacts.
+CI runs on **GitHub Actions**. The [Health Check workflow](.github/workflows/health-check.yml) runs on every push, on the Node version pinned by `.nvmrc` (currently 24.15.0). It compiles the project and runs the full test suite — including the GCI integration tests — as a matrix job, once per GemStone version listed in `client/.gemstone-integration-releases.json` (see [Integration tests](#integration-tests-gci-layer) above for adding a version).
 
 ## Publishing a release
 

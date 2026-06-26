@@ -18,6 +18,10 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
   The `reasons` array in `.gemstone-integration-releases.json` is human-readable documentation only — it explains *why* each version is included in the matrix. It is not read by any script or CI step.
 
+### Changed
+
+- **CI moved back to GitHub Actions.** The 1.5.1 migration to GitLab has been reverted: `.gitlab-ci.yml` is removed and CI runs on the [Health Check workflow](.github/workflows/health-check.yml). The upstream repo lives on GitHub.
+
 ## [1.7.2] - 2026-06-26
 
 ### Added
