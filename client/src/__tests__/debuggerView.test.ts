@@ -58,6 +58,10 @@ interface Refs {
   homeFrameItem?: HTMLElement;
   frameImplItem?: HTMLElement;
   copyBtn: HTMLElement;
+  dumpBtn?: HTMLElement;
+  saveNotice?: HTMLElement;
+  savePath?: HTMLElement;
+  copyPathBtn?: HTMLElement;
   error: HTMLElement;
   dnuBar?: HTMLElement;
   toolbar: HTMLElement;
@@ -91,6 +95,8 @@ function setup(
 ) {
   document.body.innerHTML = `
     <button id="copyBtn">Copy Stack</button>
+    <button id="dumpBtn">Dump Stack</button>
+    <span id="saveNotice" style="display:none;"><span id="savePath"></span><span id="copyPathBtn">⧉</span></span>
     <div id="toolbar">
       <button data-cmd="resume">Resume</button>
       <button data-cmd="stepOver">Over</button>
@@ -112,6 +118,10 @@ function setup(
     homeFrameItem: document.getElementById('homeFrameItem')!,
     frameImplItem: document.getElementById('frameImplItem')!,
     copyBtn: document.getElementById('copyBtn')!,
+    dumpBtn: document.getElementById('dumpBtn')!,
+    saveNotice: document.getElementById('saveNotice')!,
+    savePath: document.getElementById('savePath')!,
+    copyPathBtn: document.getElementById('copyPathBtn')!,
     error: document.getElementById('error')!,
     dnuBar: document.getElementById('dnuBar')!,
     toolbar: document.getElementById('toolbar')!,
@@ -338,16 +348,76 @@ describe('DebuggerView.init — right-click copy popup', () => {
 });
 
 describe('DebuggerView.init — copy stack button', () => {
-  it('posts copyStack and flashes "Copied" on the button', () => {
+  it('posts copyStack and flashes a check on the (icon) button, then restores it', () => {
     vi.useFakeTimers();
     try {
       const { refs, vscode } = setup();
+      const icon = refs.copyBtn.innerHTML;
       refs.copyBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
       expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'copyStack' });
-      expect(refs.copyBtn.textContent).toBe('Copied');
+      expect(refs.copyBtn.textContent).toBe('✓');
       vi.advanceTimersByTime(1200);
-      expect(refs.copyBtn.textContent).toBe('Copy Stack');
+      expect(refs.copyBtn.innerHTML).toBe(icon); // original icon markup restored
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('#11 posts dumpStackToFile and flashes a check on the Dump Stack button', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs, vscode } = setup();
+      const icon = refs.dumpBtn!.innerHTML;
+      refs.dumpBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'dumpStackToFile' });
+      expect(refs.dumpBtn!.textContent).toBe('✓');
+      vi.advanceTimersByTime(1200);
+      expect(refs.dumpBtn!.innerHTML).toBe(icon);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  const DUMP_PATH = '/Users/me/.jasper/stacks/20260625_153012_JasperFoo-bar.txt';
+
+  it('#11 clicking the dumped path requests opening it in an editor', () => {
+    const { refs, vscode } = setup();
+    window.dispatchEvent(new MessageEvent('message', { data: { command: 'savedNotice', path: DUMP_PATH } }));
+    refs.savePath!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'openDumpFile', path: DUMP_PATH });
+  });
+
+  it('#11 reveals the dumped path on savedNotice, then auto-hides after 5s', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs } = setup();
+      window.dispatchEvent(new MessageEvent('message', { data: { command: 'savedNotice', path: DUMP_PATH } }));
+
+      expect(refs.savePath!.textContent).toBe(`Dumped to ${DUMP_PATH}`);
+      expect(refs.savePath!.title).toBe(DUMP_PATH); // full path on hover, even if ellipsized
+      expect(refs.saveNotice!.style.display).not.toBe('none'); // revealed
+      vi.advanceTimersByTime(5000);
+      expect(refs.saveNotice!.style.display).toBe('none'); // auto-dismissed
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('#11 Copy-path icon copies the path, flashes a check, then dismisses the notice', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs, vscode } = setup();
+      window.dispatchEvent(new MessageEvent('message', { data: { command: 'savedNotice', path: DUMP_PATH } }));
+      refs.copyPathBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'copyText', text: DUMP_PATH });
+      expect(refs.copyPathBtn!.textContent).toBe('✓');
+      vi.advanceTimersByTime(1200);
+      expect(refs.copyPathBtn!.textContent).toBe('⧉');         // glyph restored
+      expect(refs.saveNotice!.style.display).toBe('none');     // dismissed once copied
     } finally {
       vi.useRealTimers();
     }

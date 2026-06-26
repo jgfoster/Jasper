@@ -9,6 +9,7 @@ import { unwrapTranscriptCapture, transcriptCaptureUserCodeOffset } from './tran
 import { GtInspector } from './gtInspector';
 import { logError, logInfo } from './gciLog';
 import { NbCancelledError } from './nbRunner';
+import { extensionPathFrom } from './extensionPath';
 
 // The webview's DOM behavior lives in a standalone file (like listFilter.js /
 // methodListView.js) so it gets IDE support and can be jsdom-tested in isolation
@@ -35,6 +36,9 @@ const TOOLBAR_ICONS: Record<string, string> = {
   stepThrough: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M2.50002 3C2.77602 3 3.00002 3.224 3.00002 3.5V6.5C3.00002 7.327 3.67302 8 4.50002 8H12.293L9.64702 5.354C9.45202 5.159 9.45202 4.842 9.64702 4.647C9.84202 4.452 10.159 4.452 10.354 4.647L13.854 8.147C14.049 8.342 14.049 8.659 13.854 8.854L10.354 12.354C10.256 12.452 10.128 12.5 10 12.5C9.87202 12.5 9.74402 12.451 9.64602 12.354C9.45102 12.159 9.45102 11.842 9.64602 11.647L12.292 9.001H4.49902C3.12002 9.001 1.99902 7.88 1.99902 6.501V3.501C1.99902 3.225 2.22302 3.001 2.49902 3.001L2.50002 3Z"/></svg>',
   restartFrame: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5C1 3.22386 1.22386 3 1.5 3H14.5C14.7761 3 15 3.22386 15 3.5C15 3.77614 14.7761 4 14.5 4H1.5C1.22386 4 1 3.77614 1 3.5Z"/><path d="M1 7.5C1 7.22386 1.22386 7 1.5 7H14.5C14.7761 7 15 7.22386 15 7.5C15 7.77614 14.7761 8 14.5 8H1.5C1.22386 8 1 7.77614 1 7.5Z"/><path d="M1 11.5C1 11.2239 1.22386 11 1.5 11H7.99939V11.4994C7.99939 11.6716 8.02899 11.8407 8.08538 12H1.5C1.22386 12 1 11.7761 1 11.5Z"/><path d="M8.99939 9.49939V11.4994C8.99939 11.632 9.05207 11.7592 9.14584 11.8529C9.2396 11.9467 9.36678 11.9994 9.49939 11.9994H11.4994C11.632 11.9994 11.7592 11.9467 11.8529 11.8529C11.9467 11.7592 11.9994 11.632 11.9994 11.4994C11.9994 11.3668 11.9467 11.2396 11.8529 11.1458C11.7592 11.0521 11.632 10.9994 11.4994 10.9994H10.4994C10.5702 10.9049 10.6477 10.8157 10.7314 10.7324C11.2078 10.2778 11.8409 10.0242 12.4994 10.0242C13.1579 10.0242 13.791 10.2778 14.2674 10.7324C14.4996 10.9645 14.6838 11.2402 14.8095 11.5435C14.9352 11.8469 14.9999 12.172 14.9999 12.5004C14.9999 12.8287 14.9352 13.1539 14.8095 13.4573C14.6838 13.7606 14.4996 14.0362 14.2674 14.2684C13.7909 14.7227 13.1578 14.9762 12.4994 14.9762C11.841 14.9762 11.2079 14.7227 10.7314 14.2684C10.6371 14.1773 10.5108 14.1269 10.3797 14.1281C10.2486 14.1292 10.1232 14.1818 10.0305 14.2745C9.93778 14.3672 9.88519 14.4926 9.88405 14.6237C9.88291 14.7548 9.93331 14.8811 10.0244 14.9754C10.6808 15.6318 11.5711 16.0006 12.4994 16.0006C13.4277 16.0006 14.318 15.6318 14.9744 14.9754C15.6308 14.319 15.9996 13.4287 15.9996 12.5004C15.9996 11.5721 15.6308 10.6818 14.9744 10.0254C14.3075 9.38902 13.4212 9.03396 12.4994 9.03396C11.5776 9.03396 10.6912 9.38902 10.0244 10.0254L9.99939 10.0514V9.49939C9.99939 9.36678 9.94671 9.2396 9.85294 9.14584C9.75918 9.05207 9.632 8.99939 9.49939 8.99939C9.36678 8.99939 9.2396 9.05207 9.14584 9.14584C9.05207 9.2396 8.99939 9.36678 8.99939 9.49939Z"/></svg>',
   terminate: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M12.5 3.5V12.5H3.5V3.5H12.5ZM12.5 2H3.5C2.672 2 2 2.672 2 3.5V12.5C2 13.328 2.672 14 3.5 14H12.5C13.328 14 14 13.328 14 12.5V3.5C14 2.672 13.328 2 12.5 2Z"/></svg>',
+  // Copy Stack → clipboard glyph; Dump Stack → save-to-file (floppy) glyph.
+  copyStack: '<svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M4 4l1-1h5.414L14 6.586V14l-1 1H5l-1-1V4zm9 3l-3-3H5v10h8V7z"/><path d="M3 1L2 2v10l1 1V2h6.414l-1-1H3z"/></svg>',
+  dumpStack: '<svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M13.353 1.146l1.5 1.5L15 3v11.5l-.5.5h-13l-.5-.5v-13l.5-.5H13l.353.146zM2 2v12h12V3.207L12.793 2H12v5H4V2H2zm7 0v4h2V2H9z"/></svg>',
 };
 
 /**
@@ -59,6 +63,9 @@ const TOOLBAR_ICONS: Record<string, string> = {
 type DebuggerInbound =
   | { command: 'ready' }
   | { command: 'copyStack' }
+  | { command: 'dumpStackToFile' }
+  | { command: 'openDumpFile'; path: string }
+  | { command: 'copyText'; text: string }
   | { command: 'copyFrame'; level: number }
   | { command: 'selectFrame'; level: number }
   | { command: 'evalInFrame'; level: number; expr: string }
@@ -274,22 +281,81 @@ interface DisplayFrame extends FrameSummary {
 /**
  * Render a single frame for the clipboard — `<label>  <position>` (no leading
  * frame number, since a lone frame has no stack context). Pure/exported for
- * unit-testing and reuse by formatStackForClipboard.
+ * unit-testing; used by the right-click "Copy Frame" action.
  */
 export function formatFrameForClipboard(frame: FrameSummary): string {
   return frame.position ? `${frame.label}  ${frame.position}` : frame.label;
 }
 
+/** A frame plus its variable groups, for the detailed stack dump (#10/#11). */
+export interface DetailedStackFrame extends FrameSummary {
+  groups: VarGroup[];
+}
+
+const DETAIL_SEP = '---------------------------------';
+
+/** `[n] <label>  <position>` — the short-stack line shared by the summary + detail. */
+function detailFrameHeading(f: FrameSummary): string {
+  return `[${f.level}] ${formatFrameForClipboard(f)}`;
+}
+
 /**
- * Render the whole stack as plain text for the clipboard — one frame per line,
- * `<n>. <label>  <position>`, preceded by the error message. Pure and
- * exported so the copy format is unit-testable.
+ * Render the GBS-style detailed stack dump (Stage 5 #10): the short numbered
+ * stack on top, then one detail block per frame — the frame heading followed by
+ * its variable groups (Receiver / Instance variables / Arguments & Temps / stack
+ * temps), each row as `<name> = <printString>   {<oop>}`. Pure and exported so
+ * the format is unit-testable; the same text feeds both Copy Stack (clipboard)
+ * and Dump Stack (file, #11).
  */
-export function formatStackForClipboard(errorMessage: string, frames: FrameSummary[]): string {
+export function formatDetailedStack(
+  errorMessage: string, frames: DetailedStackFrame[], header?: string,
+): string {
   const lines: string[] = [];
+  if (header) lines.push(header, '');
   if (errorMessage) lines.push(`GemStone error: ${errorMessage}`, '');
-  for (const f of frames) lines.push(`${f.level}. ${formatFrameForClipboard(f)}`);
+
+  // Short stack first, so a reader sees the shape before the (long) detail.
+  for (const f of frames) lines.push(detailFrameHeading(f));
+
+  // Then a detail block per frame.
+  for (const f of frames) {
+    lines.push('', DETAIL_SEP, detailFrameHeading(f));
+    for (const g of f.groups) {
+      lines.push(`${g.title}:`);
+      if (g.vars.length === 0) {
+        lines.push('    (none)');
+        continue;
+      }
+      for (const v of g.vars) lines.push(`    ${v.name} = ${v.value}   {${v.oop}}`);
+    }
+  }
   return lines.join('\n');
+}
+
+const pad2 = (n: number): string => (n < 10 ? `0${n}` : `${n}`);
+
+/**
+ * `YYYYMMDD_HHMMSS` in local time — stable for a given Date. Leads the dump file
+ * name so the stacks folder sorts chronologically.
+ */
+export function stackDumpTimestamp(d: Date): string {
+  return `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}`
+    + `_${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`;
+}
+
+/**
+ * A safe, sortable file name for a dumped stack (#11): the timestamp FIRST (so
+ * the folder lists newest-alongside-oldest in order), then the top frame as a
+ * filename-safe token (block prefix dropped, non-alphanumerics collapsed to
+ * `-`), e.g. `[] in JasperFoo>>#bar` → `2026-06-25_153012_JasperFoo-bar.txt`.
+ */
+export function stackDumpFileName(topLabel: string, d: Date): string {
+  const token = (topLabel || '')
+    .replace(/\[\] in /g, '')
+    .replace(/[^A-Za-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'stack';
+  return `${stackDumpTimestamp(d)}_${token}.txt`;
 }
 
 /** Virtual-document scheme for read-only frame source (doits + non-symbol-list methods). */
@@ -869,11 +935,14 @@ export class DebuggerPanel {
         return;
       }
       case 'copyStack': {
-        void vscode.env.clipboard.writeText(
-          formatStackForClipboard(this.errorMessage, this.frames),
-        );
+        // Copy Stack copies the FULL (detailed) stack — short stack on top, then
+        // each frame's variable values — the same text Dump Stack writes to file.
+        void vscode.env.clipboard.writeText(this.buildDetailedStackText(new Date()));
         return;
       }
+      case 'dumpStackToFile': { void this.dumpStackToFile(); return; }
+      case 'openDumpFile': { void this.openDumpFile(msg.path); return; }
+      case 'copyText': { void vscode.env.clipboard.writeText(msg.text); return; }
       case 'copyFrame': {
         const frame = this.frames.find(f => f.level === msg.level);
         if (frame) void vscode.env.clipboard.writeText(formatFrameForClipboard(frame));
@@ -1526,6 +1595,103 @@ export class DebuggerPanel {
       groups.push({ title: '(stack temps)', kind: 'stacktemps', collapsed: true, vars: stackTemps });
     }
     return groups;
+  }
+
+  /** Variables-pane group titles, keyed by the dump row's group kind. */
+  private static readonly DUMP_GROUP_TITLES: Record<debug.StackDumpRow['group'], string> = {
+    receiver: 'Receiver',
+    instvars: 'Instance variables',
+    argtemps: 'Arguments & Temps',
+    stacktemps: '(stack temps)',
+  };
+
+  /**
+   * Gather every displayed frame's variable groups for the detailed stack dump
+   * (#10/#11) in ONE server round trip (`fetchStackDump`), then bucket the flat
+   * rows back into per-frame, per-group structure. Only run on the explicit Copy
+   * Stack / Dump Stack actions, never on the hot path. The doit emits a frame's
+   * rows contiguously in group order, so a row simply extends the current group
+   * or starts a new one.
+   */
+  private collectStackDetail(): DetailedStackFrame[] {
+    let rows: debug.StackDumpRow[] = [];
+    try {
+      rows = debug.fetchStackDump(this.session, this.gsProcess);
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+    }
+    const byLevel = new Map<number, VarGroup[]>();
+    for (const r of rows) {
+      let groups = byLevel.get(r.serverLevel);
+      if (!groups) { groups = []; byLevel.set(r.serverLevel, groups); }
+      let group = groups[groups.length - 1];
+      if (!group || group.kind !== r.group) {
+        group = {
+          title: DebuggerPanel.DUMP_GROUP_TITLES[r.group], kind: r.group, vars: [],
+          collapsed: r.group === 'stacktemps' || undefined,
+        };
+        groups.push(group);
+      }
+      group.vars.push({ name: r.name, value: r.value, oop: r.oop });
+    }
+    return this.frames.map(f => ({ ...f, groups: byLevel.get(f.serverLevel) ?? [] }));
+  }
+
+  /** The full detailed-stack text (header + short stack + per-frame variables). */
+  private buildDetailedStackText(now: Date): string {
+    const subtitle = this.sessionSubtitle();
+    const when = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())} `
+      + `${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}`;
+    const header = ['Jasper Debugger stack dump', subtitle, when].filter(Boolean).join(' — ');
+    return formatDetailedStack(this.errorMessage, this.collectStackDetail(), header);
+  }
+
+  /**
+   * Save the detailed stack (#11) to `~/.jasper/stacks/<timestamp>_<frame>.txt`
+   * (the cross-platform extension folder). It deliberately does NOT open the file
+   * — repeated dumps would pile up editor tabs — the inline path notice (with its
+   * Copy-path button) is the pointer instead. Best-effort: any failure surfaces as
+   * an error toast rather than tearing down the panel.
+   */
+  private async dumpStackToFile(): Promise<void> {
+    try {
+      const now = new Date();
+      const text = this.buildDetailedStackText(now);
+      const fileName = stackDumpFileName(this.frames[0]?.label ?? 'stack', now);
+      const dir = extensionPathFrom('stacks');
+      const filePath = path.join(dir, fileName);
+      await fs.promises.mkdir(dir, { recursive: true });
+      await fs.promises.writeFile(filePath, text, 'utf-8');
+      if (this.disposed) return;
+      // Show the saved path inline in the panel with its own Copy-path button (a
+      // full path is too long for the button itself, and selecting it by hand
+      // before it cleared was fiddly). It auto-hides after 5s.
+      this.panel.webview.postMessage({ command: 'savedNotice', path: filePath });
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      void vscode.window.showErrorMessage(
+        `Could not save the stack: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  /**
+   * Open a previously-dumped stack file in an editor — invoked when the user
+   * clicks the inline path (an explicit, on-demand action, so unlike the dump
+   * itself this DOES open a tab). Repeated clicks on the same path reuse the one
+   * editor rather than piling up.
+   */
+  private async openDumpFile(filePath: string): Promise<void> {
+    try {
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
+      if (this.disposed) return;
+      await vscode.window.showTextDocument(doc, { preview: false });
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      void vscode.window.showErrorMessage(
+        `Could not open ${filePath}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
   }
 
   /** Evaluate an expression in the selected frame and post the printString back. */
@@ -2502,18 +2668,36 @@ export class DebuggerPanel {
     .titlebar { display: flex; align-items: baseline; gap: 0.6rem; margin: 0 0 0.25rem; flex-wrap: wrap; }
     h1 { font-size: 1.3rem; margin: 0; }
     .subtitle { color: var(--vscode-descriptionForeground); font-size: 0.85rem; }
+    /* The action cluster sits together at the right; the buttons no longer each
+       grab margin-left:auto, which used to spread them apart. */
+    .titlebar-actions { margin-left: auto; display: flex; align-items: center; gap: 0.15rem; min-width: 0; }
+    /* Copy/Dump are icon-only buttons (tooltips name them), styled like the toolbar. */
     .copy-btn {
-      margin-left: auto;
-      align-self: center;
-      font-family: var(--vscode-font-family);
-      color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
-      background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
-      border: none;
-      padding: 0.2rem 0.7rem;
-      border-radius: 2px;
-      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--vscode-icon-foreground, var(--vscode-foreground));
+      background: transparent; border: none; padding: 0.3rem; border-radius: 4px; cursor: pointer;
     }
-    .copy-btn:hover { background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground)); }
+    /* pointer-events:none so hover/click land on the BUTTON (which owns the title
+       tooltip + handler), not the title-less SVG — otherwise no tooltip appears. */
+    .copy-btn svg { width: 16px; height: 16px; display: block; pointer-events: none; }
+    .copy-btn:hover { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
+    /* "Dumped to <path>  ⧉" — its OWN row under the titlebar (not in the button
+       flex row), so showing/hiding it never reflows the buttons. Right-aligned to
+       sit under the buttons; auto-hides after 5s. */
+    .save-notice { display: flex; align-items: center; justify-content: flex-end; gap: 0.3rem; min-width: 0; margin: 0 0 0.25rem; }
+    /* The path reads as a link (click opens the file in an editor). */
+    .save-path {
+      color: var(--vscode-textLink-foreground, var(--vscode-descriptionForeground)); font-size: 0.82em; min-width: 0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      user-select: text; -webkit-user-select: text; cursor: pointer;
+    }
+    .save-path:hover { text-decoration: underline; }
+    /* Small copy glyph, styled like the Variables pane's revert (↺) icon. */
+    .copy-path-icon {
+      flex: 0 0 auto; cursor: pointer; user-select: none; font-size: 0.95em;
+      color: var(--vscode-descriptionForeground); opacity: 0.8;
+    }
+    .copy-path-icon:hover { opacity: 1; color: var(--vscode-foreground); }
     .error {
       color: var(--vscode-errorForeground);
       font-family: var(--vscode-editor-font-family, monospace);
@@ -2574,7 +2758,7 @@ export class DebuggerPanel {
       background: transparent;
       border: none; padding: 0.3rem; border-radius: 4px; cursor: pointer;
     }
-    .toolbar button svg { width: 16px; height: 16px; display: block; }
+    .toolbar button svg { width: 16px; height: 16px; display: block; pointer-events: none; }
     .toolbar button:hover { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
     .toolbar button.danger { color: var(--vscode-debugIcon-stopForeground, var(--vscode-errorForeground)); }
     /* Call Stack (left) + Variables (right), divided by a draggable splitter.
@@ -2712,7 +2896,16 @@ export class DebuggerPanel {
   <div class="titlebar">
     <h1>Jasper Debugger</h1>
     <span class="subtitle">${subtitle}</span>
-    <button id="copyBtn" class="copy-btn" title="Copy the whole stack to the clipboard">Copy Stack</button>
+    <span class="titlebar-actions">
+      <button id="copyBtn" class="copy-btn" title="Copy Stack — copy the full stack (with each frame's variable values) to the clipboard" aria-label="Copy Stack">${TOOLBAR_ICONS.copyStack}</button>
+      <button id="dumpBtn" class="copy-btn" title="Dump Stack — write the full stack to a file in ~/.jasper/stacks" aria-label="Dump Stack">${TOOLBAR_ICONS.dumpStack}</button>
+    </span>
+  </div>
+  <!-- Dump-path confirmation gets its OWN row (so it never reflows the buttons),
+       right-aligned to sit under them. The path opens the file on click. -->
+  <div id="saveNotice" class="save-notice" style="display:none;">
+    <span id="savePath" class="save-path" role="button" title="Click to open this file in an editor"></span>
+    <span id="copyPathBtn" class="copy-path-icon" role="button" title="Copy the file path to the clipboard">⧉</span>
   </div>
   <div class="toolbar" id="toolbar">
     <button data-cmd="resume" title="Resume execution" aria-label="Resume execution">${TOOLBAR_ICONS.resume}</button>
@@ -2759,6 +2952,10 @@ export class DebuggerPanel {
       homeFrameItem: document.getElementById('homeFrameItem'),
       frameImplItem: document.getElementById('frameImplItem'),
       copyBtn: document.getElementById('copyBtn'),
+      dumpBtn: document.getElementById('dumpBtn'),
+      saveNotice: document.getElementById('saveNotice'),
+      savePath: document.getElementById('savePath'),
+      copyPathBtn: document.getElementById('copyPathBtn'),
       error: document.getElementById('error'),
       dnuBar: document.getElementById('dnuBar'),
       toolbar: document.getElementById('toolbar'),

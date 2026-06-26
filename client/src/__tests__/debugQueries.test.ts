@@ -790,3 +790,50 @@ describe('debugQueries', () => {
     });
   });
 });
+
+describe('parseStackDump (#10/#11 whole-stack dump payload)', () => {
+  const TAB = '\t';
+  const line = (...fields: string[]) => fields.join(TAB);
+
+  it('parses level / group / name / value / oop from each tab-separated line', () => {
+    const payload = [
+      line('1', 'receiver', 'self', 'a JasperFoo', '100'),
+      line('1', 'instvars', 'count', '7', '14'),
+      line('2', 'argtemps', 'x', 'nil', '20'),
+    ].join('\n');
+
+    expect(debug.parseStackDump(payload)).toEqual([
+      { serverLevel: 1, group: 'receiver', name: 'self', value: 'a JasperFoo', oop: '100' },
+      { serverLevel: 1, group: 'instvars', name: 'count', value: '7', oop: '14' },
+      { serverLevel: 2, group: 'argtemps', name: 'x', value: 'nil', oop: '20' },
+    ]);
+  });
+
+  it('un-escapes \\\\ \\t \\n \\r in name and value (so printStrings can hold delimiters/newlines)', () => {
+    // value carries an escaped tab, newline, CR and backslash — none break framing.
+    const payload = line('3', 'argtemps', 'aString', "a\\tb\\nc\\rd\\\\e", '42');
+    const [row] = debug.parseStackDump(payload);
+    expect(row.value).toBe('a\tb\nc\rd\\e');
+    expect(row.serverLevel).toBe(3);
+  });
+
+  it('skips blank lines and malformed records (fewer than 5 fields)', () => {
+    const payload = ['', line('1', 'receiver', 'self', 'x', '1'), 'junk\twith\tthree', ''].join('\n');
+    expect(debug.parseStackDump(payload)).toEqual([
+      { serverLevel: 1, group: 'receiver', name: 'self', value: 'x', oop: '1' },
+    ]);
+  });
+
+  it('returns [] for empty input', () => {
+    expect(debug.parseStackDump('')).toEqual([]);
+  });
+
+  it('round-trips non-ASCII names/values without corruption', () => {
+    // Unicode class/var names and accented printString content must survive
+    // (the escaper only touches \\ \t \n \r, so these pass through untouched).
+    const rec = ['1', 'instvars', 'café', 'a Größe «42» — €', '99'].join('\t');
+    expect(debug.parseStackDump(rec)).toEqual([
+      { serverLevel: 1, group: 'instvars', name: 'café', value: 'a Größe «42» — €', oop: '99' },
+    ]);
+  });
+});

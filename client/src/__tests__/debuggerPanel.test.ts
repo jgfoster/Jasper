@@ -2,6 +2,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('vscode', () => import('../__mocks__/vscode'));
 
+// Keep real `fs` (debuggerPanel reads debuggerView.js via readFileSync at import
+// time) but stub the dump's writes so Save-to-File tests do no real disk IO.
+vi.mock('fs', async () => {
+  const actual = await vi.importActual<typeof import('fs')>('fs');
+  return {
+    ...actual,
+    promises: { ...actual.promises, writeFile: vi.fn(async () => {}), mkdir: vi.fn(async () => {}) },
+  };
+});
+
 // A controlled five-frame stack, modelled on `JasperDebugDemo new run`:
 //   level 1 — a block frame in JasperDebugDemo>>finish
 //   level 2 — an inherited method: receiver is a SmallInteger, halt is in Object
@@ -63,6 +73,12 @@ vi.mock('../debugQueries', () => ({
   // Implement-in-receiver (override): the receiver's inheritance chain (default
   // is a single class → no QuickPick; tests override it for the multi-class case).
   getReceiverClassChain: vi.fn(() => [{ className: 'SmallInteger', isMeta: false, dictName: 'Globals' }]),
+  // Whole-stack dump (#10/#11): one batched call. Default = a Receiver row per
+  // frame whose printString/oop mirror the per-frame receiverOop (level * 100).
+  fetchStackDump: vi.fn(() => [1, 2, 3, 4, 5].map(l => ({
+    serverLevel: l, group: 'receiver' as const, name: 'self',
+    value: `<print ${l * 100}>`, oop: `${l * 100}`,
+  }))),
 }));
 
 // Clicking a variable row opens a GT Inspector — stub the static entry point.
@@ -77,12 +93,15 @@ vi.mock('../browserQueries', () => ({
 }));
 
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import * as debug from '../debugQueries';
 import {
   DebuggerPanel, formatFrameLabel, formatFramePosition, buildMethodStub, selectorArgCount,
-  formatFrameForClipboard, formatStackForClipboard, buildMethodSourceUri,
+  formatFrameForClipboard, buildMethodSourceUri,
   filterStack, isExceptionMachinery, RawFrame,
   flattenLayoutLeaves, sourceRatioFromLayout, setSourceRatioInLayout, EditorGroupLayout,
+  formatDetailedStack, stackDumpFileName, stackDumpTimestamp, DetailedStackFrame,
 } from '../debuggerPanel';
 import { wrapWithTranscriptCapture, TRANSCRIPT_CAPTURE_PREFIX } from '../transcriptCapture';
 import { GtInspector } from '../gtInspector';
@@ -276,27 +295,102 @@ describe('formatFrameForClipboard', () => {
   });
 });
 
-describe('formatStackForClipboard', () => {
-  const frames = [
-    { level: 1, label: 'A>>#x', position: '@2 line 3' },
-    { level: 2, label: 'B>>#y', position: '' },
+describe('formatDetailedStack (#10)', () => {
+  const frames: DetailedStackFrame[] = [
+    {
+      level: 1, label: 'JasperFoo>>#bar', position: '@2 line 3',
+      groups: [
+        { title: 'Receiver', kind: 'receiver', vars: [{ name: 'self', value: 'a JasperFoo', oop: '100' }] },
+        { title: 'Instance variables', kind: 'instvars', vars: [{ name: 'count', value: '7', oop: '14', edit: { kind: 'instvar', index: 1 } }] },
+        { title: 'Arguments & Temps', kind: 'argtemps', vars: [{ name: 'x', value: 'nil', oop: '20', edit: { kind: 'temp', index: 1 } }] },
+      ],
+    },
+    {
+      level: 2, label: 'JasperFoo>>#run', position: '',
+      groups: [
+        { title: 'Receiver', kind: 'receiver', vars: [{ name: 'self', value: 'a JasperFoo', oop: '100' }] },
+      ],
+    },
   ];
 
-  it('renders an error header followed by numbered frames with positions', () => {
-    expect(formatStackForClipboard('boom', frames)).toBe(
-      ['GemStone error: boom', '', '1. A>>#x  @2 line 3', '2. B>>#y'].join('\n'),
-    );
+  it('puts the short numbered stack first, then a detail block per frame', () => {
+    const out = formatDetailedStack('boom', frames).split('\n');
+    // Header (error) then the SHORT stack — both frames — before any detail.
+    expect(out.slice(0, 4)).toEqual([
+      'GemStone error: boom', '', '[1] JasperFoo>>#bar  @2 line 3', '[2] JasperFoo>>#run',
+    ]);
+    // A separator + repeated heading introduces each detail block.
+    expect(out).toContain('---------------------------------');
+    const firstSep = out.indexOf('---------------------------------');
+    expect(out[firstSep + 1]).toBe('[1] JasperFoo>>#bar  @2 line 3');
   });
 
-  it('omits the error header when there is no error message', () => {
-    expect(formatStackForClipboard('', frames)).toBe(
-      ['1. A>>#x  @2 line 3', '2. B>>#y'].join('\n'),
-    );
+  it('renders each variable as "<name> = <printString>   {<oop>}" under its group', () => {
+    const out = formatDetailedStack('', frames);
+    expect(out).toContain('Receiver:');
+    expect(out).toContain('    self = a JasperFoo   {100}');
+    expect(out).toContain('Instance variables:');
+    expect(out).toContain('    count = 7   {14}');
+    expect(out).toContain('Arguments & Temps:');
+    expect(out).toContain('    x = nil   {20}');
   });
 
-  it('omits the position when a frame has none', () => {
-    expect(formatStackForClipboard('', [{ level: 1, label: 'A>>#x', position: '' }]))
-      .toBe('1. A>>#x');
+  it('shows "(none)" for a group with no rows, and an optional header line', () => {
+    const empty: DetailedStackFrame[] = [
+      { level: 1, label: 'A>>#x', position: '', groups: [{ title: 'Instance variables', kind: 'instvars', vars: [] }] },
+    ];
+    const out = formatDetailedStack('', empty, 'Jasper Debugger stack dump — For me');
+    expect(out.startsWith('Jasper Debugger stack dump — For me\n')).toBe(true);
+    expect(out).toContain('Instance variables:\n    (none)');
+  });
+
+  it('emits a frame heading with no group lines when a frame has no variable rows', () => {
+    const out = formatDetailedStack('', [{ level: 1, label: 'A>>#x', position: '', groups: [] }]);
+    // Short stack, separator, repeated heading — and nothing after it.
+    expect(out).toBe(['[1] A>>#x', '', '-'.repeat(33), '[1] A>>#x'].join('\n'));
+  });
+
+  // Golden, byte-exact rendering — locks the whole layout (spacing, separators,
+  // group order) so a stray format change can't slip through the toContain checks.
+  it('renders the exact GBS-style layout (golden)', () => {
+    expect(formatDetailedStack('a Error', frames)).toBe([
+      'GemStone error: a Error',
+      '',
+      '[1] JasperFoo>>#bar  @2 line 3',
+      '[2] JasperFoo>>#run',
+      '',
+      '-'.repeat(33),
+      '[1] JasperFoo>>#bar  @2 line 3',
+      'Receiver:',
+      '    self = a JasperFoo   {100}',
+      'Instance variables:',
+      '    count = 7   {14}',
+      'Arguments & Temps:',
+      '    x = nil   {20}',
+      '',
+      '-'.repeat(33),
+      '[2] JasperFoo>>#run',
+      'Receiver:',
+      '    self = a JasperFoo   {100}',
+    ].join('\n'));
+  });
+});
+
+describe('stackDumpFileName / stackDumpTimestamp (#11)', () => {
+  const when = new Date(2026, 5, 25, 15, 30, 12); // local 2026-06-25 15:30:12
+
+  it('formats the timestamp as YYYYMMDD_HHMMSS (local, zero-padded, no dashes)', () => {
+    expect(stackDumpTimestamp(when)).toBe('20260625_153012');
+  });
+
+  it('leads with the timestamp, then the frame token (block prefix dropped)', () => {
+    expect(stackDumpFileName('[] in JasperFoo>>#bar', when))
+      .toBe('20260625_153012_JasperFoo-bar.txt');
+  });
+
+  it('collapses non-alphanumerics and falls back to "stack" for an empty label', () => {
+    expect(stackDumpFileName('', when)).toBe('20260625_153012_stack.txt');
+    expect(stackDumpFileName('Executed Code', when)).toBe('20260625_153012_Executed-Code.txt');
   });
 });
 
@@ -433,22 +527,22 @@ describe('DebuggerPanel', () => {
       expect(html).not.toMatch(/data-cmd="resume"[^>]*>Resume</);
     });
 
-    it('writes the formatted stack to the clipboard on a copyStack message', () => {
+    it('#10 copyStack: copies the FULL stack — short stack on top, then per-frame values', () => {
       DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
       const panel = lastPanel();
       sendReady(panel);            // fetches + caches the stack
       sendMessage(panel, { command: 'copyStack' });
 
-      const expected = [
-        'GemStone error: a UndefinedObject does not understand #foo',
-        '',
-        '1. [] in JasperDebugDemo>>#finish  @2 line 12',
-        '2. SmallInteger (Object)>>#halt  @2 line 12',
-        '3. JasperDebugDemo>>#accumulateFrom:to:  @2 line 12',
-        '4. JasperDebugDemo>>#accumulateFrom:to:  @2 line 12',
-        '5. JasperDebugDemo>>#accumulateFrom:to:  @2 line 12',
-      ].join('\n');
-      expect(vscode.env.clipboard.writeText).toHaveBeenCalledWith(expected);
+      const text = vi.mocked(vscode.env.clipboard.writeText).mock.calls[0][0] as string;
+      // Header, error, then the short numbered stack ([1]..[5]) …
+      expect(text.startsWith('Jasper Debugger stack dump')).toBe(true);
+      expect(text).toContain('GemStone error: a UndefinedObject does not understand #foo');
+      expect(text).toContain('[1] [] in JasperDebugDemo>>#finish  @2 line 12');
+      expect(text).toContain('[5] JasperDebugDemo>>#accumulateFrom:to:  @2 line 12');
+      // … then a detail block: separator, repeated heading, Receiver with self + oop.
+      expect(text).toContain('---------------------------------');
+      expect(text).toContain('Receiver:');
+      expect(text).toContain('    self = <print 100>   {100}'); // frame 1 receiverOop = 100
     });
 
     it('writes a single frame (no leading number) to the clipboard on copyFrame', () => {
@@ -468,6 +562,119 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'copyFrame', level: 999 });
 
       expect(vscode.env.clipboard.writeText).not.toHaveBeenCalled();
+    });
+
+    it('#10 copyStack: assembles the batched dump rows into per-frame groups', () => {
+      // One batched fetch returns flat rows; the panel buckets them back into
+      // Receiver / Instance variables / Arguments & Temps / (stack temps).
+      vi.mocked(debug.fetchStackDump).mockReturnValueOnce([
+        { serverLevel: 1, group: 'receiver', name: 'self', value: 'a JasperDebugDemo', oop: '100' },
+        { serverLevel: 1, group: 'instvars', name: 'total', value: '42', oop: '84' },
+        { serverLevel: 1, group: 'argtemps', name: 'each', value: '7', oop: '14' },
+        { serverLevel: 1, group: 'stacktemps', name: '.t1', value: 'nil', oop: '20' },
+      ]);
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      sendMessage(panel, { command: 'copyStack' });
+
+      const text = vi.mocked(vscode.env.clipboard.writeText).mock.calls[0][0] as string;
+      expect(text).toContain('Receiver:\n    self = a JasperDebugDemo   {100}');
+      expect(text).toContain('Instance variables:\n    total = 42   {84}');
+      expect(text).toContain('Arguments & Temps:\n    each = 7   {14}');
+      expect(text).toContain('(stack temps):\n    .t1 = nil   {20}');
+    });
+
+    it('copyText: writes the given text to the clipboard (the Copy-path button)', () => {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      sendMessage(panel, { command: 'copyText', text: '/Users/me/.jasper/stacks/x.txt' });
+
+      expect(vscode.env.clipboard.writeText).toHaveBeenCalledWith('/Users/me/.jasper/stacks/x.txt');
+    });
+
+    it('#11 dumpStackToFile: writes ~/.jasper/stacks/<ts>_*.txt and posts the path notice (no tab opened)', async () => {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      sendMessage(panel, { command: 'dumpStackToFile' });
+      await tick();
+
+      // Directory ensured + file written with the detailed text.
+      expect(vi.mocked(fs.promises.mkdir)).toHaveBeenCalledWith(
+        expect.stringContaining(`${path.sep}.jasper${path.sep}stacks`), { recursive: true },
+      );
+      const [filePath, content, enc] = vi.mocked(fs.promises.writeFile).mock.calls[0] as [string, string, string];
+      // Timestamp-first name (YYYYMMDD_HHMMSS_<frame>.txt) under ~/.jasper/stacks.
+      expect(filePath).toMatch(/[/\\]\.jasper[/\\]stacks[/\\]\d{8}_\d{6}_.*\.txt$/);
+      expect(enc).toBe('utf-8');
+      expect(content).toContain('[1] [] in JasperDebugDemo>>#finish  @2 line 12');
+      expect(content).toContain('Receiver:');
+      // Does NOT open the file (repeated dumps would pile up editor tabs) …
+      expect(vscode.workspace.openTextDocument).not.toHaveBeenCalled();
+      expect(vscode.window.showTextDocument).not.toHaveBeenCalled();
+      // … the raw path is posted to the panel for the inline Copy-path notice instead.
+      expect(lastPosted(panel, 'savedNotice').path).toBe(filePath);
+      expect(vscode.window.showInformationMessage).not.toHaveBeenCalled();
+    });
+
+    it('#11 dumpStackToFile: surfaces a write failure as an error toast (no crash)', async () => {
+      vi.mocked(fs.promises.writeFile).mockRejectedValueOnce(new Error('disk full'));
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      sendMessage(panel, { command: 'dumpStackToFile' });
+      await tick();
+
+      expect(panel.dispose).not.toHaveBeenCalled();
+      expect(vi.mocked(vscode.window.showErrorMessage).mock.calls[0][0]).toContain('disk full');
+    });
+
+    // The text below "GemStone error:" — i.e. everything except the header line,
+    // which carries a wall-clock timestamp that legitimately differs run-to-run.
+    const dumpBody = (s: string) => s.slice(s.indexOf('GemStone error:'));
+
+    it('Copy Stack and Dump Stack produce identical content for the same paused state', async () => {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      sendMessage(panel, { command: 'copyStack' });
+      const copied = vi.mocked(vscode.env.clipboard.writeText).mock.calls[0][0] as string;
+      sendMessage(panel, { command: 'dumpStackToFile' });
+      await tick();
+      const dumped = vi.mocked(fs.promises.writeFile).mock.calls[0][1] as string;
+
+      // Both go through buildDetailedStackText → byte-identical apart from the
+      // header's timestamp; the stack body must never diverge between the two.
+      expect(dumpBody(copied)).toBe(dumpBody(dumped));
+    });
+
+    it('openDumpFile: opens the requested path in an editor (on-demand, a real tab)', async () => {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      sendMessage(panel, { command: 'openDumpFile', path: '/Users/me/.jasper/stacks/x.txt' });
+      await tick();
+
+      const opened = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
+      expect(opened.fsPath).toBe('/Users/me/.jasper/stacks/x.txt');
+      expect(vscode.window.showTextDocument).toHaveBeenCalledWith(
+        expect.anything(), expect.objectContaining({ preview: false }),
+      );
+    });
+
+    it('copyStack stays graceful when the batched variable fetch yields nothing', () => {
+      vi.mocked(debug.fetchStackDump).mockReturnValueOnce([]); // e.g. introspection failed
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      sendMessage(panel, { command: 'copyStack' });
+
+      const text = vi.mocked(vscode.env.clipboard.writeText).mock.calls[0][0] as string;
+      // Short stack + per-frame headings still render; just no variable groups.
+      expect(text).toContain('[1] [] in JasperDebugDemo>>#finish  @2 line 12');
+      expect(text).not.toContain('Receiver:'); // no rows → no groups, no crash
     });
   });
 
