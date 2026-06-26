@@ -5,9 +5,9 @@ import * as fs from 'fs';
 import { ActiveSession } from './sessionManager';
 import * as debug from './debugQueries';
 import * as queries from './browserQueries';
-import { unwrapTranscriptCapture } from './transcriptCapture';
+import { unwrapTranscriptCapture, transcriptCaptureUserCodeOffset } from './transcriptCapture';
 import { GtInspector } from './gtInspector';
-import { logError } from './gciLog';
+import { logError, logInfo } from './gciLog';
 import { NbCancelledError } from './nbRunner';
 
 // The webview's DOM behavior lives in a standalone file (like listFilter.js /
@@ -69,8 +69,30 @@ type DebuggerInbound =
   | { command: 'stepThrough'; level: number }
   | { command: 'restartFrame'; level: number }
   | { command: 'inspectVariable'; oop: string; name: string }
+  | { command: 'setVariable'; level: number; kind: 'instvar' | 'temp'; index: number; expr: string }
+  | { command: 'revertVariable'; level: number; kind: 'instvar' | 'temp'; index: number }
   | { command: 'createDnuMethod' }
+  | { command: 'implementInReceiver'; level: number }
+  | { command: 'implementSubclassResponsibility' }
   | { command: 'saveLayout'; stackBasis?: string; evalHeight?: string };
+
+/**
+ * What's needed to offer "Implement #<selector>" when the process is parked on a
+ * `subclassResponsibility` (T4). Detected client-side from the raw stack: the
+ * abstract method is the frame just below the `subclassResponsibility[:]` marker,
+ * so `selector`/`definingClassName` come from that frame and `senderServerLevel`
+ * is the frame below it (the caller, for re-dispatch on save). `definingClassName`
+ * bounds the implement target — you implement at-or-below the abstract class.
+ */
+interface SubclassRespInfo {
+  selector: string;
+  /** Server level of the abstract-method frame (its receiver → the implement target). */
+  abstractServerLevel: number;
+  /** Server level of the frame that called the abstract method (-1 if none). */
+  senderServerLevel: number;
+  /** The abstract method's defining class — the upper bound for the class picker. */
+  definingClassName: string;
+}
 
 /** A single variable row (name / printString / oop) sent to the webview. */
 interface VarRow {
@@ -78,6 +100,19 @@ interface VarRow {
   value: string;
   /** The variable's OOP as a decimal string (drives the dim column + GT Inspect). */
   oop: string;
+  /**
+   * When present, this row is editable via the variable evaluator (T1). Carries
+   * the server-side write target: `instvar` → `instVarAt:put:` on the receiver,
+   * `temp` → `_frameAt:tempAt:put:` on the frame. `index` is 1-based. Absent for
+   * the (non-editable) `self` receiver row.
+   */
+  edit?: { kind: 'instvar' | 'temp'; index: number };
+  /**
+   * True when this slot has been edited away from its original value this halt,
+   * so the webview shows a revert (↺) icon. Set only when true (so unchanged
+   * rows stay lean); see the per-panel undo state in DebuggerPanel.
+   */
+  revertible?: boolean;
 }
 
 /**
@@ -185,6 +220,17 @@ export function buildMethodStub(selector: string, argCount: number): string {
     + '\t^nil\n';
 }
 
+/**
+ * Argument count implied by a selector: the number of colons for a keyword
+ * selector, 1 for a binary selector (an operator like `+` / `<=`), else 0
+ * (unary). Used to stub an override whose selector comes from the frame (the
+ * DNU path instead reads the arg count off the failed send's descriptor).
+ */
+export function selectorArgCount(selector: string): number {
+  if (selector.includes(':')) return (selector.match(/:/g) ?? []).length;
+  return /^[A-Za-z_]/.test(selector) ? 0 : 1;
+}
+
 /** Minimal HTML-escape for interpolating session text into the page. */
 function escapeHtml(s: string): string {
   return s
@@ -201,6 +247,10 @@ interface FrameSummary {
   label: string;
   /** Pre-formatted `@<stepPoint> line <line>` annotation; '' when unavailable. */
   position: string;
+  /** True when the running method was inherited → offer "Implement in <receiverClass>". */
+  overridable?: boolean;
+  /** Receiver's class name, for the override menu item's label. */
+  receiverClass?: string;
 }
 
 /**
@@ -255,6 +305,16 @@ export interface RawFrame {
   selector: string;
   /** True for doit / "Executed Code" frames (no resolvable home class). */
   isExecutedCode: boolean;
+  /** Receiver's actual class name (non-block frames only); drives override detection. */
+  receiverClassName?: string;
+  /**
+   * True when the running method was INHERITED — the receiver's class differs
+   * from the method's defining class (a real, non-doit method frame). This is
+   * exactly when "Implement <selector> in <ReceiverClass>" is offered (override).
+   * The home-dictionary check (is the receiver class editable?) is deferred to
+   * click time, to keep buildFrame off the extra per-frame server round-trip.
+   */
+  overridable?: boolean;
   label: string;
   line?: number;
   stepPoint?: number;
@@ -268,8 +328,13 @@ export interface RawFrame {
 // parks in under GCI debug (MessageNotUnderstood>>defaultAction → _defaultAction →
 // _signal → signal → doesNotUnderstand: → _doesNotUnderstand:…); trimming them opens
 // the debugger on the user's frame (e.g. Executed Code) rather than this machinery.
+// `subclassResponsibility`/`subclassResponsibility:` are the abstract-method markers
+// (`subclassResponsibility` → `self error:`; the `:` form signals Error 2008 directly).
+// Trimming them opens the debugger on the abstract method itself (the frame just below,
+// e.g. `LargeNegativeInteger(Integer)>>foo`) — the method T4 offers to implement.
 const MACHINERY_SELECTORS = new Set([
   'halt', 'halt:', 'pause', 'error:', 'signal', 'signal:', 'defaultAction', '_defaultAction',
+  'subclassResponsibility', 'subclassResponsibility:',
 ]);
 // Kernel block-invocation selectors that appear as transcript-capture-wrapper
 // glue at the BOTTOM (the doit evaluates its blocks via these).
@@ -485,6 +550,67 @@ export class DebuggerPanel {
    */
   private static savedSourceRatio: number | undefined;
 
+  /**
+   * Workspace-state key + handle for reaping orphaned companion source tabs.
+   *
+   * The companion source editor is a real text-editor tab (a `gemstone://`
+   * method or our `gemstone-debug:` doc), which VS Code persists and restores
+   * across a window close — unlike the webview panel, which is dropped (we
+   * register no serializer). So if the window is closed while a debugger is
+   * open, `dispose()` → `closeSourceEditors()` can't win the shutdown race (the
+   * async tab close isn't persisted), and the source tab comes back next launch
+   * orphaned — and broken, since there's no live session to resolve `gemstone://`.
+   *
+   * Fix: keep the set of currently-open debugger source URIs in `workspaceState`
+   * (rewritten as the union of all live panels whenever it changes; emptied on
+   * clean dispose). On the next activation `initSourceTabCleanup` closes whatever
+   * is left over — exactly the tabs a window-close-with-debugger-open orphaned —
+   * then re-arms a fresh set. Tracking only our own URIs means a System Browser
+   * tab the user opened independently is never touched.
+   */
+  private static orphanState: vscode.Memento | undefined;
+  private static readonly ORPHAN_SOURCE_KEY = 'jasper.debugger.orphanSourceUris';
+
+  /**
+   * Arm orphan-source-tab cleanup for this window: close any source tab a prior
+   * session left open at window close, then re-arm a fresh (empty) set. Call once
+   * from `activate()` with `context.workspaceState`.
+   */
+  static initSourceTabCleanup(state: vscode.Memento): void {
+    DebuggerPanel.orphanState = state;
+    const orphans = state.get<string[]>(DebuggerPanel.ORPHAN_SOURCE_KEY, []);
+    // Re-arm immediately; live panels re-populate as they open source editors.
+    void state.update(DebuggerPanel.ORPHAN_SOURCE_KEY, undefined);
+    if (orphans.length === 0) return;
+    const wanted = new Set(orphans);
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        if (tab.input instanceof vscode.TabInputText && wanted.has(tab.input.uri.toString())) {
+          void vscode.window.tabGroups.close(tab);
+        }
+      }
+    }
+  }
+
+  /**
+   * Rewrite the persisted orphan set as the union of every live panel's open
+   * source URIs. Called after any panel opens/closes a source tab so the set
+   * always reflects what's currently open — if the window dies abruptly, the
+   * leftover set is exactly what needs reaping next launch. No-op until armed.
+   */
+  private static persistLiveSourceUris(): void {
+    const state = DebuggerPanel.orphanState;
+    if (!state) return;
+    const uris = new Set<string>();
+    for (const set of DebuggerPanel.panels.values()) {
+      for (const dbg of set) {
+        for (const u of dbg.shownSourceUris) uris.add(u);
+        for (const u of dbg.dnuMethodUris) uris.add(u);
+      }
+    }
+    void state.update(DebuggerPanel.ORPHAN_SOURCE_KEY, uris.size ? Array.from(uris) : undefined);
+  }
+
   private static ensureReadOnlySourceProvider(): void {
     if (DebuggerPanel.providerRegistered) return;
     DebuggerPanel.providerRegistered = true;
@@ -512,6 +638,13 @@ export class DebuggerPanel {
   private disposables: vscode.Disposable[] = [];
   /** Last fetched (filtered) stack, cached so copy/select need not re-query. */
   private frames: DisplayFrame[] = [];
+  /**
+   * The UN-filtered raw stack from the same fetch. `filterStack` collapses a
+   * doit's wrapper/block frames into a single "Executed Code" frame, discarding
+   * the frame execution actually stopped in — so the highlight path consults
+   * these to find the true stop frame (see `stopFrameLevel`).
+   */
+  private rawFrames: RawFrame[] = [];
   /** Column the companion source editor lives in, reused across frame selects. */
   private sourceColumn: vscode.ViewColumn | undefined;
   /**
@@ -558,6 +691,43 @@ export class DebuggerPanel {
   private pendingDnuMethodUri: string | undefined;
   private pendingDnuSelector: string | undefined;
   /**
+   * While an "Implement in <class>" template is being edited: the `gemstone://`
+   * URI being edited (a new-method template, or the real method when editing an
+   * existing one), the selector, and the target class (for the save message).
+   * Saving (a clean compile) just refreshes + explains — option B, no auto-trim;
+   * the new method is used on the NEXT send of the selector.
+   */
+  private pendingOverrideUri: string | undefined;
+  private pendingOverrideSelector: string | undefined;
+  /** The class the pending override is being implemented in (for the save message). */
+  private pendingOverrideTargetClass: string | undefined;
+  /** Set when the chosen target is shadowed by a more-specific subclass impl;
+   *  surfaced after save so the user understands why a new send still won't reach
+   *  the method they just implemented higher up the chain. */
+  private pendingOverrideShadowedBy: string | undefined;
+  /**
+   * Set for a T4 (subclassResponsibility) implement: the server level of the
+   * frame that SENT the abstract method (the caller). Unlike a plain override
+   * (option B), an abstract method that's on the stack won't dispatch into the
+   * new method on a bare Resume — its activation already returned to the abstract
+   * stub — so on a clean save we re-enter this sender (when re-enterable) so the
+   * send re-dispatches into the concrete method. Undefined for a normal override.
+   */
+  private pendingOverrideReEnterSenderLevel: number | undefined;
+  /**
+   * When the suspended process is parked on a `subclassResponsibility` (an abstract
+   * method that should have been overridden in a concrete subclass), the info
+   * needed to offer "Implement #<selector>" (T4). Re-detected whenever the stack is
+   * (re)fetched, undefined otherwise. Drives the webview's Implement button.
+   */
+  private subclassRespInfo: SubclassRespInfo | undefined;
+  /**
+   * Suppresses the "Implement #sel" button once a T4 implement is underway/resolved
+   * for the SAME parked subclassResponsibility (mirrors `dnuSuppressed`). Reset when
+   * a trim rebuilds the stack (a genuinely new abstract-method stop may then appear).
+   */
+  private srSuppressed = false;
+  /**
    * Suppresses the "Create #sel" button once a create is underway or resolved, so
    * it never reappears for the SAME parked doesNotUnderstand: (the method now
    * exists, but the suspended process still has the DNU frame on its stack). Reset
@@ -599,6 +769,19 @@ export class DebuggerPanel {
   private nbBusy = false;
   /** Set in dispose() so an in-flight Nb op's continuation skips touching a dead panel. */
   private disposed = false;
+
+  /**
+   * Variable-revert (single-level undo) state, scoped to the current halt.
+   * `undoOriginals` maps a slot key (`level:kind:index`) → the OOP the slot held
+   * before its FIRST edit this halt; `undoDirty` is the subset whose value still
+   * differs from that original (drives the ↺ revert icon). `undoPinned` is the
+   * non-immediate originals saved against GC via `saveObjs` — released together
+   * (never per-slot, since the export set isn't ref-counted) by clearUndoState()
+   * on any stack-mutating op and on dispose. See setVariable / revertVariable.
+   */
+  private undoOriginals = new Map<string, bigint>();
+  private undoDirty = new Set<string>();
+  private undoPinned: bigint[] = [];
 
   /**
    * @param onComplete called with the process's result oop when execution
@@ -674,6 +857,7 @@ export class DebuggerPanel {
       case 'ready': {
         this.frames = this.fetchStack();
         this.dnuInfo = this.detectDnu();
+        this.subclassRespInfo = this.detectSubclassResp();
         this.postInit();
         return;
       }
@@ -718,6 +902,18 @@ export class DebuggerPanel {
         return;
       }
       case 'createDnuMethod': { void this.createDnuMethod(); return; }
+      case 'implementInReceiver': { void this.implementInReceiver(msg.level); return; }
+      case 'implementSubclassResponsibility': { void this.implementSubclassResponsibility(); return; }
+      case 'setVariable': {
+        const frame = this.frames.find(f => f.level === msg.level);
+        this.setVariable(frame?.serverLevel, msg.kind, msg.index, msg.expr);
+        return;
+      }
+      case 'revertVariable': {
+        const frame = this.frames.find(f => f.level === msg.level);
+        this.revertVariable(frame?.serverLevel, msg.kind, msg.index);
+        return;
+      }
       case 'inspectVariable': {
         // Open the clicked variable in a GT Inspector (beside), like GT Inspect.
         // Track it so it closes with the debugger (it's an artifact of it).
@@ -744,11 +940,17 @@ export class DebuggerPanel {
       command: 'init',
       errorMessage: this.errorMessage,
       // Send only the display shape; serverLevel stays host-side.
-      stack: this.frames.map(f => ({ level: f.level, label: f.label, position: f.position })),
+      stack: this.frames.map(f => ({
+        level: f.level, label: f.label, position: f.position,
+        overridable: f.overridable, receiverClass: f.receiverClass,
+      })),
       // When parked on a doesNotUnderstand:, drive the "Create #sel in Class" button.
       dnu: this.dnuInfo
         ? { selector: this.dnuInfo.selector, className: this.dnuInfo.className, isMeta: this.dnuInfo.isMeta }
         : undefined,
+      // When parked on a subclassResponsibility, drive the "Implement #sel" button (T4).
+      // The target class is chosen via picker, so only the selector is sent.
+      subclassResp: this.subclassRespInfo ? { selector: this.subclassRespInfo.selector } : undefined,
     });
   }
 
@@ -756,6 +958,7 @@ export class DebuggerPanel {
   private refresh(): void {
     this.frames = this.fetchStack();
     this.dnuInfo = this.detectDnu();
+    this.subclassRespInfo = this.detectSubclassResp();
     this.postInit();
   }
 
@@ -776,6 +979,35 @@ export class DebuggerPanel {
       logError(this.sessionId, e instanceof Error ? e.message : String(e));
       return undefined;
     }
+  }
+
+  /**
+   * Detect whether the process is parked on a `subclassResponsibility` (T4): scan
+   * the RAW stack (pre-trim) for the `subclassResponsibility[:]` marker frame — the
+   * frame just below it is the abstract method whose selector should be implemented
+   * concretely. Client-side only (no GCI round-trip): the marker, the abstract
+   * method's selector + defining class, and the caller's level all come from frames
+   * the panel already built. Suppressed while a DNU is offered (DNU takes
+   * precedence), while a T4 template is being edited, or once resolved (srSuppressed).
+   */
+  private detectSubclassResp(): SubclassRespInfo | undefined {
+    if (this.dnuInfo || this.srSuppressed || this.pendingOverrideUri !== undefined) return undefined;
+    const raws = this.rawFrames;
+    const srIdx = raws.findIndex(
+      r => r.selector === 'subclassResponsibility' || r.selector === 'subclassResponsibility:');
+    // Need the abstract method frame just below the marker. (srIdx+1 must exist.)
+    if (srIdx === -1 || srIdx + 1 >= raws.length) return undefined;
+    const abstractFrame = raws[srIdx + 1];
+    // Only a real method can be implemented/overridden — never a block or doit.
+    if (!abstractFrame.selector || abstractFrame.isBlock || abstractFrame.isExecutedCode) return undefined;
+    if (!abstractFrame.definingClassName) return undefined;
+    const sender = raws[srIdx + 2];
+    return {
+      selector: abstractFrame.selector,
+      abstractServerLevel: abstractFrame.serverLevel,
+      senderServerLevel: sender ? sender.serverLevel : -1,
+      definingClassName: abstractFrame.definingClassName,
+    };
   }
 
   /**
@@ -822,6 +1054,7 @@ export class DebuggerPanel {
       this.pendingDnuMethodUri = uri.toString();
       this.dnuMethodUris.add(uri.toString());
       this.dnuMethodUris.add(compiledUri.toString());
+      DebuggerPanel.persistLiveSourceUris();
       this.pendingDnuSelector = dnu.selector;
       // Replace the DNU error with what-to-do guidance — the most visible spot, and
       // the next step is the user's (the original complaint was that nothing said to
@@ -841,6 +1074,275 @@ export class DebuggerPanel {
   }
 
   /**
+   * "Implement <selector> in <ReceiverClass>" (T2/T3 override): the selected
+   * frame is running a method the receiver INHERITED; open an editor to implement
+   * that selector somewhere along the receiver's inheritance chain. The candidate
+   * classes (getReceiverClassChain — the receiver's class up through Object) and
+   * the selector/arg-count come from the frame. With more than one candidate, a
+   * QuickPick lets the user choose where in the hierarchy to implement (the
+   * receiver's class is pre-selected); each entry notes its home dictionary and
+   * whether it ALREADY implements the selector.
+   *
+   * For a class that does NOT yet implement it → a pre-filled stub (reuses the
+   * create-method-from-DNU template machinery). For one that ALREADY does → its
+   * EXISTING source opens (never clobbered with a stub). Either way, on a clean
+   * save `finishOverrideMethod` re-enters the SENDER so a Resume re-dispatches the
+   * send into the new code (the frame is "reset to that method").
+   *
+   * SHADOWING: if a SUBCLASS between the receiver and the chosen target already
+   * implements the selector, method lookup for this receiver still finds that
+   * subclass method, so the re-entered frame shows the subclass — not the new
+   * one. We detect that and tell the user why. Degrades with the same in-band
+   * error help as the DNU path.
+   */
+  private async implementInReceiver(displayLevel: number): Promise<void> {
+    const frame = this.frames.find(f => f.level === displayLevel);
+    if (!frame || !frame.overridable) return;
+    const raw = this.rawFrames.find(r => r.serverLevel === frame.serverLevel);
+    const selector = raw?.selector;
+    if (!selector) return;
+
+    let receiverOop: bigint;
+    try {
+      receiverOop = debug.getFrameInfo(this.session, this.gsProcess, frame.serverLevel).receiverOop;
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      this.errorMessage = `Could not resolve the receiver of ${frame.label}.`;
+      this.postInit();
+      return;
+    }
+    // The receiver's class and every superclass up to Object — each a place the
+    // selector could be implemented, flagged with whether it already is.
+    const chain = debug.getReceiverClassChain(this.session, receiverOop, selector);
+    if (chain.length === 0) {
+      this.errorMessage = `Could not resolve the receiver's class to implement #${selector}.`;
+      this.postInit();
+      return;
+    }
+    await this.pickAndOpenImplementTemplate({
+      selector, chain, contextLabel: `${frame.label}@sv${frame.serverLevel}`,
+    });
+  }
+
+  /**
+   * "Implement #<selector>" for a `subclassResponsibility` stop (T4): the process
+   * is parked because an abstract method (a `^self subclassResponsibility` stub)
+   * was invoked on a concrete subclass that didn't override it. Offer to implement
+   * that selector concretely. Reuses the override harness (chain QuickPick + stub),
+   * with two differences from T3:
+   *  - the candidate chain is BOUNDED at the abstract method's defining class
+   *    (you implement at-or-below the abstract class, never above it — a concrete
+   *    Object/Number method would defeat the abstract contract for OTHER subclasses);
+   *  - on a clean save we re-enter the CALLER (the sender of the abstract method),
+   *    because the abstract activation already returned its stub — a bare Resume
+   *    wouldn't dispatch into the new method (see finishOverrideMethod / DNU).
+   */
+  private async implementSubclassResponsibility(): Promise<void> {
+    const info = this.subclassRespInfo;
+    if (!info) return;
+    let receiverOop: bigint;
+    try {
+      receiverOop = debug.getFrameInfo(this.session, this.gsProcess, info.abstractServerLevel).receiverOop;
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      this.errorMessage = `Could not resolve the receiver of #${info.selector}.`;
+      this.postInit();
+      return;
+    }
+    let chain = debug.getReceiverClassChain(this.session, receiverOop, info.selector);
+    // Bound the chain at the abstract method's defining class (inclusive).
+    const boundIdx = chain.findIndex(c => c.className === info.definingClassName);
+    if (boundIdx >= 0) chain = chain.slice(0, boundIdx + 1);
+    if (chain.length === 0) {
+      this.errorMessage = `Could not resolve the receiver's class to implement #${info.selector}.`;
+      this.postInit();
+      return;
+    }
+    await this.pickAndOpenImplementTemplate({
+      selector: info.selector, chain,
+      contextLabel: `subclassResponsibility #${info.selector}`,
+      reEnterSenderLevel: info.senderServerLevel,
+    });
+  }
+
+  /**
+   * Shared tail for T3 (implementInReceiver) and T4 (implementSubclassResponsibility):
+   * pick a target class from `chain` (QuickPick when >1; receiver's class
+   * pre-selected), then open an editor — a pre-filled stub for a class that doesn't
+   * implement the selector, or the EXISTING source for one that does (never
+   * clobbered). Records the pending-override state so the next clean save runs
+   * `finishOverrideMethod`. `reEnterSenderLevel` (T4 only) makes that save re-enter
+   * the caller so the send re-dispatches into the new method.
+   */
+  private async pickAndOpenImplementTemplate(opts: {
+    selector: string;
+    chain: debug.ClassHomeInfo[];
+    contextLabel: string;
+    reEnterSenderLevel?: number;
+  }): Promise<void> {
+    const { selector, chain, reEnterSenderLevel } = opts;
+    // One candidate → go straight in. Several → let the user pick where in the
+    // chain to implement (receiver's class first; each marked override vs edit).
+    logInfo(`[Jasper Debugger] implement #${selector}: chain = `
+      + chain.map(c => `${c.className}${c.implementsSelector ? '(impl)' : ''}`).join(' → '));
+    let targetIndex = 0;
+    if (chain.length > 1) {
+      const pick = await vscode.window.showQuickPick(
+        chain.map((c, i) => ({
+          label: c.className,
+          description: !c.dictName ? '(not in your symbol list)'
+            : c.implementsSelector ? `already implements #${selector} — opens it to edit (in ${c.dictName})`
+            : `implement here (in ${c.dictName})`,
+          index: i,
+        })),
+        {
+          placeHolder: `Implement #${selector} in which class? (receiver is ${chain[0].className})`,
+          // The pick is triggered from the webview, which keeps/regains focus —
+          // without this the QuickPick loses focus and auto-dismisses before the
+          // user can see it (it just flashes). Keep it open until an explicit pick.
+          ignoreFocusOut: true,
+        },
+      );
+      if (this.disposed) return;          // panel closed while the pick was open
+      if (!pick) return;                  // user cancelled — open nothing
+      targetIndex = pick.index;
+    }
+    const target = chain[targetIndex];
+    if (!target.dictName) {
+      // No home dictionary → no editable gemstone:// URI (same guard as the DNU path).
+      this.errorMessage = `Can't implement #${selector}: ${target.className} isn't in your symbol `
+        + 'list, so its source has no home dictionary. Add the class to a dictionary first.';
+      this.postInit();
+      return;
+    }
+
+    // Shadowing: the method actually used by this receiver is the FIRST class in
+    // the chain (most specific) that implements the selector. If that class is
+    // strictly below the chosen target, the new/edited target method is shadowed.
+    const activeIndex = chain.findIndex(c => c.implementsSelector);
+    const shadowedBy = activeIndex >= 0 && activeIndex < targetIndex ? chain[activeIndex].className : undefined;
+
+    // For a class that already implements the selector, open its EXISTING source
+    // (no stub → never clobber a real method). Otherwise open a pre-filled stub.
+    const editingExisting = target.implementsSelector === true;
+    const compiledUri = this.gemstoneMethodUri(target.dictName, target.className, target.isMeta, selector);
+    // selector 'new-method' is the FS provider's template URI; for an edit we open
+    // the real method URI directly. Built EXACTLY as the provider builds it (see
+    // createDnuMethod) so the close-on-dispose match works.
+    const openUri = editingExisting
+      ? compiledUri
+      : this.gemstoneMethodUri(target.dictName, target.className, target.isMeta, 'new-method');
+    logInfo(`[Jasper Debugger] implement #${selector} in ${target.className} `
+      + `(${editingExisting ? 'edit existing' : 'new method'}); from `
+      + `${opts.contextLabel}${shadowedBy ? `; shadowed by ${shadowedBy}` : ''}`
+      + `${reEnterSenderLevel !== undefined ? `; re-enter sender sv${reEnterSenderLevel}` : ''}`);
+    try {
+      await this.openTemplateEditor(
+        openUri, editingExisting ? undefined : buildMethodStub(selector, selectorArgCount(selector)));
+      this.pendingOverrideUri = openUri.toString();
+      this.pendingOverrideSelector = selector;
+      this.pendingOverrideShadowedBy = shadowedBy;
+      this.pendingOverrideTargetClass = target.className;
+      this.pendingOverrideReEnterSenderLevel = reEnterSenderLevel;
+      this.dnuMethodUris.add(openUri.toString());  // closed with the panel
+      this.dnuMethodUris.add(compiledUri.toString());
+      DebuggerPanel.persistLiveSourceUris();
+      // Banner-only guidance (NOT postInit — that re-selects the top frame and
+      // steals focus from the editor we just opened; see createDnuMethod).
+      const verb = editingExisting ? `Editing existing #${selector} in` : `Editing new method #${selector} in`;
+      // T4 (re-enter sender): the abstract method is on the stack, so the new method
+      // is reached by re-dispatching the send — not "the next send" (T3 / option B).
+      const usage = reEnterSenderLevel !== undefined
+        ? `On a clean save the call to #${selector} is re-dispatched into it (or re-run the expression).`
+        : `It's then used on the next #${selector} send.`;
+      let text = `${verb} ${target.className} below — edit the body, then save it (Ctrl+S / Cmd+S). ${usage}`;
+      if (shadowedBy) {
+        text += ` NOTE: ${shadowedBy} already implements #${selector}, so a ${chain[0].className} still `
+          + `uses ${shadowedBy}>>#${selector}, not ${target.className}'s.`;
+      }
+      this.errorMessage = text;
+      this.panel.webview.postMessage({ command: 'banner', text });
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      this.errorMessage = `Could not open a method template: ${e instanceof Error ? e.message : String(e)}`;
+      this.postInit();
+    }
+  }
+
+  /**
+   * After an implement/override method is saved (clean compile).
+   *
+   * For a plain T3 override (`reEnterSenderLevel` undefined) DON'T auto-restart
+   * anything (option B — predictable, no surprising stack jumps): the method now
+   * exists and is used on the NEXT send of the selector. The call already on the
+   * stack keeps running the method it dispatched to; the user Resumes (later sends
+   * use the new one) or re-runs. (An override's send already succeeded into the
+   * inherited method, so the current activation is legitimate.)
+   *
+   * For a T4 subclassResponsibility implement (`reEnterSenderLevel` set) the abstract
+   * activation already returned its stub, so a bare Resume would NOT dispatch into
+   * the new method — re-enter the CALLER (when it's a re-enterable method frame, like
+   * the DNU path) so a Resume re-sends the selector and finds the concrete method;
+   * for a workspace/"Executed Code" caller, tell the user to re-run the expression.
+   */
+  private async finishOverrideMethod(
+    selector: string, shadowedBy: string | undefined, targetClass: string,
+    reEnterSenderLevel?: number,
+  ): Promise<void> {
+    const sel = selector ? `#${selector}` : 'the method';
+    const inTarget = targetClass ? ` in ${targetClass}` : '';
+    // When a more-specific subclass already implements the selector, the receiver
+    // keeps using THAT method — explain why a new send still won't reach this one.
+    const shadowNote = shadowedBy
+      ? ` NOTE: ${shadowedBy} already implements ${sel}, so ${shadowedBy}>>${sel} still wins for this receiver.`
+      : '';
+
+    // T4: re-dispatch from the caller of the abstract method.
+    if (reEnterSenderLevel !== undefined) {
+      const senderRaw = reEnterSenderLevel >= 0
+        ? this.rawFrames.find(r => r.serverLevel === reEnterSenderLevel)
+        : undefined;
+      if (!senderRaw || senderRaw.isExecutedCode || reEnterSenderLevel <= 1) {
+        // Workspace/"Executed Code" (or top) caller — can't be re-entered in place
+        // (the kernel trim sends compiledMethodAt: to its nil class), so don't trim.
+        this.srSuppressed = true; // the method exists now; don't re-offer Implement
+        this.frames = this.fetchStack();
+        this.dnuInfo = this.detectDnu();
+        this.subclassRespInfo = this.detectSubclassResp();
+        this.errorMessage = `Saved ${sel}${inTarget} — re-run the expression to dispatch into the new `
+          + `method. (Resume just finishes the abstract stub, which returns the receiver.)${shadowNote}`;
+        this.postInit();
+        return;
+      }
+      // A real method caller — re-enter it (non-blocking trim) so the user's Resume
+      // re-sends the selector from a clean frame, dispatching into the new method.
+      await this.runNb('Implement method', async () => {
+        await debug.trimStackToLevelNb(this.session, this.gsProcess, reEnterSenderLevel);
+        if (this.disposed) return;
+        this.staleTopActivation = false; // the trim rebuilt the stack from a fresh activation
+        this.uncontinuable = false;
+        this.srSuppressed = false;        // fresh stack — a new abstract stop may legitimately appear
+        this.frames = this.fetchStack();
+        this.dnuInfo = this.detectDnu();
+        this.subclassRespInfo = this.detectSubclassResp();
+        this.errorMessage = `Saved ${sel}${inTarget} — re-entered the caller. Press Resume (▶) to `
+          + `re-send ${sel} into the new method, or step into it.${shadowNote}`;
+        this.postInit();
+      });
+      return;
+    }
+
+    this.dnuSuppressed = false;
+    this.frames = this.fetchStack();   // labels/source may have shifted; no trim
+    this.dnuInfo = this.detectDnu();
+    this.subclassRespInfo = this.detectSubclassResp();
+    this.errorMessage = `Saved ${sel}${inTarget} — used on the next ${sel} send. Resume (▶) to continue `
+      + '(the call now on the stack finishes with the previously-found version), or re-run the '
+      + `expression.${shadowNote}`;
+    this.postInit();
+  }
+
+  /**
    * Open a new-method template editor in the companion source group docked BELOW
    * the panel (the same place frame source opens — not Beside, which the user saw
    * as "to the side"), focused so they can type, and replace the FS provider's
@@ -848,7 +1350,7 @@ export class DebuggerPanel {
    * body). Mirrors showSourceEditor's docking so the first open splits a group
    * beneath the panel; later opens reuse that group.
    */
-  private async openTemplateEditor(uri: vscode.Uri, stub: string): Promise<vscode.TextEditor> {
+  private async openTemplateEditor(uri: vscode.Uri, stub?: string): Promise<vscode.TextEditor> {
     const firstOpen = this.sourceColumn === undefined;
     if (firstOpen) {
       try {
@@ -864,11 +1366,17 @@ export class DebuggerPanel {
     });
     this.sourceColumn = editor.viewColumn ?? this.sourceColumn;
     this.sourceEditor = editor;
-    // Replace the whole document with the pre-filled stub.
-    const lastLine = Math.max(0, editor.document.lineCount - 1);
-    const end = editor.document.lineAt(lastLine).range.end;
-    await editor.edit(b => b.replace(new vscode.Range(new vscode.Position(0, 0), end), stub));
+    // Replace the whole document with the pre-filled stub — but ONLY for a fresh
+    // template. When `stub` is omitted (implementing in a class that ALREADY has
+    // the selector), leave the FS provider's existing source so we never clobber
+    // a real method with a placeholder body.
+    if (stub !== undefined) {
+      const lastLine = Math.max(0, editor.document.lineCount - 1);
+      const end = editor.document.lineAt(lastLine).range.end;
+      await editor.edit(b => b.replace(new vscode.Range(new vscode.Position(0, 0), end), stub));
+    }
     this.shownSourceUris.add(uri.toString()); // closed with the panel
+    DebuggerPanel.persistLiveSourceUris();
     if (firstOpen) await this.applySourcePaneRatio();
     return editor;
   }
@@ -956,20 +1464,28 @@ export class DebuggerPanel {
       try { return debug.getObjectPrintString(this.session, oop); }
       catch { return '<unprintable>'; }
     };
-    const row = (name: string, oop: bigint): VarRow =>
-      ({ name, value: safePrint(oop), oop: oop.toString() });
+    const row = (name: string, oop: bigint, edit?: VarRow['edit']): VarRow => {
+      // Stamp `revertible` only when this slot has been edited away from its
+      // original this halt (the webview then shows the ↺ icon). Left undefined
+      // otherwise so unchanged rows stay lean.
+      const revertible = edit && this.undoDirty.has(this.undoKey(serverLevel, edit.kind, edit.index))
+        ? true : undefined;
+      return { name, value: safePrint(oop), oop: oop.toString(), edit, revertible };
+    };
 
     const groups: VarGroup[] = [];
 
-    // 1. Receiver — `self`.
+    // 1. Receiver — `self`. Not editable (you can't reassign a frame's receiver),
+    // so no `edit` metadata: the webview renders it read-only.
     groups.push({ title: 'Receiver', kind: 'receiver', vars: [row('self', info.receiverOop)] });
 
     // 2. Instance variables — the receiver's named instVars (none for immediates).
+    // Editable via `instVarAt:put:` (1-based index).
     try {
       const ivNames = debug.getInstVarNames(this.session, info.receiverOop);
       if (ivNames.length > 0) {
         const ivOops = debug.getNamedInstVarOops(this.session, info.receiverOop, ivNames.length);
-        const ivVars = ivNames.map((n, i) => row(n, ivOops[i]));
+        const ivVars = ivNames.map((n, i) => row(n, ivOops[i], { kind: 'instvar', index: i + 1 }));
         groups.push({ title: 'Instance variables', kind: 'instvars', vars: ivVars });
       }
     } catch (e: unknown) {
@@ -980,12 +1496,20 @@ export class DebuggerPanel {
     // `__vsc…` temps are the Transcript-capture wrapper's glue (see
     // transcriptCapture.ts); they're hidden, just like the glue is stripped from
     // an executed-code frame's source.
+    // The write primitive `_frameAt:tempAt:put:` indexes the *unfiltered*
+    // argAndTempNames array (1-based), so a NAMED temp's editable index is `i + 1`
+    // even though we drop `__vsc` glue. The synthetic `.tN` eval-stack temps are
+    // left read-only: they appear in the names array but sit past the method's
+    // declared argsAndTemps offsets, so the primitive can't address them ("method
+    // temp or arg not found"). (They stay viewable + GT-Inspectable, like `self`.)
     const named: VarRow[] = [];
     const stackTemps: VarRow[] = [];
     for (let i = 0; i < info.argAndTempNames.length; i++) {
       const name = info.argAndTempNames[i];
       if (name.startsWith('__vsc')) continue;
-      (name.startsWith('.') ? stackTemps : named).push(row(name, info.argAndTempOops[i]));
+      const isStackTemp = name.startsWith('.');
+      const r = row(name, info.argAndTempOops[i], isStackTemp ? undefined : { kind: 'temp', index: i + 1 });
+      (isStackTemp ? stackTemps : named).push(r);
     }
     if (named.length > 0) {
       groups.push({ title: 'Arguments & Temps', kind: 'argtemps', vars: named });
@@ -1010,6 +1534,120 @@ export class DebuggerPanel {
     this.panel.webview.postMessage({ command: 'evalResult', expr, value, isError });
   }
 
+  /**
+   * Assign a variable from the variable evaluator (T1): evaluate `expr` in the
+   * frame, then write the resulting object into the receiver's instVar or the
+   * frame's temp. On success, re-fetch ALL variables so every row's printString,
+   * OOP (dim column) and GT-Inspect target reflect the new object — the old OOP
+   * is stale once the slot points at a different object. On a compile/runtime
+   * error nothing is written and the error is sent back so the webview keeps the
+   * editor open.
+   */
+  private setVariable(
+    serverLevel: number | undefined, kind: 'instvar' | 'temp', index: number, expr: string,
+  ): void {
+    if (serverLevel == null) return;
+    // Writing is a blocking GCI perform; refuse while a non-blocking step/trim
+    // owns the session's single in-flight call.
+    if (this.nbBusy) {
+      this.notifyBusy('Set variable');
+      this.panel.webview.postMessage({ command: 'setVariableResult', ok: false, error: 'Busy — try again' });
+      return;
+    }
+    try {
+      const valueOop = debug.evaluateInFrameToOop(this.session, this.gsProcess, expr, serverLevel);
+      const info = debug.getFrameInfo(this.session, this.gsProcess, serverLevel);
+      // Capture + pin the slot's pre-edit value BEFORE overwriting it (first edit
+      // only), so revert can restore the exact original object.
+      this.captureUndoOriginal(serverLevel, kind, index, info);
+      if (kind === 'instvar') {
+        debug.setInstVar(this.session, info.receiverOop, index, valueOop);
+      } else {
+        debug.setFrameTemp(this.session, this.gsProcess, serverLevel, index, valueOop);
+      }
+      this.undoDirty.add(this.undoKey(serverLevel, kind, index));
+      this.panel.webview.postMessage({ command: 'setVariableResult', ok: true });
+      this.postVariables(serverLevel);
+    } catch (e: unknown) {
+      const error = e instanceof Error ? e.message : String(e);
+      logError(this.sessionId, error);
+      this.panel.webview.postMessage({ command: 'setVariableResult', ok: false, error });
+    }
+  }
+
+  private undoKey(level: number, kind: 'instvar' | 'temp', index: number): string {
+    return `${level}:${kind}:${index}`;
+  }
+
+  /**
+   * Record (once per slot, this halt) the value a slot holds before its first
+   * edit, and pin it against GC so revert can write the exact original object
+   * back. Immediates aren't pinned (they can't be collected). `info` is the
+   * already-fetched frame contents for `level`.
+   */
+  private captureUndoOriginal(
+    level: number, kind: 'instvar' | 'temp', index: number, info: debug.FrameInfo,
+  ): void {
+    const key = this.undoKey(level, kind, index);
+    if (this.undoOriginals.has(key)) return; // keep the FIRST original
+    const originalOop = kind === 'instvar'
+      ? debug.getInstVarOop(this.session, info.receiverOop, index)
+      : info.argAndTempOops[index - 1];
+    if (originalOop === undefined) return; // defensive: nothing to remember
+    this.undoOriginals.set(key, originalOop);
+    if (!debug.isSpecialOop(this.session, originalOop)) {
+      debug.saveObjs(this.session, [originalOop]);
+      this.undoPinned.push(originalOop);
+    }
+  }
+
+  /**
+   * Revert a slot to the value it held before its first edit this halt (the ↺
+   * icon). Writes the stored original OOP straight back (no re-evaluation), then
+   * refreshes — the row is no longer dirty, so the icon disappears. The pin is
+   * NOT released here (the slot re-references the object anyway); pins are freed
+   * en masse by clearUndoState(). No-op if the slot has no stored original.
+   */
+  private revertVariable(
+    serverLevel: number | undefined, kind: 'instvar' | 'temp', index: number,
+  ): void {
+    if (serverLevel == null) return;
+    const key = this.undoKey(serverLevel, kind, index);
+    const originalOop = this.undoOriginals.get(key);
+    if (originalOop === undefined) return; // nothing recorded for this slot
+    // A blocking write can't share the session with an in-flight non-blocking op.
+    if (this.nbBusy) { this.notifyBusy('Revert variable'); return; }
+    try {
+      if (kind === 'instvar') {
+        const receiverOop = debug.getFrameInfo(this.session, this.gsProcess, serverLevel).receiverOop;
+        debug.setInstVar(this.session, receiverOop, index, originalOop);
+      } else {
+        debug.setFrameTemp(this.session, this.gsProcess, serverLevel, index, originalOop);
+      }
+      this.undoDirty.delete(key);
+      this.postVariables(serverLevel);
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /**
+   * Drop all variable-revert state and release every pinned original. Called on
+   * any stack-mutating op (step / resume / restart) and on dispose — once the
+   * stack moves, the stored `{level,index}` slots are no longer valid, and we
+   * must not leak the session's export set. Best-effort release (a failure here
+   * must not break dispose).
+   */
+  private clearUndoState(): void {
+    if (this.undoPinned.length > 0) {
+      try { debug.releaseObjs(this.session, this.undoPinned); }
+      catch (e: unknown) { logError(this.sessionId, e instanceof Error ? e.message : String(e)); }
+    }
+    this.undoPinned = [];
+    this.undoOriginals.clear();
+    this.undoDirty.clear();
+  }
+
   /** Resume execution: closes the panel if the process completes, else refreshes on the new error. */
   private resume(): void {
     if (this.guardStaleTopActivation('Resume')) return;
@@ -1022,6 +1660,8 @@ export class DebuggerPanel {
       this.notifyBusy('Resume');
       return;
     }
+    // Leaving this halt: drop revert state + release pinned originals.
+    this.clearUndoState();
     const result = debug.continueExecution(this.session, this.gsProcess);
     if (result.completed) {
       this.onCompleted(result);
@@ -1096,6 +1736,15 @@ export class DebuggerPanel {
    * user expects from one Step Over. Stepping from level 1 would instead crawl
    * one step point at a time through the hidden machinery.
    *
+   * For a collapsed "Executed Code" doit frame, the displayed level is the
+   * DEEPEST doit frame (the doit home), but for wrapped code (Display It /
+   * Execute It / Inspect It) the halt is in a nested wrapper block ABOVE it.
+   * Stepping from the doit-home level would step OVER the whole user block —
+   * running every remaining statement to completion in one Step (the step-at-
+   * halt bug: a single Step ran the process to the end). So we step from the
+   * TRUE stop frame (the same `stopFrameLevel` the highlight uses) — one Step
+   * then advances one user statement, never auto-completing past a halt.
+   *
    * Requires native code OFF (codeExecutor toggles it before a debuggable run;
    * the panel holds it off while open) — GemStone can't step native code (error
    * 6014). If a step still hits that, we surface a clear message rather than
@@ -1108,8 +1757,17 @@ export class DebuggerPanel {
       : command === 'stepInto' ? debug.stepIntoNb
         : debug.stepThruNb; // "Through" == gciStepThru
     const frame = this.frames.find(f => f.level === displayLevel) ?? this.frames[0];
-    const level = frame?.serverLevel ?? 1;
+    let level = frame?.serverLevel ?? 1;
+    // Redirect a step on a collapsed doit frame to its true stop frame (the
+    // nested wrapper block where the halt actually is), or one Step at a halt
+    // steps over the entire user block to completion. Mirrors revealFrameSource.
+    if (frame?.isExecutedCode) {
+      const raw = this.rawFrames.find(r => r.serverLevel === frame.serverLevel);
+      if (raw) level = this.stopFrameLevel(raw.homeMethodOop, frame.serverLevel);
+    }
     await this.runNb('Step', async () => {
+      // Stepping moves the stack → the prior halt's revert slots are now invalid.
+      this.clearUndoState();
       // Non-blocking + cancellable: a step that crawls hidden machinery or steps
       // a looping method no longer freezes the extension host (see nbRunner.ts).
       const result = await fn(this.session, this.gsProcess, level);
@@ -1210,6 +1868,8 @@ export class DebuggerPanel {
       return;
     }
     await this.runNb('Restart frame', async () => {
+      // The trim rebuilds the stack → revert slots no longer apply.
+      this.clearUndoState();
       await debug.trimStackToLevelNb(this.session, this.gsProcess, serverLevel);
       if (this.disposed) return;
       this.staleTopActivation = false; // the trim discarded any stale top activation
@@ -1244,6 +1904,24 @@ export class DebuggerPanel {
       this.pendingDnuSelector = undefined;
       this.dnuInfo = undefined; // the method now exists
       this.finishDnuMethod(selector);
+      return;
+    }
+
+    // Implement-in-receiver (override): saving the template creates the method in
+    // the chosen class; on a clean compile we just refresh + explain (no trim —
+    // option B). A bad compile keeps the pending state for a re-save.
+    if (this.pendingOverrideUri !== undefined && doc.uri.toString() === this.pendingOverrideUri) {
+      if (this.recompileFailed(doc.uri)) return;
+      const selector = this.pendingOverrideSelector ?? '';
+      const shadowedBy = this.pendingOverrideShadowedBy;
+      const targetClass = this.pendingOverrideTargetClass ?? '';
+      const reEnterSenderLevel = this.pendingOverrideReEnterSenderLevel;
+      this.pendingOverrideUri = undefined;
+      this.pendingOverrideSelector = undefined;
+      this.pendingOverrideShadowedBy = undefined;
+      this.pendingOverrideTargetClass = undefined;
+      this.pendingOverrideReEnterSenderLevel = undefined;
+      void this.finishOverrideMethod(selector, shadowedBy, targetClass, reEnterSenderLevel);
       return;
     }
 
@@ -1319,11 +1997,14 @@ export class DebuggerPanel {
 
       let uri: vscode.Uri;
       let methodForOffsets: { className: string; isMeta: boolean; selector: string } | undefined;
-      // For a read-only view we can still highlight the step point IF the
-      // displayed source matches the server's method source 1:1 (a raw Debug It
-      // doit). Set to the frame's method OOP in that case; left undefined when
-      // the source was unwrapped (offsets would point into the wrapped source).
+      // For a read-only view we still highlight the step point from the frame's
+      // method OOP. The server's step-point offsets are in the stored source's
+      // coordinates; when the displayed source was unwrapped from the Transcript-
+      // capture glue (Display It / Execute It / Inspect It), shift them by the
+      // stripped prefix so they land in the user code. `readOnlyOffsetShift` is 0
+      // for a raw Debug It / non-symbol-list method shown 1:1.
       let readOnlyOffsetMethodOop: bigint | undefined;
+      let readOnlyOffsetShift = 0;
       if (home.uriInfo) {
         // In the symbol list → the real editable gemstone:// editor.
         uri = vscode.Uri.parse(buildMethodSourceUri(this.session.id, home.uriInfo));
@@ -1347,11 +2028,12 @@ export class DebuggerPanel {
         // line up. (This mirrors the editable path, which uses home offsets.)
         const rawSource = debug.getMethodSource(this.session, homeMethodOop);
         const source = unwrapTranscriptCapture(rawSource);
-        // If unwrapping was a no-op the displayed source is the server source,
-        // so the server's step-point offsets map onto it directly (Debug It).
-        // If it stripped a wrapper, the offsets refer to the wrapped source and
-        // would mis-highlight, so leave highlighting off (as before).
-        if (source === rawSource) readOnlyOffsetMethodOop = homeMethodOop;
+        // Highlight from the home method's offsets, shifted into the displayed
+        // source's coordinates. The shift is 0 when nothing was unwrapped (the
+        // displayed source IS the server source — a raw Debug It), and the
+        // stripped-prefix length when the Transcript-capture glue was removed.
+        readOnlyOffsetMethodOop = homeMethodOop;
+        readOnlyOffsetShift = transcriptCaptureUserCodeOffset(rawSource);
         const title = home.isExecutedCode ? 'Executed Code' : `${home.definingClassName}>>#${home.selector}`;
         uri = DebuggerPanel.stashReadOnlySource(this.session.id, homeMethodOop, title, source);
         this.stashedSourceKeys.add(uri.toString());
@@ -1359,14 +2041,27 @@ export class DebuggerPanel {
 
       const editor = await this.showSourceEditor(uri);
 
+      // For a collapsed "Executed Code" doit frame, the displayed level is the
+      // deepest doit frame, but execution actually stopped in a nested wrapper
+      // block above it (Display It / Execute It / Inspect It). Query the step
+      // point from the true stop frame so the marker lands on the user's halt
+      // rather than the wrapper glue. Other frames show un-collapsed, so they
+      // stop where they display (highlightLevel === level).
+      const highlightLevel = home.isExecutedCode ? this.stopFrameLevel(homeMethodOop, level) : level;
+      let highlightInfo = info;
+      if (highlightLevel !== level) {
+        try { highlightInfo = debug.getFrameInfo(this.session, this.gsProcess, highlightLevel); }
+        catch { /* keep the displayed frame's info for the line fallback */ }
+      }
+
       // Highlight the current step point: from class>>selector offsets for an
-      // editable method, or from the method OOP for an un-wrapped read-only doit
-      // (Debug It). A wrapped/unwrappable read-only view stays un-highlighted —
-      // its offsets wouldn't line up with the displayed source.
+      // editable method, or from the method OOP for a read-only doit — shifting
+      // the offsets into the displayed source when the Transcript-capture glue
+      // was stripped (Display It / Execute It / Inspect It).
       const range = methodForOffsets
-        ? this.stepPointRange(editor.document, info, level, methodForOffsets)
+        ? this.stepPointRange(editor.document, highlightInfo, highlightLevel, methodForOffsets)
         : readOnlyOffsetMethodOop !== undefined
-          ? this.stepPointRange(editor.document, info, level, undefined, readOnlyOffsetMethodOop)
+          ? this.stepPointRange(editor.document, highlightInfo, highlightLevel, undefined, readOnlyOffsetMethodOop, readOnlyOffsetShift)
           : undefined;
       // Clear a stale highlight if the source moved to a different editor.
       if (this.decoratedEditor && this.decoratedEditor !== editor) {
@@ -1406,6 +2101,7 @@ export class DebuggerPanel {
       preserveFocus: true,
     });
     this.shownSourceUris.add(uri.toString()); // closed with the panel (see dispose)
+    DebuggerPanel.persistLiveSourceUris();
     this.sourceColumn = editor.viewColumn ?? this.sourceColumn;
     this.sourceEditor = editor; // live .viewColumn used at close time (see field doc)
     // Size the brand-new source group: re-apply the user's remembered ratio (or
@@ -1473,6 +2169,27 @@ export class DebuggerPanel {
   }
 
   /**
+   * The server level of the frame execution actually stopped in, for a collapsed
+   * "Executed Code" doit frame. `filterStack` keeps only the DEEPEST executed-code
+   * frame (the doit home), but for wrapped code (Display It / Execute It / Inspect
+   * It) the halt is in a nested wrapper block ABOVE it. All of the doit's frames —
+   * the wrapper blocks and the doit home — share its `homeMethodOop`, while
+   * machinery and unrelated user-method frames do not, so the stop frame is the
+   * TOPMOST raw frame (lowest server level) with that home method.
+   *
+   * Resolves to the doit home itself when nothing nests above it (a raw Debug It,
+   * or a doit that just called into a user method), and to `fallbackLevel` if the
+   * raws are unavailable — so the caller can use it unconditionally.
+   */
+  private stopFrameLevel(homeMethodOop: bigint, fallbackLevel: number): number {
+    // rawFrames is in server order (top first), so the first match is the topmost.
+    for (const r of this.rawFrames) {
+      if (r.homeMethodOop === homeMethodOop) return r.serverLevel;
+    }
+    return fallbackLevel;
+  }
+
+  /**
    * The range to highlight for a frame's current step point — just the token at
    * the step point, NOT the whole line. Prefers the exact step-point character
    * offset (`getSourceOffsets`, available for class>>selector methods); falls
@@ -1485,13 +2202,15 @@ export class DebuggerPanel {
     level: number,
     method: { className: string; isMeta: boolean; selector: string } | undefined,
     readOnlyMethodOop?: bigint,
+    readOnlyOffsetShift = 0,
   ): vscode.Range | undefined {
     let pos: vscode.Position | undefined;
 
     // Exact step-point offset → the precise sub-expression start. The offsets
     // come from class>>selector for an editable method, or straight from the
-    // method OOP for a raw doit (Debug It), whose displayed source matches the
-    // server source 1:1 so the offsets line up.
+    // method OOP for a read-only doit. For a doit shown with its Transcript-
+    // capture glue stripped, the offsets are in the stored (wrapped) source's
+    // coordinates, so shift them into the displayed source.
     if (method || readOnlyMethodOop !== undefined) {
       try {
         const stepPoint = debug.getStepPoint(this.session, this.gsProcess, level);
@@ -1503,13 +2222,20 @@ export class DebuggerPanel {
             ? queries.getSourceOffsets(this.session, method.className, method.isMeta, method.selector)
             : debug.getSourceOffsetsForMethod(this.session, readOnlyMethodOop!);
           const offset = offsets[stepPoint - 1];
-          if (offset != null && offset >= 1 && doc.positionAt) pos = doc.positionAt(offset - 1);
+          const displayOffset = offset != null ? offset - 1 - readOnlyOffsetShift : -1;
+          // A negative offset means the step point sits before the displayed
+          // source (in the stripped Transcript-capture prefix) — skip it rather
+          // than let positionAt clamp the highlight to the document start.
+          if (displayOffset >= 0 && doc.positionAt) pos = doc.positionAt(displayOffset);
         }
       } catch { /* best-effort; fall back to the IP line below */ }
     }
 
-    // Fallback: the first non-whitespace token of the IP's source line.
-    if (!pos) {
+    // Fallback: the first non-whitespace token of the IP's source line. Only
+    // valid when the displayed source's line numbering matches the server's —
+    // i.e. an editable method or a 1:1 read-only doit. A stripped wrapper shifts
+    // every line, so skip the fallback there (the offset path above is exact).
+    if (!pos && readOnlyOffsetShift === 0) {
       let line = 0;
       try { line = debug.getLineForIp(this.session, info.methodOop, info.ipOffset); } catch { /* */ }
       if (line > 0) {
@@ -1539,8 +2265,10 @@ export class DebuggerPanel {
       }
     } catch (e: unknown) {
       logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      this.rawFrames = [];
       return [];
     }
+    this.rawFrames = raws; // retained for stopFrameLevel (pre-collapse lookup)
     // Trim machinery/wrapper glue, then renumber the survivors 1..N for display
     // while keeping each one's real server level for subsequent queries.
     return filterStack(raws).map((r, i) => ({
@@ -1548,6 +2276,8 @@ export class DebuggerPanel {
       serverLevel: r.serverLevel,
       label: r.label,
       isExecutedCode: r.isExecutedCode,
+      overridable: r.overridable,
+      receiverClass: r.receiverClassName,
       // Executed-code frames have no meaningful step point/line once unwrapped (#3).
       position: r.isExecutedCode ? '' : formatFramePosition(r.stepPoint, r.line),
     }));
@@ -1586,11 +2316,11 @@ export class DebuggerPanel {
     const home = this.resolveHomeMethod(homeMethodOop);
 
     let label: string;
+    let receiverClass: string | undefined;
     if (home.definingClassName) {
       const definingClass = `${home.definingClassName}${home.isMeta ? ' class' : ''}`;
       // Receiver class drives the `Receiver (Defining)` disambiguation for
       // inherited methods (non-block frames only — see formatFrameLabel).
-      let receiverClass: string | undefined;
       if (!isBlock) {
         try {
           receiverClass = debug.getObjectClassName(this.session, info.receiverOop);
@@ -1601,6 +2331,13 @@ export class DebuggerPanel {
       label = 'Executed Code';
     }
     const isExecutedCode = home.isExecutedCode;
+    // The running method was inherited iff the receiver's class differs from the
+    // method's defining class — the precise condition for offering "Implement in
+    // <ReceiverClass>" (override). (getObjectClassName returns "Foo class" for a
+    // class receiver, so a class-side inherited method qualifies too.)
+    const overridable = !isBlock && !isExecutedCode && !!receiverClass
+      && receiverClass !== home.definingClassName
+      && receiverClass !== `${home.definingClassName} class`;
 
     let line: number | undefined;
     try {
@@ -1615,7 +2352,7 @@ export class DebuggerPanel {
     return {
       serverLevel: level, methodOop: info.methodOop, homeMethodOop, isBlock,
       definingClassName: home.definingClassName, selector: home.selector,
-      isExecutedCode, label, line, stepPoint,
+      isExecutedCode, receiverClassName: receiverClass, overridable, label, line, stepPoint,
     };
   }
 
@@ -1837,12 +2574,48 @@ export class DebuggerPanel {
     .var-group.collapsed .var-group-body { display: none; }
     .vars .var {
       padding: 0.15rem 0.2rem; display: flex; gap: 0.5rem; align-items: baseline;
-      cursor: pointer; border-radius: 3px;
+      cursor: default; border-radius: 3px;
     }
+    /* Only editable rows invite a click (left-click opens the variable evaluator);
+       the pointer cursor signals they're interactive. */
+    .vars .var.editable { cursor: pointer; }
+    /* While editing, let the error message wrap onto its own line under the input. */
+    .vars .var.editing { flex-wrap: wrap; }
     .vars .var:hover { background: var(--vscode-list-hoverBackground); }
+    /* Inline variable evaluator: replaces the value cell in place, prefilled with
+       the printString. .error flags a rejected (compile/runtime) expression. */
+    .vars .var-edit {
+      flex: 1 1 auto; min-width: 0; box-sizing: border-box; user-select: text; -webkit-user-select: text;
+      font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85em;
+      color: var(--vscode-input-foreground); background: var(--vscode-input-background);
+      border: 1px solid var(--vscode-focusBorder, var(--vscode-input-border, transparent));
+      padding: 0.05rem 0.25rem; border-radius: 2px;
+    }
+    .vars .var-edit.error {
+      border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+      background: var(--vscode-inputValidation-errorBackground, var(--vscode-input-background));
+      outline: 1px solid var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+    }
+    /* The rejected-expression message, on its own line below the input.
+       Selectable so the user can copy the real error text. */
+    .vars .var-edit-error {
+      flex: 1 0 100%; margin-top: 0.15rem; padding-left: 0.1rem;
+      color: var(--vscode-errorForeground); font-size: 0.78em; white-space: pre-wrap; word-break: break-word;
+      user-select: text; -webkit-user-select: text; cursor: text;
+    }
     .vars .var-name { color: var(--vscode-symbolIcon-variableForeground, var(--vscode-foreground)); white-space: nowrap; flex: 0 0 auto; }
     .vars .var-name.self { font-style: italic; }
-    .vars .var-value { color: var(--vscode-descriptionForeground); white-space: pre; overflow: hidden; text-overflow: ellipsis; flex: 1 1 auto; }
+    /* The value hugs its content (shrink-and-ellipsize, not grow) so the revert
+       icon can sit right after it; min-width:0 lets the ellipsis kick in. */
+    .vars .var-value { color: var(--vscode-descriptionForeground); white-space: pre; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 0; }
+    /* Revert (↺) icon on an edited row — immediately to the right of the value.
+       A long printString ellipsizes (the value shrinks), so the icon stays glued
+       to the value and never scrolls off; the dim OOP stays pinned far right. */
+    .vars .var-revert {
+      flex: 0 0 auto; cursor: pointer; user-select: none;
+      color: var(--vscode-descriptionForeground); opacity: 0.8;
+    }
+    .vars .var-revert:hover { opacity: 1; color: var(--vscode-foreground); }
     /* OOP shown dim at the row end, matching the GT Inspector header convention. */
     .vars .var-oop {
       flex: 0 0 auto; margin-left: auto; white-space: nowrap;
@@ -1904,6 +2677,10 @@ export class DebuggerPanel {
   </div>
   <div id="ctxmenu" class="ctx-menu" role="menu">
     <div class="ctx-item" id="copyFrameItem" role="menuitem">Copy Frame</div>
+    <div class="ctx-item" id="frameImplItem" role="menuitem" style="display:none;">Implement in…</div>
+  </div>
+  <div id="varctxmenu" class="ctx-menu" role="menu">
+    <div class="ctx-item" id="varInspectItem" role="menuitem">GT Inspect</div>
   </div>
   <script nonce="${nonce}">${debuggerViewJs}</script>
   <script nonce="${nonce}">
@@ -1912,6 +2689,7 @@ export class DebuggerPanel {
       list: document.getElementById('stack'),
       menu: document.getElementById('ctxmenu'),
       copyFrameItem: document.getElementById('copyFrameItem'),
+      frameImplItem: document.getElementById('frameImplItem'),
       copyBtn: document.getElementById('copyBtn'),
       error: document.getElementById('error'),
       dnuBar: document.getElementById('dnuBar'),
@@ -1923,6 +2701,8 @@ export class DebuggerPanel {
       main: document.getElementById('main'),
       splitter: document.getElementById('splitter'),
       hsplitter: document.getElementById('hsplitter'),
+      varMenu: document.getElementById('varctxmenu'),
+      varInspectItem: document.getElementById('varInspectItem'),
     }, vscode);
     vscode.postMessage({ command: 'ready' });
   </script>
@@ -1934,6 +2714,9 @@ export class DebuggerPanel {
     this.disposed = true; // an in-flight Nb step/trim continuation must skip the dead panel
     if (this.layoutSampler) { clearInterval(this.layoutSampler); this.layoutSampler = undefined; }
     DebuggerPanel.panels.get(this.sessionId)?.delete(this);
+    // Release any pinned revert originals so closing the debugger never leaks the
+    // session's export set.
+    this.clearUndoState();
     // Restore native code once the last debugger for this session closes
     // (paired with acquireStepping in create).
     debug.releaseStepping(this.session);
@@ -1944,6 +2727,10 @@ export class DebuggerPanel {
     // Close the companion source editor and any GT Inspectors this debugger
     // opened — they're artifacts of this debugger and shouldn't outlive it.
     this.closeSourceEditors();
+    // Drop this panel's source tabs from the persisted orphan set (it was already
+    // removed from `panels` above, so the union now excludes it). A clean dispose
+    // thus leaves nothing to reap; only a window-close-with-debugger-open does.
+    DebuggerPanel.persistLiveSourceUris();
     for (const inspector of this.openedInspectors) inspector.close();
     this.openedInspectors.clear();
     // Release this panel's stashed read-only source.

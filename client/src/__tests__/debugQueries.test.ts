@@ -329,6 +329,66 @@ describe('debugQueries', () => {
     });
   });
 
+  describe('getReceiverClassChain', () => {
+    const RECEIVER_OOP = 0x456n;
+
+    function sessionReturning(data: string): ActiveSession {
+      const session = createMockSession();
+      (session.gci as unknown as Record<string, unknown>).GciTsResolveSymbol = vi.fn(() => ({
+        result: 9000n, err: { ...noErr },
+      }));
+      (session.gci as unknown as Record<string, unknown>).GciTsExecuteFetchBytes = vi.fn(() => ({
+        bytesReturned: 0, data, err: { ...noErr },
+      }));
+      return session;
+    }
+
+    it('parses the full chain (most-specific first), flagging the class that implements the selector', () => {
+      // Interval -> SequenceableCollection -> Collection (implements it) -> Object (implements it).
+      const session = sessionReturning(
+        'Interval\tinstance\tGlobals\t0\n'
+        + 'SequenceableCollection\tinstance\tKernel\t0\n'
+        + 'Collection\tinstance\tKernel\t1\n'
+        + 'Object\tinstance\tKernel\t1',
+      );
+      expect(debug.getReceiverClassChain(session, RECEIVER_OOP, 'asOrderedCollection')).toEqual([
+        { className: 'Interval', isMeta: false, dictName: 'Globals', implementsSelector: false },
+        { className: 'SequenceableCollection', isMeta: false, dictName: 'Kernel', implementsSelector: false },
+        { className: 'Collection', isMeta: false, dictName: 'Kernel', implementsSelector: true },
+        { className: 'Object', isMeta: false, dictName: 'Kernel', implementsSelector: true },
+      ]);
+    });
+
+    it('parses a single-class chain', () => {
+      const session = sessionReturning('SmallInteger\tinstance\tGlobals\t0');
+      expect(debug.getReceiverClassChain(session, RECEIVER_OOP, 'foo')).toEqual([
+        { className: 'SmallInteger', isMeta: false, dictName: 'Globals', implementsSelector: false },
+      ]);
+    });
+
+    it('marks a class-side chain (class receiver) and a blank dict for a non-symbol-list class', () => {
+      const session = sessionReturning('Loner\tclass\t\t1');
+      expect(debug.getReceiverClassChain(session, RECEIVER_OOP, 'foo')).toEqual([
+        { className: 'Loner', isMeta: true, dictName: '', implementsSelector: true },
+      ]);
+    });
+
+    it('returns [] when the chain is empty', () => {
+      expect(debug.getReceiverClassChain(sessionReturning(''), RECEIVER_OOP, 'foo')).toEqual([]);
+    });
+
+    it('returns [] when the execute fails', () => {
+      const session = createMockSession();
+      (session.gci as unknown as Record<string, unknown>).GciTsResolveSymbol = vi.fn(() => ({
+        result: 9000n, err: { ...noErr },
+      }));
+      (session.gci as unknown as Record<string, unknown>).GciTsExecuteFetchBytes = vi.fn(() => ({
+        bytesReturned: 0, data: '', err: { ...noErr, number: 1, message: 'boom' },
+      }));
+      expect(debug.getReceiverClassChain(session, RECEIVER_OOP, 'Object')).toEqual([]);
+    });
+  });
+
   describe('getInstVarNames', () => {
     it('does not send multi-word selectors', () => {
       const session = createMockSession();

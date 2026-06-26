@@ -230,6 +230,81 @@ export function getMethodSource(session: ActiveSession, methodOop: bigint): stri
 }
 
 /**
+ * Where to add a method on a given object's class. `className` is the (non-meta)
+ * class name; `isMeta` is true when the object IS a class (so a class-side
+ * method is wanted). `dictName` is the dictionary that class lives in (for the
+ * gemstone:// new-method URI); '' when the class isn't in the user's symbol
+ * list. Mirrors the class-resolution tail of DnuInfo, but for an arbitrary
+ * object (a debugger frame's receiver) rather than a doesNotUnderstand: send.
+ */
+export interface ClassHomeInfo {
+  className: string;
+  isMeta: boolean;
+  dictName: string;
+  /** True when this class ALREADY implements the selector (it's an edit target,
+   *  and — if more specific than the chosen target — a shadowing implementation). */
+  implementsSelector?: boolean;
+}
+
+/**
+ * The receiver's full class chain — its class and every superclass up to Object
+ * — as candidate places to implement (override) `selector`. Ordered
+ * most-specific first (the receiver's class), so callers can pre-select it. A
+ * class receiver walks its class-side chain (isMeta true throughout). For each
+ * class: its home dictionary (found by NAME key in the user's symbol list — see
+ * the symbol-list home-dict gotcha; '' when not in the symbol list, so not an
+ * editable target) and whether it ALREADY implements `selector` (so the caller
+ * can open the existing source instead of clobbering it with a stub, and warn
+ * about a subclass implementation shadowing a superclass override). Returns []
+ * on any failure so callers degrade gracefully.
+ */
+export function getReceiverClassChain(
+  session: ActiveSession, receiverOop: bigint, selector: string,
+): ClassHomeInfo[] {
+  try {
+    const { result: classUtf8, err: resErr } = session.gci.GciTsResolveSymbol(
+      session.handle, 'Utf8', OOP_NIL,
+    );
+    if (resErr.number !== 0) return [];
+
+    // selector is a method selector (no quotes), but guard the quote anyway.
+    const sel = selector.replace(/'/g, "''");
+    const code = `| rcvr meta cls sel rows nm dn impl |
+rcvr := Object _objectForOop: ${receiverOop}.
+(rcvr isKindOf: Class)
+  ifTrue: [ cls := rcvr. meta := true ]
+  ifFalse: [ cls := rcvr class. meta := false ].
+sel := '${sel}' asSymbol.
+rows := OrderedCollection new.
+[ cls notNil ] whileTrue: [
+  nm := cls theNonMetaClass name asString.
+  dn := ''.
+  System myUserProfile symbolList do: [:d |
+    (d includesKey: nm asSymbol) ifTrue: [ dn := d name ]].
+  impl := cls includesSelector: sel.
+  rows add: nm, String tab, (meta ifTrue: ['class'] ifFalse: ['instance']), String tab, dn,
+    String tab, (impl ifTrue: ['1'] ifFalse: ['0']).
+  cls := cls superclass ].
+rows inject: '' into: [:acc :r | acc isEmpty ifTrue: [r] ifFalse: [acc, (String with: Character lf), r]]`;
+
+    const { data, err } = session.gci.GciTsExecuteFetchBytes(
+      session.handle, code, -1, classUtf8, OOP_ILLEGAL, OOP_NIL, 64 * 1024,
+    );
+    if (err.number !== 0) return [];
+
+    return data.split('\n').filter(line => line.length > 0).map(line => {
+      const parts = line.split('\t');
+      return {
+        className: parts[0], isMeta: parts[1] === 'class', dictName: parts[2] ?? '',
+        implementsSelector: parts[3] === '1',
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
  * The pieces needed to create the method a `doesNotUnderstand:` is asking for.
  * `className` is the (non-meta) name of the class the method should be added to;
  * `isMeta` is true when the unknown message was sent to a *class* (so a
@@ -862,6 +937,19 @@ export function trimStackToLevelNb(
 export function evaluateInFrame(
   session: ActiveSession, gsProcess: bigint, expression: string, level: number,
 ): string {
+  return getObjectPrintString(session, evaluateInFrameToOop(session, gsProcess, expression, level));
+}
+
+/**
+ * Like {@link evaluateInFrame} but returns the result *OOP* rather than its
+ * printString. Used by the Variables-pane editor (T1) to evaluate the typed
+ * expression in the frame, then write the resulting object back into the frame
+ * temp / instVar. A compile or runtime error surfaces as a thrown GCI error
+ * (same as the eval bar), so the caller can keep the editor open on failure.
+ */
+export function evaluateInFrameToOop(
+  session: ActiveSession, gsProcess: bigint, expression: string, level: number,
+): bigint {
   // The frame's receiver becomes `self` for the evaluation.
   const { receiverOop, argAndTempNames, argAndTempOops } = getFrameInfo(session, gsProcess, level);
 
@@ -875,10 +963,68 @@ export function evaluateInFrame(
   // Bind the frame's named args/temps when present; otherwise keep the lean
   // single-arg path (self + instVars + globals via the session's symbol list).
   const symbolListOop = buildFrameSymbolList(session, argAndTempNames, argAndTempOops);
-  const resultOop = symbolListOop === null
+  return symbolListOop === null
     ? gciPerform(session, exprOop, 'evaluateInContext:', [receiverOop])
     : gciPerform(session, exprOop, 'evaluateInContext:symbolList:', [receiverOop, symbolListOop]);
-  return getObjectPrintString(session, resultOop);
+}
+
+/**
+ * Writes `valueOop` into a method argument / temporary of the suspended frame,
+ * via the kernel `GsProcess>>_frameAt:tempAt:put:` primitive (the same one GBS
+ * and GT use). `offset` is the 1-based index into the frame's `argAndTempNames`
+ * (so it matches the index `getFrameInfo` reads). Handles method temps,
+ * VariableContext temps, copying-block args, and the eval-stack `.tN` temps.
+ */
+export function setFrameTemp(
+  session: ActiveSession, gsProcess: bigint, level: number, offset: number, valueOop: bigint,
+): void {
+  gciPerform(session, gsProcess, '_frameAt:tempAt:put:', [
+    intToOop(session, level), intToOop(session, offset), valueOop,
+  ]);
+}
+
+/**
+ * Writes `valueOop` into the `index`-th (1-based) named instance variable of
+ * `receiverOop`, via `instVarAt:put:`.
+ */
+export function setInstVar(
+  session: ActiveSession, receiverOop: bigint, index: number, valueOop: bigint,
+): void {
+  gciPerform(session, receiverOop, 'instVarAt:put:', [intToOop(session, index), valueOop]);
+}
+
+/** Reads the OOP of the `index`-th (1-based) named instance variable. Used by
+ *  variable-revert to capture the original value before it's overwritten. */
+export function getInstVarOop(
+  session: ActiveSession, receiverOop: bigint, index: number,
+): bigint {
+  return gciPerform(session, receiverOop, 'instVarAt:', [intToOop(session, index)]);
+}
+
+/**
+ * Pins objects against garbage collection by adding them to the session's export
+ * set (`GciTsSaveObjs`). Variable-revert uses this to keep a slot's original
+ * value alive after the slot is overwritten — otherwise it could be scavenged
+ * and its OOP number reused for a different object, so revert would restore the
+ * wrong object. No-op for an empty list; immediates need not be saved.
+ */
+export function saveObjs(session: ActiveSession, oops: bigint[]): void {
+  if (oops.length === 0) return;
+  const { success, err } = session.gci.GciTsSaveObjs(session.handle, oops);
+  if (!success || err.number !== 0) {
+    throw new Error(err.message || 'GciTsSaveObjs failed');
+  }
+}
+
+/** Releases objects previously pinned with {@link saveObjs} (`GciTsReleaseObjs`).
+ *  Targeted release only — never ReleaseAllObjs, since a session may host more
+ *  than one debugger panel. No-op for an empty list. */
+export function releaseObjs(session: ActiveSession, oops: bigint[]): void {
+  if (oops.length === 0) return;
+  const { success, err } = session.gci.GciTsReleaseObjs(session.handle, oops);
+  if (!success || err.number !== 0) {
+    throw new Error(err.message || 'GciTsReleaseObjs failed');
+  }
 }
 
 /** Resolve a global (e.g. a class name) to its OOP; null if it doesn't resolve. */

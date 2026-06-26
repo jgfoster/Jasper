@@ -56,7 +56,18 @@
   // { title, kind, collapsed?, vars:[{name, value, oop}] }; value is the
   // host-computed printString. onInspect(oop, name) is called when a row is
   // clicked (opens a GT Inspector); it's optional so tests can omit it.
-  function renderVariables(varsEl, groups, onInspect) {
+  // Render the grouped variables. `handlers` (all optional) wires the T1
+  // variable evaluator + GT Inspect:
+  //   contextMenu(e, oop, name) — right-click a row (GT Inspect lives here now).
+  //   commit(edit, expr)        — Enter in an editable row's inline editor;
+  //                               posts the new expression to the host.
+  //   setActiveEditor(ctrl|null)— register the open inline editor so the host's
+  //                               setVariableResult can flag an error on it (and
+  //                               so opening another editor closes the prior one).
+  // A row carries `edit` ({kind,index}) when it's editable (instVars + named/
+  // stack temps); `self` has none and stays read-only.
+  function renderVariables(varsEl, groups, handlers) {
+    handlers = handlers || {};
     varsEl.innerHTML = '';
     if (!groups || groups.length === 0) {
       const d = document.createElement('div');
@@ -81,9 +92,9 @@
       body.className = 'var-group-body';
       for (const v of (g.vars || [])) {
         const row = document.createElement('div');
-        row.className = 'var';
+        row.className = 'var' + (v.edit ? ' editable' : '');
         row.dataset.oop = v.oop;
-        row.title = 'GT Inspect';
+        row.title = v.edit ? 'Click to edit • right-click to Inspect' : 'Right-click to Inspect';
 
         const name = document.createElement('span');
         name.className = 'var-name' + (v.name === 'self' ? ' self' : '');
@@ -97,15 +108,121 @@
 
         row.appendChild(name);
         row.appendChild(val);
+        // Revert (↺) icon — only on slots edited away from their original this
+        // halt. Clicking restores the original; it must not open the editor.
+        if (v.revertible && v.edit) {
+          const rev = document.createElement('span');
+          rev.className = 'var-revert';
+          rev.textContent = '↺';
+          rev.title = 'Revert to original value';
+          rev.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (handlers.revert) handlers.revert(v.edit);
+          });
+          row.appendChild(rev);
+        }
         row.appendChild(oop);
-        row.addEventListener('click', function () {
-          if (onInspect) onInspect(v.oop, v.name);
+
+        // Right-click → GT Inspect (moved off left-click).
+        row.addEventListener('contextmenu', function (e) {
+          if (handlers.contextMenu) handlers.contextMenu(e, v.oop, v.name);
         });
+        // Left-click → open the variable evaluator (editable rows only). The
+        // guard stops a click on the row padding from stacking a 2nd editor.
+        if (v.edit) {
+          row.addEventListener('click', function () {
+            if (!row.querySelector('.var-edit')) openVarEditor(row, val, v, handlers);
+          });
+        }
         body.appendChild(row);
       }
       group.appendChild(body);
       varsEl.appendChild(group);
     }
+  }
+
+  // Open the inline "variable evaluator" on a row: an input prefilled with the
+  // value's printString (selected). Enter commits the typed expression (the host
+  // evaluates it in the frame and assigns the result); Esc cancels and restores
+  // the displayed value; blur cancels too (unless a commit is in flight). On a
+  // compile/runtime error the host calls ctrl.showError and the editor STAYS so
+  // the expression can be fixed.
+  function openVarEditor(row, valEl, v, handlers) {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'var-edit';
+    input.value = v.value;
+    valEl.style.display = 'none';
+    row.classList.add('editing'); // wraps the error message onto its own line
+    row.insertBefore(input, valEl);
+    input.focus();
+    input.select();
+
+    let pending = false;
+    let closed = false;
+    let errored = false; // an error is on screen → don't auto-close on blur
+    let errEl = null; // the visible error message line (created lazily)
+    function clearError() {
+      errored = false;
+      input.classList.remove('error');
+      input.removeAttribute('title');
+      if (errEl) { if (errEl.parentNode) errEl.parentNode.removeChild(errEl); errEl = null; }
+    }
+    function close() {
+      if (closed) return;
+      closed = true;
+      clearError();
+      if (input.parentNode) input.parentNode.removeChild(input);
+      row.classList.remove('editing');
+      valEl.style.display = '';
+      if (handlers.setActiveEditor) handlers.setActiveEditor(null);
+    }
+    const ctrl = {
+      // Surface a rejected expression unmistakably: red border on the input AND a
+      // visible message line (a hover-only tooltip is too easy to miss). The
+      // editor STAYS open so the expression can be fixed.
+      showError: function (m) {
+        pending = false;
+        errored = true;
+        const text = m || 'Error';
+        input.classList.add('error');
+        input.title = text;
+        if (!errEl) {
+          errEl = document.createElement('div');
+          errEl.className = 'var-edit-error';
+          row.appendChild(errEl);
+        }
+        errEl.textContent = text;
+        input.focus();
+        input.select();
+      },
+      close: close,
+    };
+    if (handlers.setActiveEditor) handlers.setActiveEditor(ctrl);
+
+    input.addEventListener('click', function (e) { e.stopPropagation(); });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const expr = input.value.trim();
+        if (!expr) { close(); return; }
+        clearError();
+        pending = true;
+        if (handlers.commit) handlers.commit(v.edit, expr);
+        // Stays open: success → the host re-renders variables (removing this
+        // editor); error → ctrl.showError flags it and keeps it open.
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        close();
+      }
+    });
+    input.addEventListener('blur', function () {
+      // Defer so a click that moved focus to (e.g.) the context menu still runs.
+      // While an error is showing, DON'T auto-close — the user may be clicking the
+      // message to select/copy it (blurring the input). Esc still dismisses it.
+      setTimeout(function () { if (!pending && !errored) close(); }, 0);
+    });
   }
 
   // Render (or clear) the "Create #selector in Class" action shown when the
@@ -121,6 +238,24 @@
     btn.textContent = 'Create #' + dnu.selector + ' in ' + dnu.className + (dnu.isMeta ? ' class' : '');
     btn.title = 'Create the missing method, then re-run the send into it';
     if (onCreate) btn.addEventListener('click', onCreate);
+    dnuBarEl.appendChild(btn);
+  }
+
+  // Render (or clear) the "Implement #selector" action shown when the process is
+  // parked on a subclassResponsibility (T4) — an abstract method invoked on a
+  // concrete subclass that didn't override it. The target class is chosen via a
+  // picker (like the override flow), so only the selector is shown on the button.
+  // `sr` is { selector } or null/undefined (nothing to implement). Shares the
+  // dnuBar; DNU and subclassResponsibility are mutually-exclusive parked states.
+  function renderSubclassResp(dnuBarEl, sr, onImplement) {
+    if (!dnuBarEl) return;
+    dnuBarEl.innerHTML = '';
+    if (!sr) return;
+    const btn = document.createElement('button');
+    btn.className = 'dnu-btn';
+    btn.textContent = 'Implement #' + sr.selector;
+    btn.title = 'Implement this abstract (subclassResponsibility) method in a concrete class';
+    if (onImplement) btn.addEventListener('click', onImplement);
     dnuBarEl.appendChild(btn);
   }
 
@@ -160,8 +295,39 @@
    * editor and highlight the current line.
    */
   function init(refs, vscode) {
-    const { list, menu, copyFrameItem, copyBtn, error, dnuBar, toolbar, variables, evalInput, evalResult, main, splitter, hsplitter, evalbar } = refs;
+    const { list, menu, copyFrameItem, frameImplItem, copyBtn, error, dnuBar, toolbar, variables, evalInput, evalResult, main, splitter, hsplitter, evalbar, varMenu, varInspectItem } = refs;
     let selectedLevel = null;
+    // The last-rendered stack (frame summaries), so the right-click menu can read
+    // a frame's `overridable` / `receiverClass` to decide whether to offer the
+    // "Implement in <receiverClass>" override action.
+    let currentStack = [];
+    // The currently-open variable evaluator (so setVariableResult can flag an
+    // error on it, and opening another closes it) + the row a right-click menu
+    // targets.
+    let activeVarEditor = null;
+    let varMenuTarget = null;
+    function setActiveVarEditor(ctrl) {
+      if (ctrl == null) { activeVarEditor = null; return; }
+      if (activeVarEditor && activeVarEditor !== ctrl) activeVarEditor.close();
+      activeVarEditor = ctrl;
+    }
+    // Handlers handed to renderVariables on every refresh.
+    const varHandlers = {
+      contextMenu: function (e, oop, name) {
+        if (!varMenu) return;
+        e.preventDefault();
+        e.stopPropagation();
+        varMenuTarget = { oop: oop, name: name };
+        showMenu(varMenu, e.clientX, e.clientY);
+      },
+      commit: function (edit, expr) {
+        vscode.postMessage({ command: 'setVariable', level: selectedLevel, kind: edit.kind, index: edit.index, expr: expr });
+      },
+      revert: function (edit) {
+        vscode.postMessage({ command: 'revertVariable', level: selectedLevel, kind: edit.kind, index: edit.index });
+      },
+      setActiveEditor: setActiveVarEditor,
+    };
 
     function select(level) {
       if (level == null) return;
@@ -176,13 +342,28 @@
       if (level != null) select(level);
     });
 
-    // Right-click selects the frame AND opens the custom copy popup.
+    // Right-click selects the frame AND opens the custom popup. The "Implement in
+    // <receiverClass>" item is shown only for an overridable frame (an inherited
+    // method — see buildFrame), labelled with the receiver's class.
     list.addEventListener('contextmenu', (e) => {
       const level = frameLevelOf(e.target);
       if (level == null) return;
       e.preventDefault();
       e.stopPropagation();
       select(level);
+      if (frameImplItem) {
+        const frame = currentStack.find((f) => f.level === level);
+        if (frame && frame.overridable) {
+          // Ellipsis signals that clicking opens a class picker (an overridable
+          // frame always has several candidates: the receiver's class up through
+          // the class that defines the method). The frame label already names the
+          // receiver, so the menu item doesn't repeat it.
+          frameImplItem.textContent = 'Implement in…';
+          frameImplItem.style.display = '';
+        } else {
+          frameImplItem.style.display = 'none';
+        }
+      }
       showMenu(menu, e.clientX, e.clientY);
     });
 
@@ -191,6 +372,23 @@
       if (selectedLevel != null) vscode.postMessage({ command: 'copyFrame', level: selectedLevel });
       hideMenu(menu);
     });
+
+    if (frameImplItem) {
+      frameImplItem.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (selectedLevel != null) vscode.postMessage({ command: 'implementInReceiver', level: selectedLevel });
+        hideMenu(menu);
+      });
+    }
+
+    // Variable context menu: GT Inspect the right-clicked variable.
+    if (varInspectItem) {
+      varInspectItem.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (varMenuTarget) vscode.postMessage({ command: 'inspectVariable', oop: varMenuTarget.oop, name: varMenuTarget.name });
+        if (varMenu) hideMenu(varMenu);
+      });
+    }
 
     copyBtn.addEventListener('click', () => {
       vscode.postMessage({ command: 'copyStack' });
@@ -304,29 +502,40 @@
 
     // Suppress the native Cut/Copy/Paste menu everywhere; close our popup on any
     // dismiss gesture (outside click, scroll, focus loss, Escape).
+    function hideMenus() { hideMenu(menu); if (varMenu) hideMenu(varMenu); }
     window.addEventListener('contextmenu', (e) => { e.preventDefault(); });
-    document.addEventListener('click', () => hideMenu(menu));
-    window.addEventListener('scroll', () => hideMenu(menu), true);
-    window.addEventListener('blur', () => hideMenu(menu));
-    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideMenu(menu); });
+    document.addEventListener('click', hideMenus);
+    window.addEventListener('scroll', hideMenus, true);
+    window.addEventListener('blur', hideMenus);
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideMenus(); });
 
     // Inbound messages from the host.
     window.addEventListener('message', (event) => {
       const msg = event.data;
       if (msg.command === 'init') {
         if (error) error.textContent = msg.errorMessage || '';
-        // Show the create-method action when parked on a doesNotUnderstand:.
+        // Show the create-method action when parked on a doesNotUnderstand:, or the
+        // implement action when parked on a subclassResponsibility (T4). Mutually
+        // exclusive; renderDnu(undefined) clears the bar before the SR button renders.
         renderDnu(dnuBar, msg.dnu, function () { vscode.postMessage({ command: 'createDnuMethod' }); });
+        if (!msg.dnu) {
+          renderSubclassResp(dnuBar, msg.subclassResp,
+            function () { vscode.postMessage({ command: 'implementSubclassResponsibility' }); });
+        }
         // Clear stale variables / eval output; the default-select below re-fetches.
         if (variables) variables.innerHTML = '';
         if (evalResult) { evalResult.textContent = ''; evalResult.classList.remove('error'); }
+        currentStack = msg.stack || [];
         renderStack(list, msg.stack);
         // Default-select the top frame so the debugger opens focused on a frame.
         if (msg.stack && msg.stack.length > 0) select(msg.stack[0].level);
       } else if (msg.command === 'variables') {
-        if (variables) renderVariables(variables, msg.groups, function (oop, name) {
-          vscode.postMessage({ command: 'inspectVariable', oop: oop, name: name });
-        });
+        if (variables) renderVariables(variables, msg.groups, varHandlers);
+      } else if (msg.command === 'setVariableResult') {
+        // Failure → keep the editor open and flag the error so it can be fixed.
+        // Success → the host also posts 'variables', which re-renders (and so
+        // removes the editor) with fresh printStrings + OOPs.
+        if (!msg.ok && activeVarEditor) activeVarEditor.showError(msg.error);
       } else if (msg.command === 'banner') {
         // Lightweight banner-only update (no stack re-render / frame re-select, so
         // it won't steal focus): set the error/guidance text and clear the DNU
@@ -345,5 +554,5 @@
   }
 
   const root = typeof globalThis !== 'undefined' ? globalThis : window;
-  root.DebuggerView = { renderStack, renderVariables, renderDnu, selectFrame, showMenu, hideMenu, frameLevelOf, init };
+  root.DebuggerView = { renderStack, renderVariables, renderDnu, renderSubclassResp, selectFrame, showMenu, hideMenu, frameLevelOf, init };
 })();
