@@ -22,9 +22,23 @@ export class GemStoneCodeLensProvider implements vscode.CodeLensProvider {
 
   private codeLensData = new Map<vscode.CodeLens, CodeLensData>();
 
+  /**
+   * Cache of resolved senders/implementors counts. Each `resolveCodeLens` runs
+   * server `sendersOf`/`implementorsOf` lookups, which are costly for a popular
+   * selector (hundreds of hits). VS Code re-resolves a document's lenses whenever
+   * ANY CodeLens provider on that document fires a change — e.g. the debugger's
+   * inline-values toggle — so without this cache every such toggle re-counted
+   * senders/implementors (seconds for a method like `initialize`). Keyed by
+   * kind|selector|class|meta|session|maxEnv; cleared on `refresh()`. Counts are
+   * already effectively static between refreshes (this provider doesn't re-fire on
+   * recompile today), so caching introduces no new staleness.
+   */
+  private countCache = new Map<string, number>();
+
   constructor(private sessionManager: SessionManager) {}
 
   refresh(): void {
+    this.countCache.clear();
     this._onDidChangeCodeLenses.fire();
   }
 
@@ -120,16 +134,22 @@ export class GemStoneCodeLensProvider implements vscode.CodeLensProvider {
 
       // Each lens computes only its own count. Half the GCI work per lens
       // compared to the old combined link, so total work for the pair is
-      // unchanged from the user's perspective.
-      let count = 0;
-      for (let env = 0; env <= maxEnv; env++) {
-        try {
-          count += data.kind === 'senders'
-            ? queries.sendersOf(session, data.selector, env).length
-            : queries.implementorsOf(session, data.selector, env).length;
-        } catch {
-          // Session may be busy or selector not found in this env
+      // unchanged from the user's perspective. Cached so a forced re-resolve
+      // (another provider on this doc changing) doesn't repeat the server work.
+      const cacheKey = `${data.kind}|${data.selector}|${data.className ?? ''}|${data.isMeta}|${session.id}|${maxEnv}`;
+      let count = this.countCache.get(cacheKey);
+      if (count === undefined) {
+        count = 0;
+        for (let env = 0; env <= maxEnv; env++) {
+          try {
+            count += data.kind === 'senders'
+              ? queries.sendersOf(session, data.selector, env).length
+              : queries.implementorsOf(session, data.selector, env).length;
+          } catch {
+            // Session may be busy or selector not found in this env
+          }
         }
+        this.countCache.set(cacheKey, count);
       }
 
       const noun = data.kind === 'senders' ? 'sender' : 'implementor';

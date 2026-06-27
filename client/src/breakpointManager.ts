@@ -202,6 +202,48 @@ export function buildLineOffsets(source: string): number[] {
 }
 
 /**
+ * Map a precise 0-based cursor offset to a step point — column-aware, for "Run to
+ * Cursor" (#2). Prefers the step point on the cursor's OWN line that is nearest the
+ * cursor column, so a cursor on `asInteger` in `x := (...) asInteger` breaks at
+ * `asInteger` (not the leftmost `:=` store), and a cursor inside a one-line block
+ * (`self do: [:e | body ]`) breaks INSIDE the block (not at the `do:` send). When
+ * the cursor's line has no step point, falls back to the nearest step point at or
+ * after the cursor (run forward). Returns null when nothing is at/after it.
+ *
+ * `sourceOffsets` are GemStone 1-based source positions; `lineStart`/`lineEnd` are
+ * the 0-based char offsets bounding the cursor's line (end exclusive).
+ */
+export function mapOffsetToStepPoint(
+  cursorOffset: number,
+  sourceOffsets: number[],
+  lineStart: number,
+  lineEnd: number,
+): { stepPoint: number; offset: number } | null {
+  // 1) Nearest step point on the cursor's own line (by column distance).
+  let bestOnLine: { stepPoint: number; offset: number; dist: number } | null = null;
+  for (let i = 0; i < sourceOffsets.length; i++) {
+    const off0 = sourceOffsets[i] - 1; // 1-based source position → 0-based char offset
+    if (off0 >= lineStart && off0 < lineEnd) {
+      const dist = Math.abs(off0 - cursorOffset);
+      if (bestOnLine === null || dist < bestOnLine.dist) {
+        bestOnLine = { stepPoint: i + 1, offset: sourceOffsets[i], dist };
+      }
+    }
+  }
+  if (bestOnLine) return { stepPoint: bestOnLine.stepPoint, offset: bestOnLine.offset };
+
+  // 2) No step point on this line — run forward to the nearest one after the cursor.
+  let bestAfter: { stepPoint: number; offset: number } | null = null;
+  for (let i = 0; i < sourceOffsets.length; i++) {
+    const off0 = sourceOffsets[i] - 1;
+    if (off0 >= cursorOffset && (bestAfter === null || sourceOffsets[i] < bestAfter.offset)) {
+      bestAfter = { stepPoint: i + 1, offset: sourceOffsets[i] };
+    }
+  }
+  return bestAfter;
+}
+
+/**
  * Map a source line number (1-based) to a step point.
  * Returns the step point number and the actual line it maps to,
  * or null if no valid step point can be found.

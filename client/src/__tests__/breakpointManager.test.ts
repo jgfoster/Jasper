@@ -15,6 +15,7 @@ import {
   BreakpointManager,
   buildLineOffsets,
   mapLineToStepPoint,
+  mapOffsetToStepPoint,
 } from '../breakpointManager';
 import { SessionManager } from '../sessionManager';
 import {
@@ -124,6 +125,40 @@ describe('mapLineToStepPoint', () => {
     const result = mapLineToStepPoint(1, lo, so);
     // Step 2 has smallest offset (5) on line 1
     expect(result).toEqual({ stepPoint: 2, actualLine: 1 });
+  });
+});
+
+// Column-aware mapping for "Run to Cursor" (#2): unlike mapLineToStepPoint, the
+// cursor's column chooses among several step points on the same line.
+describe('mapOffsetToStepPoint', () => {
+  // `x := a asInteger` — 1-based source offsets: sp1@1 (x), sp2@6 (a), sp3@8 (asInteger).
+  const so = [1, 6, 8];
+  const lineStart = 0;
+  const lineEnd = 16; // whole single line
+
+  it('picks the step point nearest the cursor column, not the leftmost on the line', () => {
+    // Cursor on `asInteger` (offset 7) → sp3, NOT the leftmost sp1 (the := store).
+    expect(mapOffsetToStepPoint(7, so, lineStart, lineEnd)).toEqual({ stepPoint: 3, offset: 8 });
+  });
+
+  it('picks the leftmost when the cursor is at the start of the line', () => {
+    expect(mapOffsetToStepPoint(0, so, lineStart, lineEnd)).toEqual({ stepPoint: 1, offset: 1 });
+  });
+
+  it('breaks inside a one-line block when the cursor is in the block body', () => {
+    // `self do: [:e | body ]` style: sp1@5 (self), sp2@10 (do:), sp3@20 (body).
+    const blk = [5, 10, 20];
+    // Cursor at offset 19 (on `body`) → sp3, not the do:/self sends.
+    expect(mapOffsetToStepPoint(19, blk, 0, 30)).toEqual({ stepPoint: 3, offset: 20 });
+  });
+
+  it('falls back to the nearest step point AFTER the cursor when its line has none', () => {
+    // Cursor on a blank line [10, 20) with no step point → nearest after (offset 25).
+    expect(mapOffsetToStepPoint(12, [5, 25, 40], 10, 20)).toEqual({ stepPoint: 2, offset: 25 });
+  });
+
+  it('returns null when the cursor is past every step point', () => {
+    expect(mapOffsetToStepPoint(100, [5, 10], 90, 110)).toBeNull();
   });
 });
 
