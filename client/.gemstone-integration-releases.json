@@ -1,0 +1,39 @@
+[
+  {
+    "version": "3.6.1",
+    "reasons": [
+      "Minimum supported version.",
+      "Validates core GCI functionality that Jasper depends on is present and working."
+    ]
+  },
+  {
+    "version": "3.6.8",
+    "reasons": [
+      "Latest 3.6.x release (3.6.7 was pulled due to a critical bug).",
+      "Catches any regressions across the 3.6.x series before the major 3.7 boundary."
+    ]
+  },
+  {
+    "version": "3.7.2",
+    "reasons": [
+      "First version to include GciTsNbPoll (used for non-blocking execution) and a significant batch of new GciTs* functions.",
+      "Also changed GciHostInstallFaultHandler.",
+      "Validates Jasper works with the expanded 3.7 GCI API surface."
+    ]
+  },
+  {
+    "version": "3.7.4.3",
+    "reasons": [
+      "Introduced GciTsLogin_ (the netldiName login variant) and stricter GCI login flag validation — previously invalid flag combinations were silently ignored, now they error.",
+      "Validates Jasper's login path against this stricter behavior."
+    ]
+  },
+  {
+    "version": "3.7.5",
+    "reasons": [
+      "Current latest release.",
+      "Fixed a thread-safety bug in GciTsLogin() and changed GCI error codes.",
+      "Validates Jasper against the current target environment."
+    ]
+  }
+]

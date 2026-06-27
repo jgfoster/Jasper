@@ -319,7 +319,7 @@ The Windows client distribution exports a subset of the full GCI interface — n
 | Windows / WSL networking, hosts file, NetLDI port naming | [docs/windows-wsl.md](docs/windows-wsl.md) |
 | MCP server architecture, ownership model, client registration, tool catalog | [docs/mcp-server.md](docs/mcp-server.md) |
 | Smalltalk formatter reference (all options) | [docs/formatter.md](docs/formatter.md) |
-| Building, testing, releasing | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Building, testing, integration test environment setup, releasing | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ## License
 

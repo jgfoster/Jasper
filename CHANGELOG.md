@@ -38,6 +38,17 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
   stack. Navigate / Restart / recompile-and-continue on a block frame now act on
   that home-method activation, since a block can't be meaningfully restarted in
   isolation (matching GT).
+- **Integration test infrastructure for the GCI layer.** A suite of shell scripts (`gs-install.sh`, `gs-start.sh`, `gs-stop.sh`, `gs-reset-extent.sh`, `gs-create-test-env-file.sh`, `gs-test-setup.sh`) automates downloading, installing, and running a local GemStone instance for integration tests; `gs-config.sh` is a shared configuration module sourced by the others. A `useIntegrationTest` vitest helper manages the session lifecycle (login, per-test begin/abort, logout). The CI health-check workflow runs a matrix job over the GemStone versions listed in `client/.gemstone-integration-releases.json`; to test against a new version, add an entry there.
+
+  **To run integration tests locally** (Linux or macOS Apple Silicon only):
+  ```
+  npm run test:setup            # stops any running test stone, resets the database, starts fresh, writes .env.test
+  npm run test:setup -- 3.7.2   # same, but pin to a specific version
+  npm test                      # runs the full suite including integration tests
+  ```
+  `test:setup` always stops any previously running test stone, resets the database extent to a pristine state, and starts fresh — so it is safe to re-run. The generated `.env.test` file is gitignored.
+
+  The `reasons` array in `.gemstone-integration-releases.json` is human-readable documentation only — it explains *why* each version is included in the matrix. It is not read by any script or CI step.
 
 ## [1.7.2] - 2026-06-26
 
