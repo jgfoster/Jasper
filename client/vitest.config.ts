@@ -6,8 +6,7 @@ export default defineConfig({
     exclude: ['src/__tests__/gci/**'],
     setupFiles: [
       'src/__tests__/vitest.windowSetup.cjs', 
-      'src/__tests__/vitest.uriSetup.ts',
-      'src/__tests__/vitest.gemstoneIntegrationSetup.ts',
+      'src/__tests__/vitest.uriSetup.ts'
     ]
   },
 });

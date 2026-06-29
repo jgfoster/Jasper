@@ -56,7 +56,6 @@ To add a new GemStone version to the CI matrix, add an entry to `client/.gemston
 You don't need a GemStone instance for everyday work — the unit suites are hermetic (they mock `vscode` and the GCI). Without `test:setup` (no `.env.test`, no running stone), expect:
 
 - **`npm test` reports exactly one failed file and one skipped test — both `gciLibrary.test.ts`.** That is the only integration test in the default run; its `beforeAll` can't load the GCI library or log in, so Vitest fails the file and reports its single test as skipped (it never executes). The unit suites are unaffected, and the `gci/**` suite isn't part of `npm test` at all, so it adds no failures. This is the expected result on a machine without a provisioned stone — not a regression.
-- **`GEMSTONE_GLOBAL_DIR` must be unset.** The test setup ([client/src/__tests__/vitest.gemstoneIntegrationSetup.ts](client/src/__tests__/vitest.gemstoneIntegrationSetup.ts)) aborts the *entire* run — unit suites included — with `GEMSTONE_GLOBAL_DIR is not expected to be set when running tests` if that variable is present in your shell, which is common once you've sourced a GemStone environment. Clear it for the run, e.g. `env -u GEMSTONE_GLOBAL_DIR npm test`.
 
 ## Continuous integration
 

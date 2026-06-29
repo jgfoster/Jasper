@@ -31,15 +31,22 @@ type UseIntegrationTestCallback = (gciLibraryToUse: GciLibrary, sessionToUse: un
  * run `npm run test:setup` to generate that file. To override individual values
  * for your local setup without touching `.env.test`, create `.env.test.local`
  * alongside it (gitignored; takes precedence).
+ *
+ * `GEMSTONE_GLOBAL_DIR` is set from `VITE_GEMSTONE_GLOBAL_DIR` for the duration
+ * of each suite and restored afterward, so a local GemStone installation is
+ * unaffected outside of test runs.
  */
 export function useIntegrationTest(callback: UseIntegrationTestCallback) {
     let gciLibrary: GciLibrary;
     let session: unknown;
+    let originalGemstoneGlobalDir: string | undefined;
 
     // gciLibrary and session are created inside a beforeAll hook, so they don't
     // exist at call time. The callback fires at the end of that hook, letting
     // callers assign the values into their own variables before any test runs.
     beforeAll(() => {
+        configureGemstoneGlobalDir();
+        
         handleIntegrationTestSetupErrorDuring(() => {
             gciLibrary = new GciLibrary(process.env.VITE_GEMSTONE_GCI_LIBRARY_PATH!);
             session = loginUsing(gciLibrary);
@@ -49,14 +56,18 @@ export function useIntegrationTest(callback: UseIntegrationTestCallback) {
     });
 
     afterAll(() => {
-        if (!gciLibrary) return;
-        if (session) {
-            const { success, err } = gciLibrary.GciTsLogout(session);
-            // Warn rather than throw — the session is gone regardless, and a
-            // teardown error would obscure real test failures above it.
-            if (!success) console.warn(`GciTsLogout failed [${err.number}]: ${err.message}`);
+        try {
+            if (!gciLibrary) return;
+            if (session) {
+                const {success, err} = gciLibrary.GciTsLogout(session);
+                // Warn rather than throw — the session is gone regardless, and a
+                // teardown error would obscure real test failures above it.
+                if (!success) console.warn(`GciTsLogout failed [${err.number}]: ${err.message}`);
+            }
+            gciLibrary.close();
+        } finally {
+            restoreGemstoneGlobalDir();
         }
-        gciLibrary.close();
     });
 
     // Wrap each test in a GCI transaction. Always abort (never commit) so
@@ -119,5 +130,17 @@ export function useIntegrationTest(callback: UseIntegrationTestCallback) {
 
             throw new Error(integrationTestInitializationErrorBanner + JSON.stringify(error, null, 2));
         }
+    }
+    
+    function configureGemstoneGlobalDir() {
+        // Vite only exposes VITE_-prefixed variables to test code. GemStone
+        // expects GEMSTONE_GLOBAL_DIR (no prefix), so we copy the VITE_ variant
+        // over for the suite's duration and restore the original value afterward.
+        originalGemstoneGlobalDir = process.env.GEMSTONE_GLOBAL_DIR;
+        process.env.GEMSTONE_GLOBAL_DIR = process.env.VITE_GEMSTONE_GLOBAL_DIR;
+    }
+
+    function restoreGemstoneGlobalDir() {
+        process.env.GEMSTONE_GLOBAL_DIR = originalGemstoneGlobalDir;
     }
 }
