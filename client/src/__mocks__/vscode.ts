@@ -219,6 +219,7 @@ export const window = {
   showInputBox: vi.fn(),
   showQuickPick: vi.fn(),
   showOpenDialog: vi.fn(),
+  showSaveDialog: vi.fn(),
   tabGroups: {
     all: [] as { tabs: { input: unknown }[] }[],
     close: vi.fn(),
