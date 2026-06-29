@@ -327,6 +327,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.languages.registerHoverProvider(providerSelectors, hoverProvider),
     vscode.languages.registerCompletionItemProvider(providerSelectors, completionProvider),
     vscode.languages.registerCodeLensProvider(providerSelectors, codeLensProvider),
+    codeLensProvider, // dispose() cancels pending count lookups + releases the emitter
   );
 
   // ── Breakpoints + Debugger ───────────────────────────────

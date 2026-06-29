@@ -9,7 +9,7 @@ import { unwrapTranscriptCapture, transcriptCaptureUserCodeOffset } from './tran
 import { buildLineOffsets, mapOffsetToStepPoint } from './breakpointManager';
 import { GtInspector } from './gtInspector';
 import { logError, logInfo } from './gciLog';
-import { NbCancelledError } from './nbRunner';
+import { NbCancelledError, NbRunOptions } from './nbRunner';
 import { extensionPathFrom } from './extensionPath';
 
 // The webview's DOM behavior lives in a standalone file (like listFilter.js /
@@ -87,6 +87,7 @@ type DebuggerInbound =
   | { command: 'createDnuMethod' }
   | { command: 'implementInReceiver'; level: number }
   | { command: 'implementSubclassResponsibility' }
+  | { command: 'cancelOp' }
   | { command: 'saveLayout'; stackBasis?: string; evalHeight?: string };
 
 /**
@@ -1097,6 +1098,17 @@ export class DebuggerPanel {
    * set. Cleared when the operation settles (resolve / reject / cancel).
    */
   private nbBusy = false;
+  /**
+   * Cancel handle for the in-flight non-blocking op (#9 cancel). Set from the nb
+   * runner's `onStart` while a cancellable op runs; calling it requests a soft
+   * break, then a hard break on a second call. Drives the in-panel Cancel button
+   * (which the webview shows only while the busy spinner is up). Undefined when
+   * nothing cancellable is running.
+   */
+  private activeNbCancel: (() => void) | undefined;
+  /** How many times Cancel was clicked for the current op (1 = soft break, 2+ = hard).
+   *  Reset to 0 when a cancellable op begins; drives the acknowledgement wording. */
+  private cancelClicks = 0;
   /** Set in dispose() so an in-flight Nb op's continuation skips touching a dead panel. */
   private disposed = false;
 
@@ -1218,9 +1230,10 @@ export class DebuggerPanel {
       }
       case 'evalInFrame': {
         const frame = this.frames.find(f => f.level === msg.level);
-        this.evalInFrame(frame?.serverLevel, msg.expr);
+        void this.evalInFrame(frame?.serverLevel, msg.expr);
         return;
       }
+      case 'cancelOp': { this.cancelActiveOp(); return; }
       case 'resume': { this.resume(); return; }
       case 'runToCursor': { this.runToCursor(msg.level); return; }
       case 'terminate': { this.panel.dispose(); return; } // dispose → clearStack
@@ -1953,17 +1966,61 @@ export class DebuggerPanel {
   }
 
   /** Evaluate an expression in the selected frame and post the printString back. */
-  private evalInFrame(serverLevel: number | undefined, expr: string): void {
+  private async evalInFrame(serverLevel: number | undefined, expr: string): Promise<void> {
     if (serverLevel == null) return;
-    let value: string;
+    if (this.nbBusy) { this.notifyBusy('Evaluate'); return; }
+    this.nbBusy = true;
+    // Reset here, not only in onStart: the blocking frame-setup inside
+    // evaluateInFrameNb can fail BEFORE polling starts (so onStart never fires), and
+    // a stale count from a prior cancelled op would mislabel that error as cancelled.
+    this.cancelClicks = 0;
+    // The eval runs non-blocking so a runaway expression doesn't freeze the panel
+    // and CAN be cancelled. The in-panel overlay owns cancel (suppressNotification),
+    // and onStart marks it cancellable + captures the handle the Cancel button hits.
+    let value = '';
     let isError = false;
     try {
-      value = debug.evaluateInFrame(this.session, this.gsProcess, expr, serverLevel);
+      value = await debug.evaluateInFrameNb(this.session, this.gsProcess, expr, serverLevel, {
+        suppressNotification: true,
+        onStart: (cancel) => { this.activeNbCancel = cancel; this.setCancellable(true); },
+      });
     } catch (e: unknown) {
-      value = `Error: ${e instanceof Error ? e.message : String(e)}`;
+      const raw = e instanceof Error ? e.message : String(e);
+      if (this.cancelClicks > 0) {
+        // The user interrupted this eval. Show a clean header (with which break it
+        // was — soft = stop at a safe point, hard = forced) plus the raw gem error
+        // for context, in the eval-result area below the bar (no top-banner error).
+        const kind = this.cancelClicks === 1 ? 'soft break' : 'hard break';
+        value = `Evaluation Cancelled (${kind})${raw ? ` — ${raw}` : ''}`;
+      } else {
+        value = `Error: ${raw}`;
+      }
       isError = true;
+    } finally {
+      this.activeNbCancel = undefined;
+      this.nbBusy = false;
+      this.setCancellable(false);
     }
+    if (this.disposed) return;
     this.panel.webview.postMessage({ command: 'evalResult', expr, value, isError });
+  }
+
+  /** Tell the webview whether the in-flight busy op can be cancelled (#9). */
+  private setCancellable(on: boolean): void {
+    if (this.disposed) return;
+    this.panel.webview.postMessage({ command: 'cancellable', on });
+  }
+
+  /** Webview Cancel button → request a break of the active nb op (soft, then hard). */
+  private cancelActiveOp(): void {
+    if (!this.activeNbCancel) return;
+    this.cancelClicks += 1;
+    // Acknowledge the click so it visibly registers — the break is asynchronous
+    // (the gem stops at a safe point), so without this the Cancel feels unheard.
+    this.flash(this.cancelClicks === 1
+      ? 'Break sent — waiting for the gem to stop…'
+      : 'Forcing interrupt…');
+    this.activeNbCancel();
   }
 
   /**
@@ -2394,12 +2451,13 @@ export class DebuggerPanel {
       const raw = this.rawFrames.find(r => r.serverLevel === frame.serverLevel);
       if (raw) level = this.stopFrameLevel(raw.homeMethodOop, frame.serverLevel);
     }
-    await this.runNb('Step', async () => {
+    await this.runNb('Step', async (opts) => {
       // Stepping moves the stack → the prior halt's revert slots are now invalid.
       this.clearUndoState();
       // Non-blocking + cancellable: a step that crawls hidden machinery or steps
       // a looping method no longer freezes the extension host (see nbRunner.ts).
-      const result = await fn(this.session, this.gsProcess, level);
+      // Forwarding opts wires the in-panel Cancel button for a runaway step.
+      const result = await fn(this.session, this.gsProcess, level, opts);
       if (this.disposed) return; // panel closed while the step ran
       if (result.completed) {
         this.onCompleted(result);
@@ -2452,17 +2510,32 @@ export class DebuggerPanel {
    * told to retry (otherwise a save-driven edit-and-continue or a click would
    * just vanish).
    */
-  private async runNb(action: string, op: () => Promise<void>): Promise<void> {
+  private async runNb(action: string, op: (opts: NbRunOptions) => Promise<void>): Promise<void> {
     if (this.nbBusy) {
       this.notifyBusy(action);
       return;
     }
     this.nbBusy = true;
+    this.cancelClicks = 0; // reset before the op (onStart may not fire if start fails)
+    // Hand the op nb options that (a) suppress the 2s toast — the in-panel overlay
+    // owns cancel for debugger ops — and (b) wire the in-panel Cancel button: when
+    // the op forwards these to its nb call, onStart fires and we mark it cancellable
+    // and capture its cancel handle. Ops that don't forward them simply show the
+    // spinner with no Cancel button (never a dead button).
+    const opts: NbRunOptions = {
+      suppressNotification: true,
+      onStart: (cancel) => {
+        this.activeNbCancel = cancel;
+        this.setCancellable(true);
+      },
+    };
     try {
-      await op();
+      await op(opts);
     } catch (e: unknown) {
       this.handleNbError(action, e);
     } finally {
+      this.activeNbCancel = undefined;
+      this.setCancellable(false);
       this.nbBusy = false;
     }
   }
@@ -2501,10 +2574,23 @@ export class DebuggerPanel {
       this.postInit();
       return;
     }
-    await this.runNb('Restart frame', async () => {
+    // An Executed Code (doit) frame can't be a restart target: the kernel's
+    // trimStackToLevel: does `oldHome inClass compiledMethodAt:…` to reinstall the
+    // (possibly recompiled) method, and a doit's home method has a NIL class — so
+    // the trim fails with a raw `UndefinedObject doesNotUnderstand`. Guard it with a
+    // clear message instead, mirroring the edit-and-continue re-enter guard.
+    if (this.rawFrames.find(r => r.serverLevel === serverLevel)?.isExecutedCode) {
+      this.errorMessage = 'Cannot restart an Executed Code frame — it has no home class for '
+        + 'GemStone to reset. Re-run the expression instead.';
+      this.postInit();
+      return;
+    }
+    await this.runNb('Restart frame', async (opts) => {
       // The trim rebuilds the stack → revert slots no longer apply.
       this.clearUndoState();
-      await debug.trimStackToLevelNb(this.session, this.gsProcess, serverLevel);
+      // Forwarding opts wires the in-panel Cancel button — a trim can run unwind/
+      // ensure: blocks (infinite kernel timeout), so a runaway restart is cancellable.
+      await debug.trimStackToLevelNb(this.session, this.gsProcess, serverLevel, opts);
       if (this.disposed) return;
       this.staleTopActivation = false; // the trim discarded any stale top activation
       this.uncontinuable = false;      // …and a fresh activation is continuable again
@@ -3290,6 +3376,36 @@ export class DebuggerPanel {
     /* Suppress text selection / the default Cut-Copy-Paste affordances; the
        Copy button is the supported way to copy the stack. */
     body { user-select: none; -webkit-user-select: none; }
+    /* Progress / busy indicator (#9). The host posts {command:'busy', on} around
+       blocking server round-trips (class-chain resolve, save→fetchStack, etc.);
+       the webview reveals this only if the op outlives BUSY_DELAY_MS (~500ms), so
+       fast calls never flash. The webview is a SEPARATE process from the frozen
+       extension host, so this keeps animating while the host is blocked. */
+    body.busy { cursor: progress; }
+    .busy-overlay {
+      position: fixed; inset: 0; z-index: 50;
+      display: flex; align-items: center; justify-content: center;
+      background: transparent; pointer-events: none; /* don't trap clicks */
+    }
+    .busy-box { display: flex; flex-direction: column; align-items: center; gap: 0.6rem; }
+    .busy-overlay .busy-spinner {
+      width: 30px; height: 30px; border-radius: 50%;
+      border: 3px solid var(--vscode-foreground);
+      border-top-color: transparent;
+      opacity: 0.45;
+      animation: jasper-busy-spin 0.8s linear infinite;
+    }
+    @keyframes jasper-busy-spin { to { transform: rotate(360deg); } }
+    /* The Cancel button is the one part of the overlay that takes clicks — it
+       appears only for cancellable (non-blocking) ops, so it's never a dead link. */
+    .busy-cancel {
+      pointer-events: auto;
+      color: var(--vscode-button-foreground);
+      background: var(--vscode-button-background);
+      border: none; padding: 0.25rem 0.9rem; border-radius: 2px; cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .busy-cancel:hover { background: var(--vscode-button-hoverBackground, var(--vscode-button-background)); }
     .titlebar { display: flex; align-items: baseline; gap: 0.6rem; margin: 0 0 0.25rem; flex-wrap: wrap; }
     h1 { font-size: 1.3rem; margin: 0; }
     .subtitle { color: var(--vscode-descriptionForeground); font-size: 0.85rem; }
@@ -3584,6 +3700,14 @@ export class DebuggerPanel {
   <div id="varctxmenu" class="ctx-menu" role="menu">
     <div class="ctx-item" id="varInspectItem" role="menuitem">GT Inspect</div>
   </div>
+  <!-- Progress/busy overlay (#9): hidden until a slow server op crosses the delay.
+       The Cancel button shows only when the running op is cancellable. -->
+  <div id="busyOverlay" class="busy-overlay" style="display:none;" aria-hidden="true">
+    <div class="busy-box">
+      <div class="busy-spinner"></div>
+      <button id="busyCancel" class="busy-cancel" type="button" style="display:none;">Cancel</button>
+    </div>
+  </div>
   <script nonce="${nonce}">${debuggerViewJs}</script>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
@@ -3612,6 +3736,8 @@ export class DebuggerPanel {
       hsplitter: document.getElementById('hsplitter'),
       varMenu: document.getElementById('varctxmenu'),
       varInspectItem: document.getElementById('varInspectItem'),
+      busyOverlay: document.getElementById('busyOverlay'),
+      busyCancel: document.getElementById('busyCancel'),
     }, vscode);
     vscode.postMessage({ command: 'ready' });
   </script>

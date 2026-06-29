@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('vscode', () => import('../__mocks__/vscode'));
 
@@ -50,9 +50,22 @@ describe('GemStoneCodeLensProvider', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers();
     sessionManager = new SessionManager();
     provider = new GemStoneCodeLensProvider(sessionManager);
   });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // The count is computed off the resolve path (so a spinner can paint first),
+  // so resolving twice with the deferred work flushed in between yields the count.
+  function resolveCount(lens: any): any {
+    provider.resolveCodeLens(lens);   // first resolve → spinner + schedules the lookup
+    vi.runAllTimers();                // run the deferred sendersOf/implementorsOf
+    return provider.resolveCodeLens(lens); // re-resolve → cache hit → the count
+  }
 
   describe('provideCodeLenses', () => {
     // Each method gets two lenses on the same line: one for senders, one
@@ -96,6 +109,39 @@ true
   });
 
   describe('resolveCodeLens', () => {
+    it('shows a non-clickable spinner placeholder while the count is still loading', () => {
+      const session = createMockSession();
+      sessionManager.getSelectedSession = () => session;
+      (queries.sendersOf as ReturnType<typeof vi.fn>).mockReturnValue([{}, {}]);
+
+      const doc = createMockDocument(`method: MyClass
+foo
+  ^ 42
+%`);
+      const lenses = provider.provideCodeLenses(doc as any);
+      const loading = provider.resolveCodeLens(lenses[0]); // before the deferred lookup runs
+
+      expect(loading.command?.title).toContain('$(loading~spin)');
+      expect(loading.command?.command).toBe(''); // not clickable while counting
+      expect(queries.sendersOf).not.toHaveBeenCalled(); // the lookup is deferred, not run inline
+    });
+
+    it('replaces the spinner with the real count once the lookup completes', () => {
+      const session = createMockSession();
+      sessionManager.getSelectedSession = () => session;
+      (queries.sendersOf as ReturnType<typeof vi.fn>).mockReturnValue([{}, {}]);
+
+      const doc = createMockDocument(`method: MyClass
+foo
+  ^ 42
+%`);
+      const lens = provider.provideCodeLenses(doc as any)[0];
+
+      expect(provider.resolveCodeLens(lens).command?.title).toContain('$(loading~spin)');
+      vi.runAllTimers(); // the deferred lookup runs and caches the count
+      expect(provider.resolveCodeLens(lens).command?.title).toBe('2 senders');
+    });
+
     it('returns "No session" when no session is selected', () => {
       const doc = createMockDocument(`method: MyClass
 foo
@@ -129,7 +175,7 @@ foo
   ^ 42
 %`);
       const lenses = provider.provideCodeLenses(doc as any);
-      const sendersLens = provider.resolveCodeLens(lenses[0]);
+      const sendersLens = resolveCount(lenses[0]);
 
       expect(sendersLens.command?.title).toBe('2 senders');
       expect(sendersLens.command?.command).toBe('gemstone.sendersOfSelector');
@@ -155,7 +201,7 @@ foo
   ^ 42
 %`);
       const lenses = provider.provideCodeLenses(doc as any);
-      const implementorsLens = provider.resolveCodeLens(lenses[1]);
+      const implementorsLens = resolveCount(lenses[1]);
 
       expect(implementorsLens.command?.title).toBe('1 implementor');
       expect(implementorsLens.command?.command).toBe('gemstone.implementorsOfSelector');
@@ -179,7 +225,7 @@ foo
   ^ 42
 %`);
       const lenses = provider.provideCodeLenses(doc as any);
-      provider.resolveCodeLens(lenses[0]); // senders lens
+      resolveCount(lenses[0]); // senders lens
 
       expect(queries.sendersOf).toHaveBeenCalled();
       expect(queries.implementorsOf).not.toHaveBeenCalled();
@@ -196,7 +242,7 @@ foo
   ^ 42
 %`);
       const lenses = provider.provideCodeLenses(doc as any);
-      provider.resolveCodeLens(lenses[1]); // implementors lens
+      resolveCount(lenses[1]); // implementors lens
 
       expect(queries.implementorsOf).toHaveBeenCalled();
       expect(queries.sendersOf).not.toHaveBeenCalled();
@@ -218,8 +264,8 @@ foo
   ^ 42
 %`);
       const lenses = provider.provideCodeLenses(doc as any);
-      expect(provider.resolveCodeLens(lenses[0]).command?.title).toBe('1 sender');
-      expect(provider.resolveCodeLens(lenses[1]).command?.title).toBe('1 implementor');
+      expect(resolveCount(lenses[0]).command?.title).toBe('1 sender');
+      expect(resolveCount(lenses[1]).command?.title).toBe('1 implementor');
     });
 
     it('caches counts so a re-resolve does not re-run the server lookup', () => {
@@ -235,11 +281,28 @@ foo
   ^ 42
 %`);
       const lenses = provider.provideCodeLenses(doc as any);
-      expect(provider.resolveCodeLens(lenses[0]).command?.title).toBe('3 senders');
-      // Re-provide + re-resolve (fresh lens objects, as VS Code does on a refresh).
+      expect(resolveCount(lenses[0]).command?.title).toBe('3 senders');
+      // Re-provide + re-resolve (fresh lens objects, as VS Code does on a refresh):
+      // the count comes from cache, so no second server lookup.
       const again = provider.provideCodeLenses(doc as any);
       expect(provider.resolveCodeLens(again[0]).command?.title).toBe('3 senders');
       expect(queries.sendersOf as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(1);
+    });
+
+    it('dispose() cancels a pending count lookup (no blocking GCI after teardown)', () => {
+      const session = createMockSession();
+      sessionManager.getSelectedSession = () => session;
+
+      const doc = createMockDocument(`method: MyClass
+foo
+  ^ 42
+%`);
+      provider.resolveCodeLens(provider.provideCodeLenses(doc as any)[0]); // schedules the lookup
+
+      provider.dispose();
+      vi.runAllTimers();              // a still-pending timer would fire here
+
+      expect(queries.sendersOf).not.toHaveBeenCalled();
     });
 
     it('refresh() clears the count cache (so a recompile can recount)', () => {
@@ -251,9 +314,9 @@ foo
 foo
   ^ 42
 %`);
-      provider.resolveCodeLens(provider.provideCodeLenses(doc as any)[0]);
+      resolveCount(provider.provideCodeLenses(doc as any)[0]);
       provider.refresh();
-      provider.resolveCodeLens(provider.provideCodeLenses(doc as any)[0]);
+      resolveCount(provider.provideCodeLenses(doc as any)[0]);
       expect(queries.sendersOf as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(2);
     });
   });

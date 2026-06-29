@@ -126,4 +126,77 @@ describe('runNbCall — cancellation', () => {
       vi.mocked(vscode.window.withProgress).mockReset();
     }
   });
+
+  // The in-panel Cancel button drives cancellation through opts.onStart, which
+  // works even before the ~2s notification would appear (no toast involved).
+  it('hands out an external cancel via onStart that soft- then hard-breaks', async () => {
+    vi.useFakeTimers();
+    try {
+      const session = makeSession([{ result: 0 }]); // always pending → never settles on its own
+      let cancel: (() => void) | undefined;
+      const p = runNbCall(
+        session,
+        () => ({ success: true, err: noErr as never }),
+        () => 'unused',
+        { onStart: (c) => { cancel = c; } },
+      );
+
+      expect(cancel).toBeTypeOf('function');
+
+      cancel!(); // first → soft break
+      expect(session.gci.GciTsBreak).toHaveBeenCalledWith(session.handle, false);
+
+      cancel!(); // second → hard break + reject
+      expect(session.gci.GciTsBreak).toHaveBeenCalledWith(session.handle, true);
+      await expect(p).rejects.toBeInstanceOf(NbCancelledError);
+
+      vi.clearAllTimers();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('runNbCall — notification suppression', () => {
+  it('does NOT show the 2s notification when suppressNotification is set', async () => {
+    vi.useFakeTimers();
+    vi.mocked(vscode.window.withProgress).mockClear();
+    try {
+      const session = makeSession([{ result: 0 }]); // pending forever
+      const p = runNbCall(
+        session, () => ({ success: true, err: noErr as never }), () => 'x',
+        { suppressNotification: true },
+      );
+      p.catch(() => {}); // we abandon the call; swallow the (never-fired) rejection
+
+      await vi.advanceTimersByTimeAsync(3000); // well past the 2s threshold
+
+      expect(vscode.window.withProgress).not.toHaveBeenCalled();
+      vi.clearAllTimers();
+    } finally {
+      vi.useRealTimers();
+      vi.mocked(vscode.window.withProgress).mockReset();
+    }
+  });
+
+  it('shows the 2s notification when suppressNotification is not set', async () => {
+    vi.useFakeTimers();
+    vi.mocked(vscode.window.withProgress).mockImplementation(() => new Promise<never>(() => {}));
+    try {
+      const session = makeSession([{ result: 0 }]);
+      const p = runNbCall(
+        session, () => ({ success: true, err: noErr as never }), () => 'x',
+        { title: 'GemStone: working…' },
+      );
+      p.catch(() => {});
+
+      await vi.advanceTimersByTimeAsync(3000);
+
+      expect(vscode.window.withProgress).toHaveBeenCalled();
+      vi.clearAllTimers();
+    } finally {
+      vi.useRealTimers();
+      vi.mocked(vscode.window.withProgress).mockReset();
+    }
+  });
 });

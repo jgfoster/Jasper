@@ -642,6 +642,137 @@ describe('debugQueries', () => {
     });
   });
 
+  // Non-blocking sibling of evaluateInFrame (#9 cancel): same frame-setup +
+  // evaluateInContext: dispatch, but issued via GciTsNbPerform and polled, so a
+  // runaway expression can be cancelled. We can't run real Smalltalk, so the mock
+  // supplies the result + printString and we assert the right (non-blocking) calls.
+  describe('evaluateInFrameNb (non-blocking eval)', () => {
+    const GS_PROCESS = 9000n;
+    const FRAME_ARRAY = 0xF0n;
+    const FRAME_RECEIVER = 0x77n;
+    const EXPR_STRING = 0xE0n;
+    const EVAL_RESULT = 0x07n;
+
+    // Self-only frame (no named temps → evaluateInContext:), with the non-blocking
+    // calls wired to report "ready immediately" and hand back EVAL_RESULT.
+    function nbEvalSession() {
+      const gci = {
+        GciTsI64ToOop: vi.fn(() => ({ result: 0xAAn, err: { ...noErr } })),
+        GciTsOopToI64: vi.fn(() => ({ value: 5n, err: { ...noErr } })),
+        GciTsNewString: vi.fn(() => ({ result: EXPR_STRING, err: { ...noErr } })),
+        GciTsFetchSize: vi.fn(() => ({ result: 10n, err: { ...noErr } })),
+        GciTsFetchOops: vi.fn(() => ({
+          oops: [1n, 2n, 0n, 0n, 0n, 0n, 0n, 0n, 0x14n /* OOP_NIL names */, FRAME_RECEIVER],
+          err: { ...noErr },
+        })),
+        GciTsPerform: vi.fn((_h: unknown, _r: bigint, _s: bigint, sel: string | null) =>
+          sel === '_frameContentsAt:' ? { result: FRAME_ARRAY, err: { ...noErr } }
+            : { result: 0n, err: { ...noErr } }),
+        // printString of the evaluation result is "7".
+        GciTsPerformFetchBytes: vi.fn((_h: unknown, oop: bigint) =>
+          oop === EVAL_RESULT
+            ? { bytesReturned: 1, data: '7', err: { ...noErr } }
+            : { bytesReturned: 0, data: '', err: { ...noErr } }),
+        isAvailable: (n: string) => n === 'GciTsNbPoll',
+        GciTsNbPerform: vi.fn(() => ({ success: true, err: { ...noErr } })),
+        GciTsNbPoll: vi.fn(() => ({ result: 1, err: { ...noErr } })), // ready on first poll
+        GciTsNbResult: vi.fn(() => ({ result: EVAL_RESULT, err: { ...noErr } })),
+      };
+      return {
+        id: 1, handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
+        gci: gci as unknown as ActiveSession['gci'],
+      } as ActiveSession;
+    }
+
+    it('resolves with the result printString once the non-blocking call is ready', async () => {
+      const session = nbEvalSession();
+      await expect(debug.evaluateInFrameNb(session, GS_PROCESS, '3 + 4', 3)).resolves.toBe('7');
+    });
+
+    it('issues the evaluation via GciTsNbPerform (evaluateInContext:) on the expression string', async () => {
+      const session = nbEvalSession();
+      await debug.evaluateInFrameNb(session, GS_PROCESS, '3 + 4', 3);
+
+      const nbCalls = (session.gci.GciTsNbPerform as ReturnType<typeof vi.fn>).mock.calls;
+      expect(nbCalls).toHaveLength(1);
+      expect(nbCalls[0][1]).toBe(EXPR_STRING);            // receiver = the expression String
+      expect(nbCalls[0][3]).toBe('evaluateInContext:');   // self-only selector (no named temps)
+      expect(nbCalls[0][4]).toEqual([FRAME_RECEIVER]);    // arg = the frame's receiver (self)
+    });
+
+    it('rejects when the expression string cannot be created', async () => {
+      const session = nbEvalSession();
+      (session.gci.GciTsNewString as ReturnType<typeof vi.fn>).mockReturnValue(
+        { result: 0n, err: { ...noErr, number: 2101, message: 'bad string' } });
+
+      await expect(debug.evaluateInFrameNb(session, GS_PROCESS, '3 + 4', 3))
+        .rejects.toThrow(/bad string|Cannot create expression string/);
+    });
+
+    it('rejects with the GCI error when the non-blocking result reports a failure (e.g. an interrupt)', async () => {
+      const session = nbEvalSession();
+      (session.gci.GciTsNbResult as ReturnType<typeof vi.fn>).mockReturnValue(
+        { result: 0n, err: { ...noErr, number: 6004, message: 'the operation was interrupted' } });
+
+      await expect(debug.evaluateInFrameNb(session, GS_PROCESS, '[true] whileTrue', 3))
+        .rejects.toThrow(/the operation was interrupted/);
+    });
+
+    // When the frame has named temps, the nb eval must bind them via a symbol list
+    // (evaluateInContext:symbolList:), exactly like the blocking evaluateInFrame.
+    it('binds named temps via evaluateInContext:symbolList: (not the self-only path)', async () => {
+      const NAMES_ARRAY = 0xA1n;
+      const AMOUNT_NAME = 0xB1n;
+      const AMOUNT_VALUE = 0x96n;
+      const AMOUNT_SYMBOL = 0xC1n;
+      const gci = {
+        GciTsI64ToOop: vi.fn(() => ({ result: 0xAAn, err: { ...noErr } })),
+        GciTsOopToI64: vi.fn(() => ({ value: 5n, err: { ...noErr } })),
+        GciTsNewString: vi.fn(() => ({ result: EXPR_STRING, err: { ...noErr } })),
+        GciTsNewSymbol: vi.fn(() => ({ result: AMOUNT_SYMBOL, err: { ...noErr } })),
+        GciTsResolveSymbol: vi.fn((_h: unknown, name: string) => ({
+          result: name === 'SymbolDictionary' ? 0xD1n : name === 'SymbolList' ? 0xD2n : 0xD3n,
+          err: { ...noErr },
+        })),
+        GciTsFetchSize: vi.fn((_h: unknown, oop: bigint) =>
+          ({ result: oop === NAMES_ARRAY ? 1n : 11n, err: { ...noErr } })),
+        GciTsFetchOops: vi.fn((_h: unknown, oop: bigint) =>
+          oop === NAMES_ARRAY
+            ? { oops: [AMOUNT_NAME], err: { ...noErr } }
+            : { oops: [1n, 2n, 0n, 0n, 0n, 0n, 0n, 0n, NAMES_ARRAY, FRAME_RECEIVER, AMOUNT_VALUE], err: { ...noErr } }),
+        GciTsPerform: vi.fn((_h: unknown, _r: bigint, _s: bigint, sel: string | null) => {
+          if (sel === '_frameContentsAt:') return { result: FRAME_ARRAY, err: { ...noErr } };
+          if (sel === 'new') return { result: 0xDD0n, err: { ...noErr } };
+          if (sel === 'at:put:') return { result: 0n, err: { ...noErr } };
+          if (sel === 'myUserProfile') return { result: 0xDDdn, err: { ...noErr } };
+          if (sel === 'symbolList') return { result: 0xDDan, err: { ...noErr } };
+          if (sel === 'with:') return { result: 0xDDfn, err: { ...noErr } };
+          if (sel === ',') return { result: 0xDDcn, err: { ...noErr } };
+          return { result: 0n, err: { ...noErr } };
+        }),
+        GciTsPerformFetchBytes: vi.fn((_h: unknown, oop: bigint) =>
+          oop === AMOUNT_NAME ? { bytesReturned: 6, data: 'amount', err: { ...noErr } }
+            : oop === EVAL_RESULT ? { bytesReturned: 3, data: '150', err: { ...noErr } }
+              : { bytesReturned: 0, data: '', err: { ...noErr } }),
+        isAvailable: (n: string) => n === 'GciTsNbPoll',
+        GciTsNbPerform: vi.fn(() => ({ success: true, err: { ...noErr } })),
+        GciTsNbPoll: vi.fn(() => ({ result: 1, err: { ...noErr } })),
+        GciTsNbResult: vi.fn(() => ({ result: EVAL_RESULT, err: { ...noErr } })),
+      };
+      const session = {
+        id: 1, handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
+        gci: gci as unknown as ActiveSession['gci'],
+      } as ActiveSession;
+
+      await expect(debug.evaluateInFrameNb(session, GS_PROCESS, 'amount * 2', 3)).resolves.toBe('150');
+
+      const nbCalls = (session.gci.GciTsNbPerform as ReturnType<typeof vi.fn>).mock.calls;
+      expect(nbCalls[0][3]).toBe('evaluateInContext:symbolList:'); // symbol-list selector
+      expect(nbCalls[0][4][0]).toBe(FRAME_RECEIVER);               // self
+      expect(nbCalls[0][4]).toHaveLength(2);                       // [receiver, symbolList]
+    });
+  });
+
   describe('completion result oop', () => {
     const GS_PROCESS = 9000n;
     const RESULT = 0x99n;

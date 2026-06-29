@@ -51,6 +51,7 @@ vi.mock('../debugQueries', () => ({
   getInstVarNames: vi.fn(() => [] as string[]),
   getNamedInstVarOops: vi.fn(() => [] as bigint[]),
   evaluateInFrame: vi.fn(() => '42'),
+  evaluateInFrameNb: vi.fn(async () => '42'),
   evaluateInFrameToOop: vi.fn(() => 999n),
   setFrameTemp: vi.fn(),
   setInstVar: vi.fn(),
@@ -1646,22 +1647,164 @@ describe('DebuggerPanel', () => {
       });
     });
 
-    it('evaluates an expression in the selected frame and posts the result', () => {
-      vi.mocked(debug.evaluateInFrame).mockReturnValueOnce('1764');
+    it('evaluates an expression in the selected frame and posts the result', async () => {
+      vi.mocked(debug.evaluateInFrameNb).mockResolvedValueOnce('1764');
       const panel = openPanel();
       sendMessage(panel, { command: 'evalInFrame', level: 3, expr: '42 * 42' });
+      await tick();
 
-      expect(debug.evaluateInFrame).toHaveBeenCalledWith(session, GS_PROCESS, '42 * 42', 3);
+      expect(debug.evaluateInFrameNb).toHaveBeenCalledWith(
+        session, GS_PROCESS, '42 * 42', 3, expect.objectContaining({ onStart: expect.any(Function) }),
+      );
       expect(lastPosted(panel, 'evalResult')).toMatchObject({ value: '1764', isError: false });
     });
 
-    it('reports an eval error without throwing', () => {
-      vi.mocked(debug.evaluateInFrame).mockImplementationOnce(() => { throw new Error('doesNotUnderstand'); });
+    it('reports an eval error without throwing', async () => {
+      vi.mocked(debug.evaluateInFrameNb).mockRejectedValueOnce(new Error('doesNotUnderstand'));
       const panel = openPanel();
       sendMessage(panel, { command: 'evalInFrame', level: 3, expr: 'foo bar' });
+      await tick();
 
       expect(lastPosted(panel, 'evalResult')).toMatchObject({ isError: true });
       expect(lastPosted(panel, 'evalResult').value).toContain('doesNotUnderstand');
+    });
+
+    it('signals cancellable while a frame eval runs, then clears it', async () => {
+      let release: (v: string) => void = () => {};
+      vi.mocked(debug.evaluateInFrameNb).mockImplementationOnce((...args: unknown[]) => {
+        const opts = args[4] as { onStart?: (c: () => void) => void };
+        opts.onStart?.(() => {});                       // the nb call begins → cancellable
+        return new Promise<string>(res => { release = res; });
+      });
+      const panel = openPanel();
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: '(1 to: 9e9) size' });
+      await tick();
+
+      expect(lastPosted(panel, 'cancellable')).toMatchObject({ on: true });
+
+      release('done');
+      await tick();
+      expect(lastPosted(panel, 'cancellable')).toMatchObject({ on: false });
+    });
+
+    it('Cancel hits the running eval’s cancel handle', async () => {
+      const cancelSpy = vi.fn();
+      vi.mocked(debug.evaluateInFrameNb).mockImplementationOnce((...args: unknown[]) => {
+        const opts = args[4] as { onStart?: (c: () => void) => void };
+        opts.onStart?.(cancelSpy);            // the nb runner hands the panel its cancel fn
+        return new Promise<string>(() => {}); // never settles — the op stays "running"
+      });
+      const panel = openPanel();
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: '[true] whileTrue' });
+      await tick();
+
+      sendMessage(panel, { command: 'cancelOp' });
+
+      expect(cancelSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('a cancelled eval shows "Evaluation Cancelled", the break kind, and the raw error', async () => {
+      let rejectEval: (e: Error) => void = () => {};
+      vi.mocked(debug.evaluateInFrameNb).mockImplementationOnce((...args: unknown[]) => {
+        const opts = args[4] as { onStart?: (c: () => void) => void };
+        opts.onStart?.(() => {});
+        return new Promise<string>((_res, rej) => { rejectEval = rej; });
+      });
+      const panel = openPanel();
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: '[true] whileTrue' });
+      await tick();
+
+      sendMessage(panel, { command: 'cancelOp' });                    // one click → soft break
+      rejectEval(new Error('the operation was interrupted'));         // gem stops with an interrupt
+      await tick();
+
+      const res = lastPosted(panel, 'evalResult');
+      expect(res.value).toContain('Evaluation Cancelled');
+      expect(res.value).toContain('soft break');
+      expect(res.value).toContain('the operation was interrupted'); // raw error kept
+      expect(res.isError).toBe(true);
+    });
+
+    it('labels a two-click eval cancel "(hard break)"', async () => {
+      let rejectEval: (e: Error) => void = () => {};
+      vi.mocked(debug.evaluateInFrameNb).mockImplementationOnce((...args: unknown[]) => {
+        const opts = args[4] as { onStart?: (c: () => void) => void };
+        opts.onStart?.(() => {});
+        return new Promise<string>((_res, rej) => { rejectEval = rej; });
+      });
+      const panel = openPanel();
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: '[true] whileTrue' });
+      await tick();
+
+      sendMessage(panel, { command: 'cancelOp' }); // soft
+      sendMessage(panel, { command: 'cancelOp' }); // hard
+      rejectEval(new Error('forced'));
+      await tick();
+
+      expect(lastPosted(panel, 'evalResult').value).toContain('hard break');
+    });
+
+    it('ignores a second eval while one is already running (busy)', async () => {
+      vi.mocked(debug.evaluateInFrameNb).mockReturnValueOnce(new Promise<string>(() => {})); // first hangs
+      const panel = openPanel();
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: 'first' });
+      await tick();
+
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: 'second' });
+      await tick();
+
+      expect(debug.evaluateInFrameNb).toHaveBeenCalledTimes(1); // the second was refused while busy
+    });
+
+    it('refuses a step while an eval is still running (shared nbBusy guard)', async () => {
+      vi.mocked(debug.evaluateInFrameNb).mockReturnValueOnce(new Promise<string>(() => {})); // eval hangs
+      const panel = openPanel();
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: 'hang' });
+      await tick();
+
+      sendMessage(panel, { command: 'stepOver', level: 3 });
+      await tick();
+
+      expect(debug.stepOverNb).not.toHaveBeenCalled();
+    });
+
+    it('refuses an eval while a step is still running (shared nbBusy guard)', async () => {
+      vi.mocked(debug.stepOverNb).mockReturnValueOnce(new Promise(() => {})); // step hangs
+      const panel = openPanel();
+      sendMessage(panel, { command: 'stepOver', level: 3 });
+      await tick();
+
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: 'x' });
+      await tick();
+
+      expect(debug.evaluateInFrameNb).not.toHaveBeenCalled();
+    });
+
+    it('does not mislabel a later eval setup error as cancelled after a prior cancel', async () => {
+      // First eval: cancelled, so cancelClicks is bumped to 1.
+      let rejectFirst: (e: Error) => void = () => {};
+      vi.mocked(debug.evaluateInFrameNb).mockImplementationOnce((...args: unknown[]) => {
+        const opts = args[4] as { onStart?: (c: () => void) => void };
+        opts.onStart?.(() => {});
+        return new Promise<string>((_res, rej) => { rejectFirst = rej; });
+      });
+      const panel = openPanel();
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: 'first' });
+      await tick();
+      sendMessage(panel, { command: 'cancelOp' });          // cancelClicks → 1
+      rejectFirst(new Error('interrupted'));
+      await tick();
+
+      // Second eval whose blocking SETUP fails before polling starts → onStart never
+      // fires, so cancelClicks isn't reset there. The reset-at-entry guard must keep
+      // the stale 1 from mislabeling this real error as a cancellation.
+      vi.mocked(debug.evaluateInFrameNb).mockRejectedValueOnce(new Error('cannot create expression string'));
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: 'second' });
+      await tick();
+
+      const res = lastPosted(panel, 'evalResult');
+      expect(res.value).toContain('Error: cannot create expression string');
+      expect(res.value).not.toContain('Cancelled');
     });
 
     it('Resume disposes the panel when execution completes', () => {
@@ -1920,7 +2063,7 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'stepOver', level: 3 }); // display 3 → server level 3
       await tick();
 
-      expect(debug.stepOverNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+      expect(debug.stepOverNb).toHaveBeenCalledWith(session, GS_PROCESS, 3, expect.anything());
       expect(posted(panel, 'init').length).toBe(before + 1);
       expect(lastPosted(panel, 'init').errorMessage).toBe('');
       expect(panel.dispose).not.toHaveBeenCalled();
@@ -1967,7 +2110,7 @@ describe('DebuggerPanel', () => {
         await tick();
         // Without the fix this would step from the doit-home server level (3),
         // running the whole user block to completion; the stop frame is level 1.
-        expect(debug.stepOverNb).toHaveBeenCalledWith(session, GS_PROCESS, 1);
+        expect(debug.stepOverNb).toHaveBeenCalledWith(session, GS_PROCESS, 1, expect.anything());
       });
 
       it('Step Into likewise steps the stop frame, not the doit home', async () => {
@@ -1975,7 +2118,7 @@ describe('DebuggerPanel', () => {
         const panel = openPanel();
         sendMessage(panel, { command: 'stepInto', level: 1 });
         await tick();
-        expect(debug.stepIntoNb).toHaveBeenCalledWith(session, GS_PROCESS, 1);
+        expect(debug.stepIntoNb).toHaveBeenCalledWith(session, GS_PROCESS, 1, expect.anything());
       });
 
       it('Step Through likewise steps the stop frame, not the doit home', async () => {
@@ -1983,7 +2126,7 @@ describe('DebuggerPanel', () => {
         const panel = openPanel();
         sendMessage(panel, { command: 'stepThrough', level: 1 });
         await tick();
-        expect(debug.stepThruNb).toHaveBeenCalledWith(session, GS_PROCESS, 1);
+        expect(debug.stepThruNb).toHaveBeenCalledWith(session, GS_PROCESS, 1, expect.anything());
       });
     });
 
@@ -2067,7 +2210,7 @@ describe('DebuggerPanel', () => {
       vi.mocked(debug.continueExecution).mockClear();
       sendMessage(panel, { command: 'resume' });
 
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 2);
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 2, expect.anything());
       expect(debug.continueExecution).toHaveBeenCalled(); // no longer guarded
     });
 
@@ -2085,7 +2228,7 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'stepInto', level: 3 }); // display 3 → server level 3
       await tick();
 
-      expect(debug.stepIntoNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+      expect(debug.stepIntoNb).toHaveBeenCalledWith(session, GS_PROCESS, 3, expect.anything());
     });
 
     it('"Through" maps to gciStepThru (debugQueries.stepThruNb), from the selected user frame', async () => {
@@ -2093,7 +2236,7 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'stepThrough', level: 4 }); // display 4 → server level 4
       await tick();
 
-      expect(debug.stepThruNb).toHaveBeenCalledWith(session, GS_PROCESS, 4);
+      expect(debug.stepThruNb).toHaveBeenCalledWith(session, GS_PROCESS, 4, expect.anything());
     });
 
     it('Restart Frame trims the stack (non-blocking) to the selected (deeper) frame and refreshes', async () => {
@@ -2102,8 +2245,40 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'restartFrame', level: 2 });
       await tick();
 
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 2);
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 2, expect.anything());
       expect(posted(panel, 'init').length).toBe(before + 1);
+    });
+
+    it('debugger nb ops suppress the 2s toast (the in-panel overlay owns cancel)', async () => {
+      const panel = openPanel();
+      sendMessage(panel, { command: 'stepOver', level: 3 });
+      await tick();
+
+      expect(debug.stepOverNb).toHaveBeenCalledWith(
+        session, GS_PROCESS, 3, expect.objectContaining({ suppressNotification: true }),
+      );
+    });
+
+    it('a step marks the op cancellable, and Cancel breaks it', async () => {
+      const cancelSpy = vi.fn();
+      vi.mocked(debug.stepOverNb).mockImplementationOnce((...args: unknown[]) => {
+        const opts = args[3] as { onStart?: (c: () => void) => void };
+        opts.onStart?.(cancelSpy);             // the nb step begins polling → cancellable
+        return new Promise(() => {});          // never settles — the step "runs"
+      });
+      const panel = openPanel();
+      sendMessage(panel, { command: 'stepOver', level: 3 });
+      await tick();
+
+      expect(lastPosted(panel, 'cancellable')).toMatchObject({ on: true });
+
+      sendMessage(panel, { command: 'cancelOp' });
+      expect(cancelSpy).toHaveBeenCalledTimes(1);
+      expect(lastPosted(panel, 'flash').text).toMatch(/break sent/i); // click acknowledged
+
+      sendMessage(panel, { command: 'cancelOp' });
+      expect(cancelSpy).toHaveBeenCalledTimes(2);
+      expect(lastPosted(panel, 'flash').text).toMatch(/forc/i); // second click → force
     });
 
     it('Restart Frame on the top frame shows an in-panel notice and does not trim (GemStone cannot reset the TOS IP)', async () => {
@@ -2114,6 +2289,27 @@ describe('DebuggerPanel', () => {
 
       expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();
       expect(lastPosted(panel, 'init').errorMessage).toMatch(/top frame/i);
+    });
+
+    it('Restart Frame on an Executed Code (doit) frame shows a notice and does not trim (kernel cannot reset a classless frame)', async () => {
+      vi.mocked(debug.getStackDepth).mockImplementation(() => 2);
+      vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => ({
+        isBlock: false, homeMethodOop: methodOop,
+      }));
+      // Top frame is a real method; the deeper frame is a doit (its method can't be
+      // resolved → Executed Code), like `<expr> halt` stepped into a real method.
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 1n) return { className: 'JasperDebugDemo', selector: 'initialize' };
+        throw new Error('doit');
+      });
+      const panel = openPanel();
+      vi.mocked(debug.trimStackToLevelNb).mockClear();
+
+      sendMessage(panel, { command: 'restartFrame', level: 2 }); // the Executed Code frame
+      await tick();
+
+      expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/Executed Code/i);
     });
 
     it('Terminate disposes the panel', () => {
@@ -2321,7 +2517,7 @@ describe('DebuggerPanel', () => {
       vi.mocked(debug.continueExecution).mockClear();
       sendMessage(panel, { command: 'resume' });
 
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 2);
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 2, expect.anything());
       expect(debug.continueExecution).toHaveBeenCalled(); // no longer blocked
     });
   });
@@ -2410,7 +2606,7 @@ describe('DebuggerPanel', () => {
 
       // Retargeted from the block (server 1) to its home method (server 3) — so it
       // trims there, NOT refusing as it would for a genuine top frame.
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3, expect.anything());
       expect(lastPosted(panel, 'init').errorMessage).not.toMatch(/top frame/i);
     });
 
@@ -2495,7 +2691,7 @@ describe('DebuggerPanel', () => {
 
       // The whole home method re-runs from the top — the inner AND outer blocks
       // above the home frame are all discarded by the trim.
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 7);
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 7, expect.anything());
       expect(lastPosted(panel, 'init').errorMessage).not.toMatch(/top frame/i);
     });
 
@@ -2506,7 +2702,7 @@ describe('DebuggerPanel', () => {
 
       // homeMethodFrameLevel skips the deeper kernel frame and lands on `foo` (7),
       // never on the still-deeper nothing — there's exactly one home activation.
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 7);
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 7, expect.anything());
     });
 
     it('Saving from a nested block re-enters the shared home method (trims to 7)', async () => {
@@ -2558,7 +2754,7 @@ describe('DebuggerPanel', () => {
       // Retargets DOWN to the home method (server 4) — NOT a trim to the block's
       // own level (2), which would merely restart the block in place (the old
       // behaviour, before block frames retargeted to their home method).
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 4);
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 4, expect.anything());
       expect(debug.trimStackToLevelNb).not.toHaveBeenCalledWith(session, GS_PROCESS, 2);
     });
 
@@ -2609,7 +2805,7 @@ describe('DebuggerPanel', () => {
 
       // Trims to the inner foo (server 3), NOT the deeper outer foo (server 6) —
       // restarting the inner recursion level, not unwinding an extra one.
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3, expect.anything());
       expect(debug.trimStackToLevelNb).not.toHaveBeenCalledWith(session, GS_PROCESS, 6);
     });
   });

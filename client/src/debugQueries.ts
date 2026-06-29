@@ -1055,27 +1055,27 @@ function performStepNb(
 }
 
 export function stepOverNb(
-  session: ActiveSession, gsProcess: bigint, level: number,
+  session: ActiveSession, gsProcess: bigint, level: number, opts: NbRunOptions = {},
 ): Promise<StepResult> {
   const levelOop = intToOop(session, level);
   logInfo(`[Session ${session.id}] Debug: stepOver (nb) from level ${level}`);
-  return performStepNb(session, gsProcess, 'gciStepOverFromLevel:', [levelOop], { title: 'GemStone: stepping over…' });
+  return performStepNb(session, gsProcess, 'gciStepOverFromLevel:', [levelOop], { title: 'GemStone: stepping over…', ...opts });
 }
 
 export function stepIntoNb(
-  session: ActiveSession, gsProcess: bigint, level: number,
+  session: ActiveSession, gsProcess: bigint, level: number, opts: NbRunOptions = {},
 ): Promise<StepResult> {
   const levelOop = intToOop(session, level);
   logInfo(`[Session ${session.id}] Debug: stepInto (nb) from level ${level}`);
-  return performStepNb(session, gsProcess, 'gciStepIntoFromLevel:', [levelOop], { title: 'GemStone: stepping into…' });
+  return performStepNb(session, gsProcess, 'gciStepIntoFromLevel:', [levelOop], { title: 'GemStone: stepping into…', ...opts });
 }
 
 export function stepThruNb(
-  session: ActiveSession, gsProcess: bigint, level: number,
+  session: ActiveSession, gsProcess: bigint, level: number, opts: NbRunOptions = {},
 ): Promise<StepResult> {
   const levelOop = intToOop(session, level);
   logInfo(`[Session ${session.id}] Debug: stepThru (nb) from level ${level}`);
-  return performStepNb(session, gsProcess, 'gciStepThruFromLevel:', [levelOop], { title: 'GemStone: stepping through…' });
+  return performStepNb(session, gsProcess, 'gciStepThruFromLevel:', [levelOop], { title: 'GemStone: stepping through…', ...opts });
 }
 
 // ── Continue / Terminate ────────────────────────────────
@@ -1147,7 +1147,7 @@ export function trimStackToLevel(
  * variant (no debug-stop during the trim's unwind).
  */
 export function trimStackToLevelNb(
-  session: ActiveSession, gsProcess: bigint, level: number,
+  session: ActiveSession, gsProcess: bigint, level: number, opts: NbRunOptions = {},
 ): Promise<void> {
   const levelOop = intToOop(session, level);
   logInfo(`[Session ${session.id}] Debug: trimStackToLevel (nb) ${level}`);
@@ -1162,7 +1162,7 @@ export function trimStackToLevelNb(
         throw new Error(err.message || `GemStone error ${err.number} in trimStackToLevel:`);
       }
     },
-    { title: 'GemStone: restarting frame…' },
+    { title: 'GemStone: restarting frame…', ...opts },
   );
 }
 
@@ -1200,6 +1200,44 @@ export function evaluateInFrame(
  * temp / instVar. A compile or runtime error surfaces as a thrown GCI error
  * (same as the eval bar), so the caller can keep the editor open on failure.
  */
+/**
+ * Non-blocking sibling of {@link evaluateInFrame}: evaluate `expression` in the
+ * frame and resolve with the result's printString, issued via GciTsNbPerform and
+ * polled off the main thread. The eval-bar uses this so a long/looping/runaway
+ * expression neither freezes the panel nor blocks the host — and can be cancelled
+ * (see {@link NbRunOptions.onStart}). The frame setup (receiver, symbol list,
+ * expression string) is still blocking, but cheap; only the evaluation itself —
+ * the part that can run away — is non-blocking.
+ */
+export function evaluateInFrameNb(
+  session: ActiveSession, gsProcess: bigint, expression: string, level: number,
+  opts: NbRunOptions = {},
+): Promise<string> {
+  const { receiverOop, argAndTempNames, argAndTempOops } = getFrameInfo(session, gsProcess, level);
+
+  const { result: exprOop, err: strErr } = session.gci.GciTsNewString(session.handle, expression);
+  if (strErr.number !== 0) {
+    return Promise.reject(new Error(strErr.message || 'Cannot create expression string'));
+  }
+
+  const symbolListOop = buildFrameSymbolList(session, argAndTempNames, argAndTempOops);
+  const selector = symbolListOop === null ? 'evaluateInContext:' : 'evaluateInContext:symbolList:';
+  const args = symbolListOop === null ? [receiverOop] : [receiverOop, symbolListOop];
+
+  return runNbCall(
+    session,
+    () => session.gci.GciTsNbPerform(session.handle, exprOop, OOP_ILLEGAL, selector, args, 0, 0),
+    () => {
+      const { result, err } = session.gci.GciTsNbResult(session.handle);
+      if (err.number !== 0) {
+        throw new Error(err.message || `GCI error ${err.number} in ${selector}`);
+      }
+      return getObjectPrintString(session, result);
+    },
+    opts,
+  );
+}
+
 export function evaluateInFrameToOop(
   session: ActiveSession, gsProcess: bigint, expression: string, level: number,
 ): bigint {
