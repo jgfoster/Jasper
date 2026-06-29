@@ -6,6 +6,39 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ### Added
 
+- **Enhanced Debugger: inline variable values in the source pane.** An
+  **Inline values: on/off** toggle (a CodeLens at the top of the source pane)
+  annotates the code with each in-scope variable's value — dimmed, inlay-hint-styled
+  text aligned in a column to the right of the code (instance variables, arguments,
+  temporaries, and `self`). By default each variable is shown once, at its first
+  *use* — declarations (the `| temps |` line, block args `:x`, and the method
+  signature) are skipped, so a tight loop doesn't repeat the same value on every
+  line. A companion **Every line: on/off** toggle (shown while the overlay is on)
+  switches to annotating every line that references a variable — handy in a long
+  method. Only variables that actually appear in the visible source are shown
+  (identifiers inside comments and string literals are ignored); hover an
+  annotation for the full printString. Off by default; remembered for the session.
+- **Enhanced Debugger: Run to Cursor.** A new **Run to Cursor** toolbar button (next
+  to Resume) runs execution until it reaches the step point nearest the cursor in
+  the companion source pane, then stops there like a halt (stack, variables, and
+  the step-point highlight all refresh). It's column-aware — clicking `asInteger` in
+  `x := (...) asInteger`, or inside a one-line block, breaks at that spot rather
+  than the leftmost step point on the line. Under the cover it sets a temporary
+  step-point breakpoint, resumes, and clears that break afterward — leaving any
+  breakpoint you set yourself untouched. Works in "Executed Code" (doit) frames
+  too — the temporary break is set on the doit's method by OOP. With no usable
+  cursor target it falls back to a plain Resume with a brief notice.
+- **Enhanced Debugger: richer Copy Stack and a new Dump Stack to File.** The Copy
+  Stack toolbar button now copies the *full* stack with each frame's variable
+  values (receiver / instance vars / args / temps), not just the frame labels. A
+  new **Dump Stack to File** action writes that same detailed stack to a file,
+  with a button to copy the saved path.
+- **Enhanced Debugger: "Go to home method" for block frames.** Right-click a block
+  frame → **Go to home method** to jump to its home method's activation on the
+  stack. Navigate / Restart / recompile-and-continue on a block frame now act on
+  that home-method activation, since a block can't be meaningfully restarted in
+  isolation (matching GT).
+  
 - **File Out from the System Browser.** Right-click a class → **File Out Class…** writes the class's Topaz file-out to a path you choose (a trailing `TestCase` is dropped from the default file name, matching Jade). Right-click a dictionary → **File Out as Many Files…** writes one `.gs` file per class plus a loader file. The loader (following Grail's `install.gs`) first ensures the dictionary exists — creating it at the front of the symbol list, so its names resolve first, when absent — then forward-references every class (`dict at: #Name put: nil`) so methods that reference sibling classes — including circular references — compile against the dictionary association instead of failing on an unknown global, and finally inputs the class files superclass-first so each definition resolves its superclass.
 
 - **Integration test infrastructure for the GCI layer.** A suite of shell scripts (`gs-install.sh`, `gs-start.sh`, `gs-stop.sh`, `gs-reset-extent.sh`, `gs-create-test-env-file.sh`, `gs-test-setup.sh`) automates downloading, installing, and running a local GemStone instance for integration tests; `gs-config.sh` is a shared configuration module sourced by the others. A `useIntegrationTest` vitest helper manages the session lifecycle (login, per-test begin/abort, logout). The CI health-check workflow runs a matrix job over the GemStone versions listed in `client/.gemstone-integration-releases.json`; to test against a new version, add an entry there.

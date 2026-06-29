@@ -6,9 +6,11 @@ import { ActiveSession } from './sessionManager';
 import * as debug from './debugQueries';
 import * as queries from './browserQueries';
 import { unwrapTranscriptCapture, transcriptCaptureUserCodeOffset } from './transcriptCapture';
+import { buildLineOffsets, mapOffsetToStepPoint } from './breakpointManager';
 import { GtInspector } from './gtInspector';
 import { logError, logInfo } from './gciLog';
 import { NbCancelledError } from './nbRunner';
+import { extensionPathFrom } from './extensionPath';
 
 // The webview's DOM behavior lives in a standalone file (like listFilter.js /
 // methodListView.js) so it gets IDE support and can be jsdom-tested in isolation
@@ -27,6 +29,10 @@ const debuggerViewJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'debugg
  */
 const TOOLBAR_ICONS: Record<string, string> = {
   resume: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M14.578 7.149L7.578 2.186C7.397 2.058 7.198 2 7.003 2C6.484 2 6 2.411 6 3.002V13.003C6 13.594 6.485 14.005 7.004 14.005C7.201 14.005 7.403 13.946 7.585 13.815L14.585 8.777C15.142 8.376 15.139 7.546 14.579 7.15L14.578 7.149ZM7.5 12.027V3.969L13.14 7.968L7.5 12.027ZM3.5 2.75V13.25C3.5 13.664 3.164 14 2.75 14C2.336 14 2 13.664 2 13.25V2.75C2 2.336 2.336 2 2.75 2C3.164 2 3.5 2.336 3.5 2.75Z"/></svg>',
+  // "Run to Cursor" (#2): a play triangle aimed at a vertical bar — run until the
+  // cursor (the bar). Reads as "continue to this point", distinct from the plain
+  // Resume glyph.
+  runToCursor: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3 3.8v8.4a.6.6 0 0 0 .92.5l6.3-4.2a.6.6 0 0 0 0-1L3.92 3.3A.6.6 0 0 0 3 3.8z"/><path d="M12.25 3a.75.75 0 0 1 .75.75v8.5a.75.75 0 0 1-1.5 0v-8.5A.75.75 0 0 1 12.25 3z"/></svg>',
   stepOver: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M9.99993 13C9.99993 14.103 9.10293 15 7.99993 15C6.89693 15 5.99993 14.103 5.99993 13C5.99993 11.897 6.89693 11 7.99993 11C9.10293 11 9.99993 11.897 9.99993 13ZM13.2499 2C12.8359 2 12.4999 2.336 12.4999 2.75V4.027C11.3829 2.759 9.75993 2 7.99993 2C5.03293 2 2.47993 4.211 2.06093 7.144C2.00193 7.554 2.28793 7.934 2.69793 7.993C2.73393 7.999 2.76993 8.001 2.80493 8.001C3.17193 8.001 3.49293 7.731 3.54693 7.357C3.86093 5.159 5.77593 3.501 8.00093 3.501C9.52993 3.501 10.9199 4.264 11.7439 5.501H9.75093C9.33693 5.501 9.00093 5.837 9.00093 6.251C9.00093 6.665 9.33693 7.001 9.75093 7.001H13.2509C13.6649 7.001 14.0009 6.665 14.0009 6.251V2.751C14.0009 2.337 13.6649 2.001 13.2509 2.001L13.2499 2Z"/></svg>',
   stepInto: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M10 13C10 14.103 9.10304 15 8.00004 15C6.89704 15 6.00004 14.103 6.00004 13C6.00004 11.897 6.89704 11 8.00004 11C9.10304 11 10 11.897 10 13ZM12.03 5.22C11.737 4.927 11.262 4.927 10.969 5.22L8.74904 7.44V1.75C8.74904 1.336 8.41304 1 7.99904 1C7.58504 1 7.24904 1.336 7.24904 1.75V7.439L5.02904 5.219C4.73604 4.926 4.26104 4.926 3.96804 5.219C3.67504 5.512 3.67504 5.987 3.96804 6.28L7.46804 9.78C7.61404 9.926 7.80604 10 7.99804 10C8.19004 10 8.38204 9.927 8.52804 9.78L12.028 6.28C12.321 5.987 12.321 5.512 12.028 5.219L12.03 5.22Z"/></svg>',
   // "Through" = step through blocks (gciStepThru). The `indent` arrow (turns down
@@ -35,6 +41,9 @@ const TOOLBAR_ICONS: Record<string, string> = {
   stepThrough: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M2.50002 3C2.77602 3 3.00002 3.224 3.00002 3.5V6.5C3.00002 7.327 3.67302 8 4.50002 8H12.293L9.64702 5.354C9.45202 5.159 9.45202 4.842 9.64702 4.647C9.84202 4.452 10.159 4.452 10.354 4.647L13.854 8.147C14.049 8.342 14.049 8.659 13.854 8.854L10.354 12.354C10.256 12.452 10.128 12.5 10 12.5C9.87202 12.5 9.74402 12.451 9.64602 12.354C9.45102 12.159 9.45102 11.842 9.64602 11.647L12.292 9.001H4.49902C3.12002 9.001 1.99902 7.88 1.99902 6.501V3.501C1.99902 3.225 2.22302 3.001 2.49902 3.001L2.50002 3Z"/></svg>',
   restartFrame: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5C1 3.22386 1.22386 3 1.5 3H14.5C14.7761 3 15 3.22386 15 3.5C15 3.77614 14.7761 4 14.5 4H1.5C1.22386 4 1 3.77614 1 3.5Z"/><path d="M1 7.5C1 7.22386 1.22386 7 1.5 7H14.5C14.7761 7 15 7.22386 15 7.5C15 7.77614 14.7761 8 14.5 8H1.5C1.22386 8 1 7.77614 1 7.5Z"/><path d="M1 11.5C1 11.2239 1.22386 11 1.5 11H7.99939V11.4994C7.99939 11.6716 8.02899 11.8407 8.08538 12H1.5C1.22386 12 1 11.7761 1 11.5Z"/><path d="M8.99939 9.49939V11.4994C8.99939 11.632 9.05207 11.7592 9.14584 11.8529C9.2396 11.9467 9.36678 11.9994 9.49939 11.9994H11.4994C11.632 11.9994 11.7592 11.9467 11.8529 11.8529C11.9467 11.7592 11.9994 11.632 11.9994 11.4994C11.9994 11.3668 11.9467 11.2396 11.8529 11.1458C11.7592 11.0521 11.632 10.9994 11.4994 10.9994H10.4994C10.5702 10.9049 10.6477 10.8157 10.7314 10.7324C11.2078 10.2778 11.8409 10.0242 12.4994 10.0242C13.1579 10.0242 13.791 10.2778 14.2674 10.7324C14.4996 10.9645 14.6838 11.2402 14.8095 11.5435C14.9352 11.8469 14.9999 12.172 14.9999 12.5004C14.9999 12.8287 14.9352 13.1539 14.8095 13.4573C14.6838 13.7606 14.4996 14.0362 14.2674 14.2684C13.7909 14.7227 13.1578 14.9762 12.4994 14.9762C11.841 14.9762 11.2079 14.7227 10.7314 14.2684C10.6371 14.1773 10.5108 14.1269 10.3797 14.1281C10.2486 14.1292 10.1232 14.1818 10.0305 14.2745C9.93778 14.3672 9.88519 14.4926 9.88405 14.6237C9.88291 14.7548 9.93331 14.8811 10.0244 14.9754C10.6808 15.6318 11.5711 16.0006 12.4994 16.0006C13.4277 16.0006 14.318 15.6318 14.9744 14.9754C15.6308 14.319 15.9996 13.4287 15.9996 12.5004C15.9996 11.5721 15.6308 10.6818 14.9744 10.0254C14.3075 9.38902 13.4212 9.03396 12.4994 9.03396C11.5776 9.03396 10.6912 9.38902 10.0244 10.0254L9.99939 10.0514V9.49939C9.99939 9.36678 9.94671 9.2396 9.85294 9.14584C9.75918 9.05207 9.632 8.99939 9.49939 8.99939C9.36678 8.99939 9.2396 9.05207 9.14584 9.14584C9.05207 9.2396 8.99939 9.36678 8.99939 9.49939Z"/></svg>',
   terminate: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M12.5 3.5V12.5H3.5V3.5H12.5ZM12.5 2H3.5C2.672 2 2 2.672 2 3.5V12.5C2 13.328 2.672 14 3.5 14H12.5C13.328 14 14 13.328 14 12.5V3.5C14 2.672 13.328 2 12.5 2Z"/></svg>',
+  // Copy Stack → clipboard glyph; Dump Stack → save-to-file (floppy) glyph.
+  copyStack: '<svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M4 4l1-1h5.414L14 6.586V14l-1 1H5l-1-1V4zm9 3l-3-3H5v10h8V7z"/><path d="M3 1L2 2v10l1 1V2h6.414l-1-1H3z"/></svg>',
+  dumpStack: '<svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M13.353 1.146l1.5 1.5L15 3v11.5l-.5.5h-13l-.5-.5v-13l.5-.5H13l.353.146zM2 2v12h12V3.207L12.793 2H12v5H4V2H2zm7 0v4h2V2H9z"/></svg>',
 };
 
 /**
@@ -59,10 +68,14 @@ const TOOLBAR_ICONS: Record<string, string> = {
 type DebuggerInbound =
   | { command: 'ready' }
   | { command: 'copyStack' }
+  | { command: 'dumpStackToFile' }
+  | { command: 'openDumpFile'; path: string }
+  | { command: 'copyText'; text: string }
   | { command: 'copyFrame'; level: number }
   | { command: 'selectFrame'; level: number }
   | { command: 'evalInFrame'; level: number; expr: string }
   | { command: 'resume' }
+  | { command: 'runToCursor'; level: number }
   | { command: 'terminate' }
   | { command: 'stepOver'; level: number }
   | { command: 'stepInto'; level: number }
@@ -231,6 +244,191 @@ export function selectorArgCount(selector: string): number {
   return /^[A-Za-z_]/.test(selector) ? 0 : 1;
 }
 
+/** An in-scope variable for the inline-values overlay (#5). */
+export interface InlineVar {
+  /** Source name (instVar / arg / temp / `self`). */
+  name: string;
+  /** Short, single-line printString already truncated for inline display. */
+  value: string;
+  /** Full printString, shown on hover (un-truncated, may be multi-line). */
+  full: string;
+}
+
+/** One source line's inline overlay: the rendered text + per-var hover parts. */
+export interface InlineValueLine {
+  /** 0-based document line index. */
+  line: number;
+  /** The end-of-line annotation, e.g. `amount = 75`. */
+  label: string;
+  /** The variables shown on this line, in first-appearance order (for hover). */
+  vars: InlineVar[];
+  /**
+   * Left padding (in monospace `ch`) so every annotation lines up in a single
+   * right-hand column clear of the code, rather than floating just past each
+   * line's own text. The panel turns this into the decoration's `margin-left`.
+   */
+  padCh: number;
+}
+
+/** Options controlling how the inline-value overlay is laid out (#5). */
+export interface InlineValueOpts {
+  /**
+   * When true, annotate EVERY line that references a variable (so a name used on
+   * many lines shows on each), instead of just its first use. Helpful for finding
+   * a value anywhere in a long method; busier. Toggled by the second CodeLens.
+   */
+  perLine?: boolean;
+  /**
+   * True when line 0 is a method signature (`foo: arg` / `at: k put: v`) rather
+   * than executed-code (a doit). The signature only DECLARES its keyword args, so
+   * the whole line is skipped — the args' values show at their first body use.
+   */
+  signatureLine?: boolean;
+}
+
+/** Whole Smalltalk identifiers (so `total` never matches inside `subtotal`). */
+const INLINE_IDENTIFIER_RE = /[A-Za-z_][A-Za-z0-9_]*/g;
+/**
+ * A temporaries declaration — `| a b c |` (names + whitespace between two bars).
+ * Identifiers inside one are declarations, NOT uses, so the overlay skips them:
+ * a variable's value should appear where it's first *used/assigned*, not on the
+ * `| … |` line. (A bitOr like `a | b | c` can false-match; harmless and rare in
+ * debugger source.)
+ */
+const INLINE_TEMPDECL_RE = /\|[A-Za-z0-9_\s]*\|/g;
+/**
+ * A block-argument declaration — `:each` in `[:each | …]` (a colon NOT preceded
+ * by an identifier char, so a keyword message like `at:key` is excluded). Like a
+ * temp declaration, this is a binding site, not a use, so it's skipped.
+ */
+const INLINE_BLOCKARG_RE = /(?<![A-Za-z0-9_]):[A-Za-z_][A-Za-z0-9_]*/g;
+/** Gap (in columns) between the widest annotated line and the values column. */
+const INLINE_VALUE_GAP = 3;
+/** Separator between two values that share one line. */
+const INLINE_VALUE_SEP = '   •   ';
+/** Don't push the values column past this column even if an annotated line is wider. */
+const INLINE_VALUE_MAX_COL = 48;
+
+/**
+ * Collapse a printString to a single short line for the inline overlay: newlines
+ * and tabs become spaces, runs of whitespace collapse, and anything past
+ * `maxLen` is elided with `…`. The full value is always kept for the hover. The
+ * cap is generous (not pixel-perfect — VS Code gives an extension no editor-width
+ * API, so we can't truly clip to the right boundary) but keeps a giant collection
+ * from running the line off-screen.
+ */
+export function shortenInlineValue(value: string, maxLen = 40): string {
+  const oneLine = value.replace(/\s+/g, ' ').trim();
+  return oneLine.length > maxLen ? `${oneLine.slice(0, maxLen - 1)}…` : oneLine;
+}
+
+/**
+ * Blank out Smalltalk comments (`"…"`) and string literals (`'…'`) — replacing
+ * their characters (delimiters included) with spaces while preserving newlines
+ * and every character position — so the overlay never matches an identifier that
+ * only appears inside a comment or string. Comments span multiple lines, so this
+ * scans the whole source, not line by line. Doubled quotes (`""` / `''`) are the
+ * in-literal escapes; a `$"`/`$'` character literal is NOT a delimiter.
+ */
+export function maskCommentsAndStrings(text: string): string {
+  const out = text.split('');
+  const blank = (k: number): void => { if (text[k] !== '\n') out[k] = ' '; };
+  let i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    if (c === '$') { i += 2; continue; }        // character literal: `$x`, `$"`, `$'`
+    if (c === '"' || c === "'") {               // comment or string
+      const quote = c;
+      blank(i); i++;
+      while (i < text.length) {
+        if (text[i] === quote) {
+          if (text[i + 1] === quote) { blank(i); blank(i + 1); i += 2; continue; } // escaped
+          blank(i); i++; break;                  // closing delimiter
+        }
+        blank(i); i++;
+      }
+      continue;
+    }
+    i++;
+  }
+  return out.join('');
+}
+
+/** Char ranges on `line` that are binding sites (temp decls + block args). */
+function declarationSpans(line: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  for (const d of line.matchAll(INLINE_TEMPDECL_RE)) spans.push([d.index ?? 0, (d.index ?? 0) + d[0].length]);
+  for (const b of line.matchAll(INLINE_BLOCKARG_RE)) spans.push([b.index ?? 0, (b.index ?? 0) + b[0].length]);
+  return spans;
+}
+
+/**
+ * Compute the inline-value overlay for a method's source (#5). By default each
+ * in-scope variable is shown ONCE, on the first line that USES it — declarations
+ * (the `| … |` temps line, block args `:x`, and the method signature) are skipped
+ * so a value lands where it's first assigned/read, and a tight loop like
+ * `total := total + each` doesn't repeat the same value on every line. With
+ * `opts.perLine`, every referencing line is annotated instead. Variables never
+ * referenced in the visible source are omitted. Annotations align in one
+ * right-hand column a fixed gap past the widest ANNOTATED line (capped) — aligning
+ * to annotated lines, not the widest line overall, keeps one long line (e.g. a
+ * wide temps declaration) from shoving the whole column off-screen.
+ *
+ * Pure + exported for unit testing; the panel turns the result into decorations.
+ * `vars` is the in-scope set (later entries win on a name clash, so a shadowing
+ * arg/temp overrides an instVar of the same name — the caller pushes receiver →
+ * instVars → args/temps in that order).
+ */
+export function computeInlineValueLines(
+  srcLines: string[], vars: InlineVar[], opts: InlineValueOpts = {},
+): InlineValueLine[] {
+  const byName = new Map<string, InlineVar>();
+  for (const v of vars) byName.set(v.name, v);
+
+  // Match against a copy with comments + string literals blanked out (spaces, so
+  // positions/lengths are unchanged) — an identifier that only appears in a
+  // comment or a string is not a variable reference. (Multi-line comments are why
+  // this masks the whole source, not each line.)
+  const lines = maskCommentsAndStrings(srcLines.join('\n')).split('\n');
+
+  // Pass 1: which variables to show on which lines (applying decl-skip + mode).
+  const shown = new Set<string>(); // first-use dedup (ignored when perLine)
+  const hits: Array<{ line: number; vars: InlineVar[] }> = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (opts.signatureLine && i === 0) continue; // signature declares args only
+    const spans = declarationSpans(lines[i]);
+    const inDecl = (at: number): boolean => spans.some(([s, e]) => at >= s && at < e);
+
+    const lineVars: InlineVar[] = [];
+    const seenOnLine = new Set<string>();
+    for (const m of lines[i].matchAll(INLINE_IDENTIFIER_RE)) {
+      const name = m[0];
+      if (seenOnLine.has(name) || (!opts.perLine && shown.has(name))) continue;
+      // Skip a declaration occurrence WITHOUT marking it shown, so the variable
+      // still gets annotated at its first real use further down.
+      if (inDecl(m.index ?? 0)) continue;
+      const v = byName.get(name);
+      if (!v) continue;
+      seenOnLine.add(name);
+      if (!opts.perLine) shown.add(name);
+      lineVars.push(v);
+    }
+    if (lineVars.length > 0) hits.push({ line: i, vars: lineVars });
+  }
+
+  // The column sits a fixed gap past the widest ANNOTATED line (capped).
+  const widestAnnotated = hits.reduce((m, h) => Math.max(m, lines[h.line].length), 0);
+  const targetCol = Math.min(widestAnnotated, INLINE_VALUE_MAX_COL) + INLINE_VALUE_GAP;
+
+  // Pass 2: render label + alignment padding.
+  return hits.map(h => ({
+    line: h.line,
+    vars: h.vars,
+    label: h.vars.map(v => `${v.name} = ${v.value}`).join(INLINE_VALUE_SEP),
+    padCh: Math.max(INLINE_VALUE_GAP, targetCol - lines[h.line].length),
+  }));
+}
+
 /** Minimal HTML-escape for interpolating session text into the page. */
 function escapeHtml(s: string): string {
   return s
@@ -251,6 +449,13 @@ interface FrameSummary {
   overridable?: boolean;
   /** Receiver's class name, for the override menu item's label. */
   receiverClass?: string;
+  /**
+   * True when this frame resolved to a home method we can set a step-point break
+   * in (editable method → by class>>selector; doit / non-symbol-list → by method
+   * OOP). Drives whether "Run to Cursor" (#2) is enabled; false only for an
+   * unresolvable `<frame N>`.
+   */
+  breakable?: boolean;
 }
 
 /**
@@ -262,27 +467,93 @@ interface DisplayFrame extends FrameSummary {
   serverLevel: number;
   /** True for a doit / "Executed Code" frame (no class → can't be restarted/re-entered). */
   isExecutedCode: boolean;
+  /**
+   * Display level of this (block) frame's HOME method frame, when it's a block
+   * whose home method is also on the visible stack — drives the "Go to home
+   * method" menu item. Undefined for non-block frames and blocks whose home
+   * isn't shown (already returned, or filtered out).
+   */
+  homeDisplayLevel?: number;
 }
 
 /**
  * Render a single frame for the clipboard — `<label>  <position>` (no leading
  * frame number, since a lone frame has no stack context). Pure/exported for
- * unit-testing and reuse by formatStackForClipboard.
+ * unit-testing; used by the right-click "Copy Frame" action.
  */
 export function formatFrameForClipboard(frame: FrameSummary): string {
   return frame.position ? `${frame.label}  ${frame.position}` : frame.label;
 }
 
+/** A frame plus its variable groups, for the detailed stack dump (#10/#11). */
+export interface DetailedStackFrame extends FrameSummary {
+  groups: VarGroup[];
+}
+
+const DETAIL_SEP = '---------------------------------';
+
+/** `[n] <label>  <position>` — the short-stack line shared by the summary + detail. */
+function detailFrameHeading(f: FrameSummary): string {
+  return `[${f.level}] ${formatFrameForClipboard(f)}`;
+}
+
 /**
- * Render the whole stack as plain text for the clipboard — one frame per line,
- * `<n>. <label>  <position>`, preceded by the error message. Pure and
- * exported so the copy format is unit-testable.
+ * Render the GBS-style detailed stack dump (Stage 5 #10): the short numbered
+ * stack on top, then one detail block per frame — the frame heading followed by
+ * its variable groups (Receiver / Instance variables / Arguments & Temps / stack
+ * temps), each row as `<name> = <printString>   {<oop>}`. Pure and exported so
+ * the format is unit-testable; the same text feeds both Copy Stack (clipboard)
+ * and Dump Stack (file, #11).
  */
-export function formatStackForClipboard(errorMessage: string, frames: FrameSummary[]): string {
+export function formatDetailedStack(
+  errorMessage: string, frames: DetailedStackFrame[], header?: string,
+): string {
   const lines: string[] = [];
+  if (header) lines.push(header, '');
   if (errorMessage) lines.push(`GemStone error: ${errorMessage}`, '');
-  for (const f of frames) lines.push(`${f.level}. ${formatFrameForClipboard(f)}`);
+
+  // Short stack first, so a reader sees the shape before the (long) detail.
+  for (const f of frames) lines.push(detailFrameHeading(f));
+
+  // Then a detail block per frame.
+  for (const f of frames) {
+    lines.push('', DETAIL_SEP, detailFrameHeading(f));
+    for (const g of f.groups) {
+      lines.push(`${g.title}:`);
+      if (g.vars.length === 0) {
+        lines.push('    (none)');
+        continue;
+      }
+      for (const v of g.vars) lines.push(`    ${v.name} = ${v.value}   {${v.oop}}`);
+    }
+  }
   return lines.join('\n');
+}
+
+const pad2 = (n: number): string => (n < 10 ? `0${n}` : `${n}`);
+
+/**
+ * `YYYYMMDD_HHMMSS` in local time — stable for a given Date. Leads the dump file
+ * name so the stacks folder sorts chronologically.
+ */
+export function stackDumpTimestamp(d: Date): string {
+  return `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}`
+    + `_${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`;
+}
+
+/**
+ * A safe, sortable file name for a dumped stack (#11): the timestamp FIRST (so
+ * the folder lists newest-alongside-oldest in order), then the top frame as a
+ * filename-safe token (block prefix dropped, non-alphanumerics collapsed to
+ * `-`), e.g. `[] in JasperFoo>>#bar` → `2026-06-25_153012_JasperFoo-bar.txt`.
+ */
+export function stackDumpFileName(topLabel: string, d: Date): string {
+  const token = (topLabel || '')
+    .replace(/\[\] in /g, '')
+    .replace(/[^A-Za-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'stack';
+  return `${stackDumpTimestamp(d)}_${token}.txt`;
 }
 
 /** Virtual-document scheme for read-only frame source (doits + non-symbol-list methods). */
@@ -315,6 +586,12 @@ export interface RawFrame {
    * click time, to keep buildFrame off the extra per-frame server round-trip.
    */
   overridable?: boolean;
+  /**
+   * True when a home method was resolved (homeMethodOop ≠ 0) — a step-point break
+   * can be set in it (editable → by class>>selector; doit / non-symbol-list → by
+   * method OOP). Drives "Run to Cursor" (#2); false only for an unresolvable frame.
+   */
+  breakable: boolean;
   label: string;
   line?: number;
   stepPoint?: number;
@@ -512,6 +789,23 @@ export class DebuggerPanel {
     },
   });
 
+  /**
+   * Inline-value overlay (#5): a dim, inlay-hint-styled annotation appended at
+   * end-of-line showing each referenced variable's value. Styling lives on the
+   * type; the per-line text (`after.contentText`) and hover are supplied per
+   * decoration. `textDecoration` is the standard CSS-injection escape hatch to
+   * shrink the font and give the chip a little padding (there's no first-class
+   * font-size field on a decoration attachment). Off unless the user toggles it.
+   */
+  private static readonly inlineValueDecoration = vscode.window.createTextEditorDecorationType({
+    after: {
+      color: new vscode.ThemeColor('editorInlayHint.foreground'),
+      backgroundColor: new vscode.ThemeColor('editorInlayHint.background'),
+      fontStyle: 'normal',
+      textDecoration: 'none; font-size: 0.85em; padding: 0 4px; border-radius: 4px;',
+    },
+  });
+
   // ── Read-only source for frames with no gemstone:// editor ──────────
   // "Executed Code" doits (no class at all) and methods whose class isn't in the
   // session's symbol list (so no dictName → no gemstone:// URI) are served
@@ -528,6 +822,16 @@ export class DebuggerPanel {
    * cross-restart persistence would need globalState — deferred.) Default 60%.
    */
   private static savedStackBasis = '60%';
+
+  /**
+   * Whether the inline-value overlay (#5) is on. Off by default — it can clutter
+   * a large method — and toggled per source pane via the editor-title button.
+   * Remembered window-wide (like `savedStackBasis`) so the choice carries from
+   * one debugger to the next.
+   */
+  private static savedInlineValuesEnabled = false;
+  /** Window-remembered inline-value mode (see `inlineValuesPerLine`). */
+  private static savedInlineValuesPerLine = false;
 
   /**
    * The eval bar's height (`--eval-height`); the hsplitter resizes it, trading
@@ -664,6 +968,25 @@ export class DebuggerPanel {
   private openedInspectors = new Set<GtInspector>();
   /** The editor currently carrying the step-point highlight, if any. */
   private decoratedEditor: vscode.TextEditor | undefined;
+  /** Whether this panel's inline-value overlay (#5) is currently shown. */
+  private inlineValuesEnabled = DebuggerPanel.savedInlineValuesEnabled;
+  /** Inline-value mode: false = once at first use (default), true = every reference. */
+  private inlineValuesPerLine = DebuggerPanel.savedInlineValuesPerLine;
+  /** The editor currently carrying the inline-value overlay, if any. */
+  private inlineDecoratedEditor: vscode.TextEditor | undefined;
+  /**
+   * The selected frame's variable groups, cached so toggling the inline overlay
+   * (or its mode) re-renders from memory instead of re-running N blocking
+   * getObjectPrintString round-trips per click. Keyed by server level; dropped
+   * when the stack moves (refresh) or a value is edited (set/revert).
+   */
+  private varGroupsCache: { level: number; groups: VarGroup[] } | undefined;
+  /**
+   * True when the source pane currently shows a method (its line 0 is a selector
+   * signature) rather than executed code — so the overlay skips the signature's
+   * keyword-arg declarations. Set by revealFrameSource.
+   */
+  private shownFrameIsMethod = false;
   /** Virtual read-only source URIs this panel stashed (pruned on dispose). */
   private stashedSourceKeys = new Set<string>();
   /** Every source URI shown in the companion editor (closed on dispose). */
@@ -676,6 +999,13 @@ export class DebuggerPanel {
    * Saving this exact document triggers edit-and-continue for the selected frame.
    */
   private editableSourceUri: string | undefined;
+  /**
+   * The URI the companion editor currently shows for the selected frame — the
+   * editable `gemstone://` method OR the read-only `gemstone-debug:` doit source.
+   * Set by revealFrameSource for BOTH. "Run to Cursor" uses it to confirm the
+   * cursor refers to the selected frame's source before mapping it.
+   */
+  private shownFrameSourceUri: string | undefined;
   /**
    * When the suspended process is parked on a `doesNotUnderstand:`, the info
    * needed to offer "Create #<selector> in <Class>" — re-detected whenever the
@@ -862,11 +1192,14 @@ export class DebuggerPanel {
         return;
       }
       case 'copyStack': {
-        void vscode.env.clipboard.writeText(
-          formatStackForClipboard(this.errorMessage, this.frames),
-        );
+        // Copy Stack copies the FULL (detailed) stack — short stack on top, then
+        // each frame's variable values — the same text Dump Stack writes to file.
+        void vscode.env.clipboard.writeText(this.buildDetailedStackText(new Date()));
         return;
       }
+      case 'dumpStackToFile': { void this.dumpStackToFile(); return; }
+      case 'openDumpFile': { void this.openDumpFile(msg.path); return; }
+      case 'copyText': { void vscode.env.clipboard.writeText(msg.text); return; }
       case 'copyFrame': {
         const frame = this.frames.find(f => f.level === msg.level);
         if (frame) void vscode.env.clipboard.writeText(formatFrameForClipboard(frame));
@@ -889,6 +1222,7 @@ export class DebuggerPanel {
         return;
       }
       case 'resume': { this.resume(); return; }
+      case 'runToCursor': { this.runToCursor(msg.level); return; }
       case 'terminate': { this.panel.dispose(); return; } // dispose → clearStack
       case 'stepOver':
       case 'stepInto':
@@ -943,6 +1277,7 @@ export class DebuggerPanel {
       stack: this.frames.map(f => ({
         level: f.level, label: f.label, position: f.position,
         overridable: f.overridable, receiverClass: f.receiverClass,
+        breakable: f.breakable, homeDisplayLevel: f.homeDisplayLevel,
       })),
       // When parked on a doesNotUnderstand:, drive the "Create #sel in Class" button.
       dnu: this.dnuInfo
@@ -956,6 +1291,7 @@ export class DebuggerPanel {
 
   /** Re-walk the (advanced) stack and re-render — used after a step / restart / resume-with-error. */
   private refresh(): void {
+    this.invalidateVariablesCache(); // the stack moved — cached values are stale
     this.frames = this.fetchStack();
     this.dnuInfo = this.detectDnu();
     this.subclassRespInfo = this.detectSubclassResp();
@@ -1443,7 +1779,7 @@ export class DebuggerPanel {
   private postVariables(serverLevel: number): void {
     let groups: VarGroup[] = [];
     try {
-      groups = this.fetchVariables(serverLevel);
+      groups = this.variablesForFrame(serverLevel);
     } catch (e: unknown) {
       logError(this.sessionId, e instanceof Error ? e.message : String(e));
     }
@@ -1451,73 +1787,169 @@ export class DebuggerPanel {
   }
 
   /**
+   * The selected frame's variable groups, fetched once per (frame, value-state)
+   * and cached — the Variables pane AND the inline overlay (#5) share this, so a
+   * frame select costs one fetch and toggling the overlay costs none. The cache
+   * is invalidated by `invalidateVariablesCache()` when the stack moves or a value
+   * is edited.
+   */
+  private variablesForFrame(serverLevel: number): VarGroup[] {
+    if (this.varGroupsCache?.level === serverLevel) return this.varGroupsCache.groups;
+    const groups = this.fetchVariables(serverLevel);
+    this.varGroupsCache = { level: serverLevel, groups };
+    return groups;
+  }
+
+  /** Drop the cached variable groups (stack moved, or a value was edited). */
+  private invalidateVariablesCache(): void {
+    this.varGroupsCache = undefined;
+  }
+
+  /**
    * The selected frame's variables, split into Receiver (`self`), Instance
    * variables (the receiver's named instVars), Arguments & Temps (the frame's
    * *named* args/temps), and a collapsed `(stack temps)` group for the synthetic
-   * `.tN` eval-stack temporaries (which have no source name). Each printString
-   * and the instVar resolution are best-effort so one bad slot can't blank the
-   * whole pane. Each row carries its OOP for the dim column + click-to-inspect.
+   * `.tN` eval-stack temporaries (which have no source name). Each row carries its
+   * OOP for the dim column + click-to-inspect.
+   *
+   * One server round trip via `fetchFrameVariables` (the doit gathers every
+   * receiver/instVar/arg/temp + printString + oop + write index at once) instead
+   * of the old 3 + N blocking calls — so a frame select, and especially toggling
+   * the inline overlay, no longer stalls. The server already filters `__vsc` glue
+   * and classifies `.tN` stack temps; the edit-index + grouping rules below match
+   * the previous per-call build exactly.
    */
   private fetchVariables(serverLevel: number): VarGroup[] {
-    const info = debug.getFrameInfo(this.session, this.gsProcess, serverLevel);
-    const safePrint = (oop: bigint): string => {
-      try { return debug.getObjectPrintString(this.session, oop); }
-      catch { return '<unprintable>'; }
-    };
-    const row = (name: string, oop: bigint, edit?: VarRow['edit']): VarRow => {
+    const rows = debug.fetchFrameVariables(this.session, this.gsProcess, serverLevel);
+
+    const toRow = (r: debug.FrameVarRow, edit?: VarRow['edit']): VarRow => {
       // Stamp `revertible` only when this slot has been edited away from its
-      // original this halt (the webview then shows the ↺ icon). Left undefined
-      // otherwise so unchanged rows stay lean.
+      // original this halt (the webview then shows the ↺ icon).
       const revertible = edit && this.undoDirty.has(this.undoKey(serverLevel, edit.kind, edit.index))
         ? true : undefined;
-      return { name, value: safePrint(oop), oop: oop.toString(), edit, revertible };
+      return { name: r.name, value: r.value, oop: r.oop, edit, revertible };
     };
+    const byName = (a: VarRow, b: VarRow): number =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+
+    // `self` (read-only), instVars (editable via `instVarAt:put:`), named
+    // args/temps (editable via `_frameAt:tempAt:put:`), and read-only `.tN` stack
+    // temps. The server emits the 1-based write index per editable slot; instVars
+    // and named temps are alphabetized for findability (each row keeps its own
+    // index, so sorting the display never disturbs the write path).
+    const receiver = rows.filter(r => r.group === 'receiver').map(r => toRow(r));
+    const instVars = rows.filter(r => r.group === 'instvars')
+      .map(r => toRow(r, { kind: 'instvar', index: r.index })).sort(byName);
+    const argTemps = rows.filter(r => r.group === 'argtemps')
+      .map(r => toRow(r, { kind: 'temp', index: r.index })).sort(byName);
+    // Stack temps keep natural order (sorting `.t1/.t10/.t2` would look wrong).
+    const stackTemps = rows.filter(r => r.group === 'stacktemps').map(r => toRow(r));
 
     const groups: VarGroup[] = [];
-
-    // 1. Receiver — `self`. Not editable (you can't reassign a frame's receiver),
-    // so no `edit` metadata: the webview renders it read-only.
-    groups.push({ title: 'Receiver', kind: 'receiver', vars: [row('self', info.receiverOop)] });
-
-    // 2. Instance variables — the receiver's named instVars (none for immediates).
-    // Editable via `instVarAt:put:` (1-based index).
-    try {
-      const ivNames = debug.getInstVarNames(this.session, info.receiverOop);
-      if (ivNames.length > 0) {
-        const ivOops = debug.getNamedInstVarOops(this.session, info.receiverOop, ivNames.length);
-        const ivVars = ivNames.map((n, i) => row(n, ivOops[i], { kind: 'instvar', index: i + 1 }));
-        groups.push({ title: 'Instance variables', kind: 'instvars', vars: ivVars });
-      }
-    } catch (e: unknown) {
-      logError(this.sessionId, e instanceof Error ? e.message : String(e));
-    }
-
-    // 3 + 4. Args/temps — real source names vs synthetic `.tN` eval-stack temps.
-    // `__vsc…` temps are the Transcript-capture wrapper's glue (see
-    // transcriptCapture.ts); they're hidden, just like the glue is stripped from
-    // an executed-code frame's source.
-    // The write primitive `_frameAt:tempAt:put:` indexes the *unfiltered*
-    // argAndTempNames array (1-based), so a NAMED temp's editable index is `i + 1`
-    // even though we drop `__vsc` glue. The synthetic `.tN` eval-stack temps are
-    // left read-only: they appear in the names array but sit past the method's
-    // declared argsAndTemps offsets, so the primitive can't address them ("method
-    // temp or arg not found"). (They stay viewable + GT-Inspectable, like `self`.)
-    const named: VarRow[] = [];
-    const stackTemps: VarRow[] = [];
-    for (let i = 0; i < info.argAndTempNames.length; i++) {
-      const name = info.argAndTempNames[i];
-      if (name.startsWith('__vsc')) continue;
-      const isStackTemp = name.startsWith('.');
-      const r = row(name, info.argAndTempOops[i], isStackTemp ? undefined : { kind: 'temp', index: i + 1 });
-      (isStackTemp ? stackTemps : named).push(r);
-    }
-    if (named.length > 0) {
-      groups.push({ title: 'Arguments & Temps', kind: 'argtemps', vars: named });
-    }
+    if (receiver.length > 0) groups.push({ title: 'Receiver', kind: 'receiver', vars: receiver });
+    if (instVars.length > 0) groups.push({ title: 'Instance variables', kind: 'instvars', vars: instVars });
+    if (argTemps.length > 0) groups.push({ title: 'Arguments & Temps', kind: 'argtemps', vars: argTemps });
     if (stackTemps.length > 0) {
       groups.push({ title: '(stack temps)', kind: 'stacktemps', collapsed: true, vars: stackTemps });
     }
     return groups;
+  }
+
+  /** Variables-pane group titles, keyed by the dump row's group kind. */
+  private static readonly DUMP_GROUP_TITLES: Record<debug.StackDumpRow['group'], string> = {
+    receiver: 'Receiver',
+    instvars: 'Instance variables',
+    argtemps: 'Arguments & Temps',
+    stacktemps: '(stack temps)',
+  };
+
+  /**
+   * Gather every displayed frame's variable groups for the detailed stack dump
+   * (#10/#11) in ONE server round trip (`fetchStackDump`), then bucket the flat
+   * rows back into per-frame, per-group structure. Only run on the explicit Copy
+   * Stack / Dump Stack actions, never on the hot path. The doit emits a frame's
+   * rows contiguously in group order, so a row simply extends the current group
+   * or starts a new one.
+   */
+  private collectStackDetail(): DetailedStackFrame[] {
+    let rows: debug.StackDumpRow[] = [];
+    try {
+      rows = debug.fetchStackDump(this.session, this.gsProcess);
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+    }
+    const byLevel = new Map<number, VarGroup[]>();
+    for (const r of rows) {
+      let groups = byLevel.get(r.serverLevel);
+      if (!groups) { groups = []; byLevel.set(r.serverLevel, groups); }
+      let group = groups[groups.length - 1];
+      if (!group || group.kind !== r.group) {
+        group = {
+          title: DebuggerPanel.DUMP_GROUP_TITLES[r.group], kind: r.group, vars: [],
+          collapsed: r.group === 'stacktemps' || undefined,
+        };
+        groups.push(group);
+      }
+      group.vars.push({ name: r.name, value: r.value, oop: r.oop });
+    }
+    return this.frames.map(f => ({ ...f, groups: byLevel.get(f.serverLevel) ?? [] }));
+  }
+
+  /** The full detailed-stack text (header + short stack + per-frame variables). */
+  private buildDetailedStackText(now: Date): string {
+    const subtitle = this.sessionSubtitle();
+    const when = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())} `
+      + `${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}`;
+    const header = ['Jasper Debugger stack dump', subtitle, when].filter(Boolean).join(' — ');
+    return formatDetailedStack(this.errorMessage, this.collectStackDetail(), header);
+  }
+
+  /**
+   * Save the detailed stack (#11) to `~/.jasper/stacks/<timestamp>_<frame>.txt`
+   * (the cross-platform extension folder). It deliberately does NOT open the file
+   * — repeated dumps would pile up editor tabs — the inline path notice (with its
+   * Copy-path button) is the pointer instead. Best-effort: any failure surfaces as
+   * an error toast rather than tearing down the panel.
+   */
+  private async dumpStackToFile(): Promise<void> {
+    try {
+      const now = new Date();
+      const text = this.buildDetailedStackText(now);
+      const fileName = stackDumpFileName(this.frames[0]?.label ?? 'stack', now);
+      const dir = extensionPathFrom('stacks');
+      const filePath = path.join(dir, fileName);
+      await fs.promises.mkdir(dir, { recursive: true });
+      await fs.promises.writeFile(filePath, text, 'utf-8');
+      if (this.disposed) return;
+      // Show the saved path inline in the panel with its own Copy-path button (a
+      // full path is too long for the button itself, and selecting it by hand
+      // before it cleared was fiddly). It auto-hides after 5s.
+      this.panel.webview.postMessage({ command: 'savedNotice', path: filePath });
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      void vscode.window.showErrorMessage(
+        `Could not save the stack: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  /**
+   * Open a previously-dumped stack file in an editor — invoked when the user
+   * clicks the inline path (an explicit, on-demand action, so unlike the dump
+   * itself this DOES open a tab). Repeated clicks on the same path reuse the one
+   * editor rather than piling up.
+   */
+  private async openDumpFile(filePath: string): Promise<void> {
+    try {
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
+      if (this.disposed) return;
+      await vscode.window.showTextDocument(doc, { preview: false });
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      void vscode.window.showErrorMessage(
+        `Could not open ${filePath}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
   }
 
   /** Evaluate an expression in the selected frame and post the printString back. */
@@ -1567,7 +1999,11 @@ export class DebuggerPanel {
       }
       this.undoDirty.add(this.undoKey(serverLevel, kind, index));
       this.panel.webview.postMessage({ command: 'setVariableResult', ok: true });
+      this.invalidateVariablesCache(); // the slot points at a new object — re-fetch
       this.postVariables(serverLevel);
+      // The slot now points at a new object — refresh the inline overlay so its
+      // value (and hover) track, just like the Variables pane.
+      if (this.sourceEditor) this.updateInlineValues(this.sourceEditor, serverLevel);
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : String(e);
       logError(this.sessionId, error);
@@ -1625,7 +2061,10 @@ export class DebuggerPanel {
         debug.setFrameTemp(this.session, this.gsProcess, serverLevel, index, originalOop);
       }
       this.undoDirty.delete(key);
+      this.invalidateVariablesCache(); // slot restored to its original object
       this.postVariables(serverLevel);
+      // Keep the inline overlay in step with the reverted value.
+      if (this.sourceEditor) this.updateInlineValues(this.sourceEditor, serverLevel);
     } catch (e: unknown) {
       logError(this.sessionId, e instanceof Error ? e.message : String(e));
     }
@@ -1663,6 +2102,16 @@ export class DebuggerPanel {
     // Leaving this halt: drop revert state + release pinned originals.
     this.clearUndoState();
     const result = debug.continueExecution(this.session, this.gsProcess);
+    this.handleContinueResult(result);
+  }
+
+  /**
+   * Dispatch the outcome of a blocking `continueExecution` (Resume / Run to Cursor):
+   * close on completion, show the fixed Terminate-only banner if the process is
+   * now uncontinuable (6011), else refresh on the new stop. Shared so Run to Cursor
+   * lands a hit exactly like a Resume that re-halted.
+   */
+  private handleContinueResult(result: debug.StepResult): void {
     if (result.completed) {
       this.onCompleted(result);
     } else if (result.errorNumber === GS_ERR_UNCONTINUABLE) {
@@ -1675,6 +2124,186 @@ export class DebuggerPanel {
       this.errorMessage = result.errorMessage || 'GemStone error';
       this.refresh();
     }
+  }
+
+  /**
+   * "Run to Cursor" (#2): run until execution reaches the step point nearest the
+   * cursor in the companion source pane, then stop there exactly as a halt would —
+   * variables, stack and step-point highlight all refresh.
+   *
+   * Under the cover it's a Resume bracketed by a TEMPORARY step-point breakpoint:
+   * we map the cursor to a step point in the selected frame's (editable) home
+   * method, `setBreakAtStepPoint:`, continue, then clear that break in a `finally`
+   * so it never lingers — whether the run hit it, ran to completion, or stopped
+   * elsewhere. The break is cleared ONLY when we own it; if the user already has a
+   * persistent breakpoint at that step point we leave it (Run to Cursor must not
+   * silently delete the user's break).
+   *
+   * Two break paths: an editable (`gemstone://`) method → by class>>selector, with
+   * a guard so we don't delete the user's own breakpoint; a doit / "Executed Code"
+   * (or non-symbol-list) frame → by the home method's OOP (no class>>selector). The
+   * home method's `_sourceOffsets` is method-wide (spans nested blocks), so a doit
+   * cursor maps to a real step point too. Falls back to a plain Resume (with a
+   * brief flash) when there's no usable target.
+   */
+  private runToCursor(displayLevel: number): void {
+    if (this.guardStaleTopActivation('Run to Cursor')) return;
+    if (this.guardUncontinuable()) return;
+    if (this.nbBusy) { this.notifyBusy('Run to Cursor'); return; }
+
+    const target = this.resolveRunToTarget(displayLevel);
+    if (!target) {
+      this.flash('Run to Cursor: place the cursor on a code line in the source pane — resuming instead.');
+      this.resume();
+      return;
+    }
+
+    // Don't clear a break the USER already set at this step point (editable
+    // frames only; a read-only doit can't carry a user line breakpoint).
+    const userOwns = target.byName ? this.userBreakAt(target.byName.uri, target.byName.actualLine) : false;
+    const setBreak = (): void => {
+      if (target.byName) {
+        queries.setBreakAtStepPoint(
+          this.session, target.byName.className, target.byName.isMeta, target.byName.selector, target.stepPoint,
+        );
+      } else {
+        debug.setBreakAtStepPointByOop(this.session, target.homeMethodOop, target.stepPoint);
+      }
+    };
+    const clearBreak = (): void => {
+      if (target.byName) {
+        queries.clearBreakAtStepPoint(
+          this.session, target.byName.className, target.byName.isMeta, target.byName.selector, target.stepPoint,
+        );
+      } else {
+        debug.clearBreakAtStepPointByOop(this.session, target.homeMethodOop, target.stepPoint);
+      }
+    };
+
+    try {
+      setBreak();
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      this.flash('Run to Cursor: could not set a temporary breakpoint — resuming instead.');
+      this.resume();
+      return;
+    }
+
+    // Leaving this halt: drop revert state + release pinned originals (as Resume).
+    this.clearUndoState();
+    let result: debug.StepResult;
+    try {
+      result = debug.continueExecution(this.session, this.gsProcess);
+    } finally {
+      if (!userOwns) {
+        try { clearBreak(); }
+        catch (e: unknown) { logError(this.sessionId, e instanceof Error ? e.message : String(e)); }
+      }
+    }
+    this.handleContinueResult(result);
+  }
+
+  /**
+   * Resolve the "Run to Cursor" target from the selected frame + the cursor in the
+   * companion source editor, or undefined when there's no usable target. Requires
+   * the source pane to be showing that frame's source (editable OR read-only doit)
+   * so the cursor refers to it. Column-aware via the exact cursor offset.
+   *
+   * For a read-only doit the displayed source is UNWRAPPED from the transcript-
+   * capture glue, so its step-point offsets (stored in WRAPPED coords) are shifted
+   * by the stripped prefix — add the shift back to put the cursor in stored coords
+   * before mapping. An editable method is shown 1:1 (shift 0). The returned
+   * `byName` is present only for an editable method (break by class>>selector with
+   * the user-break guard); absent for a doit (break by the home method's OOP).
+   */
+  private resolveRunToTarget(displayLevel: number): {
+    homeMethodOop: bigint;
+    stepPoint: number;
+    byName?: { className: string; isMeta: boolean; selector: string; uri: string; actualLine: number };
+  } | undefined {
+    const frame = this.frames.find(f => f.level === displayLevel);
+    if (!frame) return undefined;
+    const editor = this.sourceEditor;
+    // The cursor only refers to this frame's source when the companion editor is
+    // showing it (editable gemstone:// or read-only gemstone-debug:).
+    if (!editor || this.shownFrameSourceUri === undefined
+      || editor.document.uri.toString() !== this.shownFrameSourceUri) return undefined;
+
+    const raw = this.rawFrames.find(r => r.serverLevel === frame.serverLevel);
+    if (!raw || raw.homeMethodOop === 0n) return undefined; // an unresolvable <frame N>
+    const home = this.resolveHomeMethod(raw.homeMethodOop);
+
+    let rawSource: string;
+    let offsets: number[];
+    try {
+      rawSource = debug.getMethodSource(this.session, raw.homeMethodOop);
+      offsets = debug.getSourceOffsetsForMethod(this.session, raw.homeMethodOop);
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      return undefined;
+    }
+
+    // The editable source is shown 1:1 (shift 0); a doit shows the user code
+    // unwrapped from the transcript-capture glue, so its step-point offsets are
+    // shifted by the stripped prefix.
+    const shift = home.uriInfo ? 0 : transcriptCaptureUserCodeOffset(rawSource);
+    const displayedSource = home.uriInfo ? rawSource : unwrapTranscriptCapture(rawSource);
+
+    // The cursor's offset in the DISPLAYED source, shifted into STORED coords (where
+    // `offsets` live), so a doit's wrapped step points line up with the cursor.
+    const dispLineOffsets = buildLineOffsets(displayedSource);
+    const pos = editor.selection.active;
+    const dispLineStart = dispLineOffsets[pos.line + 1];
+    if (dispLineStart === undefined) return undefined; // cursor past the source (stale editor)
+    const cursorOffset = dispLineStart + pos.character + shift;
+
+    // Column-aware map needs the cursor's line bounds in STORED coords.
+    const storedLineOffsets = shift === 0 ? dispLineOffsets : buildLineOffsets(rawSource);
+    let storedLine = 1;
+    for (let l = 1; l < storedLineOffsets.length; l++) {
+      if (storedLineOffsets[l] <= cursorOffset) storedLine = l; else break;
+    }
+    const lineStart = storedLineOffsets[storedLine];
+    const lineEnd = storedLineOffsets[storedLine + 1] ?? rawSource.length; // end exclusive
+    const mapped = mapOffsetToStepPoint(cursorOffset, offsets, lineStart, lineEnd);
+    if (!mapped) return undefined;
+
+    if (!home.uriInfo) {
+      // Doit / non-symbol-list: break by the method's OOP (no class>>selector).
+      return { homeMethodOop: raw.homeMethodOop, stepPoint: mapped.stepPoint };
+    }
+    // Editable method: break by class>>selector + guard a user line breakpoint.
+    // `mapped.offset` is a 1-based stored position == displayed position (shift 0).
+    let actualLine = 1;
+    for (let l = 1; l < dispLineOffsets.length; l++) {
+      if (dispLineOffsets[l] <= mapped.offset - 1) actualLine = l; else break;
+    }
+    return {
+      homeMethodOop: raw.homeMethodOop,
+      stepPoint: mapped.stepPoint,
+      byName: {
+        className: home.uriInfo.className, isMeta: home.uriInfo.isMeta, selector: home.uriInfo.selector,
+        uri: this.shownFrameSourceUri, actualLine,
+      },
+    };
+  }
+
+  /**
+   * True when the user already has an enabled breakpoint on `line` (1-based) of
+   * `uri` — so Run to Cursor must NOT clear the step-point break afterward (it's the
+   * user's, not our temporary one).
+   */
+  private userBreakAt(uri: string, line: number): boolean {
+    return vscode.debug.breakpoints.some(bp =>
+      bp instanceof vscode.SourceBreakpoint && bp.enabled
+      && bp.location.uri.toString() === uri
+      && bp.location.range.start.line === line - 1);
+  }
+
+  /** Post a brief, self-dismissing status flash to the webview (transient; doesn't disturb the error banner). */
+  private flash(text: string): void {
+    if (this.disposed) return;
+    this.panel.webview.postMessage({ command: 'flash', text });
   }
 
   /**
@@ -1859,6 +2488,11 @@ export class DebuggerPanel {
    * re-enters the same method one level up).
    */
   private async restartFrame(serverLevel: number): Promise<void> {
+    // A block frame can't be restarted on its own — retarget to its home
+    // method's activation and re-run the whole home method (GT's behaviour, and
+    // the only way to restart a block parked at the very top frame). A non-block
+    // frame, or a block whose home has already returned, is left as-is.
+    serverLevel = this.homeMethodFrameLevel(serverLevel);
     if (serverLevel <= 1) {
       // Show the notice IN the panel (the banner) — a toast is easy to miss while
       // the webview has focus. It clears on the next step/resume/restart.
@@ -1948,6 +2582,11 @@ export class DebuggerPanel {
    * server level is ≥ 2 and edit-and-continue works.)
    */
   private async editAndContinue(serverLevel: number): Promise<void> {
+    // A block frame's editable source IS its home method (revealFrameSource
+    // points editableSourceUri there), so the save already recompiled the home
+    // method — re-enter at the home method's activation, not the block, to pick
+    // up the new code. Mirrors restartFrame; a non-block frame is left as-is.
+    serverLevel = this.homeMethodFrameLevel(serverLevel);
     if (serverLevel <= 1) {
       // The top method is now recompiled but its activation can't be re-entered;
       // mark it stale so Resume/Step refuse to continue it (would hang the gem).
@@ -2039,6 +2678,12 @@ export class DebuggerPanel {
         this.stashedSourceKeys.add(uri.toString());
       }
 
+      // Remember what the source pane is showing for this frame (editable or
+      // read-only doit), so "Run to Cursor" can confirm the cursor refers to it.
+      this.shownFrameSourceUri = uri.toString();
+      // A method's line 0 is its selector signature (skip its arg declarations in
+      // the overlay); an executed-code doit's line 0 is real code.
+      this.shownFrameIsMethod = !home.isExecutedCode;
       const editor = await this.showSourceEditor(uri);
 
       // For a collapsed "Executed Code" doit frame, the displayed level is the
@@ -2074,9 +2719,162 @@ export class DebuggerPanel {
         editor.setDecorations(DebuggerPanel.stepPointDecoration, []);
       }
       this.decoratedEditor = editor;
+      // Refresh the inline-value overlay for the frame now shown (#5). No-op
+      // when the user hasn't toggled it on.
+      this.updateInlineValues(editor, level);
     } catch (e: unknown) {
       logError(this.sessionId, e instanceof Error ? e.message : String(e));
     }
+  }
+
+  /**
+   * Render (or clear) the inline-value overlay (#5) on `editor` for the frame at
+   * `serverLevel`. Reuses the same `fetchVariables` round trip as the Variables
+   * pane, flattens the editable groups (receiver / instVars / args & temps — the
+   * synthetic stack temps have no source name, so they're skipped) into the
+   * in-scope set, and decorates each source line that references one of them.
+   * Off → just clears any existing overlay. Best-effort: a failed fetch leaves
+   * the source clean rather than throwing on the hot path.
+   */
+  private updateInlineValues(editor: vscode.TextEditor, serverLevel: number): void {
+    if (this.inlineDecoratedEditor && this.inlineDecoratedEditor !== editor) {
+      this.inlineDecoratedEditor.setDecorations(DebuggerPanel.inlineValueDecoration, []);
+      this.inlineDecoratedEditor = undefined;
+    }
+    if (!this.inlineValuesEnabled) {
+      editor.setDecorations(DebuggerPanel.inlineValueDecoration, []);
+      return;
+    }
+    try {
+      const vars = this.inlineVarsForFrame(serverLevel);
+      const lines = editor.document.getText().split('\n');
+      const overlay = computeInlineValueLines(lines, vars, {
+        perLine: this.inlineValuesPerLine,
+        signatureLine: this.shownFrameIsMethod,
+      });
+      const decorations: vscode.DecorationOptions[] = overlay.map(o => {
+        const line = editor.document.lineAt(o.line);
+        const hover = new vscode.MarkdownString(
+          o.vars.map(v => `**${v.name}** = ${v.full}`).join('  \n'),
+        );
+        return {
+          range: new vscode.Range(line.range.end, line.range.end),
+          hoverMessage: hover,
+          // `padCh` left-pads each annotation so they align in one right-hand
+          // column, out of the way of the code (see computeInlineValueLines).
+          renderOptions: { after: { contentText: o.label, margin: `0 0 0 ${o.padCh}ch` } },
+        };
+      });
+      editor.setDecorations(DebuggerPanel.inlineValueDecoration, decorations);
+      this.inlineDecoratedEditor = editor;
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /**
+   * The in-scope, named variables for `serverLevel` as inline-overlay rows, in
+   * receiver → instVars → args/temps order (so a shadowing temp overrides an
+   * instVar of the same name; `computeInlineValueLines` lets later entries win).
+   * The collapsed `(stack temps)` group is dropped — those `.tN` temporaries have
+   * no source name to match.
+   */
+  private inlineVarsForFrame(serverLevel: number): InlineVar[] {
+    const vars: InlineVar[] = [];
+    for (const group of this.variablesForFrame(serverLevel)) {
+      if (group.kind === 'stacktemps') continue;
+      for (const v of group.vars) {
+        vars.push({ name: v.name, value: shortenInlineValue(v.value), full: v.value });
+      }
+    }
+    return vars;
+  }
+
+  /**
+   * Toggle the inline-value overlay (#5) for this panel, remember the choice
+   * window-wide, and re-render the current source pane. Driven by the
+   * `gemstone.toggleInlineValues` editor-title button.
+   */
+  toggleInlineValues(): void {
+    this.inlineValuesEnabled = !this.inlineValuesEnabled;
+    DebuggerPanel.savedInlineValuesEnabled = this.inlineValuesEnabled;
+    if (this.sourceEditor && this.selectedServerLevel !== undefined) {
+      this.updateInlineValues(this.sourceEditor, this.selectedServerLevel);
+    }
+    // Flip the source-pane CodeLens label (on/off) to match — and reveal/hide the
+    // companion "every line" lens, which only shows while the overlay is on.
+    DebuggerPanel.refreshSourceCodeLenses();
+  }
+
+  /**
+   * Toggle the inline-value MODE (once-at-first-use ↔ every reference) for this
+   * panel, remember it window-wide, and re-render. Driven by the second
+   * source-pane CodeLens, shown only while the overlay is on.
+   */
+  toggleInlineValuesPerLine(): void {
+    this.inlineValuesPerLine = !this.inlineValuesPerLine;
+    DebuggerPanel.savedInlineValuesPerLine = this.inlineValuesPerLine;
+    if (this.inlineValuesEnabled && this.sourceEditor && this.selectedServerLevel !== undefined) {
+      this.updateInlineValues(this.sourceEditor, this.selectedServerLevel);
+    }
+    DebuggerPanel.refreshSourceCodeLenses();
+  }
+
+  /**
+   * Forward the `gemstone.toggleInlineValues` command (fired by the source-pane
+   * CodeLens, which passes the document URI) to the owning panel. Falls back to
+   * the active editor's URI when called without one.
+   */
+  static toggleInlineValuesForUri(uriStr?: string): void {
+    const uri = uriStr ?? vscode.window.activeTextEditor?.document.uri.toString();
+    const dbg = uri ? DebuggerPanel.panelForSourceUri(uri) : undefined;
+    if (dbg) dbg.toggleInlineValues();
+  }
+
+  /** As `toggleInlineValuesForUri`, but for the every-line MODE (second lens). */
+  static toggleInlineValuesPerLineForUri(uriStr?: string): void {
+    const uri = uriStr ?? vscode.window.activeTextEditor?.document.uri.toString();
+    const dbg = uri ? DebuggerPanel.panelForSourceUri(uri) : undefined;
+    if (dbg) dbg.toggleInlineValuesPerLine();
+  }
+
+  /** The live panel currently showing `uriStr` in its companion source pane, if any. */
+  private static panelForSourceUri(uriStr: string): DebuggerPanel | undefined {
+    for (const set of DebuggerPanel.panels.values()) {
+      for (const dbg of set) {
+        if (dbg.shownSourceUris.has(uriStr)) return dbg;
+      }
+    }
+    return undefined;
+  }
+
+  /** True when `uriStr` is a source pane some live debugger is currently showing. */
+  static isLiveSourceUri(uriStr: string): boolean {
+    return DebuggerPanel.panelForSourceUri(uriStr) !== undefined;
+  }
+
+  /** Whether the panel showing `uriStr` has its inline-value overlay on. */
+  static isInlineValuesEnabledFor(uriStr: string): boolean {
+    return DebuggerPanel.panelForSourceUri(uriStr)?.inlineValuesEnabled ?? false;
+  }
+
+  /** Whether the panel showing `uriStr` is in every-line mode (vs first-use). */
+  static isInlineValuesPerLineFor(uriStr: string): boolean {
+    return DebuggerPanel.panelForSourceUri(uriStr)?.inlineValuesPerLine ?? false;
+  }
+
+  /**
+   * The source-pane CodeLens provider, registered once in `activate()`. The
+   * panel pokes it (via `refreshSourceCodeLenses`) whenever a source pane opens,
+   * the shown frame changes, the overlay toggles, or a panel closes — so the
+   * "Inline values: on/off" lens appears, flips, and disappears in step.
+   */
+  private static codeLensProvider: { refresh(): void } | undefined;
+  static setSourceCodeLensProvider(p: { refresh(): void }): void {
+    DebuggerPanel.codeLensProvider = p;
+  }
+  private static refreshSourceCodeLenses(): void {
+    DebuggerPanel.codeLensProvider?.refresh();
   }
 
   /**
@@ -2102,6 +2900,7 @@ export class DebuggerPanel {
     });
     this.shownSourceUris.add(uri.toString()); // closed with the panel (see dispose)
     DebuggerPanel.persistLiveSourceUris();
+    DebuggerPanel.refreshSourceCodeLenses(); // surface the inline-values lens on this doc
     this.sourceColumn = editor.viewColumn ?? this.sourceColumn;
     this.sourceEditor = editor; // live .viewColumn used at close time (see field doc)
     // Size the brand-new source group: re-apply the user's remembered ratio (or
@@ -2190,6 +2989,35 @@ export class DebuggerPanel {
   }
 
   /**
+   * Map a block frame's server level to the server level of its HOME method's
+   * activation on the stack — the frame Navigate / Restart / edit-and-continue
+   * act on. You can't meaningfully restart a block in isolation (its home
+   * method's temps/iteration state are mid-flight, and a block at the very top
+   * frame can't be reset in place at all); re-running the whole home method from
+   * its first statement is the operation that makes sense — this matches GT.
+   *
+   * A block always runs ABOVE its home method, so the home activation is the
+   * nearest frame BELOW the block (deeper — higher server level) whose method IS
+   * the home method (non-block, `methodOop === homeMethodOop`). This is the
+   * opposite direction from `stopFrameLevel`, which finds the TOPMOST frame
+   * sharing a home method (the true stop frame, for stepping/highlighting).
+   *
+   * Returns the input level unchanged for a non-block frame, or when the home
+   * method isn't on the stack (a stored block invoked after its home returned) —
+   * the caller then acts on the frame as-is.
+   */
+  private homeMethodFrameLevel(serverLevel: number): number {
+    const raw = this.rawFrames.find(r => r.serverLevel === serverLevel);
+    if (!raw || !raw.isBlock) return serverLevel;
+    for (const r of this.rawFrames) {
+      if (r.serverLevel > serverLevel && !r.isBlock && r.methodOop === raw.homeMethodOop) {
+        return r.serverLevel;
+      }
+    }
+    return serverLevel; // home method not on the stack → act on the block frame itself
+  }
+
+  /**
    * The range to highlight for a frame's current step point — just the token at
    * the step point, NOT the whole line. Prefers the exact step-point character
    * offset (`getSourceOffsets`, available for class>>selector methods); falls
@@ -2271,16 +3099,36 @@ export class DebuggerPanel {
     this.rawFrames = raws; // retained for stopFrameLevel (pre-collapse lookup)
     // Trim machinery/wrapper glue, then renumber the survivors 1..N for display
     // while keeping each one's real server level for subsequent queries.
-    return filterStack(raws).map((r, i) => ({
-      level: i + 1,
-      serverLevel: r.serverLevel,
-      label: r.label,
-      isExecutedCode: r.isExecutedCode,
-      overridable: r.overridable,
-      receiverClass: r.receiverClassName,
-      // Executed-code frames have no meaningful step point/line once unwrapped (#3).
-      position: r.isExecutedCode ? '' : formatFramePosition(r.stepPoint, r.line),
-    }));
+    const kept = filterStack(raws);
+    // serverLevel → display level, so a block frame can point at its home frame.
+    const displayLevelByServer = new Map<number, number>();
+    kept.forEach((r, i) => displayLevelByServer.set(r.serverLevel, i + 1));
+    return kept.map((r, i) => {
+      // "Go to home method" target: for a block frame, the display level of its
+      // home method's activation — but only when that frame is itself visible
+      // and isn't this very frame (homeMethodFrameLevel returns the input level
+      // when the home method has already returned / was filtered out).
+      let homeDisplayLevel: number | undefined;
+      if (r.isBlock) {
+        const homeServer = this.homeMethodFrameLevel(r.serverLevel);
+        if (homeServer !== r.serverLevel) {
+          const dl = displayLevelByServer.get(homeServer);
+          if (dl !== undefined && dl !== i + 1) homeDisplayLevel = dl;
+        }
+      }
+      return {
+        level: i + 1,
+        serverLevel: r.serverLevel,
+        label: r.label,
+        isExecutedCode: r.isExecutedCode,
+        overridable: r.overridable,
+        receiverClass: r.receiverClassName,
+        breakable: r.breakable,
+        homeDisplayLevel,
+        // Executed-code frames have no meaningful step point/line once unwrapped (#3).
+        position: r.isExecutedCode ? '' : formatFramePosition(r.stepPoint, r.line),
+      };
+    });
   }
 
   /**
@@ -2298,7 +3146,8 @@ export class DebuggerPanel {
       logError(this.sessionId, e instanceof Error ? e.message : String(e));
       return {
         serverLevel: level, methodOop: 0n, homeMethodOop: 0n, isBlock: false,
-        definingClassName: '', selector: '', isExecutedCode: false, label: `<frame ${level}>`,
+        definingClassName: '', selector: '', isExecutedCode: false, breakable: false,
+        label: `<frame ${level}>`,
       };
     }
 
@@ -2349,10 +3198,18 @@ export class DebuggerPanel {
       stepPoint = debug.getStepPoint(this.session, this.gsProcess, level);
     } catch { /* best-effort */ }
 
+    // Breakable iff we resolved a home method to set a step-point break in —
+    // drives "Run to Cursor" (#2). The home method's `_sourceOffsets` is method-
+    // wide (it spans every nested block — verified on the stone), so a cursor in a
+    // doit's user code maps to a real step point too. An editable method breaks by
+    // class>>selector; a doit / non-symbol-list method breaks by its method OOP.
+    // Only an unresolvable `<frame N>` (homeMethodOop 0) can't be broken.
+    const breakable = homeMethodOop !== 0n;
+
     return {
       serverLevel: level, methodOop: info.methodOop, homeMethodOop, isBlock,
       definingClassName: home.definingClassName, selector: home.selector,
-      isExecutedCode, receiverClassName: receiverClass, overridable, label, line, stepPoint,
+      isExecutedCode, receiverClassName: receiverClass, overridable, breakable, label, line, stepPoint,
     };
   }
 
@@ -2436,18 +3293,36 @@ export class DebuggerPanel {
     .titlebar { display: flex; align-items: baseline; gap: 0.6rem; margin: 0 0 0.25rem; flex-wrap: wrap; }
     h1 { font-size: 1.3rem; margin: 0; }
     .subtitle { color: var(--vscode-descriptionForeground); font-size: 0.85rem; }
+    /* The action cluster sits together at the right; the buttons no longer each
+       grab margin-left:auto, which used to spread them apart. */
+    .titlebar-actions { margin-left: auto; display: flex; align-items: center; gap: 0.15rem; min-width: 0; }
+    /* Copy/Dump are icon-only buttons (tooltips name them), styled like the toolbar. */
     .copy-btn {
-      margin-left: auto;
-      align-self: center;
-      font-family: var(--vscode-font-family);
-      color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
-      background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
-      border: none;
-      padding: 0.2rem 0.7rem;
-      border-radius: 2px;
-      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--vscode-icon-foreground, var(--vscode-foreground));
+      background: transparent; border: none; padding: 0.3rem; border-radius: 4px; cursor: pointer;
     }
-    .copy-btn:hover { background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground)); }
+    /* pointer-events:none so hover/click land on the BUTTON (which owns the title
+       tooltip + handler), not the title-less SVG — otherwise no tooltip appears. */
+    .copy-btn svg { width: 16px; height: 16px; display: block; pointer-events: none; }
+    .copy-btn:hover { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
+    /* "Dumped to <path>  ⧉" — its OWN row under the titlebar (not in the button
+       flex row), so showing/hiding it never reflows the buttons. Right-aligned to
+       sit under the buttons; auto-hides after 5s. */
+    .save-notice { display: flex; align-items: center; justify-content: flex-end; gap: 0.3rem; min-width: 0; margin: 0 0 0.25rem; }
+    /* The path reads as a link (click opens the file in an editor). */
+    .save-path {
+      color: var(--vscode-textLink-foreground, var(--vscode-descriptionForeground)); font-size: 0.82em; min-width: 0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      user-select: text; -webkit-user-select: text; cursor: pointer;
+    }
+    .save-path:hover { text-decoration: underline; }
+    /* Small copy glyph, styled like the Variables pane's revert (↺) icon. */
+    .copy-path-icon {
+      flex: 0 0 auto; cursor: pointer; user-select: none; font-size: 0.95em;
+      color: var(--vscode-descriptionForeground); opacity: 0.8;
+    }
+    .copy-path-icon:hover { opacity: 1; color: var(--vscode-foreground); }
     .error {
       color: var(--vscode-errorForeground);
       font-family: var(--vscode-editor-font-family, monospace);
@@ -2457,6 +3332,17 @@ export class DebuggerPanel {
          panel stays non-selectable to keep the custom copy menu the only path. */
       user-select: text; -webkit-user-select: text; cursor: text;
     }
+    /* Transient status flash (e.g. Run to Cursor falling back to a plain Resume).
+       Self-dismisses; sits above the error banner and never clobbers it. The
+       show class fades it in (and is removed on a timer to fade it out). */
+    .flash {
+      color: var(--vscode-notificationsInfoIcon-foreground, var(--vscode-foreground));
+      background: var(--vscode-editorWidget-background, transparent);
+      border: 1px solid var(--vscode-widget-border, transparent);
+      border-radius: 4px; padding: 0.25rem 0.6rem; margin-bottom: 0.6rem;
+      font-size: 0.9rem; opacity: 0; transition: opacity 0.15s ease-in-out;
+    }
+    .flash.show { opacity: 1; }
     /* "Create #selector in Class" action shown when parked on a doesNotUnderstand:.
        Styled as a prominent primary button just below the error banner. */
     .dnu-bar { margin: 0 0 0.75rem; }
@@ -2508,9 +3394,13 @@ export class DebuggerPanel {
       background: transparent;
       border: none; padding: 0.3rem; border-radius: 4px; cursor: pointer;
     }
-    .toolbar button svg { width: 16px; height: 16px; display: block; }
+    .toolbar button svg { width: 16px; height: 16px; display: block; pointer-events: none; }
     .toolbar button:hover { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
     .toolbar button.danger { color: var(--vscode-debugIcon-stopForeground, var(--vscode-errorForeground)); }
+    /* A disabled control (e.g. Run to Cursor on a non-breakable doit frame) dims and
+       drops its hover affordance, so it reads as unavailable. */
+    .toolbar button:disabled { opacity: 0.35; cursor: default; }
+    .toolbar button:disabled:hover { background: transparent; }
     /* Call Stack (left) + Variables (right), divided by a draggable splitter.
        --stack-basis is the stack pane's width; the splitter drag rewrites it and
        it's persisted (see debuggerView.js / the saveLayout message). */
@@ -2646,16 +3536,27 @@ export class DebuggerPanel {
   <div class="titlebar">
     <h1>Jasper Debugger</h1>
     <span class="subtitle">${subtitle}</span>
-    <button id="copyBtn" class="copy-btn" title="Copy the whole stack to the clipboard">Copy Stack</button>
+    <span class="titlebar-actions">
+      <button id="copyBtn" class="copy-btn" title="Copy Stack — copy the full stack (with each frame's variable values) to the clipboard" aria-label="Copy Stack">${TOOLBAR_ICONS.copyStack}</button>
+      <button id="dumpBtn" class="copy-btn" title="Dump Stack — write the full stack to a file in ~/.jasper/stacks" aria-label="Dump Stack">${TOOLBAR_ICONS.dumpStack}</button>
+    </span>
+  </div>
+  <!-- Dump-path confirmation gets its OWN row (so it never reflows the buttons),
+       right-aligned to sit under them. The path opens the file on click. -->
+  <div id="saveNotice" class="save-notice" style="display:none;">
+    <span id="savePath" class="save-path" role="button" title="Click to open this file in an editor"></span>
+    <span id="copyPathBtn" class="copy-path-icon" role="button" title="Copy the file path to the clipboard">⧉</span>
   </div>
   <div class="toolbar" id="toolbar">
     <button data-cmd="resume" title="Resume execution" aria-label="Resume execution">${TOOLBAR_ICONS.resume}</button>
+    <button data-cmd="runToCursor" id="runToCursorBtn" disabled title="Run to Cursor" aria-label="Run to Cursor">${TOOLBAR_ICONS.runToCursor}</button>
     <button data-cmd="stepOver" title="Step over (from the selected frame)" aria-label="Step over">${TOOLBAR_ICONS.stepOver}</button>
     <button data-cmd="stepInto" title="Step into" aria-label="Step into">${TOOLBAR_ICONS.stepInto}</button>
     <button data-cmd="stepThrough" title="Step through blocks" aria-label="Step through blocks">${TOOLBAR_ICONS.stepThrough}</button>
     <button data-cmd="restartFrame" title="Restart the selected frame" aria-label="Restart the selected frame">${TOOLBAR_ICONS.restartFrame}</button>
     <button data-cmd="terminate" class="danger" title="Terminate the process" aria-label="Terminate the process">${TOOLBAR_ICONS.terminate}</button>
   </div>
+  <div class="flash" id="flash" style="display:none;"></div>
   <div class="error" id="error"></div>
   <div class="dnu-bar" id="dnuBar"></div>
   <div class="main" id="main" style="--stack-basis: ${stackBasis};">
@@ -2677,6 +3578,7 @@ export class DebuggerPanel {
   </div>
   <div id="ctxmenu" class="ctx-menu" role="menu">
     <div class="ctx-item" id="copyFrameItem" role="menuitem">Copy Frame</div>
+    <div class="ctx-item" id="homeFrameItem" role="menuitem" style="display:none;">Go to home method</div>
     <div class="ctx-item" id="frameImplItem" role="menuitem" style="display:none;">Implement in…</div>
   </div>
   <div id="varctxmenu" class="ctx-menu" role="menu">
@@ -2689,11 +3591,18 @@ export class DebuggerPanel {
       list: document.getElementById('stack'),
       menu: document.getElementById('ctxmenu'),
       copyFrameItem: document.getElementById('copyFrameItem'),
+      homeFrameItem: document.getElementById('homeFrameItem'),
       frameImplItem: document.getElementById('frameImplItem'),
       copyBtn: document.getElementById('copyBtn'),
+      dumpBtn: document.getElementById('dumpBtn'),
+      saveNotice: document.getElementById('saveNotice'),
+      savePath: document.getElementById('savePath'),
+      copyPathBtn: document.getElementById('copyPathBtn'),
       error: document.getElementById('error'),
+      flash: document.getElementById('flash'),
       dnuBar: document.getElementById('dnuBar'),
       toolbar: document.getElementById('toolbar'),
+      runToCursorBtn: document.getElementById('runToCursorBtn'),
       variables: document.getElementById('variables'),
       evalInput: document.getElementById('evalInput'),
       evalResult: document.getElementById('evalResult'),
@@ -2724,6 +3633,12 @@ export class DebuggerPanel {
     // the panel) so a stale highlight doesn't linger after the debugger closes.
     this.decoratedEditor?.setDecorations(DebuggerPanel.stepPointDecoration, []);
     this.decoratedEditor = undefined;
+    // Likewise drop the inline-value overlay from the (outliving) source editor.
+    this.inlineDecoratedEditor?.setDecorations(DebuggerPanel.inlineValueDecoration, []);
+    this.inlineDecoratedEditor = undefined;
+    // The source pane is going away — drop its inline-values CodeLens too. (This
+    // panel was already removed from `panels` above, so the lens won't re-appear.)
+    DebuggerPanel.refreshSourceCodeLenses();
     // Close the companion source editor and any GT Inspectors this debugger
     // opened — they're artifacts of this debugger and shouldn't outlive it.
     this.closeSourceEditors();

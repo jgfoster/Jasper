@@ -431,6 +431,28 @@ export function getSourceOffsetsForMethod(
 }
 
 /**
+ * Set a step-point breakpoint on a method addressed by its OOP — for "Run to
+ * Cursor" on an Executed Code (doit) frame, whose anonymous `GsNMethod` has no
+ * class>>selector to resolve. `setBreakAtStepPoint:` is method-wide (it resolves
+ * the step point to the owning block via `_meth_ip_ForStepPoint:`), so a break at
+ * a user-code step point in a nested block halts when reached. Performed straight
+ * on the method OOP — the same way `getSourceOffsetsForMethod` reads
+ * `_sourceOffsets`.
+ */
+export function setBreakAtStepPointByOop(
+  session: ActiveSession, methodOop: bigint, stepPoint: number,
+): void {
+  gciPerform(session, methodOop, 'setBreakAtStepPoint:', [intToOop(session, stepPoint)]);
+}
+
+/** Clear a step-point breakpoint set by OOP (see setBreakAtStepPointByOop). */
+export function clearBreakAtStepPointByOop(
+  session: ActiveSession, methodOop: bigint, stepPoint: number,
+): void {
+  gciPerform(session, methodOop, 'clearBreakAtStepPoint:', [intToOop(session, stepPoint)]);
+}
+
+/**
  * Returns the step point for the frame at the given level (1-based, 1 = top),
  * or undefined when the frame has no step point. Uses GsProcess>>_stepPointAt:,
  * the same primitive the topaz debugger uses — it accounts for native-stack
@@ -514,6 +536,237 @@ export function getObjectPrintString(
   session: ActiveSession, oop: bigint, maxBytes: number = 1024,
 ): string {
   return fetchPrintString(session, oop, maxBytes).value;
+}
+
+/** One variable row of a whole-stack dump (#10/#11): which frame, which group. */
+export interface StackDumpRow {
+  /** Server frame level (1 = top) the row belongs to. */
+  serverLevel: number;
+  /** Variable group: matches the Variables-pane grouping. */
+  group: 'receiver' | 'instvars' | 'argtemps' | 'stacktemps';
+  name: string;
+  /** printString (truncated server-side), already un-escaped. */
+  value: string;
+  /** The object's OOP as a decimal string. */
+  oop: string;
+}
+
+// Reverse the server-side escaping (see fetchStackDump's doit): \\ \t \n \r.
+// Single pass so an introduced backslash can't be re-interpreted.
+function unescapeDumpField(s: string): string {
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '\\' && i + 1 < s.length) {
+      const n = s[++i];
+      out += n === 't' ? '\t' : n === 'n' ? '\n' : n === 'r' ? '\r' : n;
+    } else {
+      out += s[i];
+    }
+  }
+  return out;
+}
+
+/**
+ * Parse the tab/newline payload produced by fetchStackDump's doit into rows.
+ * One record per line; fields are `level <tab> group <tab> name <tab> value <tab>
+ * oop`. `name`/`value` are escaped (the only fields that can contain delimiters),
+ * so splitting on raw tab/newline is unambiguous. Exported for unit testing.
+ */
+export function parseStackDump(data: string): StackDumpRow[] {
+  const rows: StackDumpRow[] = [];
+  if (!data) return rows;
+  for (const line of data.split('\n')) {
+    if (line.length === 0) continue;
+    const f = line.split('\t');
+    if (f.length < 5) continue;
+    const serverLevel = parseInt(f[0], 10);
+    if (Number.isNaN(serverLevel)) continue;
+    rows.push({
+      serverLevel,
+      group: f[1] as StackDumpRow['group'],
+      name: unescapeDumpField(f[2]),
+      value: unescapeDumpField(f[3]),
+      oop: f[4],
+    });
+  }
+  return rows;
+}
+
+/**
+ * Fetch EVERY frame's variables (receiver, instVars, args/temps) for the whole
+ * suspended process in ONE round trip — for the Copy Stack / Dump Stack detail
+ * (#10/#11). A single server doit walks the stack and streams a tab/newline
+ * payload (printStrings escaped + capped) which we parse client-side; this
+ * replaces the old one-`fetchVariables`-call-per-frame approach (F×(1+vars) GCI
+ * round trips → 1). Mirrors the Variables pane's grouping so Copy/Dump match it.
+ *
+ * Best-effort: a frame the server can't introspect contributes no rows; a failed
+ * fetch returns [] (the dump then shows headings without variables).
+ */
+export function fetchStackDump(session: ActiveSession, gsProcess: bigint): StackDumpRow[] {
+  const { result: classUtf8, err: resErr } = session.gci.GciTsResolveSymbol(
+    session.handle, 'Utf8', OOP_NIL,
+  );
+  if (resErr.number !== 0) return [];
+
+  // self of each row is built server-side; names/printStrings are escaped (\\ \t
+  // \n \r) so the tab/newline framing is safe, and printStrings are capped so one
+  // huge object can't blow the payload. `_frameContentsAt:` layout matches
+  // getFrameInfo: [9]=argAndTempNames, [10]=receiver, [10+i]=ith arg/temp value.
+  // `row` writes one record: level, group, escaped name, escaped printString,
+  // and oop — a 4-arg block (GemStone ExecBlocks cap at 4 value: args, so it
+  // takes the object and derives printString+oop rather than passing 5 fields).
+  // Frame-contents indexing (at:9 names, at:10 receiver, at:10+i values) matches
+  // the kernel's own GsProcess>>stackReportToLevel:… so it's correct on a
+  // suspended process (it is NOT indexable on the running process).
+  const code = `| proc out tab esc psOf row depth |
+proc := Object _objectForOop: ${gsProcess}.
+out := WriteStream on: String new.
+tab := String with: Character tab.
+esc := [:str | | s |
+  s := str.
+  s size > 2000 ifTrue: [s := (s copyFrom: 1 to: 2000), '...'].
+  s := s copyReplaceAll: (String with: $\\) with: '\\\\'.
+  s := s copyReplaceAll: tab with: '\\t'.
+  s := s copyReplaceAll: (String with: Character lf) with: '\\n'.
+  s := s copyReplaceAll: (String with: Character cr) with: '\\r'.
+  s].
+psOf := [:obj | esc value: ([obj printString] on: Error do: [:e | '<unprintable>'])].
+row := [:lvl :grp :nm :obj |
+  out nextPutAll: lvl printString; nextPutAll: tab;
+      nextPutAll: grp; nextPutAll: tab;
+      nextPutAll: (esc value: nm); nextPutAll: tab;
+      nextPutAll: (psOf value: obj); nextPutAll: tab;
+      nextPutAll: obj asOop printString; nextPut: Character lf].
+depth := proc localStackDepth.
+1 to: depth do: [:lvl |
+  [ | arr receiver names |
+    arr := proc _frameContentsAt: lvl.
+    receiver := arr at: 10.
+    names := arr at: 9.
+    row value: lvl value: 'receiver' value: 'self' value: receiver.
+    [ receiver class allInstVarNames keysAndValuesDo: [:i :nm |
+        row value: lvl value: 'instvars' value: nm asString value: (receiver instVarAt: i) ]
+    ] on: Error do: [:e | ].
+    names isNil ifFalse: [
+      1 to: names size do: [:i | | nm |
+        nm := (names at: i) asString.
+        (nm startsWith: '__vsc') ifFalse: [
+          row value: lvl
+              value: ((nm startsWith: '.') ifTrue: ['stacktemps'] ifFalse: ['argtemps'])
+              value: nm value: (arr at: 10 + i) ] ] ]
+  ] on: Error do: [:e | ] ].
+out contents`;
+
+  const { data, err } = session.gci.GciTsExecuteFetchBytes(
+    session.handle, code, -1, classUtf8, OOP_ILLEGAL, OOP_NIL, 8 * 1024 * 1024,
+  );
+  if (err.number !== 0) {
+    logError(session.id, `fetchStackDump: ${err.message || `error ${err.number}`}`);
+    return [];
+  }
+  return parseStackDump(data);
+}
+
+/** One variable of a single frame (receiver / instVar / arg-temp / stack-temp). */
+export interface FrameVarRow {
+  group: 'receiver' | 'instvars' | 'argtemps' | 'stacktemps';
+  name: string;
+  /** printString (escaped server-side then un-escaped here, capped). */
+  value: string;
+  /** The object's OOP as a decimal string. */
+  oop: string;
+  /**
+   * 1-based write index for an editable slot: instVar index (`instVarAt:put:`) or
+   * arg/temp index into the frame's `argAndTempNames` (`_frameAt:tempAt:put:`).
+   * 0 for the receiver and stack temps (not editable).
+   */
+  index: number;
+}
+
+/**
+ * Parse the tab/newline payload from `fetchFrameVariables`'s doit: one record per
+ * line, fields `group <tab> name <tab> value <tab> oop <tab> index`. Exported for
+ * unit testing.
+ */
+export function parseFrameVars(data: string): FrameVarRow[] {
+  const rows: FrameVarRow[] = [];
+  if (!data) return rows;
+  for (const line of data.split('\n')) {
+    if (line.length === 0) continue;
+    const f = line.split('\t');
+    if (f.length < 5) continue;
+    rows.push({
+      group: f[0] as FrameVarRow['group'],
+      name: unescapeDumpField(f[1]),
+      value: unescapeDumpField(f[2]),
+      oop: f[3],
+      index: parseInt(f[4], 10) || 0,
+    });
+  }
+  return rows;
+}
+
+/**
+ * Fetch ALL of one frame's variables — receiver, instVars, args/temps — in ONE
+ * round trip (a single server doit streams an escaped tab/newline payload),
+ * replacing the old per-variable approach (1 getFrameInfo + getInstVarNames +
+ * getNamedInstVarOops + N getObjectPrintString → 1 call). Mirrors fetchStackDump
+ * but for a single level and additionally emits each editable slot's write index.
+ * Best-effort: a frame the server can't introspect returns []. The `row` block
+ * takes 4 args (GemStone ExecBlocks cap value: at 4): group, name, object, index.
+ */
+export function fetchFrameVariables(
+  session: ActiveSession, gsProcess: bigint, serverLevel: number,
+): FrameVarRow[] {
+  const { result: classUtf8, err: resErr } = session.gci.GciTsResolveSymbol(
+    session.handle, 'Utf8', OOP_NIL,
+  );
+  if (resErr.number !== 0) return [];
+
+  const code = `| proc out tab esc psOf row arr receiver names |
+proc := Object _objectForOop: ${gsProcess}.
+out := WriteStream on: String new.
+tab := String with: Character tab.
+esc := [:str | | s |
+  s := str.
+  s size > 2000 ifTrue: [s := (s copyFrom: 1 to: 2000), '...'].
+  s := s copyReplaceAll: (String with: $\\) with: '\\\\'.
+  s := s copyReplaceAll: tab with: '\\t'.
+  s := s copyReplaceAll: (String with: Character lf) with: '\\n'.
+  s := s copyReplaceAll: (String with: Character cr) with: '\\r'.
+  s].
+psOf := [:obj | esc value: ([obj printString] on: Error do: [:e | '<unprintable>'])].
+row := [:grp :nm :obj :idx |
+  out nextPutAll: grp; nextPutAll: tab;
+      nextPutAll: (esc value: nm); nextPutAll: tab;
+      nextPutAll: (psOf value: obj); nextPutAll: tab;
+      nextPutAll: obj asOop printString; nextPutAll: tab;
+      nextPutAll: idx printString; nextPut: Character lf].
+[ arr := proc _frameContentsAt: ${serverLevel}.
+  receiver := arr at: 10.
+  names := arr at: 9.
+  row value: 'receiver' value: 'self' value: receiver value: 0.
+  [ receiver class allInstVarNames keysAndValuesDo: [:i :nm |
+      row value: 'instvars' value: nm asString value: (receiver instVarAt: i) value: i ]
+  ] on: Error do: [:e | ].
+  names isNil ifFalse: [
+    1 to: names size do: [:i | | nm |
+      nm := (names at: i) asString.
+      (nm startsWith: '__vsc') ifFalse: [
+        row value: ((nm startsWith: '.') ifTrue: ['stacktemps'] ifFalse: ['argtemps'])
+            value: nm value: (arr at: 10 + i) value: i ] ] ]
+] on: Error do: [:e | ].
+out contents`;
+
+  const { data, err } = session.gci.GciTsExecuteFetchBytes(
+    session.handle, code, -1, classUtf8, OOP_ILLEGAL, OOP_NIL, 8 * 1024 * 1024,
+  );
+  if (err.number !== 0) {
+    logError(session.id, `fetchFrameVariables: ${err.message || `error ${err.number}`}`);
+    return [];
+  }
+  return parseFrameVars(data);
 }
 
 /**

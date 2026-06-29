@@ -2,6 +2,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('vscode', () => import('../__mocks__/vscode'));
 
+// Keep real `fs` (debuggerPanel reads debuggerView.js via readFileSync at import
+// time) but stub the dump's writes so Save-to-File tests do no real disk IO.
+vi.mock('fs', async () => {
+  const actual = await vi.importActual<typeof import('fs')>('fs');
+  return {
+    ...actual,
+    promises: { ...actual.promises, writeFile: vi.fn(async () => {}), mkdir: vi.fn(async () => {}) },
+  };
+});
+
 // A controlled five-frame stack, modelled on `JasperDebugDemo new run`:
 //   level 1 — a block frame in JasperDebugDemo>>finish
 //   level 2 — an inherited method: receiver is a SmallInteger, halt is in Object
@@ -33,6 +43,9 @@ vi.mock('../debugQueries', () => ({
   // Source offsets fetched straight from a method OOP (read-only doit / non-
   // symbol-list method). Same 1-based shape as browserQueries.getSourceOffsets.
   getSourceOffsetsForMethod: vi.fn(() => [1, 8, 26]),
+  // Run to Cursor in a doit frame breaks/clears by the method OOP (no class>>selector).
+  setBreakAtStepPointByOop: vi.fn(),
+  clearBreakAtStepPointByOop: vi.fn(),
   getMethodSource: vi.fn(() => '| t | t := 6 * 7. t halt'),
   getObjectPrintString: vi.fn((_s: unknown, oop: bigint) => `<print ${oop}>`),
   getInstVarNames: vi.fn(() => [] as string[]),
@@ -63,6 +76,20 @@ vi.mock('../debugQueries', () => ({
   // Implement-in-receiver (override): the receiver's inheritance chain (default
   // is a single class → no QuickPick; tests override it for the multi-class case).
   getReceiverClassChain: vi.fn(() => [{ className: 'SmallInteger', isMeta: false, dictName: 'Globals' }]),
+  // Whole-stack dump (#10/#11): one batched call. Default = a Receiver row per
+  // frame whose printString/oop mirror the per-frame receiverOop (level * 100).
+  fetchStackDump: vi.fn(() => [1, 2, 3, 4, 5].map(l => ({
+    serverLevel: l, group: 'receiver' as const, name: 'self',
+    value: `<print ${l * 100}>`, oop: `${l * 100}`,
+  }))),
+  // Single-frame variables in one round trip (drives the Variables pane + inline
+  // overlay). Default = just the receiver row (self oop = level*100), matching the
+  // old getFrameInfo default; tests override per level for instVars/temps. The
+  // server doit already filters __vsc glue, classifies .tN stack temps, and emits
+  // each editable slot's 1-based write index, so rows arrive grouped + indexed.
+  fetchFrameVariables: vi.fn((_s: unknown, _p: unknown, level: number) => [
+    { group: 'receiver' as const, name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 },
+  ]),
 }));
 
 // Clicking a variable row opens a GT Inspector — stub the static entry point.
@@ -74,16 +101,25 @@ vi.mock('../gtInspector', () => ({ GtInspector: { create: vi.fn(() => ({ close: 
 // them to 0-based for doc.positionAt.
 vi.mock('../browserQueries', () => ({
   getSourceOffsets: vi.fn(() => [1, 8, 26]),
+  // Run to Cursor (#2) sets a temporary step-point break, then clears it.
+  setBreakAtStepPoint: vi.fn(() => 'ok'),
+  clearBreakAtStepPoint: vi.fn(() => 'ok'),
 }));
 
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import * as debug from '../debugQueries';
+import * as queries from '../browserQueries';
 import {
   DebuggerPanel, formatFrameLabel, formatFramePosition, buildMethodStub, selectorArgCount,
-  formatFrameForClipboard, formatStackForClipboard, buildMethodSourceUri,
+  formatFrameForClipboard, buildMethodSourceUri,
   filterStack, isExceptionMachinery, RawFrame,
   flattenLayoutLeaves, sourceRatioFromLayout, setSourceRatioInLayout, EditorGroupLayout,
+  formatDetailedStack, stackDumpFileName, stackDumpTimestamp, DetailedStackFrame,
+  computeInlineValueLines, shortenInlineValue, maskCommentsAndStrings, InlineVar,
 } from '../debuggerPanel';
+import { InlineValuesCodeLensProvider } from '../inlineValuesCodeLens';
 import { wrapWithTranscriptCapture, TRANSCRIPT_CAPTURE_PREFIX } from '../transcriptCapture';
 import { GtInspector } from '../gtInspector';
 import { ActiveSession } from '../sessionManager';
@@ -300,27 +336,102 @@ describe('formatFrameForClipboard', () => {
   });
 });
 
-describe('formatStackForClipboard', () => {
-  const frames = [
-    { level: 1, label: 'A>>#x', position: '@2 line 3' },
-    { level: 2, label: 'B>>#y', position: '' },
+describe('formatDetailedStack (#10)', () => {
+  const frames: DetailedStackFrame[] = [
+    {
+      level: 1, label: 'JasperFoo>>#bar', position: '@2 line 3',
+      groups: [
+        { title: 'Receiver', kind: 'receiver', vars: [{ name: 'self', value: 'a JasperFoo', oop: '100' }] },
+        { title: 'Instance variables', kind: 'instvars', vars: [{ name: 'count', value: '7', oop: '14', edit: { kind: 'instvar', index: 1 } }] },
+        { title: 'Arguments & Temps', kind: 'argtemps', vars: [{ name: 'x', value: 'nil', oop: '20', edit: { kind: 'temp', index: 1 } }] },
+      ],
+    },
+    {
+      level: 2, label: 'JasperFoo>>#run', position: '',
+      groups: [
+        { title: 'Receiver', kind: 'receiver', vars: [{ name: 'self', value: 'a JasperFoo', oop: '100' }] },
+      ],
+    },
   ];
 
-  it('renders an error header followed by numbered frames with positions', () => {
-    expect(formatStackForClipboard('boom', frames)).toBe(
-      ['GemStone error: boom', '', '1. A>>#x  @2 line 3', '2. B>>#y'].join('\n'),
-    );
+  it('puts the short numbered stack first, then a detail block per frame', () => {
+    const out = formatDetailedStack('boom', frames).split('\n');
+    // Header (error) then the SHORT stack — both frames — before any detail.
+    expect(out.slice(0, 4)).toEqual([
+      'GemStone error: boom', '', '[1] JasperFoo>>#bar  @2 line 3', '[2] JasperFoo>>#run',
+    ]);
+    // A separator + repeated heading introduces each detail block.
+    expect(out).toContain('---------------------------------');
+    const firstSep = out.indexOf('---------------------------------');
+    expect(out[firstSep + 1]).toBe('[1] JasperFoo>>#bar  @2 line 3');
   });
 
-  it('omits the error header when there is no error message', () => {
-    expect(formatStackForClipboard('', frames)).toBe(
-      ['1. A>>#x  @2 line 3', '2. B>>#y'].join('\n'),
-    );
+  it('renders each variable as "<name> = <printString>   {<oop>}" under its group', () => {
+    const out = formatDetailedStack('', frames);
+    expect(out).toContain('Receiver:');
+    expect(out).toContain('    self = a JasperFoo   {100}');
+    expect(out).toContain('Instance variables:');
+    expect(out).toContain('    count = 7   {14}');
+    expect(out).toContain('Arguments & Temps:');
+    expect(out).toContain('    x = nil   {20}');
   });
 
-  it('omits the position when a frame has none', () => {
-    expect(formatStackForClipboard('', [{ level: 1, label: 'A>>#x', position: '' }]))
-      .toBe('1. A>>#x');
+  it('shows "(none)" for a group with no rows, and an optional header line', () => {
+    const empty: DetailedStackFrame[] = [
+      { level: 1, label: 'A>>#x', position: '', groups: [{ title: 'Instance variables', kind: 'instvars', vars: [] }] },
+    ];
+    const out = formatDetailedStack('', empty, 'Jasper Debugger stack dump — For me');
+    expect(out.startsWith('Jasper Debugger stack dump — For me\n')).toBe(true);
+    expect(out).toContain('Instance variables:\n    (none)');
+  });
+
+  it('emits a frame heading with no group lines when a frame has no variable rows', () => {
+    const out = formatDetailedStack('', [{ level: 1, label: 'A>>#x', position: '', groups: [] }]);
+    // Short stack, separator, repeated heading — and nothing after it.
+    expect(out).toBe(['[1] A>>#x', '', '-'.repeat(33), '[1] A>>#x'].join('\n'));
+  });
+
+  // Golden, byte-exact rendering — locks the whole layout (spacing, separators,
+  // group order) so a stray format change can't slip through the toContain checks.
+  it('renders the exact GBS-style layout (golden)', () => {
+    expect(formatDetailedStack('a Error', frames)).toBe([
+      'GemStone error: a Error',
+      '',
+      '[1] JasperFoo>>#bar  @2 line 3',
+      '[2] JasperFoo>>#run',
+      '',
+      '-'.repeat(33),
+      '[1] JasperFoo>>#bar  @2 line 3',
+      'Receiver:',
+      '    self = a JasperFoo   {100}',
+      'Instance variables:',
+      '    count = 7   {14}',
+      'Arguments & Temps:',
+      '    x = nil   {20}',
+      '',
+      '-'.repeat(33),
+      '[2] JasperFoo>>#run',
+      'Receiver:',
+      '    self = a JasperFoo   {100}',
+    ].join('\n'));
+  });
+});
+
+describe('stackDumpFileName / stackDumpTimestamp (#11)', () => {
+  const when = new Date(2026, 5, 25, 15, 30, 12); // local 2026-06-25 15:30:12
+
+  it('formats the timestamp as YYYYMMDD_HHMMSS (local, zero-padded, no dashes)', () => {
+    expect(stackDumpTimestamp(when)).toBe('20260625_153012');
+  });
+
+  it('leads with the timestamp, then the frame token (block prefix dropped)', () => {
+    expect(stackDumpFileName('[] in JasperFoo>>#bar', when))
+      .toBe('20260625_153012_JasperFoo-bar.txt');
+  });
+
+  it('collapses non-alphanumerics and falls back to "stack" for an empty label', () => {
+    expect(stackDumpFileName('', when)).toBe('20260625_153012_stack.txt');
+    expect(stackDumpFileName('Executed Code', when)).toBe('20260625_153012_Executed-Code.txt');
   });
 });
 
@@ -459,30 +570,32 @@ describe('DebuggerPanel', () => {
       const html = lastPanel().webview.html;
 
       // Each control keeps its data-cmd (wiring) but now carries an inline SVG glyph.
-      for (const cmd of ['resume', 'stepOver', 'stepInto', 'stepThrough', 'restartFrame', 'terminate']) {
+      for (const cmd of ['resume', 'runToCursor', 'stepOver', 'stepInto', 'stepThrough', 'restartFrame', 'terminate']) {
         expect(html).toMatch(new RegExp(`data-cmd="${cmd}"[^>]*>\\s*<svg`));
       }
+      // Run to Cursor starts disabled (enabled only when a breakable frame is selected).
+      expect(html).toMatch(/data-cmd="runToCursor"[^>]*\bdisabled\b/);
       // The old text labels are gone (names live in title/aria-label tooltips).
       expect(html).toContain('aria-label="Resume execution"');
       expect(html).not.toMatch(/data-cmd="resume"[^>]*>Resume</);
     });
 
-    it('writes the formatted stack to the clipboard on a copyStack message', () => {
+    it('#10 copyStack: copies the FULL stack — short stack on top, then per-frame values', () => {
       DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
       const panel = lastPanel();
       sendReady(panel);            // fetches + caches the stack
       sendMessage(panel, { command: 'copyStack' });
 
-      const expected = [
-        'GemStone error: a UndefinedObject does not understand #foo',
-        '',
-        '1. [] in JasperDebugDemo>>#finish  @2 line 12',
-        '2. SmallInteger (Object)>>#halt  @2 line 12',
-        '3. JasperDebugDemo>>#accumulateFrom:to:  @2 line 12',
-        '4. JasperDebugDemo>>#accumulateFrom:to:  @2 line 12',
-        '5. JasperDebugDemo>>#accumulateFrom:to:  @2 line 12',
-      ].join('\n');
-      expect(vscode.env.clipboard.writeText).toHaveBeenCalledWith(expected);
+      const text = vi.mocked(vscode.env.clipboard.writeText).mock.calls[0][0] as string;
+      // Header, error, then the short numbered stack ([1]..[5]) …
+      expect(text.startsWith('Jasper Debugger stack dump')).toBe(true);
+      expect(text).toContain('GemStone error: a UndefinedObject does not understand #foo');
+      expect(text).toContain('[1] [] in JasperDebugDemo>>#finish  @2 line 12');
+      expect(text).toContain('[5] JasperDebugDemo>>#accumulateFrom:to:  @2 line 12');
+      // … then a detail block: separator, repeated heading, Receiver with self + oop.
+      expect(text).toContain('---------------------------------');
+      expect(text).toContain('Receiver:');
+      expect(text).toContain('    self = <print 100>   {100}'); // frame 1 receiverOop = 100
     });
 
     it('writes a single frame (no leading number) to the clipboard on copyFrame', () => {
@@ -502,6 +615,119 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'copyFrame', level: 999 });
 
       expect(vscode.env.clipboard.writeText).not.toHaveBeenCalled();
+    });
+
+    it('#10 copyStack: assembles the batched dump rows into per-frame groups', () => {
+      // One batched fetch returns flat rows; the panel buckets them back into
+      // Receiver / Instance variables / Arguments & Temps / (stack temps).
+      vi.mocked(debug.fetchStackDump).mockReturnValueOnce([
+        { serverLevel: 1, group: 'receiver', name: 'self', value: 'a JasperDebugDemo', oop: '100' },
+        { serverLevel: 1, group: 'instvars', name: 'total', value: '42', oop: '84' },
+        { serverLevel: 1, group: 'argtemps', name: 'each', value: '7', oop: '14' },
+        { serverLevel: 1, group: 'stacktemps', name: '.t1', value: 'nil', oop: '20' },
+      ]);
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      sendMessage(panel, { command: 'copyStack' });
+
+      const text = vi.mocked(vscode.env.clipboard.writeText).mock.calls[0][0] as string;
+      expect(text).toContain('Receiver:\n    self = a JasperDebugDemo   {100}');
+      expect(text).toContain('Instance variables:\n    total = 42   {84}');
+      expect(text).toContain('Arguments & Temps:\n    each = 7   {14}');
+      expect(text).toContain('(stack temps):\n    .t1 = nil   {20}');
+    });
+
+    it('copyText: writes the given text to the clipboard (the Copy-path button)', () => {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      sendMessage(panel, { command: 'copyText', text: '/Users/me/.jasper/stacks/x.txt' });
+
+      expect(vscode.env.clipboard.writeText).toHaveBeenCalledWith('/Users/me/.jasper/stacks/x.txt');
+    });
+
+    it('#11 dumpStackToFile: writes ~/.jasper/stacks/<ts>_*.txt and posts the path notice (no tab opened)', async () => {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      sendMessage(panel, { command: 'dumpStackToFile' });
+      await tick();
+
+      // Directory ensured + file written with the detailed text.
+      expect(vi.mocked(fs.promises.mkdir)).toHaveBeenCalledWith(
+        expect.stringContaining(`${path.sep}.jasper${path.sep}stacks`), { recursive: true },
+      );
+      const [filePath, content, enc] = vi.mocked(fs.promises.writeFile).mock.calls[0] as [string, string, string];
+      // Timestamp-first name (YYYYMMDD_HHMMSS_<frame>.txt) under ~/.jasper/stacks.
+      expect(filePath).toMatch(/[/\\]\.jasper[/\\]stacks[/\\]\d{8}_\d{6}_.*\.txt$/);
+      expect(enc).toBe('utf-8');
+      expect(content).toContain('[1] [] in JasperDebugDemo>>#finish  @2 line 12');
+      expect(content).toContain('Receiver:');
+      // Does NOT open the file (repeated dumps would pile up editor tabs) …
+      expect(vscode.workspace.openTextDocument).not.toHaveBeenCalled();
+      expect(vscode.window.showTextDocument).not.toHaveBeenCalled();
+      // … the raw path is posted to the panel for the inline Copy-path notice instead.
+      expect(lastPosted(panel, 'savedNotice').path).toBe(filePath);
+      expect(vscode.window.showInformationMessage).not.toHaveBeenCalled();
+    });
+
+    it('#11 dumpStackToFile: surfaces a write failure as an error toast (no crash)', async () => {
+      vi.mocked(fs.promises.writeFile).mockRejectedValueOnce(new Error('disk full'));
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      sendMessage(panel, { command: 'dumpStackToFile' });
+      await tick();
+
+      expect(panel.dispose).not.toHaveBeenCalled();
+      expect(vi.mocked(vscode.window.showErrorMessage).mock.calls[0][0]).toContain('disk full');
+    });
+
+    // The text below "GemStone error:" — i.e. everything except the header line,
+    // which carries a wall-clock timestamp that legitimately differs run-to-run.
+    const dumpBody = (s: string) => s.slice(s.indexOf('GemStone error:'));
+
+    it('Copy Stack and Dump Stack produce identical content for the same paused state', async () => {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      sendMessage(panel, { command: 'copyStack' });
+      const copied = vi.mocked(vscode.env.clipboard.writeText).mock.calls[0][0] as string;
+      sendMessage(panel, { command: 'dumpStackToFile' });
+      await tick();
+      const dumped = vi.mocked(fs.promises.writeFile).mock.calls[0][1] as string;
+
+      // Both go through buildDetailedStackText → byte-identical apart from the
+      // header's timestamp; the stack body must never diverge between the two.
+      expect(dumpBody(copied)).toBe(dumpBody(dumped));
+    });
+
+    it('openDumpFile: opens the requested path in an editor (on-demand, a real tab)', async () => {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      sendMessage(panel, { command: 'openDumpFile', path: '/Users/me/.jasper/stacks/x.txt' });
+      await tick();
+
+      const opened = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
+      expect(opened.fsPath).toBe('/Users/me/.jasper/stacks/x.txt');
+      expect(vscode.window.showTextDocument).toHaveBeenCalledWith(
+        expect.anything(), expect.objectContaining({ preview: false }),
+      );
+    });
+
+    it('copyStack stays graceful when the batched variable fetch yields nothing', () => {
+      vi.mocked(debug.fetchStackDump).mockReturnValueOnce([]); // e.g. introspection failed
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      sendMessage(panel, { command: 'copyStack' });
+
+      const text = vi.mocked(vscode.env.clipboard.writeText).mock.calls[0][0] as string;
+      // Short stack + per-frame headings still render; just no variable groups.
+      expect(text).toContain('[1] [] in JasperDebugDemo>>#finish  @2 line 12');
+      expect(text).not.toContain('Receiver:'); // no rows → no groups, no crash
     });
   });
 
@@ -753,7 +979,7 @@ describe('DebuggerPanel', () => {
       expect(debug.getSourceOffsetsForMethod).toHaveBeenCalledWith(session, 999n);
     });
 
-    it('highlights an unwrapped read-only frame, shifting offsets into the displayed source (T0)', async () => {
+    it('highlights an unwrapped read-only frame, shifting offsets into the displayed source (step-point highlight)', async () => {
       // A doit whose stored source is the Transcript-capture-wrapped form
       // (Display It / Execute It / Inspect It). The panel unwraps it for display,
       // so the server's offsets — in WRAPPED coordinates — must be shifted back
@@ -804,7 +1030,7 @@ describe('DebuggerPanel', () => {
     // but execution stopped in the TOP block (the user's halt). The highlight
     // must use that top frame's step point, not the collapsed doit frame's
     // (which sits out in the wrapper glue, after the user code).
-    describe('collapsed executed-code highlight (T0 stop frame)', () => {
+    describe('collapsed executed-code highlight (step-point highlight on the stop frame)', () => {
       // These overrides leak past clearAllMocks — restore the factory defaults.
       afterEach(() => {
         vi.mocked(debug.getStackDepth).mockImplementation(() => 5);
@@ -1129,12 +1355,15 @@ describe('DebuggerPanel', () => {
     }
 
     it('posts the selected frame variables, grouped (Receiver + Arguments & Temps with oops) on selectFrame', () => {
-      // Only server level 2 carries temps; other frames keep the base shape so the
-      // 5-frame stack still renders and level 2 survives filtering (mid-stack).
-      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) =>
+      // The one-trip query returns grouped rows; only level 2 carries temps.
+      vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
         level === 2
-          ? { methodOop: 2n, ipOffset: 5, receiverOop: 300n, argAndTempNames: ['amount', 'total'], argAndTempOops: [11n, 22n] }
-          : { methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [] });
+          ? [
+            { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
+            { group: 'argtemps', name: 'amount', value: '<print 11>', oop: '11', index: 1 },
+            { group: 'argtemps', name: 'total', value: '<print 22>', oop: '22', index: 2 },
+          ]
+          : [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
       const panel = openPanel();
       sendMessage(panel, { command: 'selectFrame', level: 2 });
 
@@ -1148,49 +1377,67 @@ describe('DebuggerPanel', () => {
       ]);
     });
 
-    it('splits named temps from the synthetic .tN eval-stack temps into a separate group', () => {
-      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) =>
+    it('alphabetizes instVars and named args/temps while preserving each slot write index', () => {
+      // Rows arrive in deliberately NON-alphabetical order to prove the client
+      // sorts them for display while each keeps its server-assigned write index.
+      vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
         level === 2
-          ? { methodOop: 2n, ipOffset: 5, receiverOop: 300n, argAndTempNames: ['amount', '.t1'], argAndTempOops: [11n, 99n] }
-          : { methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [] });
+          ? [
+            { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
+            { group: 'instvars', name: 'zebra', value: '<print 71>', oop: '71', index: 1 },
+            { group: 'instvars', name: 'apple', value: '<print 72>', oop: '72', index: 2 },
+            { group: 'argtemps', name: 'total', value: '<print 22>', oop: '22', index: 1 },
+            { group: 'argtemps', name: 'amount', value: '<print 11>', oop: '11', index: 2 },
+          ]
+          : [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
       const panel = openPanel();
       sendMessage(panel, { command: 'selectFrame', level: 2 });
 
       const groups = lastPosted(panel, 'variables').groups;
-      // A named temp carries its 1-based write index into the unfiltered
-      // argAndTempNames (`amount` is #1). The `.tN` eval-stack temps are NOT
-      // editable — they sit past the method's argsAndTemps offsets, so the write
-      // primitive can't address them — so they carry NO edit metadata.
+      // instVars sorted apple < zebra; indices stay source-order (zebra=1, apple=2).
+      expect(groups.find((g: { kind: string }) => g.kind === 'instvars').vars).toEqual([
+        { name: 'apple', value: '<print 72>', oop: '72', edit: { kind: 'instvar', index: 2 } },
+        { name: 'zebra', value: '<print 71>', oop: '71', edit: { kind: 'instvar', index: 1 } },
+      ]);
+      // Named args/temps sorted amount < total; indices stay source-order (total=1, amount=2).
+      expect(groups.find((g: { kind: string }) => g.kind === 'argtemps').vars).toEqual([
+        { name: 'amount', value: '<print 11>', oop: '11', edit: { kind: 'temp', index: 2 } },
+        { name: 'total', value: '<print 22>', oop: '22', edit: { kind: 'temp', index: 1 } },
+      ]);
+    });
+
+    it('splits named temps from the synthetic .tN eval-stack temps into a separate group', () => {
+      // The server classifies `.tN` as group 'stacktemps' (read-only — no index).
+      vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
+        level === 2
+          ? [
+            { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
+            { group: 'argtemps', name: 'amount', value: '<print 11>', oop: '11', index: 1 },
+            { group: 'stacktemps', name: '.t1', value: '<print 99>', oop: '99', index: 0 },
+          ]
+          : [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
+      const panel = openPanel();
+      sendMessage(panel, { command: 'selectFrame', level: 2 });
+
+      const groups = lastPosted(panel, 'variables').groups;
       expect(groups.find((g: { kind: string }) => g.kind === 'argtemps').vars)
         .toEqual([{ name: 'amount', value: '<print 11>', oop: '11', edit: { kind: 'temp', index: 1 } }]);
       const stack = groups.find((g: { kind: string }) => g.kind === 'stacktemps');
       expect(stack.collapsed).toBe(true);
+      // Stack temps are NOT editable — the client leaves their edit metadata off.
       expect(stack.vars).toEqual([{ name: '.t1', value: '<print 99>', oop: '99' }]);
       expect(stack.vars[0].edit).toBeUndefined();
     });
 
-    it('hides the __vsc transcript-capture glue temps from an executed-code frame', () => {
-      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) =>
-        level === 2
-          ? { methodOop: 2n, ipOffset: 5, receiverOop: 300n,
-            argAndTempNames: ['__vscCapture', '__vscResult', 'amount'], argAndTempOops: [1n, 2n, 11n] }
-          : { methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [] });
-      const panel = openPanel();
-      sendMessage(panel, { command: 'selectFrame', level: 2 });
-
-      const groups = lastPosted(panel, 'variables').groups;
-      const argtemps = groups.find((g: { kind: string }) => g.kind === 'argtemps');
-      // `amount` sits at unfiltered index 3 (after the two __vsc glue temps),
-      // so its 1-based write index is 3 even though the glue rows are hidden.
-      expect(argtemps.vars).toEqual([{ name: 'amount', value: '<print 11>', oop: '11', edit: { kind: 'temp', index: 3 } }]);
-      // None of the glue names leak into any group.
-      const allNames = groups.flatMap((g: { vars: { name: string }[] }) => g.vars.map(v => v.name));
-      expect(allNames.some((n: string) => n.startsWith('__vsc'))).toBe(false);
-    });
-
     it('includes the receiver instance variables as their own group', () => {
-      vi.mocked(debug.getInstVarNames).mockReturnValueOnce(['count', 'sum']);
-      vi.mocked(debug.getNamedInstVarOops).mockReturnValueOnce([7n, 8n]);
+      vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
+        level === 3
+          ? [
+            { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
+            { group: 'instvars', name: 'count', value: '<print 7>', oop: '7', index: 1 },
+            { group: 'instvars', name: 'sum', value: '<print 8>', oop: '8', index: 2 },
+          ]
+          : [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
       const panel = openPanel();
       sendMessage(panel, { command: 'selectFrame', level: 3 });
 
@@ -1199,6 +1446,25 @@ describe('DebuggerPanel', () => {
         { name: 'count', value: '<print 7>', oop: '7', edit: { kind: 'instvar', index: 1 } },
         { name: 'sum', value: '<print 8>', oop: '8', edit: { kind: 'instvar', index: 2 } },
       ]);
+    });
+
+    it('caches a frame’s variables — re-rendering it (e.g. toggling inline values) does not re-fetch', () => {
+      const panel = openPanel();
+      vi.mocked(debug.fetchFrameVariables).mockClear();
+      // Two renders of the SAME frame (the path a toggle/overlay re-render takes).
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      expect(vi.mocked(debug.fetchFrameVariables)).toHaveBeenCalledTimes(1);
+    });
+
+    it('re-fetches after the stack moves (cache invalidated on step)', async () => {
+      const panel = openPanel();
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      vi.mocked(debug.fetchFrameVariables).mockClear();
+      sendMessage(panel, { command: 'stepOver', level: 3 });
+      await new Promise(r => setTimeout(r, 0)); // let the non-blocking step settle
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      expect(vi.mocked(debug.fetchFrameVariables)).toHaveBeenCalled();
     });
 
     it('opens a GT Inspector for a clicked variable via inspectVariable', () => {
@@ -1267,25 +1533,33 @@ describe('DebuggerPanel', () => {
       // receiver (300) with one instVar `count` (#1). getInstVarOop returns the
       // instVar's *original* oop (700) when captured before the first edit.
       beforeEach(() => {
+        // The WRITE path still uses getFrameInfo (receiverOop) + getInstVarOop
+        // (capture original); the PANE display now comes from fetchFrameVariables.
         vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) =>
           level === 2
             ? { methodOop: 2n, ipOffset: 5, receiverOop: 300n, argAndTempNames: ['amount'], argAndTempOops: [11n] }
             : { methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [] });
-        vi.mocked(debug.getInstVarNames).mockReturnValue(['count']);
-        vi.mocked(debug.getNamedInstVarOops).mockReturnValue([700n]);
         vi.mocked(debug.getInstVarOop).mockReturnValue(700n);
+        vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
+          level === 2
+            ? [
+              { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
+              { group: 'instvars', name: 'count', value: '<print 700>', oop: '700', index: 1 },
+              { group: 'argtemps', name: 'amount', value: '<print 11>', oop: '11', index: 1 },
+            ]
+            : [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
       });
 
       // mockReturnValue is sticky past clearAllMocks; restore factory defaults so
       // these don't bleed into sibling tests (getFrameInfo is reset by the outer
       // beforeEach, so it's not listed here).
       afterEach(() => {
-        vi.mocked(debug.getInstVarNames).mockReturnValue([]);
-        vi.mocked(debug.getNamedInstVarOops).mockReturnValue([]);
         vi.mocked(debug.getInstVarOop).mockReturnValue(700n);
         vi.mocked(debug.isSpecialOop).mockReturnValue(false);
         vi.mocked(debug.evaluateInFrameToOop).mockReturnValue(999n);
         vi.mocked(debug.continueExecution).mockReturnValue({ completed: true });
+        vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
+          [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
       });
 
       const editInstVar = (panel: ReturnType<typeof lastPanel>, expr = '99') =>
@@ -1408,6 +1682,236 @@ describe('DebuggerPanel', () => {
       expect(panel.dispose).not.toHaveBeenCalled();
       expect(posted(panel, 'init').length).toBe(before + 1); // refreshed
       expect(lastPosted(panel, 'init').errorMessage).toBe('next error');
+    });
+
+    // Run to Cursor (#2): a Resume bracketed by a temporary step-point breakpoint at
+    // the cursor's line in the (editable) source pane. The break is set, the
+    // process continues, and the break is cleared afterward — unless the user owns
+    // a break there. Non-breakable frames fall back to a plain Resume + flash.
+    describe('Run to Cursor (#2)', () => {
+      const RT_URI_INFO = {
+        dictName: 'UserGlobals', className: 'JasperDebugDemo', isMeta: false,
+        category: 'accessing', selector: 'accumulateFrom:to:',
+      };
+      const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+
+      beforeEach(() => {
+        // No user breakpoints unless a test adds one (the mock array is shared).
+        (vscode.debug as unknown as { breakpoints: unknown[] }).breakpoints = [];
+      });
+
+      // Open a panel whose frames are breakable (home method in the symbol list),
+      // reveal frame 3's editable source, and place the cursor at (cursorLine0,
+      // cursorChar0) (both 0-based). `source`/`offsets` default to a 3-line method
+      // whose step points are at 1-based source offsets [3, 9, 14].
+      async function openWithCursor(
+        cursorLine0: number, cursorChar0 = 0,
+        source = 'line1\nline2\nline3', offsets = [3, 9, 14],
+      ) {
+        vi.mocked(debug.getMethodUriInfo).mockReturnValue(RT_URI_INFO); // every frame breakable + editable
+        vi.mocked(debug.getMethodSource).mockReturnValue(source);
+        vi.mocked(debug.getSourceOffsetsForMethod).mockReturnValue(offsets);
+        const panel = openPanel();
+        sendMessage(panel, { command: 'selectFrame', level: 3 });
+        await flush();
+        const results = vi.mocked(vscode.window.showTextDocument).mock.results;
+        const editor = await results[results.length - 1].value;
+        // The mock doesn't wire the editor's uri to the opened doc — do it so the
+        // "is the source pane showing this frame?" guard sees a match.
+        editor.document.uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
+        editor.selection = new vscode.Selection(
+          new vscode.Position(cursorLine0, cursorChar0), new vscode.Position(cursorLine0, cursorChar0),
+        );
+        return panel;
+      }
+
+      it('sets a temp break at the cursor step point, resumes, then clears it', async () => {
+        vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true });
+        const panel = await openWithCursor(1); // line 2 → step point 2 (offset 9)
+        sendMessage(panel, { command: 'runToCursor', level: 3 });
+
+        expect(queries.setBreakAtStepPoint)
+          .toHaveBeenCalledWith(session, 'JasperDebugDemo', false, 'accumulateFrom:to:', 2);
+        expect(debug.continueExecution).toHaveBeenCalledWith(session, GS_PROCESS);
+        // Cleared afterward (so it never lingers on the method) — same step point.
+        expect(queries.clearBreakAtStepPoint)
+          .toHaveBeenCalledWith(session, 'JasperDebugDemo', false, 'accumulateFrom:to:', 2);
+        expect(panel.dispose).toHaveBeenCalled(); // completed → closed
+      });
+
+      it('refreshes (stack/variables update) when the run re-halts at the cursor', async () => {
+        vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: false, errorMessage: '' });
+        const panel = await openWithCursor(0); // line 1 → step point 1 (offset 3)
+        const before = posted(panel, 'init').length;
+        sendMessage(panel, { command: 'runToCursor', level: 3 });
+
+        expect(queries.setBreakAtStepPoint)
+          .toHaveBeenCalledWith(session, 'JasperDebugDemo', false, 'accumulateFrom:to:', 1);
+        expect(queries.clearBreakAtStepPoint).toHaveBeenCalled();
+        expect(panel.dispose).not.toHaveBeenCalled();
+        expect(posted(panel, 'init').length).toBe(before + 1); // refreshed → variables re-fetch
+      });
+
+      it("does NOT clear a break the user already set at the cursor's step point", async () => {
+        vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true });
+        const panel = await openWithCursor(1); // line 2 → actualLine 2 (0-based line 1)
+        const openUri = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
+        (vscode.debug as unknown as { breakpoints: unknown[] }).breakpoints = [
+          new vscode.SourceBreakpoint(new vscode.Location(openUri, new vscode.Range(1, 0, 1, 0)), true),
+        ];
+        sendMessage(panel, { command: 'runToCursor', level: 3 });
+
+        expect(queries.setBreakAtStepPoint).toHaveBeenCalled();
+        expect(queries.clearBreakAtStepPoint).not.toHaveBeenCalled(); // it's the user's break
+      });
+
+      it('falls back to a flash + plain Resume when the source pane is not showing the frame', () => {
+        // No selectFrame sent → no source editor revealed → no usable cursor target.
+        vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true });
+        const panel = openPanel();
+        sendMessage(panel, { command: 'runToCursor', level: 3 });
+
+        expect(queries.setBreakAtStepPoint).not.toHaveBeenCalled();
+        expect(debug.setBreakAtStepPointByOop).not.toHaveBeenCalled();
+        expect(lastPosted(panel, 'flash').text).toMatch(/cursor/i);
+        expect(debug.continueExecution).toHaveBeenCalledWith(session, GS_PROCESS); // resumed anyway
+      });
+
+      // Executed Code (doit) frame: its anonymous GsNMethod has no class>>selector,
+      // so the temp break is set/cleared BY OOP (debug.setBreakAtStepPointByOop).
+      it('runs to cursor in a doit frame by setting + clearing the break by method OOP', async () => {
+        vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true });
+        // A single-frame doit stack: getMethodInfo throws (no home class) → the frame
+        // is "Executed Code"; source is shown read-only (gemstone-debug:), unwrapped.
+        vi.mocked(debug.getStackDepth).mockReturnValue(1);
+        vi.mocked(debug.getFrameInfo).mockReturnValue({
+          methodOop: 50n, ipOffset: 5, receiverOop: 0n, argAndTempNames: [], argAndTempOops: [],
+        });
+        vi.mocked(debug.getMethodBlockInfo).mockReturnValue({ isBlock: false, homeMethodOop: 50n });
+        vi.mocked(debug.getMethodUriInfo).mockReturnValue(undefined);
+        vi.mocked(debug.getMethodInfo).mockImplementation(() => { throw new Error('doit: nil inClass'); });
+        // Not wrapped → shift 0; offsets [3, 9, 14] like the editable case.
+        vi.mocked(debug.getMethodSource).mockReturnValue('line1\nline2\nline3');
+        vi.mocked(debug.getSourceOffsetsForMethod).mockReturnValue([3, 9, 14]);
+
+        const panel = openPanel();
+        sendMessage(panel, { command: 'selectFrame', level: 1 });
+        await flush();
+        const results = vi.mocked(vscode.window.showTextDocument).mock.results;
+        const editor = await results[results.length - 1].value;
+        editor.document.uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
+        editor.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(1, 0)); // line 2 → sp2
+
+        sendMessage(panel, { command: 'runToCursor', level: 1 });
+
+        // Break set + cleared BY OOP (50n) at step point 2; the class>>selector path is NOT used.
+        expect(debug.setBreakAtStepPointByOop).toHaveBeenCalledWith(session, 50n, 2);
+        expect(debug.clearBreakAtStepPointByOop).toHaveBeenCalledWith(session, 50n, 2);
+        expect(queries.setBreakAtStepPoint).not.toHaveBeenCalled();
+        expect(debug.continueExecution).toHaveBeenCalledWith(session, GS_PROCESS);
+      });
+
+      // A WRAPPED doit (Execute/Display/Inspect It): the displayed source is the
+      // user code UNWRAPPED from the transcript-capture glue, so the cursor offset
+      // must be shifted back into the stored (wrapped) coords where `_sourceOffsets`
+      // live. Locks in the offset-shift math (the doit test above is shift 0).
+      it('applies the transcript-capture offset shift for a wrapped doit', async () => {
+        vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true });
+        // User code is 'X\nY Z'; wrap it exactly as CodeExecutor does. The user code
+        // begins at `codeOffset` in the stored source (= the shift).
+        const userCode = 'X\nY Z';
+        const { wrappedCode, codeOffset } = wrapWithTranscriptCapture(userCode);
+        // Step points (1-based stored offsets) for X, Y, Z in the WRAPPED source:
+        // X@userOffset0 → stored codeOffset+1; Y@2 → codeOffset+3; Z@4 → codeOffset+5.
+        const offsets = [codeOffset + 1, codeOffset + 3, codeOffset + 5];
+
+        vi.mocked(debug.getStackDepth).mockReturnValue(1);
+        vi.mocked(debug.getFrameInfo).mockReturnValue({
+          methodOop: 60n, ipOffset: 5, receiverOop: 0n, argAndTempNames: [], argAndTempOops: [],
+        });
+        vi.mocked(debug.getMethodBlockInfo).mockReturnValue({ isBlock: false, homeMethodOop: 60n });
+        vi.mocked(debug.getMethodUriInfo).mockReturnValue(undefined);
+        vi.mocked(debug.getMethodInfo).mockImplementation(() => { throw new Error('doit: nil inClass'); });
+        vi.mocked(debug.getMethodSource).mockReturnValue(wrappedCode);
+        vi.mocked(debug.getSourceOffsetsForMethod).mockReturnValue(offsets);
+
+        const panel = openPanel();
+        sendMessage(panel, { command: 'selectFrame', level: 1 });
+        await flush();
+        const results = vi.mocked(vscode.window.showTextDocument).mock.results;
+        const editor = await results[results.length - 1].value;
+        editor.document.uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
+        // Cursor on `Z` in the DISPLAYED (unwrapped) source: line 2 (0-based 1), col 2.
+        editor.selection = new vscode.Selection(new vscode.Position(1, 2), new vscode.Position(1, 2));
+
+        sendMessage(panel, { command: 'runToCursor', level: 1 });
+
+        // The cursor (displayed offset 4) + shift lands on Z's stored step point (sp3).
+        // If the shift were dropped, it would map to X/Y instead.
+        expect(debug.setBreakAtStepPointByOop).toHaveBeenCalledWith(session, 60n, 3);
+      });
+
+      // Column-aware: the cursor's COLUMN picks the step point, not just its line.
+      // `hdr\nself do: [:e | body ]`: line 2 holds step points for self (sp1@5),
+      // do: (sp2@10) and the block body (sp3@20, all 1-based source offsets).
+      it("breaks INSIDE a one-line block at the cursor column, not at the block's leftmost step point", async () => {
+        vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true });
+        // Cursor at line 2 col 15 → offset 19 → nearest on-line step point is the
+        // block body (sp3@20), NOT the leftmost self/do: (the old line-based bug).
+        const panel = await openWithCursor(1, 15, 'hdr\nself do: [:e | body ]', [5, 10, 20]);
+        sendMessage(panel, { command: 'runToCursor', level: 3 });
+
+        expect(queries.setBreakAtStepPoint)
+          .toHaveBeenCalledWith(session, 'JasperDebugDemo', false, 'accumulateFrom:to:', 3);
+      });
+
+      // The `minute := (...) asInteger` report: cursor on `asInteger` (late on the
+      // line) must NOT snap to the `:=` store step point (leftmost on the line).
+      it('breaks at the step point nearest the cursor column, not the leftmost on the line', async () => {
+        vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true });
+        // `x := a asInteger` — sp1@1 (`x`, the store, col 0), sp2@6 (`a`, col 5),
+        // sp3@8 (`asInteger`, col 7). Cursor on `asInteger` (col 7) → nearest sp3.
+        const panel = await openWithCursor(0, 7, 'x := a asInteger', [1, 6, 8]);
+        sendMessage(panel, { command: 'runToCursor', level: 3 });
+
+        expect(queries.setBreakAtStepPoint)
+          .toHaveBeenCalledWith(session, 'JasperDebugDemo', false, 'accumulateFrom:to:', 3);
+      });
+
+      // A BLOCK frame: its own method (1n) differs from its HOME method (99n). The
+      // displayed source IS the home method, so the break must target the HOME
+      // (its `_sourceOffsets` + class>>selector), NOT the block's own method.
+      it('runs to cursor on a block frame against its HOME method, not the block', async () => {
+        vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true });
+        vi.mocked(debug.getStackDepth).mockReturnValue(1);
+        vi.mocked(debug.getFrameInfo).mockReturnValue({
+          methodOop: 1n, ipOffset: 5, receiverOop: 300n, argAndTempNames: [], argAndTempOops: [],
+        });
+        // isBlock, with the enclosing (home) method a DIFFERENT oop (99n).
+        vi.mocked(debug.getMethodBlockInfo).mockReturnValue({ isBlock: true, homeMethodOop: 99n });
+        // Only the HOME method (99n) is an editable symbol-list method.
+        vi.mocked(debug.getMethodUriInfo).mockImplementation((_s: unknown, oop: bigint) =>
+          oop === 99n ? RT_URI_INFO : undefined);
+        vi.mocked(debug.getMethodSource).mockReturnValue('line1\nline2\nline3');
+        vi.mocked(debug.getSourceOffsetsForMethod).mockReturnValue([3, 9, 14]);
+
+        const panel = openPanel();
+        sendMessage(panel, { command: 'selectFrame', level: 1 });
+        await flush();
+        const results = vi.mocked(vscode.window.showTextDocument).mock.results;
+        const editor = await results[results.length - 1].value;
+        editor.document.uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
+        editor.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(1, 0)); // line 2 → sp2
+
+        sendMessage(panel, { command: 'runToCursor', level: 1 });
+
+        // Resolved via the HOME method (99n): source/offsets fetched for 99n and the
+        // break set by the home's class>>selector (a block-method break would be by OOP).
+        expect(debug.getSourceOffsetsForMethod).toHaveBeenCalledWith(session, 99n);
+        expect(queries.setBreakAtStepPoint)
+          .toHaveBeenCalledWith(session, 'JasperDebugDemo', false, 'accumulateFrom:to:', 2);
+        expect(debug.setBreakAtStepPointByOop).not.toHaveBeenCalled();
+      });
     });
 
     it('Step Over steps (non-blocking) from the selected user frame and refreshes, clearing the error banner', async () => {
@@ -1822,6 +2326,294 @@ describe('DebuggerPanel', () => {
     });
   });
 
+  // A block frame can't be restarted / re-entered on its own — Restart Frame,
+  // edit-and-continue, and the "Go to home method" navigation item all target its
+  // HOME method's activation, which always sits DEEPER on the stack. Models
+  // `JasperDebugDemo>>finish` running a block:
+  //   server 1 — `[] in JasperDebugDemo>>finish`  (block; home method oop 10n)
+  //   server 2 — `Collection>>do:`                (kernel)
+  //   server 3 — `JasperDebugDemo>>finish`        (the block's HOME method; oop 10n)
+  //   server 4 — `JasperDebugDemo>>run`           (the caller)
+  describe('block-frame home method (navigate / restart / re-enter)', () => {
+    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+    const URI_INFO = {
+      dictName: 'UserGlobals', className: 'JasperDebugDemo', isMeta: false,
+      category: 'running', selector: 'finish',
+    };
+
+    // mockImplementation leaks past clearAllMocks — restore the factory defaults.
+    afterEach(() => {
+      vi.mocked(debug.getStackDepth).mockImplementation(() => 5);
+      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
+        methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100),
+        argAndTempNames: [], argAndTempOops: [],
+      }));
+      vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => ({
+        isBlock: methodOop === 1n, homeMethodOop: methodOop,
+      }));
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 1n) return { className: 'JasperDebugDemo', selector: 'finish' };
+        if (oop === 2n) return { className: 'Object', selector: 'halt' };
+        return { className: 'JasperDebugDemo', selector: 'accumulateFrom:to:' };
+      });
+    });
+
+    /**
+     * Configure the 4-frame block stack above. `blockHomeOop` is the block
+     * frame's home method oop — 10n (the `finish` frame at server 3 IS on the
+     * stack) by default, or something absent (e.g. 99n) to model a stored block
+     * invoked after its home method already returned.
+     */
+    function openBlockStack(blockHomeOop = 10n) {
+      vi.mocked(debug.getStackDepth).mockImplementation(() => 4);
+      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
+        methodOop: level === 3 ? 10n : BigInt(level), // the home method's own activation
+        ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [],
+      }));
+      vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => ({
+        isBlock: methodOop === 1n,
+        homeMethodOop: methodOop === 1n ? blockHomeOop : methodOop,
+      }));
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 10n) return { className: 'JasperDebugDemo', selector: 'finish' };
+        if (oop === 2n) return { className: 'Collection', selector: 'do:' };
+        if (oop === 4n) return { className: 'JasperDebugDemo', selector: 'run' };
+        return { className: 'JasperDebugDemo', selector: 'finish' };
+      });
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      return panel;
+    }
+
+    it('tells the webview the block frame can navigate to its home method (display level 3)', () => {
+      const panel = openBlockStack();
+      const stack = initPayload(panel).stack;
+
+      // The block frame is display 1; its home method `finish` is display 3.
+      expect(stack[0].homeDisplayLevel).toBe(3);
+      // The home method frame, and the plain frames, offer no such navigation.
+      expect(stack[2].homeDisplayLevel).toBeUndefined();
+      expect(stack[1].homeDisplayLevel).toBeUndefined();
+      expect(stack[3].homeDisplayLevel).toBeUndefined();
+    });
+
+    it('offers no home navigation when the block\'s home method has already returned', () => {
+      const panel = openBlockStack(99n); // home oop not present on the stack
+      expect(initPayload(panel).stack[0].homeDisplayLevel).toBeUndefined();
+    });
+
+    it('Restart on a block frame re-runs its HOME method (trims to the deeper home activation)', async () => {
+      const panel = openBlockStack();
+      sendMessage(panel, { command: 'restartFrame', level: 1 }); // the top block frame
+      await tick();
+
+      // Retargeted from the block (server 1) to its home method (server 3) — so it
+      // trims there, NOT refusing as it would for a genuine top frame.
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+      expect(lastPosted(panel, 'init').errorMessage).not.toMatch(/top frame/i);
+    });
+
+    it('Restart on a block frame whose home already returned falls back to the top-frame notice', async () => {
+      const panel = openBlockStack(99n); // no home activation to retarget to
+      vi.mocked(debug.trimStackToLevelNb).mockClear();
+      sendMessage(panel, { command: 'restartFrame', level: 1 });
+      await tick();
+
+      expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/top frame/i);
+    });
+
+    it('Saving a block frame\'s (home-method) source re-enters at the home activation', async () => {
+      const panel = openBlockStack();
+      vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce(URI_INFO); // the reveal → editable
+      sendMessage(panel, { command: 'selectFrame', level: 1 }); // select the block frame
+      await flush();
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      const saveListener = vi.mocked(vscode.workspace.onDidSaveTextDocument).mock.calls[0][0];
+      saveListener({ uri } as vscode.TextDocument);
+      await tick();
+
+      // Re-enters the HOME method (server 3), not the block (server 1) — and so
+      // never marks the activation stale the way a true top-frame edit would.
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+      expect(lastPosted(panel, 'init').errorMessage).not.toMatch(/recompiled/i);
+    });
+
+    // Several blocks nested inside ONE method (GemStone's `homeMethod` resolves
+    // transitively, so EVERY nested block's homeMethodOop is the outermost method,
+    // not its lexically-enclosing block). The home activation is the single
+    // non-block `foo` frame at the very bottom; every block must resolve to it.
+    //   server 1 — `[] in foo`  (innermost block; home oop 100n)
+    //   server 2 — `Collection>>do:`
+    //   server 3 — `[] in foo`  (middle block;    home oop 100n)
+    //   server 4 — `Collection>>do:`
+    //   server 5 — `[] in foo`  (outermost block; home oop 100n)
+    //   server 6 — `Collection>>do:`
+    //   server 7 — `JasperDebugDemo>>foo`  (the shared HOME method; oop 100n)
+    function openNestedBlockStack() {
+      const HOME = 100n;
+      vi.mocked(debug.getStackDepth).mockImplementation(() => 7);
+      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
+        methodOop: level === 7 ? HOME : BigInt(level), // the home method's own activation
+        ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [],
+      }));
+      // Odd levels 1/3/5 are the nested blocks; all share the one home method.
+      vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => {
+        const isBlock = methodOop === 1n || methodOop === 3n || methodOop === 5n;
+        return { isBlock, homeMethodOop: isBlock ? HOME : methodOop };
+      });
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === HOME) return { className: 'JasperDebugDemo', selector: 'foo' };
+        return { className: 'Collection', selector: 'do:' }; // the even (kernel) frames
+      });
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      return panel;
+    }
+
+    it('points every nested block frame at the SAME home method frame (display level 7)', () => {
+      const panel = openNestedBlockStack();
+      const stack = initPayload(panel).stack;
+
+      // All three blocks (display 1, 3, 5) navigate to the one `foo` frame (7).
+      expect(stack[0].homeDisplayLevel).toBe(7);
+      expect(stack[2].homeDisplayLevel).toBe(7);
+      expect(stack[4].homeDisplayLevel).toBe(7);
+      // The kernel `do:` frames and the home method itself offer no navigation.
+      expect(stack[1].homeDisplayLevel).toBeUndefined();
+      expect(stack[3].homeDisplayLevel).toBeUndefined();
+      expect(stack[5].homeDisplayLevel).toBeUndefined();
+      expect(stack[6].homeDisplayLevel).toBeUndefined();
+    });
+
+    it('Restart from the INNERMOST nested block re-runs the shared home method (trims to 7)', async () => {
+      const panel = openNestedBlockStack();
+      sendMessage(panel, { command: 'restartFrame', level: 1 });
+      await tick();
+
+      // The whole home method re-runs from the top — the inner AND outer blocks
+      // above the home frame are all discarded by the trim.
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 7);
+      expect(lastPosted(panel, 'init').errorMessage).not.toMatch(/top frame/i);
+    });
+
+    it('Restart from an OUTER nested block resolves to the same home method (not the inner block)', async () => {
+      const panel = openNestedBlockStack();
+      sendMessage(panel, { command: 'restartFrame', level: 5 }); // the outermost block
+      await tick();
+
+      // homeMethodFrameLevel skips the deeper kernel frame and lands on `foo` (7),
+      // never on the still-deeper nothing — there's exactly one home activation.
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 7);
+    });
+
+    it('Saving from a nested block re-enters the shared home method (trims to 7)', async () => {
+      const panel = openNestedBlockStack();
+      vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce(URI_INFO); // reveal → editable
+      sendMessage(panel, { command: 'selectFrame', level: 3 }); // select the middle block
+      await flush();
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      const saveListener = vi.mocked(vscode.workspace.onDidSaveTextDocument).mock.calls[0][0];
+      saveListener({ uri } as vscode.TextDocument);
+      await tick();
+
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 7);
+    });
+
+    // A block sitting MID-stack (a frame above it, its home below) — the case
+    // where the old code already "worked" by restarting the block in place. The
+    // retarget changes that: it re-runs the whole home method instead.
+    //   server 1 — `SomeClass>>callee`   (a method the block called → above it)
+    //   server 2 — `[] in foo`           (the block; home oop 10n)
+    //   server 3 — `Collection>>do:`
+    //   server 4 — `JasperDebugDemo>>foo` (the block's HOME method; oop 10n)
+    function openMidBlockStack() {
+      vi.mocked(debug.getStackDepth).mockImplementation(() => 4);
+      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
+        methodOop: level === 4 ? 10n : BigInt(level), // home activation is server 4
+        ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [],
+      }));
+      vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => ({
+        isBlock: methodOop === 2n, // only the mid frame is a block
+        homeMethodOop: methodOop === 2n ? 10n : methodOop,
+      }));
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 10n) return { className: 'JasperDebugDemo', selector: 'foo' };
+        if (oop === 1n) return { className: 'SomeClass', selector: 'callee' };
+        return { className: 'Collection', selector: 'do:' };
+      });
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      return panel;
+    }
+
+    it('Restart from a MID-stack block re-runs the home method, not the block in place', async () => {
+      const panel = openMidBlockStack();
+      sendMessage(panel, { command: 'restartFrame', level: 2 }); // the mid-stack block
+      await tick();
+
+      // Retargets DOWN to the home method (server 4) — NOT a trim to the block's
+      // own level (2), which would merely restart the block in place (the old
+      // behaviour, before block frames retargeted to their home method).
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 4);
+      expect(debug.trimStackToLevelNb).not.toHaveBeenCalledWith(session, GS_PROCESS, 2);
+    });
+
+    // Recursion: the SAME home METHOD (`foo`) is on the stack more than once, each
+    // activation owning its own block. A block's home activation is the NEAREST
+    // `foo` BELOW it — restart/re-enter must re-run THAT activation, not the
+    // deepest `foo` (which would discard a whole extra recursion level). This is
+    // the case that separates "nearest below" from a naive "deepest match".
+    //   server 1 — `[] in foo`  (block of the INNER foo; home oop 100n)
+    //   server 2 — `Collection>>do:`
+    //   server 3 — `JasperDebugDemo>>foo`  (inner activation; oop 100n)
+    //   server 4 — `[] in foo`  (block of the OUTER foo; home oop 100n)
+    //   server 5 — `Collection>>do:`
+    //   server 6 — `JasperDebugDemo>>foo`  (outer activation; oop 100n)
+    function openRecursiveBlockStack() {
+      const HOME = 100n;
+      vi.mocked(debug.getStackDepth).mockImplementation(() => 6);
+      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
+        methodOop: (level === 3 || level === 6) ? HOME : BigInt(level), // two `foo` activations
+        ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [],
+      }));
+      vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => {
+        const isBlock = methodOop === 1n || methodOop === 4n;
+        return { isBlock, homeMethodOop: isBlock ? HOME : methodOop };
+      });
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === HOME) return { className: 'JasperDebugDemo', selector: 'foo' };
+        return { className: 'Collection', selector: 'do:' };
+      });
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      return panel;
+    }
+
+    it('resolves each recursive block to its NEAREST home activation, not the deepest', () => {
+      const stack = initPayload(openRecursiveBlockStack()).stack;
+      // Inner block (display 1) → inner foo (3); outer block (display 4) → outer foo
+      // (6). Both share the home METHOD oop, but navigate to DIFFERENT activations.
+      expect(stack[0].homeDisplayLevel).toBe(3);
+      expect(stack[3].homeDisplayLevel).toBe(6);
+    });
+
+    it('Restart from a recursive block re-runs its OWN (nearest) home activation', async () => {
+      const panel = openRecursiveBlockStack();
+      sendMessage(panel, { command: 'restartFrame', level: 1 }); // the inner block
+      await tick();
+
+      // Trims to the inner foo (server 3), NOT the deeper outer foo (server 6) —
+      // restarting the inner recursion level, not unwinding an extra one.
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+      expect(debug.trimStackToLevelNb).not.toHaveBeenCalledWith(session, GS_PROCESS, 6);
+    });
+  });
+
   describe('create-method-from-DNU', () => {
     const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
@@ -2197,7 +2989,7 @@ describe('DebuggerPanel', () => {
     });
   });
 
-  describe('implement subclassResponsibility (T4)', () => {
+  describe('implement subclassResponsibility (implement an abstract method)', () => {
     const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
     // A subclassResponsibility stop: the `subclassResponsibility` marker frame on
@@ -2231,7 +3023,7 @@ describe('DebuggerPanel', () => {
 
     // Receiver chain for #foo: the concrete class, an intermediate, the abstract
     // definer (which "implements" #foo only as the subclassResponsibility stub),
-    // then classes ABOVE the definer — which T4 must trim away.
+    // then classes ABOVE the definer — which the implement action must trim away.
     const SR_CHAIN = [
       { className: 'LargeNegativeInteger', isMeta: false, dictName: 'Globals', implementsSelector: false },
       { className: 'LargeInteger', isMeta: false, dictName: 'Globals', implementsSelector: false },
@@ -2353,6 +3145,178 @@ describe('DebuggerPanel', () => {
     });
   });
 
+  // Class-side (metaclass) parallels of the instance-side debugger coverage:
+  // editable variables, implement-in override, subclassResponsibility, and
+  // doesNotUnderstand. The receiver here is a CLASS, so getObjectClassName
+  // returns "Foo class" and the gemstone:// URIs must target `/class/` rather
+  // than `/instance/`. Mirrors the hardening item-A live verification
+  // (JasperMaker* / JasperClassSideDemo).
+  describe('class-side coverage (metaclass receivers)', () => {
+    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+
+    // getMethodInfo / getObjectClassName / getDoesNotUnderstandInfo / getStackDepth
+    // mockImplementations leak past clearAllMocks — restore the base 5-frame stack.
+    afterEach(() => {
+      vi.mocked(debug.getStackDepth).mockImplementation(() => 5);
+      vi.mocked(debug.getObjectClassName).mockImplementation((_s: unknown, receiverOop: bigint) =>
+        receiverOop === 200n ? 'SmallInteger' : 'JasperDebugDemo');
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 1n) return { className: 'JasperDebugDemo', selector: 'finish' };
+        if (oop === 2n) return { className: 'Object', selector: 'halt' };
+        return { className: 'JasperDebugDemo', selector: 'accumulateFrom:to:' };
+      });
+      vi.mocked(debug.getDoesNotUnderstandInfo).mockReturnValue(undefined);
+    });
+
+    function openPanel() {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      return panel;
+    }
+
+    // Make the level-2 frame (receiverOop 200) a class-side method `buildIt`
+    // inherited from JasperMakerBase, run with `receiverClassName` as the receiver.
+    function classSideInheritedAtLevel2(receiverClassName: string) {
+      vi.mocked(debug.getObjectClassName).mockImplementation((_s: unknown, receiverOop: bigint) =>
+        receiverOop === 200n ? receiverClassName : 'JasperDebugDemo');
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 1n) return { className: 'JasperDebugDemo', selector: 'finish' };
+        if (oop === 2n) return { className: 'JasperMakerBase', selector: 'buildIt' };
+        return { className: 'JasperDebugDemo', selector: 'accumulateFrom:to:' };
+      });
+    }
+
+    // --- Implement-in override (override an inherited method in the receiver's class), class side ---
+
+    it('marks an inherited CLASS-SIDE frame overridable, carrying the receiver metaclass', () => {
+      classSideInheritedAtLevel2('JasperMakerLeaf class');
+      const overridable = initPayload(openPanel()).stack.find((f: { overridable?: boolean }) => f.overridable);
+      expect(overridable.receiverClass).toBe('JasperMakerLeaf class'); // the receiver's metaclass…
+      expect(overridable.label).toContain('JasperMakerBase');          // …while the method lives in the superclass
+    });
+
+    it('does NOT mark a CLASS-SIDE frame overridable when the receiver IS the defining class', () => {
+      // Receiver is JasperMakerBase itself → "JasperMakerBase class"; the
+      // `receiverClass !== definingClassName + " class"` guard must suppress it.
+      classSideInheritedAtLevel2('JasperMakerBase class');
+      const selfFrames = initPayload(openPanel()).stack
+        .filter((f: { receiverClass?: string }) => f.receiverClass === 'JasperMakerBase class');
+      expect(selfFrames.length).toBeGreaterThan(0);
+      for (const f of selfFrames) expect(f.overridable).toBeFalsy();
+    });
+
+    it('implementInReceiver opens a CLASS-side new-method template for a metaclass receiver', async () => {
+      classSideInheritedAtLevel2('JasperMakerLeaf class');
+      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce(
+        [{ className: 'JasperMakerLeaf', isMeta: true, dictName: 'UserGlobals' }]);
+      const panel = openPanel();
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+      sendMessage(panel, { command: 'implementInReceiver', level: 2 });
+      await flush();
+
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      expect(uri.toString()).toContain('/UserGlobals/JasperMakerLeaf/class/');
+      expect(uri.toString()).toContain('new-method');
+    });
+
+    // --- subclassResponsibility (implement an abstract method), class side ---
+
+    it('implementSubclassResponsibility opens a CLASS-side stub for a metaclass receiver', async () => {
+      vi.mocked(debug.getStackDepth).mockImplementation(() => 4);
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 1n) return { className: 'Object', selector: 'subclassResponsibility' };
+        if (oop === 2n) return { className: 'JasperAbstractMaker', selector: 'defaultInstance' };
+        if (oop === 3n) return { className: 'SomeClass', selector: 'bar' };
+        return { className: 'JasperDebugDemo', selector: 'run' };
+      });
+      // Class-side receiver chain, bounded at the abstract definer (isMeta throughout).
+      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce([
+        { className: 'JasperConcreteMaker', isMeta: true, dictName: 'UserGlobals', implementsSelector: false },
+        { className: 'JasperAbstractMaker', isMeta: true, dictName: 'UserGlobals', implementsSelector: true },
+      ]);
+      vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
+        async (items: unknown) => (items as { index: number }[])[0] as never); // JasperConcreteMaker class
+      const panel = openPanel();
+      expect(initPayload(panel).subclassResp).toEqual({ selector: 'defaultInstance' });
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+      sendMessage(panel, { command: 'implementSubclassResponsibility' });
+      await flush();
+
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      expect(uri.toString()).toContain('/UserGlobals/JasperConcreteMaker/class/');
+      expect(uri.toString()).toContain('new-method');
+    });
+
+    // --- DNU (create-method), class side: receiver IS a class ---
+
+    const DNU_META = {
+      className: 'JasperClassSideDemo', isMeta: true, dictName: 'UserGlobals',
+      selector: 'makeFancyThing:', argCount: 1,
+    };
+
+    function openWithClassDnu() {
+      vi.mocked(debug.getDoesNotUnderstandInfo).mockReturnValue(DNU_META);
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 1n) return { className: 'MessageNotUnderstood', selector: 'defaultAction' };
+        if (oop === 2n) return { className: 'Object', selector: 'doesNotUnderstand:' };
+        return { className: 'JasperDebugDemo', selector: 'accumulateFrom:to:' };
+      });
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+      return panel;
+    }
+
+    it('carries isMeta in the DNU init payload when the receiver is a class', () => {
+      const panel = openWithClassDnu();
+      expect(initPayload(panel).dnu).toEqual({
+        selector: 'makeFancyThing:', className: 'JasperClassSideDemo', isMeta: true,
+      });
+    });
+
+    it('createDnuMethod opens a CLASS-side new-method URI for a class receiver', async () => {
+      const panel = openWithClassDnu();
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+      sendMessage(panel, { command: 'createDnuMethod' });
+      await flush();
+
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      expect(uri.toString()).toContain('/UserGlobals/JasperClassSideDemo/class/');
+      expect(uri.toString()).toContain('new-method');
+    });
+
+    // --- editable Variables on a class-side frame (classInstVars) ---
+
+    it('shows + edits a class-instance variable on a class-side frame (receiver is a class)', () => {
+      // Frame at level 3 (receiverOop 300) has a class receiver; its named
+      // instVars are the class-instance variables (e.g. `registry`).
+      vi.mocked(debug.getObjectClassName).mockImplementation((_s: unknown, receiverOop: bigint) =>
+        receiverOop === 300n ? 'JasperClassSideDemo class' : 'JasperDebugDemo');
+      // The one-trip query returns the class-instance var as an instvars row.
+      vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
+        level === 3
+          ? [
+            { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
+            { group: 'instvars', name: 'registry', value: '<print 7>', oop: '7', index: 1 },
+          ]
+          : [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
+      vi.mocked(debug.evaluateInFrameToOop).mockReturnValueOnce(777n);
+      const panel = openPanel();
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+
+      // The class-instance var renders in the instvars group with edit metadata.
+      const groups = lastPosted(panel, 'variables').groups;
+      expect(groups.find((g: { kind: string }) => g.kind === 'instvars').vars).toEqual([
+        { name: 'registry', value: '<print 7>', oop: '7', edit: { kind: 'instvar', index: 1 } },
+      ]);
+      // Writing it routes through the same instVarAt:put: primitive, class receiver.
+      sendMessage(panel, { command: 'setVariable', level: 3, kind: 'instvar', index: 1, expr: 'Array new' });
+      expect(debug.setInstVar).toHaveBeenCalledWith(session, expect.any(BigInt), 1, 777n);
+      expect(lastPosted(panel, 'setVariableResult')).toEqual({ command: 'setVariableResult', ok: true });
+    });
+  });
+
   describe('layout persistence', () => {
     it('remembers a saved split so the next panel opens with it', () => {
       DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
@@ -2395,7 +3359,7 @@ const DOIT = 999n;
 function raw(p: Partial<RawFrame> & { serverLevel: number; label: string }): RawFrame {
   return {
     methodOop: BigInt(p.serverLevel), homeMethodOop: BigInt(p.serverLevel),
-    isBlock: false, definingClassName: '', selector: '', isExecutedCode: false,
+    isBlock: false, definingClassName: '', selector: '', isExecutedCode: false, breakable: false,
     ...p,
   };
 }
@@ -2488,9 +3452,9 @@ describe('filterStack', () => {
     expect(kept[0].label).toBe('Executed Code');
   });
 
-  // A subclassResponsibility stop (T4): `subclassResponsibility` → `self error:` →
+  // A subclassResponsibility stop: `subclassResponsibility` → `self error:` →
   // signal machinery. All of it is trimmed (incl. the marker) so the debugger opens
-  // on the abstract method itself — the method T4 offers to implement.
+  // on the abstract method itself — the method the implement action offers to fill in.
   const SUBCLASS_RESP_STACK: RawFrame[] = [
     raw({ serverLevel: 1, label: 'AbstractException class>>#signal', definingClassName: 'AbstractException', selector: 'signal' }),
     raw({ serverLevel: 2, label: 'LargeNegativeInteger (Object)>>#error:', definingClassName: 'Object', selector: 'error:' }),
@@ -2599,5 +3563,237 @@ describe('step-point highlight decoration', () => {
     // The fill must be appreciably opaque (the faint default sits near ~0.2 alpha).
     const alpha = Number(/rgba?\([^)]*,\s*([\d.]+)\s*\)$/.exec(String(light?.backgroundColor))?.[1] ?? '1');
     expect(alpha).toBeGreaterThanOrEqual(0.4);
+  });
+});
+
+// ── Inline values (#5) — pure overlay computation ──────────────────────────
+describe('shortenInlineValue', () => {
+  it('passes a short single-line value through untouched', () => {
+    expect(shortenInlineValue('75')).toBe('75');
+  });
+
+  it('collapses newlines and runs of whitespace to single spaces', () => {
+    expect(shortenInlineValue('a Point(\n  1\n  2\n)')).toBe('a Point( 1 2 )');
+  });
+
+  it('truncates past the limit with an ellipsis', () => {
+    expect(shortenInlineValue('abcdefghij', 5)).toBe('abcd…');
+    expect(shortenInlineValue('abcdefghij', 5).length).toBe(5);
+  });
+
+  it('keeps wide collection values short by default', () => {
+    expect(shortenInlineValue('an OrderedCollection(3 7 2 9 4 100 200 300 400 500)').length)
+      .toBeLessThanOrEqual(40);
+  });
+});
+
+describe('computeInlineValueLines', () => {
+  const vars: InlineVar[] = [
+    { name: 'self', value: 'an Account', full: 'an Account' },
+    { name: 'balance', value: '200', full: '200' },
+    { name: 'amount', value: '75', full: '75' },
+    { name: 'unused', value: '999', full: '999' },
+  ];
+
+  it('shows each variable once, on its first referencing line', () => {
+    const lines = [
+      'withdraw: amount',
+      '  | newBalance |',
+      '  newBalance := balance - amount.',
+      '  ^balance',
+    ];
+    const overlay = computeInlineValueLines(lines, vars);
+    // amount → line 0 (first use); balance → line 2 (first use); never repeated.
+    expect(overlay.map(o => o.line)).toEqual([0, 2]);
+    expect(overlay[0].label).toBe('amount = 75');
+    expect(overlay[1].label).toBe('balance = 200');
+  });
+
+  it('skips the temp-declaration line so values land at first real use', () => {
+    const lines = [
+      '| numbers sum evens |',
+      'numbers := (1 to: 10) asOrderedCollection.',
+      'sum := numbers inject: 0 into: [:a :b | a + b].',
+      'evens := numbers select: [:n | n even].',
+    ];
+    const v: InlineVar[] = [
+      { name: 'numbers', value: 'anOC…', full: 'anOrderedCollection(1 2 3)' },
+      { name: 'sum', value: '55', full: '55' },
+      { name: 'evens', value: 'anOC…', full: 'anOrderedCollection(2 4)' },
+    ];
+    const overlay = computeInlineValueLines(lines, v);
+    // Nothing on the declaration line; each var at its first assignment/use.
+    expect(overlay.map(o => o.line)).toEqual([1, 2, 3]);
+    expect(overlay[0].label).toBe('numbers = anOC…');
+    expect(overlay[1].label).toBe('sum = 55');
+    expect(overlay[2].label).toBe('evens = anOC…');
+  });
+
+  it('does not repeat a value across a tight loop (the clutter case)', () => {
+    const lines = ['| total |', 'total := 0.', 'total := total + 1.', 'total'];
+    const overlay = computeInlineValueLines(lines, [{ name: 'total', value: '25', full: '25' }]);
+    expect(overlay).toHaveLength(1);
+    expect(overlay[0].line).toBe(1); // line 0 is the `| total |` declaration — skipped
+    expect(overlay[0].label).toBe('total = 25');
+  });
+
+  it('omits variables never referenced in the source (no clutter)', () => {
+    const overlay = computeInlineValueLines(['^balance'], vars);
+    expect(overlay).toHaveLength(1);
+    expect(overlay[0].label).toBe('balance = 200');
+    expect(JSON.stringify(overlay)).not.toContain('unused');
+  });
+
+  it('matches whole identifiers only (balance must not hit in subBalance)', () => {
+    const overlay = computeInlineValueLines(['  subBalance := 1.'], vars);
+    expect(overlay).toHaveLength(0);
+  });
+
+  it('separates two values that share their first-reference line', () => {
+    const overlay = computeInlineValueLines(['^amount + balance'], vars);
+    expect(overlay).toHaveLength(1);
+    expect(overlay[0].label).toBe('amount = 75   •   balance = 200');
+    expect(overlay[0].vars).toHaveLength(2);
+  });
+
+  it('lets a later (shadowing) entry win on a name clash', () => {
+    const shadowing: InlineVar[] = [
+      { name: 'x', value: 'IV', full: 'IV' },   // instVar
+      { name: 'x', value: 'TEMP', full: 'TEMP' }, // arg/temp shadows it
+    ];
+    const overlay = computeInlineValueLines(['^x'], shadowing);
+    expect(overlay[0].label).toBe('x = TEMP');
+  });
+
+  it('carries full (un-truncated) values for the hover', () => {
+    const long: InlineVar[] = [{ name: 'c', value: 'an Ord…', full: 'an OrderedCollection(1 2 3 4 5)' }];
+    const overlay = computeInlineValueLines(['^c'], long);
+    expect(overlay[0].vars[0].full).toBe('an OrderedCollection(1 2 3 4 5)');
+    expect(overlay[0].label).toBe('c = an Ord…');
+  });
+
+  it('aligns annotations into one column past the widest line (padCh)', () => {
+    const lines = ['x', 'a longer line referencing y'];
+    const overlay = computeInlineValueLines(lines, [
+      { name: 'x', value: '1', full: '1' },
+      { name: 'y', value: '2', full: '2' },
+    ]);
+    // Both annotations should land at the same column: line.length + padCh equal.
+    const col = (o: { line: number; padCh: number }) => lines[o.line].length + o.padCh;
+    expect(col(overlay[0])).toBe(col(overlay[1]));
+    // The short line gets more padding than the long one.
+    expect(overlay[0].padCh).toBeGreaterThan(overlay[1].padCh);
+  });
+
+  it('aligns to the widest ANNOTATED line, not a long line with no values', () => {
+    // A long line that has no in-scope var must not shove the column right.
+    const lines = ['aVeryLongMethodCallWithNoLocalVariablesAtAllHere foo: 1.', 'x'];
+    const overlay = computeInlineValueLines(lines, [{ name: 'x', value: '1', full: '1' }]);
+    expect(overlay).toHaveLength(1);
+    expect(overlay[0].line).toBe(1);
+    // Column tracks the tiny annotated line ('x'), so padding stays the minimum
+    // gap (3) — NOT pushed out by the long line above (which would give ~40+).
+    expect(overlay[0].padCh).toBe(3);
+  });
+
+  it('skips the method signature line (keyword args show at first body use)', () => {
+    const lines = ['readFrom: aStream', '  | bc |', '  aStream peek.', '  bc := aStream next.'];
+    const v: InlineVar[] = [
+      { name: 'aStream', value: 'aStream…', full: 'aStream...' },
+      { name: 'bc', value: 'nil', full: 'nil' },
+    ];
+    const overlay = computeInlineValueLines(lines, v, { signatureLine: true });
+    // Not on the signature (line 0) nor the temp decl (line 1); aStream at line 2.
+    expect(overlay.map(o => o.line)).toEqual([2, 3]);
+    expect(overlay[0].label).toBe('aStream = aStream…');
+    expect(overlay[1].label).toBe('bc = nil');
+  });
+
+  it('skips a block-argument declaration (:x) but annotates its use', () => {
+    const overlay = computeInlineValueLines(['nums do: [:x | x squared]'],
+      [{ name: 'x', value: '7', full: '7' }]);
+    expect(overlay).toHaveLength(1);
+    // The `:x` binding is skipped; the `x` in `x squared` is the annotated use.
+    expect(overlay[0].label).toBe('x = 7');
+  });
+
+  it('perLine mode annotates every line that references a variable', () => {
+    const lines = ['total := 0.', 'total := total + 1.', '^total'];
+    const v: InlineVar[] = [{ name: 'total', value: '25', full: '25' }];
+    const overlay = computeInlineValueLines(lines, v, { perLine: true });
+    expect(overlay.map(o => o.line)).toEqual([0, 1, 2]);
+    expect(overlay.every(o => o.label === 'total = 25')).toBe(true);
+  });
+
+  it('does not match an identifier that appears only in a comment', () => {
+    const lines = ['"returns aString parsed"', '^self parse: aString'];
+    const v: InlineVar[] = [{ name: 'aString', value: "'50'", full: "'50'" }];
+    const overlay = computeInlineValueLines(lines, v, { perLine: true });
+    // Only the real use on line 1, never the comment on line 0.
+    expect(overlay.map(o => o.line)).toEqual([1]);
+  });
+
+  it('does not match an identifier inside a multi-line comment', () => {
+    const lines = ['foo', '"a comment', ' mentioning total again', ' total total"', '^total'];
+    const v: InlineVar[] = [{ name: 'total', value: '7', full: '7' }];
+    const overlay = computeInlineValueLines(lines, v, { perLine: true });
+    expect(overlay.map(o => o.line)).toEqual([4]);
+  });
+
+  it('does not match an identifier inside a string literal', () => {
+    const lines = ["x := 'the value is amount'.", '^amount'];
+    const v: InlineVar[] = [{ name: 'amount', value: '9', full: '9' }];
+    const overlay = computeInlineValueLines(lines, v, { perLine: true });
+    expect(overlay.map(o => o.line)).toEqual([1]);
+  });
+});
+
+describe('maskCommentsAndStrings', () => {
+  it('blanks comments and strings but preserves length and newlines', () => {
+    const src = 'x := 1. "set x" y := \'hi\'.';
+    const masked = maskCommentsAndStrings(src);
+    expect(masked.length).toBe(src.length);
+    expect(masked).toBe('x := 1.         y :=     .');
+  });
+
+  it('keeps a $" / $\' character literal as code (not a delimiter)', () => {
+    const src = "c := $\". d := $'. e := 1.";
+    // No real comment/string opens, so nothing past the char literals is blanked.
+    expect(maskCommentsAndStrings(src)).toBe(src);
+  });
+
+  it('preserves newlines across a multi-line comment', () => {
+    const masked = maskCommentsAndStrings('a "c1\nc2" b');
+    expect(masked.split('\n')).toHaveLength(2);
+    expect(masked).toBe('a    \n    b');
+  });
+});
+
+describe('InlineValuesCodeLensProvider', () => {
+  const doc = (uri: string) => ({ uri: { toString: () => uri } }) as unknown as vscode.TextDocument;
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('emits no lens for a doc no live debugger is showing (e.g. a browser editor)', () => {
+    vi.spyOn(DebuggerPanel, 'isLiveSourceUri').mockReturnValue(false);
+    const lenses = new InlineValuesCodeLensProvider().provideCodeLenses(doc('gemstone://x'));
+    expect(lenses).toEqual([]);
+  });
+
+  it('emits an "off" lens (with the doc URI as the command arg) for a live source', () => {
+    vi.spyOn(DebuggerPanel, 'isLiveSourceUri').mockReturnValue(true);
+    vi.spyOn(DebuggerPanel, 'isInlineValuesEnabledFor').mockReturnValue(false);
+    const lenses = new InlineValuesCodeLensProvider().provideCodeLenses(doc('gemstone://m'));
+    expect(lenses).toHaveLength(1);
+    expect(lenses[0].command?.command).toBe('gemstone.toggleInlineValues');
+    expect(lenses[0].command?.arguments).toEqual(['gemstone://m']);
+    expect(lenses[0].command?.title).toContain('off');
+  });
+
+  it('reflects the on state in the lens title', () => {
+    vi.spyOn(DebuggerPanel, 'isLiveSourceUri').mockReturnValue(true);
+    vi.spyOn(DebuggerPanel, 'isInlineValuesEnabledFor').mockReturnValue(true);
+    const lenses = new InlineValuesCodeLensProvider().provideCodeLenses(doc('gemstone-debug://d'));
+    expect(lenses[0].command?.title).toContain('on');
   });
 });

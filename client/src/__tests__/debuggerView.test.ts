@@ -11,7 +11,7 @@ beforeAll(() => {
   new Function(source)();
 });
 
-interface FrameSummary { level: number; label: string; position: string; overridable?: boolean; receiverClass?: string; }
+interface FrameSummary { level: number; label: string; position: string; overridable?: boolean; receiverClass?: string; breakable?: boolean; homeDisplayLevel?: number; }
 
 interface DebuggerViewApi {
   renderStack(listEl: HTMLElement, stack: FrameSummary[]): void;
@@ -55,11 +55,18 @@ interface Refs {
   list: HTMLElement;
   menu: HTMLElement;
   copyFrameItem: HTMLElement;
+  homeFrameItem?: HTMLElement;
   frameImplItem?: HTMLElement;
   copyBtn: HTMLElement;
+  dumpBtn?: HTMLElement;
+  saveNotice?: HTMLElement;
+  savePath?: HTMLElement;
+  copyPathBtn?: HTMLElement;
   error: HTMLElement;
+  flash?: HTMLElement;
   dnuBar?: HTMLElement;
   toolbar: HTMLElement;
+  runToCursorBtn?: HTMLButtonElement;
   variables: HTMLElement;
   evalInput: HTMLInputElement;
   evalResult: HTMLElement;
@@ -90,29 +97,40 @@ function setup(
 ) {
   document.body.innerHTML = `
     <button id="copyBtn">Copy Stack</button>
+    <button id="dumpBtn">Dump Stack</button>
+    <span id="saveNotice" style="display:none;"><span id="savePath"></span><span id="copyPathBtn">⧉</span></span>
     <div id="toolbar">
       <button data-cmd="resume">Resume</button>
+      <button data-cmd="runToCursor" id="runToCursorBtn" disabled>Run to Cursor</button>
       <button data-cmd="stepOver">Over</button>
       <button data-cmd="stepInto">Into</button>
       <button data-cmd="stepThrough">Through</button>
       <button data-cmd="restartFrame">Restart Frame</button>
       <button data-cmd="terminate">Terminate</button>
     </div>
+    <div id="flash" style="display:none;"></div>
     <div id="error"></div>
     <div id="dnuBar"></div>
     <div class="main"><ul id="stack"></ul><div id="variables"></div></div>
     <input id="evalInput"><div id="evalResult"></div>
-    <div id="ctxmenu"><div id="copyFrameItem">Copy Frame</div><div id="frameImplItem" style="display:none;">Implement in receiver</div></div>
+    <div id="ctxmenu"><div id="copyFrameItem">Copy Frame</div><div id="homeFrameItem" style="display:none;">Go to home method</div><div id="frameImplItem" style="display:none;">Implement in receiver</div></div>
     <div id="varctxmenu"><div id="varInspectItem">GT Inspect</div></div>`;
   const refs: Refs = {
     list: document.getElementById('stack')!,
     menu: document.getElementById('ctxmenu')!,
     copyFrameItem: document.getElementById('copyFrameItem')!,
+    homeFrameItem: document.getElementById('homeFrameItem')!,
     frameImplItem: document.getElementById('frameImplItem')!,
     copyBtn: document.getElementById('copyBtn')!,
+    dumpBtn: document.getElementById('dumpBtn')!,
+    saveNotice: document.getElementById('saveNotice')!,
+    savePath: document.getElementById('savePath')!,
+    copyPathBtn: document.getElementById('copyPathBtn')!,
     error: document.getElementById('error')!,
+    flash: document.getElementById('flash')!,
     dnuBar: document.getElementById('dnuBar')!,
     toolbar: document.getElementById('toolbar')!,
+    runToCursorBtn: document.getElementById('runToCursorBtn') as HTMLButtonElement,
     variables: document.getElementById('variables')!,
     evalInput: document.getElementById('evalInput') as HTMLInputElement,
     evalResult: document.getElementById('evalResult')!,
@@ -273,19 +291,139 @@ describe('DebuggerView.init — right-click copy popup', () => {
     expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'implementInReceiver', level: 2 });
     expect(refs.menu.classList.contains('show')).toBe(false);
   });
+
+  // A block frame whose home method is on the stack carries homeDisplayLevel,
+  // which drives the "Go to home method" navigation item.
+  const BLOCK_STACK: FrameSummary[] = [
+    { level: 1, label: '[] in JasperDebugDemo>>#finish', position: '@2 line 12', homeDisplayLevel: 3 },
+    { level: 2, label: 'Collection>>#do:', position: '@1 line 1' },
+    { level: 3, label: 'JasperDebugDemo>>#finish', position: '@4 line 20' },
+  ];
+
+  it('shows "Go to home method" only on a block frame whose home is on the stack', () => {
+    const { refs } = setup(BLOCK_STACK);
+    frame(refs, 1).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(refs.homeFrameItem!.style.display).not.toBe('none');
+
+    // The home method frame itself (no homeDisplayLevel) doesn't offer it.
+    frame(refs, 3).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(refs.homeFrameItem!.style.display).toBe('none');
+  });
+
+  it('clicking "Go to home method" selects the home frame (drives its source + variables)', () => {
+    const { refs, vscode } = setup(BLOCK_STACK);
+    frame(refs, 1).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    vscode.postMessage.mockClear(); // drop the right-click's own selectFrame(1)
+    refs.homeFrameItem!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    // Navigation reuses selectFrame, so the host opens the home frame like a click.
+    expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'selectFrame', level: 3 });
+    expect(frame(refs, 3).classList.contains('selected')).toBe(true);
+    expect(refs.menu.classList.contains('show')).toBe(false);
+  });
+
+  // Several blocks nested in one method: each block row carries the SAME
+  // homeDisplayLevel (the host resolves them all to the one home activation).
+  const NESTED_BLOCK_STACK: FrameSummary[] = [
+    { level: 1, label: '[] in JasperDebugDemo>>#foo', position: '@2 line 3', homeDisplayLevel: 5 },
+    { level: 2, label: 'Collection>>#do:', position: '@1 line 1' },
+    { level: 3, label: '[] in JasperDebugDemo>>#foo', position: '@2 line 2', homeDisplayLevel: 5 },
+    { level: 4, label: 'Collection>>#do:', position: '@1 line 1' },
+    { level: 5, label: 'JasperDebugDemo>>#foo', position: '@6 line 10' },
+  ];
+
+  it('offers home navigation on EVERY nested block row, each pointing at the shared home', () => {
+    const { refs } = setup(NESTED_BLOCK_STACK);
+    for (const lvl of [1, 3]) {
+      frame(refs, lvl).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      expect(refs.homeFrameItem!.style.display).not.toBe('none');
+    }
+  });
+
+  it('navigates to the shared home from a nested block other than the top one', () => {
+    const { refs, vscode } = setup(NESTED_BLOCK_STACK);
+    // Right-click the MIDDLE block (3), not the default-selected top frame, to
+    // prove the click reads the right-clicked row's homeDisplayLevel.
+    frame(refs, 3).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    vscode.postMessage.mockClear();
+    refs.homeFrameItem!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'selectFrame', level: 5 });
+    expect(frame(refs, 5).classList.contains('selected')).toBe(true);
+  });
 });
 
 describe('DebuggerView.init — copy stack button', () => {
-  it('posts copyStack and flashes "Copied" on the button', () => {
+  it('posts copyStack and flashes a check on the (icon) button, then restores it', () => {
     vi.useFakeTimers();
     try {
       const { refs, vscode } = setup();
+      const icon = refs.copyBtn.innerHTML;
       refs.copyBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
       expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'copyStack' });
-      expect(refs.copyBtn.textContent).toBe('Copied');
+      expect(refs.copyBtn.textContent).toBe('✓');
       vi.advanceTimersByTime(1200);
-      expect(refs.copyBtn.textContent).toBe('Copy Stack');
+      expect(refs.copyBtn.innerHTML).toBe(icon); // original icon markup restored
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('#11 posts dumpStackToFile and flashes a check on the Dump Stack button', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs, vscode } = setup();
+      const icon = refs.dumpBtn!.innerHTML;
+      refs.dumpBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'dumpStackToFile' });
+      expect(refs.dumpBtn!.textContent).toBe('✓');
+      vi.advanceTimersByTime(1200);
+      expect(refs.dumpBtn!.innerHTML).toBe(icon);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  const DUMP_PATH = '/Users/me/.jasper/stacks/20260625_153012_JasperFoo-bar.txt';
+
+  it('#11 clicking the dumped path requests opening it in an editor', () => {
+    const { refs, vscode } = setup();
+    window.dispatchEvent(new MessageEvent('message', { data: { command: 'savedNotice', path: DUMP_PATH } }));
+    refs.savePath!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'openDumpFile', path: DUMP_PATH });
+  });
+
+  it('#11 reveals the dumped path on savedNotice, then auto-hides after 5s', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs } = setup();
+      window.dispatchEvent(new MessageEvent('message', { data: { command: 'savedNotice', path: DUMP_PATH } }));
+
+      expect(refs.savePath!.textContent).toBe(`Dumped to ${DUMP_PATH}`);
+      expect(refs.savePath!.title).toBe(DUMP_PATH); // full path on hover, even if ellipsized
+      expect(refs.saveNotice!.style.display).not.toBe('none'); // revealed
+      vi.advanceTimersByTime(5000);
+      expect(refs.saveNotice!.style.display).toBe('none'); // auto-dismissed
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('#11 Copy-path icon copies the path, flashes a check, then dismisses the notice', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs, vscode } = setup();
+      window.dispatchEvent(new MessageEvent('message', { data: { command: 'savedNotice', path: DUMP_PATH } }));
+      refs.copyPathBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'copyText', text: DUMP_PATH });
+      expect(refs.copyPathBtn!.textContent).toBe('✓');
+      vi.advanceTimersByTime(1200);
+      expect(refs.copyPathBtn!.textContent).toBe('⧉');         // glyph restored
+      expect(refs.saveNotice!.style.display).toBe('none');     // dismissed once copied
     } finally {
       vi.useRealTimers();
     }
@@ -478,6 +616,46 @@ describe('DebuggerView.init — toolbar', () => {
     btn.appendChild(icon);
     icon.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'stepInto', level: 1 });
+  });
+});
+
+describe('DebuggerView.init — Run to Cursor (#2)', () => {
+  it('enables Run to Cursor only when the selected frame is breakable', () => {
+    const stack: FrameSummary[] = [
+      { level: 1, label: 'JasperDebugDemo>>#m', position: '', breakable: true },
+      { level: 2, label: 'Executed Code', position: '', breakable: false },
+    ];
+    const { refs } = setup(stack); // default-selects the (breakable) top frame
+    expect(refs.runToCursorBtn!.disabled).toBe(false);
+
+    // Selecting the non-breakable doit frame disables it.
+    frame(refs, 2).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(refs.runToCursorBtn!.disabled).toBe(true);
+
+    // Back to the breakable frame re-enables it.
+    frame(refs, 1).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(refs.runToCursorBtn!.disabled).toBe(false);
+  });
+
+  it('posts runToCursor with the selected frame level when clicked', () => {
+    const stack: FrameSummary[] = [{ level: 1, label: 'JasperDebugDemo>>#m', position: '', breakable: true }];
+    const { refs, vscode } = setup(stack);
+    expect(refs.runToCursorBtn!.disabled).toBe(false);
+
+    refs.runToCursorBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'runToCursor', level: 1 });
+  });
+
+  it('shows a transient flash message without clobbering the error banner', () => {
+    const { refs } = setup(); // init set error to 'boom'
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { command: 'flash', text: 'place the cursor on a code line' },
+    }));
+
+    expect(refs.flash!.textContent).toBe('place the cursor on a code line');
+    expect(refs.flash!.style.display).not.toBe('none');
+    expect(refs.flash!.classList.contains('show')).toBe(true);
+    expect(refs.error.textContent).toBe('boom'); // error banner untouched
   });
 });
 
@@ -807,7 +985,7 @@ describe('DebuggerView.renderDnu (create-method-from-DNU)', () => {
 
 });
 
-describe('DebuggerView.renderSubclassResp (T4)', () => {
+describe('DebuggerView.renderSubclassResp (subclassResponsibility implement action)', () => {
   beforeEach(() => { document.body.innerHTML = '<div id="dnuBar"></div>'; });
 
   it('renders an "Implement #selector" button (no class — chosen via picker)', () => {

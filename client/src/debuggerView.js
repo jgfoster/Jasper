@@ -295,7 +295,16 @@
    * editor and highlight the current line.
    */
   function init(refs, vscode) {
-    const { list, menu, copyFrameItem, frameImplItem, copyBtn, error, dnuBar, toolbar, variables, evalInput, evalResult, main, splitter, hsplitter, evalbar, varMenu, varInspectItem } = refs;
+    const { list, menu, copyFrameItem, homeFrameItem, frameImplItem, copyBtn, dumpBtn, saveNotice, savePath, copyPathBtn, error, flash, dnuBar, toolbar, runToCursorBtn, variables, evalInput, evalResult, main, splitter, hsplitter, evalbar, varMenu, varInspectItem } = refs;
+    let dumpedPath = null; // the last-dumped file path, for the Copy-path button
+    let saveNoticeTimer = null;
+    const COPY_GLYPH = copyPathBtn ? copyPathBtn.textContent : '';
+    function hideSaveNotice() {
+      if (saveNoticeTimer) { clearTimeout(saveNoticeTimer); saveNoticeTimer = null; }
+      if (saveNotice) saveNotice.style.display = 'none';
+      if (savePath) { savePath.textContent = ''; savePath.title = ''; }
+      dumpedPath = null;
+    }
     let selectedLevel = null;
     // The last-rendered stack (frame summaries), so the right-click menu can read
     // a frame's `overridable` / `receiverClass` to decide whether to offer the
@@ -329,10 +338,24 @@
       setActiveEditor: setActiveVarEditor,
     };
 
+    // Enable "Run to Cursor" only when the selected frame is breakable (an editable
+    // method we can set a step-point break in). A doit / "Executed Code" frame has
+    // no such method, so the button is disabled there (host also guards).
+    function updateRunToCursor(level) {
+      if (!runToCursorBtn) return;
+      const frame = currentStack.find(function (f) { return f.level === level; });
+      const breakable = !!(frame && frame.breakable);
+      runToCursorBtn.disabled = !breakable;
+      runToCursorBtn.title = breakable
+        ? 'Run to Cursor'
+        : 'Run to Cursor — not available on this frame';
+    }
+
     function select(level) {
       if (level == null) return;
       selectFrame(list, level);
       selectedLevel = level;
+      updateRunToCursor(level);
       vscode.postMessage({ command: 'selectFrame', level });
     }
 
@@ -351,8 +374,13 @@
       e.preventDefault();
       e.stopPropagation();
       select(level);
+      const frame = currentStack.find((f) => f.level === level);
+      // "Go to home method" — only for a block frame whose home method is also on
+      // the visible stack (host sets homeDisplayLevel to that frame's level).
+      if (homeFrameItem) {
+        homeFrameItem.style.display = frame && frame.homeDisplayLevel != null ? '' : 'none';
+      }
       if (frameImplItem) {
-        const frame = currentStack.find((f) => f.level === level);
         if (frame && frame.overridable) {
           // Ellipsis signals that clicking opens a class picker (an overridable
           // frame always has several candidates: the receiver's class up through
@@ -373,6 +401,17 @@
       hideMenu(menu);
     });
 
+    if (homeFrameItem) {
+      homeFrameItem.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const frame = currentStack.find((f) => f.level === selectedLevel);
+        // Selecting the home frame drives the source + variables panes for it,
+        // exactly like clicking it in the stack list.
+        if (frame && frame.homeDisplayLevel != null) select(frame.homeDisplayLevel);
+        hideMenu(menu);
+      });
+    }
+
     if (frameImplItem) {
       frameImplItem.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -390,12 +429,68 @@
       });
     }
 
+    // Show a transient status line (e.g. Run to Cursor falling back to a plain
+    // Resume), then fade it out after a few seconds. Independent of the error
+    // banner — a later init/refresh won't clobber it, and it won't clobber the
+    // error text. A new flash resets the timer.
+    let flashTimer = null;
+    function showFlash(text) {
+      if (!flash) return;
+      if (flashTimer) { clearTimeout(flashTimer); flashTimer = null; }
+      if (!text) { flash.classList.remove('show'); flash.style.display = 'none'; flash.textContent = ''; return; }
+      flash.textContent = text;
+      flash.style.display = '';
+      // Force a reflow so the opacity transition runs from 0 even on a re-show.
+      void flash.offsetWidth;
+      flash.classList.add('show');
+      flashTimer = setTimeout(function () {
+        flash.classList.remove('show');
+        flashTimer = setTimeout(function () { flash.style.display = 'none'; flash.textContent = ''; flashTimer = null; }, 200);
+      }, 3500);
+    }
+
+    // Briefly swap an icon button's glyph to a check to confirm the action fired
+    // (the host does the actual clipboard write / file save), then restore the SVG.
+    function flashIcon(btn) {
+      const prev = btn.innerHTML;
+      btn.textContent = '✓';
+      setTimeout(() => { btn.innerHTML = prev; }, 1200);
+    }
+
+    // #10 Copy Stack: the full stack (short stack + each frame's variable values).
     copyBtn.addEventListener('click', () => {
       vscode.postMessage({ command: 'copyStack' });
-      const prev = copyBtn.textContent;
-      copyBtn.textContent = 'Copied';
-      setTimeout(() => { copyBtn.textContent = prev; }, 1200);
+      flashIcon(copyBtn);
     });
+
+    // #11 Dump Stack: write the full stack to ~/.jasper/stacks (no tab opened).
+    if (dumpBtn) {
+      dumpBtn.addEventListener('click', () => {
+        vscode.postMessage({ command: 'dumpStackToFile' });
+        flashIcon(dumpBtn);
+      });
+    }
+
+    // Clicking the dumped path opens that file in an editor — on demand, so a tab
+    // appears only when the user asks for it.
+    if (savePath) {
+      savePath.addEventListener('click', () => {
+        if (dumpedPath != null) vscode.postMessage({ command: 'openDumpFile', path: dumpedPath });
+      });
+    }
+
+    // The small copy glyph beside the saved-path notice copies the full path so
+    // you don't have to select the (ellipsized) text by hand. Flash a check to
+    // confirm, then dismiss the notice (once copied, you're done with it).
+    if (copyPathBtn) {
+      copyPathBtn.addEventListener('click', () => {
+        if (dumpedPath == null) return;
+        vscode.postMessage({ command: 'copyText', text: dumpedPath });
+        if (saveNoticeTimer) { clearTimeout(saveNoticeTimer); saveNoticeTimer = null; }
+        copyPathBtn.textContent = '✓';
+        setTimeout(() => { copyPathBtn.textContent = COPY_GLYPH; hideSaveNotice(); }, 1200);
+      });
+    }
 
     // Toolbar: each button posts its data-cmd. Step/restart act on the selected
     // frame (level included); resume/terminate don't need a level.
@@ -536,6 +631,9 @@
         // Success → the host also posts 'variables', which re-renders (and so
         // removes the editor) with fresh printStrings + OOPs.
         if (!msg.ok && activeVarEditor) activeVarEditor.showError(msg.error);
+      } else if (msg.command === 'flash') {
+        // Transient status (Run to Cursor fallback, etc.) — shown briefly, then fades.
+        showFlash(msg.text);
       } else if (msg.command === 'banner') {
         // Lightweight banner-only update (no stack re-render / frame re-select, so
         // it won't steal focus): set the error/guidance text and clear the DNU
@@ -547,6 +645,17 @@
           evalResult.textContent = msg.value != null ? msg.value : '';
           evalResult.classList.toggle('error', !!msg.isError);
         }
+      } else if (msg.command === 'savedNotice') {
+        // #11: show the dumped file's path beside the buttons with a Copy-path
+        // glyph, then auto-dismiss after 5s (forever was annoying once you're
+        // done). Pressing Copy dismisses it early (see the handler above).
+        dumpedPath = msg.path || null;
+        if (!dumpedPath) { hideSaveNotice(); return; }
+        if (copyPathBtn) copyPathBtn.textContent = COPY_GLYPH; // reset a stale ✓
+        if (savePath) { savePath.textContent = 'Dumped to ' + dumpedPath; savePath.title = dumpedPath; }
+        if (saveNotice) saveNotice.style.display = '';
+        if (saveNoticeTimer) clearTimeout(saveNoticeTimer);
+        saveNoticeTimer = setTimeout(hideSaveNotice, 5000);
       }
     });
 
