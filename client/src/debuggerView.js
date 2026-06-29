@@ -295,7 +295,7 @@
    * editor and highlight the current line.
    */
   function init(refs, vscode) {
-    const { list, menu, copyFrameItem, homeFrameItem, frameImplItem, copyBtn, dumpBtn, saveNotice, savePath, copyPathBtn, error, flash, dnuBar, toolbar, runToCursorBtn, variables, evalInput, evalResult, main, splitter, hsplitter, evalbar, varMenu, varInspectItem, busyOverlay, busyCancel } = refs;
+    const { list, menu, copyFrameItem, browseFrameItem, homeFrameItem, frameImplItem, copyBtn, dumpBtn, saveNotice, savePath, copyPathBtn, error, flash, dnuBar, toolbar, runToCursorBtn, variables, evalInput, evalResult, main, splitter, hsplitter, evalbar, varMenu, varInspectItem, busyOverlay, busyCancel } = refs;
     // Progress indicator (#9). A blocking GCI call FREEZES the extension host, and
     // postMessage delivery needs that event loop — so the host cannot tell us "I'm
     // busy" while it's busy (the on/off pair would arrive together, after the work).
@@ -434,6 +434,11 @@
       e.stopPropagation();
       select(level);
       const frame = currentStack.find((f) => f.level === level);
+      // "Browse" — only for a frame that runs a real Class>>#selector (the host
+      // sets `browsable`); hidden for Executed-Code (doit) and unresolvable frames.
+      if (browseFrameItem) {
+        browseFrameItem.style.display = frame && frame.browsable ? '' : 'none';
+      }
       // "Go to home method" — only for a block frame whose home method is also on
       // the visible stack (host sets homeDisplayLevel to that frame's level).
       if (homeFrameItem) {
@@ -459,6 +464,14 @@
       if (selectedLevel != null) post({ command: 'copyFrame', level: selectedLevel });
       hideMenu(menu);
     });
+
+    if (browseFrameItem) {
+      browseFrameItem.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (selectedLevel != null) post({ command: 'browseFrame', level: selectedLevel });
+        hideMenu(menu);
+      });
+    }
 
     if (homeFrameItem) {
       homeFrameItem.addEventListener('click', (e) => {

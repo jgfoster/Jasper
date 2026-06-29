@@ -77,6 +77,11 @@ vi.mock('../debugQueries', () => ({
   // Implement-in-receiver (override): the receiver's inheritance chain (default
   // is a single class → no QuickPick; tests override it for the multi-class case).
   getReceiverClassChain: vi.fn(() => [{ className: 'SmallInteger', isMeta: false, dictName: 'Globals' }]),
+  // "Browse" frame: where the running selector is defined (defining class + home
+  // dict + category). Default = a resolvable, symbol-list target.
+  getBrowseTarget: vi.fn(() => ({
+    className: 'JasperDebugDemo', isMeta: false, dictName: 'UserGlobals', category: 'running',
+  })),
   // Whole-stack dump (#10/#11): one batched call. Default = a Receiver row per
   // frame whose printString/oop mirror the per-frame receiverOop (level * 100).
   fetchStackDump: vi.fn(() => [1, 2, 3, 4, 5].map(l => ({
@@ -96,6 +101,10 @@ vi.mock('../debugQueries', () => ({
 // Clicking a variable row opens a GT Inspector — stub the static entry point.
 // create() returns a closable handle so the debugger can close it on dispose.
 vi.mock('../gtInspector', () => ({ GtInspector: { create: vi.fn(() => ({ close: vi.fn() })) } }));
+
+// "Browse" a frame opens a System Browser — stub the static entry point so the
+// test doesn't pull in the whole browser module (and its many dependencies).
+vi.mock('../systemBrowser', () => ({ SystemBrowser: { openAndNavigate: vi.fn() } }));
 
 // Source offsets for the step-point highlight. These are GemStone `_sourceOffsets`,
 // which are 1-BASED (index i = offset of step point i+1); the panel must convert
@@ -123,6 +132,7 @@ import {
 import { InlineValuesCodeLensProvider } from '../inlineValuesCodeLens';
 import { wrapWithTranscriptCapture, TRANSCRIPT_CAPTURE_PREFIX } from '../transcriptCapture';
 import { GtInspector } from '../gtInspector';
+import { SystemBrowser } from '../systemBrowser';
 import { ActiveSession } from '../sessionManager';
 import { GemStoneLogin } from '../loginTypes';
 
@@ -550,6 +560,7 @@ describe('DebuggerPanel', () => {
       expect(html).toContain('id="copyFrameItem"');              // Copy Frame popup item
       expect(html).toContain('Copy Frame');
       expect(html).toContain('copyFrame');                       // per-frame copy wiring
+      expect(html).toContain('id="browseFrameItem"');            // Browse popup item
       expect(html).toMatch(/addEventListener\(\s*'contextmenu'/); // default menu suppressed + custom menu
       expect(html).toContain('preventDefault');
     });
@@ -616,6 +627,68 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'copyFrame', level: 999 });
 
       expect(vscode.env.clipboard.writeText).not.toHaveBeenCalled();
+    });
+
+    it('marks real method frames as browsable in the init payload', () => {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+
+      const stack = initPayload(panel).stack as Array<{ browsable?: boolean }>;
+      expect(stack.every(f => f.browsable === true)).toBe(true);
+    });
+
+    it('opens a browser on the running method’s defining class beside the debugger', () => {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+
+      sendMessage(panel, { command: 'browseFrame', level: 2 });
+
+      expect(SystemBrowser.openAndNavigate).toHaveBeenCalledWith(
+        session,
+        {
+          dictName: 'UserGlobals', className: 'JasperDebugDemo', isMeta: false,
+          selector: 'halt', category: 'running',
+        },
+        vscode.ViewColumn.Beside,
+      );
+    });
+
+    it('does not open a browser for an unknown frame level', () => {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+
+      sendMessage(panel, { command: 'browseFrame', level: 999 });
+
+      expect(SystemBrowser.openAndNavigate).not.toHaveBeenCalled();
+    });
+
+    it('shows a message instead of opening a browser when the selector cannot be located', () => {
+      vi.mocked(debug.getBrowseTarget).mockReturnValueOnce(undefined);
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+
+      sendMessage(panel, { command: 'browseFrame', level: 2 });
+
+      expect(SystemBrowser.openAndNavigate).not.toHaveBeenCalled();
+      expect(lastPosted(panel, 'init').errorMessage).toContain('Could not locate #halt');
+    });
+
+    it('shows a message instead of opening a browser when the class is outside the symbol list', () => {
+      vi.mocked(debug.getBrowseTarget).mockReturnValueOnce({
+        className: 'Loner', isMeta: false, dictName: '', category: '',
+      });
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+
+      sendMessage(panel, { command: 'browseFrame', level: 2 });
+
+      expect(SystemBrowser.openAndNavigate).not.toHaveBeenCalled();
+      expect(lastPosted(panel, 'init').errorMessage).toContain("isn't in your symbol list");
     });
 
     it('#10 copyStack: assembles the batched dump rows into per-frame groups', () => {

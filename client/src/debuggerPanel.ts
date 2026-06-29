@@ -8,6 +8,7 @@ import * as queries from './browserQueries';
 import { unwrapTranscriptCapture, transcriptCaptureUserCodeOffset } from './transcriptCapture';
 import { buildLineOffsets, mapOffsetToStepPoint } from './breakpointManager';
 import { GtInspector } from './gtInspector';
+import { SystemBrowser } from './systemBrowser';
 import { logError, logInfo } from './gciLog';
 import { NbCancelledError, NbRunOptions } from './nbRunner';
 import { extensionPathFrom } from './extensionPath';
@@ -86,6 +87,7 @@ type DebuggerInbound =
   | { command: 'revertVariable'; level: number; kind: 'instvar' | 'temp'; index: number }
   | { command: 'createDnuMethod' }
   | { command: 'implementInReceiver'; level: number }
+  | { command: 'browseFrame'; level: number }
   | { command: 'implementSubclassResponsibility' }
   | { command: 'cancelOp' }
   | { command: 'saveLayout'; stackBasis?: string; evalHeight?: string };
@@ -457,6 +459,12 @@ interface FrameSummary {
    * unresolvable `<frame N>`.
    */
   breakable?: boolean;
+  /**
+   * True when this frame runs a real `Class>>#selector` method we can open in a
+   * System Browser — drives the right-click "Browse" item. False for an
+   * Executed-Code (doit) frame or an unresolvable `<frame N>` (no class/selector).
+   */
+  browsable?: boolean;
 }
 
 /**
@@ -1250,6 +1258,7 @@ export class DebuggerPanel {
       }
       case 'createDnuMethod': { void this.createDnuMethod(); return; }
       case 'implementInReceiver': { void this.implementInReceiver(msg.level); return; }
+      case 'browseFrame': { void this.browseFrame(msg.level); return; }
       case 'implementSubclassResponsibility': { void this.implementSubclassResponsibility(); return; }
       case 'setVariable': {
         const frame = this.frames.find(f => f.level === msg.level);
@@ -1290,7 +1299,7 @@ export class DebuggerPanel {
       stack: this.frames.map(f => ({
         level: f.level, label: f.label, position: f.position,
         overridable: f.overridable, receiverClass: f.receiverClass,
-        breakable: f.breakable, homeDisplayLevel: f.homeDisplayLevel,
+        breakable: f.breakable, browsable: f.browsable, homeDisplayLevel: f.homeDisplayLevel,
       })),
       // When parked on a doesNotUnderstand:, drive the "Create #sel in Class" button.
       dnu: this.dnuInfo
@@ -1471,6 +1480,57 @@ export class DebuggerPanel {
     await this.pickAndOpenImplementTemplate({
       selector, chain, contextLabel: `${frame.label}@sv${frame.serverLevel}`,
     });
+  }
+
+  /**
+   * "Browse" a stack frame (right-click menu): open a NEW System Browser to the
+   * right of the debugger pane, navigated to the class+method actually running in
+   * this frame. The target is resolved by method lookup on the receiver
+   * (`getBrowseTarget`), so an inherited method opens on its DEFINING class — the
+   * source that's really executing — rather than the receiver's concrete class.
+   * Degrades to an in-panel message for a doit frame, a receiver we can't resolve,
+   * a selector not found in the chain, or a class outside the user's symbol list.
+   */
+  private async browseFrame(displayLevel: number): Promise<void> {
+    const frame = this.frames.find(f => f.level === displayLevel);
+    if (!frame) return;
+    const raw = this.rawFrames.find(r => r.serverLevel === frame.serverLevel);
+    if (!raw || raw.isExecutedCode || !raw.selector) {
+      this.errorMessage = 'Cannot browse this frame — it has no class or method.';
+      this.postInit();
+      return;
+    }
+
+    let receiverOop: bigint;
+    try {
+      receiverOop = debug.getFrameInfo(this.session, this.gsProcess, frame.serverLevel).receiverOop;
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      this.errorMessage = `Could not resolve the receiver of ${frame.label}.`;
+      this.postInit();
+      return;
+    }
+
+    const target = debug.getBrowseTarget(this.session, receiverOop, raw.selector);
+    if (!target) {
+      this.errorMessage = `Could not locate #${raw.selector} to browse it.`;
+      this.postInit();
+      return;
+    }
+    if (!target.dictName) {
+      this.errorMessage = `Can't browse #${raw.selector}: ${target.className} isn't in your symbol list.`;
+      this.postInit();
+      return;
+    }
+
+    // Open the browser to the RIGHT of the debugger pane: focus the debugger's
+    // group so ViewColumn.Beside resolves relative to it, then open a fresh
+    // browser there and navigate it to the running method's defining class.
+    this.panel.reveal(this.panel.viewColumn, false);
+    SystemBrowser.openAndNavigate(this.session, {
+      dictName: target.dictName, className: target.className,
+      isMeta: target.isMeta, selector: raw.selector, category: target.category,
+    }, vscode.ViewColumn.Beside);
   }
 
   /**
@@ -3210,6 +3270,9 @@ export class DebuggerPanel {
         overridable: r.overridable,
         receiverClass: r.receiverClassName,
         breakable: r.breakable,
+        // Browsable iff the frame runs a real Class>>#selector (not a doit, and the
+        // home method resolved to a defining class + selector).
+        browsable: !r.isExecutedCode && !!r.definingClassName && !!r.selector,
         homeDisplayLevel,
         // Executed-code frames have no meaningful step point/line once unwrapped (#3).
         position: r.isExecutedCode ? '' : formatFramePosition(r.stepPoint, r.line),
@@ -3694,6 +3757,7 @@ export class DebuggerPanel {
   </div>
   <div id="ctxmenu" class="ctx-menu" role="menu">
     <div class="ctx-item" id="copyFrameItem" role="menuitem">Copy Frame</div>
+    <div class="ctx-item" id="browseFrameItem" role="menuitem" style="display:none;">Browse</div>
     <div class="ctx-item" id="homeFrameItem" role="menuitem" style="display:none;">Go to home method</div>
     <div class="ctx-item" id="frameImplItem" role="menuitem" style="display:none;">Implement in…</div>
   </div>
@@ -3715,6 +3779,7 @@ export class DebuggerPanel {
       list: document.getElementById('stack'),
       menu: document.getElementById('ctxmenu'),
       copyFrameItem: document.getElementById('copyFrameItem'),
+      browseFrameItem: document.getElementById('browseFrameItem'),
       homeFrameItem: document.getElementById('homeFrameItem'),
       frameImplItem: document.getElementById('frameImplItem'),
       copyBtn: document.getElementById('copyBtn'),

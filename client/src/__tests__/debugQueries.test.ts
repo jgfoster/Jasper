@@ -389,6 +389,65 @@ describe('debugQueries', () => {
     });
   });
 
+  describe('getBrowseTarget', () => {
+    const RECEIVER_OOP = 0x456n;
+
+    function sessionReturning(data: string): ActiveSession {
+      const session = createMockSession();
+      (session.gci as unknown as Record<string, unknown>).GciTsResolveSymbol = vi.fn(() => ({
+        result: 9000n, err: { ...noErr },
+      }));
+      (session.gci as unknown as Record<string, unknown>).GciTsExecuteFetchBytes = vi.fn(() => ({
+        bytesReturned: 0, data, err: { ...noErr },
+      }));
+      return session;
+    }
+
+    it('parses the defining class, dictionary, and category for an instance-side method', () => {
+      const session = sessionReturning('Collection\tinstance\tKernel\taccessing');
+      expect(debug.getBrowseTarget(session, RECEIVER_OOP, 'asOrderedCollection')).toEqual({
+        className: 'Collection', isMeta: false, dictName: 'Kernel', category: 'accessing',
+      });
+    });
+
+    it('parses a class-side method', () => {
+      const session = sessionReturning('Array\tclass\tGlobals\tinstance creation');
+      expect(debug.getBrowseTarget(session, RECEIVER_OOP, 'new')).toEqual({
+        className: 'Array', isMeta: true, dictName: 'Globals', category: 'instance creation',
+      });
+    });
+
+    it('reports a blank dictionary and category when the class is outside the symbol list and the method is uncategorized', () => {
+      const session = sessionReturning('Loner\tinstance\t\t');
+      expect(debug.getBrowseTarget(session, RECEIVER_OOP, 'foo')).toEqual({
+        className: 'Loner', isMeta: false, dictName: '', category: '',
+      });
+    });
+
+    it('returns undefined when the selector is not found in the chain', () => {
+      expect(debug.getBrowseTarget(sessionReturning(''), RECEIVER_OOP, 'foo')).toBeUndefined();
+    });
+
+    it('returns undefined when symbol resolution fails', () => {
+      const session = createMockSession();
+      (session.gci as unknown as Record<string, unknown>).GciTsResolveSymbol = vi.fn(() => ({
+        result: 0n, err: { ...noErr, number: 2010, message: 'not found' },
+      }));
+      expect(debug.getBrowseTarget(session, RECEIVER_OOP, 'foo')).toBeUndefined();
+    });
+
+    it('returns undefined when the execute fails', () => {
+      const session = createMockSession();
+      (session.gci as unknown as Record<string, unknown>).GciTsResolveSymbol = vi.fn(() => ({
+        result: 9000n, err: { ...noErr },
+      }));
+      (session.gci as unknown as Record<string, unknown>).GciTsExecuteFetchBytes = vi.fn(() => ({
+        bytesReturned: 0, data: '', err: { ...noErr, number: 1, message: 'boom' },
+      }));
+      expect(debug.getBrowseTarget(session, RECEIVER_OOP, 'foo')).toBeUndefined();
+    });
+  });
+
   describe('getInstVarNames', () => {
     it('does not send multi-word selectors', () => {
       const session = createMockSession();

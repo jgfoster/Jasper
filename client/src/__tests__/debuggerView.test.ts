@@ -11,7 +11,7 @@ beforeAll(() => {
   new Function(source)();
 });
 
-interface FrameSummary { level: number; label: string; position: string; overridable?: boolean; receiverClass?: string; breakable?: boolean; homeDisplayLevel?: number; }
+interface FrameSummary { level: number; label: string; position: string; overridable?: boolean; receiverClass?: string; breakable?: boolean; browsable?: boolean; homeDisplayLevel?: number; }
 
 interface DebuggerViewApi {
   renderStack(listEl: HTMLElement, stack: FrameSummary[]): void;
@@ -55,6 +55,7 @@ interface Refs {
   list: HTMLElement;
   menu: HTMLElement;
   copyFrameItem: HTMLElement;
+  browseFrameItem?: HTMLElement;
   homeFrameItem?: HTMLElement;
   frameImplItem?: HTMLElement;
   copyBtn: HTMLElement;
@@ -86,7 +87,7 @@ function api(): DebuggerViewApi {
 
 const STACK: FrameSummary[] = [
   { level: 1, label: '[] in JasperDebugDemo>>#finish', position: '@2 line 12' },
-  { level: 2, label: 'SmallInteger (Object)>>#halt', position: '@2 line 12', overridable: true, receiverClass: 'SmallInteger' },
+  { level: 2, label: 'SmallInteger (Object)>>#halt', position: '@2 line 12', overridable: true, receiverClass: 'SmallInteger', browsable: true },
   { level: 3, label: 'JasperDebugDemo>>#accumulateFrom:to:', position: '' },
 ];
 
@@ -115,7 +116,7 @@ function setup(
     <div id="dnuBar"></div>
     <div class="main"><ul id="stack"></ul><div id="variables"></div></div>
     <input id="evalInput"><div id="evalResult"></div>
-    <div id="ctxmenu"><div id="copyFrameItem">Copy Frame</div><div id="homeFrameItem" style="display:none;">Go to home method</div><div id="frameImplItem" style="display:none;">Implement in receiver</div></div>
+    <div id="ctxmenu"><div id="copyFrameItem">Copy Frame</div><div id="browseFrameItem" style="display:none;">Browse</div><div id="homeFrameItem" style="display:none;">Go to home method</div><div id="frameImplItem" style="display:none;">Implement in receiver</div></div>
     <div id="varctxmenu"><div id="varInspectItem">GT Inspect</div></div>
     <div id="busyOverlay" class="busy-overlay" style="display:none;"><div class="busy-box"><div class="busy-spinner"></div><button id="busyCancel" style="display:none;">Cancel</button></div></div>`;
   document.body.classList.remove('busy');
@@ -123,6 +124,7 @@ function setup(
     list: document.getElementById('stack')!,
     menu: document.getElementById('ctxmenu')!,
     copyFrameItem: document.getElementById('copyFrameItem')!,
+    browseFrameItem: document.getElementById('browseFrameItem')!,
     homeFrameItem: document.getElementById('homeFrameItem')!,
     frameImplItem: document.getElementById('frameImplItem')!,
     copyBtn: document.getElementById('copyBtn')!,
@@ -295,6 +297,24 @@ describe('DebuggerView.init — right-click copy popup', () => {
     refs.frameImplItem!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
     expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'implementInReceiver', level: 2 });
+  });
+
+  it('shows "Browse" only on a frame that runs a real class method', () => {
+    const { refs } = setup();
+
+    frame(refs, 2).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(refs.browseFrameItem!.style.display).not.toBe('none');
+
+    frame(refs, 1).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(refs.browseFrameItem!.style.display).toBe('none');
+  });
+
+  it('clicking Browse posts browseFrame for the selected level and hides the menu', () => {
+    const { refs, vscode } = setup();
+    frame(refs, 2).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    refs.browseFrameItem!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'browseFrame', level: 2 });
     expect(refs.menu.classList.contains('show')).toBe(false);
   });
 
