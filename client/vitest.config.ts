@@ -8,6 +8,9 @@ export default defineConfig({
       'src/__tests__/vitest.windowSetup.cjs',
       'src/__tests__/vitest.uriSetup.ts'
     ],
-    sequence: { shuffle: true },
+    sequence: {
+      shuffle: true,
+      // seed: 12345, // uncomment to reproduce a specific run; seed is printed at the start of each run
+    },
   },
 });
