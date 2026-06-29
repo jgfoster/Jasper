@@ -6,6 +6,11 @@ gemstone
 .gemstone/**
 TODO.md
 
+# Local GemStone install downloaded by the integration-test setup (npm run test:setup).
+# Gitignored, but present on disk after running integration tests locally — must never
+# be bundled into the .vsix (it is ~1GB and contains example private keys).
+client/tmp/**
+
 docs/**
 !docs/mcp-server.md
 !docs/windows-wsl.md

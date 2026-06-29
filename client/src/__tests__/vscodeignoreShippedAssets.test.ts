@@ -51,3 +51,22 @@ describe('runtime-injected webview assets are shipped in the .vsix', () => {
     expect(whitelist.has(`!client/src/${file}`)).toBe(true);
   });
 });
+
+// The integration-test setup (npm run test:setup) downloads a full ~1GB GemStone install
+// into client/tmp/. It is gitignored, so it never shows up in a clean checkout — but after
+// running integration tests locally it sits on disk, and vsce packages from the working
+// tree, not from git. Without an explicit ignore, `vsce package` pulls the whole tree into
+// the .vsix (bloating it by ~1GB and tripping the secret scan on the product's example
+// private keys). It must be excluded so packaging is safe regardless of local test state.
+describe('integration-test artifacts are excluded from the .vsix', () => {
+  const repoRoot = path.resolve(__dirname, '..', '..', '..');
+  const ignores = fs
+    .readFileSync(path.join(repoRoot, '.vscodeignore'), 'utf8')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#') && !line.startsWith('!'));
+
+  it('excludes the integration-test download directory', () => {
+    expect(ignores).toContain('client/tmp/**');
+  });
+});

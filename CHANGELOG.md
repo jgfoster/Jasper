@@ -4,6 +4,8 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.7.3] - 2026-06-29
+
 ### Added
 
 - **`default.conf` in new databases.** Creating a database now copies the product tree's `$GEMSTONE/data/system.conf` into the new database's `conf/` folder as `default.conf`, so the documented default configuration values are visible alongside the database without navigating into the GemStone install directory. The generated `system.conf` points at this local copy, and the step is skipped gracefully if the source is missing.
