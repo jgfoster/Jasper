@@ -5,6 +5,8 @@ vi.mock('vscode', () => import('../__mocks__/vscode'));
 vi.mock('../browserQueries', () => ({
   getDictionaryNames: vi.fn(),
   getDictionaryEntries: vi.fn(),
+  getDictionaryClassFileOutOrder: vi.fn(),
+  fileOutClass: vi.fn(),
   getGlobalsForDictionary: vi.fn(),
   getClassEnvironments: vi.fn(),
   getClassHierarchy: vi.fn(),
@@ -41,6 +43,7 @@ vi.mock('fs', async () => {
     ...actual,
     existsSync: vi.fn(() => false),
     readFileSync: vi.fn(() => ''),
+    writeFileSync: vi.fn(),
     mkdirSync: vi.fn(),
     rmSync: vi.fn(),
   };
@@ -49,8 +52,8 @@ vi.mock('fs', async () => {
 import * as fs from 'fs';
 
 import * as path from 'path';
-import { window, workspace, ViewColumn, TextEditorRevealType, Range, Selection, Position, commands, __setConfig, __resetConfig } from '../__mocks__/vscode';
-import { SystemBrowser, extractSelector } from '../systemBrowser';
+import { window, workspace, ViewColumn, TextEditorRevealType, Range, Selection, Position, commands, Uri, __setConfig, __resetConfig } from '../__mocks__/vscode';
+import { SystemBrowser, extractSelector, planDictionaryFileOut } from '../systemBrowser';
 import * as queries from '../browserQueries';
 import { GlobalsBrowser } from '../globalsBrowser';
 import { ClassBrowser } from '../classBrowser';
@@ -126,6 +129,56 @@ describe('extractSelector', () => {
 
   it('extracts tilde as binary', () => {
     expect(extractSelector('~ anObject')).toBe('~');
+  });
+});
+
+// ── File-out planning ───────────────────────────────────────
+
+describe('planDictionaryFileOut', () => {
+  it('names each class file after the class and preserves the given order', () => {
+    const plan = planDictionaryFileOut('Animals', ['Object', 'Animal', 'Dog']);
+    expect(plan.files).toEqual([
+      { className: 'Object', fileName: 'Object.gs' },
+      { className: 'Animal', fileName: 'Animal.gs' },
+      { className: 'Dog', fileName: 'Dog.gs' },
+    ]);
+  });
+
+  it('binds every class name to nil before loading so circular method references compile', () => {
+    const plan = planDictionaryFileOut('Animals', ['Animal', 'Dog']);
+    expect(plan.indexContent).toContain("objectNamed: #'Animals'");
+    expect(plan.indexContent).toContain("at: #'Animal' put: nil");
+    expect(plan.indexContent).toContain("at: #'Dog' put: nil");
+  });
+
+  it('creates the dictionary at the front of the symbol list when it is absent', () => {
+    const plan = planDictionaryFileOut('Animals', ['Animal']);
+    expect(plan.indexContent).toContain('dict isNil ifTrue:');
+    expect(plan.indexContent).toContain("SymbolDictionary new name: #'Animals'");
+    expect(plan.indexContent).toContain('insertDictionary: dict at: 1');
+  });
+
+  it('inputs each class file after the forward references, in order', () => {
+    const plan = planDictionaryFileOut('Animals', ['Animal', 'Dog']);
+    expect(plan.indexContent).toContain('input Animal.gs\ninput Dog.gs\n');
+    expect(plan.indexContent.indexOf('input Animal.gs'))
+      .toBeGreaterThan(plan.indexContent.indexOf("at: #'Dog' put: nil"));
+  });
+
+  it('forward-references the class name but inputs the deduped file name on a collision', () => {
+    const plan = planDictionaryFileOut('D', ['Foo', 'foo']);
+    expect(plan.files.map((f) => f.fileName)).toEqual(['Foo.gs', 'foo_.gs']);
+    expect(plan.indexContent).toContain("at: #'foo' put: nil");
+    expect(plan.indexContent).toContain('input foo_.gs');
+  });
+
+  it('escapes single quotes in the dictionary name', () => {
+    const plan = planDictionaryFileOut("it's", ['Foo']);
+    expect(plan.indexContent).toContain("objectNamed: #'it''s'");
+  });
+
+  it('produces an empty loader for a dictionary with no classes', () => {
+    expect(planDictionaryFileOut('D', [])).toEqual({ files: [], indexContent: '' });
   });
 });
 
@@ -1061,6 +1114,94 @@ describe('SystemBrowser', () => {
       );
     });
 
+  });
+
+  describe('file out', () => {
+    beforeEach(() => {
+      (workspace as unknown as { workspaceFolders: { uri: unknown }[] }).workspaceFolders = [
+        { uri: Uri.file('/ws') },
+      ];
+      SystemBrowser.show(session, exportManager);
+      messageHandler({ command: 'ready' });
+      messageHandler({ command: 'selectDictionary', index: 1 });
+      messageHandler({ command: 'selectCategory', name: '** ALL CLASSES **' });
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+    });
+
+    afterEach(() => {
+      delete (workspace as unknown as { workspaceFolders?: unknown }).workspaceFolders;
+    });
+
+    it('writes the selected class file-out to the chosen path', async () => {
+      messageHandler({ command: 'selectClass', name: 'Array' });
+      vi.mocked(queries.fileOutClass).mockReturnValue('! Array file-out');
+      vi.mocked(window.showSaveDialog).mockResolvedValue(Uri.file('/out/Array.gs') as never);
+
+      await messageHandler({ command: 'ctxFileOutClass' });
+
+      expect(queries.fileOutClass).toHaveBeenCalledWith(session, 'Array', 1);
+      expect(fs.writeFileSync).toHaveBeenCalledWith('/out/Array.gs', '! Array file-out', 'utf8');
+    });
+
+    it('defaults a test class file name to its subject', async () => {
+      messageHandler({ command: 'selectClass', name: 'AccountTestCase' });
+      vi.mocked(window.showSaveDialog).mockResolvedValue(undefined as never);
+
+      await messageHandler({ command: 'ctxFileOutClass' });
+
+      const opts = vi.mocked(window.showSaveDialog).mock.calls[0][0]!;
+      expect((opts.defaultUri as { fsPath: string }).fsPath).toContain('Account.gs');
+    });
+
+    it('does not write a class file-out when the save dialog is cancelled', async () => {
+      messageHandler({ command: 'selectClass', name: 'Array' });
+      vi.mocked(window.showSaveDialog).mockResolvedValue(undefined as never);
+
+      await messageHandler({ command: 'ctxFileOutClass' });
+
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
+
+    it('writes one file per class plus a loader for a dictionary as many files', async () => {
+      vi.mocked(queries.getDictionaryClassFileOutOrder).mockReturnValue(['Object', 'Animal', 'Dog']);
+      vi.mocked(queries.fileOutClass).mockImplementation(
+        (_s, className) => `! ${className} file-out`,
+      );
+      vi.mocked(window.showSaveDialog).mockResolvedValue(Uri.file('/out/UserGlobals.gs') as never);
+
+      await messageHandler({ command: 'ctxFileOutDictionaryMany' });
+
+      expect(fs.writeFileSync).toHaveBeenCalledWith('/out/Object.gs', '! Object file-out', 'utf8');
+      expect(fs.writeFileSync).toHaveBeenCalledWith('/out/Animal.gs', '! Animal file-out', 'utf8');
+      expect(fs.writeFileSync).toHaveBeenCalledWith('/out/Dog.gs', '! Dog file-out', 'utf8');
+      const loader = vi.mocked(fs.writeFileSync).mock.calls
+        .find((c) => c[0] === '/out/UserGlobals.gs')![1];
+      expect(loader).toContain('input Object.gs\ninput Animal.gs\ninput Dog.gs\n');
+    });
+
+    it('files out classes in the order their superclasses require, after forward references', async () => {
+      vi.mocked(queries.getDictionaryClassFileOutOrder).mockReturnValue(['Object', 'Animal', 'Dog']);
+      vi.mocked(queries.fileOutClass).mockImplementation((_s, className) => `! ${className}`);
+      vi.mocked(window.showSaveDialog).mockResolvedValue(Uri.file('/out/UserGlobals.gs') as never);
+
+      await messageHandler({ command: 'ctxFileOutDictionaryMany' });
+
+      const loader = vi.mocked(fs.writeFileSync).mock.calls
+        .find((c) => c[0] === '/out/UserGlobals.gs')![1] as string;
+      expect(loader).toContain("at: #'Dog' put: nil");
+      expect(loader.indexOf('input Object.gs')).toBeGreaterThan(loader.indexOf("at: #'Dog' put: nil"));
+      expect(loader).toContain('input Object.gs\ninput Animal.gs\ninput Dog.gs\n');
+    });
+
+    it('warns and writes nothing when a dictionary has no classes', async () => {
+      vi.mocked(queries.getDictionaryClassFileOutOrder).mockReturnValue([]);
+      vi.mocked(window.showSaveDialog).mockResolvedValue(Uri.file('/out/UserGlobals.gs') as never);
+
+      await messageHandler({ command: 'ctxFileOutDictionaryMany' });
+
+      expect(window.showWarningMessage).toHaveBeenCalled();
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
   });
 
   describe('method category context menu', () => {

@@ -9,6 +9,7 @@ import { getMethodSource as sharedGetMethodSource } from './queries/getMethodSou
 import { getDictionaryNames as sharedGetDictionaryNames } from './queries/getDictionaryNames';
 import { getPoolDictionaryNames as sharedGetPoolDictionaryNames } from './queries/getPoolDictionaryNames';
 import { getClassNames as sharedGetClassNames } from './queries/getClassNames';
+import { getDictionaryClassFileOutOrder as sharedGetDictionaryClassFileOutOrder } from './queries/getDictionaryClassFileOutOrder';
 import { getDictionaryEntries as sharedGetDictionaryEntries } from './queries/getDictionaryEntries';
 import { getGlobalsForDictionary as sharedGetGlobalsForDictionary } from './queries/getGlobalsForDictionary';
 import { getMethodCategories as sharedGetMethodCategories } from './queries/getMethodCategories';
@@ -219,6 +220,12 @@ export function getClassNames(
   session: ActiveSession, dict: number | string,
 ): string[] {
   return sharedGetClassNames(bind(session), dict);
+}
+
+export function getDictionaryClassFileOutOrder(
+  session: ActiveSession, dict: number | string,
+): string[] {
+  return sharedGetDictionaryClassFileOutOrder(bind(session), dict);
 }
 
 export function getDictionaryEntries(

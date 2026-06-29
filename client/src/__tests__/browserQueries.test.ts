@@ -191,6 +191,23 @@ describe('browserQueries', () => {
     });
   });
 
+  describe('getDictionaryClassFileOutOrder', () => {
+    it('returns class names ordered by inheritance depth then name', () => {
+      const session = createMockSession('2\tAnimal\n1\tObject\n3\tDog\n');
+
+      expect(queries.getDictionaryClassFileOutOrder(session, 1)).toEqual(['Object', 'Animal', 'Dog']);
+    });
+
+    it('scopes to a dictionary by 1-based index', () => {
+      const session = createMockSession('');
+      queries.getDictionaryClassFileOutOrder(session, 5);
+
+      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+      const code = mockExec.mock.calls[0][1] as string;
+      expect(code).toContain('symbolList at: 5');
+    });
+  });
+
   describe('getGlobalsForDictionary', () => {
     it('parses tab-separated globals results', () => {
       const payload = '_remoteNil\tUndefinedObject\tremoteNil\nAllUsers\tUserProfileSet\tanUserProfileSet(...)\n';

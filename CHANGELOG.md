@@ -6,6 +6,8 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ### Added
 
+- **File Out from the System Browser.** Right-click a class → **File Out Class…** writes the class's Topaz file-out to a path you choose (a trailing `TestCase` is dropped from the default file name, matching Jade). Right-click a dictionary → **File Out as Many Files…** writes one `.gs` file per class plus a loader file. The loader (following Grail's `install.gs`) first ensures the dictionary exists — creating it at the front of the symbol list, so its names resolve first, when absent — then forward-references every class (`dict at: #Name put: nil`) so methods that reference sibling classes — including circular references — compile against the dictionary association instead of failing on an unknown global, and finally inputs the class files superclass-first so each definition resolves its superclass.
+
 - **Integration test infrastructure for the GCI layer.** A suite of shell scripts (`gs-install.sh`, `gs-start.sh`, `gs-stop.sh`, `gs-reset-extent.sh`, `gs-create-test-env-file.sh`, `gs-test-setup.sh`) automates downloading, installing, and running a local GemStone instance for integration tests; `gs-config.sh` is a shared configuration module sourced by the others. A `useIntegrationTest` vitest helper manages the session lifecycle (login, per-test begin/abort, logout). The CI health-check workflow runs a matrix job over the GemStone versions listed in `client/.gemstone-integration-releases.json`; to test against a new version, add an entry there.
 
   **To run integration tests locally** (Linux or macOS Apple Silicon only):

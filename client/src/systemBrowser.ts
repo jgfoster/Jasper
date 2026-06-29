@@ -70,6 +70,92 @@ export function extractSelector(messagePattern: string): string {
   return trimmed;
 }
 
+// ── File-out planning ────────────────────────────────────────
+
+export interface DictFileOutFile {
+  className: string;
+  fileName: string; // includes the .gs extension
+}
+
+export interface DictFileOutPlan {
+  /** One per-class file, in the order they should be filed back in. */
+  files: DictFileOutFile[];
+  /**
+   * The loader (index) file's contents: a forward-reference block that binds
+   * every class name to nil, followed by a Topaz `input` line per class.
+   */
+  indexContent: string;
+}
+
+// Escape a string for embedding inside a Smalltalk '...' literal.
+function smalltalkString(s: string): string {
+  return s.replace(/'/g, "''");
+}
+
+/**
+ * Plan a "file out dictionary as many files" write: one `.gs` file per class
+ * plus a loader file. `orderedClassNames` must already be in file-in order (a
+ * superclass before its subclasses) so that each class's *definition*
+ * (`<Superclass> subclass: ...`) resolves when read.
+ *
+ * The loader opens with a forward-reference block that first ensures the
+ * dictionary exists — creating it at the front of the symbol list (so its names
+ * resolve first) when absent — then binds every class name to nil so that
+ * *method* bodies referencing sibling classes (including circular references the
+ * load order can't satisfy) compile against the dictionary's association rather
+ * than failing on an unknown global; each class file then replaces its nil with
+ * the real class. This mirrors the dictionary-creation and forward-reference
+ * steps in Grail's install.gs.
+ *
+ * File names collide case-insensitively on case-insensitive filesystems, so a
+ * name already taken (ignoring case) gets a `_` appended until it is unique —
+ * matching Jade's fileOutDictionaryMany.
+ */
+export function planDictionaryFileOut(
+  dictName: string, orderedClassNames: string[],
+): DictFileOutPlan {
+  const used = new Set<string>();
+  const files: DictFileOutFile[] = orderedClassNames.map((className) => {
+    let base = className;
+    while (used.has(base.toUpperCase())) base += '_';
+    used.add(base.toUpperCase());
+    return { className, fileName: `${base}.gs` };
+  });
+
+  if (files.length === 0) return { files, indexContent: '' };
+
+  const escDict = smalltalkString(dictName);
+  const forwardRefs = [
+    '! Forward references: ensure the dictionary exists (creating it at the front',
+    '! of the symbol list so its names resolve first), then bind every class name',
+    '! to nil before loading, so a method that references a sibling class',
+    '! (including a circular reference the load order cannot satisfy) compiles',
+    '! against the dictionary association instead of failing on an unknown global.',
+    '! Each class file below replaces its nil with the real class.',
+    'run',
+    '| dict |',
+    `dict := System myUserProfile symbolList objectNamed: #'${escDict}'.`,
+    'dict isNil ifTrue: [',
+    `\tdict := SymbolDictionary new name: #'${escDict}'; yourself.`,
+    '\tSystem myUserProfile insertDictionary: dict at: 1.',
+    '].',
+    'dict',
+    ...orderedClassNames.map((n) => `\tat: #'${smalltalkString(n)}' put: nil;`),
+    '\tyourself.',
+    '%',
+  ].join('\n');
+  const inputs = files.map((f) => `input ${f.fileName}`).join('\n');
+  const indexContent = `${forwardRefs}\n\n${inputs}\n`;
+  return { files, indexContent };
+}
+
+// Save-dialog file filters for file-out, matching Jade's GemStone/Smalltalk/All.
+const FILE_OUT_FILTERS: Record<string, string[]> = {
+  'GemStone Files': ['gs'],
+  'Smalltalk Files': ['st'],
+  'All Files': ['*'],
+};
+
 // ── SystemBrowser ────────────────────────────────────────────
 
 export class SystemBrowser {
@@ -480,6 +566,12 @@ export class SystemBrowser {
           break;
         case 'ctxMoveClass':
           this.handleMoveClass().catch(e => this.postError(e));
+          break;
+        case 'ctxFileOutClass':
+          this.handleFileOutClass().catch(e => this.postError(e));
+          break;
+        case 'ctxFileOutDictionaryMany':
+          this.handleFileOutDictionaryMany().catch(e => this.postError(e));
           break;
         case 'ctxRunTests':
           this.handleRunTests();
@@ -1217,6 +1309,70 @@ export class SystemBrowser {
 
     this.handleSelectCategory(this.state.selectedCategory || '** ALL CLASSES **');
     vscode.window.showInformationMessage(`Moved ${className} to ${picked.label}.`);
+  }
+
+  // Write `aSelectedClass fileOutClass` to a user-chosen path, mirroring Jade's
+  // System Browser "File Out Class…". The default name drops a trailing
+  // "TestCase" so a test class files out under its subject's name.
+  private async handleFileOutClass(): Promise<void> {
+    const dictIndex = this.state.selectedDictIndex;
+    const className = this.state.selectedClass;
+    if (!dictIndex || !className) return;
+
+    const defaultName = className.endsWith('TestCase')
+      ? className.slice(0, -'TestCase'.length)
+      : className;
+    const uri = await vscode.window.showSaveDialog({
+      title: `File Out ${className}`,
+      defaultUri: this.defaultFileOutUri(`${defaultName}.gs`),
+      filters: FILE_OUT_FILTERS,
+    });
+    if (!uri) return;
+
+    const source = queries.fileOutClass(this.session, className, dictIndex);
+    fs.writeFileSync(uri.fsPath, source, 'utf8');
+    void vscode.window.showTextDocument(uri);
+  }
+
+  // File out every class in the selected dictionary as one `.gs` file per class
+  // plus a loader file of `input` lines, mirroring Jade's "File Out as Many
+  // Files". The chosen path is the loader; the per-class files are written
+  // alongside it. Classes are filed in superclass-first order so the loader
+  // recreates them cleanly.
+  private async handleFileOutDictionaryMany(): Promise<void> {
+    const dictIndex = this.state.selectedDictIndex;
+    if (!dictIndex) return;
+    const dictName = this.state.dictionaries[dictIndex - 1];
+
+    const uri = await vscode.window.showSaveDialog({
+      title: `File Out ${dictName}`,
+      defaultUri: this.defaultFileOutUri(`${dictName}.gs`),
+      filters: FILE_OUT_FILTERS,
+    });
+    if (!uri) return;
+
+    const ordered = queries.getDictionaryClassFileOutOrder(this.session, dictIndex);
+    if (ordered.length === 0) {
+      vscode.window.showWarningMessage(`Dictionary "${dictName}" has no classes to file out.`);
+      return;
+    }
+
+    const plan = planDictionaryFileOut(dictName, ordered);
+    const dir = path.dirname(uri.fsPath);
+    for (const file of plan.files) {
+      const source = queries.fileOutClass(this.session, file.className, dictIndex);
+      fs.writeFileSync(path.join(dir, file.fileName), source, 'utf8');
+    }
+    fs.writeFileSync(uri.fsPath, plan.indexContent, 'utf8');
+    void vscode.window.showInformationMessage(
+      `Filed out ${plan.files.length} class(es) from ${dictName} to ${path.basename(uri.fsPath)}.`,
+    );
+  }
+
+  /** Default save location for a file-out: the given name under the workspace root. */
+  private defaultFileOutUri(fileName: string): vscode.Uri | undefined {
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    return wsRoot ? vscode.Uri.file(path.join(wsRoot, fileName)) : undefined;
   }
 
   /** Resolve a 1-based symbolList index to its dictionary name. */
@@ -2271,8 +2427,10 @@ export class SystemBrowser {
           { separator: true },
           { label: 'Browse References', action: () => vscode.postMessage({ command: 'ctxBrowseReferences', name: item.dataset.value }) },
           { separator: true },
+          { label: 'File Out as Many Files\\u2026', action: () => vscode.postMessage({ command: 'ctxFileOutDictionaryMany' }) },
+          { separator: true },
           { label: 'Run SUnit Tests', action: () => vscode.postMessage({ command: 'ctxRunDictionaryTests' }) }
-          
+
         ] : []),
       ]);
     });
@@ -2301,6 +2459,8 @@ export class SystemBrowser {
           { separator: true },
           { label: 'Delete Class', action: () => vscode.postMessage({ command: 'ctxDeleteClass' }) },
           { label: 'Move to Dictionary\\u2026', action: () => vscode.postMessage({ command: 'ctxMoveClass' }) },
+          { separator: true },
+          { label: 'File Out Class\\u2026', action: () => vscode.postMessage({ command: 'ctxFileOutClass' }) },
           { separator: true },
           { label: 'Browse References', action: () => vscode.postMessage({ command: 'ctxBrowseReferences', name: item.dataset.value }) },
           { label: 'Run SUnit Tests', action: () => vscode.postMessage({ command: 'ctxRunTests' }) },

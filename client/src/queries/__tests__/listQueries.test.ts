@@ -3,6 +3,7 @@ import { QueryExecutor } from '../types';
 import { getDictionaryNames } from '../getDictionaryNames';
 import { getPoolDictionaryNames } from '../getPoolDictionaryNames';
 import { getClassNames } from '../getClassNames';
+import { getDictionaryClassFileOutOrder } from '../getDictionaryClassFileOutOrder';
 import { getMethodCategories } from '../getMethodCategories';
 import { getMethodSelectors } from '../getMethodSelectors';
 import { getInstVarNames } from '../getInstVarNames';
@@ -56,6 +57,40 @@ describe('getClassNames', () => {
   it('returns [] for unknown dictionary names (Smalltalk returns empty)', () => {
     const execute = vi.fn<QueryExecutor>(() => '');
     expect(getClassNames(execute, 'NoSuchDict')).toEqual([]);
+  });
+});
+
+describe('getDictionaryClassFileOutOrder', () => {
+  it('orders shallower classes before deeper ones', () => {
+    const execute = vi.fn<QueryExecutor>(() => '2\tAnimal\n3\tDog\n1\tObject\n');
+    expect(getDictionaryClassFileOutOrder(execute, 1)).toEqual(['Object', 'Animal', 'Dog']);
+  });
+
+  it('breaks depth ties alphabetically', () => {
+    const execute = vi.fn<QueryExecutor>(() => '2\tZebra\n2\tApple\n2\tMango\n');
+    expect(getDictionaryClassFileOutOrder(execute, 1)).toEqual(['Apple', 'Mango', 'Zebra']);
+  });
+
+  it('walks the superclass chain to compute depth', () => {
+    const execute = vi.fn<QueryExecutor>(() => '');
+    getDictionaryClassFileOutOrder(execute, 1);
+    expect(execute.mock.calls[0][1]).toContain('sc := sc superclass');
+  });
+
+  it('embeds dictIndex in the Smalltalk code when given a number', () => {
+    const execute = vi.fn<QueryExecutor>(() => '');
+    getDictionaryClassFileOutOrder(execute, 7);
+    expect(execute.mock.calls[0][1]).toContain('symbolList at: 7');
+  });
+
+  it('uses objectNamed: when given a dictionary name', () => {
+    const execute = vi.fn<QueryExecutor>(() => '');
+    getDictionaryClassFileOutOrder(execute, 'Globals');
+    expect(execute.mock.calls[0][1]).toContain("objectNamed: #'Globals'");
+  });
+
+  it('returns [] for an unknown dictionary', () => {
+    expect(getDictionaryClassFileOutOrder(vi.fn<QueryExecutor>(() => ''), 'NoSuchDict')).toEqual([]);
   });
 });
 
