@@ -185,3 +185,44 @@ describe('DatabaseManager.replaceExtent (copy helper choice)', () => {
     expect(wslCopyFileSync).not.toHaveBeenCalled();
   });
 });
+
+describe('DatabaseManager.createDatabaseDirect', () => {
+  function makeCreateManager(): DatabaseManager {
+    return makeManager({
+      storage: {
+        ensureRootPath: vi.fn(),
+        getRootPath: vi.fn(() => '/root'),
+        getNextDbNumber: vi.fn(() => 1),
+        getGemstonePath: vi.fn(() => '/gs'),
+      },
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(wslExistsSync).mockReturnValue(true);
+  });
+
+  it("copies the product tree's system.conf into the database as default.conf", async () => {
+    await makeCreateManager().createDatabaseDirect('3.7.4', 'extent0', 'gs64stone', 'gs64ldi');
+
+    expect(wslCopyFileSync).toHaveBeenCalledWith('/gs/data/system.conf', '/root/db-1/conf/default.conf');
+  });
+
+  it('points the generated system.conf at the local default.conf copy', async () => {
+    await makeCreateManager().createDatabaseDirect('3.7.4', 'extent0', 'gs64stone', 'gs64ldi');
+
+    const systemConf = vi.mocked(wslWriteFileSync).mock.calls
+      .find((c) => String(c[0]).endsWith('conf/system.conf'))![1];
+    expect(systemConf).toContain('conf/default.conf');
+  });
+
+  it('skips default.conf and still creates the database when the source is absent', async () => {
+    vi.mocked(wslExistsSync).mockImplementation((p: string) => p !== '/gs/data/system.conf');
+
+    const db = await makeCreateManager().createDatabaseDirect('3.7.4', 'extent0', 'gs64stone', 'gs64ldi');
+
+    expect(wslCopyFileSync).not.toHaveBeenCalledWith('/gs/data/system.conf', '/root/db-1/conf/default.conf');
+    expect(db.dirName).toBe('db-1');
+  });
+});

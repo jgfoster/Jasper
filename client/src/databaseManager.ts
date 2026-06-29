@@ -224,7 +224,7 @@ export class DatabaseManager {
 
     // system.conf
     wslWriteFileSync(path.join(dbDir, 'conf', 'system.conf'),
-      `# See $GEMSTONE/data/system.conf for descriptions of these lines.\n` +
+      `# See conf/default.conf (a copy of $GEMSTONE/data/system.conf) for descriptions of these lines.\n` +
       `# In general, this file should not be edited.\n` +
       `# You may customize the stone config file (stonename.conf) or gem.conf\n\n` +
       `DBF_EXTENT_NAMES = "${confPath}/data/extent0.dbf";\n` +
@@ -238,6 +238,17 @@ export class DatabaseManager {
     const keySource = path.join(gsPath, 'sys', 'community.starter.key');
     if (wslExistsSync(keySource)) {
       wslCopyFileSync(keySource, path.join(dbDir, 'conf', 'gemstone.key'));
+    }
+
+    // Copy the product tree's system.conf as default.conf so the documented
+    // default configuration values sit alongside the database, rather than
+    // buried in the GemStone install directory.
+    progress?.report({ message: 'Copying default configuration...' });
+    const defaultConfSource = path.join(gsPath, 'data', 'system.conf');
+    if (wslExistsSync(defaultConfSource)) {
+      wslCopyFileSync(defaultConfSource, path.join(dbDir, 'conf', 'default.conf'));
+    } else {
+      appendSysadmin(`default.conf not created: ${defaultConfSource} not found`);
     }
 
     progress?.report({ message: 'Copying base extent (this may take a moment)...' });

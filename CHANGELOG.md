@@ -6,6 +6,8 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ### Added
 
+- **`default.conf` in new databases.** Creating a database now copies the product tree's `$GEMSTONE/data/system.conf` into the new database's `conf/` folder as `default.conf`, so the documented default configuration values are visible alongside the database without navigating into the GemStone install directory. The generated `system.conf` points at this local copy, and the step is skipped gracefully if the source is missing.
+
 - **Enhanced Debugger: inline variable values in the source pane.** An
   **Inline values: on/off** toggle (a CodeLens at the top of the source pane)
   annotates the code with each in-scope variable's value — dimmed, inlay-hint-styled
