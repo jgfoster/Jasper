@@ -128,6 +128,7 @@ import {
   flattenLayoutLeaves, sourceRatioFromLayout, setSourceRatioInLayout, EditorGroupLayout,
   formatDetailedStack, stackDumpFileName, stackDumpTimestamp, DetailedStackFrame,
   computeInlineValueLines, shortenInlineValue, maskCommentsAndStrings, InlineVar,
+  inlineHoverMarkdown,
 } from '../debuggerPanel';
 import { InlineValuesCodeLensProvider } from '../inlineValuesCodeLens';
 import { wrapWithTranscriptCapture, TRANSCRIPT_CAPTURE_PREFIX } from '../transcriptCapture';
@@ -1389,6 +1390,289 @@ describe('DebuggerPanel', () => {
 
       // …and dropped on a clean dispose, so the next launch has nothing to reap.
       expect((memento.get(ORPHAN_KEY) as string[] | undefined) ?? []).not.toContain(uri);
+    });
+
+    // ── Double-click-to-edit inline values (#5 Phase 2) ───────────────────
+    // Double-clicking an editable variable's name in the source (overlay on) opens
+    // its set-value prompt — a direct selection handler, since hover command-links
+    // don't fire in all hosts. A double-click selects the word; a single click
+    // leaves an empty selection (the cursor, kept for Run to Cursor). These poke the
+    // live panel's overlay state and fire the constructor-registered handler.
+    describe('inline-value double-click-to-edit (#5 Phase 2)', () => {
+      function liveInstance(): {
+        sourceEditor: unknown;
+        inlineValuesEnabled: boolean;
+        inlineHoverLevel: number | undefined;
+        inlineEditableByName: Map<string, { kind: 'instvar' | 'temp'; index: number }>;
+      } {
+        const panels = (DebuggerPanel as unknown as { panels: Map<number, Set<unknown>> }).panels;
+        const all = [...panels.values()].flatMap(s => [...s]);
+        return all[all.length - 1] as never;
+      }
+
+      // The selection-change handler the panel registered in its constructor.
+      function lastSelectionHandler(): (e: unknown) => void {
+        const calls = vi.mocked(vscode.window.onDidChangeTextEditorSelection).mock.calls;
+        return calls[calls.length - 1][0] as (e: unknown) => void;
+      }
+
+      // A source editor whose selected text is `word`, shown at `uri`.
+      function editorWithWord(word: string, uri = 'gemstone-debug://1/Acct/instance/x/readFrom') {
+        return { document: { uri: vscode.Uri.parse(uri), getText: vi.fn(() => word) } };
+      }
+
+      // Wire a panel for click-to-edit: `year` is an editable temp (write index 2).
+      function setup(opts: { word?: string; enabled?: boolean; busy?: boolean } = {}) {
+        DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+        const handler = lastSelectionHandler();
+        const editor = editorWithWord(opts.word ?? 'year');
+        const inst = liveInstance();
+        inst.sourceEditor = editor;
+        inst.inlineValuesEnabled = opts.enabled ?? true;
+        inst.inlineHoverLevel = 3;
+        inst.inlineEditableByName = new Map([['year', { kind: 'temp', index: 2 }]]);
+        if (opts.busy) (inst as unknown as { nbBusy: boolean }).nbBusy = true;
+        return { handler, editor };
+      }
+
+      // A mouse selection event. empty:false (default) = a double-click word
+      // selection; empty:true = a single-click cursor.
+      function select(editor: unknown, over: { kind?: number; empty?: boolean; editor?: unknown } = {}) {
+        return {
+          kind: over.kind ?? vscode.TextEditorSelectionChangeKind.Mouse,
+          textEditor: 'editor' in over ? over.editor : editor,
+          selections: [{ isEmpty: over.empty ?? false }],
+        };
+      }
+
+      it('opens the prompt and writes when an editable variable is double-clicked', async () => {
+        const { handler, editor } = setup();
+        vi.mocked(vscode.window.showInputBox).mockResolvedValueOnce('99');
+        vi.mocked(debug.evaluateInFrameToOop).mockReturnValueOnce(990n);
+
+        handler(select(editor));
+        await tick();
+
+        expect(vscode.window.showInputBox).toHaveBeenCalled();
+        expect(debug.setFrameTemp).toHaveBeenCalledWith(session, GS_PROCESS, 3, 2, 990n);
+      });
+
+      it('writes nothing when the prompt is cancelled', async () => {
+        const { handler, editor } = setup();
+        vi.mocked(vscode.window.showInputBox).mockResolvedValueOnce(undefined); // Esc
+
+        handler(select(editor));
+        await tick();
+
+        expect(debug.evaluateInFrameToOop).not.toHaveBeenCalled();
+        expect(debug.setFrameTemp).not.toHaveBeenCalled();
+      });
+
+      it('writes nothing when the entered expression is blank', async () => {
+        const { handler, editor } = setup();
+        vi.mocked(vscode.window.showInputBox).mockResolvedValueOnce('   ');
+
+        handler(select(editor));
+        await tick();
+
+        expect(debug.evaluateInFrameToOop).not.toHaveBeenCalled();
+        expect(debug.setFrameTemp).not.toHaveBeenCalled();
+      });
+
+      it('surfaces a rejected expression as an error message', async () => {
+        const { handler, editor } = setup();
+        vi.mocked(vscode.window.showInputBox).mockResolvedValueOnce('bogus +');
+        vi.mocked(debug.evaluateInFrameToOop).mockImplementationOnce(() => { throw new Error('a parse error'); });
+
+        handler(select(editor));
+        await tick();
+
+        expect(debug.setFrameTemp).not.toHaveBeenCalled();
+        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining('a parse error'));
+      });
+
+      it('refuses (no prompt) while a non-blocking step holds the session', async () => {
+        const { handler, editor } = setup({ busy: true });
+
+        handler(select(editor));
+        await tick();
+
+        expect(vscode.window.showInputBox).not.toHaveBeenCalled();
+        expect(debug.setFrameTemp).not.toHaveBeenCalled();
+      });
+
+      it('does nothing when the double-clicked word is not an editable variable', async () => {
+        const { handler, editor } = setup({ word: 'asInteger' });
+
+        handler(select(editor));
+        await tick();
+
+        expect(vscode.window.showInputBox).not.toHaveBeenCalled();
+      });
+
+      it('leaves a single click alone (empty selection = the cursor for Run to Cursor)', async () => {
+        const { handler, editor } = setup();
+
+        handler(select(editor, { empty: true }));
+        await tick();
+
+        expect(vscode.window.showInputBox).not.toHaveBeenCalled();
+      });
+
+      it('ignores a keyboard selection (only a mouse double-click edits)', async () => {
+        const { handler, editor } = setup();
+
+        handler(select(editor, { kind: vscode.TextEditorSelectionChangeKind.Keyboard }));
+        await tick();
+
+        expect(vscode.window.showInputBox).not.toHaveBeenCalled();
+      });
+
+      it('does nothing while the inline overlay is off', async () => {
+        const { handler, editor } = setup({ enabled: false });
+
+        handler(select(editor));
+        await tick();
+
+        expect(vscode.window.showInputBox).not.toHaveBeenCalled();
+      });
+
+      it('ignores selections in an editor other than the source pane', async () => {
+        const { handler } = setup();
+
+        handler(select(undefined,
+          { editor: editorWithWord('year', 'gemstone-debug://1/Acct/instance/x/somethingElse') }));
+        await tick();
+
+        expect(vscode.window.showInputBox).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  // The inline value+pencil is served by a registered HoverProvider (via the
+  // static `provideInlineHover`), NOT the decoration's `hoverMessage` — command
+  // links only fire from provider hovers. These poke the live panel's overlay
+  // state directly (the map is normally filled by updateInlineValues from a real
+  // source editor, which the headless editor mock can't supply).
+  describe('inline-value hover provider (#5 Phase 2)', () => {
+    // The most-recently-created live DebuggerPanel instance (held in the static
+    // registry), so a test can seed its inline-overlay state.
+    function liveInstance(): {
+      shownSourceUris: Set<string>;
+      sourceEditor: unknown;
+      inlineValuesEnabled: boolean;
+      inlineHoverByLine: Map<number, InlineVar[]>;
+      inlineHoverLevel: number | undefined;
+    } {
+      const panels = (DebuggerPanel as unknown as { panels: Map<number, Set<unknown>> }).panels;
+      const all = [...panels.values()].flatMap(s => [...s]);
+      return all[all.length - 1] as never;
+    }
+
+    // Seed a fresh panel's overlay for a UNIQUE source URI (so `panelForSourceUri`
+    // resolves to this test's panel, not an undisposed one another test left in the
+    // static registry). Returns the URI to hover. `sourceTag` overrides the panel's
+    // CURRENT source (to exercise the stale-document guard).
+    function seedOverlay(
+      tag: string, vars: InlineVar[], opts: { enabled?: boolean; sourceTag?: string } = {},
+    ): string {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const uri = `gemstone-debug://1/Acct/instance/accessing/${tag}`;
+      const inst = liveInstance();
+      inst.shownSourceUris.add(uri);
+      const sourceUri = opts.sourceTag ? `gemstone-debug://1/Acct/instance/accessing/${opts.sourceTag}` : uri;
+      inst.sourceEditor = { document: { uri: vscode.Uri.parse(sourceUri) } };
+      inst.inlineValuesEnabled = opts.enabled ?? true;
+      inst.inlineHoverLevel = 3;
+      inst.inlineHoverByLine = new Map([[7, vars]]);
+      return uri;
+    }
+
+    it('serves the value and a double-click-to-edit hint for an annotated line of the live source', () => {
+      const uri = seedOverlay('serve',
+        [{ name: 'year', value: '2021', full: '2021', edit: { kind: 'temp', index: 2 } }]);
+
+      const md = DebuggerPanel.provideInlineHover(uri, 7);
+
+      expect(md?.value).toContain('**year** = 2021');
+      expect(md?.value).toContain('Double-click the variable name'); // edit hint, not a (dead) command-link
+    });
+
+    it('omits the edit hint for a read-only variable (self)', () => {
+      const uri = seedOverlay('selfRo', [{ name: 'self', value: 'an Acct', full: 'an Acct' }]);
+
+      const md = DebuggerPanel.provideInlineHover(uri, 7);
+
+      expect(md?.value).toBe('**self** = an Acct');
+      expect(md?.value).not.toContain('command:');
+    });
+
+    it('returns nothing when the inline overlay is off', () => {
+      const uri = seedOverlay('off',
+        [{ name: 'year', value: '2021', full: '2021', edit: { kind: 'temp', index: 2 } }],
+        { enabled: false });
+
+      expect(DebuggerPanel.provideInlineHover(uri, 7)).toBeUndefined();
+    });
+
+    it('returns nothing for a line with no annotated variable', () => {
+      const uri = seedOverlay('noVar',
+        [{ name: 'year', value: '2021', full: '2021', edit: { kind: 'temp', index: 2 } }]);
+
+      expect(DebuggerPanel.provideInlineHover(uri, 99)).toBeUndefined();
+    });
+
+    it('returns nothing when the hovered document is not the panel’s live source', () => {
+      // The overlay was computed for this URI, but the panel now shows a different
+      // source — a stale map must not mislabel the other document.
+      const uri = seedOverlay('hovered',
+        [{ name: 'year', value: '2021', full: '2021', edit: { kind: 'temp', index: 2 } }],
+        { sourceTag: 'nowShowingOther' });
+
+      expect(DebuggerPanel.provideInlineHover(uri, 7)).toBeUndefined();
+    });
+
+    // The white-box tests above seed the overlay maps by hand; this one drives the
+    // REAL updateInlineValues against a source editor so the population path itself
+    // (frame vars → editable-by-name + per-line hover + decoration) is covered.
+    it('updateInlineValues fills the editable + hover maps from the frame’s variables', () => {
+      vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
+        level === 3
+          ? [
+            { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
+            { group: 'argtemps', name: 'year', value: '<print 2021>', oop: '2021', index: 1 },
+          ]
+          : [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const inst = liveInstance() as never as {
+        shownSourceUris: Set<string>; sourceEditor: unknown; inlineValuesEnabled: boolean;
+        inlineEditableByName: Map<string, { kind: string; index: number }>;
+        updateInlineValues(editor: unknown, level: number): void;
+      };
+      const uri = 'gemstone-debug://1/Acct/instance/x/popMap';
+      const src = '^year + 1';
+      const editor = {
+        document: {
+          uri: vscode.Uri.parse(uri),
+          getText: () => src,
+          lineAt: (n: number) => ({ range: new vscode.Range(n, 0, n, src.length) }),
+        },
+        setDecorations: vi.fn(),
+      };
+      inst.shownSourceUris.add(uri);
+      inst.sourceEditor = editor;
+      inst.inlineValuesEnabled = true;
+
+      inst.updateInlineValues(editor, 3);
+
+      // The editable temp `year` (server write index 1) is indexed by name…
+      expect(inst.inlineEditableByName.get('year')).toEqual({ kind: 'temp', index: 1 });
+      // …a decoration was rendered…
+      expect(editor.setDecorations).toHaveBeenCalled();
+      // …and the hover provider now serves `year`'s value on its line.
+      const hover = DebuggerPanel.provideInlineHover(uri, 0)?.value ?? '';
+      expect(hover).toContain('**year**');
+      expect(hover).toContain('2021');
     });
   });
 
@@ -4014,6 +4298,44 @@ describe('computeInlineValueLines', () => {
     const v: InlineVar[] = [{ name: 'amount', value: '9', full: '9' }];
     const overlay = computeInlineValueLines(lines, v, { perLine: true });
     expect(overlay.map(o => o.line)).toEqual([1]);
+  });
+});
+
+describe('inlineHoverMarkdown (#5 Phase 2 — the inline-value hover)', () => {
+  it('shows each variable as a bold name and its full (un-truncated) value', () => {
+    const md = inlineHoverMarkdown(
+      [{ name: 'balance', value: 'an Ord…', full: 'an OrderedCollection(1 2 3)' }],
+    );
+    expect(md).toContain('**balance**');
+    expect(md).toContain('= an OrderedCollection(1 2 3)'); // the full value, not the truncated one
+  });
+
+  it('hints that an editable variable is set by double-clicking its name', () => {
+    const md = inlineHoverMarkdown(
+      [{ name: 'amount', value: '75', full: '75', edit: { kind: 'temp', index: 2 } }],
+    );
+    expect(md).toContain('**amount** = 75');
+    expect(md).toContain('Double-click the variable name'); // the double-click-to-edit hint
+  });
+
+  it('escapes markdown-significant characters in the value so it renders verbatim', () => {
+    const md = inlineHoverMarkdown([{ name: 'x', value: 'evil', full: '`[a]`*b*' }]);
+    expect(md).toContain('\\`\\[a\\]\\`\\*b\\*'); // backticks/brackets/asterisks escaped
+  });
+
+  it('omits the click hint for a read-only-only hover (no editable variable)', () => {
+    const md = inlineHoverMarkdown([{ name: 'self', value: 'an Account', full: 'an Account' }]);
+    expect(md).toBe('**self** = an Account'); // no hint, no affordance
+  });
+
+  it('shows the hint once when a line mixes an editable and a read-only variable', () => {
+    const md = inlineHoverMarkdown([
+      { name: 'self', value: 'an Account', full: 'an Account' },
+      { name: 'count', value: '7', full: '7', edit: { kind: 'instvar', index: 1 } },
+    ]);
+    expect(md).toContain('**self** = an Account');
+    expect(md).toContain('**count** = 7');
+    expect(md.match(/Double-click the variable name/g)).toHaveLength(1); // hint appears exactly once
   });
 });
 

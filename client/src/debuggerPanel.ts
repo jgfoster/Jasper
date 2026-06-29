@@ -255,6 +255,13 @@ export interface InlineVar {
   value: string;
   /** Full printString, shown on hover (un-truncated, may be multi-line). */
   full: string;
+  /**
+   * When present, this var is editable in-frame from the hover overlay (a `$(edit)`
+   * command-link → `gemstone.editInlineValue`), exactly like its row in the
+   * Variables pane. Carries the server write target — same `{kind,index}` as the
+   * pane's `VarRow.edit`. Absent for `self` and the synthetic `.tN` stack temps.
+   */
+  edit?: { kind: 'instvar' | 'temp'; index: number };
 }
 
 /** One source line's inline overlay: the rendered text + per-var hover parts. */
@@ -430,6 +437,28 @@ export function computeInlineValueLines(
     label: h.vars.map(v => `${v.name} = ${v.value}`).join(INLINE_VALUE_SEP),
     padCh: Math.max(INLINE_VALUE_GAP, targetCol - lines[h.line].length),
   }));
+}
+
+/**
+ * The hover markdown for one inline-overlay line: a `**name** = value` part per
+ * variable, joined one-per-line. Each *editable* var (#5 Phase 2) gets a `$(edit)`
+ * pencil command-link beside its name that opens the same set-value prompt as the
+ * Variables pane — `self` and the synthetic stack temps carry no `edit`, so they
+ * get no pencil and stay read-only. The link encodes `[uri, serverLevel, kind,
+ * index, name]`; the caller marks the `MarkdownString` trusted for the single
+ * `gemstone.editInlineValue` command (and enables codicons).
+ */
+export function inlineHoverMarkdown(vars: InlineVar[]): string {
+  // Escape markdown-significant chars in the (server-supplied) printString so it
+  // renders verbatim rather than as accidental markup.
+  const safe = (s: string): string => s.replace(/[\\[\]`*_<>]/g, '\\$&');
+  const body = vars.map(v => `**${v.name}** = ${safe(v.full)}`).join('  \n');
+  // Editing in the source is by double-clicking the variable's name (command-links
+  // in hovers don't fire in all hosts, so the hover only hints — it isn't the
+  // trigger). The hint shows only when something on this line is editable.
+  return vars.some(v => v.edit)
+    ? `${body}\n\n_Double-click the variable name to set its value._`
+    : body;
 }
 
 /** Minimal HTML-escape for interpolating session text into the page. */
@@ -984,6 +1013,21 @@ export class DebuggerPanel {
   /** The editor currently carrying the inline-value overlay, if any. */
   private inlineDecoratedEditor: vscode.TextEditor | undefined;
   /**
+   * The current overlay's per-line variables and frame, so the inline-value
+   * HoverProvider (#5 Phase 2) can serve the value+edit-pencil hover on demand.
+   * A registered HoverProvider is used rather than the decoration's `hoverMessage`
+   * because command-links only fire from provider hovers, not decoration hovers.
+   */
+  private inlineHoverByLine = new Map<number, InlineVar[]>();
+  private inlineHoverLevel: number | undefined;
+  /**
+   * Editable in-scope variables for the shown frame, keyed by source name → write
+   * target. Drives click-to-edit: while the overlay is on, a mouse click on one of
+   * these names in the source opens its set-value prompt. Built in
+   * `updateInlineValues`; empty when the overlay is off (so clicks behave normally).
+   */
+  private inlineEditableByName = new Map<string, { kind: 'instvar' | 'temp'; index: number }>();
+  /**
    * The selected frame's variable groups, cached so toggling the inline overlay
    * (or its mode) re-renders from memory instead of re-running N blocking
    * getObjectPrintString round-trips per click. Keyed by server level; dropped
@@ -1200,6 +1244,37 @@ export class DebuggerPanel {
       null,
       this.disposables,
     );
+    // Double-click-to-edit (#5 Phase 2): double-clicking an editable variable's
+    // name in the companion source (while the inline overlay is on) opens its
+    // set-value prompt — a direct selection handler, since hover command-links
+    // don't fire here. A single click is left alone (cursor / Run to Cursor).
+    vscode.window.onDidChangeTextEditorSelection(
+      (e) => this.onSourceSelectionChanged(e),
+      null,
+      this.disposables,
+    );
+  }
+
+  /**
+   * Double-click-to-edit handler: a double-click selects the whole word, so when
+   * the mouse selects an editable in-scope variable's name in this panel's source
+   * pane (overlay on), open that variable's set-value prompt. A single click
+   * leaves an EMPTY selection and is ignored — the cursor stays put for normal
+   * navigation and Run to Cursor (#2).
+   */
+  private onSourceSelectionChanged(e: vscode.TextEditorSelectionChangeEvent): void {
+    if (e.kind !== vscode.TextEditorSelectionChangeKind.Mouse) return; // mouse, not keyboard
+    if (!this.inlineValuesEnabled || this.inlineHoverLevel === undefined) return;
+    // Compare by document URI, not editor identity — VS Code can hand back a
+    // different TextEditor instance for the same view, which a `!==` would miss.
+    const uri = this.sourceEditor?.document.uri.toString();
+    if (uri === undefined || e.textEditor.document.uri.toString() !== uri) return;
+    const sel = e.selections[0];
+    if (!sel || sel.isEmpty) return;                                   // single click → leave the cursor
+    const word = e.textEditor.document.getText(sel);                   // the double-clicked word
+    const edit = this.inlineEditableByName.get(word);
+    if (!edit) return;                                                 // not an editable variable
+    void this.editInlineValue(this.inlineHoverLevel, edit.kind, edit.index, word);
   }
 
   private handleMessage(msg: DebuggerInbound): void {
@@ -2103,6 +2178,27 @@ export class DebuggerPanel {
       this.panel.webview.postMessage({ command: 'setVariableResult', ok: false, error: 'Busy — try again' });
       return;
     }
+    const result = this.writeVariableInFrame(serverLevel, kind, index, expr);
+    // Success → the host's `postVariables` (inside the write) already re-rendered
+    // the pane, which removes the open editor; this ok just confirms it. Failure →
+    // keep the editor open and flag the error on it so the expression can be fixed.
+    this.panel.webview.postMessage(result.ok
+      ? { command: 'setVariableResult', ok: true }
+      : { command: 'setVariableResult', ok: false, error: result.error });
+  }
+
+  /**
+   * The shared variable write: evaluate `expr` in the frame, capture+pin the
+   * slot's original (for revert), write the new OOP into the instVar / temp, then
+   * refresh the Variables pane and inline overlay. Returns `{ ok }` so each caller
+   * surfaces failures its own way — the webview pane flags the inline editor
+   * (`setVariableResult`), the source-pane inline edit shows an error toast (it has
+   * no webview). On failure nothing is written and the pane is NOT re-rendered (so
+   * the pane's editor stays open). Callers must guard `nbBusy` first.
+   */
+  private writeVariableInFrame(
+    serverLevel: number, kind: 'instvar' | 'temp', index: number, expr: string,
+  ): { ok: boolean; error?: string } {
     try {
       const valueOop = debug.evaluateInFrameToOop(this.session, this.gsProcess, expr, serverLevel);
       const info = debug.getFrameInfo(this.session, this.gsProcess, serverLevel);
@@ -2115,16 +2211,64 @@ export class DebuggerPanel {
         debug.setFrameTemp(this.session, this.gsProcess, serverLevel, index, valueOop);
       }
       this.undoDirty.add(this.undoKey(serverLevel, kind, index));
-      this.panel.webview.postMessage({ command: 'setVariableResult', ok: true });
       this.invalidateVariablesCache(); // the slot points at a new object — re-fetch
       this.postVariables(serverLevel);
       // The slot now points at a new object — refresh the inline overlay so its
       // value (and hover) track, just like the Variables pane.
       if (this.sourceEditor) this.updateInlineValues(this.sourceEditor, serverLevel);
+      return { ok: true };
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : String(e);
       logError(this.sessionId, error);
-      this.panel.webview.postMessage({ command: 'setVariableResult', ok: false, error });
+      return { ok: false, error };
+    }
+  }
+
+  /**
+   * Edit an inline-overlay variable from its hover `$(edit)` pencil (#5 Phase 2):
+   * prompt for a new value (prefilled with the current printString, like the
+   * Variables pane's inline editor), then route through the shared
+   * `writeVariableInFrame` — so the pane, the inline overlay, undo/revert and the
+   * GC-pin all update exactly as a pane edit does. The source pane has no webview,
+   * so a rejected expression surfaces as an error toast. Resolved from the hover
+   * command args by `editInlineValueForUri`.
+   */
+  private async editInlineValue(
+    serverLevel: number, kind: 'instvar' | 'temp', index: number, name: string,
+  ): Promise<void> {
+    try {
+      if (this.nbBusy) { this.notifyBusy('Set variable'); return; }
+      // Prefill with the current printString (like the pane), but never let a
+      // failed prefetch abort the edit — fall back to an empty box.
+      let prefill = '';
+      try {
+        prefill = this.inlineVarsForFrame(serverLevel)
+          .find(v => v.name === name && v.edit?.kind === kind && v.edit?.index === index)?.full ?? '';
+      } catch (e: unknown) {
+        logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      }
+      const expr = await vscode.window.showInputBox({
+        title: `Set ${name}`,
+        prompt: `New value for ${name} — evaluated in the selected frame`,
+        value: prefill,
+        ignoreFocusOut: true,
+      });
+      if (expr === undefined) return; // cancelled (Esc / focus-out off)
+      const trimmed = expr.trim();
+      if (trimmed === '') return; // empty → no-op, matching the pane's editor
+      // The prompt is modeless; re-check before the blocking write in case a
+      // step/trim claimed the session while it was open.
+      if (this.nbBusy) { this.notifyBusy('Set variable'); return; }
+      const result = this.writeVariableInFrame(serverLevel, kind, index, trimmed);
+      if (!result.ok) {
+        void vscode.window.showErrorMessage(`Could not set ${name}: ${result.error}`);
+      }
+    } catch (e: unknown) {
+      // A throw here would otherwise be a silent unhandled rejection (the command
+      // is invoked via `void`), which reads as "the pencil does nothing".
+      const msg = e instanceof Error ? e.message : String(e);
+      logError(this.sessionId, msg);
+      void vscode.window.showErrorMessage(`Jasper: inline edit of ${name} failed: ${msg}`);
     }
   }
 
@@ -2889,6 +3033,9 @@ export class DebuggerPanel {
     }
     if (!this.inlineValuesEnabled) {
       editor.setDecorations(DebuggerPanel.inlineValueDecoration, []);
+      this.inlineHoverByLine.clear();
+      this.inlineEditableByName.clear();
+      this.inlineHoverLevel = undefined;
       return;
     }
     try {
@@ -2898,14 +3045,18 @@ export class DebuggerPanel {
         perLine: this.inlineValuesPerLine,
         signatureLine: this.shownFrameIsMethod,
       });
+      // Record this frame's overlay so the HoverProvider can serve the full-value
+      // hover for a hovered line (the decoration carries only the rendered `after`
+      // text). Also index the editable variables by name for click-to-edit.
+      this.inlineHoverByLine = new Map(overlay.map(o => [o.line, o.vars]));
+      this.inlineEditableByName = new Map(
+        vars.filter(v => v.edit).map(v => [v.name, v.edit!]),
+      );
+      this.inlineHoverLevel = serverLevel;
       const decorations: vscode.DecorationOptions[] = overlay.map(o => {
         const line = editor.document.lineAt(o.line);
-        const hover = new vscode.MarkdownString(
-          o.vars.map(v => `**${v.name}** = ${v.full}`).join('  \n'),
-        );
         return {
           range: new vscode.Range(line.range.end, line.range.end),
-          hoverMessage: hover,
           // `padCh` left-pads each annotation so they align in one right-hand
           // column, out of the way of the code (see computeInlineValueLines).
           renderOptions: { after: { contentText: o.label, margin: `0 0 0 ${o.padCh}ch` } },
@@ -2916,6 +3067,31 @@ export class DebuggerPanel {
     } catch (e: unknown) {
       logError(this.sessionId, e instanceof Error ? e.message : String(e));
     }
+  }
+
+  /**
+   * The inline-value hover for `line` of the source `uriStr`: each variable's full
+   * (un-truncated) printString, plus a hint that editable ones can be set by
+   * clicking their name. Undefined when the overlay is off, the hovered document
+   * isn't this panel's live source, or the line has no annotated variable.
+   */
+  private inlineHoverForLine(uriStr: string, line: number): vscode.MarkdownString | undefined {
+    if (!this.inlineValuesEnabled || this.inlineHoverLevel === undefined) return undefined;
+    // Only answer for the source the overlay was computed against, so a stale
+    // (other-frame) map can't mislabel a different document.
+    if (this.sourceEditor?.document.uri.toString() !== uriStr) return undefined;
+    const vars = this.inlineHoverByLine.get(line);
+    if (!vars || vars.length === 0) return undefined;
+    return new vscode.MarkdownString(inlineHoverMarkdown(vars));
+  }
+
+  /**
+   * HoverProvider entry point (#5 Phase 2): the inline-value hover for a hovered
+   * source line, resolved to the panel showing that source. Returns undefined when
+   * no live panel owns the document or it has nothing to show on that line.
+   */
+  static provideInlineHover(uriStr: string, line: number): vscode.MarkdownString | undefined {
+    return DebuggerPanel.panelForSourceUri(uriStr)?.inlineHoverForLine(uriStr, line);
   }
 
   /**
@@ -2930,7 +3106,7 @@ export class DebuggerPanel {
     for (const group of this.variablesForFrame(serverLevel)) {
       if (group.kind === 'stacktemps') continue;
       for (const v of group.vars) {
-        vars.push({ name: v.name, value: shortenInlineValue(v.value), full: v.value });
+        vars.push({ name: v.name, value: shortenInlineValue(v.value), full: v.value, edit: v.edit });
       }
     }
     return vars;
