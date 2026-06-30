@@ -295,7 +295,66 @@
    * editor and highlight the current line.
    */
   function init(refs, vscode) {
-    const { list, menu, copyFrameItem, homeFrameItem, frameImplItem, copyBtn, dumpBtn, saveNotice, savePath, copyPathBtn, error, flash, dnuBar, toolbar, runToCursorBtn, variables, evalInput, evalResult, main, splitter, hsplitter, evalbar, varMenu, varInspectItem } = refs;
+    const { list, menu, copyFrameItem, browseFrameItem, homeFrameItem, frameImplItem, copyBtn, dumpBtn, saveNotice, savePath, copyPathBtn, error, flash, dnuBar, toolbar, runToCursorBtn, variables, evalInput, evalResult, main, splitter, hsplitter, evalbar, varMenu, varInspectItem, busyOverlay, busyCancel } = refs;
+    // Progress indicator (#9). A blocking GCI call FREEZES the extension host, and
+    // postMessage delivery needs that event loop — so the host cannot tell us "I'm
+    // busy" while it's busy (the on/off pair would arrive together, after the work).
+    // Instead the WEBVIEW drives it: when we send a server-bound request we start a
+    // reveal timer HERE (this is a separate process, so the timer fires and the CSS
+    // spinner animates even while the host is frozen). We hide it when the host's
+    // response lands. The timer's delay means fast round-trips never flash.
+    const BUSY_DELAY_MS = 500;
+    // Outbound commands that make the host do a server round-trip and then post a
+    // reply back. Local-only commands (copyText/saveLayout/dump/terminate/etc.) and
+    // ops with no webview reply (inspectVariable) are intentionally excluded.
+    const SERVER_BOUND = {
+      ready: 1, selectFrame: 1, evalInFrame: 1, stepOver: 1, stepInto: 1,
+      stepThrough: 1, restartFrame: 1, setVariable: 1, revertVariable: 1,
+      runToCursor: 1, resume: 1, createDnuMethod: 1,
+    };
+    let busyTimer = null;       // reveal-delay timer; non-null ⇒ a span is pending/shown
+    let busyActive = false;     // a server request is in flight (timer pending or shown)
+    let busyCancellable = false; // the running op can be cancelled (host said so)
+    let busyShown = false;       // the spinner is currently revealed
+    function showBusyOverlay(on) {
+      busyShown = on;
+      if (document.body) document.body.classList.toggle('busy', on);
+      if (busyOverlay) busyOverlay.style.display = on ? '' : 'none';
+      // The Cancel button rides the spinner, but only for cancellable ops — so it
+      // never shows for a blocking op the host couldn't actually interrupt.
+      if (busyCancel) busyCancel.style.display = (on && busyCancellable) ? '' : 'none';
+    }
+    function beginBusy() {
+      if (busyActive) return; // already in a span; keep the existing reveal timer
+      busyActive = true;
+      busyTimer = setTimeout(function () { busyTimer = null; showBusyOverlay(true); }, BUSY_DELAY_MS);
+    }
+    function endBusy() {
+      busyActive = false;
+      busyCancellable = false;
+      if (busyTimer != null) { clearTimeout(busyTimer); busyTimer = null; }
+      showBusyOverlay(false);
+      if (busyCancel) busyCancel.textContent = 'Cancel'; // reset for the next op
+    }
+    function applyBusy(on) { if (on) beginBusy(); else endBusy(); }
+    // Host tells us the in-flight op can be cancelled → reveal Cancel if the
+    // spinner is already up (else showBusyOverlay picks it up when it reveals).
+    function setCancellable(on) {
+      busyCancellable = on;
+      if (busyShown && busyCancel) busyCancel.style.display = on ? '' : 'none';
+    }
+    if (busyCancel) {
+      busyCancel.addEventListener('click', function () {
+        // Each click escalates host-side: first = soft break, second = hard break.
+        vscode.postMessage({ command: 'cancelOp' });
+        busyCancel.textContent = 'Cancelling… (click again to force)';
+      });
+    }
+    // Single send path: starts the busy span for server-bound requests, then posts.
+    function post(msg) {
+      if (msg && SERVER_BOUND[msg.command]) beginBusy();
+      vscode.postMessage(msg);
+    }
     let dumpedPath = null; // the last-dumped file path, for the Copy-path button
     let saveNoticeTimer = null;
     const COPY_GLYPH = copyPathBtn ? copyPathBtn.textContent : '';
@@ -330,10 +389,10 @@
         showMenu(varMenu, e.clientX, e.clientY);
       },
       commit: function (edit, expr) {
-        vscode.postMessage({ command: 'setVariable', level: selectedLevel, kind: edit.kind, index: edit.index, expr: expr });
+        post({ command: 'setVariable', level: selectedLevel, kind: edit.kind, index: edit.index, expr: expr });
       },
       revert: function (edit) {
-        vscode.postMessage({ command: 'revertVariable', level: selectedLevel, kind: edit.kind, index: edit.index });
+        post({ command: 'revertVariable', level: selectedLevel, kind: edit.kind, index: edit.index });
       },
       setActiveEditor: setActiveVarEditor,
     };
@@ -356,7 +415,7 @@
       selectFrame(list, level);
       selectedLevel = level;
       updateRunToCursor(level);
-      vscode.postMessage({ command: 'selectFrame', level });
+      post({ command: 'selectFrame', level });
     }
 
     // Left-click selects a frame (will drive the source pane in later Stage 1 work).
@@ -375,6 +434,11 @@
       e.stopPropagation();
       select(level);
       const frame = currentStack.find((f) => f.level === level);
+      // "Browse" — only for a frame that runs a real Class>>#selector (the host
+      // sets `browsable`); hidden for Executed-Code (doit) and unresolvable frames.
+      if (browseFrameItem) {
+        browseFrameItem.style.display = frame && frame.browsable ? '' : 'none';
+      }
       // "Go to home method" — only for a block frame whose home method is also on
       // the visible stack (host sets homeDisplayLevel to that frame's level).
       if (homeFrameItem) {
@@ -397,9 +461,17 @@
 
     copyFrameItem.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (selectedLevel != null) vscode.postMessage({ command: 'copyFrame', level: selectedLevel });
+      if (selectedLevel != null) post({ command: 'copyFrame', level: selectedLevel });
       hideMenu(menu);
     });
+
+    if (browseFrameItem) {
+      browseFrameItem.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (selectedLevel != null) post({ command: 'browseFrame', level: selectedLevel });
+        hideMenu(menu);
+      });
+    }
 
     if (homeFrameItem) {
       homeFrameItem.addEventListener('click', (e) => {
@@ -415,7 +487,7 @@
     if (frameImplItem) {
       frameImplItem.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (selectedLevel != null) vscode.postMessage({ command: 'implementInReceiver', level: selectedLevel });
+        if (selectedLevel != null) post({ command: 'implementInReceiver', level: selectedLevel });
         hideMenu(menu);
       });
     }
@@ -424,7 +496,7 @@
     if (varInspectItem) {
       varInspectItem.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (varMenuTarget) vscode.postMessage({ command: 'inspectVariable', oop: varMenuTarget.oop, name: varMenuTarget.name });
+        if (varMenuTarget) post({ command: 'inspectVariable', oop: varMenuTarget.oop, name: varMenuTarget.name });
         if (varMenu) hideMenu(varMenu);
       });
     }
@@ -459,14 +531,14 @@
 
     // #10 Copy Stack: the full stack (short stack + each frame's variable values).
     copyBtn.addEventListener('click', () => {
-      vscode.postMessage({ command: 'copyStack' });
+      post({ command: 'copyStack' });
       flashIcon(copyBtn);
     });
 
     // #11 Dump Stack: write the full stack to ~/.jasper/stacks (no tab opened).
     if (dumpBtn) {
       dumpBtn.addEventListener('click', () => {
-        vscode.postMessage({ command: 'dumpStackToFile' });
+        post({ command: 'dumpStackToFile' });
         flashIcon(dumpBtn);
       });
     }
@@ -475,7 +547,7 @@
     // appears only when the user asks for it.
     if (savePath) {
       savePath.addEventListener('click', () => {
-        if (dumpedPath != null) vscode.postMessage({ command: 'openDumpFile', path: dumpedPath });
+        if (dumpedPath != null) post({ command: 'openDumpFile', path: dumpedPath });
       });
     }
 
@@ -485,7 +557,7 @@
     if (copyPathBtn) {
       copyPathBtn.addEventListener('click', () => {
         if (dumpedPath == null) return;
-        vscode.postMessage({ command: 'copyText', text: dumpedPath });
+        post({ command: 'copyText', text: dumpedPath });
         if (saveNoticeTimer) { clearTimeout(saveNoticeTimer); saveNoticeTimer = null; }
         copyPathBtn.textContent = '✓';
         setTimeout(() => { copyPathBtn.textContent = COPY_GLYPH; hideSaveNotice(); }, 1200);
@@ -499,7 +571,7 @@
         const btn = e.target && e.target.closest ? e.target.closest('button[data-cmd]') : null;
         if (!btn) return;
         const command = btn.dataset.cmd;
-        vscode.postMessage(selectedLevel != null ? { command, level: selectedLevel } : { command });
+        post(selectedLevel != null ? { command, level: selectedLevel } : { command });
       });
     }
 
@@ -508,7 +580,7 @@
       evalInput.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter') return;
         const expr = evalInput.value.trim();
-        if (expr) vscode.postMessage({ command: 'evalInFrame', level: selectedLevel, expr });
+        if (expr) post({ command: 'evalInFrame', level: selectedLevel, expr });
       });
     }
 
@@ -546,7 +618,7 @@
           state.stackBasis = basis;
           vscode.setState(state);
         }
-        vscode.postMessage({ command: 'saveLayout', stackBasis: basis });
+        post({ command: 'saveLayout', stackBasis: basis });
       }
       splitter.addEventListener('mousedown', (e) => {
         startBasis = main.style.getPropertyValue('--stack-basis').trim();
@@ -583,7 +655,7 @@
           state.evalHeight = height;
           vscode.setState(state);
         }
-        vscode.postMessage({ command: 'saveLayout', evalHeight: height });
+        post({ command: 'saveLayout', evalHeight: height });
       }
       hsplitter.addEventListener('mousedown', (e) => {
         startY = e.clientY;
@@ -607,15 +679,32 @@
     // Inbound messages from the host.
     window.addEventListener('message', (event) => {
       const msg = event.data;
+      if (msg.command === 'busy') {
+        // The host can still nudge busy explicitly; the webview-driven send path
+        // (post → beginBusy) is the primary trigger that survives a host freeze.
+        applyBusy(!!msg.on);
+        return;
+      }
+      if (msg.command === 'cancellable') {
+        // Control signal during an in-flight op (not a reply) — don't end the span.
+        setCancellable(!!msg.on);
+        return;
+      }
+      // `flash`/`banner` are transient status the host posts DURING an op (e.g. the
+      // "Break sent…" acknowledgement on Cancel) — they must NOT end the busy span,
+      // or the spinner + Cancel would vanish mid-op and the second Cancel click
+      // (hard break) would be unreachable. Every other message is a genuine reply,
+      // so it ends the span the send path started.
+      if (msg.command !== 'flash' && msg.command !== 'banner') endBusy();
       if (msg.command === 'init') {
         if (error) error.textContent = msg.errorMessage || '';
         // Show the create-method action when parked on a doesNotUnderstand:, or the
         // implement action when parked on a subclassResponsibility (T4). Mutually
         // exclusive; renderDnu(undefined) clears the bar before the SR button renders.
-        renderDnu(dnuBar, msg.dnu, function () { vscode.postMessage({ command: 'createDnuMethod' }); });
+        renderDnu(dnuBar, msg.dnu, function () { post({ command: 'createDnuMethod' }); });
         if (!msg.dnu) {
           renderSubclassResp(dnuBar, msg.subclassResp,
-            function () { vscode.postMessage({ command: 'implementSubclassResponsibility' }); });
+            function () { post({ command: 'implementSubclassResponsibility' }); });
         }
         // Clear stale variables / eval output; the default-select below re-fetches.
         if (variables) variables.innerHTML = '';

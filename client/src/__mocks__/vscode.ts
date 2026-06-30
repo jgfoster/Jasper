@@ -115,6 +115,12 @@ export const TextEditorRevealType = {
   AtTop: 3,
 };
 
+export const TextEditorSelectionChangeKind = {
+  Keyboard: 1,
+  Mouse: 2,
+  Command: 3,
+};
+
 // ── OverviewRulerLane mock ────────────────────────────────
 
 export const OverviewRulerLane = {

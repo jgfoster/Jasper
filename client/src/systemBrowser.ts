@@ -184,6 +184,23 @@ export class SystemBrowser {
     SystemBrowser.show(session, SystemBrowser.sharedExportManager, vscode.ViewColumn.Beside);
   }
 
+  /**
+   * ALWAYS open a NEW browser in `viewColumn` and navigate it to `result` once it
+   * signals ready (via `pendingNavigation`). Unlike `navigateBeside`, this never
+   * reuses an existing browser — the caller (the Enhanced Debugger's "Browse"
+   * frame action) wants a fresh browser to the right of the debugger each time.
+   * The deferred navigation runs with `skipClassBrowser`, so the layout-disruptive
+   * side effects (setEditorLayout / ClassBrowser / GlobalsBrowser) that would
+   * displace open inspector panels are suppressed.
+   */
+  static openAndNavigate(
+    session: ActiveSession, result: queries.MethodSearchResult, viewColumn: vscode.ViewColumn,
+  ): void {
+    if (!SystemBrowser.sharedExportManager) return;
+    SystemBrowser.pendingNavigation.set(session.id, result);
+    SystemBrowser.show(session, SystemBrowser.sharedExportManager, viewColumn);
+  }
+
   private readonly panel: vscode.WebviewPanel;
   private disposables: vscode.Disposable[] = [];
   private state: BrowserState;

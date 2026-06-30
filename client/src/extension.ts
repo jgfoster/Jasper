@@ -156,6 +156,17 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.languages.registerCodeLensProvider(
       [{ scheme: 'gemstone' }, { scheme: 'gemstone-debug' }], inlineValuesLens,
     ),
+    // The inline-value hover (#5): serves each variable's full printString for a
+    // hovered line, plus a hint that editable ones are set by clicking the name.
+    vscode.languages.registerHoverProvider(
+      [{ scheme: 'gemstone' }, { scheme: 'gemstone-debug' }],
+      {
+        provideHover(doc, pos) {
+          const md = DebuggerPanel.provideInlineHover(doc.uri.toString(), pos.line);
+          return md ? new vscode.Hover(md) : undefined;
+        },
+      },
+    ),
   );
 
   try {
@@ -327,6 +338,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.languages.registerHoverProvider(providerSelectors, hoverProvider),
     vscode.languages.registerCompletionItemProvider(providerSelectors, completionProvider),
     vscode.languages.registerCodeLensProvider(providerSelectors, codeLensProvider),
+    codeLensProvider, // dispose() cancels pending count lookups + releases the emitter
   );
 
   // ── Breakpoints + Debugger ───────────────────────────────

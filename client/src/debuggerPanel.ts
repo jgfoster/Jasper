@@ -8,8 +8,9 @@ import * as queries from './browserQueries';
 import { unwrapTranscriptCapture, transcriptCaptureUserCodeOffset } from './transcriptCapture';
 import { buildLineOffsets, mapOffsetToStepPoint } from './breakpointManager';
 import { GtInspector } from './gtInspector';
+import { SystemBrowser } from './systemBrowser';
 import { logError, logInfo } from './gciLog';
-import { NbCancelledError } from './nbRunner';
+import { NbCancelledError, NbRunOptions } from './nbRunner';
 import { extensionPathFrom } from './extensionPath';
 
 // The webview's DOM behavior lives in a standalone file (like listFilter.js /
@@ -86,7 +87,9 @@ type DebuggerInbound =
   | { command: 'revertVariable'; level: number; kind: 'instvar' | 'temp'; index: number }
   | { command: 'createDnuMethod' }
   | { command: 'implementInReceiver'; level: number }
+  | { command: 'browseFrame'; level: number }
   | { command: 'implementSubclassResponsibility' }
+  | { command: 'cancelOp' }
   | { command: 'saveLayout'; stackBasis?: string; evalHeight?: string };
 
 /**
@@ -252,6 +255,13 @@ export interface InlineVar {
   value: string;
   /** Full printString, shown on hover (un-truncated, may be multi-line). */
   full: string;
+  /**
+   * When present, this var is editable in-frame from the hover overlay (a `$(edit)`
+   * command-link → `gemstone.editInlineValue`), exactly like its row in the
+   * Variables pane. Carries the server write target — same `{kind,index}` as the
+   * pane's `VarRow.edit`. Absent for `self` and the synthetic `.tN` stack temps.
+   */
+  edit?: { kind: 'instvar' | 'temp'; index: number };
 }
 
 /** One source line's inline overlay: the rendered text + per-var hover parts. */
@@ -429,6 +439,28 @@ export function computeInlineValueLines(
   }));
 }
 
+/**
+ * The hover markdown for one inline-overlay line: a `**name** = value` part per
+ * variable, joined one-per-line. Each *editable* var (#5 Phase 2) gets a `$(edit)`
+ * pencil command-link beside its name that opens the same set-value prompt as the
+ * Variables pane — `self` and the synthetic stack temps carry no `edit`, so they
+ * get no pencil and stay read-only. The link encodes `[uri, serverLevel, kind,
+ * index, name]`; the caller marks the `MarkdownString` trusted for the single
+ * `gemstone.editInlineValue` command (and enables codicons).
+ */
+export function inlineHoverMarkdown(vars: InlineVar[]): string {
+  // Escape markdown-significant chars in the (server-supplied) printString so it
+  // renders verbatim rather than as accidental markup.
+  const safe = (s: string): string => s.replace(/[\\[\]`*_<>]/g, '\\$&');
+  const body = vars.map(v => `**${v.name}** = ${safe(v.full)}`).join('  \n');
+  // Editing in the source is by double-clicking the variable's name (command-links
+  // in hovers don't fire in all hosts, so the hover only hints — it isn't the
+  // trigger). The hint shows only when something on this line is editable.
+  return vars.some(v => v.edit)
+    ? `${body}\n\n_Double-click the variable name to set its value._`
+    : body;
+}
+
 /** Minimal HTML-escape for interpolating session text into the page. */
 function escapeHtml(s: string): string {
   return s
@@ -456,6 +488,12 @@ interface FrameSummary {
    * unresolvable `<frame N>`.
    */
   breakable?: boolean;
+  /**
+   * True when this frame runs a real `Class>>#selector` method we can open in a
+   * System Browser — drives the right-click "Browse" item. False for an
+   * Executed-Code (doit) frame or an unresolvable `<frame N>` (no class/selector).
+   */
+  browsable?: boolean;
 }
 
 /**
@@ -975,6 +1013,21 @@ export class DebuggerPanel {
   /** The editor currently carrying the inline-value overlay, if any. */
   private inlineDecoratedEditor: vscode.TextEditor | undefined;
   /**
+   * The current overlay's per-line variables and frame, so the inline-value
+   * HoverProvider (#5 Phase 2) can serve the value+edit-pencil hover on demand.
+   * A registered HoverProvider is used rather than the decoration's `hoverMessage`
+   * because command-links only fire from provider hovers, not decoration hovers.
+   */
+  private inlineHoverByLine = new Map<number, InlineVar[]>();
+  private inlineHoverLevel: number | undefined;
+  /**
+   * Editable in-scope variables for the shown frame, keyed by source name → write
+   * target. Drives click-to-edit: while the overlay is on, a mouse click on one of
+   * these names in the source opens its set-value prompt. Built in
+   * `updateInlineValues`; empty when the overlay is off (so clicks behave normally).
+   */
+  private inlineEditableByName = new Map<string, { kind: 'instvar' | 'temp'; index: number }>();
+  /**
    * The selected frame's variable groups, cached so toggling the inline overlay
    * (or its mode) re-renders from memory instead of re-running N blocking
    * getObjectPrintString round-trips per click. Keyed by server level; dropped
@@ -1097,6 +1150,17 @@ export class DebuggerPanel {
    * set. Cleared when the operation settles (resolve / reject / cancel).
    */
   private nbBusy = false;
+  /**
+   * Cancel handle for the in-flight non-blocking op (#9 cancel). Set from the nb
+   * runner's `onStart` while a cancellable op runs; calling it requests a soft
+   * break, then a hard break on a second call. Drives the in-panel Cancel button
+   * (which the webview shows only while the busy spinner is up). Undefined when
+   * nothing cancellable is running.
+   */
+  private activeNbCancel: (() => void) | undefined;
+  /** How many times Cancel was clicked for the current op (1 = soft break, 2+ = hard).
+   *  Reset to 0 when a cancellable op begins; drives the acknowledgement wording. */
+  private cancelClicks = 0;
   /** Set in dispose() so an in-flight Nb op's continuation skips touching a dead panel. */
   private disposed = false;
 
@@ -1180,6 +1244,37 @@ export class DebuggerPanel {
       null,
       this.disposables,
     );
+    // Double-click-to-edit (#5 Phase 2): double-clicking an editable variable's
+    // name in the companion source (while the inline overlay is on) opens its
+    // set-value prompt — a direct selection handler, since hover command-links
+    // don't fire here. A single click is left alone (cursor / Run to Cursor).
+    vscode.window.onDidChangeTextEditorSelection(
+      (e) => this.onSourceSelectionChanged(e),
+      null,
+      this.disposables,
+    );
+  }
+
+  /**
+   * Double-click-to-edit handler: a double-click selects the whole word, so when
+   * the mouse selects an editable in-scope variable's name in this panel's source
+   * pane (overlay on), open that variable's set-value prompt. A single click
+   * leaves an EMPTY selection and is ignored — the cursor stays put for normal
+   * navigation and Run to Cursor (#2).
+   */
+  private onSourceSelectionChanged(e: vscode.TextEditorSelectionChangeEvent): void {
+    if (e.kind !== vscode.TextEditorSelectionChangeKind.Mouse) return; // mouse, not keyboard
+    if (!this.inlineValuesEnabled || this.inlineHoverLevel === undefined) return;
+    // Compare by document URI, not editor identity — VS Code can hand back a
+    // different TextEditor instance for the same view, which a `!==` would miss.
+    const uri = this.sourceEditor?.document.uri.toString();
+    if (uri === undefined || e.textEditor.document.uri.toString() !== uri) return;
+    const sel = e.selections[0];
+    if (!sel || sel.isEmpty) return;                                   // single click → leave the cursor
+    const word = e.textEditor.document.getText(sel);                   // the double-clicked word
+    const edit = this.inlineEditableByName.get(word);
+    if (!edit) return;                                                 // not an editable variable
+    void this.editInlineValue(this.inlineHoverLevel, edit.kind, edit.index, word);
   }
 
   private handleMessage(msg: DebuggerInbound): void {
@@ -1218,9 +1313,10 @@ export class DebuggerPanel {
       }
       case 'evalInFrame': {
         const frame = this.frames.find(f => f.level === msg.level);
-        this.evalInFrame(frame?.serverLevel, msg.expr);
+        void this.evalInFrame(frame?.serverLevel, msg.expr);
         return;
       }
+      case 'cancelOp': { this.cancelActiveOp(); return; }
       case 'resume': { this.resume(); return; }
       case 'runToCursor': { this.runToCursor(msg.level); return; }
       case 'terminate': { this.panel.dispose(); return; } // dispose → clearStack
@@ -1237,6 +1333,7 @@ export class DebuggerPanel {
       }
       case 'createDnuMethod': { void this.createDnuMethod(); return; }
       case 'implementInReceiver': { void this.implementInReceiver(msg.level); return; }
+      case 'browseFrame': { void this.browseFrame(msg.level); return; }
       case 'implementSubclassResponsibility': { void this.implementSubclassResponsibility(); return; }
       case 'setVariable': {
         const frame = this.frames.find(f => f.level === msg.level);
@@ -1277,7 +1374,7 @@ export class DebuggerPanel {
       stack: this.frames.map(f => ({
         level: f.level, label: f.label, position: f.position,
         overridable: f.overridable, receiverClass: f.receiverClass,
-        breakable: f.breakable, homeDisplayLevel: f.homeDisplayLevel,
+        breakable: f.breakable, browsable: f.browsable, homeDisplayLevel: f.homeDisplayLevel,
       })),
       // When parked on a doesNotUnderstand:, drive the "Create #sel in Class" button.
       dnu: this.dnuInfo
@@ -1458,6 +1555,57 @@ export class DebuggerPanel {
     await this.pickAndOpenImplementTemplate({
       selector, chain, contextLabel: `${frame.label}@sv${frame.serverLevel}`,
     });
+  }
+
+  /**
+   * "Browse" a stack frame (right-click menu): open a NEW System Browser to the
+   * right of the debugger pane, navigated to the class+method actually running in
+   * this frame. The target is resolved by method lookup on the receiver
+   * (`getBrowseTarget`), so an inherited method opens on its DEFINING class — the
+   * source that's really executing — rather than the receiver's concrete class.
+   * Degrades to an in-panel message for a doit frame, a receiver we can't resolve,
+   * a selector not found in the chain, or a class outside the user's symbol list.
+   */
+  private async browseFrame(displayLevel: number): Promise<void> {
+    const frame = this.frames.find(f => f.level === displayLevel);
+    if (!frame) return;
+    const raw = this.rawFrames.find(r => r.serverLevel === frame.serverLevel);
+    if (!raw || raw.isExecutedCode || !raw.selector) {
+      this.errorMessage = 'Cannot browse this frame — it has no class or method.';
+      this.postInit();
+      return;
+    }
+
+    let receiverOop: bigint;
+    try {
+      receiverOop = debug.getFrameInfo(this.session, this.gsProcess, frame.serverLevel).receiverOop;
+    } catch (e: unknown) {
+      logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      this.errorMessage = `Could not resolve the receiver of ${frame.label}.`;
+      this.postInit();
+      return;
+    }
+
+    const target = debug.getBrowseTarget(this.session, receiverOop, raw.selector);
+    if (!target) {
+      this.errorMessage = `Could not locate #${raw.selector} to browse it.`;
+      this.postInit();
+      return;
+    }
+    if (!target.dictName) {
+      this.errorMessage = `Can't browse #${raw.selector}: ${target.className} isn't in your symbol list.`;
+      this.postInit();
+      return;
+    }
+
+    // Open the browser to the RIGHT of the debugger pane: focus the debugger's
+    // group so ViewColumn.Beside resolves relative to it, then open a fresh
+    // browser there and navigate it to the running method's defining class.
+    this.panel.reveal(this.panel.viewColumn, false);
+    SystemBrowser.openAndNavigate(this.session, {
+      dictName: target.dictName, className: target.className,
+      isMeta: target.isMeta, selector: raw.selector, category: target.category,
+    }, vscode.ViewColumn.Beside);
   }
 
   /**
@@ -1953,17 +2101,61 @@ export class DebuggerPanel {
   }
 
   /** Evaluate an expression in the selected frame and post the printString back. */
-  private evalInFrame(serverLevel: number | undefined, expr: string): void {
+  private async evalInFrame(serverLevel: number | undefined, expr: string): Promise<void> {
     if (serverLevel == null) return;
-    let value: string;
+    if (this.nbBusy) { this.notifyBusy('Evaluate'); return; }
+    this.nbBusy = true;
+    // Reset here, not only in onStart: the blocking frame-setup inside
+    // evaluateInFrameNb can fail BEFORE polling starts (so onStart never fires), and
+    // a stale count from a prior cancelled op would mislabel that error as cancelled.
+    this.cancelClicks = 0;
+    // The eval runs non-blocking so a runaway expression doesn't freeze the panel
+    // and CAN be cancelled. The in-panel overlay owns cancel (suppressNotification),
+    // and onStart marks it cancellable + captures the handle the Cancel button hits.
+    let value = '';
     let isError = false;
     try {
-      value = debug.evaluateInFrame(this.session, this.gsProcess, expr, serverLevel);
+      value = await debug.evaluateInFrameNb(this.session, this.gsProcess, expr, serverLevel, {
+        suppressNotification: true,
+        onStart: (cancel) => { this.activeNbCancel = cancel; this.setCancellable(true); },
+      });
     } catch (e: unknown) {
-      value = `Error: ${e instanceof Error ? e.message : String(e)}`;
+      const raw = e instanceof Error ? e.message : String(e);
+      if (this.cancelClicks > 0) {
+        // The user interrupted this eval. Show a clean header (with which break it
+        // was — soft = stop at a safe point, hard = forced) plus the raw gem error
+        // for context, in the eval-result area below the bar (no top-banner error).
+        const kind = this.cancelClicks === 1 ? 'soft break' : 'hard break';
+        value = `Evaluation Cancelled (${kind})${raw ? ` — ${raw}` : ''}`;
+      } else {
+        value = `Error: ${raw}`;
+      }
       isError = true;
+    } finally {
+      this.activeNbCancel = undefined;
+      this.nbBusy = false;
+      this.setCancellable(false);
     }
+    if (this.disposed) return;
     this.panel.webview.postMessage({ command: 'evalResult', expr, value, isError });
+  }
+
+  /** Tell the webview whether the in-flight busy op can be cancelled (#9). */
+  private setCancellable(on: boolean): void {
+    if (this.disposed) return;
+    this.panel.webview.postMessage({ command: 'cancellable', on });
+  }
+
+  /** Webview Cancel button → request a break of the active nb op (soft, then hard). */
+  private cancelActiveOp(): void {
+    if (!this.activeNbCancel) return;
+    this.cancelClicks += 1;
+    // Acknowledge the click so it visibly registers — the break is asynchronous
+    // (the gem stops at a safe point), so without this the Cancel feels unheard.
+    this.flash(this.cancelClicks === 1
+      ? 'Break sent — waiting for the gem to stop…'
+      : 'Forcing interrupt…');
+    this.activeNbCancel();
   }
 
   /**
@@ -1986,6 +2178,27 @@ export class DebuggerPanel {
       this.panel.webview.postMessage({ command: 'setVariableResult', ok: false, error: 'Busy — try again' });
       return;
     }
+    const result = this.writeVariableInFrame(serverLevel, kind, index, expr);
+    // Success → the host's `postVariables` (inside the write) already re-rendered
+    // the pane, which removes the open editor; this ok just confirms it. Failure →
+    // keep the editor open and flag the error on it so the expression can be fixed.
+    this.panel.webview.postMessage(result.ok
+      ? { command: 'setVariableResult', ok: true }
+      : { command: 'setVariableResult', ok: false, error: result.error });
+  }
+
+  /**
+   * The shared variable write: evaluate `expr` in the frame, capture+pin the
+   * slot's original (for revert), write the new OOP into the instVar / temp, then
+   * refresh the Variables pane and inline overlay. Returns `{ ok }` so each caller
+   * surfaces failures its own way — the webview pane flags the inline editor
+   * (`setVariableResult`), the source-pane inline edit shows an error toast (it has
+   * no webview). On failure nothing is written and the pane is NOT re-rendered (so
+   * the pane's editor stays open). Callers must guard `nbBusy` first.
+   */
+  private writeVariableInFrame(
+    serverLevel: number, kind: 'instvar' | 'temp', index: number, expr: string,
+  ): { ok: boolean; error?: string } {
     try {
       const valueOop = debug.evaluateInFrameToOop(this.session, this.gsProcess, expr, serverLevel);
       const info = debug.getFrameInfo(this.session, this.gsProcess, serverLevel);
@@ -1998,16 +2211,64 @@ export class DebuggerPanel {
         debug.setFrameTemp(this.session, this.gsProcess, serverLevel, index, valueOop);
       }
       this.undoDirty.add(this.undoKey(serverLevel, kind, index));
-      this.panel.webview.postMessage({ command: 'setVariableResult', ok: true });
       this.invalidateVariablesCache(); // the slot points at a new object — re-fetch
       this.postVariables(serverLevel);
       // The slot now points at a new object — refresh the inline overlay so its
       // value (and hover) track, just like the Variables pane.
       if (this.sourceEditor) this.updateInlineValues(this.sourceEditor, serverLevel);
+      return { ok: true };
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : String(e);
       logError(this.sessionId, error);
-      this.panel.webview.postMessage({ command: 'setVariableResult', ok: false, error });
+      return { ok: false, error };
+    }
+  }
+
+  /**
+   * Edit an inline-overlay variable from its hover `$(edit)` pencil (#5 Phase 2):
+   * prompt for a new value (prefilled with the current printString, like the
+   * Variables pane's inline editor), then route through the shared
+   * `writeVariableInFrame` — so the pane, the inline overlay, undo/revert and the
+   * GC-pin all update exactly as a pane edit does. The source pane has no webview,
+   * so a rejected expression surfaces as an error toast. Resolved from the hover
+   * command args by `editInlineValueForUri`.
+   */
+  private async editInlineValue(
+    serverLevel: number, kind: 'instvar' | 'temp', index: number, name: string,
+  ): Promise<void> {
+    try {
+      if (this.nbBusy) { this.notifyBusy('Set variable'); return; }
+      // Prefill with the current printString (like the pane), but never let a
+      // failed prefetch abort the edit — fall back to an empty box.
+      let prefill = '';
+      try {
+        prefill = this.inlineVarsForFrame(serverLevel)
+          .find(v => v.name === name && v.edit?.kind === kind && v.edit?.index === index)?.full ?? '';
+      } catch (e: unknown) {
+        logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      }
+      const expr = await vscode.window.showInputBox({
+        title: `Set ${name}`,
+        prompt: `New value for ${name} — evaluated in the selected frame`,
+        value: prefill,
+        ignoreFocusOut: true,
+      });
+      if (expr === undefined) return; // cancelled (Esc / focus-out off)
+      const trimmed = expr.trim();
+      if (trimmed === '') return; // empty → no-op, matching the pane's editor
+      // The prompt is modeless; re-check before the blocking write in case a
+      // step/trim claimed the session while it was open.
+      if (this.nbBusy) { this.notifyBusy('Set variable'); return; }
+      const result = this.writeVariableInFrame(serverLevel, kind, index, trimmed);
+      if (!result.ok) {
+        void vscode.window.showErrorMessage(`Could not set ${name}: ${result.error}`);
+      }
+    } catch (e: unknown) {
+      // A throw here would otherwise be a silent unhandled rejection (the command
+      // is invoked via `void`), which reads as "the pencil does nothing".
+      const msg = e instanceof Error ? e.message : String(e);
+      logError(this.sessionId, msg);
+      void vscode.window.showErrorMessage(`Jasper: inline edit of ${name} failed: ${msg}`);
     }
   }
 
@@ -2394,12 +2655,13 @@ export class DebuggerPanel {
       const raw = this.rawFrames.find(r => r.serverLevel === frame.serverLevel);
       if (raw) level = this.stopFrameLevel(raw.homeMethodOop, frame.serverLevel);
     }
-    await this.runNb('Step', async () => {
+    await this.runNb('Step', async (opts) => {
       // Stepping moves the stack → the prior halt's revert slots are now invalid.
       this.clearUndoState();
       // Non-blocking + cancellable: a step that crawls hidden machinery or steps
       // a looping method no longer freezes the extension host (see nbRunner.ts).
-      const result = await fn(this.session, this.gsProcess, level);
+      // Forwarding opts wires the in-panel Cancel button for a runaway step.
+      const result = await fn(this.session, this.gsProcess, level, opts);
       if (this.disposed) return; // panel closed while the step ran
       if (result.completed) {
         this.onCompleted(result);
@@ -2452,17 +2714,32 @@ export class DebuggerPanel {
    * told to retry (otherwise a save-driven edit-and-continue or a click would
    * just vanish).
    */
-  private async runNb(action: string, op: () => Promise<void>): Promise<void> {
+  private async runNb(action: string, op: (opts: NbRunOptions) => Promise<void>): Promise<void> {
     if (this.nbBusy) {
       this.notifyBusy(action);
       return;
     }
     this.nbBusy = true;
+    this.cancelClicks = 0; // reset before the op (onStart may not fire if start fails)
+    // Hand the op nb options that (a) suppress the 2s toast — the in-panel overlay
+    // owns cancel for debugger ops — and (b) wire the in-panel Cancel button: when
+    // the op forwards these to its nb call, onStart fires and we mark it cancellable
+    // and capture its cancel handle. Ops that don't forward them simply show the
+    // spinner with no Cancel button (never a dead button).
+    const opts: NbRunOptions = {
+      suppressNotification: true,
+      onStart: (cancel) => {
+        this.activeNbCancel = cancel;
+        this.setCancellable(true);
+      },
+    };
     try {
-      await op();
+      await op(opts);
     } catch (e: unknown) {
       this.handleNbError(action, e);
     } finally {
+      this.activeNbCancel = undefined;
+      this.setCancellable(false);
       this.nbBusy = false;
     }
   }
@@ -2501,10 +2778,23 @@ export class DebuggerPanel {
       this.postInit();
       return;
     }
-    await this.runNb('Restart frame', async () => {
+    // An Executed Code (doit) frame can't be a restart target: the kernel's
+    // trimStackToLevel: does `oldHome inClass compiledMethodAt:…` to reinstall the
+    // (possibly recompiled) method, and a doit's home method has a NIL class — so
+    // the trim fails with a raw `UndefinedObject doesNotUnderstand`. Guard it with a
+    // clear message instead, mirroring the edit-and-continue re-enter guard.
+    if (this.rawFrames.find(r => r.serverLevel === serverLevel)?.isExecutedCode) {
+      this.errorMessage = 'Cannot restart an Executed Code frame — it has no home class for '
+        + 'GemStone to reset. Re-run the expression instead.';
+      this.postInit();
+      return;
+    }
+    await this.runNb('Restart frame', async (opts) => {
       // The trim rebuilds the stack → revert slots no longer apply.
       this.clearUndoState();
-      await debug.trimStackToLevelNb(this.session, this.gsProcess, serverLevel);
+      // Forwarding opts wires the in-panel Cancel button — a trim can run unwind/
+      // ensure: blocks (infinite kernel timeout), so a runaway restart is cancellable.
+      await debug.trimStackToLevelNb(this.session, this.gsProcess, serverLevel, opts);
       if (this.disposed) return;
       this.staleTopActivation = false; // the trim discarded any stale top activation
       this.uncontinuable = false;      // …and a fresh activation is continuable again
@@ -2743,6 +3033,9 @@ export class DebuggerPanel {
     }
     if (!this.inlineValuesEnabled) {
       editor.setDecorations(DebuggerPanel.inlineValueDecoration, []);
+      this.inlineHoverByLine.clear();
+      this.inlineEditableByName.clear();
+      this.inlineHoverLevel = undefined;
       return;
     }
     try {
@@ -2752,14 +3045,18 @@ export class DebuggerPanel {
         perLine: this.inlineValuesPerLine,
         signatureLine: this.shownFrameIsMethod,
       });
+      // Record this frame's overlay so the HoverProvider can serve the full-value
+      // hover for a hovered line (the decoration carries only the rendered `after`
+      // text). Also index the editable variables by name for click-to-edit.
+      this.inlineHoverByLine = new Map(overlay.map(o => [o.line, o.vars]));
+      this.inlineEditableByName = new Map(
+        vars.filter(v => v.edit).map(v => [v.name, v.edit!]),
+      );
+      this.inlineHoverLevel = serverLevel;
       const decorations: vscode.DecorationOptions[] = overlay.map(o => {
         const line = editor.document.lineAt(o.line);
-        const hover = new vscode.MarkdownString(
-          o.vars.map(v => `**${v.name}** = ${v.full}`).join('  \n'),
-        );
         return {
           range: new vscode.Range(line.range.end, line.range.end),
-          hoverMessage: hover,
           // `padCh` left-pads each annotation so they align in one right-hand
           // column, out of the way of the code (see computeInlineValueLines).
           renderOptions: { after: { contentText: o.label, margin: `0 0 0 ${o.padCh}ch` } },
@@ -2770,6 +3067,31 @@ export class DebuggerPanel {
     } catch (e: unknown) {
       logError(this.sessionId, e instanceof Error ? e.message : String(e));
     }
+  }
+
+  /**
+   * The inline-value hover for `line` of the source `uriStr`: each variable's full
+   * (un-truncated) printString, plus a hint that editable ones can be set by
+   * clicking their name. Undefined when the overlay is off, the hovered document
+   * isn't this panel's live source, or the line has no annotated variable.
+   */
+  private inlineHoverForLine(uriStr: string, line: number): vscode.MarkdownString | undefined {
+    if (!this.inlineValuesEnabled || this.inlineHoverLevel === undefined) return undefined;
+    // Only answer for the source the overlay was computed against, so a stale
+    // (other-frame) map can't mislabel a different document.
+    if (this.sourceEditor?.document.uri.toString() !== uriStr) return undefined;
+    const vars = this.inlineHoverByLine.get(line);
+    if (!vars || vars.length === 0) return undefined;
+    return new vscode.MarkdownString(inlineHoverMarkdown(vars));
+  }
+
+  /**
+   * HoverProvider entry point (#5 Phase 2): the inline-value hover for a hovered
+   * source line, resolved to the panel showing that source. Returns undefined when
+   * no live panel owns the document or it has nothing to show on that line.
+   */
+  static provideInlineHover(uriStr: string, line: number): vscode.MarkdownString | undefined {
+    return DebuggerPanel.panelForSourceUri(uriStr)?.inlineHoverForLine(uriStr, line);
   }
 
   /**
@@ -2784,7 +3106,7 @@ export class DebuggerPanel {
     for (const group of this.variablesForFrame(serverLevel)) {
       if (group.kind === 'stacktemps') continue;
       for (const v of group.vars) {
-        vars.push({ name: v.name, value: shortenInlineValue(v.value), full: v.value });
+        vars.push({ name: v.name, value: shortenInlineValue(v.value), full: v.value, edit: v.edit });
       }
     }
     return vars;
@@ -3124,6 +3446,9 @@ export class DebuggerPanel {
         overridable: r.overridable,
         receiverClass: r.receiverClassName,
         breakable: r.breakable,
+        // Browsable iff the frame runs a real Class>>#selector (not a doit, and the
+        // home method resolved to a defining class + selector).
+        browsable: !r.isExecutedCode && !!r.definingClassName && !!r.selector,
         homeDisplayLevel,
         // Executed-code frames have no meaningful step point/line once unwrapped (#3).
         position: r.isExecutedCode ? '' : formatFramePosition(r.stepPoint, r.line),
@@ -3290,6 +3615,36 @@ export class DebuggerPanel {
     /* Suppress text selection / the default Cut-Copy-Paste affordances; the
        Copy button is the supported way to copy the stack. */
     body { user-select: none; -webkit-user-select: none; }
+    /* Progress / busy indicator (#9). The host posts {command:'busy', on} around
+       blocking server round-trips (class-chain resolve, save→fetchStack, etc.);
+       the webview reveals this only if the op outlives BUSY_DELAY_MS (~500ms), so
+       fast calls never flash. The webview is a SEPARATE process from the frozen
+       extension host, so this keeps animating while the host is blocked. */
+    body.busy { cursor: progress; }
+    .busy-overlay {
+      position: fixed; inset: 0; z-index: 50;
+      display: flex; align-items: center; justify-content: center;
+      background: transparent; pointer-events: none; /* don't trap clicks */
+    }
+    .busy-box { display: flex; flex-direction: column; align-items: center; gap: 0.6rem; }
+    .busy-overlay .busy-spinner {
+      width: 30px; height: 30px; border-radius: 50%;
+      border: 3px solid var(--vscode-foreground);
+      border-top-color: transparent;
+      opacity: 0.45;
+      animation: jasper-busy-spin 0.8s linear infinite;
+    }
+    @keyframes jasper-busy-spin { to { transform: rotate(360deg); } }
+    /* The Cancel button is the one part of the overlay that takes clicks — it
+       appears only for cancellable (non-blocking) ops, so it's never a dead link. */
+    .busy-cancel {
+      pointer-events: auto;
+      color: var(--vscode-button-foreground);
+      background: var(--vscode-button-background);
+      border: none; padding: 0.25rem 0.9rem; border-radius: 2px; cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .busy-cancel:hover { background: var(--vscode-button-hoverBackground, var(--vscode-button-background)); }
     .titlebar { display: flex; align-items: baseline; gap: 0.6rem; margin: 0 0 0.25rem; flex-wrap: wrap; }
     h1 { font-size: 1.3rem; margin: 0; }
     .subtitle { color: var(--vscode-descriptionForeground); font-size: 0.85rem; }
@@ -3578,11 +3933,20 @@ export class DebuggerPanel {
   </div>
   <div id="ctxmenu" class="ctx-menu" role="menu">
     <div class="ctx-item" id="copyFrameItem" role="menuitem">Copy Frame</div>
+    <div class="ctx-item" id="browseFrameItem" role="menuitem" style="display:none;">Browse</div>
     <div class="ctx-item" id="homeFrameItem" role="menuitem" style="display:none;">Go to home method</div>
     <div class="ctx-item" id="frameImplItem" role="menuitem" style="display:none;">Implement in…</div>
   </div>
   <div id="varctxmenu" class="ctx-menu" role="menu">
     <div class="ctx-item" id="varInspectItem" role="menuitem">GT Inspect</div>
+  </div>
+  <!-- Progress/busy overlay (#9): hidden until a slow server op crosses the delay.
+       The Cancel button shows only when the running op is cancellable. -->
+  <div id="busyOverlay" class="busy-overlay" style="display:none;" aria-hidden="true">
+    <div class="busy-box">
+      <div class="busy-spinner"></div>
+      <button id="busyCancel" class="busy-cancel" type="button" style="display:none;">Cancel</button>
+    </div>
   </div>
   <script nonce="${nonce}">${debuggerViewJs}</script>
   <script nonce="${nonce}">
@@ -3591,6 +3955,7 @@ export class DebuggerPanel {
       list: document.getElementById('stack'),
       menu: document.getElementById('ctxmenu'),
       copyFrameItem: document.getElementById('copyFrameItem'),
+      browseFrameItem: document.getElementById('browseFrameItem'),
       homeFrameItem: document.getElementById('homeFrameItem'),
       frameImplItem: document.getElementById('frameImplItem'),
       copyBtn: document.getElementById('copyBtn'),
@@ -3612,6 +3977,8 @@ export class DebuggerPanel {
       hsplitter: document.getElementById('hsplitter'),
       varMenu: document.getElementById('varctxmenu'),
       varInspectItem: document.getElementById('varInspectItem'),
+      busyOverlay: document.getElementById('busyOverlay'),
+      busyCancel: document.getElementById('busyCancel'),
     }, vscode);
     vscode.postMessage({ command: 'ready' });
   </script>

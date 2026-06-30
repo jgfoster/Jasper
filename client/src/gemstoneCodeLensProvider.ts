@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { SessionManager } from './sessionManager';
+import { SessionManager, ActiveSession } from './sessionManager';
 import { parseTopazDocument } from './topazFileIn';
 import { extractSelector } from './systemBrowser';
 import * as queries from './browserQueries';
@@ -16,9 +16,14 @@ interface CodeLensData {
   kind: 'senders' | 'implementors';
 }
 
-export class GemStoneCodeLensProvider implements vscode.CodeLensProvider {
+export class GemStoneCodeLensProvider implements vscode.CodeLensProvider, vscode.Disposable {
   private _onDidChangeCodeLenses = new vscode.EventEmitter<void>();
   readonly onDidChangeCodeLenses = this._onDidChangeCodeLenses.event;
+
+  /** Pending {@link scheduleCount} timers, so disposal can cancel deferred lookups
+   *  (which would otherwise run blocking GCI against a torn-down session). */
+  private countTimers = new Set<ReturnType<typeof setTimeout>>();
+  private disposed = false;
 
   private codeLensData = new Map<vscode.CodeLens, CodeLensData>();
 
@@ -35,10 +40,22 @@ export class GemStoneCodeLensProvider implements vscode.CodeLensProvider {
    */
   private countCache = new Map<string, number>();
 
+  /**
+   * Counts currently being computed (keyed like {@link countCache}). The
+   * sendersOf/implementorsOf lookups BLOCK the extension host — for a popular
+   * selector (`initialize`: hundreds of hits) that freeze lasts seconds. So a
+   * lens shows a spinner placeholder and the count is computed on a later tick
+   * ({@link scheduleCount}); the spinner paints first and keeps animating (it
+   * lives in the editor's process, not the frozen host) until the count lands.
+   * This set dedupes concurrent re-resolves so the lookup runs once per key.
+   */
+  private pending = new Set<string>();
+
   constructor(private sessionManager: SessionManager) {}
 
   refresh(): void {
     this.countCache.clear();
+    this.pending.clear();
     this._onDidChangeCodeLenses.fire();
   }
 
@@ -128,48 +145,74 @@ export class GemStoneCodeLensProvider implements vscode.CodeLensProvider {
       return codeLens;
     }
 
-    try {
-      const maxEnv = vscode.workspace.getConfiguration('gemstone')
-        .get<number>('maxEnvironment', 0);
+    const maxEnv = vscode.workspace.getConfiguration('gemstone')
+      .get<number>('maxEnvironment', 0);
+    // Each lens computes only its own count. Cached so a forced re-resolve
+    // (another provider on this doc changing) doesn't repeat the server work.
+    const cacheKey = `${data.kind}|${data.selector}|${data.className ?? ''}|${data.isMeta}|${session.id}|${maxEnv}`;
 
-      // Each lens computes only its own count. Half the GCI work per lens
-      // compared to the old combined link, so total work for the pair is
-      // unchanged from the user's perspective. Cached so a forced re-resolve
-      // (another provider on this doc changing) doesn't repeat the server work.
-      const cacheKey = `${data.kind}|${data.selector}|${data.className ?? ''}|${data.isMeta}|${session.id}|${maxEnv}`;
-      let count = this.countCache.get(cacheKey);
-      if (count === undefined) {
-        count = 0;
-        for (let env = 0; env <= maxEnv; env++) {
-          try {
-            count += data.kind === 'senders'
-              ? queries.sendersOf(session, data.selector, env).length
-              : queries.implementorsOf(session, data.selector, env).length;
-          } catch {
-            // Session may be busy or selector not found in this env
-          }
-        }
-        this.countCache.set(cacheKey, count);
-      }
-
-      const noun = data.kind === 'senders' ? 'sender' : 'implementor';
-      const title = count === 1 ? `1 ${noun}` : `${count} ${noun}s`;
-      const command = data.kind === 'senders'
-        ? 'gemstone.sendersOfSelector'
-        : 'gemstone.implementorsOfSelector';
-
-      codeLens.command = {
-        title,
-        command,
-        arguments: [{ selector: data.selector, sessionId: session.id }],
-      };
-    } catch {
-      codeLens.command = {
-        title: '...',
-        command: '',
-      };
+    const count = this.countCache.get(cacheKey);
+    if (count !== undefined) {
+      codeLens.command = this.countCommand(count, data, session.id);
+      return codeLens;
     }
 
+    // Not counted yet: show a spinner and compute on a later tick (see
+    // `pending`). When the count lands, scheduleCount fires a change so VS Code
+    // re-resolves this lens — now a cache hit — and the number replaces the spin.
+    this.scheduleCount(data, session, maxEnv, cacheKey);
+    const noun = data.kind === 'senders' ? 'senders' : 'implementors';
+    codeLens.command = { title: `$(loading~spin) ${noun}…`, command: '' };
     return codeLens;
+  }
+
+  /** The resolved link for a known count (singular/plural + click command). */
+  private countCommand(count: number, data: CodeLensData, sessionId: number): vscode.Command {
+    const noun = data.kind === 'senders' ? 'sender' : 'implementor';
+    const title = count === 1 ? `1 ${noun}` : `${count} ${noun}s`;
+    const command = data.kind === 'senders'
+      ? 'gemstone.sendersOfSelector'
+      : 'gemstone.implementorsOfSelector';
+    return { title, command, arguments: [{ selector: data.selector, sessionId }] };
+  }
+
+  /**
+   * Compute a senders/implementors count off the resolve path so the spinner
+   * placeholder renders first, then cache it and fire a change to re-resolve.
+   * Deferred (not awaited) because the lookups block the host; running them here
+   * — after the placeholder is already on screen — keeps the spin visible.
+   */
+  private scheduleCount(
+    data: CodeLensData, session: ActiveSession, maxEnv: number, cacheKey: string,
+  ): void {
+    if (this.pending.has(cacheKey)) return;
+    this.pending.add(cacheKey);
+    const timer = setTimeout(() => {
+      this.countTimers.delete(timer);
+      if (this.disposed) return; // editor/extension torn down before the timer fired
+      let count = 0;
+      for (let env = 0; env <= maxEnv; env++) {
+        try {
+          count += data.kind === 'senders'
+            ? queries.sendersOf(session, data.selector, env).length
+            : queries.implementorsOf(session, data.selector, env).length;
+        } catch {
+          // Session may be busy or selector not found in this env
+        }
+      }
+      this.countCache.set(cacheKey, count);
+      this.pending.delete(cacheKey);
+      this._onDidChangeCodeLenses.fire();
+    }, 0);
+    this.countTimers.add(timer);
+  }
+
+  /** Cancel pending count lookups and release the change emitter on teardown. */
+  dispose(): void {
+    this.disposed = true;
+    for (const timer of this.countTimers) clearTimeout(timer);
+    this.countTimers.clear();
+    this.pending.clear();
+    this._onDidChangeCodeLenses.dispose();
   }
 }

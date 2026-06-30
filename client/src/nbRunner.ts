@@ -62,6 +62,21 @@ export function pollNbResultReady(session: ActiveSession): { result: number; err
 export interface NbRunOptions {
   /** Progress-notification title shown only if the call runs past ~2s. */
   title?: string;
+  /**
+   * Skip the ~2s notification toast entirely. The debugger uses this because its
+   * in-panel busy overlay (with its own Cancel) already covers these ops — the
+   * toast would be a redundant second cancel UI. Editor Execute/Display It leaves
+   * this off, so it keeps the toast (it has no panel overlay to fall back on).
+   */
+  suppressNotification?: boolean;
+  /**
+   * Called once when polling begins, handed a `cancel` fn. Invoking it requests
+   * a break — soft on the first call, hard on the second — exactly the escalation
+   * the progress notification's Cancel does. Lets a caller drive cancellation
+   * from its own UI (e.g. the debugger's in-panel Cancel button) instead of only
+   * the notification toast. The fn is a no-op once the call has settled.
+   */
+  onStart?: (cancel: () => void) => void;
 }
 
 /**
@@ -103,6 +118,26 @@ export function pollNbToCompletion<T>(
       fn();
     };
 
+    // Lets the notification's Cancel report progress text; null until/unless the
+    // ~2s notification is showing (an external cancel can fire before then).
+    let progressReport: ((value: { message?: string }) => void) | null = null;
+
+    // Soft-then-hard break, shared by the notification's Cancel and any external
+    // canceller handed out via opts.onStart. First call asks the gem to stop at a
+    // safe point; a second interrupts now and gives up on the call.
+    const requestCancel = (): void => {
+      if (settled) return;
+      if (!softBreakSent) {
+        session.gci.GciTsBreak(session.handle, false);
+        softBreakSent = true;
+        progressReport?.({ message: 'Soft break sent — waiting for the gem to stop…' });
+      } else {
+        session.gci.GciTsBreak(session.handle, true);
+        settle(() => reject(new NbCancelledError()));
+      }
+    };
+    if (opts.onStart) opts.onStart(requestCancel);
+
     const doPoll = (): void => {
       if (settled) return;
       const { result: pollResult, err: pollErr } = pollNbResultReady(session);
@@ -122,7 +157,7 @@ export function pollNbToCompletion<T>(
       pollIndex++;
       elapsedMs += interval;
 
-      if (elapsedMs >= PROGRESS_THRESHOLD_MS && !progressShown) {
+      if (elapsedMs >= PROGRESS_THRESHOLD_MS && !progressShown && !opts.suppressNotification) {
         progressShown = true;
         void vscode.window.withProgress(
           {
@@ -131,19 +166,8 @@ export function pollNbToCompletion<T>(
             cancellable: true,
           },
           (progress, token) => {
-            token.onCancellationRequested(() => {
-              if (!softBreakSent) {
-                // First cancel: soft break — ask the gem to stop at a safe point —
-                // and acknowledge it so the user knows the click registered.
-                session.gci.GciTsBreak(session.handle, false);
-                softBreakSent = true;
-                progress.report({ message: 'Soft break sent — waiting for the gem to stop…' });
-              } else {
-                // Second cancel: hard break — interrupt now and give up on the call.
-                session.gci.GciTsBreak(session.handle, true);
-                settle(() => reject(new NbCancelledError()));
-              }
-            });
+            progressReport = (value) => progress.report(value);
+            token.onCancellationRequested(requestCancel);
             return new Promise<void>(res => { progressResolve = res; });
           },
         );

@@ -304,6 +304,75 @@ rows inject: '' into: [:acc :r | acc isEmpty ifTrue: [r] ifFalse: [acc, (String 
   }
 }
 
+/** Where a frame's running method actually lives — for the "Browse" action. */
+export interface BrowseTarget {
+  /** The class (non-meta name) that DEFINES the running method (via method lookup
+   *  on the receiver), which may be a superclass of the receiver's class. */
+  className: string;
+  /** True when the method is class-side (the receiver is a class). */
+  isMeta: boolean;
+  /** The defining class's home dictionary, '' when not in the user's symbol list. */
+  dictName: string;
+  /** The method's category in the defining class ('' when uncategorized). */
+  category: string;
+}
+
+/**
+ * Resolve where a frame's running `selector` is actually DEFINED — the class
+ * method lookup finds for the receiver (the receiver's own class or a superclass
+ * for an inherited method), so "Browse" lands on the source that is really
+ * executing. Walks the receiver's class chain for the first class that
+ * `includesSelector:` (the lookup result), then reports that class's home
+ * dictionary (by NAME key in the user's symbol list — see the symbol-list
+ * home-dict gotcha) and the selector's method category. A class receiver walks
+ * its class-side chain (isMeta true). Returns undefined when the selector can't
+ * be found anywhere in the chain or on any failure, so the caller degrades to a
+ * clear message rather than opening a misleading browser.
+ */
+export function getBrowseTarget(
+  session: ActiveSession, receiverOop: bigint, selector: string,
+): BrowseTarget | undefined {
+  try {
+    const { result: classUtf8, err: resErr } = session.gci.GciTsResolveSymbol(
+      session.handle, 'Utf8', OOP_NIL,
+    );
+    if (resErr.number !== 0) return undefined;
+
+    const sel = selector.replace(/'/g, "''");
+    const code = `| rcvr meta cls sel def dn |
+rcvr := Object _objectForOop: ${receiverOop}.
+(rcvr isKindOf: Class)
+  ifTrue: [ cls := rcvr. meta := true ]
+  ifFalse: [ cls := rcvr class. meta := false ].
+sel := '${sel}' asSymbol.
+def := nil.
+[ cls notNil and: [ def isNil ] ] whileTrue: [
+  (cls includesSelector: sel) ifTrue: [ def := cls ].
+  cls := cls superclass ].
+def isNil ifTrue: [ '' ] ifFalse: [
+  dn := ''.
+  System myUserProfile symbolList do: [:d |
+    (d includesKey: def theNonMetaClass name asSymbol) ifTrue: [ dn := d name ]].
+  def theNonMetaClass name asString, String tab,
+    (meta ifTrue: ['class'] ifFalse: ['instance']), String tab, dn, String tab,
+    ((def categoryOfSelector: sel environmentId: 0) ifNil: ['']) ]`;
+
+    const { data, err } = session.gci.GciTsExecuteFetchBytes(
+      session.handle, code, -1, classUtf8, OOP_ILLEGAL, OOP_NIL, 64 * 1024,
+    );
+    if (err.number !== 0) return undefined;
+    if (data.length === 0) return undefined; // selector not found in the chain
+
+    const parts = data.split('\t');
+    return {
+      className: parts[0], isMeta: parts[1] === 'class',
+      dictName: parts[2] ?? '', category: parts[3] ?? '',
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * The pieces needed to create the method a `doesNotUnderstand:` is asking for.
  * `className` is the (non-meta) name of the class the method should be added to;
@@ -1055,27 +1124,27 @@ function performStepNb(
 }
 
 export function stepOverNb(
-  session: ActiveSession, gsProcess: bigint, level: number,
+  session: ActiveSession, gsProcess: bigint, level: number, opts: NbRunOptions = {},
 ): Promise<StepResult> {
   const levelOop = intToOop(session, level);
   logInfo(`[Session ${session.id}] Debug: stepOver (nb) from level ${level}`);
-  return performStepNb(session, gsProcess, 'gciStepOverFromLevel:', [levelOop], { title: 'GemStone: stepping over…' });
+  return performStepNb(session, gsProcess, 'gciStepOverFromLevel:', [levelOop], { title: 'GemStone: stepping over…', ...opts });
 }
 
 export function stepIntoNb(
-  session: ActiveSession, gsProcess: bigint, level: number,
+  session: ActiveSession, gsProcess: bigint, level: number, opts: NbRunOptions = {},
 ): Promise<StepResult> {
   const levelOop = intToOop(session, level);
   logInfo(`[Session ${session.id}] Debug: stepInto (nb) from level ${level}`);
-  return performStepNb(session, gsProcess, 'gciStepIntoFromLevel:', [levelOop], { title: 'GemStone: stepping into…' });
+  return performStepNb(session, gsProcess, 'gciStepIntoFromLevel:', [levelOop], { title: 'GemStone: stepping into…', ...opts });
 }
 
 export function stepThruNb(
-  session: ActiveSession, gsProcess: bigint, level: number,
+  session: ActiveSession, gsProcess: bigint, level: number, opts: NbRunOptions = {},
 ): Promise<StepResult> {
   const levelOop = intToOop(session, level);
   logInfo(`[Session ${session.id}] Debug: stepThru (nb) from level ${level}`);
-  return performStepNb(session, gsProcess, 'gciStepThruFromLevel:', [levelOop], { title: 'GemStone: stepping through…' });
+  return performStepNb(session, gsProcess, 'gciStepThruFromLevel:', [levelOop], { title: 'GemStone: stepping through…', ...opts });
 }
 
 // ── Continue / Terminate ────────────────────────────────
@@ -1147,7 +1216,7 @@ export function trimStackToLevel(
  * variant (no debug-stop during the trim's unwind).
  */
 export function trimStackToLevelNb(
-  session: ActiveSession, gsProcess: bigint, level: number,
+  session: ActiveSession, gsProcess: bigint, level: number, opts: NbRunOptions = {},
 ): Promise<void> {
   const levelOop = intToOop(session, level);
   logInfo(`[Session ${session.id}] Debug: trimStackToLevel (nb) ${level}`);
@@ -1162,7 +1231,7 @@ export function trimStackToLevelNb(
         throw new Error(err.message || `GemStone error ${err.number} in trimStackToLevel:`);
       }
     },
-    { title: 'GemStone: restarting frame…' },
+    { title: 'GemStone: restarting frame…', ...opts },
   );
 }
 
@@ -1200,6 +1269,44 @@ export function evaluateInFrame(
  * temp / instVar. A compile or runtime error surfaces as a thrown GCI error
  * (same as the eval bar), so the caller can keep the editor open on failure.
  */
+/**
+ * Non-blocking sibling of {@link evaluateInFrame}: evaluate `expression` in the
+ * frame and resolve with the result's printString, issued via GciTsNbPerform and
+ * polled off the main thread. The eval-bar uses this so a long/looping/runaway
+ * expression neither freezes the panel nor blocks the host — and can be cancelled
+ * (see {@link NbRunOptions.onStart}). The frame setup (receiver, symbol list,
+ * expression string) is still blocking, but cheap; only the evaluation itself —
+ * the part that can run away — is non-blocking.
+ */
+export function evaluateInFrameNb(
+  session: ActiveSession, gsProcess: bigint, expression: string, level: number,
+  opts: NbRunOptions = {},
+): Promise<string> {
+  const { receiverOop, argAndTempNames, argAndTempOops } = getFrameInfo(session, gsProcess, level);
+
+  const { result: exprOop, err: strErr } = session.gci.GciTsNewString(session.handle, expression);
+  if (strErr.number !== 0) {
+    return Promise.reject(new Error(strErr.message || 'Cannot create expression string'));
+  }
+
+  const symbolListOop = buildFrameSymbolList(session, argAndTempNames, argAndTempOops);
+  const selector = symbolListOop === null ? 'evaluateInContext:' : 'evaluateInContext:symbolList:';
+  const args = symbolListOop === null ? [receiverOop] : [receiverOop, symbolListOop];
+
+  return runNbCall(
+    session,
+    () => session.gci.GciTsNbPerform(session.handle, exprOop, OOP_ILLEGAL, selector, args, 0, 0),
+    () => {
+      const { result, err } = session.gci.GciTsNbResult(session.handle);
+      if (err.number !== 0) {
+        throw new Error(err.message || `GCI error ${err.number} in ${selector}`);
+      }
+      return getObjectPrintString(session, result);
+    },
+    opts,
+  );
+}
+
 export function evaluateInFrameToOop(
   session: ActiveSession, gsProcess: bigint, expression: string, level: number,
 ): bigint {

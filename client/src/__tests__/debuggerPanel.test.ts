@@ -51,6 +51,7 @@ vi.mock('../debugQueries', () => ({
   getInstVarNames: vi.fn(() => [] as string[]),
   getNamedInstVarOops: vi.fn(() => [] as bigint[]),
   evaluateInFrame: vi.fn(() => '42'),
+  evaluateInFrameNb: vi.fn(async () => '42'),
   evaluateInFrameToOop: vi.fn(() => 999n),
   setFrameTemp: vi.fn(),
   setInstVar: vi.fn(),
@@ -76,6 +77,11 @@ vi.mock('../debugQueries', () => ({
   // Implement-in-receiver (override): the receiver's inheritance chain (default
   // is a single class → no QuickPick; tests override it for the multi-class case).
   getReceiverClassChain: vi.fn(() => [{ className: 'SmallInteger', isMeta: false, dictName: 'Globals' }]),
+  // "Browse" frame: where the running selector is defined (defining class + home
+  // dict + category). Default = a resolvable, symbol-list target.
+  getBrowseTarget: vi.fn(() => ({
+    className: 'JasperDebugDemo', isMeta: false, dictName: 'UserGlobals', category: 'running',
+  })),
   // Whole-stack dump (#10/#11): one batched call. Default = a Receiver row per
   // frame whose printString/oop mirror the per-frame receiverOop (level * 100).
   fetchStackDump: vi.fn(() => [1, 2, 3, 4, 5].map(l => ({
@@ -95,6 +101,10 @@ vi.mock('../debugQueries', () => ({
 // Clicking a variable row opens a GT Inspector — stub the static entry point.
 // create() returns a closable handle so the debugger can close it on dispose.
 vi.mock('../gtInspector', () => ({ GtInspector: { create: vi.fn(() => ({ close: vi.fn() })) } }));
+
+// "Browse" a frame opens a System Browser — stub the static entry point so the
+// test doesn't pull in the whole browser module (and its many dependencies).
+vi.mock('../systemBrowser', () => ({ SystemBrowser: { openAndNavigate: vi.fn() } }));
 
 // Source offsets for the step-point highlight. These are GemStone `_sourceOffsets`,
 // which are 1-BASED (index i = offset of step point i+1); the panel must convert
@@ -118,10 +128,12 @@ import {
   flattenLayoutLeaves, sourceRatioFromLayout, setSourceRatioInLayout, EditorGroupLayout,
   formatDetailedStack, stackDumpFileName, stackDumpTimestamp, DetailedStackFrame,
   computeInlineValueLines, shortenInlineValue, maskCommentsAndStrings, InlineVar,
+  inlineHoverMarkdown,
 } from '../debuggerPanel';
 import { InlineValuesCodeLensProvider } from '../inlineValuesCodeLens';
 import { wrapWithTranscriptCapture, TRANSCRIPT_CAPTURE_PREFIX } from '../transcriptCapture';
 import { GtInspector } from '../gtInspector';
+import { SystemBrowser } from '../systemBrowser';
 import { ActiveSession } from '../sessionManager';
 import { GemStoneLogin } from '../loginTypes';
 
@@ -549,6 +561,7 @@ describe('DebuggerPanel', () => {
       expect(html).toContain('id="copyFrameItem"');              // Copy Frame popup item
       expect(html).toContain('Copy Frame');
       expect(html).toContain('copyFrame');                       // per-frame copy wiring
+      expect(html).toContain('id="browseFrameItem"');            // Browse popup item
       expect(html).toMatch(/addEventListener\(\s*'contextmenu'/); // default menu suppressed + custom menu
       expect(html).toContain('preventDefault');
     });
@@ -615,6 +628,68 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'copyFrame', level: 999 });
 
       expect(vscode.env.clipboard.writeText).not.toHaveBeenCalled();
+    });
+
+    it('marks real method frames as browsable in the init payload', () => {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+
+      const stack = initPayload(panel).stack as Array<{ browsable?: boolean }>;
+      expect(stack.every(f => f.browsable === true)).toBe(true);
+    });
+
+    it('opens a browser on the running method’s defining class beside the debugger', () => {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+
+      sendMessage(panel, { command: 'browseFrame', level: 2 });
+
+      expect(SystemBrowser.openAndNavigate).toHaveBeenCalledWith(
+        session,
+        {
+          dictName: 'UserGlobals', className: 'JasperDebugDemo', isMeta: false,
+          selector: 'halt', category: 'running',
+        },
+        vscode.ViewColumn.Beside,
+      );
+    });
+
+    it('does not open a browser for an unknown frame level', () => {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+
+      sendMessage(panel, { command: 'browseFrame', level: 999 });
+
+      expect(SystemBrowser.openAndNavigate).not.toHaveBeenCalled();
+    });
+
+    it('shows a message instead of opening a browser when the selector cannot be located', () => {
+      vi.mocked(debug.getBrowseTarget).mockReturnValueOnce(undefined);
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+
+      sendMessage(panel, { command: 'browseFrame', level: 2 });
+
+      expect(SystemBrowser.openAndNavigate).not.toHaveBeenCalled();
+      expect(lastPosted(panel, 'init').errorMessage).toContain('Could not locate #halt');
+    });
+
+    it('shows a message instead of opening a browser when the class is outside the symbol list', () => {
+      vi.mocked(debug.getBrowseTarget).mockReturnValueOnce({
+        className: 'Loner', isMeta: false, dictName: '', category: '',
+      });
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const panel = lastPanel();
+      sendReady(panel);
+
+      sendMessage(panel, { command: 'browseFrame', level: 2 });
+
+      expect(SystemBrowser.openAndNavigate).not.toHaveBeenCalled();
+      expect(lastPosted(panel, 'init').errorMessage).toContain("isn't in your symbol list");
     });
 
     it('#10 copyStack: assembles the batched dump rows into per-frame groups', () => {
@@ -1316,6 +1391,289 @@ describe('DebuggerPanel', () => {
       // …and dropped on a clean dispose, so the next launch has nothing to reap.
       expect((memento.get(ORPHAN_KEY) as string[] | undefined) ?? []).not.toContain(uri);
     });
+
+    // ── Double-click-to-edit inline values (#5 Phase 2) ───────────────────
+    // Double-clicking an editable variable's name in the source (overlay on) opens
+    // its set-value prompt — a direct selection handler, since hover command-links
+    // don't fire in all hosts. A double-click selects the word; a single click
+    // leaves an empty selection (the cursor, kept for Run to Cursor). These poke the
+    // live panel's overlay state and fire the constructor-registered handler.
+    describe('inline-value double-click-to-edit (#5 Phase 2)', () => {
+      function liveInstance(): {
+        sourceEditor: unknown;
+        inlineValuesEnabled: boolean;
+        inlineHoverLevel: number | undefined;
+        inlineEditableByName: Map<string, { kind: 'instvar' | 'temp'; index: number }>;
+      } {
+        const panels = (DebuggerPanel as unknown as { panels: Map<number, Set<unknown>> }).panels;
+        const all = [...panels.values()].flatMap(s => [...s]);
+        return all[all.length - 1] as never;
+      }
+
+      // The selection-change handler the panel registered in its constructor.
+      function lastSelectionHandler(): (e: unknown) => void {
+        const calls = vi.mocked(vscode.window.onDidChangeTextEditorSelection).mock.calls;
+        return calls[calls.length - 1][0] as (e: unknown) => void;
+      }
+
+      // A source editor whose selected text is `word`, shown at `uri`.
+      function editorWithWord(word: string, uri = 'gemstone-debug://1/Acct/instance/x/readFrom') {
+        return { document: { uri: vscode.Uri.parse(uri), getText: vi.fn(() => word) } };
+      }
+
+      // Wire a panel for click-to-edit: `year` is an editable temp (write index 2).
+      function setup(opts: { word?: string; enabled?: boolean; busy?: boolean } = {}) {
+        DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+        const handler = lastSelectionHandler();
+        const editor = editorWithWord(opts.word ?? 'year');
+        const inst = liveInstance();
+        inst.sourceEditor = editor;
+        inst.inlineValuesEnabled = opts.enabled ?? true;
+        inst.inlineHoverLevel = 3;
+        inst.inlineEditableByName = new Map([['year', { kind: 'temp', index: 2 }]]);
+        if (opts.busy) (inst as unknown as { nbBusy: boolean }).nbBusy = true;
+        return { handler, editor };
+      }
+
+      // A mouse selection event. empty:false (default) = a double-click word
+      // selection; empty:true = a single-click cursor.
+      function select(editor: unknown, over: { kind?: number; empty?: boolean; editor?: unknown } = {}) {
+        return {
+          kind: over.kind ?? vscode.TextEditorSelectionChangeKind.Mouse,
+          textEditor: 'editor' in over ? over.editor : editor,
+          selections: [{ isEmpty: over.empty ?? false }],
+        };
+      }
+
+      it('opens the prompt and writes when an editable variable is double-clicked', async () => {
+        const { handler, editor } = setup();
+        vi.mocked(vscode.window.showInputBox).mockResolvedValueOnce('99');
+        vi.mocked(debug.evaluateInFrameToOop).mockReturnValueOnce(990n);
+
+        handler(select(editor));
+        await tick();
+
+        expect(vscode.window.showInputBox).toHaveBeenCalled();
+        expect(debug.setFrameTemp).toHaveBeenCalledWith(session, GS_PROCESS, 3, 2, 990n);
+      });
+
+      it('writes nothing when the prompt is cancelled', async () => {
+        const { handler, editor } = setup();
+        vi.mocked(vscode.window.showInputBox).mockResolvedValueOnce(undefined); // Esc
+
+        handler(select(editor));
+        await tick();
+
+        expect(debug.evaluateInFrameToOop).not.toHaveBeenCalled();
+        expect(debug.setFrameTemp).not.toHaveBeenCalled();
+      });
+
+      it('writes nothing when the entered expression is blank', async () => {
+        const { handler, editor } = setup();
+        vi.mocked(vscode.window.showInputBox).mockResolvedValueOnce('   ');
+
+        handler(select(editor));
+        await tick();
+
+        expect(debug.evaluateInFrameToOop).not.toHaveBeenCalled();
+        expect(debug.setFrameTemp).not.toHaveBeenCalled();
+      });
+
+      it('surfaces a rejected expression as an error message', async () => {
+        const { handler, editor } = setup();
+        vi.mocked(vscode.window.showInputBox).mockResolvedValueOnce('bogus +');
+        vi.mocked(debug.evaluateInFrameToOop).mockImplementationOnce(() => { throw new Error('a parse error'); });
+
+        handler(select(editor));
+        await tick();
+
+        expect(debug.setFrameTemp).not.toHaveBeenCalled();
+        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining('a parse error'));
+      });
+
+      it('refuses (no prompt) while a non-blocking step holds the session', async () => {
+        const { handler, editor } = setup({ busy: true });
+
+        handler(select(editor));
+        await tick();
+
+        expect(vscode.window.showInputBox).not.toHaveBeenCalled();
+        expect(debug.setFrameTemp).not.toHaveBeenCalled();
+      });
+
+      it('does nothing when the double-clicked word is not an editable variable', async () => {
+        const { handler, editor } = setup({ word: 'asInteger' });
+
+        handler(select(editor));
+        await tick();
+
+        expect(vscode.window.showInputBox).not.toHaveBeenCalled();
+      });
+
+      it('leaves a single click alone (empty selection = the cursor for Run to Cursor)', async () => {
+        const { handler, editor } = setup();
+
+        handler(select(editor, { empty: true }));
+        await tick();
+
+        expect(vscode.window.showInputBox).not.toHaveBeenCalled();
+      });
+
+      it('ignores a keyboard selection (only a mouse double-click edits)', async () => {
+        const { handler, editor } = setup();
+
+        handler(select(editor, { kind: vscode.TextEditorSelectionChangeKind.Keyboard }));
+        await tick();
+
+        expect(vscode.window.showInputBox).not.toHaveBeenCalled();
+      });
+
+      it('does nothing while the inline overlay is off', async () => {
+        const { handler, editor } = setup({ enabled: false });
+
+        handler(select(editor));
+        await tick();
+
+        expect(vscode.window.showInputBox).not.toHaveBeenCalled();
+      });
+
+      it('ignores selections in an editor other than the source pane', async () => {
+        const { handler } = setup();
+
+        handler(select(undefined,
+          { editor: editorWithWord('year', 'gemstone-debug://1/Acct/instance/x/somethingElse') }));
+        await tick();
+
+        expect(vscode.window.showInputBox).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  // The inline value+pencil is served by a registered HoverProvider (via the
+  // static `provideInlineHover`), NOT the decoration's `hoverMessage` — command
+  // links only fire from provider hovers. These poke the live panel's overlay
+  // state directly (the map is normally filled by updateInlineValues from a real
+  // source editor, which the headless editor mock can't supply).
+  describe('inline-value hover provider (#5 Phase 2)', () => {
+    // The most-recently-created live DebuggerPanel instance (held in the static
+    // registry), so a test can seed its inline-overlay state.
+    function liveInstance(): {
+      shownSourceUris: Set<string>;
+      sourceEditor: unknown;
+      inlineValuesEnabled: boolean;
+      inlineHoverByLine: Map<number, InlineVar[]>;
+      inlineHoverLevel: number | undefined;
+    } {
+      const panels = (DebuggerPanel as unknown as { panels: Map<number, Set<unknown>> }).panels;
+      const all = [...panels.values()].flatMap(s => [...s]);
+      return all[all.length - 1] as never;
+    }
+
+    // Seed a fresh panel's overlay for a UNIQUE source URI (so `panelForSourceUri`
+    // resolves to this test's panel, not an undisposed one another test left in the
+    // static registry). Returns the URI to hover. `sourceTag` overrides the panel's
+    // CURRENT source (to exercise the stale-document guard).
+    function seedOverlay(
+      tag: string, vars: InlineVar[], opts: { enabled?: boolean; sourceTag?: string } = {},
+    ): string {
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const uri = `gemstone-debug://1/Acct/instance/accessing/${tag}`;
+      const inst = liveInstance();
+      inst.shownSourceUris.add(uri);
+      const sourceUri = opts.sourceTag ? `gemstone-debug://1/Acct/instance/accessing/${opts.sourceTag}` : uri;
+      inst.sourceEditor = { document: { uri: vscode.Uri.parse(sourceUri) } };
+      inst.inlineValuesEnabled = opts.enabled ?? true;
+      inst.inlineHoverLevel = 3;
+      inst.inlineHoverByLine = new Map([[7, vars]]);
+      return uri;
+    }
+
+    it('serves the value and a double-click-to-edit hint for an annotated line of the live source', () => {
+      const uri = seedOverlay('serve',
+        [{ name: 'year', value: '2021', full: '2021', edit: { kind: 'temp', index: 2 } }]);
+
+      const md = DebuggerPanel.provideInlineHover(uri, 7);
+
+      expect(md?.value).toContain('**year** = 2021');
+      expect(md?.value).toContain('Double-click the variable name'); // edit hint, not a (dead) command-link
+    });
+
+    it('omits the edit hint for a read-only variable (self)', () => {
+      const uri = seedOverlay('selfRo', [{ name: 'self', value: 'an Acct', full: 'an Acct' }]);
+
+      const md = DebuggerPanel.provideInlineHover(uri, 7);
+
+      expect(md?.value).toBe('**self** = an Acct');
+      expect(md?.value).not.toContain('command:');
+    });
+
+    it('returns nothing when the inline overlay is off', () => {
+      const uri = seedOverlay('off',
+        [{ name: 'year', value: '2021', full: '2021', edit: { kind: 'temp', index: 2 } }],
+        { enabled: false });
+
+      expect(DebuggerPanel.provideInlineHover(uri, 7)).toBeUndefined();
+    });
+
+    it('returns nothing for a line with no annotated variable', () => {
+      const uri = seedOverlay('noVar',
+        [{ name: 'year', value: '2021', full: '2021', edit: { kind: 'temp', index: 2 } }]);
+
+      expect(DebuggerPanel.provideInlineHover(uri, 99)).toBeUndefined();
+    });
+
+    it('returns nothing when the hovered document is not the panel’s live source', () => {
+      // The overlay was computed for this URI, but the panel now shows a different
+      // source — a stale map must not mislabel the other document.
+      const uri = seedOverlay('hovered',
+        [{ name: 'year', value: '2021', full: '2021', edit: { kind: 'temp', index: 2 } }],
+        { sourceTag: 'nowShowingOther' });
+
+      expect(DebuggerPanel.provideInlineHover(uri, 7)).toBeUndefined();
+    });
+
+    // The white-box tests above seed the overlay maps by hand; this one drives the
+    // REAL updateInlineValues against a source editor so the population path itself
+    // (frame vars → editable-by-name + per-line hover + decoration) is covered.
+    it('updateInlineValues fills the editable + hover maps from the frame’s variables', () => {
+      vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
+        level === 3
+          ? [
+            { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
+            { group: 'argtemps', name: 'year', value: '<print 2021>', oop: '2021', index: 1 },
+          ]
+          : [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
+      DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
+      const inst = liveInstance() as never as {
+        shownSourceUris: Set<string>; sourceEditor: unknown; inlineValuesEnabled: boolean;
+        inlineEditableByName: Map<string, { kind: string; index: number }>;
+        updateInlineValues(editor: unknown, level: number): void;
+      };
+      const uri = 'gemstone-debug://1/Acct/instance/x/popMap';
+      const src = '^year + 1';
+      const editor = {
+        document: {
+          uri: vscode.Uri.parse(uri),
+          getText: () => src,
+          lineAt: (n: number) => ({ range: new vscode.Range(n, 0, n, src.length) }),
+        },
+        setDecorations: vi.fn(),
+      };
+      inst.shownSourceUris.add(uri);
+      inst.sourceEditor = editor;
+      inst.inlineValuesEnabled = true;
+
+      inst.updateInlineValues(editor, 3);
+
+      // The editable temp `year` (server write index 1) is indexed by name…
+      expect(inst.inlineEditableByName.get('year')).toEqual({ kind: 'temp', index: 1 });
+      // …a decoration was rendered…
+      expect(editor.setDecorations).toHaveBeenCalled();
+      // …and the hover provider now serves `year`'s value on its line.
+      const hover = DebuggerPanel.provideInlineHover(uri, 0)?.value ?? '';
+      expect(hover).toContain('**year**');
+      expect(hover).toContain('2021');
+    });
   });
 
   it('terminates the suspended gsProcess (via clearStack) when the panel window is closed', () => {
@@ -1646,22 +2004,164 @@ describe('DebuggerPanel', () => {
       });
     });
 
-    it('evaluates an expression in the selected frame and posts the result', () => {
-      vi.mocked(debug.evaluateInFrame).mockReturnValueOnce('1764');
+    it('evaluates an expression in the selected frame and posts the result', async () => {
+      vi.mocked(debug.evaluateInFrameNb).mockResolvedValueOnce('1764');
       const panel = openPanel();
       sendMessage(panel, { command: 'evalInFrame', level: 3, expr: '42 * 42' });
+      await tick();
 
-      expect(debug.evaluateInFrame).toHaveBeenCalledWith(session, GS_PROCESS, '42 * 42', 3);
+      expect(debug.evaluateInFrameNb).toHaveBeenCalledWith(
+        session, GS_PROCESS, '42 * 42', 3, expect.objectContaining({ onStart: expect.any(Function) }),
+      );
       expect(lastPosted(panel, 'evalResult')).toMatchObject({ value: '1764', isError: false });
     });
 
-    it('reports an eval error without throwing', () => {
-      vi.mocked(debug.evaluateInFrame).mockImplementationOnce(() => { throw new Error('doesNotUnderstand'); });
+    it('reports an eval error without throwing', async () => {
+      vi.mocked(debug.evaluateInFrameNb).mockRejectedValueOnce(new Error('doesNotUnderstand'));
       const panel = openPanel();
       sendMessage(panel, { command: 'evalInFrame', level: 3, expr: 'foo bar' });
+      await tick();
 
       expect(lastPosted(panel, 'evalResult')).toMatchObject({ isError: true });
       expect(lastPosted(panel, 'evalResult').value).toContain('doesNotUnderstand');
+    });
+
+    it('signals cancellable while a frame eval runs, then clears it', async () => {
+      let release: (v: string) => void = () => {};
+      vi.mocked(debug.evaluateInFrameNb).mockImplementationOnce((...args: unknown[]) => {
+        const opts = args[4] as { onStart?: (c: () => void) => void };
+        opts.onStart?.(() => {});                       // the nb call begins → cancellable
+        return new Promise<string>(res => { release = res; });
+      });
+      const panel = openPanel();
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: '(1 to: 9e9) size' });
+      await tick();
+
+      expect(lastPosted(panel, 'cancellable')).toMatchObject({ on: true });
+
+      release('done');
+      await tick();
+      expect(lastPosted(panel, 'cancellable')).toMatchObject({ on: false });
+    });
+
+    it('Cancel hits the running eval’s cancel handle', async () => {
+      const cancelSpy = vi.fn();
+      vi.mocked(debug.evaluateInFrameNb).mockImplementationOnce((...args: unknown[]) => {
+        const opts = args[4] as { onStart?: (c: () => void) => void };
+        opts.onStart?.(cancelSpy);            // the nb runner hands the panel its cancel fn
+        return new Promise<string>(() => {}); // never settles — the op stays "running"
+      });
+      const panel = openPanel();
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: '[true] whileTrue' });
+      await tick();
+
+      sendMessage(panel, { command: 'cancelOp' });
+
+      expect(cancelSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('a cancelled eval shows "Evaluation Cancelled", the break kind, and the raw error', async () => {
+      let rejectEval: (e: Error) => void = () => {};
+      vi.mocked(debug.evaluateInFrameNb).mockImplementationOnce((...args: unknown[]) => {
+        const opts = args[4] as { onStart?: (c: () => void) => void };
+        opts.onStart?.(() => {});
+        return new Promise<string>((_res, rej) => { rejectEval = rej; });
+      });
+      const panel = openPanel();
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: '[true] whileTrue' });
+      await tick();
+
+      sendMessage(panel, { command: 'cancelOp' });                    // one click → soft break
+      rejectEval(new Error('the operation was interrupted'));         // gem stops with an interrupt
+      await tick();
+
+      const res = lastPosted(panel, 'evalResult');
+      expect(res.value).toContain('Evaluation Cancelled');
+      expect(res.value).toContain('soft break');
+      expect(res.value).toContain('the operation was interrupted'); // raw error kept
+      expect(res.isError).toBe(true);
+    });
+
+    it('labels a two-click eval cancel "(hard break)"', async () => {
+      let rejectEval: (e: Error) => void = () => {};
+      vi.mocked(debug.evaluateInFrameNb).mockImplementationOnce((...args: unknown[]) => {
+        const opts = args[4] as { onStart?: (c: () => void) => void };
+        opts.onStart?.(() => {});
+        return new Promise<string>((_res, rej) => { rejectEval = rej; });
+      });
+      const panel = openPanel();
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: '[true] whileTrue' });
+      await tick();
+
+      sendMessage(panel, { command: 'cancelOp' }); // soft
+      sendMessage(panel, { command: 'cancelOp' }); // hard
+      rejectEval(new Error('forced'));
+      await tick();
+
+      expect(lastPosted(panel, 'evalResult').value).toContain('hard break');
+    });
+
+    it('ignores a second eval while one is already running (busy)', async () => {
+      vi.mocked(debug.evaluateInFrameNb).mockReturnValueOnce(new Promise<string>(() => {})); // first hangs
+      const panel = openPanel();
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: 'first' });
+      await tick();
+
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: 'second' });
+      await tick();
+
+      expect(debug.evaluateInFrameNb).toHaveBeenCalledTimes(1); // the second was refused while busy
+    });
+
+    it('refuses a step while an eval is still running (shared nbBusy guard)', async () => {
+      vi.mocked(debug.evaluateInFrameNb).mockReturnValueOnce(new Promise<string>(() => {})); // eval hangs
+      const panel = openPanel();
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: 'hang' });
+      await tick();
+
+      sendMessage(panel, { command: 'stepOver', level: 3 });
+      await tick();
+
+      expect(debug.stepOverNb).not.toHaveBeenCalled();
+    });
+
+    it('refuses an eval while a step is still running (shared nbBusy guard)', async () => {
+      vi.mocked(debug.stepOverNb).mockReturnValueOnce(new Promise(() => {})); // step hangs
+      const panel = openPanel();
+      sendMessage(panel, { command: 'stepOver', level: 3 });
+      await tick();
+
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: 'x' });
+      await tick();
+
+      expect(debug.evaluateInFrameNb).not.toHaveBeenCalled();
+    });
+
+    it('does not mislabel a later eval setup error as cancelled after a prior cancel', async () => {
+      // First eval: cancelled, so cancelClicks is bumped to 1.
+      let rejectFirst: (e: Error) => void = () => {};
+      vi.mocked(debug.evaluateInFrameNb).mockImplementationOnce((...args: unknown[]) => {
+        const opts = args[4] as { onStart?: (c: () => void) => void };
+        opts.onStart?.(() => {});
+        return new Promise<string>((_res, rej) => { rejectFirst = rej; });
+      });
+      const panel = openPanel();
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: 'first' });
+      await tick();
+      sendMessage(panel, { command: 'cancelOp' });          // cancelClicks → 1
+      rejectFirst(new Error('interrupted'));
+      await tick();
+
+      // Second eval whose blocking SETUP fails before polling starts → onStart never
+      // fires, so cancelClicks isn't reset there. The reset-at-entry guard must keep
+      // the stale 1 from mislabeling this real error as a cancellation.
+      vi.mocked(debug.evaluateInFrameNb).mockRejectedValueOnce(new Error('cannot create expression string'));
+      sendMessage(panel, { command: 'evalInFrame', level: 3, expr: 'second' });
+      await tick();
+
+      const res = lastPosted(panel, 'evalResult');
+      expect(res.value).toContain('Error: cannot create expression string');
+      expect(res.value).not.toContain('Cancelled');
     });
 
     it('Resume disposes the panel when execution completes', () => {
@@ -1920,7 +2420,7 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'stepOver', level: 3 }); // display 3 → server level 3
       await tick();
 
-      expect(debug.stepOverNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+      expect(debug.stepOverNb).toHaveBeenCalledWith(session, GS_PROCESS, 3, expect.anything());
       expect(posted(panel, 'init').length).toBe(before + 1);
       expect(lastPosted(panel, 'init').errorMessage).toBe('');
       expect(panel.dispose).not.toHaveBeenCalled();
@@ -1967,7 +2467,7 @@ describe('DebuggerPanel', () => {
         await tick();
         // Without the fix this would step from the doit-home server level (3),
         // running the whole user block to completion; the stop frame is level 1.
-        expect(debug.stepOverNb).toHaveBeenCalledWith(session, GS_PROCESS, 1);
+        expect(debug.stepOverNb).toHaveBeenCalledWith(session, GS_PROCESS, 1, expect.anything());
       });
 
       it('Step Into likewise steps the stop frame, not the doit home', async () => {
@@ -1975,7 +2475,7 @@ describe('DebuggerPanel', () => {
         const panel = openPanel();
         sendMessage(panel, { command: 'stepInto', level: 1 });
         await tick();
-        expect(debug.stepIntoNb).toHaveBeenCalledWith(session, GS_PROCESS, 1);
+        expect(debug.stepIntoNb).toHaveBeenCalledWith(session, GS_PROCESS, 1, expect.anything());
       });
 
       it('Step Through likewise steps the stop frame, not the doit home', async () => {
@@ -1983,7 +2483,7 @@ describe('DebuggerPanel', () => {
         const panel = openPanel();
         sendMessage(panel, { command: 'stepThrough', level: 1 });
         await tick();
-        expect(debug.stepThruNb).toHaveBeenCalledWith(session, GS_PROCESS, 1);
+        expect(debug.stepThruNb).toHaveBeenCalledWith(session, GS_PROCESS, 1, expect.anything());
       });
     });
 
@@ -2067,7 +2567,7 @@ describe('DebuggerPanel', () => {
       vi.mocked(debug.continueExecution).mockClear();
       sendMessage(panel, { command: 'resume' });
 
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 2);
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 2, expect.anything());
       expect(debug.continueExecution).toHaveBeenCalled(); // no longer guarded
     });
 
@@ -2085,7 +2585,7 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'stepInto', level: 3 }); // display 3 → server level 3
       await tick();
 
-      expect(debug.stepIntoNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+      expect(debug.stepIntoNb).toHaveBeenCalledWith(session, GS_PROCESS, 3, expect.anything());
     });
 
     it('"Through" maps to gciStepThru (debugQueries.stepThruNb), from the selected user frame', async () => {
@@ -2093,7 +2593,7 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'stepThrough', level: 4 }); // display 4 → server level 4
       await tick();
 
-      expect(debug.stepThruNb).toHaveBeenCalledWith(session, GS_PROCESS, 4);
+      expect(debug.stepThruNb).toHaveBeenCalledWith(session, GS_PROCESS, 4, expect.anything());
     });
 
     it('Restart Frame trims the stack (non-blocking) to the selected (deeper) frame and refreshes', async () => {
@@ -2102,8 +2602,40 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'restartFrame', level: 2 });
       await tick();
 
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 2);
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 2, expect.anything());
       expect(posted(panel, 'init').length).toBe(before + 1);
+    });
+
+    it('debugger nb ops suppress the 2s toast (the in-panel overlay owns cancel)', async () => {
+      const panel = openPanel();
+      sendMessage(panel, { command: 'stepOver', level: 3 });
+      await tick();
+
+      expect(debug.stepOverNb).toHaveBeenCalledWith(
+        session, GS_PROCESS, 3, expect.objectContaining({ suppressNotification: true }),
+      );
+    });
+
+    it('a step marks the op cancellable, and Cancel breaks it', async () => {
+      const cancelSpy = vi.fn();
+      vi.mocked(debug.stepOverNb).mockImplementationOnce((...args: unknown[]) => {
+        const opts = args[3] as { onStart?: (c: () => void) => void };
+        opts.onStart?.(cancelSpy);             // the nb step begins polling → cancellable
+        return new Promise(() => {});          // never settles — the step "runs"
+      });
+      const panel = openPanel();
+      sendMessage(panel, { command: 'stepOver', level: 3 });
+      await tick();
+
+      expect(lastPosted(panel, 'cancellable')).toMatchObject({ on: true });
+
+      sendMessage(panel, { command: 'cancelOp' });
+      expect(cancelSpy).toHaveBeenCalledTimes(1);
+      expect(lastPosted(panel, 'flash').text).toMatch(/break sent/i); // click acknowledged
+
+      sendMessage(panel, { command: 'cancelOp' });
+      expect(cancelSpy).toHaveBeenCalledTimes(2);
+      expect(lastPosted(panel, 'flash').text).toMatch(/forc/i); // second click → force
     });
 
     it('Restart Frame on the top frame shows an in-panel notice and does not trim (GemStone cannot reset the TOS IP)', async () => {
@@ -2114,6 +2646,27 @@ describe('DebuggerPanel', () => {
 
       expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();
       expect(lastPosted(panel, 'init').errorMessage).toMatch(/top frame/i);
+    });
+
+    it('Restart Frame on an Executed Code (doit) frame shows a notice and does not trim (kernel cannot reset a classless frame)', async () => {
+      vi.mocked(debug.getStackDepth).mockImplementation(() => 2);
+      vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => ({
+        isBlock: false, homeMethodOop: methodOop,
+      }));
+      // Top frame is a real method; the deeper frame is a doit (its method can't be
+      // resolved → Executed Code), like `<expr> halt` stepped into a real method.
+      vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
+        if (oop === 1n) return { className: 'JasperDebugDemo', selector: 'initialize' };
+        throw new Error('doit');
+      });
+      const panel = openPanel();
+      vi.mocked(debug.trimStackToLevelNb).mockClear();
+
+      sendMessage(panel, { command: 'restartFrame', level: 2 }); // the Executed Code frame
+      await tick();
+
+      expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();
+      expect(lastPosted(panel, 'init').errorMessage).toMatch(/Executed Code/i);
     });
 
     it('Terminate disposes the panel', () => {
@@ -2321,7 +2874,7 @@ describe('DebuggerPanel', () => {
       vi.mocked(debug.continueExecution).mockClear();
       sendMessage(panel, { command: 'resume' });
 
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 2);
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 2, expect.anything());
       expect(debug.continueExecution).toHaveBeenCalled(); // no longer blocked
     });
   });
@@ -2410,7 +2963,7 @@ describe('DebuggerPanel', () => {
 
       // Retargeted from the block (server 1) to its home method (server 3) — so it
       // trims there, NOT refusing as it would for a genuine top frame.
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3, expect.anything());
       expect(lastPosted(panel, 'init').errorMessage).not.toMatch(/top frame/i);
     });
 
@@ -2495,7 +3048,7 @@ describe('DebuggerPanel', () => {
 
       // The whole home method re-runs from the top — the inner AND outer blocks
       // above the home frame are all discarded by the trim.
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 7);
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 7, expect.anything());
       expect(lastPosted(panel, 'init').errorMessage).not.toMatch(/top frame/i);
     });
 
@@ -2506,7 +3059,7 @@ describe('DebuggerPanel', () => {
 
       // homeMethodFrameLevel skips the deeper kernel frame and lands on `foo` (7),
       // never on the still-deeper nothing — there's exactly one home activation.
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 7);
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 7, expect.anything());
     });
 
     it('Saving from a nested block re-enters the shared home method (trims to 7)', async () => {
@@ -2558,7 +3111,7 @@ describe('DebuggerPanel', () => {
       // Retargets DOWN to the home method (server 4) — NOT a trim to the block's
       // own level (2), which would merely restart the block in place (the old
       // behaviour, before block frames retargeted to their home method).
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 4);
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 4, expect.anything());
       expect(debug.trimStackToLevelNb).not.toHaveBeenCalledWith(session, GS_PROCESS, 2);
     });
 
@@ -2609,7 +3162,7 @@ describe('DebuggerPanel', () => {
 
       // Trims to the inner foo (server 3), NOT the deeper outer foo (server 6) —
       // restarting the inner recursion level, not unwinding an extra one.
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3);
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3, expect.anything());
       expect(debug.trimStackToLevelNb).not.toHaveBeenCalledWith(session, GS_PROCESS, 6);
     });
   });
@@ -3745,6 +4298,44 @@ describe('computeInlineValueLines', () => {
     const v: InlineVar[] = [{ name: 'amount', value: '9', full: '9' }];
     const overlay = computeInlineValueLines(lines, v, { perLine: true });
     expect(overlay.map(o => o.line)).toEqual([1]);
+  });
+});
+
+describe('inlineHoverMarkdown (#5 Phase 2 — the inline-value hover)', () => {
+  it('shows each variable as a bold name and its full (un-truncated) value', () => {
+    const md = inlineHoverMarkdown(
+      [{ name: 'balance', value: 'an Ord…', full: 'an OrderedCollection(1 2 3)' }],
+    );
+    expect(md).toContain('**balance**');
+    expect(md).toContain('= an OrderedCollection(1 2 3)'); // the full value, not the truncated one
+  });
+
+  it('hints that an editable variable is set by double-clicking its name', () => {
+    const md = inlineHoverMarkdown(
+      [{ name: 'amount', value: '75', full: '75', edit: { kind: 'temp', index: 2 } }],
+    );
+    expect(md).toContain('**amount** = 75');
+    expect(md).toContain('Double-click the variable name'); // the double-click-to-edit hint
+  });
+
+  it('escapes markdown-significant characters in the value so it renders verbatim', () => {
+    const md = inlineHoverMarkdown([{ name: 'x', value: 'evil', full: '`[a]`*b*' }]);
+    expect(md).toContain('\\`\\[a\\]\\`\\*b\\*'); // backticks/brackets/asterisks escaped
+  });
+
+  it('omits the click hint for a read-only-only hover (no editable variable)', () => {
+    const md = inlineHoverMarkdown([{ name: 'self', value: 'an Account', full: 'an Account' }]);
+    expect(md).toBe('**self** = an Account'); // no hint, no affordance
+  });
+
+  it('shows the hint once when a line mixes an editable and a read-only variable', () => {
+    const md = inlineHoverMarkdown([
+      { name: 'self', value: 'an Account', full: 'an Account' },
+      { name: 'count', value: '7', full: '7', edit: { kind: 'instvar', index: 1 } },
+    ]);
+    expect(md).toContain('**self** = an Account');
+    expect(md).toContain('**count** = 7');
+    expect(md.match(/Double-click the variable name/g)).toHaveLength(1); // hint appears exactly once
   });
 });
 

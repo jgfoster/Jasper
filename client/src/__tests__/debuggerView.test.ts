@@ -11,7 +11,7 @@ beforeAll(() => {
   new Function(source)();
 });
 
-interface FrameSummary { level: number; label: string; position: string; overridable?: boolean; receiverClass?: string; breakable?: boolean; homeDisplayLevel?: number; }
+interface FrameSummary { level: number; label: string; position: string; overridable?: boolean; receiverClass?: string; breakable?: boolean; browsable?: boolean; homeDisplayLevel?: number; }
 
 interface DebuggerViewApi {
   renderStack(listEl: HTMLElement, stack: FrameSummary[]): void;
@@ -55,6 +55,7 @@ interface Refs {
   list: HTMLElement;
   menu: HTMLElement;
   copyFrameItem: HTMLElement;
+  browseFrameItem?: HTMLElement;
   homeFrameItem?: HTMLElement;
   frameImplItem?: HTMLElement;
   copyBtn: HTMLElement;
@@ -76,6 +77,8 @@ interface Refs {
   hsplitter?: HTMLElement;
   varMenu?: HTMLElement;
   varInspectItem?: HTMLElement;
+  busyOverlay?: HTMLElement;
+  busyCancel?: HTMLElement;
 }
 
 function api(): DebuggerViewApi {
@@ -84,7 +87,7 @@ function api(): DebuggerViewApi {
 
 const STACK: FrameSummary[] = [
   { level: 1, label: '[] in JasperDebugDemo>>#finish', position: '@2 line 12' },
-  { level: 2, label: 'SmallInteger (Object)>>#halt', position: '@2 line 12', overridable: true, receiverClass: 'SmallInteger' },
+  { level: 2, label: 'SmallInteger (Object)>>#halt', position: '@2 line 12', overridable: true, receiverClass: 'SmallInteger', browsable: true },
   { level: 3, label: 'JasperDebugDemo>>#accumulateFrom:to:', position: '' },
 ];
 
@@ -113,12 +116,15 @@ function setup(
     <div id="dnuBar"></div>
     <div class="main"><ul id="stack"></ul><div id="variables"></div></div>
     <input id="evalInput"><div id="evalResult"></div>
-    <div id="ctxmenu"><div id="copyFrameItem">Copy Frame</div><div id="homeFrameItem" style="display:none;">Go to home method</div><div id="frameImplItem" style="display:none;">Implement in receiver</div></div>
-    <div id="varctxmenu"><div id="varInspectItem">GT Inspect</div></div>`;
+    <div id="ctxmenu"><div id="copyFrameItem">Copy Frame</div><div id="browseFrameItem" style="display:none;">Browse</div><div id="homeFrameItem" style="display:none;">Go to home method</div><div id="frameImplItem" style="display:none;">Implement in receiver</div></div>
+    <div id="varctxmenu"><div id="varInspectItem">GT Inspect</div></div>
+    <div id="busyOverlay" class="busy-overlay" style="display:none;"><div class="busy-box"><div class="busy-spinner"></div><button id="busyCancel" style="display:none;">Cancel</button></div></div>`;
+  document.body.classList.remove('busy');
   const refs: Refs = {
     list: document.getElementById('stack')!,
     menu: document.getElementById('ctxmenu')!,
     copyFrameItem: document.getElementById('copyFrameItem')!,
+    browseFrameItem: document.getElementById('browseFrameItem')!,
     homeFrameItem: document.getElementById('homeFrameItem')!,
     frameImplItem: document.getElementById('frameImplItem')!,
     copyBtn: document.getElementById('copyBtn')!,
@@ -136,6 +142,8 @@ function setup(
     evalResult: document.getElementById('evalResult')!,
     varMenu: document.getElementById('varctxmenu')!,
     varInspectItem: document.getElementById('varInspectItem')!,
+    busyOverlay: document.getElementById('busyOverlay')!,
+    busyCancel: document.getElementById('busyCancel')!,
   };
   const vscode = { postMessage: vi.fn() };
   const ctrl = api().init(refs, vscode);
@@ -289,6 +297,24 @@ describe('DebuggerView.init — right-click copy popup', () => {
     refs.frameImplItem!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
     expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'implementInReceiver', level: 2 });
+  });
+
+  it('shows "Browse" only on a frame that runs a real class method', () => {
+    const { refs } = setup();
+
+    frame(refs, 2).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(refs.browseFrameItem!.style.display).not.toBe('none');
+
+    frame(refs, 1).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(refs.browseFrameItem!.style.display).toBe('none');
+  });
+
+  it('clicking Browse posts browseFrame for the selected level and hides the menu', () => {
+    const { refs, vscode } = setup();
+    frame(refs, 2).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    refs.browseFrameItem!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'browseFrame', level: 2 });
     expect(refs.menu.classList.contains('show')).toBe(false);
   });
 
@@ -350,6 +376,313 @@ describe('DebuggerView.init — right-click copy popup', () => {
 
     expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'selectFrame', level: 5 });
     expect(frame(refs, 5).classList.contains('selected')).toBe(true);
+  });
+});
+
+describe('DebuggerView.init — progress indicator (#9)', () => {
+  // setup()'s default frame-select fires one server request; deliver its reply so
+  // every test starts idle, then exercise its own action from that clean baseline.
+  function setupIdle() {
+    const ctx = setup();
+    window.dispatchEvent(new MessageEvent('message', { data: { command: 'variables', groups: [] } }));
+    return ctx;
+  }
+
+  // Selecting a frame is a server round-trip (it fetches that frame's variables).
+  function selectAFrame(refs: Refs) {
+    frame(refs, 3).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  }
+
+  function respond() {
+    window.dispatchEvent(new MessageEvent('message', { data: { command: 'variables', groups: [] } }));
+  }
+
+  it('shows nothing while a server request finishes within the reveal delay', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs } = setupIdle();
+
+      selectAFrame(refs);
+      vi.advanceTimersByTime(499);
+
+      expect(refs.busyOverlay!.style.display).toBe('none');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reveals the spinner once a server request outlives the reveal delay', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs } = setupIdle();
+
+      selectAFrame(refs);
+      vi.advanceTimersByTime(500);
+
+      expect(refs.busyOverlay!.style.display).toBe('');
+      expect(document.body.classList.contains('busy')).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('hides the spinner when the host sends its response', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs } = setupIdle();
+
+      selectAFrame(refs);
+      vi.advanceTimersByTime(500);
+      respond();
+
+      expect(refs.busyOverlay!.style.display).toBe('none');
+      expect(document.body.classList.contains('busy')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('never flashes when the host responds before the reveal delay', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs } = setupIdle();
+
+      selectAFrame(refs);
+      respond();
+      vi.advanceTimersByTime(1000);
+
+      expect(refs.busyOverlay!.style.display).toBe('none');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not show a spinner for local-only commands like Copy Stack', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs } = setupIdle();
+
+      refs.copyBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      vi.advanceTimersByTime(1000);
+
+      expect(refs.busyOverlay!.style.display).toBe('none');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  function markCancellable() {
+    window.dispatchEvent(new MessageEvent('message', { data: { command: 'cancellable', on: true } }));
+  }
+
+  it('offers a Cancel button when the running op is cancellable', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs } = setupIdle();
+
+      markCancellable();
+      selectAFrame(refs);
+      vi.advanceTimersByTime(500);
+
+      expect(refs.busyOverlay!.style.display).toBe('');
+      expect(refs.busyCancel!.style.display).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows the spinner but no Cancel button for a non-cancellable op', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs } = setupIdle();
+
+      selectAFrame(refs);
+      vi.advanceTimersByTime(500);
+
+      expect(refs.busyOverlay!.style.display).toBe('');
+      expect(refs.busyCancel!.style.display).toBe('none');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('requests cancellation when the Cancel button is clicked', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs, vscode } = setupIdle();
+
+      markCancellable();
+      selectAFrame(refs);
+      vi.advanceTimersByTime(500);
+      refs.busyCancel!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'cancelOp' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('hides the Cancel button when the op completes', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs } = setupIdle();
+
+      markCancellable();
+      selectAFrame(refs);
+      vi.advanceTimersByTime(500);
+      respond();
+
+      expect(refs.busyCancel!.style.display).toBe('none');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the spinner and Cancel up when the host posts a transient flash (e.g. Break sent)', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs } = setupIdle();
+
+      markCancellable();
+      selectAFrame(refs);
+      vi.advanceTimersByTime(500);
+      // The Cancel-click acknowledgement is a 'flash' posted mid-op; it must NOT end
+      // the span — otherwise the spinner vanishes and a 2nd Cancel (hard break) is impossible.
+      window.dispatchEvent(new MessageEvent('message', { data: { command: 'flash', text: 'Break sent…' } }));
+
+      expect(refs.busyOverlay!.style.display).toBe('');
+      expect(refs.busyCancel!.style.display).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Each server-bound command must start the busy span (otherwise a slow op of that
+  // kind would show no spinner). Drive each through its real toolbar/eval trigger.
+  for (const cmd of ['stepOver', 'stepInto', 'stepThrough', 'restartFrame', 'resume']) {
+    it(`shows the spinner for a ${cmd} request`, () => {
+      vi.useFakeTimers();
+      try {
+        const { refs } = setupIdle();
+
+        refs.toolbar.querySelector(`[data-cmd="${cmd}"]`)!
+          .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        vi.advanceTimersByTime(500);
+
+        expect(refs.busyOverlay!.style.display).toBe('');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  }
+
+  it('shows the spinner for an evalInFrame request', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs } = setupIdle();
+
+      (refs.evalInput as HTMLInputElement).value = '3 + 4';
+      refs.evalInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+      vi.advanceTimersByTime(500);
+
+      expect(refs.busyOverlay!.style.display).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does NOT show the spinner for a local-only command (Terminate)', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs } = setupIdle();
+
+      refs.toolbar.querySelector('[data-cmd="terminate"]')!
+        .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      vi.advanceTimersByTime(500);
+
+      expect(refs.busyOverlay!.style.display).toBe('none');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reveals then hides the spinner from a host-pushed busy message', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs } = setupIdle();
+
+      window.dispatchEvent(new MessageEvent('message', { data: { command: 'busy', on: true } }));
+      vi.advanceTimersByTime(500);
+      expect(refs.busyOverlay!.style.display).toBe('');
+
+      window.dispatchEvent(new MessageEvent('message', { data: { command: 'busy', on: false } }));
+      expect(refs.busyOverlay!.style.display).toBe('none');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Render one editable variable through the host's 'variables' message, so the
+  // init-wired var handlers (commit/revert/contextMenu → post(...)) are exercised.
+  function renderEditableVar(refs: Refs) {
+    window.dispatchEvent(new MessageEvent('message', { data: { command: 'variables', groups: [
+      { title: 'Instance variables', kind: 'instvar',
+        vars: [{ name: 'count', value: '5', oop: '200', edit: { kind: 'instvar', index: 1 } }] },
+    ] } }));
+    return refs.variables.querySelector('.var') as HTMLElement;
+  }
+
+  it('shows the spinner for a setVariable request (commit from the variable editor)', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs } = setupIdle();
+      const row = renderEditableVar(refs);
+
+      row.click(); // open the inline editor
+      const input = refs.variables.querySelector('.var-edit') as HTMLInputElement;
+      input.value = '42';
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); // commit → post(setVariable)
+      vi.advanceTimersByTime(500);
+
+      expect(refs.busyOverlay!.style.display).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows the spinner for a revertVariable request', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs } = setupIdle();
+      window.dispatchEvent(new MessageEvent('message', { data: { command: 'variables', groups: [
+        { title: 'Instance variables', kind: 'instvar',
+          vars: [{ name: 'count', value: '9', oop: '201', edit: { kind: 'instvar', index: 1 }, revertible: true }] },
+      ] } }));
+
+      (refs.variables.querySelector('.var-revert') as HTMLElement)
+        .dispatchEvent(new MouseEvent('click', { bubbles: true })); // → post(revertVariable)
+      vi.advanceTimersByTime(500);
+
+      expect(refs.busyOverlay!.style.display).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does NOT show the spinner for inspectVariable (deliberately excluded — opens a separate inspector)', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs } = setupIdle();
+      const row = renderEditableVar(refs);
+
+      row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })); // sets varMenuTarget
+      refs.varInspectItem!.dispatchEvent(new MouseEvent('click', { bubbles: true })); // → post(inspectVariable)
+      vi.advanceTimersByTime(500);
+
+      expect(refs.busyOverlay!.style.display).toBe('none');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
