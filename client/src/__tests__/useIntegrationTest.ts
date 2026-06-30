@@ -141,6 +141,12 @@ export function useIntegrationTest(callback: UseIntegrationTestCallback) {
     }
 
     function restoreGemstoneGlobalDir() {
-        process.env.GEMSTONE_GLOBAL_DIR = originalGemstoneGlobalDir;
+        // Restore the original value so subsequent suites — including other
+        // useIntegrationTest blocks — don't inherit this suite's GEMSTONE_GLOBAL_DIR.
+        if (originalGemstoneGlobalDir === undefined) {
+            delete process.env.GEMSTONE_GLOBAL_DIR;
+        } else {
+            process.env.GEMSTONE_GLOBAL_DIR = originalGemstoneGlobalDir;
+        }
     }
 }
