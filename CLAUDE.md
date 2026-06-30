@@ -23,8 +23,10 @@ npm test                 # run all tests (server → client → mcp-server)
 npm run test:server      # server workspace tests only
 npm run test:client      # client workspace tests only (npm test --workspace client)
 npm run test:mcp         # mcp-server workspace tests only
-npm run test:setup       # provision local GemStone + write .env.test (required for useIntegrationTest tests)
-npm run test:gci         # deep GCI binding tests (see below)
+npm run test:server:start  # install GemStone (if needed), start a fresh test stone, write .env.test
+npm run test:server:stop   # stop the test stone's Stone and NetLDI processes
+npm run test:server:list   # list running GemStone processes for the test stone
+npm run test:gci           # deep GCI binding tests (see below)
 npm run package          # produce .vsix package
 ```
 
@@ -83,9 +85,9 @@ Query functions in `queries/` take a `QueryExecutor` argument — in tests, pass
 
 ### Integration tests
 
-Tests using `useIntegrationTest` require a live GemStone instance. Run `npm run test:setup` once to provision one; it writes connection details to `.env.test`. Override with `.env.test.local` for a custom instance. CI runs these as a matrix over `client/.gemstone-integration-releases.json`.
+Tests using `useIntegrationTest` require a live GemStone instance. Run `npm run test:server:start` once to provision one; it writes connection details to `.env.test`. Override with `.env.test.local` for a custom instance. CI runs these as a matrix over `client/.gemstone-integration-releases.json`.
 
-`npm run test:gci` is a deeper suite that tests the GCI native library bindings directly (`client/src/__tests__/gci/**`). It does not use `useIntegrationTest` or `.env.test` — it reads `GCI_LIBRARY_PATH` straight from the shell environment (not `VITE_`-prefixed), so `test:setup` alone is not enough. You also need a running stone at localhost. Only needed when working on the GCI bindings layer (`gciLibrary.ts`).
+`npm run test:gci` is a deeper suite that tests the GCI native library bindings directly (`client/src/__tests__/gci/**`). It does not use `useIntegrationTest` or `.env.test` — it reads `GCI_LIBRARY_PATH` straight from the shell environment (not `VITE_`-prefixed), so `test:server:start` alone is not enough. You also need a running stone at localhost. Only needed when working on the GCI bindings layer (`gciLibrary.ts`).
 
 ## GCI / native library
 

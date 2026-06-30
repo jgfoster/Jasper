@@ -28,8 +28,8 @@ type UseIntegrationTestCallback = (gciLibraryToUse: GciLibrary, sessionToUse: un
  *
  * Connection details are read from `process.env.VITE_GEMSTONE_*` variables.
  * Vite loads these automatically from `.env.test` when running in test mode —
- * run `npm run test:setup` to generate that file. To override individual values
- * for your local setup without touching `.env.test`, create `.env.test.local`
+ * run `npm run test:server:start` to generate that file. To override individual
+ * values for your local setup without touching `.env.test`, create `.env.test.local`
  * alongside it (gitignored; takes precedence).
  *
  * `GEMSTONE_GLOBAL_DIR` is set from `VITE_GEMSTONE_GLOBAL_DIR` for the duration
@@ -115,8 +115,8 @@ export function useIntegrationTest(callback: UseIntegrationTestCallback) {
 
             A common cause is a missing or misconfigured test environment.
 
-            If you haven't already, try running \`npm run test:setup\`.
-            This installs the required test GemStone instance and creates or updates the \`.env.test\` file.
+            If you haven't already, try running \`npm run test:server:start\`.
+            This installs GemStone (if needed), starts a fresh test stone, and writes \`.env.test\`.
 
             If the environment is already set up, refer to the original error below for more details.
             -----------------------------------------------------------------------------------------

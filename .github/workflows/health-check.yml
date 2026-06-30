@@ -42,6 +42,6 @@ jobs:
           path: client/tmp/downloads
           key: gemstone-download-${{ runner.os }}-${{ matrix.gemstone-version }}
       - name: Setup test environment
-        run: npm run test:setup -- ${{ matrix.gemstone-version }}
+        run: npm run test:server:start -- ${{ matrix.gemstone-version }}
       - name: Run tests
         run: npm test
