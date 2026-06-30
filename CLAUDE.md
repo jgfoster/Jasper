@@ -67,7 +67,7 @@ A standalone Node.js process that can run as stdio, SSE, or proxy transport. `to
 
 ## Tests
 
-`client/__tests__/CLAUDE.md` contains the authoritative test authoring rules — read it before writing or editing tests.
+`client/src/__tests__/CLAUDE.md` contains the authoritative test authoring rules — read it before writing or editing tests.
 
 ### VS Code API mocking (client workspace)
 
