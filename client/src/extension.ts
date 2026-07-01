@@ -25,6 +25,11 @@ import { CodeExecutor } from './codeExecutor';
 import { SystemBrowser } from './systemBrowser';
 import { GlobalsBrowser } from './globalsBrowser';
 import { GtInspector } from './gtInspector';
+import {
+  runInstallEnhancedInspector,
+  maybeOfferEnhancedInspectorInstall,
+} from './enhancedInspectorCommand';
+import { refreshGtAvailable } from './gtAvailability';
 import { DebuggerPanel } from './debuggerPanel';
 import { InlineValuesCodeLensProvider } from './inlineValuesCodeLens';
 import { GemStoneFileSystemProvider, MethodCompiledEvent, ClassDefinitionCompiledEvent } from './gemstoneFileSystemProvider';
@@ -658,6 +663,10 @@ export function activate(context: vscode.ExtensionContext) {
       await openWorkspace();
     }),
 
+    vscode.commands.registerCommand('gemstone.installEnhancedInspector', async () => {
+      await runInstallEnhancedInspector(sessionManager, context.extensionPath);
+    }),
+
     vscode.commands.registerCommand('gemstone.resetGettingStarted', async () => {
       await context.globalState.update(GETTING_STARTED_SEEN_KEY, undefined);
       const openNow = 'Open Walkthrough Now';
@@ -841,8 +850,7 @@ export function activate(context: vscode.ExtensionContext) {
       let session;
       try {
         session = sessionManager.login(login, gciPath);
-        session.gtAvailable = queries.checkGtAvailable(session);
-        vscode.commands.executeCommand('setContext', 'gemstone.gtAvailable', session.gtAvailable);
+        refreshGtAvailable(session);
         treeProvider.refresh();
         vscode.window.showInformationMessage(
           `Connected to ${login.stone} (${session.stoneVersion}) on ${login.gem_host} as ${login.gs_user}`
@@ -866,6 +874,13 @@ export function activate(context: vscode.ExtensionContext) {
           GETTING_STARTED_WALKTHROUGH_ID,
           false,
         );
+      }
+
+      // If this stone lacks Enhanced Inspector support, offer (or auto-run) the
+      // install per the gemstone.enhancedInspector.autoInstall setting. Fire and
+      // forget so the connect flow completes; the offer surfaces its own UI.
+      if (!session.gtAvailable) {
+        void maybeOfferEnhancedInspectorInstall(session, sessionManager, context.extensionPath);
       }
     }),
 

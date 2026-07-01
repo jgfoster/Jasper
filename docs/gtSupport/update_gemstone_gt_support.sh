@@ -81,6 +81,16 @@ cp "$ROWAN_PROJECTS_HOME/gtoolkit-wireencoding/src-gs/gtoolkit-wireencoding.gs" 
 cp "$ROWAN_PROJECTS_HOME/gt4gemstone/src-gs/gt4gemstone.gs"           "$SCRIPT_DIR/"
 cp "$ROWAN_PROJECTS_HOME/gtoolkit-remote/src-gs/gtoolkit-remote.gs"   "$SCRIPT_DIR/"
 
+# Re-apply Jasper's post-processing to the freshly-copied upstream files:
+#   - per-file attribution headers (origin repo + MIT license)
+#   - class placement rewrite from Globals to Published
+# These transforms are deterministic and idempotent; they MUST run on every
+# update or the refreshed files would revert to pristine upstream (Globals,
+# no headers). See apply_jasper_transforms.sh.
+echo ""
+echo "Applying Jasper transforms (attribution headers + Globals->Published)..."
+"$SCRIPT_DIR/apply_jasper_transforms.sh" "$SCRIPT_DIR"
+
 echo ""
 echo "Update complete. Files written to $SCRIPT_DIR"
 echo "Use load_gemstone_gt_support.sh to load these into a stone."

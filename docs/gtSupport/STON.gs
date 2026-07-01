@@ -1,3 +1,14 @@
+! Jasper Enhanced Inspector vendored source
+! ----------------------------------------------------------------------------
+! Origin : https://github.com/feenkcom/gt4gemstone
+! Source : src-gs/STON.gs
+! License: MIT - Copyright (c) feenk gmbh. See LICENSE in the origin repository.
+!
+! Vendored into Jasper and filed into the stone by the Enhanced Inspector
+! installer. DO NOT EDIT BY HAND - regenerated from upstream by
+! update_gemstone_gt_support.sh, which re-applies this header and rewrites
+! class placement from Globals to Published.
+! ----------------------------------------------------------------------------
 ! Class Declarations
 ! Generated file, do not Edit
 
@@ -8,7 +19,7 @@ doit
 	classVars: #()
 	classInstVars: #()
 	poolDictionaries: #()
-	inDictionary: Globals
+	inDictionary: Published
 	options: #()
 )
 		category: 'STON-Core';
@@ -28,7 +39,7 @@ doit
 	classVars: #()
 	classInstVars: #()
 	poolDictionaries: #()
-	inDictionary: Globals
+	inDictionary: Published
 	options: #()
 )
 		category: 'STON-Core';
@@ -47,7 +58,7 @@ doit
 	classVars: #()
 	classInstVars: #()
 	poolDictionaries: #()
-	inDictionary: Globals
+	inDictionary: Published
 	options: #()
 )
 		category: 'STON-GemStone-Kernel';
@@ -72,7 +83,7 @@ doit
 	classVars: #()
 	classInstVars: #()
 	poolDictionaries: #()
-	inDictionary: Globals
+	inDictionary: Published
 	options: #()
 )
 		category: 'STON-Core';
@@ -184,7 +195,7 @@ doit
 	classVars: #()
 	classInstVars: #()
 	poolDictionaries: #()
-	inDictionary: Globals
+	inDictionary: Published
 	options: #()
 )
 		category: 'STON-Core';
@@ -205,7 +216,7 @@ doit
 	classVars: #()
 	classInstVars: #()
 	poolDictionaries: #()
-	inDictionary: Globals
+	inDictionary: Published
 	options: #()
 )
 		category: 'STON-Core';
@@ -225,7 +236,7 @@ doit
 	classVars: #()
 	classInstVars: #()
 	poolDictionaries: #()
-	inDictionary: Globals
+	inDictionary: Published
 	options: #()
 )
 		category: 'STON-Core';
@@ -245,7 +256,7 @@ doit
 	classVars: #()
 	classInstVars: #()
 	poolDictionaries: #()
-	inDictionary: Globals
+	inDictionary: Published
 	options: #()
 )
 		category: 'STON-Core';
@@ -265,7 +276,7 @@ doit
 	classVars: #()
 	classInstVars: #()
 	poolDictionaries: #()
-	inDictionary: Globals
+	inDictionary: Published
 	options: #()
 )
 		category: 'STON-Core';
@@ -285,7 +296,7 @@ doit
 	classVars: #()
 	classInstVars: #()
 	poolDictionaries: #()
-	inDictionary: Globals
+	inDictionary: Published
 	options: #()
 )
 		category: 'STON-Core';
@@ -304,7 +315,7 @@ doit
 	classVars: #(STONCharacters STONSimpleSymbolCharacters)
 	classInstVars: #()
 	poolDictionaries: #()
-	inDictionary: Globals
+	inDictionary: Published
 	options: #()
 )
 		category: 'STON-Core';

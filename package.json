@@ -200,6 +200,21 @@
             "default": false,
             "description": "Enable GT Perf Tracking: count GCI round trips in the GT Inspector. When enabled, shows a status bar counter and logs to the 'GemStone GT Perf' output channel. Intended for performance tuning only."
           },
+          "gemstone.enhancedInspector.autoInstall": {
+            "type": "string",
+            "enum": [
+              "ask",
+              "always",
+              "never"
+            ],
+            "enumDescriptions": [
+              "When a stone without enhanced inspector support is connected, offer to install it.",
+              "Install enhanced inspector support automatically (requires the SystemUser default password; otherwise a notification explains how to install manually).",
+              "Never offer to install enhanced inspector support."
+            ],
+            "default": "ask",
+            "description": "What to do on connecting to a stone that does not have enhanced inspector support installed. The buttons on the install prompt update this setting."
+          },
           "gemstone.displayItMode": {
             "type": "string",
             "enum": [
@@ -557,6 +572,11 @@
         "title": "Open Getting Started Workspace",
         "category": "GemStone",
         "icon": "$(notebook)"
+      },
+      {
+        "command": "gemstone.installEnhancedInspector",
+        "title": "Install Enhanced Inspector Support",
+        "category": "GemStone"
       },
       {
         "command": "gemstone.openWalkthrough",
