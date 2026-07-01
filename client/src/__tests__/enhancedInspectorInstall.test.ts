@@ -18,7 +18,7 @@ import {
 
 const executeFetchStringMock = executeFetchString as ReturnType<typeof vi.fn>;
 
-const PAYLOAD_DIR = '/payload/gtSupport';
+const PAYLOAD_DIR = '/payload/enhancedInspector';
 
 // Default: gem can read everything, every file-in succeeds, verification passes.
 function happyPath(_s: unknown, _label: string, code: string): string {

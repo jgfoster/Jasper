@@ -1,6 +1,10 @@
-# GT Support for GemStone
+# Enhanced Inspector Support for GemStone
 
-Loads GT remote inspection support into a plain-vanilla GemStone server.
+Loads enhanced inspector support into a plain-vanilla GemStone server.
+
+> **Note:** the payload `.gs` files now live in `resources/enhancedInspector/`
+> (so they ship in the packaged VSIX). The scripts here operate on that
+> directory; only the developer scripts remain in `docs/gtSupport/`.
 
 ## Quick Start
 

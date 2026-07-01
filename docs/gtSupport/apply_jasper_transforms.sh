@@ -15,15 +15,18 @@
 #
 # Idempotent: the header is added only when its sentinel is absent, and the
 # Globals->Published substitution matches nothing once already applied. Run
-# either standalone (re-applies to the files in this directory) or from
+# either standalone (re-applies to the vendored payload files) or from
 # update_gemstone_gt_support.sh after it refreshes the files from upstream.
 #
+# The payload .gs files live in resources/enhancedInspector/ (two levels up from
+# this script), so they ship in the packaged VSIX; docs/ does not.
+#
 # USAGE:
-#   ./apply_jasper_transforms.sh [target-dir]   # defaults to this script's dir
+#   ./apply_jasper_transforms.sh [target-dir]   # defaults to the payload dir
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TARGET_DIR="${1:-$SCRIPT_DIR}"
+TARGET_DIR="${1:-$SCRIPT_DIR/../../resources/enhancedInspector}"
 
 SENTINEL="! Jasper Enhanced Inspector vendored source"
 

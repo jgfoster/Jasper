@@ -28,8 +28,9 @@ import { executeFetchString } from './browserQueries';
 
 /**
  * The payload files, in dependency order — must match the `input` order in
- * docs/gtSupport/load_gemstone_gt_support.sh. Earlier files define classes and
- * behavior that later files depend on.
+ * docs/gtSupport/load_gemstone_gt_support.sh. The files themselves live in
+ * resources/enhancedInspector/. Earlier files define classes and behavior that
+ * later files depend on.
  */
 export const ENHANCED_INSPECTOR_FILES: readonly string[] = [
   'Announcements.gs',

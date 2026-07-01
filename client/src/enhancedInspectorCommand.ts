@@ -49,10 +49,10 @@ function setAutoInstallMode(mode: AutoInstallMode): Thenable<void> {
 // connection's configured credentials.)
 const DEFAULT_SYSTEMUSER_PASSWORD = 'swordfish';
 
-// Payload location relative to the extension root. This resolves under the repo
-// in the F5 dev host; shipping the .gs files in a packaged VSIX (docs/** is
-// .vscodeignore'd) is a separate, Phase-4 packaging task.
-const PAYLOAD_SUBDIR = path.join('docs', 'gtSupport');
+// Payload location relative to the extension root. `resources/` ships in the
+// packaged VSIX (unlike `docs/`, which is .vscodeignore'd), so the same path
+// resolves in both the F5 dev host and an installed extension.
+const PAYLOAD_SUBDIR = path.join('resources', 'enhancedInspector');
 
 /**
  * Open a transient SystemUser session on the SAME GciLibrary as `base`,
@@ -323,4 +323,109 @@ export async function maybeOfferEnhancedInspectorInstall(
     await performInstall(base, sessionManager, extensionPath, true);
   }
   // Cancelled/dismissed ("not now") — leave the setting at `ask` and do nothing.
+}
+
+// Human-readable label for each mode, reused by the picker and its confirmation.
+const AUTO_INSTALL_MODES: { mode: AutoInstallMode; label: string; detail: string }[] = [
+  {
+    mode: 'ask',
+    label: 'Ask on connect',
+    detail: 'Offer to install when you connect to a stone that lacks it (default).',
+  },
+  {
+    mode: 'always',
+    label: 'Always install',
+    detail:
+      'Install automatically on connect when a stone lacks it. Uses the SystemUser '
+      + 'default password; if that has been changed, use "Ask" or the install command '
+      + 'so you can enter it.',
+  },
+  {
+    mode: 'never',
+    label: 'Never',
+    detail: 'Do not offer or install; use the default Inspector.',
+  },
+];
+
+interface AutoInstallPick extends vscode.QuickPickItem {
+  mode: AutoInstallMode;
+}
+
+// How long the confirmed selection stays visible in the picker before it closes.
+const SELECTION_FLASH_MS = 900;
+
+// Build the picker items, marking `selected` with a check so the current (or
+// just-chosen) mode is visually distinguished.
+function autoInstallItems(selected: AutoInstallMode): AutoInstallPick[] {
+  return AUTO_INSTALL_MODES.map((m) => ({
+    label: m.mode === selected ? `$(check) ${m.label}` : m.label,
+    detail: m.detail,
+    mode: m.mode,
+  }));
+}
+
+/**
+ * Command Palette entry point: set the `gemstone.enhancedInspector.autoInstall`
+ * preference from anywhere, so users can change their mind without hunting
+ * through Settings. Needs no session — it only writes a preference — so it
+ * works before login too. The install itself still happens on connect per the
+ * chosen mode and requires a SystemUser login, which the picker notes up front.
+ *
+ * Uses the low-level QuickPick so that, on selection, the chosen mode is
+ * confirmed in place — the picker re-checks the choice and shows it in the
+ * title — and lingers briefly before closing. This gives visible feedback even
+ * where notification toasts are suppressed (e.g. Do Not Disturb).
+ */
+export async function configureEnhancedInspectorAutoInstall(): Promise<void> {
+  const current = getAutoInstallMode();
+  const qp = vscode.window.createQuickPick<AutoInstallPick>();
+  qp.title = 'Enhanced inspector: install automatically on connect?';
+  qp.placeholder = 'Installing requires a SystemUser login and commits to the database.';
+  qp.items = autoInstallItems(current);
+
+  // One-shot: ignore any repeat accepts during the confirmation flash, and clear
+  // the flash timer if the picker is dismissed early so it can't fire hide() on a
+  // disposed QuickPick.
+  let settled = false;
+  let flashTimer: ReturnType<typeof setTimeout> | undefined;
+
+  await new Promise<void>((resolve) => {
+    qp.onDidAccept(async () => {
+      if (settled) return;
+      const picked = qp.selectedItems[0];
+      if (!picked) {
+        qp.hide();
+        return;
+      }
+      settled = true;
+      if (picked.mode !== current) {
+        try {
+          await setAutoInstallMode(picked.mode);
+        } catch (e: unknown) {
+          vscode.window.showErrorMessage(
+            `Could not save the enhanced inspector auto-install setting: ${messageOf(e)}`,
+          );
+          qp.hide();
+          return;
+        }
+      }
+      // Flash the confirmed choice in place, then close. Reassigning `items`
+      // resets the active highlight to the first row, so re-pin it to the chosen
+      // mode — otherwise the top item appears selected just before closing.
+      const label = AUTO_INSTALL_MODES.find((m) => m.mode === picked.mode)?.label ?? picked.mode;
+      const confirmedItems = autoInstallItems(picked.mode);
+      qp.items = confirmedItems;
+      qp.activeItems = confirmedItems.filter((i) => i.mode === picked.mode);
+      qp.title = `Enhanced inspector auto-install set to: ${label}`;
+      qp.enabled = false;
+      qp.busy = true;
+      flashTimer = setTimeout(() => qp.hide(), SELECTION_FLASH_MS);
+    });
+    qp.onDidHide(() => {
+      if (flashTimer) clearTimeout(flashTimer);
+      qp.dispose();
+      resolve();
+    });
+    qp.show();
+  });
 }

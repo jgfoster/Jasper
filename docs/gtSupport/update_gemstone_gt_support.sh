@@ -1,9 +1,9 @@
 #!/bin/bash
 #
 #
-# Updates the .gs files in this directory from the project checkouts
-# in $ROWAN_PROJECTS_HOME. Run this script to pick up the latest GT support
-# files when the projects have been updated.
+# Updates the payload .gs files (in resources/enhancedInspector/) from the
+# project checkouts in $ROWAN_PROJECTS_HOME. Run this script to pick up the
+# latest enhanced inspector support files when the projects have been updated.
 #
 # The following four projects must be cloned into $ROWAN_PROJECTS_HOME:
 #   gt4gemstone            github.com/feenkcom/gt4gemstone
@@ -18,6 +18,9 @@
 #   ./update_gemstone_gt_support.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Payload .gs files live in resources/enhancedInspector/ so they ship in the VSIX.
+PAYLOAD_DIR="$SCRIPT_DIR/../../resources/enhancedInspector"
+mkdir -p "$PAYLOAD_DIR"
 
 if [ -z "$ROWAN_PROJECTS_HOME" ]; then
     echo "Error: ROWAN_PROJECTS_HOME is not set."
@@ -56,11 +59,11 @@ fi
 existing=()
 for f in Announcements.gs RemoteServiceReplication.gs STON.gs patch-gemstone.gs \
          gtoolkit-wireencoding.gs gt4gemstone.gs gtoolkit-remote.gs; do
-    [ -f "$SCRIPT_DIR/$f" ] && existing+=("$f")
+    [ -f "$PAYLOAD_DIR/$f" ] && existing+=("$f")
 done
 
 if [ ${#existing[@]} -gt 0 ]; then
-    echo "Warning: the following files will be overwritten in $SCRIPT_DIR:"
+    echo "Warning: the following files will be overwritten in $PAYLOAD_DIR:"
     for f in "${existing[@]}"; do
         echo "  $f"
     done
@@ -73,13 +76,13 @@ if [ ${#existing[@]} -gt 0 ]; then
 fi
 
 # Copy the src-gs files
-cp "$ROWAN_PROJECTS_HOME/gt4gemstone/src-gs/Announcements.gs"        "$SCRIPT_DIR/"
-cp "$ROWAN_PROJECTS_HOME/RemoteServiceReplication/src-gs/bootstrapRSR.gs"  "$SCRIPT_DIR/RemoteServiceReplication.gs"
-cp "$ROWAN_PROJECTS_HOME/gt4gemstone/src-gs/STON.gs"                  "$SCRIPT_DIR/"
-cp "$ROWAN_PROJECTS_HOME/gt4gemstone/src-gs/patch-gemstone.gs"        "$SCRIPT_DIR/"
-cp "$ROWAN_PROJECTS_HOME/gtoolkit-wireencoding/src-gs/gtoolkit-wireencoding.gs" "$SCRIPT_DIR/"
-cp "$ROWAN_PROJECTS_HOME/gt4gemstone/src-gs/gt4gemstone.gs"           "$SCRIPT_DIR/"
-cp "$ROWAN_PROJECTS_HOME/gtoolkit-remote/src-gs/gtoolkit-remote.gs"   "$SCRIPT_DIR/"
+cp "$ROWAN_PROJECTS_HOME/gt4gemstone/src-gs/Announcements.gs"        "$PAYLOAD_DIR/"
+cp "$ROWAN_PROJECTS_HOME/RemoteServiceReplication/src-gs/bootstrapRSR.gs"  "$PAYLOAD_DIR/RemoteServiceReplication.gs"
+cp "$ROWAN_PROJECTS_HOME/gt4gemstone/src-gs/STON.gs"                  "$PAYLOAD_DIR/"
+cp "$ROWAN_PROJECTS_HOME/gt4gemstone/src-gs/patch-gemstone.gs"        "$PAYLOAD_DIR/"
+cp "$ROWAN_PROJECTS_HOME/gtoolkit-wireencoding/src-gs/gtoolkit-wireencoding.gs" "$PAYLOAD_DIR/"
+cp "$ROWAN_PROJECTS_HOME/gt4gemstone/src-gs/gt4gemstone.gs"           "$PAYLOAD_DIR/"
+cp "$ROWAN_PROJECTS_HOME/gtoolkit-remote/src-gs/gtoolkit-remote.gs"   "$PAYLOAD_DIR/"
 
 # Re-apply Jasper's post-processing to the freshly-copied upstream files:
 #   - per-file attribution headers (origin repo + MIT license)
@@ -89,8 +92,8 @@ cp "$ROWAN_PROJECTS_HOME/gtoolkit-remote/src-gs/gtoolkit-remote.gs"   "$SCRIPT_D
 # no headers). See apply_jasper_transforms.sh.
 echo ""
 echo "Applying Jasper transforms (attribution headers + Globals->Published)..."
-"$SCRIPT_DIR/apply_jasper_transforms.sh" "$SCRIPT_DIR"
+"$SCRIPT_DIR/apply_jasper_transforms.sh" "$PAYLOAD_DIR"
 
 echo ""
-echo "Update complete. Files written to $SCRIPT_DIR"
+echo "Update complete. Files written to $PAYLOAD_DIR"
 echo "Use load_gemstone_gt_support.sh to load these into a stone."

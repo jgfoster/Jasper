@@ -1,10 +1,10 @@
 #!/bin/bash
 #
 #
-# Loads GT remote support into a running plain-vanilla GemStone stone by
+# Loads enhanced inspector support into a running plain-vanilla GemStone stone by
 # filing in the pre-built .gs files from each project's src-gs/ directory.
-# These files are bundled in the same directory as this script and do not
-# require Rowan or $ROWAN_PROJECTS_HOME.
+# These files are bundled in resources/enhancedInspector/ (two levels up from
+# this script) and do not require Rowan or $ROWAN_PROJECTS_HOME.
 #
 # Files are loaded in dependency order. Source paths are from git checkouts:
 #   1. Announcements.gs            gt4gemstone/src-gs/Announcements.gs
@@ -23,8 +23,8 @@
 #                   set username SystemUser
 #                   set password swordfish
 #   The stone must be running and accessible via netldi.
-#   The seven .gs files listed above must already be present in the same
-#   directory as this script.
+#   The seven .gs files listed above must already be present in
+#   resources/enhancedInspector/ (two levels up from this script).
 #
 # USAGE:
 #   cd /path/to/stone/data/dir     # the directory containing .topazini
@@ -35,6 +35,8 @@
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Payload .gs files live in resources/enhancedInspector/ so they ship in the VSIX.
+PAYLOAD_DIR="$SCRIPT_DIR/../../resources/enhancedInspector"
 TOPAZINI=".topazini"
 
 usage() {
@@ -65,11 +67,11 @@ fi
 missing=()
 for f in Announcements.gs RemoteServiceReplication.gs STON.gs patch-gemstone.gs \
          gtoolkit-wireencoding.gs gt4gemstone.gs gtoolkit-remote.gs; do
-    [ ! -f "$SCRIPT_DIR/$f" ] && missing+=("$f")
+    [ ! -f "$PAYLOAD_DIR/$f" ] && missing+=("$f")
 done
 
 if [ ${#missing[@]} -gt 0 ]; then
-    echo "Error: missing .gs files in $SCRIPT_DIR:"
+    echo "Error: missing .gs files in $PAYLOAD_DIR:"
     for f in "${missing[@]}"; do
         echo "  $f"
     done
@@ -77,7 +79,7 @@ if [ ${#missing[@]} -gt 0 ]; then
     exit 1
 fi
 
-echo "Loading GT support into stone; see \`load_gemstone_gt_support.out\` for details..."
+echo "Loading enhanced inspector support into stone; see \`load_gemstone_gt_support.out\` for details..."
 
 "$GEMSTONE/bin/topaz" -lq -I "$TOPAZINI" << EOF
 output push load_gemstone_gt_support.out only 
@@ -85,13 +87,13 @@ errorcount
 iferr 1 stk
 iferr 2 exit 1
 login
-input $SCRIPT_DIR/Announcements.gs
-input $SCRIPT_DIR/RemoteServiceReplication.gs
-input $SCRIPT_DIR/STON.gs
-input $SCRIPT_DIR/patch-gemstone.gs
-input $SCRIPT_DIR/gtoolkit-wireencoding.gs
-input $SCRIPT_DIR/gt4gemstone.gs
-input $SCRIPT_DIR/gtoolkit-remote.gs
+input $PAYLOAD_DIR/Announcements.gs
+input $PAYLOAD_DIR/RemoteServiceReplication.gs
+input $PAYLOAD_DIR/STON.gs
+input $PAYLOAD_DIR/patch-gemstone.gs
+input $PAYLOAD_DIR/gtoolkit-wireencoding.gs
+input $PAYLOAD_DIR/gt4gemstone.gs
+input $PAYLOAD_DIR/gtoolkit-remote.gs
 commit
 logout
 errorcount

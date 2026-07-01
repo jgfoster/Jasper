@@ -27,6 +27,7 @@ import { GlobalsBrowser } from './globalsBrowser';
 import { GtInspector } from './gtInspector';
 import {
   runInstallEnhancedInspector,
+  configureEnhancedInspectorAutoInstall,
   maybeOfferEnhancedInspectorInstall,
 } from './enhancedInspectorCommand';
 import { refreshGtAvailable } from './gtAvailability';
@@ -665,6 +666,10 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('gemstone.installEnhancedInspector', async () => {
       await runInstallEnhancedInspector(sessionManager, context.extensionPath);
+    }),
+
+    vscode.commands.registerCommand('gemstone.configureEnhancedInspectorAutoInstall', async () => {
+      await configureEnhancedInspectorAutoInstall();
     }),
 
     vscode.commands.registerCommand('gemstone.resetGettingStarted', async () => {

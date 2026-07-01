@@ -21,11 +21,46 @@ const mocks = vi.hoisted(() => {
     if (message.includes('Refresh this session')) return Promise.resolve(state.refreshChoice);
     return Promise.resolve(undefined);
   });
+  // Controllable QuickPick for the auto-install picker. The factory stashes the
+  // created instance on `quickPick.current` so a test can set `selectedItems`,
+  // fire accept via `__accept()`, then close it via `hide()`.
+  const quickPick: { current?: Record<string, unknown> } = {};
+  const createQuickPick = vi.fn(() => {
+    const acceptHandlers: Array<() => void | Promise<void>> = [];
+    const hideHandlers: Array<() => void> = [];
+    const qp: Record<string, unknown> = {
+      title: '',
+      placeholder: '',
+      items: [] as unknown[],
+      selectedItems: [] as unknown[],
+      activeItems: [] as unknown[],
+      enabled: true,
+      busy: false,
+      onDidAccept: vi.fn((h: () => void | Promise<void>) => {
+        acceptHandlers.push(h);
+        return { dispose: vi.fn() };
+      }),
+      onDidHide: vi.fn((h: () => void) => {
+        hideHandlers.push(h);
+        return { dispose: vi.fn() };
+      }),
+      show: vi.fn(),
+      hide: vi.fn(() => hideHandlers.forEach((h) => h())),
+      dispose: vi.fn(),
+      __accept: async () => {
+        for (const h of acceptHandlers) await h();
+      },
+    };
+    quickPick.current = qp;
+    return qp;
+  });
   return {
     state,
     updateSpy,
     showInformationMessage,
-    showInputBox: vi.fn(() => Promise.resolve(undefined)),
+    quickPick,
+    createQuickPick,
+    showInputBox: vi.fn<() => Promise<string | undefined>>(() => Promise.resolve(undefined)),
     showWarningMessage: vi.fn(() => Promise.resolve(undefined)),
     showErrorMessage: vi.fn(() => Promise.resolve(undefined)),
     executeCommand: vi.fn(() => Promise.resolve(undefined)),
@@ -35,6 +70,8 @@ const mocks = vi.hoisted(() => {
     // Probed for `System needsCommit` during the post-install refresh; default
     // 'false' = nothing pending (the freshly-logged-in case).
     executeFetchString: vi.fn(() => 'false'),
+    // Controls whether the payload .gs files appear present on disk.
+    existsSync: vi.fn(() => true),
   };
 });
 
@@ -50,6 +87,7 @@ vi.mock('vscode', () => ({
     showInputBox: mocks.showInputBox,
     showWarningMessage: mocks.showWarningMessage,
     showErrorMessage: mocks.showErrorMessage,
+    createQuickPick: mocks.createQuickPick,
     withProgress: (_opts: unknown, task: (p: { report: () => void }) => unknown) =>
       task({ report: () => {} }),
   },
@@ -58,7 +96,7 @@ vi.mock('vscode', () => ({
   ProgressLocation: { Notification: 15 },
 }));
 
-vi.mock('fs', () => ({ existsSync: () => true }));
+vi.mock('fs', () => ({ existsSync: mocks.existsSync }));
 
 vi.mock('../browserQueries', () => ({
   executeFetchString: mocks.executeFetchString,
@@ -69,10 +107,15 @@ vi.mock('../enhancedInspectorInstall', () => ({
   installEnhancedInspectorSupport: mocks.installSupport,
   isEnhancedInspectorInstalled: vi.fn(() => false),
   ENHANCED_INSPECTOR_FILES: ['Announcements.gs'],
+  messageOf: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }));
 
 import { ActiveSession } from '../sessionManager';
-import { maybeOfferEnhancedInspectorInstall } from '../enhancedInspectorCommand';
+import {
+  maybeOfferEnhancedInspectorInstall,
+  configureEnhancedInspectorAutoInstall,
+  runInstallEnhancedInspector,
+} from '../enhancedInspectorCommand';
 
 const AUTO_INSTALL_KEY = 'enhancedInspector.autoInstall';
 
@@ -96,9 +139,11 @@ function createBaseSession(systemUserLoginSucceeds = true): ActiveSession {
 // sessionManager.abort returns { success, err } (and throws for an unknown id);
 // the post-install refresh reads `.success`, so the mock mirrors that shape.
 const abortMock = vi.fn(() => ({ success: true, err: { number: 0 } }));
-const sessionManager = { abort: abortMock } as unknown as Parameters<
-  typeof maybeOfferEnhancedInspectorInstall
->[1];
+const getSelectedSessionMock = vi.fn<() => ActiveSession | undefined>();
+const sessionManager = {
+  abort: abortMock,
+  getSelectedSession: getSelectedSessionMock,
+} as unknown as Parameters<typeof maybeOfferEnhancedInspectorInstall>[1];
 
 const EXTENSION_PATH = '/ext';
 
@@ -123,6 +168,12 @@ beforeEach(() => {
   mocks.state.config = {};
   mocks.state.offerChoice = undefined;
   mocks.state.refreshChoice = undefined;
+  // clearAllMocks leaves implementations and once-queues in place, so reset the
+  // mocks whose per-test overrides would otherwise leak into later tests.
+  mocks.existsSync.mockReturnValue(true);
+  mocks.showInputBox.mockReset();
+  mocks.showInputBox.mockResolvedValue(undefined);
+  getSelectedSessionMock.mockReset();
 });
 
 describe('maybeOfferEnhancedInspectorInstall', () => {
@@ -282,5 +333,152 @@ describe('maybeOfferEnhancedInspectorInstall', () => {
 
     expect(abortMock).toHaveBeenCalledWith(base.id);
     expect(base.gtAvailable).toBe(false);
+  });
+});
+
+describe('configureEnhancedInspectorAutoInstall', () => {
+  // Accessor for the QuickPick the command creates, typed loosely so tests can
+  // drive its selection and lifecycle.
+  type Picker = Record<string, unknown> & {
+    title: string;
+    items: Array<{ mode: string; label: string }>;
+    selectedItems: unknown[];
+    hide: () => void;
+    __accept: () => Promise<void>;
+  };
+  const picker = () => mocks.quickPick.current as unknown as Picker;
+
+  it('records the chosen mode and confirms it in the picker before closing', async () => {
+    vi.useFakeTimers();
+    const done = configureEnhancedInspectorAutoInstall();
+    const qp = picker();
+    qp.selectedItems = [{ mode: 'always', label: 'Always install' }];
+    await qp.__accept();
+
+    expect(mocks.updateSpy).toHaveBeenCalledWith(AUTO_INSTALL_KEY, 'always', 1);
+    expect(qp.title).toContain('Always install');
+    expect(qp.items.find((i) => i.mode === 'always')?.label).toContain('$(check)');
+    expect((qp.activeItems as Array<{ mode: string }>)[0]?.mode).toBe('always');
+
+    vi.advanceTimersByTime(900);
+    await done;
+    vi.useRealTimers();
+  });
+
+  it('does not rewrite the setting when the current mode is re-selected', async () => {
+    vi.useFakeTimers();
+    mocks.state.config[AUTO_INSTALL_KEY] = 'never';
+    const done = configureEnhancedInspectorAutoInstall();
+    const qp = picker();
+    qp.selectedItems = [{ mode: 'never', label: 'Never' }];
+    await qp.__accept();
+
+    expect(mocks.updateSpy).not.toHaveBeenCalled();
+    expect(qp.title).toContain('Never');
+
+    vi.advanceTimersByTime(900);
+    await done;
+    vi.useRealTimers();
+  });
+
+  it('leaves the setting unchanged when the picker is dismissed', async () => {
+    const done = configureEnhancedInspectorAutoInstall();
+    const qp = picker();
+
+    qp.hide();
+    await done;
+
+    expect(mocks.updateSpy).not.toHaveBeenCalled();
+  });
+
+  it('surfaces an error and closes when saving the setting fails', async () => {
+    mocks.updateSpy.mockImplementationOnce(() => Promise.reject(new Error('settings are read-only')));
+    const done = configureEnhancedInspectorAutoInstall();
+    const qp = picker();
+    qp.selectedItems = [{ mode: 'always', label: 'Always install' }];
+    await qp.__accept();
+
+    expect(mocks.showErrorMessage).toHaveBeenCalled();
+    await done;
+  });
+});
+
+describe('runInstallEnhancedInspector', () => {
+  const run = () => runInstallEnhancedInspector(sessionManager, EXTENSION_PATH);
+
+  // Second GciTsLogin call (the prompted password) succeeds; the first (the
+  // default password) uses whatever createBaseSession(false) returns.
+  function succeedOnPromptedLogin(base: ActiveSession): void {
+    (base.gci.GciTsLogin as ReturnType<typeof vi.fn>)
+      .mockReturnValueOnce({ session: null, err: { number: 4051, message: 'bad password' } })
+      .mockReturnValueOnce({ session: {}, err: { number: 0 } });
+  }
+
+  it('reports an error and installs nothing when no session is selected', async () => {
+    getSelectedSessionMock.mockReturnValue(undefined);
+
+    await run();
+
+    expect(mocks.showErrorMessage).toHaveBeenCalledWith(
+      'No active GemStone session — connect to a stone first.',
+    );
+    expect(mocks.installSupport).not.toHaveBeenCalled();
+  });
+
+  it('installs into the selected session without prompting when the default password works', async () => {
+    getSelectedSessionMock.mockReturnValue(createBaseSession());
+
+    await run();
+
+    expect(mocks.showInputBox).not.toHaveBeenCalled();
+    expect(mocks.installSupport).toHaveBeenCalledTimes(1);
+  });
+
+  it('prompts for the SystemUser password when the default is rejected, then installs', async () => {
+    const base = createBaseSession(false);
+    succeedOnPromptedLogin(base);
+    getSelectedSessionMock.mockReturnValue(base);
+    mocks.showInputBox.mockResolvedValueOnce('the real password');
+
+    await run();
+
+    expect(mocks.showInputBox).toHaveBeenCalledTimes(1);
+    expect(mocks.installSupport).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports an error and installs nothing when the prompted password is also rejected', async () => {
+    getSelectedSessionMock.mockReturnValue(createBaseSession(false));
+    mocks.showInputBox.mockResolvedValueOnce('still wrong');
+
+    await run();
+
+    expect(mocks.showErrorMessage).toHaveBeenCalledWith(
+      expect.stringContaining('Could not log in as SystemUser'),
+    );
+    expect(mocks.installSupport).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when the user cancels the SystemUser password prompt', async () => {
+    getSelectedSessionMock.mockReturnValue(createBaseSession(false));
+    mocks.showInputBox.mockResolvedValueOnce(undefined);
+
+    await run();
+
+    expect(mocks.installSupport).not.toHaveBeenCalled();
+    expect(mocks.showErrorMessage).not.toHaveBeenCalled();
+  });
+
+  it('reports a clear error and never logs in when the payload files are missing', async () => {
+    mocks.existsSync.mockReturnValue(false);
+    const base = createBaseSession();
+    getSelectedSessionMock.mockReturnValue(base);
+
+    await run();
+
+    expect(mocks.showErrorMessage).toHaveBeenCalledWith(
+      expect.stringContaining('payload not found'),
+    );
+    expect(base.gci.GciTsLogin).not.toHaveBeenCalled();
+    expect(mocks.installSupport).not.toHaveBeenCalled();
   });
 });

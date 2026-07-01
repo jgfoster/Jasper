@@ -445,6 +445,17 @@
             ]
           },
           {
+            "id": "enhancedInspector",
+            "title": "Try the enhanced inspector",
+            "description": "Get richer, object-specific views in the Inspector. Choose how Jasper installs it when you connect.\n[Enhanced Inspector Auto-Install…](command:gemstone.configureEnhancedInspectorAutoInstall)",
+            "media": {
+              "markdown": "resources/walkthrough/enhancedInspector.md"
+            },
+            "completionEvents": [
+              "onSettingChanged:gemstone.enhancedInspector.autoInstall"
+            ]
+          },
+          {
             "id": "reopen",
             "title": "Reopen this walkthrough later",
             "description": "Closed this? Reopen it anytime from Help → Welcome, or the Command Palette.\n[Open Walkthrough...](command:welcome.showAllWalkthroughs)",
@@ -576,6 +587,11 @@
       {
         "command": "gemstone.installEnhancedInspector",
         "title": "Install Enhanced Inspector Support",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.configureEnhancedInspectorAutoInstall",
+        "title": "Enhanced Inspector Auto-Install…",
         "category": "GemStone"
       },
       {
