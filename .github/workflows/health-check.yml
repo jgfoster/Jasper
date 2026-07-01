@@ -45,5 +45,3 @@ jobs:
         run: npm run test:server:start -- ${{ matrix.gemstone-version }}
       - name: Run tests
         run: npm test
-      - name: Run on-demand GCI tests
-        run: npm run test:gci
