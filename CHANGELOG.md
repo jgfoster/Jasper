@@ -4,6 +4,22 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.7.4] - 2026-07-01
+
+### Added
+
+- **Enhanced Debugger: Browse a stack frame's method.** Right-click a stack frame → **Browse** opens a System Browser beside the debugger, navigated to the class and method running in that frame. An inherited method opens on its *defining* class (the source that is actually executing), resolved by method lookup on the receiver. Offered only for frames that resolve to a browsable class and selector — doit frames, unresolvable receivers, and classes outside the symbol list get an in-panel message instead. ([#130](https://github.com/jgfoster/Jasper/pull/130))
+- **Enhanced Debugger: edit inline variable values from the source pane.** With the inline-value overlay on, double-click an editable variable's name in the companion source to set its value (Enter saves, Esc cancels). It reuses the Variables pane's in-frame write, so the pane, the overlay, undo/revert, and the GC-pin all update exactly as a pane edit does; a single click still just places the cursor (for navigation and Run to Cursor). Hovering a variable now shows its full printString along with a hint that editable ones can be set by double-clicking the name. ([#130](https://github.com/jgfoster/Jasper/pull/130))
+
+### Changed
+
+- **Enhanced Debugger: progress indicator and Cancel for long operations.** A busy spinner now appears over the panel for slow server round-trips — driven by the webview so it animates even while a synchronous GCI call has frozen the extension host, and never flashing on fast round-trips. Evaluate-in-frame is now non-blocking and interruptible: a single **Cancel** button (shown only for cancellable operations) sends a soft break on the first click and a hard break on the second, with acknowledgement text. Senders/implementors CodeLenses show a spinner placeholder while their counts compute. ([#130](https://github.com/jgfoster/Jasper/pull/130))
+- **Developer test workflow.** Vitest now randomizes test order on every run (the separate `test:shuffle:*` scripts are removed), and the local test GemStone is managed by `npm run test:server:{start,stop,list}` (replacing `test:setup`). Integration tests no longer abort when `GEMSTONE_GLOBAL_DIR` is already set in the shell — `useIntegrationTest` saves, overrides, and restores it per suite. Adds a `CLAUDE.md` codebase guide and an overhauled `CONTRIBUTING.md`. ([#132](https://github.com/jgfoster/Jasper/pull/132))
+
+### Fixed
+
+- **Enhanced Debugger: restarting an "Executed Code" (doit) frame** now shows a clear message instead of the raw kernel `compiledMethodAt:` doesNotUnderstand — a classless doit home cannot be reset by the stack trim. ([#130](https://github.com/jgfoster/Jasper/pull/130))
+
 ## [1.7.3] - 2026-06-29
 
 ### Added
