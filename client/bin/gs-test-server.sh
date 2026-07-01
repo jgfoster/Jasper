@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Usage: ./gs-test-server.sh <command> [version] [name]
+#
+# Top-level entry point for managing the integration-test GemStone instance.
+# Delegates to the individual gs-*.sh scripts.
+#
+# Arguments:
+#   command   Action to perform: --list, --start, or --stop
+#   version   GemStone version; defaults to the latest integration release
+#             in .gemstone-integration-releases.json
+#   name      Instance name; defaults to 'jasper-test'
+
+SCRIPT_DIR="$(dirname "$0")"
+VERSION="${2:-$("$SCRIPT_DIR/gemstone-integration-versions.js" --latest)}"
+NAME="${3:-jasper-test}"
+
+case "${1:-}" in
+  --list)  "$SCRIPT_DIR/gs-list.sh" "$VERSION" || true ;;
+  --start) "$SCRIPT_DIR/gs-test-setup.sh" "$VERSION" "$NAME";;
+  --stop)  "$SCRIPT_DIR/gs-stop.sh" "$VERSION" "$NAME" ;;
+  *)
+    cat >&2 <<EOF
+Usage: $0 <command> [version] [name]
+
+  version defaults to the latest integration release; name defaults to 'jasper-test'.
+
+  --list [version]         List all running GemStone processes for the test stone.
+  --start [version] [name] Install GemStone (if needed) and start a fresh test stone.
+  --stop [version] [name]  Stop the test stone's NetLDI and Stone processes.
+EOF
+    exit 1 ;;
+esac
