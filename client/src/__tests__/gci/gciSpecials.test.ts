@@ -1,5 +1,6 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { GciLibrary } from '../../gciLibrary';
+import { GCI_LIBRARY_PATH } from './gciTestConfig';
 import {
   OOP_ILLEGAL, OOP_NIL, OOP_FALSE, OOP_TRUE, OOP_ASCII_NUL,
   OOP_Zero, OOP_One, OOP_Two, OOP_Three,
@@ -8,14 +9,8 @@ import {
   OOP_CLASS_SMALL_DOUBLE,
 } from '../../gciConstants';
 
-const libraryPath = process.env.GCI_LIBRARY_PATH;
-if (!libraryPath) {
-  console.error('GCI_LIBRARY_PATH not set. Skipping GCI tests.');
-  process.exit(1);
-}
-
 describe('GCI session-free OOP functions', () => {
-  const gci = new GciLibrary(libraryPath);
+  const gci = new GciLibrary(GCI_LIBRARY_PATH);
 
   afterAll(() => {
     gci.close();

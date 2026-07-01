@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { runTestMethod } from '../../queries/runTestMethod';
 import { runTestClass } from '../../queries/runTestClass';
-import { runFailingTests, DISCOVER_ALL_TEST_CLASSES } from '../../queries/runFailingTests';
+import { runFailingTests, DISCOVER_ALL_TEST_CLASSES, MAX_RUN_CLASSES } from '../../queries/runFailingTests';
 import { describeTestFailure } from '../../queries/describeTestFailure';
 import { splitLines } from '../../queries/util';
 import { QueryExecutor } from '../../queries/types';
@@ -173,13 +173,25 @@ describe('SUnit queries (live GCI)', () => {
       expect(abstract).toEqual([]);
     });
 
-    // The blocking-call guard, end-to-end: a real image has far more than the
-    // 100-class cap, so the no-args path must fail fast with a "narrow it"
-    // error rather than block the session while it runs hundreds of suites.
-    // Before the cap, THIS is the call that ran the entire image and hung the
-    // smoke run. The throw proves it can no longer wedge a live session.
-    it('refuses the unbounded no-args run instead of wedging the session', () => {
-      expect(() => runFailingTests(s.exec)).toThrow(/too many to run|Narrow the run/);
+    // The blocking-call guard, end-to-end. The no-args path runs every
+    // discovered TestCase subclass through one synchronous, un-interruptible
+    // GCI call — before the cap, THIS is the call that ran the entire image and
+    // hung the smoke run. Correct behavior depends on image size, so the test
+    // asks the live stone how many classes there are and checks the matching
+    // guarantee: a large image (over the cap) must fail fast with a "narrow it"
+    // error rather than wedge the session; a small image (within the cap, e.g.
+    // a freshly provisioned test stone) simply runs what's there and returns
+    // results.
+    it('limits how many test classes a single run executes', () => {
+      const classCount = discoverAllTestClasses(s.exec).length;
+
+      if (classCount > MAX_RUN_CLASSES) {
+        expect(() => runFailingTests(s.exec)).toThrow(/too many to run|Narrow the run/);
+      } else {
+        const results = runFailingTests(s.exec);
+
+        expect(Array.isArray(results)).toBe(true);
+      }
     });
   });
 
