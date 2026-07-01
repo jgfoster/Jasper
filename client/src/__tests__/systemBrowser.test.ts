@@ -1944,11 +1944,18 @@ describe('SystemBrowser', () => {
       );
     });
 
-    it('posts loadMethodCategories with the selected category', () => {
+    it("selects the method's own category, never a different one", () => {
       SystemBrowser.navigateTo(session.id, result);
-      expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ command: 'loadMethodCategories', selected: 'Accessing' }),
-      );
+
+      const categorySelections = vi.mocked(mockPanel.webview.postMessage).mock.calls
+        .map(([msg]) => msg as { command: string; selected?: string })
+        .filter(m => m.command === 'loadMethodCategories')
+        .map(m => m.selected ?? null);
+      // FIXME: the leading `null` is a redundant render — applyClassSelection posts
+      // the category list with no selection before the final post selects the
+      // method's category. Fixing the double render is outside the scope of this
+      // work and will be handled separately; drop the `null` here once it is.
+      expect(categorySelections).toEqual([null, 'Accessing']);
     });
 
     it('posts loadMethods with the selected selector', () => {
