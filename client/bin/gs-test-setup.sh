@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage: ./gs-test-setup.sh <version>
+# Usage: ./gs-test-setup.sh <version> <name>
 #
 # Prepares a local GemStone instance for integration tests:
 #   1. Installs GemStone if not already present.
@@ -10,16 +10,13 @@ set -euo pipefail
 #   3. Starts a fresh Stone and NetLDI.
 #   4. Writes .env.test with the connection details the test suite needs.
 #
-# The test stone is always named "jasper-test". To use a different name or
-# version, call the individual gs-*.sh scripts directly.
-#
 # Arguments:
-#   version   GemStone version to install and start (e.g. 3.7.5).
-#             Defaults to the highest version in .gemstone-integration-releases.json.
+#   version   GemStone version to install and start (e.g. 3.7.5)
+#   name      Instance name; Stone and NetLDI names are derived from it
 
 SCRIPT_DIR="$(dirname "$0")"
-VERSION="${1:-$("$SCRIPT_DIR/gemstone-integration-versions.js" --latest)}"
-NAME="jasper-test"
+VERSION="${1:?Usage: $0 <version> <name>}"
+NAME="${2:?Usage: $0 <version> <name>}"
 
 "$SCRIPT_DIR/gs-install.sh" "$VERSION"
 "$SCRIPT_DIR/gs-stop.sh" "$VERSION" "$NAME"

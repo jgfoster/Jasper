@@ -16,6 +16,8 @@
   },
   "scripts": {
     "test": "vitest run",
-    "test:setup": "./bin/gs-test-setup.sh"
+    "test:server:start": "./bin/gs-test-server.sh --start",
+    "test:server:stop": "./bin/gs-test-server.sh --stop",
+    "test:server:list": "./bin/gs-test-server.sh --list"
   }
 }
