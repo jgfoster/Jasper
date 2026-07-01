@@ -1,16 +1,9 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { GciLibrary } from '../../gciLibrary';
-
-const libraryPath = process.env.GCI_LIBRARY_PATH;
-if (!libraryPath) {
-  console.error('GCI_LIBRARY_PATH environment variable is not set. Skipping GCI tests.');
-  console.error('Set it to the path of your libgcits library, e.g.:');
-  console.error('  GCI_LIBRARY_PATH=/path/to/libgcits-3.7.2-64.dylib npm run test:gci');
-  process.exit(1);
-}
+import { GCI_LIBRARY_PATH } from './gciTestConfig';
 
 describe('GciTsVersion', () => {
-  const gci = new GciLibrary(libraryPath);
+  const gci = new GciLibrary(GCI_LIBRARY_PATH);
 
   afterAll(() => {
     gci.close();
@@ -28,7 +21,7 @@ describe('GciTsVersion', () => {
 
   it('returns a version string consistent with the library filename', () => {
     const { version } = gci.GciTsVersion();
-    const filenameMatch = libraryPath.match(/libgcits-([\d.]+)-64\./);
+    const filenameMatch = GCI_LIBRARY_PATH.match(/libgcits-([\d.]+)-64\./);
     if (filenameMatch) {
       expect(version).toContain(filenameMatch[1]);
     }

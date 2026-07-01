@@ -1,22 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { GciLibrary } from '../../gciLibrary';
-
-const libraryPath = process.env.GCI_LIBRARY_PATH;
-if (!libraryPath) {
-  console.error('GCI_LIBRARY_PATH not set. Skipping GCI tests.');
-  process.exit(1);
-}
-
-const STONE_NRS = '!tcp@localhost#server!gs64stone';
-const GEM_NRS = '!tcp@localhost#netldi:50377#task!gemnetobject';
-const GS_USER = 'DataCurator';
-const GS_PASSWORD = 'swordfish';
+import { GCI_LIBRARY_PATH, STONE_NRS, GEM_NRS, GS_USER, GS_PASSWORD } from './gciTestConfig';
 
 const OOP_ILLEGAL = 0x01n;
 const OOP_NIL = 0x14n;
 
 describe('GciTsCompileMethod / ClassRemoveAllMethods / ProtectMethods', () => {
-  const gci = new GciLibrary(libraryPath);
+  const gci = new GciLibrary(GCI_LIBRARY_PATH);
   let session: unknown;
 
   let OOP_CLASS_STRING: bigint;

@@ -7,18 +7,16 @@
 // behavior (`Utf8` invariance), and primitive misbehavior that no amount
 // of "expect(code).toContain(...)" can spot.
 //
-// Why it's gated behind a separate vitest config (vitest.gci.config.ts):
+// Why it's gated behind its own vitest project ('gci', in vitest.config.ts):
 // the suite needs a live stone, GCI library on disk, and credentials.
-// The default `npm test` excludes `__tests__/gci/**`; run via
-// `npm run test:gci` when a session is reachable.
+// `npm test` runs only the 'unit' project (which excludes `__tests__/gci/**`);
+// run this suite via `npm run test:gci` when a session is reachable.
 
 import { GciLibrary } from '../../gciLibrary';
 import { QueryExecutor } from '../../queries/types';
+import { GCI_LIBRARY_PATH, STONE_NRS, GEM_NRS, GS_USER, GS_PASSWORD } from './gciTestConfig';
 
-export const STONE_NRS = process.env.GS_STONE_NRS ?? '!tcp@localhost#server!gs64stone';
-export const GEM_NRS = process.env.GS_GEM_NRS ?? '!tcp@localhost#netldi:50377#task!gemnetobject';
-export const GS_USER = process.env.GS_USER ?? 'DataCurator';
-export const GS_PASSWORD = process.env.GS_PASSWORD ?? 'swordfish';
+export { STONE_NRS, GEM_NRS, GS_USER, GS_PASSWORD };
 
 const OOP_NIL = 0x14n;
 const OOP_ILLEGAL = 0x01n;
@@ -35,24 +33,12 @@ export interface HarnessSession {
   logout: () => void;
 }
 
-export function requireGciLibrary(): string {
-  const path = process.env.GCI_LIBRARY_PATH;
-  if (!path) {
-    throw new Error(
-      'GCI_LIBRARY_PATH is not set. ' +
-      'Set it to the absolute path of the GemStone GCI shared library, e.g. ' +
-      '/path/to/libgcirpc-3.7.4.3-64.dylib, then re-run `npm run test:gci`.',
-    );
-  }
-  return path;
-}
-
 // Open a session and bind a QueryExecutor that goes through
 // GciTsExecuteFetchBytes with `Utf8` as the result class — the same envelope
 // McpSession uses in production. Tests that want a different envelope can
 // build their own executor.
 export function login(): HarnessSession {
-  const gci = new GciLibrary(requireGciLibrary());
+  const gci = new GciLibrary(GCI_LIBRARY_PATH);
   const result = gci.GciTsLogin(
     STONE_NRS, null, null, false,
     GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,

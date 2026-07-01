@@ -15,7 +15,8 @@
     "vscode-uri": "^3.1.0"
   },
   "scripts": {
-    "test": "vitest run",
+    "//test": "Runs only the 'unit' vitest project (see vitest.config.ts). The 'gci' project is on-demand (needs a live stone) and is excluded here on purpose; run it with `npm run test:gci`. Without --project, vitest would run both projects.",
+    "test": "vitest run --project unit",
     "test:server:start": "./bin/gs-test-server.sh --start",
     "test:server:stop": "./bin/gs-test-server.sh --stop",
     "test:server:list": "./bin/gs-test-server.sh --list"
