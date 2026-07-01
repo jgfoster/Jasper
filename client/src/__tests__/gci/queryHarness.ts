@@ -9,7 +9,7 @@
 //
 // Why it's gated behind its own vitest project ('gci', in vitest.config.ts):
 // the suite needs a live stone, GCI library on disk, and credentials.
-// `npm test` runs only the 'unit' project (which excludes `__tests__/gci/**`);
+// `npm test` runs only the 'default' project (which excludes `__tests__/gci/**`);
 // run this suite via `npm run test:gci` when a session is reachable.
 
 import { GciLibrary } from '../../gciLibrary';

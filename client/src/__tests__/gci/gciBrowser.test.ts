@@ -170,28 +170,22 @@ describe('Browser Queries (integration)', () => {
       }
     });
 
-    it('compiles a new method', () => {
-      const result = queries.compileMethod(
+    it('compiles a method, reads it back, then deletes it', () => {
+      const compiled = queries.compileMethod(
         session, testClass, false, testCategory, testSource,
       );
-      expect(result).not.toBe(0n);
-    });
+      expect(compiled).not.toBe(0n);
 
-    it('the compiled method source is retrievable', () => {
       const source = queries.getMethodSource(session, testClass, false, testSelector);
       expect(source).toContain(testSelector);
-    });
 
-    it('the method appears in the category', () => {
-      const selectors = queries.getMethodSelectors(session, testClass, false, testCategory);
-      expect(selectors).toContain(testSelector);
-    });
+      const afterCompile = queries.getMethodSelectors(session, testClass, false, testCategory);
+      expect(afterCompile).toContain(testSelector);
 
-    it('deletes the method', () => {
       queries.deleteMethod(session, testClass, false, testSelector);
-      // Verify it's gone by checking the category
-      const selectors = queries.getMethodSelectors(session, testClass, false, testCategory);
-      expect(selectors).not.toContain(testSelector);
+
+      const afterDelete = queries.getMethodSelectors(session, testClass, false, testCategory);
+      expect(afterDelete).not.toContain(testSelector);
     });
   });
 });

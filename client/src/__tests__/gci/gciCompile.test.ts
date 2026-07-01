@@ -20,6 +20,16 @@ describe('GciTsCompileMethod / ClassRemoveAllMethods / ProtectMethods', () => {
     session = login.session;
 
     OOP_CLASS_STRING = gci.GciTsResolveSymbol(session, 'String', OOP_NIL).result;
+
+    // Shared fixture: every test operates on GciTestClass, so create it once
+    // here rather than relying on an earlier test to have made it (which breaks
+    // under shuffled test order). Tests that need methods compile their own.
+    const { err: classErr } = gci.GciTsExecute(
+      session,
+      'Object subclass: #GciTestClass instVarNames: #() classVars: #() classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals',
+      OOP_CLASS_STRING, OOP_ILLEGAL, OOP_NIL, 0, 0,
+    );
+    expect(classErr.number).toBe(0);
   });
 
   afterAll(() => {
@@ -33,13 +43,7 @@ describe('GciTsCompileMethod / ClassRemoveAllMethods / ProtectMethods', () => {
 
   describe('GciTsCompileMethod', () => {
     it('compiles an instance method successfully', () => {
-      // Create a new class to compile methods into
-      const { result: classOop, err: classErr } = gci.GciTsExecute(
-        session,
-        'Object subclass: #GciTestClass instVarNames: #() classVars: #() classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals',
-        OOP_CLASS_STRING, OOP_ILLEGAL, OOP_NIL, 0, 0,
-      );
-      expect(classErr.number).toBe(0);
+      const { result: classOop } = gci.GciTsResolveSymbol(session, 'GciTestClass', OOP_NIL);
       expect(classOop).not.toBe(OOP_ILLEGAL);
 
       // Compile a method: source must be an OOP of a String
@@ -123,10 +127,15 @@ describe('GciTsCompileMethod / ClassRemoveAllMethods / ProtectMethods', () => {
 
   describe('GciTsClassRemoveAllMethods', () => {
     it('removes all instance methods from a class', () => {
-      // Ensure GciTestClass has at least one method (testMethod from above)
       const { result: classOop } = gci.GciTsResolveSymbol(session, 'GciTestClass', OOP_NIL);
 
-      // Verify the method exists first
+      // Compile our own method so this test doesn't depend on another having
+      // run first, then verify it exists before removing.
+      const sourceOop = gci.GciTsNewString(session, 'testMethod\n  ^ 42');
+      gci.GciTsCompileMethod(
+        session, sourceOop.result, classOop, OOP_NIL, OOP_NIL, OOP_NIL, 0, 0,
+      );
+
       const { result: instOop } = gci.GciTsExecute(
         session, 'GciTestClass new', OOP_CLASS_STRING,
         OOP_ILLEGAL, OOP_NIL, 0, 0,
