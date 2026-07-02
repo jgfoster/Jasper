@@ -4,6 +4,10 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+### Changed
+
+- **Integration test default version is now the oldest supported release.** `npm run test:server:start` (and the `--oldest` flag on `gemstone-integration-versions.js`) now defaults to the oldest version in `.gemstone-integration-releases.json` instead of the latest, ensuring new releases do not silently drop the minimum-version bar.
+
 ## [1.7.5] - 2026-07-02
 
 ### Changed

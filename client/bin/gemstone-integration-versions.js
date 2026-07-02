@@ -3,7 +3,7 @@
 // Lists the GemStone versions available for integration testing.
 //
 //   node gemstone-integration-versions.js            → JSON array of all versions, oldest first
-//   node gemstone-integration-versions.js --latest   → just the latest version string
+//   node gemstone-integration-versions.js --oldest   → just the oldest version string
 //
 // Versions come from .gemstone-integration-releases.json. Other scripts use
 // this to pick which GemStone build to download and run tests against.
@@ -11,7 +11,7 @@
 const fs = require('fs');
 
 const releasesFileContents = fs.readFileSync(`${__dirname}/../.gemstone-integration-releases.json`, 'utf8');
-const releases = JSON.parse(releasesFileContents)
+const releasesInAscendingOrder = JSON.parse(releasesFileContents)
     .sort((release, anotherRelease) => compareVersions(release.version, anotherRelease.version));
 
 function compareVersions(versionString, anotherVersionString) {
@@ -42,9 +42,9 @@ function assertIsValidVersionString(versionString) {
         throw new Error(`Invalid version: ${versionString}`);
 }
 
-if (process.argv.includes('--latest')) {
-    console.log(releases[releases.length - 1].version);
+if (process.argv.includes('--oldest')) {
+    console.log(releasesInAscendingOrder[0].version);
     return;
 }
 
-console.log(JSON.stringify(releases.map(release => release.version)));
+console.log(JSON.stringify(releasesInAscendingOrder.map(release => release.version)));
