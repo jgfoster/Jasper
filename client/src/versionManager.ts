@@ -9,8 +9,10 @@ import { appendSysadmin, showSysadmin } from './sysadminChannel';
 import { needsWsl, wslSpawn, wslExecSync } from './wslBridge';
 import { wslExistsSync } from './wslFs';
 import { bundledWindowsClientVersions, bundledGciArchSupported } from './bundledGci';
+import { compareGemStoneVersions } from './gemStoneVersion';
 
 const WIN_CLIENT_BASE_URL = 'https://downloads.gemtalksystems.com/pub/GemStone64/';
+const MINIMUM_SUPPORTED_GEMSTONE_VERSION = '3.6.2';
 
 export class VersionManager {
   constructor(private storage: SysadminStorage) {}
@@ -79,13 +81,19 @@ export class VersionManager {
       });
     }
 
+    // Drop remote versions older than the minimum; local installs are always kept
+    const supportedVersions = versions.filter(
+      version => version.local || compareGemStoneVersions(version.version, MINIMUM_SUPPORTED_GEMSTONE_VERSION) >= 0,
+    );
+
     // Sort newest first; local versions before remote at same version
-    versions.sort((a, b) => {
-      const cmp = b.version.localeCompare(a.version, undefined, { numeric: true });
-      if (cmp !== 0) return cmp;
+    supportedVersions.sort((a, b) => {
+      const comparison = compareGemStoneVersions(a.version, b.version);
+      if (comparison !== 0) return -comparison; // negate for newest first
       return (b.local ? 1 : 0) - (a.local ? 1 : 0);
     });
-    return versions;
+    
+    return supportedVersions;
   }
 
   /** Download a version with progress reporting */

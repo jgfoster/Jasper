@@ -8,12 +8,12 @@ set -euo pipefail
 #
 # Arguments:
 #   command   Action to perform: --list, --start, or --stop
-#   version   GemStone version; defaults to the latest integration release
+#   version   GemStone version; defaults to the oldest integration release
 #             in .gemstone-integration-releases.json
 #   name      Instance name; defaults to 'jasper-test'
 
 SCRIPT_DIR="$(dirname "$0")"
-VERSION="${2:-$("$SCRIPT_DIR/gemstone-integration-versions.js" --latest)}"
+VERSION="${2:-$("$SCRIPT_DIR/gemstone-integration-versions.js" --oldest)}"
 NAME="${3:-jasper-test}"
 
 case "${1:-}" in
@@ -24,7 +24,7 @@ case "${1:-}" in
     cat >&2 <<EOF
 Usage: $0 <command> [version] [name]
 
-  version defaults to the latest integration release; name defaults to 'jasper-test'.
+  version defaults to the oldest integration release; name defaults to 'jasper-test'.
 
   --list [version]         List all running GemStone processes for the test stone.
   --start [version] [name] Install GemStone (if needed) and start a fresh test stone.

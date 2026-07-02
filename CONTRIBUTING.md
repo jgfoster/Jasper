@@ -35,7 +35,7 @@ Follow these steps in order after cloning the repo:
    npm run test:server:list   # list all running GemStone processes for the test stone
    ```
 
-   To use a specific GemStone version instead of the latest, pass it as an argument: `npm run test:server:start -- 3.7.2`.
+   To use a specific GemStone version instead of the oldest, pass it as an argument: `npm run test:server:start -- 3.7.5`.
 
    **Supported on Linux and macOS (Apple Silicon) only — Windows is not yet supported.**
 
