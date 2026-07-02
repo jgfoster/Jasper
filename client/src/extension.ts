@@ -14,23 +14,23 @@ import { GemStoneLogin, loginLabel, sameLoginTarget } from './loginTypes';
 import { LoginEditorPanel } from './loginEditorPanel';
 import { SessionManager } from './sessionManager';
 import {
-  gtPerfTracker,
-  buildGtPerfStatusBarText,
-  buildGtPerfClipboardText,
-  buildGtPerfQuickPickItems,
+  enhancedInspectorPerfTracker,
+  buildEnhancedInspectorPerfStatusBarText,
+  buildEnhancedInspectorPerfClipboardText,
+  buildEnhancedInspectorPerfQuickPickItems,
   RESET_LABEL,
   COPY_LABEL,
-} from './gtPerfTracker';
+} from './enhancedInspectorPerfTracker';
 import { CodeExecutor } from './codeExecutor';
 import { SystemBrowser } from './systemBrowser';
 import { GlobalsBrowser } from './globalsBrowser';
-import { GtInspector } from './gtInspector';
+import { EnhancedInspector } from './enhancedInspector';
 import {
   runInstallEnhancedInspector,
   configureEnhancedInspectorAutoInstall,
   maybeOfferEnhancedInspectorInstall,
 } from './enhancedInspectorCommand';
-import { refreshGtAvailable } from './gtAvailability';
+import { refreshEnhancedInspectorAvailable } from './enhancedInspectorAvailability';
 import { DebuggerPanel } from './debuggerPanel';
 import { InlineValuesCodeLensProvider } from './inlineValuesCodeLens';
 import { GemStoneFileSystemProvider, MethodCompiledEvent, ClassDefinitionCompiledEvent } from './gemstoneFileSystemProvider';
@@ -227,7 +227,7 @@ export function activate(context: vscode.ExtensionContext) {
   // SessionManager is created early so the Logins panel can mark the connected
   // login row (and swap its inline Login action for Logout) in single-session mode.
   sessionManager = new SessionManager();
-  vscode.commands.executeCommand('setContext', 'gemstone.gtAvailable', false);
+  vscode.commands.executeCommand('setContext', 'gemstone.enhancedInspectorAvailable', false);
   const treeProvider = new LoginTreeProvider(storage, sessionManager);
 
   const treeView = vscode.window.createTreeView('gemstoneLogins', {
@@ -451,83 +451,83 @@ export function activate(context: vscode.ExtensionContext) {
     sessionManager.onDidChangeSelection(() => updateStatusBar()),
     sessionManager.onDidChangeSelection(id => {
       const s = id !== null ? sessionManager.getSession(id) : undefined;
-      vscode.commands.executeCommand('setContext', 'gemstone.gtAvailable', s?.gtAvailable ?? false);
+      vscode.commands.executeCommand('setContext', 'gemstone.enhancedInspectorAvailable', s?.enhancedInspectorAvailable ?? false);
     }),
   );
   updateStatusBar();
 
-  // ── GT Perf Tracking ───────────────────────────────────
-  const gtPerfChannel = vscode.window.createOutputChannel('GemStone GT Perf');
-  context.subscriptions.push(gtPerfChannel);
+  // ── Enhanced Inspector Perf Tracking ───────────────────────────────────
+  const enhancedInspectorPerfChannel = vscode.window.createOutputChannel('GemStone Enhanced Inspector Perf');
+  context.subscriptions.push(enhancedInspectorPerfChannel);
 
-  const gtPerfCountItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 98);
-  gtPerfCountItem.tooltip = 'GT Perf: click to see breakdown';
-  gtPerfCountItem.command = 'gemstone.showGtPerfDetails';
-  context.subscriptions.push(gtPerfCountItem);
+  const enhancedInspectorPerfCountItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 98);
+  enhancedInspectorPerfCountItem.tooltip = 'Enhanced Inspector Perf: click to see breakdown';
+  enhancedInspectorPerfCountItem.command = 'gemstone.showEnhancedInspectorPerfDetails';
+  context.subscriptions.push(enhancedInspectorPerfCountItem);
 
-  const gtPerfResetItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 97);
-  gtPerfResetItem.text = '$(debug-restart)';
-  gtPerfResetItem.tooltip = 'Reset GT Perf Counter';
-  gtPerfResetItem.command = 'gemstone.resetGtPerfCounter';
-  context.subscriptions.push(gtPerfResetItem);
+  const enhancedInspectorPerfResetItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 97);
+  enhancedInspectorPerfResetItem.text = '$(debug-restart)';
+  enhancedInspectorPerfResetItem.tooltip = 'Reset Enhanced Inspector Perf Counter';
+  enhancedInspectorPerfResetItem.command = 'gemstone.resetEnhancedInspectorPerfCounter';
+  context.subscriptions.push(enhancedInspectorPerfResetItem);
 
-  function updateGtPerfStatusBar() {
-    if (gtPerfTracker.enabled) {
-      gtPerfCountItem.text = buildGtPerfStatusBarText(gtPerfTracker.count);
-      gtPerfCountItem.show();
-      gtPerfResetItem.show();
+  function updateEnhancedInspectorPerfStatusBar() {
+    if (enhancedInspectorPerfTracker.enabled) {
+      enhancedInspectorPerfCountItem.text = buildEnhancedInspectorPerfStatusBarText(enhancedInspectorPerfTracker.count);
+      enhancedInspectorPerfCountItem.show();
+      enhancedInspectorPerfResetItem.show();
     } else {
-      gtPerfCountItem.hide();
-      gtPerfResetItem.hide();
+      enhancedInspectorPerfCountItem.hide();
+      enhancedInspectorPerfResetItem.hide();
     }
   }
 
-  gtPerfTracker.onCountChanged = updateGtPerfStatusBar;
+  enhancedInspectorPerfTracker.onCountChanged = updateEnhancedInspectorPerfStatusBar;
 
-  const applyGtPerfSetting = () => {
-    const enabled = vscode.workspace.getConfiguration('gemstone').get<boolean>('gtPerfTracking', false);
-    gtPerfTracker.setEnabled(enabled);
-    vscode.commands.executeCommand('setContext', 'gemstone.gtPerfTracking', enabled);
-    updateGtPerfStatusBar();
+  const applyEnhancedInspectorPerfSetting = () => {
+    const enabled = vscode.workspace.getConfiguration('gemstone').get<boolean>('enhancedInspectorPerfTracking', false);
+    enhancedInspectorPerfTracker.setEnabled(enabled);
+    vscode.commands.executeCommand('setContext', 'gemstone.enhancedInspectorPerfTracking', enabled);
+    updateEnhancedInspectorPerfStatusBar();
   };
-  applyGtPerfSetting();
+  applyEnhancedInspectorPerfSetting();
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(e => {
-      if (e.affectsConfiguration('gemstone.gtPerfTracking')) {
-        applyGtPerfSetting();
+      if (e.affectsConfiguration('gemstone.enhancedInspectorPerfTracking')) {
+        applyEnhancedInspectorPerfSetting();
       }
     }),
-    vscode.commands.registerCommand('gemstone.enableGtPerfTracking', async () => {
-      await vscode.workspace.getConfiguration('gemstone').update('gtPerfTracking', true, vscode.ConfigurationTarget.Workspace);
+    vscode.commands.registerCommand('gemstone.enableEnhancedInspectorPerfTracking', async () => {
+      await vscode.workspace.getConfiguration('gemstone').update('enhancedInspectorPerfTracking', true, vscode.ConfigurationTarget.Workspace);
     }),
-    vscode.commands.registerCommand('gemstone.disableGtPerfTracking', async () => {
-      await vscode.workspace.getConfiguration('gemstone').update('gtPerfTracking', false, vscode.ConfigurationTarget.Workspace);
+    vscode.commands.registerCommand('gemstone.disableEnhancedInspectorPerfTracking', async () => {
+      await vscode.workspace.getConfiguration('gemstone').update('enhancedInspectorPerfTracking', false, vscode.ConfigurationTarget.Workspace);
     }),
-    vscode.commands.registerCommand('gemstone.resetGtPerfCounter', () => {
-      const sorted = [...gtPerfTracker.methodCounts.entries()].sort((a, b) => b[1] - a[1]);
-      gtPerfChannel.appendLine(`[reset] ${gtPerfTracker.count} total GCI calls`);
+    vscode.commands.registerCommand('gemstone.resetEnhancedInspectorPerfCounter', () => {
+      const sorted = [...enhancedInspectorPerfTracker.methodCounts.entries()].sort((a, b) => b[1] - a[1]);
+      enhancedInspectorPerfChannel.appendLine(`[reset] ${enhancedInspectorPerfTracker.count} total GCI calls`);
       for (const [method, count] of sorted) {
-        gtPerfChannel.appendLine(`  ${method}: ${count}`);
+        enhancedInspectorPerfChannel.appendLine(`  ${method}: ${count}`);
       }
-      gtPerfTracker.reset();
+      enhancedInspectorPerfTracker.reset();
     }),
-    vscode.commands.registerCommand('gemstone.showGtPerfDetails', async () => {
-      const clipboardText = buildGtPerfClipboardText(gtPerfTracker);
-      const items: vscode.QuickPickItem[] = buildGtPerfQuickPickItems(gtPerfTracker).map(item =>
+    vscode.commands.registerCommand('gemstone.showEnhancedInspectorPerfDetails', async () => {
+      const clipboardText = buildEnhancedInspectorPerfClipboardText(enhancedInspectorPerfTracker);
+      const items: vscode.QuickPickItem[] = buildEnhancedInspectorPerfQuickPickItems(enhancedInspectorPerfTracker).map(item =>
         item.isSeparator
           ? { label: '', kind: vscode.QuickPickItemKind.Separator }
           : { label: item.label, description: item.description }
       );
       const selected = await vscode.window.showQuickPick(items, {
-        title: `GT Perf: ${gtPerfTracker.count} total GCI calls`,
+        title: `Enhanced Inspector Perf: ${enhancedInspectorPerfTracker.count} total GCI calls`,
         placeHolder: 'Choose an action, or press Escape to dismiss',
       });
       if (selected?.label === RESET_LABEL) {
-        vscode.commands.executeCommand('gemstone.resetGtPerfCounter');
+        vscode.commands.executeCommand('gemstone.resetEnhancedInspectorPerfCounter');
       } else if (selected?.label === COPY_LABEL) {
         await vscode.env.clipboard.writeText(clipboardText);
-        vscode.window.showInformationMessage('GT Perf breakdown copied to clipboard.');
+        vscode.window.showInformationMessage('Enhanced Inspector Perf breakdown copied to clipboard.');
       }
     }),
   );
@@ -855,7 +855,7 @@ export function activate(context: vscode.ExtensionContext) {
       let session;
       try {
         session = sessionManager.login(login, gciPath);
-        refreshGtAvailable(session);
+        refreshEnhancedInspectorAvailable(session);
         treeProvider.refresh();
         vscode.window.showInformationMessage(
           `Connected to ${login.stone} (${session.stoneVersion}) on ${login.gem_host} as ${login.gs_user}`
@@ -884,7 +884,7 @@ export function activate(context: vscode.ExtensionContext) {
       // If this stone lacks Enhanced Inspector support, offer (or auto-run) the
       // install per the gemstone.enhancedInspector.autoInstall setting. Fire and
       // forget so the connect flow completes; the offer surfaces its own UI.
-      if (!session.gtAvailable) {
+      if (!session.enhancedInspectorAvailable) {
         void maybeOfferEnhancedInspectorInstall(session, sessionManager, context.extensionPath);
       }
     }),
@@ -964,7 +964,7 @@ export function activate(context: vscode.ExtensionContext) {
       // rebuilding it from scratch (especially for large, remote images).
       SystemBrowser.disposeForSession(session.id);
       GlobalsBrowser.disposeForSession(session.id);
-      GtInspector.disposeForSession(session.id);
+      EnhancedInspector.disposeForSession(session.id);
       // Dispose before logout so each panel's dispose() can still release its
       // suspended GsProcess against a live handle.
       DebuggerPanel.disposeForSession(session.id);

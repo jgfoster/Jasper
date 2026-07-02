@@ -1,17 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
-import { getGtViewSpecs } from '../queries/getGtViewSpecs';
+import { getEnhancedInspectorViewSpecs } from '../queries/getEnhancedInspectorViewSpecs';
 
-describe('getGtViewSpecs', () => {
-  it('returns null when execute returns a GtError string', () => {
+describe('getEnhancedInspectorViewSpecs', () => {
+  it('returns null when execute returns a EIError string', () => {
     expect.assertions(1);
-    const execute = vi.fn(() => 'GtError:viewed object not found');
-    expect(getGtViewSpecs(execute, 1000n)).toBeNull();
+    const execute = vi.fn(() => 'EIError:viewed object not found');
+    expect(getEnhancedInspectorViewSpecs(execute, 1000n)).toBeNull();
   });
 
   it('returns null when execute returns malformed JSON', () => {
     expect.assertions(1);
     const execute = vi.fn(() => 'not valid json {{{');
-    expect(getGtViewSpecs(execute, 1000n)).toBeNull();
+    expect(getEnhancedInspectorViewSpecs(execute, 1000n)).toBeNull();
   });
 
   it('returns specs sorted by ascending priority', () => {
@@ -25,7 +25,7 @@ describe('getGtViewSpecs', () => {
       dataTransport: 1,
     }));
     const execute = vi.fn(() => JSON.stringify(specs));
-    const result = getGtViewSpecs(execute, 1000n)!;
+    const result = getEnhancedInspectorViewSpecs(execute, 1000n)!;
     const sorted = [...priorities].sort((a, b) => a - b);
     sorted.forEach((p, i) => expect(result[i].priority).toBe(p));
   });
@@ -38,7 +38,7 @@ describe('getGtViewSpecs', () => {
     const execute = vi.fn()
       .mockReturnValueOnce(JSON.stringify(specs))
       .mockReturnValueOnce(JSON.stringify({ __typeName: 'GtPhlowListViewSpecification', columnSpecifications: [] }));
-    const result = getGtViewSpecs(execute, 1000n);
+    const result = getEnhancedInspectorViewSpecs(execute, 1000n);
     expect(execute).toHaveBeenCalledTimes(2);
     expect(result![0].resolvedViewName).toBe('GtPhlowListViewSpecification');
   });
@@ -46,7 +46,7 @@ describe('getGtViewSpecs', () => {
   it('embeds oop in emitted Smalltalk', () => {
     expect.assertions(1);
     const execute = vi.fn(() => '[]');
-    getGtViewSpecs(execute, 99999n);
+    getEnhancedInspectorViewSpecs(execute, 99999n);
     const code = (execute as ReturnType<typeof vi.fn>).mock.calls[0][1] as string;
     expect(code).toContain('99999');
   });

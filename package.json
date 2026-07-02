@@ -195,10 +195,10 @@
               }
             }
           },
-          "gemstone.gtPerfTracking": {
+          "gemstone.enhancedInspectorPerfTracking": {
             "type": "boolean",
             "default": false,
-            "description": "Enable GT Perf Tracking: count GCI round trips in the GT Inspector. When enabled, shows a status bar counter and logs to the 'GemStone GT Perf' output channel. Intended for performance tuning only."
+            "description": "Enable enhanced inspector perf tracking: count GCI round trips in the enhanced inspector. When enabled, shows a status bar counter and logs to the 'GemStone Enhanced Inspector Perf' output channel. Intended for performance tuning only."
           },
           "gemstone.enhancedInspector.autoInstall": {
             "type": "string",
@@ -468,24 +468,24 @@
     ],
     "commands": [
       {
-        "command": "gemstone.enableGtPerfTracking",
-        "title": "Enable GT Perf Tracking",
-        "category": "GemStone GT"
+        "command": "gemstone.enableEnhancedInspectorPerfTracking",
+        "title": "Enable Enhanced Inspector Perf Tracking",
+        "category": "GemStone"
       },
       {
-        "command": "gemstone.disableGtPerfTracking",
-        "title": "Disable GT Perf Tracking",
-        "category": "GemStone GT"
+        "command": "gemstone.disableEnhancedInspectorPerfTracking",
+        "title": "Disable Enhanced Inspector Perf Tracking",
+        "category": "GemStone"
       },
       {
-        "command": "gemstone.resetGtPerfCounter",
-        "title": "Reset GT Perf Counter",
-        "category": "GemStone GT"
+        "command": "gemstone.resetEnhancedInspectorPerfCounter",
+        "title": "Reset Enhanced Inspector Perf Counter",
+        "category": "GemStone"
       },
       {
-        "command": "gemstone.showGtPerfDetails",
-        "title": "Show GT Perf Details",
-        "category": "GemStone GT"
+        "command": "gemstone.showEnhancedInspectorPerfDetails",
+        "title": "Show Enhanced Inspector Perf Details",
+        "category": "GemStone"
       },
       {
         "command": "gemstone.resetGrailNotebookScope",
@@ -945,19 +945,19 @@
           "when": "false"
         },
         {
-          "command": "gemstone.enableGtPerfTracking",
-          "when": "!gemstone.gtPerfTracking"
+          "command": "gemstone.enableEnhancedInspectorPerfTracking",
+          "when": "!gemstone.enhancedInspectorPerfTracking"
         },
         {
-          "command": "gemstone.disableGtPerfTracking",
-          "when": "gemstone.gtPerfTracking"
+          "command": "gemstone.disableEnhancedInspectorPerfTracking",
+          "when": "gemstone.enhancedInspectorPerfTracking"
         },
         {
-          "command": "gemstone.resetGtPerfCounter",
+          "command": "gemstone.resetEnhancedInspectorPerfCounter",
           "when": "false"
         },
         {
-          "command": "gemstone.showGtPerfDetails",
+          "command": "gemstone.showEnhancedInspectorPerfDetails",
           "when": "false"
         }
       ],
@@ -1175,7 +1175,7 @@
         },
         {
           "command": "gemstone.superInspectIt",
-          "when": "editorTextFocus && resourceLangId == gemstone-smalltalk && gemstone.gtAvailable && !gemstone.executing",
+          "when": "editorTextFocus && resourceLangId == gemstone-smalltalk && gemstone.enhancedInspectorAvailable && !gemstone.executing",
           "group": "1_gemstone@2"
         },
         {
@@ -1293,7 +1293,7 @@
         "command": "gemstone.superInspectIt",
         "key": "ctrl+k o",
         "mac": "cmd+k o",
-        "when": "editorTextFocus && gemstone.hasActiveSession && gemstone.gtAvailable && !gemstone.executing"
+        "when": "editorTextFocus && gemstone.hasActiveSession && gemstone.enhancedInspectorAvailable && !gemstone.executing"
       },
       {
         "command": "gemstone.openBrowser",

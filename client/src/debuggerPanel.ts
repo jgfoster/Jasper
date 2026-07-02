@@ -7,7 +7,7 @@ import * as debug from './debugQueries';
 import * as queries from './browserQueries';
 import { unwrapTranscriptCapture, transcriptCaptureUserCodeOffset } from './transcriptCapture';
 import { buildLineOffsets, mapOffsetToStepPoint } from './breakpointManager';
-import { GtInspector } from './gtInspector';
+import { EnhancedInspector } from './enhancedInspector';
 import { SystemBrowser } from './systemBrowser';
 import { logError, logInfo } from './gciLog';
 import { NbCancelledError, NbRunOptions } from './nbRunner';
@@ -56,7 +56,7 @@ const TOOLBAR_ICONS: Record<string, string> = {
  *
  * This panel is a SECOND consumer of the DAP-free data layer in
  * `debugQueries.ts` (the DAP `GemStoneDebugSession` is the first). It mirrors
- * the webview wiring conventions established in `gtInspector.ts`
+ * the webview wiring conventions established in `enhancedInspector.ts`
  * (createWebviewPanel + enableScripts + retainContextWhenHidden +
  * postMessage/onDidReceiveMessage).
  *
@@ -993,17 +993,17 @@ export class DebuggerPanel {
    * The most recent companion source editor. Its live `.viewColumn` is the
    * authoritative current column of the source group at dispose time — VS Code
    * renumbers ViewColumns positionally as groups are added/removed (e.g. when a
-   * GT Inspector opens Beside), so the captured `sourceColumn` number can go
+   * enhanced inspector opens Beside), so the captured `sourceColumn` number can go
    * stale. We read this editor's column when closing so the right group matches.
    */
   private sourceEditor: vscode.TextEditor | undefined;
   /** Low-frequency sampler of the source-group ratio (see savedSourceRatio); cleared on dispose. */
   private layoutSampler: ReturnType<typeof setInterval> | undefined;
   /**
-   * GT Inspectors opened from this debugger's Variables pane. They're artifacts
+   * enhanced inspectors opened from this debugger's Variables pane. They're artifacts
    * of this debugger, so they're closed when it closes (see dispose).
    */
-  private openedInspectors = new Set<GtInspector>();
+  private openedInspectors = new Set<EnhancedInspector>();
   /** The editor currently carrying the step-point highlight, if any. */
   private decoratedEditor: vscode.TextEditor | undefined;
   /** Whether this panel's inline-value overlay (#5) is currently shown. */
@@ -1346,10 +1346,10 @@ export class DebuggerPanel {
         return;
       }
       case 'inspectVariable': {
-        // Open the clicked variable in a GT Inspector (beside), like GT Inspect.
+        // Open the clicked variable in an enhanced inspector (beside), like GT Inspect.
         // Track it so it closes with the debugger (it's an artifact of it).
         try {
-          this.openedInspectors.add(GtInspector.create(this.session, BigInt(msg.oop), msg.name));
+          this.openedInspectors.add(EnhancedInspector.create(this.session, BigInt(msg.oop), msg.name));
         } catch (e: unknown) {
           logError(this.sessionId, e instanceof Error ? e.message : String(e));
         }
@@ -3861,7 +3861,7 @@ export class DebuggerPanel {
       color: var(--vscode-descriptionForeground); opacity: 0.8;
     }
     .vars .var-revert:hover { opacity: 1; color: var(--vscode-foreground); }
-    /* OOP shown dim at the row end, matching the GT Inspector header convention. */
+    /* OOP shown dim at the row end, matching the enhanced inspector header convention. */
     .vars .var-oop {
       flex: 0 0 auto; margin-left: auto; white-space: nowrap;
       font-size: 0.78em; color: var(--vscode-descriptionForeground); opacity: 0.75;
@@ -4006,7 +4006,7 @@ export class DebuggerPanel {
     // The source pane is going away — drop its inline-values CodeLens too. (This
     // panel was already removed from `panels` above, so the lens won't re-appear.)
     DebuggerPanel.refreshSourceCodeLenses();
-    // Close the companion source editor and any GT Inspectors this debugger
+    // Close the companion source editor and any enhanced inspectors this debugger
     // opened — they're artifacts of this debugger and shouldn't outlive it.
     this.closeSourceEditors();
     // Drop this panel's source tabs from the persisted orphan set (it was already
@@ -4038,7 +4038,7 @@ export class DebuggerPanel {
     if (this.shownSourceUris.size === 0 && this.dnuMethodUris.size === 0) return;
     // The source group's ViewColumn can have been renumbered since we captured
     // it (VS Code reassigns columns positionally when groups open/close — e.g. a
-    // GT Inspector opening Beside). The live source editor reports its CURRENT
+    // enhanced inspector opening Beside). The live source editor reports its CURRENT
     // column, so prefer that; fall back to the captured number.
     const sourceColumn = this.sourceEditor?.viewColumn ?? this.sourceColumn;
     for (const group of vscode.window.tabGroups.all) {

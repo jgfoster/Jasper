@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isValidSelector } from '../queries/getGtViewSpecs';
+import { isValidSelector } from '../queries/getEnhancedInspectorViewSpecs';
 
 describe('isValidSelector', () => {
   describe('valid selectors', () => {

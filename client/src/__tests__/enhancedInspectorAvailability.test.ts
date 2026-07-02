@@ -28,25 +28,25 @@ function createMockSession(executeFetchData = ''): ActiveSession {
   };
 }
 
-describe('checkGtAvailable', () => {
+describe('checkEnhancedInspectorAvailable', () => {
   it('returns true when stone returns "true"', () => {
     const session = createMockSession('true');
-    expect(queries.checkGtAvailable(session)).toBe(true);
+    expect(queries.checkEnhancedInspectorAvailable(session)).toBe(true);
   });
 
   it('returns true when response has trailing whitespace', () => {
     const session = createMockSession('true\n');
-    expect(queries.checkGtAvailable(session)).toBe(true);
+    expect(queries.checkEnhancedInspectorAvailable(session)).toBe(true);
   });
 
   it('returns false when stone returns "false"', () => {
     const session = createMockSession('false');
-    expect(queries.checkGtAvailable(session)).toBe(false);
+    expect(queries.checkEnhancedInspectorAvailable(session)).toBe(false);
   });
 
   it('returns false when stone returns an unexpected string', () => {
     const session = createMockSession('maybe');
-    expect(queries.checkGtAvailable(session)).toBe(false);
+    expect(queries.checkEnhancedInspectorAvailable(session)).toBe(false);
   });
 
   it('returns false when GCI returns an error', () => {
@@ -55,12 +55,12 @@ describe('checkGtAvailable', () => {
       data: '',
       err: { ...noErr, number: 2010, message: 'GCI error' },
     });
-    expect(queries.checkGtAvailable(session)).toBe(false);
+    expect(queries.checkEnhancedInspectorAvailable(session)).toBe(false);
   });
 
   it('emitted Smalltalk references GtRemotePhlowViewedObject', () => {
     const session = createMockSession('true');
-    queries.checkGtAvailable(session);
+    queries.checkEnhancedInspectorAvailable(session);
     const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
     const code = mockExec.mock.calls[0][1] as string;
     expect(code).toContain('GtRemotePhlowViewedObject');

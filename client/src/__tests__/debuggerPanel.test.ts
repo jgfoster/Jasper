@@ -98,9 +98,9 @@ vi.mock('../debugQueries', () => ({
   ]),
 }));
 
-// Clicking a variable row opens a GT Inspector — stub the static entry point.
+// Clicking a variable row opens an enhanced inspector — stub the static entry point.
 // create() returns a closable handle so the debugger can close it on dispose.
-vi.mock('../gtInspector', () => ({ GtInspector: { create: vi.fn(() => ({ close: vi.fn() })) } }));
+vi.mock('../enhancedInspector', () => ({ EnhancedInspector: { create: vi.fn(() => ({ close: vi.fn() })) } }));
 
 // "Browse" a frame opens a System Browser — stub the static entry point so the
 // test doesn't pull in the whole browser module (and its many dependencies).
@@ -132,7 +132,7 @@ import {
 } from '../debuggerPanel';
 import { InlineValuesCodeLensProvider } from '../inlineValuesCodeLens';
 import { wrapWithTranscriptCapture, TRANSCRIPT_CAPTURE_PREFIX } from '../transcriptCapture';
-import { GtInspector } from '../gtInspector';
+import { EnhancedInspector } from '../enhancedInspector';
 import { SystemBrowser } from '../systemBrowser';
 import { ActiveSession } from '../sessionManager';
 import { GemStoneLogin } from '../loginTypes';
@@ -1270,7 +1270,7 @@ describe('DebuggerPanel', () => {
       expect(vi.mocked(vscode.window.tabGroups.close)).toHaveBeenCalledWith(tab);
     });
 
-    it('closes the source editor AND every GT Inspector it opened, together, on close', async () => {
+    it('closes the source editor AND every enhanced inspector it opened, together, on close', async () => {
       const panel = openPanelWithStack();
       // A real gemstone:// method source, shown in source column 9.
       vi.mocked(vscode.window.showTextDocument).mockResolvedValueOnce(columnedEditor(9) as never);
@@ -1281,7 +1281,7 @@ describe('DebuggerPanel', () => {
       // GT Inspect two variables → two inspectors, each a closable handle.
       sendMessage(panel, { command: 'inspectVariable', oop: '300', name: 'self' });
       sendMessage(panel, { command: 'inspectVariable', oop: '901', name: 'total' });
-      const inspectorCloses = vi.mocked(GtInspector.create).mock.results
+      const inspectorCloses = vi.mocked(EnhancedInspector.create).mock.results
         .map((r) => (r.value as { close: ReturnType<typeof vi.fn> }).close);
       expect(inspectorCloses).toHaveLength(2);
 
@@ -1825,10 +1825,10 @@ describe('DebuggerPanel', () => {
       expect(vi.mocked(debug.fetchFrameVariables)).toHaveBeenCalled();
     });
 
-    it('opens a GT Inspector for a clicked variable via inspectVariable', () => {
+    it('opens an enhanced inspector for a clicked variable via inspectVariable', () => {
       const panel = openPanel();
       sendMessage(panel, { command: 'inspectVariable', oop: '300', name: 'self' });
-      expect(GtInspector.create).toHaveBeenCalledWith(session, 300n, 'self');
+      expect(EnhancedInspector.create).toHaveBeenCalledWith(session, 300n, 'self');
     });
 
     it('setVariable (instvar) evaluates the expr, writes via instVarAt:put:, refreshes, and reports ok', () => {

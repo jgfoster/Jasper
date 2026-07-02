@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fetchObjectMeta, fetchMethodBrowseLocation, fetchMethodSource } from '../queries/getGtViewSpecs';
+import { fetchObjectMeta, fetchMethodBrowseLocation, fetchMethodSource } from '../queries/getEnhancedInspectorViewSpecs';
 
 describe('fetchObjectMeta', () => {
   it('returns the JSON string on happy path', () => {
@@ -9,9 +9,9 @@ describe('fetchObjectMeta', () => {
     expect(fetchObjectMeta(execute, 1000n)).toBe(json);
   });
 
-  it('returns null when execute returns a GtError string', () => {
+  it('returns null when execute returns a EIError string', () => {
     expect.assertions(1);
-    const execute = vi.fn(() => 'GtError:object not found');
+    const execute = vi.fn(() => 'EIError:object not found');
     expect(fetchObjectMeta(execute, 1000n)).toBeNull();
   });
 
@@ -41,9 +41,9 @@ describe('fetchMethodBrowseLocation', () => {
     expect(result?.category).toBe('accessing');
   });
 
-  it('returns null when execute returns a GtError string', () => {
+  it('returns null when execute returns a EIError string', () => {
     expect.assertions(1);
-    const execute = vi.fn(() => 'GtError:does not understand #size');
+    const execute = vi.fn(() => 'EIError:does not understand #size');
     expect(fetchMethodBrowseLocation(execute, 1000n, 'size', false)).toBeNull();
   });
 
@@ -94,9 +94,9 @@ describe('fetchMethodSource', () => {
     expect(fetchMethodSource(execute, 1000n, 'size', false)).toBe(source);
   });
 
-  it('returns null when execute returns a GtError string', () => {
+  it('returns null when execute returns a EIError string', () => {
     expect.assertions(1);
-    const execute = vi.fn(() => 'GtError:does not understand #size');
+    const execute = vi.fn(() => 'EIError:does not understand #size');
     expect(fetchMethodSource(execute, 1000n, 'size', false)).toBeNull();
   });
 

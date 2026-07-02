@@ -1,28 +1,28 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fetchObjectMeta } from '../queries/getGtViewSpecs';
+import { fetchObjectMeta } from '../queries/getEnhancedInspectorViewSpecs';
 
-// gtExecute is private — tested here through fetchObjectMeta (simplest exported
+// enhancedInspectorExecute is private — tested here through fetchObjectMeta (simplest exported
 // function with no selector validation to interfere with error path coverage).
 
-describe('gtExecute error isolation', () => {
+describe('enhancedInspectorExecute error isolation', () => {
   it('wraps user code in AbstractException handler before sending to GemStone', () => {
     expect.assertions(2);
     const execute = vi.fn(() => '{}');
     fetchObjectMeta(execute, 1000n);
     const code = (execute as ReturnType<typeof vi.fn>).mock.calls[0][1] as string;
     expect(code).toContain('on: AbstractException do:');
-    expect(code).toContain("'GtError:'");
+    expect(code).toContain("'EIError:'");
   });
 
-  it('returns null for "GtError:" with no message', () => {
+  it('returns null for "EIError:" with no message', () => {
     expect.assertions(1);
-    const execute = vi.fn(() => 'GtError:');
+    const execute = vi.fn(() => 'EIError:');
     expect(fetchObjectMeta(execute, 1000n)).toBeNull();
   });
 
-  it('returns null for "GtError:" with a message', () => {
+  it('returns null for "EIError:" with a message', () => {
     expect.assertions(1);
-    const execute = vi.fn(() => 'GtError:something went wrong');
+    const execute = vi.fn(() => 'EIError:something went wrong');
     expect(fetchObjectMeta(execute, 1000n)).toBeNull();
   });
 

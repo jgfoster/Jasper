@@ -1,7 +1,7 @@
 /**
  * Server-side installation of Enhanced Inspector support.
  *
- * Files the vendored GT support `.gs` payload into a stone over a GCI session.
+ * Files the vendored enhanced inspector support `.gs` payload into a stone over a GCI session.
  * Each file is filed in with a single server-side `GsFileIn fromServerPath:`
  * call (the gem reads and compiles the file itself), in the dependency order
  * the topaz loader uses, then the work is committed and verified.
@@ -28,7 +28,7 @@ import { executeFetchString } from './browserQueries';
 
 /**
  * The payload files, in dependency order — must match the `input` order in
- * docs/gtSupport/load_gemstone_gt_support.sh. The files themselves live in
+ * docs/enhancedInspectorSupport/load_enhanced_inspector_support.sh. The files themselves live in
  * resources/enhancedInspector/. Earlier files define classes and behavior that
  * later files depend on.
  */

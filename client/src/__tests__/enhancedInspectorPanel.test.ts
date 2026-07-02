@@ -18,18 +18,18 @@ vi.mock('../browserQueries', () => ({
   executeFetchString: vi.fn(() => ''),
 }));
 
-vi.mock('../queries/getGtViewSpecs', () => ({
-  getGtViewSpecs: vi.fn(),
+vi.mock('../queries/getEnhancedInspectorViewSpecs', () => ({
+  getEnhancedInspectorViewSpecs: vi.fn(),
   fetchObjectMeta: vi.fn(),
-  fetchGtPrintTabData: vi.fn(),
-  fetchGtTextData: vi.fn(),
-  fetchGtListData: vi.fn(),
-  fetchGtForwardListData: vi.fn(),
-  fetchGtForwardListTotal: vi.fn(),
-  fetchGtListTotal: vi.fn(),
-  fetchGtRowOop: vi.fn(),
-  fetchGtForwardRowOop: vi.fn(),
-  fetchGtTreeChildren: vi.fn(),
+  fetchEnhancedInspectorPrintTabData: vi.fn(),
+  fetchEnhancedInspectorTextData: vi.fn(),
+  fetchEnhancedInspectorListData: vi.fn(),
+  fetchEnhancedInspectorForwardListData: vi.fn(),
+  fetchEnhancedInspectorForwardListTotal: vi.fn(),
+  fetchEnhancedInspectorListTotal: vi.fn(),
+  fetchEnhancedInspectorRowOop: vi.fn(),
+  fetchEnhancedInspectorForwardRowOop: vi.fn(),
+  fetchEnhancedInspectorTreeChildren: vi.fn(),
   fetchMethodSource: vi.fn(),
   fetchMethodBrowseLocation: vi.fn(),
 }));
@@ -40,9 +40,9 @@ vi.mock('../systemBrowser', () => ({
 
 import * as vscode from 'vscode';
 import * as debug from '../debugQueries';
-import * as queries from '../queries/getGtViewSpecs';
+import * as queries from '../queries/getEnhancedInspectorViewSpecs';
 import { SystemBrowser } from '../systemBrowser';
-import { GtInspector } from '../gtInspector';
+import { EnhancedInspector } from '../enhancedInspector';
 import { ActiveSession } from '../sessionManager';
 import { GemStoneLogin } from '../loginTypes';
 
@@ -93,7 +93,7 @@ let session: ActiveSession;
 let mock: ReturnType<typeof makeMockPanel>;
 
 function setup(oop = 1000n, label = 'test') {
-  GtInspector.create(session, oop, label);
+  EnhancedInspector.create(session, oop, label);
   return mock;
 }
 
@@ -104,23 +104,23 @@ beforeEach(() => {
   vi.mocked(vscode.window.createWebviewPanel).mockReturnValue(mock.panel as any);
   vi.mocked(debug.fetchPrintString).mockReturnValue({ value: 'an Object', truncated: false });
   vi.mocked(debug.getObjectClassName).mockReturnValue('Object');
-  vi.mocked(queries.getGtViewSpecs).mockReturnValue([]);
+  vi.mocked(queries.getEnhancedInspectorViewSpecs).mockReturnValue([]);
   vi.mocked(queries.fetchObjectMeta).mockReturnValue('{}');
 });
 
 afterEach(() => {
-  GtInspector.disposeForSession(session.id);
+  EnhancedInspector.disposeForSession(session.id);
 });
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
-describe('GtInspector', () => {
+describe('EnhancedInspector', () => {
   describe('A — panel lifecycle', () => {
     it('create() opens the panel with ViewColumn.Beside', () => {
       expect.assertions(1);
-      GtInspector.create(session, 1000n, 'test');
+      EnhancedInspector.create(session, 1000n, 'test');
       expect(vscode.window.createWebviewPanel).toHaveBeenCalledWith(
-        'gemstoneSuperInspector',
+        'gemstoneEnhancedInspector',
         'Inspector',
         vscode.ViewColumn.Beside,
         expect.any(Object),
@@ -133,16 +133,16 @@ describe('GtInspector', () => {
       vi.mocked(vscode.window.createWebviewPanel)
         .mockReturnValueOnce(mock.panel as any)
         .mockReturnValueOnce(mock2.panel as any);
-      GtInspector.create(session, 1000n, 'first');
-      GtInspector.create(session, 2000n, 'second');
-      GtInspector.disposeForSession(session.id);
+      EnhancedInspector.create(session, 1000n, 'first');
+      EnhancedInspector.create(session, 2000n, 'second');
+      EnhancedInspector.disposeForSession(session.id);
       expect(mock.panel.dispose).toHaveBeenCalled();
       expect(mock2.panel.dispose).toHaveBeenCalled();
     });
 
     it('disposeForSession() is a no-op for an unknown session id', () => {
       expect.assertions(1);
-      expect(() => GtInspector.disposeForSession(9999)).not.toThrow();
+      expect(() => EnhancedInspector.disposeForSession(9999)).not.toThrow();
     });
   });
 
@@ -173,174 +173,174 @@ describe('GtInspector', () => {
     });
   });
 
-  describe('C — ready: gtViewSpecs message', () => {
-    it('always includes meta in the gtViewSpecs message', () => {
+  describe('C — ready: enhancedInspectorViewSpecs message', () => {
+    it('always includes meta in the enhancedInspectorViewSpecs message', () => {
       expect.assertions(1);
       vi.mocked(queries.fetchObjectMeta).mockReturnValue('{"className":"Array"}');
       setup();
       mock.sendMessage({ command: 'ready' });
       expect(mock.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ command: 'gtViewSpecs', meta: '{"className":"Array"}' }),
+        expect.objectContaining({ command: 'enhancedInspectorViewSpecs', meta: '{"className":"Array"}' }),
       );
     });
 
-    it('passes specs through in the gtViewSpecs message even when null', () => {
+    it('passes specs through in the enhancedInspectorViewSpecs message even when null', () => {
       expect.assertions(1);
-      vi.mocked(queries.getGtViewSpecs).mockReturnValue(null);
+      vi.mocked(queries.getEnhancedInspectorViewSpecs).mockReturnValue(null);
       setup();
       mock.sendMessage({ command: 'ready' });
       expect(mock.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ command: 'gtViewSpecs', specs: null }),
+        expect.objectContaining({ command: 'enhancedInspectorViewSpecs', specs: null }),
       );
     });
 
-    it('includes className from getObjectClassName in the gtViewSpecs message', () => {
+    it('includes className from getObjectClassName in the enhancedInspectorViewSpecs message', () => {
       expect.assertions(1);
       vi.mocked(debug.getObjectClassName).mockReturnValue('OrderedCollection');
       setup();
       mock.sendMessage({ command: 'ready' });
       expect(mock.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ command: 'gtViewSpecs', className: 'OrderedCollection' }),
+        expect.objectContaining({ command: 'enhancedInspectorViewSpecs', className: 'OrderedCollection' }),
       );
     });
   });
 
-  describe('D — fetchGtViewData routing', () => {
-    it('routes gtPrintFor: + text editor view to fetchGtPrintTabData', () => {
+  describe('D — fetchEnhancedInspectorViewData routing', () => {
+    it('routes gtPrintFor: + text editor view to fetchEnhancedInspectorPrintTabData', () => {
       expect.assertions(1);
-      vi.mocked(queries.fetchGtPrintTabData).mockReturnValue({ data: '{}', truncated: false });
+      vi.mocked(queries.fetchEnhancedInspectorPrintTabData).mockReturnValue({ data: '{}', truncated: false });
       setup();
-      mock.sendMessage({ command: 'fetchGtViewData', oop: '1000', methodSelector: 'gtPrintFor:', viewName: 'GtPhlowTextEditorViewSpecification' });
-      expect(queries.fetchGtPrintTabData).toHaveBeenCalled();
+      mock.sendMessage({ command: 'fetchEnhancedInspectorViewData', oop: '1000', methodSelector: 'gtPrintFor:', viewName: 'GtPhlowTextEditorViewSpecification' });
+      expect(queries.fetchEnhancedInspectorPrintTabData).toHaveBeenCalled();
     });
 
-    it('routes text view to fetchGtTextData', () => {
+    it('routes text view to fetchEnhancedInspectorTextData', () => {
       expect.assertions(1);
-      vi.mocked(queries.fetchGtTextData).mockReturnValue('{}');
+      vi.mocked(queries.fetchEnhancedInspectorTextData).mockReturnValue('{}');
       setup();
-      mock.sendMessage({ command: 'fetchGtViewData', oop: '1000', methodSelector: 'gtTextFor:', viewName: 'GtPhlowTextViewSpecification' });
-      expect(queries.fetchGtTextData).toHaveBeenCalled();
+      mock.sendMessage({ command: 'fetchEnhancedInspectorViewData', oop: '1000', methodSelector: 'gtTextFor:', viewName: 'GtPhlowTextViewSpecification' });
+      expect(queries.fetchEnhancedInspectorTextData).toHaveBeenCalled();
     });
 
-    it('routes list view to fetchGtListData', () => {
+    it('routes list view to fetchEnhancedInspectorListData', () => {
       expect.assertions(1);
-      vi.mocked(queries.fetchGtListData).mockReturnValue('[]');
+      vi.mocked(queries.fetchEnhancedInspectorListData).mockReturnValue('[]');
       setup();
-      mock.sendMessage({ command: 'fetchGtViewData', oop: '1000', methodSelector: 'gtItemsFor:', viewName: 'GtPhlowListViewSpecification' });
-      expect(queries.fetchGtListData).toHaveBeenCalled();
+      mock.sendMessage({ command: 'fetchEnhancedInspectorViewData', oop: '1000', methodSelector: 'gtItemsFor:', viewName: 'GtPhlowListViewSpecification' });
+      expect(queries.fetchEnhancedInspectorListData).toHaveBeenCalled();
     });
   });
 
-  describe('E — fetchGtViewTotal routing', () => {
-    it('routes forward view to fetchGtForwardListTotal', () => {
+  describe('E — fetchEnhancedInspectorViewTotal routing', () => {
+    it('routes forward view to fetchEnhancedInspectorForwardListTotal', () => {
       expect.assertions(2);
-      vi.mocked(queries.fetchGtForwardListTotal).mockReturnValue(42);
+      vi.mocked(queries.fetchEnhancedInspectorForwardListTotal).mockReturnValue(42);
       setup();
-      mock.sendMessage({ command: 'fetchGtViewTotal', oop: '1000', methodSelector: 'gtForwardFor:', viewName: 'GtPhlowForwardViewSpecification' });
-      expect(queries.fetchGtForwardListTotal).toHaveBeenCalled();
+      mock.sendMessage({ command: 'fetchEnhancedInspectorViewTotal', oop: '1000', methodSelector: 'gtForwardFor:', viewName: 'GtPhlowForwardViewSpecification' });
+      expect(queries.fetchEnhancedInspectorForwardListTotal).toHaveBeenCalled();
       expect(mock.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ command: 'gtViewTotal', total: 42 }),
+        expect.objectContaining({ command: 'enhancedInspectorViewTotal', total: 42 }),
       );
     });
 
-    it('routes non-forward view to fetchGtListTotal', () => {
+    it('routes non-forward view to fetchEnhancedInspectorListTotal', () => {
       expect.assertions(2);
-      vi.mocked(queries.fetchGtListTotal).mockReturnValue(10);
+      vi.mocked(queries.fetchEnhancedInspectorListTotal).mockReturnValue(10);
       setup();
-      mock.sendMessage({ command: 'fetchGtViewTotal', oop: '1000', methodSelector: 'gtItemsFor:', viewName: 'GtPhlowListViewSpecification' });
-      expect(queries.fetchGtListTotal).toHaveBeenCalled();
+      mock.sendMessage({ command: 'fetchEnhancedInspectorViewTotal', oop: '1000', methodSelector: 'gtItemsFor:', viewName: 'GtPhlowListViewSpecification' });
+      expect(queries.fetchEnhancedInspectorListTotal).toHaveBeenCalled();
       expect(mock.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ command: 'gtViewTotal', total: 10 }),
+        expect.objectContaining({ command: 'enhancedInspectorViewTotal', total: 10 }),
       );
     });
   });
 
-  describe('F — gtInspectRow: double-click opens new inspector', () => {
+  describe('F — enhancedInspectRow: double-click opens new inspector', () => {
     it('opens a new panel with ViewColumn.Beside when a row is double-clicked', () => {
       expect.assertions(1);
-      vi.mocked(queries.fetchGtRowOop).mockReturnValue(9999n);
+      vi.mocked(queries.fetchEnhancedInspectorRowOop).mockReturnValue(9999n);
       setup();
       const newMock = makeMockPanel();
       vi.mocked(vscode.window.createWebviewPanel).mockReturnValueOnce(newMock.panel as any);
-      mock.sendMessage({ command: 'gtInspectRow', itemOop: '1000', methodSelector: 'gtItemsFor:', nodeId: 3, viewName: 'GtPhlowListViewSpecification' });
+      mock.sendMessage({ command: 'enhancedInspectRow', itemOop: '1000', methodSelector: 'gtItemsFor:', nodeId: 3, viewName: 'GtPhlowListViewSpecification' });
       expect(vscode.window.createWebviewPanel).toHaveBeenLastCalledWith(
-        'gemstoneSuperInspector',
+        'gemstoneEnhancedInspector',
         'Inspector',
         vscode.ViewColumn.Beside,
         expect.any(Object),
       );
     });
 
-    it('uses fetchGtForwardRowOop for double-click on a forward view row', () => {
+    it('uses fetchEnhancedInspectorForwardRowOop for double-click on a forward view row', () => {
       expect.assertions(1);
-      vi.mocked(queries.fetchGtForwardRowOop).mockReturnValue(8888n);
+      vi.mocked(queries.fetchEnhancedInspectorForwardRowOop).mockReturnValue(8888n);
       setup();
       const newMock = makeMockPanel();
       vi.mocked(vscode.window.createWebviewPanel).mockReturnValueOnce(newMock.panel as any);
-      mock.sendMessage({ command: 'gtInspectRow', itemOop: '1000', methodSelector: 'gtForwardFor:', nodeId: 2, viewName: 'GtPhlowForwardViewSpecification' });
-      expect(queries.fetchGtForwardRowOop).toHaveBeenCalled();
+      mock.sendMessage({ command: 'enhancedInspectRow', itemOop: '1000', methodSelector: 'gtForwardFor:', nodeId: 2, viewName: 'GtPhlowForwardViewSpecification' });
+      expect(queries.fetchEnhancedInspectorForwardRowOop).toHaveBeenCalled();
     });
 
     it('does not open a new inspector when row OOP is null', () => {
       expect.assertions(1);
-      vi.mocked(queries.fetchGtRowOop).mockReturnValue(null);
+      vi.mocked(queries.fetchEnhancedInspectorRowOop).mockReturnValue(null);
       setup();
       const callsBefore = vi.mocked(vscode.window.createWebviewPanel).mock.calls.length;
-      mock.sendMessage({ command: 'gtInspectRow', itemOop: '1000', methodSelector: 'gtItemsFor:', nodeId: 3, viewName: 'GtPhlowListViewSpecification' });
+      mock.sendMessage({ command: 'enhancedInspectRow', itemOop: '1000', methodSelector: 'gtItemsFor:', nodeId: 3, viewName: 'GtPhlowListViewSpecification' });
       expect(vi.mocked(vscode.window.createWebviewPanel).mock.calls.length).toBe(callsBefore);
     });
   });
 
   describe('H — fetchMoreRows', () => {
-    it('posts gtMoreRows (not gtViewData) with list data', () => {
+    it('posts enhancedInspectorMoreRows (not enhancedInspectorViewData) with list data', () => {
       expect.assertions(1);
-      vi.mocked(queries.fetchGtListData).mockReturnValue('[1,2,3]');
+      vi.mocked(queries.fetchEnhancedInspectorListData).mockReturnValue('[1,2,3]');
       setup();
       mock.sendMessage({ command: 'fetchMoreRows', oop: '1000', methodSelector: 'gtItemsFor:', viewName: 'GtPhlowListViewSpecification', fromIndex: 11 });
       expect(mock.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ command: 'gtMoreRows', methodSelector: 'gtItemsFor:', data: '[1,2,3]' }),
+        expect.objectContaining({ command: 'enhancedInspectorMoreRows', methodSelector: 'gtItemsFor:', data: '[1,2,3]' }),
       );
     });
 
     it('passes fromIndex through to the query function', () => {
       expect.assertions(1);
-      vi.mocked(queries.fetchGtListData).mockReturnValue('[]');
+      vi.mocked(queries.fetchEnhancedInspectorListData).mockReturnValue('[]');
       setup();
       mock.sendMessage({ command: 'fetchMoreRows', oop: '1000', methodSelector: 'gtItemsFor:', viewName: 'GtPhlowListViewSpecification', fromIndex: 21 });
-      expect(queries.fetchGtListData).toHaveBeenCalledWith(expect.any(Function), 1000n, 'gtItemsFor:', 21, expect.any(Number));
+      expect(queries.fetchEnhancedInspectorListData).toHaveBeenCalledWith(expect.any(Function), 1000n, 'gtItemsFor:', 21, expect.any(Number));
     });
   });
 
-  describe('I — fetchGtRangeData', () => {
-    it('routes non-forward view to fetchGtListData and posts gtRangeData with rangeStart', () => {
+  describe('I — fetchEnhancedInspectorRangeData', () => {
+    it('routes non-forward view to fetchEnhancedInspectorListData and posts enhancedInspectorRangeData with rangeStart', () => {
       expect.assertions(2);
-      vi.mocked(queries.fetchGtListData).mockReturnValue('[4,5,6]');
+      vi.mocked(queries.fetchEnhancedInspectorListData).mockReturnValue('[4,5,6]');
       setup();
-      mock.sendMessage({ command: 'fetchGtRangeData', oop: '1000', methodSelector: 'gtItemsFor:', viewName: 'GtPhlowListViewSpecification', fromIndex: 5, rangeStart: 5 });
-      expect(queries.fetchGtListData).toHaveBeenCalled();
+      mock.sendMessage({ command: 'fetchEnhancedInspectorRangeData', oop: '1000', methodSelector: 'gtItemsFor:', viewName: 'GtPhlowListViewSpecification', fromIndex: 5, rangeStart: 5 });
+      expect(queries.fetchEnhancedInspectorListData).toHaveBeenCalled();
       expect(mock.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ command: 'gtRangeData', methodSelector: 'gtItemsFor:', rangeStart: 5, data: '[4,5,6]' }),
+        expect.objectContaining({ command: 'enhancedInspectorRangeData', methodSelector: 'gtItemsFor:', rangeStart: 5, data: '[4,5,6]' }),
       );
     });
 
-    it('routes forward view to fetchGtForwardListData', () => {
+    it('routes forward view to fetchEnhancedInspectorForwardListData', () => {
       expect.assertions(1);
-      vi.mocked(queries.fetchGtForwardListData).mockReturnValue('[7,8,9]');
+      vi.mocked(queries.fetchEnhancedInspectorForwardListData).mockReturnValue('[7,8,9]');
       setup();
-      mock.sendMessage({ command: 'fetchGtRangeData', oop: '1000', methodSelector: 'gtForwardFor:', viewName: 'GtPhlowForwardViewSpecification', fromIndex: 1, rangeStart: 1 });
-      expect(queries.fetchGtForwardListData).toHaveBeenCalled();
+      mock.sendMessage({ command: 'fetchEnhancedInspectorRangeData', oop: '1000', methodSelector: 'gtForwardFor:', viewName: 'GtPhlowForwardViewSpecification', fromIndex: 1, rangeStart: 1 });
+      expect(queries.fetchEnhancedInspectorForwardListData).toHaveBeenCalled();
     });
   });
 
-  describe('J — fetchGtTreeChildren', () => {
-    it('calls fetchGtTreeChildren and posts gtTreeChildren with path and data', () => {
+  describe('J — fetchEnhancedInspectorTreeChildren', () => {
+    it('calls fetchEnhancedInspectorTreeChildren and posts enhancedInspectorTreeChildren with path and data', () => {
       expect.assertions(2);
-      vi.mocked(queries.fetchGtTreeChildren).mockReturnValue('[{"label":"child"}]');
+      vi.mocked(queries.fetchEnhancedInspectorTreeChildren).mockReturnValue('[{"label":"child"}]');
       setup();
-      mock.sendMessage({ command: 'fetchGtTreeChildren', itemOop: '2000', methodSelector: 'gtTreeFor:', path: [1, 2] });
-      expect(queries.fetchGtTreeChildren).toHaveBeenCalledWith(expect.any(Function), 2000n, 'gtTreeFor:', [1, 2]);
+      mock.sendMessage({ command: 'fetchEnhancedInspectorTreeChildren', itemOop: '2000', methodSelector: 'gtTreeFor:', path: [1, 2] });
+      expect(queries.fetchEnhancedInspectorTreeChildren).toHaveBeenCalledWith(expect.any(Function), 2000n, 'gtTreeFor:', [1, 2]);
       expect(mock.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ command: 'gtTreeChildren', methodSelector: 'gtTreeFor:', path: [1, 2], data: '[{"label":"child"}]' }),
+        expect.objectContaining({ command: 'enhancedInspectorTreeChildren', methodSelector: 'gtTreeFor:', path: [1, 2], data: '[{"label":"child"}]' }),
       );
     });
   });

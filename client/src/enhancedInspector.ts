@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import { ActiveSession } from './sessionManager';
 import * as debug from './debugQueries';
 import { executeFetchString } from './browserQueries';
-import { getGtViewSpecs, fetchGtPrintTabData, fetchGtTextData, fetchGtListData, fetchGtForwardListData, fetchGtForwardListTotal, fetchGtRowOop, fetchGtForwardRowOop, fetchGtTreeChildren, fetchGtListTotal, fetchObjectMeta, fetchMethodSource, fetchMethodBrowseLocation } from './queries/getGtViewSpecs';
+import { getEnhancedInspectorViewSpecs, fetchEnhancedInspectorPrintTabData, fetchEnhancedInspectorTextData, fetchEnhancedInspectorListData, fetchEnhancedInspectorForwardListData, fetchEnhancedInspectorForwardListTotal, fetchEnhancedInspectorRowOop, fetchEnhancedInspectorForwardRowOop, fetchEnhancedInspectorTreeChildren, fetchEnhancedInspectorListTotal, fetchObjectMeta, fetchMethodSource, fetchMethodBrowseLocation } from './queries/getEnhancedInspectorViewSpecs';
 import { SystemBrowser } from './systemBrowser';
 import { QueryExecutor } from './queries/types';
 
@@ -11,36 +11,36 @@ const PAGE_SIZE = 100;
 
 type InspectorMessage =
   | { command: 'ready' }
-  | { command: 'fetchGtViewData'; oop: string; methodSelector: string; viewName: string }
+  | { command: 'fetchEnhancedInspectorViewData'; oop: string; methodSelector: string; viewName: string }
   | { command: 'fetchMoreRows'; oop: string; methodSelector: string; viewName: string; fromIndex: number }
-  | { command: 'fetchGtViewTotal'; oop: string; methodSelector: string; viewName: string }
-  | { command: 'fetchGtRangeData'; oop: string; methodSelector: string; viewName: string; fromIndex: number; rangeStart: number }
-  | { command: 'fetchGtTreeChildren'; itemOop: string; methodSelector: string; path: number[] }
-  | { command: 'gtInspectRow'; itemOop: string; methodSelector: string; nodeId: number; viewName: string }
+  | { command: 'fetchEnhancedInspectorViewTotal'; oop: string; methodSelector: string; viewName: string }
+  | { command: 'fetchEnhancedInspectorRangeData'; oop: string; methodSelector: string; viewName: string; fromIndex: number; rangeStart: number }
+  | { command: 'fetchEnhancedInspectorTreeChildren'; itemOop: string; methodSelector: string; path: number[] }
+  | { command: 'enhancedInspectRow'; itemOop: string; methodSelector: string; nodeId: number; viewName: string }
   | { command: 'fetchFullPrintString'; oop: string; methodSelector: string }
   | { command: 'fetchMethodSource'; oop: string; methodSelector: string; isClassSide: boolean }
   | { command: 'browseMethod'; oop: string; methodSelector: string; isClassSide: boolean };
 
-export class GtInspector {
-  private static panels = new Map<number, Set<GtInspector>>();
+export class EnhancedInspector {
+  private static panels = new Map<number, Set<EnhancedInspector>>();
   private readonly panel: vscode.WebviewPanel;
   private readonly sessionId: number;
   private disposables: vscode.Disposable[] = [];
   private currentOop: bigint;
   private currentLabel: string;
 
-  static create(session: ActiveSession, oop: bigint, label: string): GtInspector {
+  static create(session: ActiveSession, oop: bigint, label: string): EnhancedInspector {
     const panel = vscode.window.createWebviewPanel(
-      'gemstoneSuperInspector',
+      'gemstoneEnhancedInspector',
       'Inspector',
       vscode.ViewColumn.Beside,
       { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] },
     );
-    const inspector = new GtInspector(panel, session, oop, label);
-    if (!GtInspector.panels.has(session.id)) {
-      GtInspector.panels.set(session.id, new Set());
+    const inspector = new EnhancedInspector(panel, session, oop, label);
+    if (!EnhancedInspector.panels.has(session.id)) {
+      EnhancedInspector.panels.set(session.id, new Set());
     }
-    GtInspector.panels.get(session.id)!.add(inspector);
+    EnhancedInspector.panels.get(session.id)!.add(inspector);
     return inspector;
   }
 
@@ -54,10 +54,10 @@ export class GtInspector {
   }
 
   static disposeForSession(sessionId: number): void {
-    const set = GtInspector.panels.get(sessionId);
+    const set = EnhancedInspector.panels.get(sessionId);
     if (set) {
       for (const inspector of set) inspector.panel.dispose();
-      GtInspector.panels.delete(sessionId);
+      EnhancedInspector.panels.delete(sessionId);
     }
   }
 
@@ -87,10 +87,10 @@ export class GtInspector {
         this.panel.title = ps.value + (ps.truncated ? '…' : '');
         const exec = this.makeExecutor();
         const className = debug.getObjectClassName(this.session, this.currentOop);
-        const specs = getGtViewSpecs(exec, this.currentOop);
+        const specs = getEnhancedInspectorViewSpecs(exec, this.currentOop);
         const meta = fetchObjectMeta(exec, this.currentOop);
         this.panel.webview.postMessage({
-          command: 'gtViewSpecs',
+          command: 'enhancedInspectorViewSpecs',
           oop: this.currentOop.toString(),
           specs,
           className,
@@ -100,44 +100,44 @@ export class GtInspector {
         break;
       }
 
-      case 'fetchGtViewData': {
+      case 'fetchEnhancedInspectorViewData': {
         const oop = BigInt(msg.oop);
         if (msg.viewName === 'GtPhlowTextEditorViewSpecification' && msg.methodSelector === 'gtPrintFor:') {
-          const result = fetchGtPrintTabData(this.makeExecutor(), oop, msg.methodSelector);
-          this.panel.webview.postMessage({ command: 'gtViewData', methodSelector: msg.methodSelector, data: result.data, truncated: result.truncated });
+          const result = fetchEnhancedInspectorPrintTabData(this.makeExecutor(), oop, msg.methodSelector);
+          this.panel.webview.postMessage({ command: 'enhancedInspectorViewData', methodSelector: msg.methodSelector, data: result.data, truncated: result.truncated });
         } else {
-          const data = this.fetchGtViewData(oop, msg.methodSelector, msg.viewName);
-          this.panel.webview.postMessage({ command: 'gtViewData', methodSelector: msg.methodSelector, data });
+          const data = this.fetchEnhancedInspectorViewData(oop, msg.methodSelector, msg.viewName);
+          this.panel.webview.postMessage({ command: 'enhancedInspectorViewData', methodSelector: msg.methodSelector, data });
         }
         break;
       }
 
       case 'fetchMoreRows': {
-        const more = this.fetchGtViewData(BigInt(msg.oop), msg.methodSelector, msg.viewName, msg.fromIndex);
-        this.panel.webview.postMessage({ command: 'gtMoreRows', methodSelector: msg.methodSelector, data: more });
+        const more = this.fetchEnhancedInspectorViewData(BigInt(msg.oop), msg.methodSelector, msg.viewName, msg.fromIndex);
+        this.panel.webview.postMessage({ command: 'enhancedInspectorMoreRows', methodSelector: msg.methodSelector, data: more });
         break;
       }
 
-      case 'fetchGtViewTotal': {
+      case 'fetchEnhancedInspectorViewTotal': {
         const isForward = msg.viewName === 'GtPhlowForwardViewSpecification';
         const total = isForward
-          ? fetchGtForwardListTotal(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector)
-          : fetchGtListTotal(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector);
-        this.panel.webview.postMessage({ command: 'gtViewTotal', methodSelector: msg.methodSelector, total });
+          ? fetchEnhancedInspectorForwardListTotal(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector)
+          : fetchEnhancedInspectorListTotal(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector);
+        this.panel.webview.postMessage({ command: 'enhancedInspectorViewTotal', methodSelector: msg.methodSelector, total });
         break;
       }
 
-      case 'fetchGtRangeData': {
+      case 'fetchEnhancedInspectorRangeData': {
         const rangeData = msg.viewName === 'GtPhlowForwardViewSpecification'
-          ? fetchGtForwardListData(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector, msg.fromIndex, PAGE_SIZE)
-          : fetchGtListData(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector, msg.fromIndex, PAGE_SIZE);
-        this.panel.webview.postMessage({ command: 'gtRangeData', methodSelector: msg.methodSelector, rangeStart: msg.rangeStart, data: rangeData });
+          ? fetchEnhancedInspectorForwardListData(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector, msg.fromIndex, PAGE_SIZE)
+          : fetchEnhancedInspectorListData(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector, msg.fromIndex, PAGE_SIZE);
+        this.panel.webview.postMessage({ command: 'enhancedInspectorRangeData', methodSelector: msg.methodSelector, rangeStart: msg.rangeStart, data: rangeData });
         break;
       }
 
-      case 'fetchGtTreeChildren': {
-        const children = fetchGtTreeChildren(this.makeExecutor(), BigInt(msg.itemOop), msg.methodSelector, msg.path);
-        this.panel.webview.postMessage({ command: 'gtTreeChildren', methodSelector: msg.methodSelector, path: msg.path, data: children });
+      case 'fetchEnhancedInspectorTreeChildren': {
+        const children = fetchEnhancedInspectorTreeChildren(this.makeExecutor(), BigInt(msg.itemOop), msg.methodSelector, msg.path);
+        this.panel.webview.postMessage({ command: 'enhancedInspectorTreeChildren', methodSelector: msg.methodSelector, path: msg.path, data: children });
         break;
       }
 
@@ -170,12 +170,12 @@ export class GtInspector {
         break;
       }
 
-      case 'gtInspectRow': {
+      case 'enhancedInspectRow': {
         const rowOop = msg.viewName === 'GtPhlowForwardViewSpecification'
-          ? fetchGtForwardRowOop(this.makeExecutor(), BigInt(msg.itemOop), msg.methodSelector, msg.nodeId)
-          : fetchGtRowOop(this.makeExecutor(), BigInt(msg.itemOop), msg.methodSelector, msg.nodeId);
+          ? fetchEnhancedInspectorForwardRowOop(this.makeExecutor(), BigInt(msg.itemOop), msg.methodSelector, msg.nodeId)
+          : fetchEnhancedInspectorRowOop(this.makeExecutor(), BigInt(msg.itemOop), msg.methodSelector, msg.nodeId);
         if (rowOop !== null) {
-          GtInspector.create(this.session, rowOop, msg.methodSelector + '[' + msg.nodeId + ']');
+          EnhancedInspector.create(this.session, rowOop, msg.methodSelector + '[' + msg.nodeId + ']');
         }
         break;
       }
@@ -186,19 +186,19 @@ export class GtInspector {
     return (label, code) => executeFetchString(this.session, label, code);
   }
 
-  private fetchGtViewData(oop: bigint, methodSelector: string, viewName: string, fromIndex = 1): string | null {
+  private fetchEnhancedInspectorViewData(oop: bigint, methodSelector: string, viewName: string, fromIndex = 1): string | null {
     const execute = this.makeExecutor();
     if (viewName === 'GtPhlowTextViewSpecification' || viewName === 'GtPhlowTextEditorViewSpecification') {
-      return fetchGtTextData(execute, oop, methodSelector);
+      return fetchEnhancedInspectorTextData(execute, oop, methodSelector);
     }
     if (viewName === 'GtPhlowForwardViewSpecification') {
-      return fetchGtForwardListData(execute, oop, methodSelector, fromIndex, PAGE_SIZE);
+      return fetchEnhancedInspectorForwardListData(execute, oop, methodSelector, fromIndex, PAGE_SIZE);
     }
-    return fetchGtListData(execute, oop, methodSelector, fromIndex, PAGE_SIZE);
+    return fetchEnhancedInspectorListData(execute, oop, methodSelector, fromIndex, PAGE_SIZE);
   }
 
   private dispose(): void {
-    GtInspector.panels.get(this.sessionId)?.delete(this);
+    EnhancedInspector.panels.get(this.sessionId)?.delete(this);
     for (const d of this.disposables) d.dispose();
     this.disposables = [];
   }
@@ -295,12 +295,12 @@ export class GtInspector {
       min-height: 0;
     }
     .placeholder { padding: 12px 8px; color: var(--vscode-descriptionForeground); font-style: italic; }
-    /* ── GT view table ───────────────────────── */
-    .gt-table-wrap { overflow: auto; flex: 1; }
-    .gt-table { border-collapse: collapse; font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
-    .gt-table th { position: sticky; top: 0; z-index: 1; background: var(--vscode-editor-background); text-align: left; padding: 2px 20px 2px 6px; border-bottom: 1px solid var(--vscode-panel-border); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: none; }
-    .gt-table td { padding: 2px 6px; border-bottom: 1px solid var(--vscode-list-hoverBackground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .gt-table tr:hover td { background: var(--vscode-list-hoverBackground); cursor: pointer; }
+    /* ── view table ───────────────────────── */
+    .ei-table-wrap { overflow: auto; flex: 1; }
+    .ei-table { border-collapse: collapse; font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
+    .ei-table th { position: sticky; top: 0; z-index: 1; background: var(--vscode-editor-background); text-align: left; padding: 2px 20px 2px 6px; border-bottom: 1px solid var(--vscode-panel-border); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: none; }
+    .ei-table td { padding: 2px 6px; border-bottom: 1px solid var(--vscode-list-hoverBackground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ei-table tr:hover td { background: var(--vscode-list-hoverBackground); cursor: pointer; }
     .col-resize-handle { position: absolute; top: 0; right: 0; bottom: 0; width: 5px; cursor: col-resize; background: transparent; }
     .col-resize-handle:hover, .col-resize-handle.active { background: var(--vscode-focusBorder, #007fd4); opacity: 0.7; }
     .load-more-row td { padding: 4px 8px; color: var(--vscode-textLink-foreground); cursor: pointer; font-style: italic; }
@@ -390,10 +390,10 @@ export class GtInspector {
       const spec = specs && specs.find(s => s.methodSelector === methodSelector);
       if (!spec) return;
       if (cachedViewData[methodSelector] !== undefined) {
-        renderGtContent(contentPane, spec, cachedViewData[methodSelector]);
+        renderEnhancedInspectorContent(contentPane, spec, cachedViewData[methodSelector]);
       } else {
         contentPane.innerHTML = '<div class="placeholder">Loading…</div>';
-        vscode.postMessage({ command: 'fetchGtViewData', oop: currentOop, methodSelector, viewName: spec.viewName });
+        vscode.postMessage({ command: 'fetchEnhancedInspectorViewData', oop: currentOop, methodSelector, viewName: spec.viewName });
       }
     }
 
@@ -425,7 +425,7 @@ export class GtInspector {
           insertRangeItems(rangeNode, cached, spec);
         } else {
           rangeNode.querySelector('.range-expand').textContent = '…';
-          vscode.postMessage({ command: 'fetchGtRangeData', oop: currentOop, methodSelector: activeMethodSelector, viewName: spec.viewName, fromIndex: start, rangeStart: start });
+          vscode.postMessage({ command: 'fetchEnhancedInspectorRangeData', oop: currentOop, methodSelector: activeMethodSelector, viewName: spec.viewName, fromIndex: start, rangeStart: start });
         }
       }
     });
@@ -437,7 +437,7 @@ export class GtInspector {
       const nodeId = parseInt(tr.dataset.nodeid, 10);
       const activeSpec = specs && specs.find(s => s.methodSelector === activeMethodSelector);
       const viewName = activeSpec ? activeSpec.viewName : '';
-      vscode.postMessage({ command: 'gtInspectRow', itemOop: currentOop, methodSelector: activeMethodSelector, nodeId, viewName });
+      vscode.postMessage({ command: 'enhancedInspectRow', itemOop: currentOop, methodSelector: activeMethodSelector, nodeId, viewName });
     });
 
     document.getElementById('contentPane').addEventListener('contextmenu', e => {
@@ -456,7 +456,7 @@ export class GtInspector {
       if (ctxMenuNodeId !== null && activeMethodSelector && currentOop) {
         const activeSpec = specs && specs.find(s => s.methodSelector === activeMethodSelector);
         const viewName = activeSpec ? activeSpec.viewName : '';
-        vscode.postMessage({ command: 'gtInspectRow', itemOop: currentOop, methodSelector: activeMethodSelector, nodeId: ctxMenuNodeId, viewName });
+        vscode.postMessage({ command: 'enhancedInspectRow', itemOop: currentOop, methodSelector: activeMethodSelector, nodeId: ctxMenuNodeId, viewName });
       }
       hideCtxMenu();
     });
@@ -539,7 +539,7 @@ export class GtInspector {
       } else {
         btn.textContent = '▼';
         btn.dataset.state = 'expanded';
-        vscode.postMessage({ command: 'fetchGtTreeChildren', itemOop: currentOop, methodSelector: activeMethodSelector, path });
+        vscode.postMessage({ command: 'fetchEnhancedInspectorTreeChildren', itemOop: currentOop, methodSelector: activeMethodSelector, path });
       }
     });
 
@@ -547,7 +547,7 @@ export class GtInspector {
 
     window.addEventListener('message', ev => {
       const msg = ev.data;
-      if (msg.command === 'gtViewSpecs') {
+      if (msg.command === 'enhancedInspectorViewSpecs') {
         currentOop = msg.oop;
         specs = msg.specs || null;
         metaData = msg.meta || null;
@@ -571,23 +571,23 @@ export class GtInspector {
         if (specs && specs.length > 0) activateTab(specs[0].methodSelector);
         else activateTab('__meta__');
 
-      } else if (msg.command === 'gtViewData') {
+      } else if (msg.command === 'enhancedInspectorViewData') {
         cachedViewData[msg.methodSelector] = msg.data;
         if (msg.methodSelector === activeMethodSelector) {
           const spec = specs && specs.find(s => s.methodSelector === msg.methodSelector);
           const contentPane = document.getElementById('contentPane');
           if (spec) {
-            renderGtContent(contentPane, spec, msg.data);
+            renderEnhancedInspectorContent(contentPane, spec, msg.data);
             if (msg.truncated) {
               const bar = document.createElement('div');
-              bar.id = 'gtShowAllBar';
+              bar.id = 'enhancedInspectorShowAllBar';
               bar.style.cssText = 'padding:4px 0;border-top:1px solid var(--vscode-panel-border);margin-top:2px';
               const link = document.createElement('a');
               link.textContent = 'Show all…';
               link.style.cssText = 'cursor:pointer;color:var(--vscode-textLink-foreground);font-size:0.85em';
               const capturedSelector = msg.methodSelector;
               link.addEventListener('click', function() {
-                const b = document.getElementById('gtShowAllBar');
+                const b = document.getElementById('enhancedInspectorShowAllBar');
                 if (b) b.remove();
                 vscode.postMessage({ command: 'fetchFullPrintString', oop: currentOop, methodSelector: capturedSelector });
               });
@@ -597,30 +597,30 @@ export class GtInspector {
           }
         }
 
-      } else if (msg.command === 'gtViewTotal') {
+      } else if (msg.command === 'enhancedInspectorViewTotal') {
         rangeTotals[msg.methodSelector] = msg.total;
         if (msg.methodSelector === activeMethodSelector && rangesMode[msg.methodSelector]) {
           const spec = specs && specs.find(s => s.methodSelector === msg.methodSelector);
           const contentPane = document.getElementById('contentPane');
-          if (spec) renderGtContent(contentPane, spec, cachedViewData[msg.methodSelector]);
+          if (spec) renderEnhancedInspectorContent(contentPane, spec, cachedViewData[msg.methodSelector]);
         }
 
-      } else if (msg.command === 'gtRangeData') {
+      } else if (msg.command === 'enhancedInspectorRangeData') {
         if (msg.methodSelector !== activeMethodSelector || !msg.data) return;
         const spec = specs && specs.find(s => s.methodSelector === msg.methodSelector);
         if (!spec) return;
-        const table = document.querySelector('.gt-table');
+        const table = document.querySelector('.ei-table');
         if (!table) return;
         const rangeNode = table.querySelector('[data-range-start="' + msg.rangeStart + '"]');
         if (rangeNode) insertRangeItems(rangeNode, msg.data, spec);
 
-      } else if (msg.command === 'gtMoreRows') {
+      } else if (msg.command === 'enhancedInspectorMoreRows') {
         if (msg.methodSelector !== activeMethodSelector || !msg.data) return;
         const spec = specs && specs.find(s => s.methodSelector === msg.methodSelector);
         if (!spec) return;
         let newRows;
         try { newRows = JSON.parse(msg.data); } catch { return; }
-        const table = document.querySelector('.gt-table');
+        const table = document.querySelector('.ei-table');
         if (!table) return;
         const cols = spec.columnSpecifications || [];
         const isTree = spec.viewName && spec.viewName.includes('Tree');
@@ -637,7 +637,7 @@ export class GtInspector {
         if (msg.methodSelector === activeMethodSelector) {
           const spec = specs && specs.find(s => s.methodSelector === msg.methodSelector);
           const cp = document.getElementById('contentPane');
-          if (spec) renderGtContent(cp, spec, msg.data);
+          if (spec) renderEnhancedInspectorContent(cp, spec, msg.data);
         }
 
       } else if (msg.command === 'methodSource') {
@@ -651,14 +651,14 @@ export class GtInspector {
           }
         }
 
-      } else if (msg.command === 'gtTreeChildren') {
+      } else if (msg.command === 'enhancedInspectorTreeChildren') {
         if (msg.methodSelector !== activeMethodSelector || !msg.data) return;
         const spec = specs && specs.find(s => s.methodSelector === msg.methodSelector);
         if (!spec) return;
         let children;
         try { children = JSON.parse(msg.data); } catch { return; }
         const path = msg.path;
-        const table = document.querySelector('.gt-table');
+        const table = document.querySelector('.ei-table');
         if (!table) return;
         const cols = spec.columnSpecifications || [];
         const parentDepth = path.length - 1;
@@ -681,14 +681,14 @@ export class GtInspector {
       }
     });
 
-    // ── GT view rendering ─────────────────────
+    // ── view rendering ─────────────────────
 
     const GT_COLORS = {
       yellow: 'rgba(230,200,0,0.35)', red: '#e05252', green: '#52a852',
       blue: '#5277e0', orange: '#e08052', gray: '#888', black: '#000', white: '#fff',
     };
 
-    function gtColor(c) {
+    function cssColor(c) {
       if (!c) return '';
       const a = c.a !== undefined ? c.a : 1;
       if (c.name) {
@@ -704,7 +704,7 @@ export class GtInspector {
       return '';
     }
 
-    // A2: Map GT icon names to styled symbols
+    // A2: Map icon names to styled symbols
     const GT_ICON_MAP = {
       collectionIcon: ['[]', '#4fc1ff'], orderedCollectionIcon: ['[]', '#4fc1ff'],
       dictionaryIcon: ['{}', '#4fc1ff'], setIcon: ['{}', '#4fc1ff'],
@@ -723,8 +723,8 @@ export class GtInspector {
 
     function attrToCss(attr) {
       switch (attr.__typeLabel) {
-        case 'phlowTextHighlightAttribute':  return 'background-color:' + gtColor(attr.color);
-        case 'phlowTextForegroundAttribute': return 'color:' + gtColor(attr.color);
+        case 'phlowTextHighlightAttribute':  return 'background-color:' + cssColor(attr.color);
+        case 'phlowTextForegroundAttribute': return 'color:' + cssColor(attr.color);
         case 'phlowFontWeightAttribute':     return 'font-weight:' + (attr.weight === 'thin' ? '100' : attr.weight);
         case 'phlowFontEmphasisAttribute':   return 'font-style:' + attr.emphasis;
         case 'phlowFontSizeAttribute':       return 'font-size:' + attr.size + 'px';
@@ -735,7 +735,7 @@ export class GtInspector {
           const lines = (d.typeNames || []).map(t => t === 'lineThrough' ? 'line-through' : t).join(' ');
           let css = 'text-decoration-line:' + lines;
           if (d.styleName) css += ';text-decoration-style:' + d.styleName;
-          if (d.color)     css += ';text-decoration-color:' + gtColor(d.color);
+          if (d.color)     css += ';text-decoration-color:' + cssColor(d.color);
           if (d.thickness) css += ';text-decoration-thickness:' + d.thickness + 'px';
           return css;
         }
@@ -783,7 +783,7 @@ export class GtInspector {
       const styler = textData.stylerSpecification;
       el.className = 'detail-value';
       // Clear inline styles left behind by a prior table/tree render into this
-      // shared pane. renderGtTable sets el.style.cssText to include
+      // shared pane. renderEnhancedInspectorTable sets el.style.cssText to include
       // 'display:flex;flex-direction:column', which (as an inline style) wins
       // over the .detail-value class and would stack each styled run on its own
       // line. Reset before laying out the text.
@@ -799,7 +799,9 @@ export class GtInspector {
       el.innerHTML = applyRuns(str, runs);
     }
 
-    // A3: Cell HTML — preserves styling in gtPhlowRunBasedText cells
+    // A3: Cell HTML — preserves styling in gtPhlowRunBasedText cells.
+    // NOTE: 'gtPhlowRunBasedText' is the server's wire value (GtPhlowRunBasedText
+    // class>>typeLabel in gtoolkit-remote.gs), NOT a Jasper identifier — do not rename.
     function cellHtml(raw) {
       if (typeof raw === 'string') return esc(raw);
       if (!raw) return '';
@@ -825,7 +827,7 @@ export class GtInspector {
         for (let i = 0; i < nv.columnValues.length; i++) {
           const cell = nv.columnValues[i];
           const col = cols[i];
-          const bg = cell.background ? 'background-color:' + gtColor(cell.background) + ';' : '';
+          const bg = cell.background ? 'background-color:' + cssColor(cell.background) + ';' : '';
           const pre = (i === 0) ? toggle : '';
           const ind = (i === 0) ? indent : '';
           const content = (col && col.type === 'icon')
@@ -853,7 +855,7 @@ export class GtInspector {
     }
 
     function makeTableHtml(selector, cols, isTree) {
-      return '<table class="gt-table" data-selector="' + esc(selector) + '">' +
+      return '<table class="ei-table" data-selector="' + esc(selector) + '">' +
         (cols.length > 0
           ? '<tr>' + cols.map((c, i) => '<th data-colindex="' + i + '">' + esc(c.title) + '<div class="col-resize-handle"></div></th>').join('') + '</tr>'
           : '');
@@ -877,7 +879,7 @@ export class GtInspector {
       });
     }
 
-    function renderGtTable(el, spec, rawData) {
+    function renderEnhancedInspectorTable(el, spec, rawData) {
       let rows;
       try { rows = JSON.parse(rawData); } catch { el.innerHTML = '<div class="placeholder">Error parsing data.</div>'; return; }
       if (!rows || !rows.length) { el.innerHTML = '<div class="placeholder">No items.</div>'; return; }
@@ -903,7 +905,7 @@ export class GtInspector {
 
       if (inRangesMode && total) {
         // Ranges view — one row per PAGE_SIZE chunk
-        html += '<div class="gt-table-wrap">' + makeTableHtml(selector, cols, isTree);
+        html += '<div class="ei-table-wrap">' + makeTableHtml(selector, cols, isTree);
         for (let start = 1; start <= total; start += PAGE_SIZE) {
           const end = Math.min(start + PAGE_SIZE - 1, total);
           const cached = rangeDataCache[selector] && rangeDataCache[selector][start];
@@ -923,7 +925,7 @@ export class GtInspector {
         html += '</table></div>';
       } else {
         // Flat view
-        html += '<div class="gt-table-wrap">' + makeTableHtml(selector, cols, isTree);
+        html += '<div class="ei-table-wrap">' + makeTableHtml(selector, cols, isTree);
         rows.forEach(row => { html += makeRowHtml(row, cols, isTree, 0, [row.nodeId]); });
         loadedRowCounts[selector] = rows.length;
         if (hasMore) html += makeLoadMoreHtml();
@@ -937,21 +939,21 @@ export class GtInspector {
       if (btn) btn.addEventListener('click', () => {
         if (rangesMode[selector]) {
           rangesMode[selector] = false;
-          renderGtTable(el, spec, rawData);
+          renderEnhancedInspectorTable(el, spec, rawData);
         } else {
           rangesMode[selector] = true;
           if (rangeTotals[selector]) {
-            renderGtTable(el, spec, rawData);
+            renderEnhancedInspectorTable(el, spec, rawData);
           } else {
-            el.querySelector('.gt-table-wrap').innerHTML = '<div class="placeholder">Loading…</div>';
-            vscode.postMessage({ command: 'fetchGtViewTotal', oop: currentOop, methodSelector: selector, viewName: spec.viewName });
+            el.querySelector('.ei-table-wrap').innerHTML = '<div class="placeholder">Loading…</div>';
+            vscode.postMessage({ command: 'fetchEnhancedInspectorViewTotal', oop: currentOop, methodSelector: selector, viewName: spec.viewName });
           }
         }
       });
 
       // Bake column widths for resizing (flat mode only — ranges use colspan)
       if (!inRangesMode) {
-        const table = el.querySelector('.gt-table');
+        const table = el.querySelector('.ei-table');
         if (colWidths[selector]) {
           applyColWidths(table, colWidths[selector]);
         } else if (cols.length > 0) {
@@ -1074,7 +1076,7 @@ export class GtInspector {
       return '';
     }
 
-    function renderGtContent(el, spec, data) {
+    function renderEnhancedInspectorContent(el, spec, data) {
       if (data === null || data === undefined) { el.innerHTML = '<div class="placeholder">No data.</div>'; return; }
       const effectiveViewName = spec.resolvedViewName || spec.viewName;
       if (effectiveViewName === 'GtPhlowTextViewSpecification' || effectiveViewName === 'GtPhlowTextEditorViewSpecification') {
@@ -1085,7 +1087,7 @@ export class GtInspector {
         const effectiveSpec = spec.resolvedViewName
           ? Object.assign({}, spec, { viewName: spec.resolvedViewName, columnSpecifications: spec.resolvedColumnSpecifications || spec.columnSpecifications })
           : spec;
-        renderGtTable(el, effectiveSpec, data);
+        renderEnhancedInspectorTable(el, effectiveSpec, data);
       }
     }
 

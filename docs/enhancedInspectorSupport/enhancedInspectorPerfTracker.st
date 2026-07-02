@@ -4,11 +4,11 @@ Counts RSR round trips in a Pharo GT image connected to GemStone.
 Hooks RsrConnection >> _sendCommand:, filtering for RsrSendMessage, which
 is the single chokepoint for all message sends from Pharo to GemStone.
 
-Mirrors the GT Perf Tracker feature in Jasper (eric/gtPerfTracking branch).
+Mirrors the enhanced inspector perf tracker feature in Jasper.
 
 To load:
   OpalCompiler new evaluate:
-    '/path/to/Jasper/docs/gtSupport/gtPerfTracker.st' asFileReference contents
+    '/path/to/Jasper/docs/enhancedInspectorSupport/enhancedInspectorPerfTracker.st' asFileReference contents
 
 Usage:
   Inspect: GtGciPerfTracker default

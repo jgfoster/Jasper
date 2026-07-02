@@ -3,7 +3,7 @@ import { SessionManager, ActiveSession } from './sessionManager';
 import { OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG, GCI_PERFORM_FLAG_SINGLE_STEP } from './gciConstants';
 import { logQuery, logResult, logError, logInfo } from './gciLog';
 import { InspectorTreeProvider } from './inspectorTreeProvider';
-import { GtInspector } from './gtInspector';
+import { EnhancedInspector } from './enhancedInspector';
 import { DebuggerPanel } from './debuggerPanel';
 import { clearStack, getObjectPrintString, acquireStepping, releaseStepping } from './debugQueries';
 import { appendTranscript, showTranscript } from './transcriptChannel';
@@ -779,7 +779,7 @@ __t`;
       if (transcript) appendTranscript(transcript);
 
       logResult(session.id, `OOP ${oop}`);
-      GtInspector.create(session, oop, label);
+      EnhancedInspector.create(session, oop, label);
     } catch (e: unknown) {
       if (e instanceof NbCancelledError) return;
       const msg = e instanceof Error ? e.message : String(e);
@@ -787,11 +787,11 @@ __t`;
 
       if (e instanceof DebuggableError) {
         // If it halts, resuming/stepping to completion should still open the
-        // GT inspector on the result — mirroring the success path above.
+        // enhanced inspector on the result — mirroring the success path above.
         await this.promptDebuggableError(session, e.context, msg, (resultOop: bigint) => {
           const transcript = this.fetchTranscriptOutput(session);
           if (transcript) appendTranscript(transcript);
-          GtInspector.create(session, resultOop, label);
+          EnhancedInspector.create(session, resultOop, label);
         });
       } else {
         vscode.window.showErrorMessage(`GemStone execution error: ${msg}`);

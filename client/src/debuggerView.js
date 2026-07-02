@@ -55,7 +55,7 @@
   // Instance variables / Arguments & Temps / stack temps). Each group is
   // { title, kind, collapsed?, vars:[{name, value, oop}] }; value is the
   // host-computed printString. onInspect(oop, name) is called when a row is
-  // clicked (opens a GT Inspector); it's optional so tests can omit it.
+  // clicked (opens an enhanced inspector); it's optional so tests can omit it.
   // Render the grouped variables. `handlers` (all optional) wires the T1
   // variable evaluator + GT Inspect:
   //   contextMenu(e, oop, name) — right-click a row (GT Inspect lives here now).

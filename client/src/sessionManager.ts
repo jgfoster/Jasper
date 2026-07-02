@@ -3,7 +3,7 @@ import { GciLibrary, GciError } from './gciLibrary';
 import { OOP_NIL } from './gciConstants';
 import { GemStoneLogin, loginLabel } from './loginTypes';
 import { logInfo } from './gciLog';
-import { wrapWithGtPerfProxy } from './gtPerfTracker';
+import { wrapWithEnhancedInspectorPerfProxy } from './enhancedInspectorPerfTracker';
 
 export interface ActiveSession {
   id: number;
@@ -11,7 +11,7 @@ export interface ActiveSession {
   handle: unknown;
   login: GemStoneLogin;
   stoneVersion: string;
-  gtAvailable?: boolean;
+  enhancedInspectorAvailable?: boolean;
 }
 
 /**
@@ -106,7 +106,7 @@ export class SessionManager {
   private getGciLibrary(libraryPath: string): GciLibrary {
     let gci = this.gciInstances.get(libraryPath);
     if (!gci) {
-      gci = wrapWithGtPerfProxy(new GciLibrary(libraryPath));
+      gci = wrapWithEnhancedInspectorPerfProxy(new GciLibrary(libraryPath));
       this.gciInstances.set(libraryPath, gci);
     }
     return gci;
@@ -151,7 +151,7 @@ export class SessionManager {
       handle: result.session,
       login,
       stoneVersion: version,
-      gtAvailable: false,
+      enhancedInspectorAvailable: false,
     };
 
     this.sessions.set(session.id, session);

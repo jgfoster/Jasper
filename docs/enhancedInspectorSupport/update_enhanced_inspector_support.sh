@@ -15,7 +15,7 @@
 #   $ROWAN_PROJECTS_HOME  Directory containing the four project checkouts above
 #
 # USAGE:
-#   ./update_gemstone_gt_support.sh
+#   ./update_enhanced_inspector_support.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Payload .gs files live in resources/enhancedInspector/ so they ship in the VSIX.
@@ -96,4 +96,4 @@ echo "Applying Jasper transforms (attribution headers + Globals->Published)..."
 
 echo ""
 echo "Update complete. Files written to $PAYLOAD_DIR"
-echo "Use load_gemstone_gt_support.sh to load these into a stone."
+echo "Use load_enhanced_inspector_support.sh to load these into a stone."

@@ -8,7 +8,7 @@
 ! REQUIREMENTS
 !   - GemStone GT remote support must be loaded in the stone
 !     (GtPhlowText / GtPhlowColor must be resolvable). See
-!     docs/gtSupport/load_gemstone_gt_support.sh.
+!     docs/enhancedInspectorSupport/load_enhanced_inspector_support.sh.
 !   - Class IMCSystem (and any domain classes its views reference) must be present.
 !   - Log in as the GemStone user that OWNS the application (e.g. DataCurator),
 !     NOT SystemUser. If IMCSystem is not in the login user's symbol list, every

@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fetchGtRowOop, fetchGtForwardRowOop } from '../queries/getGtViewSpecs';
+import { fetchEnhancedInspectorRowOop, fetchEnhancedInspectorForwardRowOop } from '../queries/getEnhancedInspectorViewSpecs';
 
 type RowOopFn = (execute: ReturnType<typeof vi.fn>, oop: bigint, selector: string, nodeId: number) => bigint | null;
 
 describe.each([
-  { name: 'fetchGtRowOop', fn: fetchGtRowOop as unknown as RowOopFn },
-  { name: 'fetchGtForwardRowOop', fn: fetchGtForwardRowOop as unknown as RowOopFn },
+  { name: 'fetchEnhancedInspectorRowOop', fn: fetchEnhancedInspectorRowOop as unknown as RowOopFn },
+  { name: 'fetchEnhancedInspectorForwardRowOop', fn: fetchEnhancedInspectorForwardRowOop as unknown as RowOopFn },
 ])('$name', ({ fn }) => {
   it('returns a bigint OOP on happy path', () => {
     expect.assertions(1);
@@ -25,9 +25,9 @@ describe.each([
     expect(fn(execute, 1000n, 'gtItemsFor:', 5)).toBeNull();
   });
 
-  it('returns null when execute returns a GtError string', () => {
+  it('returns null when execute returns a EIError string', () => {
     expect.assertions(1);
-    const execute = vi.fn(() => 'GtError:does not understand #gtItemsFor:');
+    const execute = vi.fn(() => 'EIError:does not understand #gtItemsFor:');
     expect(fn(execute, 1000n, 'gtItemsFor:', 5)).toBeNull();
   });
 

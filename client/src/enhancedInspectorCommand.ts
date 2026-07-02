@@ -19,7 +19,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { ActiveSession, SessionManager } from './sessionManager';
 import { executeFetchString } from './browserQueries';
-import { refreshGtAvailable } from './gtAvailability';
+import { refreshEnhancedInspectorAvailable } from './enhancedInspectorAvailability';
 import {
   installEnhancedInspectorSupport,
   isEnhancedInspectorInstalled,
@@ -167,7 +167,7 @@ async function refreshWorkingSessionAfterInstall(
  * Abort (refresh) the working session, tolerating a session that was logged out
  * while the install ran (the progress notification is non-modal). Returns true
  * only when the view was actually refreshed, so the caller relatches
- * `gtAvailable` only on a real refresh.
+ * `enhancedInspectorAvailable` only on a real refresh.
  */
 function safeAbortWorkingSession(base: ActiveSession, sessionManager: SessionManager): boolean {
   try {
@@ -250,7 +250,7 @@ async function performInstall(
   }
 
   const refreshed = await refreshWorkingSessionAfterInstall(base, sessionManager);
-  if (refreshed) refreshGtAvailable(base);
+  if (refreshed) refreshEnhancedInspectorAvailable(base);
 }
 
 /**

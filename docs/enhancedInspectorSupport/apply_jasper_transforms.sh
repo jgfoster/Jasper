@@ -3,7 +3,7 @@
 # apply_jasper_transforms.sh
 #
 # Post-processing applied to the vendored Enhanced Inspector .gs files after
-# they are copied from upstream by update_gemstone_gt_support.sh. Two
+# they are copied from upstream by update_enhanced_inspector_support.sh. Two
 # deterministic transforms, both safe to re-run:
 #
 #   1. Prepend a per-file attribution header (origin repo, upstream source
@@ -16,7 +16,7 @@
 # Idempotent: the header is added only when its sentinel is absent, and the
 # Globals->Published substitution matches nothing once already applied. Run
 # either standalone (re-applies to the vendored payload files) or from
-# update_gemstone_gt_support.sh after it refreshes the files from upstream.
+# update_enhanced_inspector_support.sh after it refreshes the files from upstream.
 #
 # The payload .gs files live in resources/enhancedInspector/ (two levels up from
 # this script), so they ship in the packaged VSIX; docs/ does not.
@@ -54,7 +54,7 @@ apply_one() {
             echo "!"
             echo "! Vendored into Jasper and filed into the stone by the Enhanced Inspector"
             echo "! installer. DO NOT EDIT BY HAND - regenerated from upstream by"
-            echo "! update_gemstone_gt_support.sh, which re-applies this header and rewrites"
+            echo "! update_enhanced_inspector_support.sh, which re-applies this header and rewrites"
             echo "! class placement from Globals to Published."
             echo "! ----------------------------------------------------------------------------"
             cat "$path"

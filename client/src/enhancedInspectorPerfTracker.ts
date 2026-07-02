@@ -1,7 +1,7 @@
-// GT Perf Tracker: counts GCI round trips for GT Inspector performance tuning.
+// Enhanced Inspector Perf Tracker: counts GCI round trips for enhanced inspector performance tuning.
 // This module is a singleton — every importer shares the same counter instance.
 // The proxy wraps a GciLibrary instance so all round-trip methods are counted
-// without modifying gciLibrary.ts. Enable/disable via gemstone.gtPerfTracking.
+// without modifying gciLibrary.ts. Enable/disable via gemstone.enhancedInspectorPerfTracking.
 
 import { GciLibrary } from './gciLibrary';
 
@@ -41,7 +41,7 @@ const ROUND_TRIP_METHODS = new Set([
   'GciTsI64ToOop', 'GciTsOopToI64',
 ]);
 
-export interface GtPerfTracker {
+export interface EnhancedInspectorPerfTracker {
   enabled: boolean;
   count: number;
   methodCounts: Map<string, number>;
@@ -51,7 +51,7 @@ export interface GtPerfTracker {
   setEnabled(val: boolean): void;
 }
 
-export interface GtPerfQuickPickItem {
+export interface EnhancedInspectorPerfQuickPickItem {
   label: string;
   description?: string;
   isSeparator?: boolean;
@@ -60,19 +60,19 @@ export interface GtPerfQuickPickItem {
 export const RESET_LABEL = '$(debug-restart) Reset Counter';
 export const COPY_LABEL  = '$(copy) Copy to Clipboard';
 
-export function buildGtPerfStatusBarText(count: number): string {
-  return `$(record) GT Perf: ${count}`;
+export function buildEnhancedInspectorPerfStatusBarText(count: number): string {
+  return `$(record) Enhanced Inspector Perf: ${count}`;
 }
 
-export function buildGtPerfClipboardText(tracker: GtPerfTracker): string {
+export function buildEnhancedInspectorPerfClipboardText(tracker: EnhancedInspectorPerfTracker): string {
   const sorted = [...tracker.methodCounts.entries()].sort((a, b) => b[1] - a[1]);
   return [
-    `GT Perf: ${tracker.count} total GCI calls`,
+    `Enhanced Inspector Perf: ${tracker.count} total GCI calls`,
     ...sorted.map(([method, count]) => `  ${method}: ${count}`),
   ].join('\n');
 }
 
-export function buildGtPerfQuickPickItems(tracker: GtPerfTracker): GtPerfQuickPickItem[] {
+export function buildEnhancedInspectorPerfQuickPickItems(tracker: EnhancedInspectorPerfTracker): EnhancedInspectorPerfQuickPickItem[] {
   const sorted = [...tracker.methodCounts.entries()].sort((a, b) => b[1] - a[1]);
   return [
     { label: RESET_LABEL, description: `clear all ${tracker.count} counts` },
@@ -82,7 +82,7 @@ export function buildGtPerfQuickPickItems(tracker: GtPerfTracker): GtPerfQuickPi
   ];
 }
 
-export const gtPerfTracker: GtPerfTracker = {
+export const enhancedInspectorPerfTracker: EnhancedInspectorPerfTracker = {
   enabled: false,
   count: 0,
   methodCounts: new Map(),
@@ -112,13 +112,13 @@ export const gtPerfTracker: GtPerfTracker = {
   },
 };
 
-export function wrapWithGtPerfProxy(gci: GciLibrary): GciLibrary {
+export function wrapWithEnhancedInspectorPerfProxy(gci: GciLibrary): GciLibrary {
   return new Proxy(gci, {
     get(target, prop: string | symbol) {
       const val = (target as unknown as Record<string, unknown>)[prop as string];
       if (typeof val === 'function' && ROUND_TRIP_METHODS.has(prop as string)) {
         return (...args: unknown[]) => {
-          gtPerfTracker.increment(prop as string);
+          enhancedInspectorPerfTracker.increment(prop as string);
           return (val as (...a: unknown[]) => unknown).apply(target, args);
         };
       }

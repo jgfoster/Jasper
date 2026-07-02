@@ -34,7 +34,7 @@ describe('editor/context menu', () => {
 
   it('shows "GT Inspect It" in gemstone documents when code execution is available', () => {
     expect(getMenuItem('gemstone.superInspectIt')?.when)
-      .toBe('editorTextFocus && resourceLangId == gemstone-smalltalk && gemstone.gtAvailable && !gemstone.executing');
+      .toBe('editorTextFocus && resourceLangId == gemstone-smalltalk && gemstone.enhancedInspectorAvailable && !gemstone.executing');
   });
 
   it('shows "Execute It" in gemstone documents when code execution is available', () => {

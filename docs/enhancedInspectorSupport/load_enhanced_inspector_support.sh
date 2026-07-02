@@ -28,10 +28,10 @@
 #
 # USAGE:
 #   cd /path/to/stone/data/dir     # the directory containing .topazini
-#   ./load_gemstone_gt_support.sh
+#   ./load_enhanced_inspector_support.sh
 #
 #   Or specify the topazini path explicitly:
-#   ./load_gemstone_gt_support.sh -I /path/to/.topazini
+#   ./load_enhanced_inspector_support.sh -I /path/to/.topazini
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -79,10 +79,10 @@ if [ ${#missing[@]} -gt 0 ]; then
     exit 1
 fi
 
-echo "Loading enhanced inspector support into stone; see \`load_gemstone_gt_support.out\` for details..."
+echo "Loading enhanced inspector support into stone; see \`load_enhanced_inspector_support.out\` for details..."
 
 "$GEMSTONE/bin/topaz" -lq -I "$TOPAZINI" << EOF
-output push load_gemstone_gt_support.out only 
+output push load_enhanced_inspector_support.out only 
 errorcount
 iferr 1 stk
 iferr 2 exit 1

@@ -100,7 +100,7 @@ vi.mock('fs', () => ({ existsSync: mocks.existsSync }));
 
 vi.mock('../browserQueries', () => ({
   executeFetchString: mocks.executeFetchString,
-  checkGtAvailable: vi.fn(() => true),
+  checkEnhancedInspectorAvailable: vi.fn(() => true),
 }));
 
 vi.mock('../enhancedInspectorInstall', () => ({
@@ -132,7 +132,7 @@ function createBaseSession(systemUserLoginSucceeds = true): ActiveSession {
       GciTsLogout: vi.fn(),
     },
     stoneVersion: '3.7.0',
-    gtAvailable: false,
+    enhancedInspectorAvailable: false,
   } as unknown as ActiveSession;
 }
 
@@ -253,7 +253,7 @@ describe('maybeOfferEnhancedInspectorInstall', () => {
     expect(mocks.installSupport).not.toHaveBeenCalled();
   });
 
-  it('refreshes silently and re-latches gtAvailable when nothing is pending', async () => {
+  it('refreshes silently and re-latches enhancedInspectorAvailable when nothing is pending', async () => {
     mocks.state.config[AUTO_INSTALL_KEY] = 'ask';
     mocks.state.offerChoice = 'Install';
     const base = createBaseSession();
@@ -262,8 +262,8 @@ describe('maybeOfferEnhancedInspectorInstall', () => {
 
     expect(wasRefreshPrompted()).toBe(false);
     expect(sessionManager.abort).toHaveBeenCalledWith(base.id);
-    expect(base.gtAvailable).toBe(true);
-    expect(mocks.executeCommand).toHaveBeenCalledWith('setContext', 'gemstone.gtAvailable', true);
+    expect(base.enhancedInspectorAvailable).toBe(true);
+    expect(mocks.executeCommand).toHaveBeenCalledWith('setContext', 'gemstone.enhancedInspectorAvailable', true);
   });
 
   it('prompts before discarding uncommitted changes, then refreshes on confirm', async () => {
@@ -277,7 +277,7 @@ describe('maybeOfferEnhancedInspectorInstall', () => {
 
     expect(wasRefreshPrompted()).toBe(true);
     expect(sessionManager.abort).toHaveBeenCalledWith(base.id);
-    expect(base.gtAvailable).toBe(true);
+    expect(base.enhancedInspectorAvailable).toBe(true);
   });
 
   it('leaves the session untouched when the user declines the discard prompt', async () => {
@@ -291,7 +291,7 @@ describe('maybeOfferEnhancedInspectorInstall', () => {
 
     expect(wasRefreshPrompted()).toBe(true);
     expect(abortMock).not.toHaveBeenCalled();
-    expect(base.gtAvailable).toBe(false);
+    expect(base.enhancedInspectorAvailable).toBe(false);
   });
 
   it('prompts instead of refreshing silently when it cannot tell if work is pending', async () => {
@@ -320,7 +320,7 @@ describe('maybeOfferEnhancedInspectorInstall', () => {
     await expect(offer(base)).resolves.toBeUndefined();
 
     expect(abortMock).toHaveBeenCalledWith(base.id);
-    expect(base.gtAvailable).toBe(false);
+    expect(base.enhancedInspectorAvailable).toBe(false);
   });
 
   it('does not mark support available when the refresh abort reports failure', async () => {
@@ -332,7 +332,7 @@ describe('maybeOfferEnhancedInspectorInstall', () => {
     await offer(base);
 
     expect(abortMock).toHaveBeenCalledWith(base.id);
-    expect(base.gtAvailable).toBe(false);
+    expect(base.enhancedInspectorAvailable).toBe(false);
   });
 });
 
