@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 import { ActiveSession } from './sessionManager';
 import * as debug from './debugQueries';
 import { executeFetchString } from './browserQueries';
@@ -7,19 +9,41 @@ import { getEnhancedInspectorViewSpecs, fetchEnhancedInspectorPrintTabData, fetc
 import { SystemBrowser } from './systemBrowser';
 import { QueryExecutor } from './queries/types';
 
+// Column-strip model, injected into the webview as a <script> tag (read at
+// runtime, not bundled — same pattern as listFilter.js / methodListView.js).
+const enhancedInspectorColumnsJs = fs.readFileSync(
+  path.join(__dirname, '..', 'src', 'enhancedInspectorColumns.js'),
+  'utf8',
+);
+
 const PAGE_SIZE = 100;
+// Preferred starting width of a column (its flex-basis). Columns grow past this
+// to fill spare horizontal space and shrink toward MIN_COLUMN_WIDTH when
+// crowded; below that the strip scrolls horizontally.
+const DEFAULT_COLUMN_WIDTH = 340;
+const MIN_COLUMN_WIDTH = 280;
 
 type InspectorMessage =
   | { command: 'ready' }
-  | { command: 'fetchEnhancedInspectorViewData'; oop: string; methodSelector: string; viewName: string }
-  | { command: 'fetchMoreRows'; oop: string; methodSelector: string; viewName: string; fromIndex: number }
-  | { command: 'fetchEnhancedInspectorViewTotal'; oop: string; methodSelector: string; viewName: string }
-  | { command: 'fetchEnhancedInspectorRangeData'; oop: string; methodSelector: string; viewName: string; fromIndex: number; rangeStart: number }
-  | { command: 'fetchEnhancedInspectorTreeChildren'; itemOop: string; methodSelector: string; path: number[] }
-  | { command: 'enhancedInspectRow'; itemOop: string; methodSelector: string; nodeId: number; viewName: string }
-  | { command: 'fetchFullPrintString'; oop: string; methodSelector: string }
-  | { command: 'fetchMethodSource'; oop: string; methodSelector: string; isClassSide: boolean }
-  | { command: 'browseMethod'; oop: string; methodSelector: string; isClassSide: boolean };
+  | { command: 'fetchEnhancedInspectorViewData'; columnId: number; oop: string; methodSelector: string; viewName: string }
+  | { command: 'fetchMoreRows'; columnId: number; oop: string; methodSelector: string; viewName: string; fromIndex: number }
+  | { command: 'fetchEnhancedInspectorViewTotal'; columnId: number; oop: string; methodSelector: string; viewName: string }
+  | { command: 'fetchEnhancedInspectorRangeData'; columnId: number; oop: string; methodSelector: string; viewName: string; fromIndex: number; rangeStart: number }
+  | { command: 'fetchEnhancedInspectorTreeChildren'; columnId: number; itemOop: string; methodSelector: string; path: number[] }
+  | { command: 'enhancedInspectRow'; columnId: number; itemOop: string; methodSelector: string; nodeId: number; viewName: string }
+  | { command: 'fetchFullPrintString'; columnId: number; oop: string; methodSelector: string }
+  | { command: 'fetchMethodSource'; columnId: number; oop: string; methodSelector: string; isClassSide: boolean }
+  | { command: 'browseMethod'; columnId: number; oop: string; methodSelector: string; isClassSide: boolean }
+  | { command: 'setTitle'; title: string }
+  | { command: 'closePanel' };
+
+/** Object metadata the extension fetches once per column and posts to the webview. */
+interface ColumnPayload {
+  title: string;
+  className: string;
+  specs: unknown;
+  meta: string | null;
+}
 
 export class EnhancedInspector {
   private static panels = new Map<number, Set<EnhancedInspector>>();
@@ -28,6 +52,9 @@ export class EnhancedInspector {
   private disposables: vscode.Disposable[] = [];
   private currentOop: bigint;
   private currentLabel: string;
+  /** Monotonic id handed to each miller column; the root column is 0. */
+  private readonly rootColumnId = 0;
+  private nextColumnId = 1;
 
   static create(session: ActiveSession, oop: bigint, label: string): EnhancedInspector {
     const panel = vscode.window.createWebviewPanel(
@@ -80,22 +107,31 @@ export class EnhancedInspector {
     );
   }
 
+  /** Fetch everything a column needs to render an object: title, class, view specs, meta. */
+  private buildColumnPayload(oop: bigint): ColumnPayload {
+    const exec = this.makeExecutor();
+    const ps = debug.fetchPrintString(this.session, oop, 40);
+    const title = ps.value + (ps.truncated ? '…' : '');
+    const className = debug.getObjectClassName(this.session, oop);
+    const specs = getEnhancedInspectorViewSpecs(exec, oop);
+    const meta = fetchObjectMeta(exec, oop);
+    return { title, className, specs, meta };
+  }
+
   private handleMessage(msg: InspectorMessage): void {
     switch (msg.command) {
       case 'ready': {
-        const ps = debug.fetchPrintString(this.session, this.currentOop, 40);
-        this.panel.title = ps.value + (ps.truncated ? '…' : '');
-        const exec = this.makeExecutor();
-        const className = debug.getObjectClassName(this.session, this.currentOop);
-        const specs = getEnhancedInspectorViewSpecs(exec, this.currentOop);
-        const meta = fetchObjectMeta(exec, this.currentOop);
+        const payload = this.buildColumnPayload(this.currentOop);
+        this.panel.title = payload.title;
         this.panel.webview.postMessage({
           command: 'enhancedInspectorViewSpecs',
+          columnId: this.rootColumnId,
           oop: this.currentOop.toString(),
-          specs,
-          className,
+          specs: payload.specs,
+          className: payload.className,
           label: this.currentLabel,
-          meta,
+          meta: payload.meta,
+          title: payload.title,
         });
         break;
       }
@@ -104,17 +140,17 @@ export class EnhancedInspector {
         const oop = BigInt(msg.oop);
         if (msg.viewName === 'GtPhlowTextEditorViewSpecification' && msg.methodSelector === 'gtPrintFor:') {
           const result = fetchEnhancedInspectorPrintTabData(this.makeExecutor(), oop, msg.methodSelector);
-          this.panel.webview.postMessage({ command: 'enhancedInspectorViewData', methodSelector: msg.methodSelector, data: result.data, truncated: result.truncated });
+          this.panel.webview.postMessage({ command: 'enhancedInspectorViewData', columnId: msg.columnId, methodSelector: msg.methodSelector, data: result.data, truncated: result.truncated });
         } else {
           const data = this.fetchEnhancedInspectorViewData(oop, msg.methodSelector, msg.viewName);
-          this.panel.webview.postMessage({ command: 'enhancedInspectorViewData', methodSelector: msg.methodSelector, data });
+          this.panel.webview.postMessage({ command: 'enhancedInspectorViewData', columnId: msg.columnId, methodSelector: msg.methodSelector, data });
         }
         break;
       }
 
       case 'fetchMoreRows': {
         const more = this.fetchEnhancedInspectorViewData(BigInt(msg.oop), msg.methodSelector, msg.viewName, msg.fromIndex);
-        this.panel.webview.postMessage({ command: 'enhancedInspectorMoreRows', methodSelector: msg.methodSelector, data: more });
+        this.panel.webview.postMessage({ command: 'enhancedInspectorMoreRows', columnId: msg.columnId, methodSelector: msg.methodSelector, data: more });
         break;
       }
 
@@ -123,7 +159,7 @@ export class EnhancedInspector {
         const total = isForward
           ? fetchEnhancedInspectorForwardListTotal(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector)
           : fetchEnhancedInspectorListTotal(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector);
-        this.panel.webview.postMessage({ command: 'enhancedInspectorViewTotal', methodSelector: msg.methodSelector, total });
+        this.panel.webview.postMessage({ command: 'enhancedInspectorViewTotal', columnId: msg.columnId, methodSelector: msg.methodSelector, total });
         break;
       }
 
@@ -131,20 +167,20 @@ export class EnhancedInspector {
         const rangeData = msg.viewName === 'GtPhlowForwardViewSpecification'
           ? fetchEnhancedInspectorForwardListData(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector, msg.fromIndex, PAGE_SIZE)
           : fetchEnhancedInspectorListData(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector, msg.fromIndex, PAGE_SIZE);
-        this.panel.webview.postMessage({ command: 'enhancedInspectorRangeData', methodSelector: msg.methodSelector, rangeStart: msg.rangeStart, data: rangeData });
+        this.panel.webview.postMessage({ command: 'enhancedInspectorRangeData', columnId: msg.columnId, methodSelector: msg.methodSelector, rangeStart: msg.rangeStart, data: rangeData });
         break;
       }
 
       case 'fetchEnhancedInspectorTreeChildren': {
         const children = fetchEnhancedInspectorTreeChildren(this.makeExecutor(), BigInt(msg.itemOop), msg.methodSelector, msg.path);
-        this.panel.webview.postMessage({ command: 'enhancedInspectorTreeChildren', methodSelector: msg.methodSelector, path: msg.path, data: children });
+        this.panel.webview.postMessage({ command: 'enhancedInspectorTreeChildren', columnId: msg.columnId, methodSelector: msg.methodSelector, path: msg.path, data: children });
         break;
       }
 
       case 'fetchFullPrintString': {
         const fullText = debug.fetchFullPrintString(this.session, BigInt(msg.oop));
         const data = JSON.stringify({ string: fullText, stylerSpecification: null });
-        this.panel.webview.postMessage({ command: 'fullPrintString', methodSelector: msg.methodSelector, data });
+        this.panel.webview.postMessage({ command: 'fullPrintString', columnId: msg.columnId, methodSelector: msg.methodSelector, data });
         break;
       }
 
@@ -166,7 +202,7 @@ export class EnhancedInspector {
 
       case 'fetchMethodSource': {
         const source = fetchMethodSource(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector, msg.isClassSide);
-        this.panel.webview.postMessage({ command: 'methodSource', methodSelector: msg.methodSelector, isClassSide: msg.isClassSide, source });
+        this.panel.webview.postMessage({ command: 'methodSource', columnId: msg.columnId, methodSelector: msg.methodSelector, isClassSide: msg.isClassSide, source });
         break;
       }
 
@@ -175,8 +211,31 @@ export class EnhancedInspector {
           ? fetchEnhancedInspectorForwardRowOop(this.makeExecutor(), BigInt(msg.itemOop), msg.methodSelector, msg.nodeId)
           : fetchEnhancedInspectorRowOop(this.makeExecutor(), BigInt(msg.itemOop), msg.methodSelector, msg.nodeId);
         if (rowOop !== null) {
-          EnhancedInspector.create(this.session, rowOop, msg.methodSelector + '[' + msg.nodeId + ']');
+          const columnId = this.nextColumnId++;
+          const label = msg.methodSelector + '[' + msg.nodeId + ']';
+          const payload = this.buildColumnPayload(rowOop);
+          this.panel.webview.postMessage({
+            command: 'addColumn',
+            columnId,
+            sourceColumnId: msg.columnId,
+            oop: rowOop.toString(),
+            specs: payload.specs,
+            className: payload.className,
+            label,
+            meta: payload.meta,
+            title: payload.title,
+          });
         }
+        break;
+      }
+
+      case 'setTitle': {
+        this.panel.title = msg.title;
+        break;
+      }
+
+      case 'closePanel': {
+        this.panel.dispose();
         break;
       }
     }
@@ -206,6 +265,8 @@ export class EnhancedInspector {
   private getHtml(): string {
     const nonce = crypto.randomBytes(16).toString('hex');
     const pageSize = PAGE_SIZE;
+    const defaultColumnWidth = DEFAULT_COLUMN_WIDTH;
+    const minColumnWidth = MIN_COLUMN_WIDTH;
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -223,9 +284,43 @@ export class EnhancedInspector {
       background: var(--vscode-editor-background);
       height: 100vh;
       overflow: hidden;
+    }
+    /* ── Column strip (miller columns) ─────────── */
+    #columnStrip {
+      display: flex;
+      height: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: thin;
+      /* Gutters between inspectors: the strip's divider-colored background shows
+         through the flex gap, so each column reads as a separate pane. */
+      gap: 6px;
+      background: var(--vscode-editorGroup-border, var(--vscode-contrastBorder, var(--vscode-panel-border)));
+    }
+    .column {
+      flex: 1 1 auto;
+      min-width: ${minColumnWidth}px;
+      height: 100%;
+      position: relative;
+      background: var(--vscode-editor-background);
+      display: flex;
+    }
+    .col-inner {
       display: flex;
       flex-direction: column;
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
     }
+    .column.focused .header { background: var(--vscode-list-inactiveSelectionBackground); }
+    .col-resize-edge {
+      position: absolute;
+      top: 0; right: -2px; bottom: 0;
+      width: 5px;
+      cursor: col-resize;
+      z-index: 5;
+    }
+    .col-resize-edge:hover, .col-resize-edge.active { background: var(--vscode-focusBorder, #007fd4); opacity: 0.7; }
     /* ── Header ──────────────────────────────── */
     .header {
       display: flex;
@@ -251,9 +346,24 @@ export class EnhancedInspector {
       font-size: 0.78em;
       color: var(--vscode-descriptionForeground);
       white-space: nowrap;
-      flex-shrink: 0;
+      /* Shrink/ellipsis a long OOP so the close button (fixed) is never pushed
+         past the header's overflow:hidden edge. */
+      flex-shrink: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
       user-select: text;
     }
+    .col-close {
+      cursor: pointer;
+      flex-shrink: 0;
+      opacity: 0.5;
+      font-size: 1.1em;
+      line-height: 1;
+      padding: 0 2px;
+      user-select: none;
+    }
+    .col-close:hover { opacity: 1; color: var(--vscode-errorForeground); }
     /* ── Tab bar ─────────────────────────────── */
     .tab-bar {
       display: flex;
@@ -300,7 +410,6 @@ export class EnhancedInspector {
     .ei-table { border-collapse: collapse; font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
     .ei-table th { position: sticky; top: 0; z-index: 1; background: var(--vscode-editor-background); text-align: left; padding: 2px 20px 2px 6px; border-bottom: 1px solid var(--vscode-panel-border); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: none; }
     .ei-table td { padding: 2px 6px; border-bottom: 1px solid var(--vscode-list-hoverBackground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .ei-table tr:hover td { background: var(--vscode-list-hoverBackground); cursor: pointer; }
     .col-resize-handle { position: absolute; top: 0; right: 0; bottom: 0; width: 5px; cursor: col-resize; background: transparent; }
     .col-resize-handle:hover, .col-resize-handle.active { background: var(--vscode-focusBorder, #007fd4); opacity: 0.7; }
     .load-more-row td { padding: 4px 8px; color: var(--vscode-textLink-foreground); cursor: pointer; font-style: italic; }
@@ -327,46 +436,109 @@ export class EnhancedInspector {
   </style>
 </head>
 <body>
-  <div class="header">
-    <span id="objClass" class="obj-class"></span>
-    <span id="objSep" class="obj-sep" style="display:none">&#8250;</span>
-    <span id="objLabel" class="obj-label"></span>
-    <span id="headerOop" class="header-oop"></span>
-  </div>
-  <div class="tab-bar" id="tabBar">
-    <div class="placeholder">Loading&#8230;</div>
-  </div>
-  <div class="content-pane" id="contentPane">
-    <div class="placeholder">Loading&#8230;</div>
-  </div>
+  <div id="columnStrip"></div>
   <div id="rowCtxMenu" class="ctx-menu">
     <div class="ctx-item" id="rowCtxInspect">Inspect</div>
   </div>
+  <script nonce="${nonce}">${enhancedInspectorColumnsJs}</script>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const PAGE_SIZE = ${pageSize};
-    let currentOop = null;
-    let specs = null;
-    let metaData = null;
-    let activeMethodSelector = null;
-    let cachedViewData = {};
-    let loadedRowCounts = {};
-    let colWidths = {};           // { [methodSelector]: number[] } — user-resized widths
-    let resizingCol = null;       // active drag state
-    let rangesMode = {};          // { [methodSelector]: boolean }
-    let rangeTotals = {};         // { [methodSelector]: number }
-    let rangeDataCache = {};      // { [methodSelector]: { [rangeStart]: string } }
-    let methodSourceCache = {};   // { [methodSelector]: string | null }
+    const DEFAULT_COLUMN_WIDTH = ${defaultColumnWidth};
+    const MIN_COLUMN_WIDTH = ${minColumnWidth};
+
+    const strip = document.getElementById('columnStrip');
+    let resizingCol = null;        // active table data-column resize
+    let resizingPane = null;       // active miller-pane width resize
     let ctxMenuNodeId = null;
+    let ctxMenuColumnId = null;
 
     function esc(s) {
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
+    function metaDataOf(col) {
+      try { return col.metaData ? JSON.parse(col.metaData) : null; } catch { return null; }
+    }
+
+    // ── Column DOM + content ──────────────────
+    // The miller-column MODEL (add/insert-right/close/focus/width) lives in the
+    // injected enhancedInspectorColumns.js (unit-tested in jsdom). Here we only
+    // build a column's DOM and populate its content; the model calls back into
+    // these via buildColumnDom/populate below.
+
+    function createColumnDom(col) {
+      const root = document.createElement('div');
+      root.className = 'column';
+      root.dataset.colId = col.id;
+      root.innerHTML =
+        '<div class="col-inner">' +
+          '<div class="header">' +
+            '<span class="obj-class"></span>' +
+            '<span class="obj-sep" style="display:none">&#8250;</span>' +
+            '<span class="obj-label"></span>' +
+            '<span class="header-oop"></span>' +
+            '<span class="col-close" title="Close">&#215;</span>' +
+          '</div>' +
+          '<div class="tab-bar"><div class="placeholder">Loading&#8230;</div></div>' +
+          '<div class="content-pane"><div class="placeholder">Loading&#8230;</div></div>' +
+        '</div>' +
+        '<div class="col-resize-edge"></div>';
+      col.el = {
+        root: root,
+        objClass: root.querySelector('.obj-class'),
+        objSep: root.querySelector('.obj-sep'),
+        objLabel: root.querySelector('.obj-label'),
+        headerOop: root.querySelector('.header-oop'),
+        tabBar: root.querySelector('.tab-bar'),
+        contentPane: root.querySelector('.content-pane'),
+      };
+      return root;
+    }
+
+    function populateColumn(col, msg) {
+      col.oop = msg.oop;
+      col.specs = msg.specs || null;
+      col.metaData = msg.meta || null;
+      col.className = msg.className || '';
+      col.label = msg.label || '';
+      col.title = msg.title || '';
+      col.activeMethodSelector = null;
+      col.cachedViewData = {}; col.loadedRowCounts = {}; col.colWidths = {};
+      col.rangesMode = {}; col.rangeTotals = {}; col.rangeDataCache = {}; col.methodSourceCache = {};
+      col.metaSubTab = 'instanceMethods'; col.openMethodSel = null;
+
+      const e = col.el;
+      e.objClass.textContent = col.className;
+      const hasLabel = !!col.label;
+      e.objSep.style.display = hasLabel ? '' : 'none';
+      e.objLabel.textContent = hasLabel ? col.label : '';
+      e.headerOop.textContent = 'OOP: ' + (col.oop || '');
+      buildTabBar(col);
+      // Always append a Meta tab
+      e.tabBar.insertAdjacentHTML('beforeend',
+        '<div class="tab" data-selector="__meta__" title="Class and package metadata">Meta</div>');
+      if (col.specs && col.specs.length > 0) activateTab(col, col.specs[0].methodSelector);
+      else activateTab(col, '__meta__');
+    }
+
+    // Column-strip model (injected enhancedInspectorColumns.js). Owns column
+    // order, additive insert-right drilling, independent close, focus→title,
+    // and width inherit/pin. Rendering is supplied via the two callbacks.
+    const Columns = EnhancedInspectorColumns.createColumnStrip({
+      strip: strip,
+      postMessage: function (m) { vscode.postMessage(m); },
+      defaultWidth: DEFAULT_COLUMN_WIDTH,
+      minWidth: MIN_COLUMN_WIDTH,
+      buildColumnDom: createColumnDom,
+      populate: populateColumn,
+    });
+
     // ── Tab bar ───────────────────────────────
 
-    function buildTabBar(viewSpecs) {
-      const tabBar = document.getElementById('tabBar');
+    function buildTabBar(col) {
+      const tabBar = col.el.tabBar;
+      const viewSpecs = col.specs;
       if (!viewSpecs || !viewSpecs.length) {
         tabBar.innerHTML = '<div class="placeholder">No views available.</div>';
         return;
@@ -378,38 +550,47 @@ export class EnhancedInspector {
       }).join('');
     }
 
-    function activateTab(methodSelector) {
-      activeMethodSelector = methodSelector;
-      document.querySelectorAll('.tab').forEach(t =>
+    function activateTab(col, methodSelector) {
+      col.activeMethodSelector = methodSelector;
+      col.el.tabBar.querySelectorAll('.tab').forEach(t =>
         t.classList.toggle('active', t.dataset.selector === methodSelector));
-      const contentPane = document.getElementById('contentPane');
+      const contentPane = col.el.contentPane;
       if (methodSelector === '__meta__') {
-        renderMetaTab(contentPane);
+        renderMetaTab(col, contentPane);
         return;
       }
-      const spec = specs && specs.find(s => s.methodSelector === methodSelector);
+      const spec = col.specs && col.specs.find(s => s.methodSelector === methodSelector);
       if (!spec) return;
-      if (cachedViewData[methodSelector] !== undefined) {
-        renderEnhancedInspectorContent(contentPane, spec, cachedViewData[methodSelector]);
+      if (col.cachedViewData[methodSelector] !== undefined) {
+        renderEnhancedInspectorContent(col, contentPane, spec, col.cachedViewData[methodSelector]);
       } else {
         contentPane.innerHTML = '<div class="placeholder">Loading…</div>';
-        vscode.postMessage({ command: 'fetchEnhancedInspectorViewData', oop: currentOop, methodSelector, viewName: spec.viewName });
+        vscode.postMessage({ command: 'fetchEnhancedInspectorViewData', columnId: col.id, oop: col.oop, methodSelector, viewName: spec.viewName });
       }
     }
 
-    document.getElementById('tabBar').addEventListener('click', e => {
+    // ── Delegated interactions on the strip ────
+
+    // Focus, close, main-tab activation
+    strip.addEventListener('click', e => {
+      const col = Columns.columnOf(e.target);
+      if (!col) return;
+      Columns.focus(col);
+      if (e.target.closest('.col-close')) { Columns.close(col); return; }
       const tab = e.target.closest('.tab');
-      if (tab && tab.dataset.selector) activateTab(tab.dataset.selector);
+      if (tab && tab.parentElement === col.el.tabBar && tab.dataset.selector) {
+        activateTab(col, tab.dataset.selector);
+      }
     });
 
-    // ── Row interactions ──────────────────────
-
     // Range node expand/collapse
-    document.getElementById('contentPane').addEventListener('click', e => {
+    strip.addEventListener('click', e => {
       const rangeNode = e.target.closest('.range-node');
-      if (!rangeNode || !activeMethodSelector || !currentOop) return;
+      if (!rangeNode) return;
+      const col = Columns.columnOf(rangeNode);
+      if (!col || !col.activeMethodSelector) return;
       e.stopPropagation();
-      const spec = specs && specs.find(s => s.methodSelector === activeMethodSelector);
+      const spec = col.specs && col.specs.find(s => s.methodSelector === col.activeMethodSelector);
       if (!spec) return;
       const start = parseInt(rangeNode.dataset.rangeStart, 10);
       if (rangeNode.dataset.expanded === 'true') {
@@ -420,30 +601,38 @@ export class EnhancedInspector {
         rangeNode.dataset.expanded = 'false';
         rangeNode.querySelector('.range-expand').textContent = '▶';
       } else {
-        const cached = rangeDataCache[activeMethodSelector] && rangeDataCache[activeMethodSelector][start];
+        const cached = col.rangeDataCache[col.activeMethodSelector] && col.rangeDataCache[col.activeMethodSelector][start];
         if (cached) {
-          insertRangeItems(rangeNode, cached, spec);
+          insertRangeItems(col, rangeNode, cached, spec);
         } else {
           rangeNode.querySelector('.range-expand').textContent = '…';
-          vscode.postMessage({ command: 'fetchEnhancedInspectorRangeData', oop: currentOop, methodSelector: activeMethodSelector, viewName: spec.viewName, fromIndex: start, rangeStart: start });
+          vscode.postMessage({ command: 'fetchEnhancedInspectorRangeData', columnId: col.id, oop: col.oop, methodSelector: col.activeMethodSelector, viewName: spec.viewName, fromIndex: start, rangeStart: start });
         }
       }
     });
 
-    document.getElementById('contentPane').addEventListener('dblclick', e => {
-      if (!activeMethodSelector || !currentOop) return;
+    // Double-click a row → drill in (append a column)
+    strip.addEventListener('dblclick', e => {
+      const col = Columns.columnOf(e.target);
+      if (!col || !col.activeMethodSelector) return;
       const tr = e.target.closest('tr[data-nodeid]');
       if (!tr) return;
+      Columns.focus(col);
       const nodeId = parseInt(tr.dataset.nodeid, 10);
-      const activeSpec = specs && specs.find(s => s.methodSelector === activeMethodSelector);
+      const activeSpec = col.specs && col.specs.find(s => s.methodSelector === col.activeMethodSelector);
       const viewName = activeSpec ? activeSpec.viewName : '';
-      vscode.postMessage({ command: 'enhancedInspectRow', itemOop: currentOop, methodSelector: activeMethodSelector, nodeId, viewName });
+      vscode.postMessage({ command: 'enhancedInspectRow', columnId: col.id, itemOop: col.oop, methodSelector: col.activeMethodSelector, nodeId, viewName });
     });
 
-    document.getElementById('contentPane').addEventListener('contextmenu', e => {
+    // Row context menu → Inspect
+    strip.addEventListener('contextmenu', e => {
       const tr = e.target.closest('tr[data-nodeid]');
-      if (!tr || !activeMethodSelector || !currentOop) return;
+      if (!tr) return;
+      const col = Columns.columnOf(tr);
+      if (!col || !col.activeMethodSelector) return;
       e.preventDefault();
+      Columns.focus(col);
+      ctxMenuColumnId = col.id;
       ctxMenuNodeId = parseInt(tr.dataset.nodeid, 10);
       const menu = document.getElementById('rowCtxMenu');
       menu.style.display = 'block';
@@ -453,10 +642,11 @@ export class EnhancedInspector {
     });
 
     document.getElementById('rowCtxInspect').addEventListener('click', () => {
-      if (ctxMenuNodeId !== null && activeMethodSelector && currentOop) {
-        const activeSpec = specs && specs.find(s => s.methodSelector === activeMethodSelector);
+      const col = ctxMenuColumnId != null ? Columns.get(ctxMenuColumnId) : null;
+      if (ctxMenuNodeId !== null && col && col.activeMethodSelector) {
+        const activeSpec = col.specs && col.specs.find(s => s.methodSelector === col.activeMethodSelector);
         const viewName = activeSpec ? activeSpec.viewName : '';
-        vscode.postMessage({ command: 'enhancedInspectRow', itemOop: currentOop, methodSelector: activeMethodSelector, nodeId: ctxMenuNodeId, viewName });
+        vscode.postMessage({ command: 'enhancedInspectRow', columnId: col.id, itemOop: col.oop, methodSelector: col.activeMethodSelector, nodeId: ctxMenuNodeId, viewName });
       }
       hideCtxMenu();
     });
@@ -464,66 +654,35 @@ export class EnhancedInspector {
     function hideCtxMenu() {
       document.getElementById('rowCtxMenu').style.display = 'none';
       ctxMenuNodeId = null;
+      ctxMenuColumnId = null;
     }
     document.addEventListener('click', hideCtxMenu);
     document.addEventListener('keydown', e => { if (e.key === 'Escape') hideCtxMenu(); });
 
-    // ── Column resize ─────────────────────────
-
-    document.getElementById('contentPane').addEventListener('mousedown', e => {
-      const handle = e.target.closest('.col-resize-handle');
-      if (!handle) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const th = handle.closest('th');
-      const colIndex = parseInt(th.dataset.colindex, 10);
-      const table = th.closest('table');
-      const colEl = table.querySelectorAll('col')[colIndex];
-      if (!colEl) return;
-      handle.classList.add('active');
-      resizingCol = { colEl, handle, index: colIndex, startX: e.clientX, startWidth: th.getBoundingClientRect().width };
-    });
-
-    document.addEventListener('mousemove', e => {
-      if (!resizingCol) return;
-      const newWidth = Math.max(40, resizingCol.startWidth + (e.clientX - resizingCol.startX));
-      resizingCol.colEl.style.width = newWidth + 'px';
-      if (activeMethodSelector) {
-        if (!colWidths[activeMethodSelector]) colWidths[activeMethodSelector] = [];
-        colWidths[activeMethodSelector][resizingCol.index] = newWidth;
-      }
-    });
-
-    document.addEventListener('mouseup', () => {
-      if (!resizingCol) return;
-      resizingCol.handle.classList.remove('active');
-      resizingCol = null;
-    });
-
-    // ── Load more ────────────────────────────
-
-    document.getElementById('contentPane').addEventListener('click', e => {
+    // Load more
+    strip.addEventListener('click', e => {
       const btn = e.target.closest('.load-more-row');
-      if (!btn || !activeMethodSelector || !currentOop) return;
-      const spec = specs && specs.find(s => s.methodSelector === activeMethodSelector);
+      if (!btn) return;
+      const col = Columns.columnOf(btn);
+      if (!col || !col.activeMethodSelector) return;
+      const spec = col.specs && col.specs.find(s => s.methodSelector === col.activeMethodSelector);
       if (!spec) return;
-      const fromIndex = (loadedRowCounts[activeMethodSelector] || 0) + 1;
+      const fromIndex = (col.loadedRowCounts[col.activeMethodSelector] || 0) + 1;
       btn.querySelector('td').textContent = 'Loading…';
-      vscode.postMessage({ command: 'fetchMoreRows', oop: currentOop, methodSelector: activeMethodSelector, viewName: spec.viewName, fromIndex });
+      vscode.postMessage({ command: 'fetchMoreRows', columnId: col.id, oop: col.oop, methodSelector: col.activeMethodSelector, viewName: spec.viewName, fromIndex });
     });
 
-    // ── Tree expand/collapse ──────────────────
-
-    document.getElementById('contentPane').addEventListener('click', e => {
+    // Tree expand/collapse
+    strip.addEventListener('click', e => {
       const btn = e.target.closest('.tree-toggle');
-      if (!btn || !activeMethodSelector || !currentOop) return;
+      if (!btn) return;
+      const col = Columns.columnOf(btn);
+      if (!col || !col.activeMethodSelector) return;
       const tr = btn.closest('tr[data-nodeid]');
       if (!tr) return;
       const nodeId = parseInt(tr.dataset.nodeid, 10);
       const path = JSON.parse(tr.dataset.path || '[' + nodeId + ']');
-      const depth = parseInt(tr.dataset.depth || '0', 10);
       if (btn.dataset.state === 'expanded') {
-        // Collapse: remove all rows with paths that start with this path
         const prefix = JSON.stringify(path);
         const table = tr.closest('table');
         if (table) {
@@ -539,57 +698,118 @@ export class EnhancedInspector {
       } else {
         btn.textContent = '▼';
         btn.dataset.state = 'expanded';
-        vscode.postMessage({ command: 'fetchEnhancedInspectorTreeChildren', itemOop: currentOop, methodSelector: activeMethodSelector, path });
+        vscode.postMessage({ command: 'fetchEnhancedInspectorTreeChildren', columnId: col.id, itemOop: col.oop, methodSelector: col.activeMethodSelector, path });
       }
+    });
+
+    // Meta sub-tab bar + method item interactions
+    strip.addEventListener('click', e => {
+      const col = Columns.columnOf(e.target);
+      if (!col) return;
+      const metaTab = e.target.closest('[data-metatab]');
+      if (metaTab && e.target.closest('.meta-sub-tab-bar')) {
+        col.metaSubTab = metaTab.dataset.metatab;
+        col.openMethodSel = null;
+        renderMetaTab(col, col.el.contentPane);
+        return;
+      }
+      if (col.activeMethodSelector !== '__meta__') return;
+      if (col.metaSubTab !== 'instanceMethods' && col.metaSubTab !== 'classMethods') return;
+      const browseBtn = e.target.closest('.method-browse-btn');
+      if (browseBtn) {
+        vscode.postMessage({ command: 'browseMethod', columnId: col.id, oop: col.oop, methodSelector: browseBtn.dataset.sel, isClassSide: browseBtn.dataset.classSide === 'true' });
+        return;
+      }
+      if (e.target.closest('.method-source-box')) return;
+      const item = e.target.closest('.method-item');
+      if (!item) return;
+      const sel = item.dataset.sel;
+      const isClassSide = col.metaSubTab === 'classMethods';
+      const cacheKey = (isClassSide ? 'c:' : 'i:') + sel;
+      col.openMethodSel = (sel && col.openMethodSel !== cacheKey) ? cacheKey : null;
+      if (col.openMethodSel && !(col.openMethodSel in col.methodSourceCache)) {
+        vscode.postMessage({ command: 'fetchMethodSource', columnId: col.id, oop: col.oop, methodSelector: sel, isClassSide });
+      }
+      const sc = col.el.contentPane.querySelector('.meta-sub-content');
+      if (sc) sc.innerHTML = renderMetaSubTab(col, metaDataOf(col));
+    });
+
+    // ── Column resize ─────────────────────────
+
+    strip.addEventListener('mousedown', e => {
+      const edge = e.target.closest('.col-resize-edge');
+      if (edge) {
+        e.preventDefault();
+        const col = Columns.columnOf(edge);
+        if (!col) return;
+        edge.classList.add('active');
+        resizingPane = { col, edge, startX: e.clientX, startWidth: col.el.root.getBoundingClientRect().width };
+        return;
+      }
+      const handle = e.target.closest('.col-resize-handle');
+      if (!handle) return;
+      const col = Columns.columnOf(handle);
+      if (!col) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const th = handle.closest('th');
+      const colIndex = parseInt(th.dataset.colindex, 10);
+      const table = th.closest('table');
+      const colEl = table.querySelectorAll('col')[colIndex];
+      if (!colEl) return;
+      handle.classList.add('active');
+      resizingCol = { col, colEl, handle, index: colIndex, startX: e.clientX, startWidth: th.getBoundingClientRect().width };
+    });
+
+    document.addEventListener('mousemove', e => {
+      if (resizingPane) {
+        Columns.pinWidth(resizingPane.col, resizingPane.startWidth + (e.clientX - resizingPane.startX));
+        return;
+      }
+      if (!resizingCol) return;
+      const newWidth = Math.max(40, resizingCol.startWidth + (e.clientX - resizingCol.startX));
+      resizingCol.colEl.style.width = newWidth + 'px';
+      const col = resizingCol.col;
+      if (col.activeMethodSelector) {
+        if (!col.colWidths[col.activeMethodSelector]) col.colWidths[col.activeMethodSelector] = [];
+        col.colWidths[col.activeMethodSelector][resizingCol.index] = newWidth;
+      }
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (resizingPane) { resizingPane.edge.classList.remove('active'); resizingPane = null; return; }
+      if (!resizingCol) return;
+      resizingCol.handle.classList.remove('active');
+      resizingCol = null;
     });
 
     // ── Message handler ───────────────────────
 
     window.addEventListener('message', ev => {
       const msg = ev.data;
-      if (msg.command === 'enhancedInspectorViewSpecs') {
-        currentOop = msg.oop;
-        specs = msg.specs || null;
-        metaData = msg.meta || null;
-        cachedViewData = {};
-        loadedRowCounts = {};
-        colWidths = {};
-        rangesMode = {};
-        rangeTotals = {};
-        rangeDataCache = {};
-        methodSourceCache = {};
-        activeMethodSelector = null;
-        document.getElementById('objClass').textContent = msg.className || '';
-        const hasLabel = !!msg.label;
-        document.getElementById('objSep').style.display = hasLabel ? '' : 'none';
-        document.getElementById('objLabel').textContent = hasLabel ? msg.label : '';
-        document.getElementById('headerOop').textContent = 'OOP: ' + (msg.oop || '');
-        buildTabBar(specs);
-        // Always append a Meta tab
-        document.getElementById('tabBar').insertAdjacentHTML('beforeend',
-          '<div class="tab" data-selector="__meta__" title="Class and package metadata">Meta</div>');
-        if (specs && specs.length > 0) activateTab(specs[0].methodSelector);
-        else activateTab('__meta__');
+      if (msg.command === 'enhancedInspectorViewSpecs') { Columns.addRoot(msg); return; }
+      if (msg.command === 'addColumn') { Columns.addChild(msg); return; }
 
-      } else if (msg.command === 'enhancedInspectorViewData') {
-        cachedViewData[msg.methodSelector] = msg.data;
-        if (msg.methodSelector === activeMethodSelector) {
-          const spec = specs && specs.find(s => s.methodSelector === msg.methodSelector);
-          const contentPane = document.getElementById('contentPane');
+      const col = msg.columnId != null ? Columns.get(msg.columnId) : null;
+      if (!col) return;
+
+      if (msg.command === 'enhancedInspectorViewData') {
+        col.cachedViewData[msg.methodSelector] = msg.data;
+        if (msg.methodSelector === col.activeMethodSelector) {
+          const spec = col.specs && col.specs.find(s => s.methodSelector === msg.methodSelector);
+          const contentPane = col.el.contentPane;
           if (spec) {
-            renderEnhancedInspectorContent(contentPane, spec, msg.data);
+            renderEnhancedInspectorContent(col, contentPane, spec, msg.data);
             if (msg.truncated) {
               const bar = document.createElement('div');
-              bar.id = 'enhancedInspectorShowAllBar';
               bar.style.cssText = 'padding:4px 0;border-top:1px solid var(--vscode-panel-border);margin-top:2px';
               const link = document.createElement('a');
               link.textContent = 'Show all…';
               link.style.cssText = 'cursor:pointer;color:var(--vscode-textLink-foreground);font-size:0.85em';
               const capturedSelector = msg.methodSelector;
               link.addEventListener('click', function() {
-                const b = document.getElementById('enhancedInspectorShowAllBar');
-                if (b) b.remove();
-                vscode.postMessage({ command: 'fetchFullPrintString', oop: currentOop, methodSelector: capturedSelector });
+                bar.remove();
+                vscode.postMessage({ command: 'fetchFullPrintString', columnId: col.id, oop: col.oop, methodSelector: capturedSelector });
               });
               bar.appendChild(link);
               contentPane.appendChild(bar);
@@ -598,74 +818,65 @@ export class EnhancedInspector {
         }
 
       } else if (msg.command === 'enhancedInspectorViewTotal') {
-        rangeTotals[msg.methodSelector] = msg.total;
-        if (msg.methodSelector === activeMethodSelector && rangesMode[msg.methodSelector]) {
-          const spec = specs && specs.find(s => s.methodSelector === msg.methodSelector);
-          const contentPane = document.getElementById('contentPane');
-          if (spec) renderEnhancedInspectorContent(contentPane, spec, cachedViewData[msg.methodSelector]);
+        col.rangeTotals[msg.methodSelector] = msg.total;
+        if (msg.methodSelector === col.activeMethodSelector && col.rangesMode[msg.methodSelector]) {
+          const spec = col.specs && col.specs.find(s => s.methodSelector === msg.methodSelector);
+          if (spec) renderEnhancedInspectorContent(col, col.el.contentPane, spec, col.cachedViewData[msg.methodSelector]);
         }
 
       } else if (msg.command === 'enhancedInspectorRangeData') {
-        if (msg.methodSelector !== activeMethodSelector || !msg.data) return;
-        const spec = specs && specs.find(s => s.methodSelector === msg.methodSelector);
+        if (msg.methodSelector !== col.activeMethodSelector || !msg.data) return;
+        const spec = col.specs && col.specs.find(s => s.methodSelector === msg.methodSelector);
         if (!spec) return;
-        const table = document.querySelector('.ei-table');
+        const table = col.el.contentPane.querySelector('.ei-table');
         if (!table) return;
         const rangeNode = table.querySelector('[data-range-start="' + msg.rangeStart + '"]');
-        if (rangeNode) insertRangeItems(rangeNode, msg.data, spec);
+        if (rangeNode) insertRangeItems(col, rangeNode, msg.data, spec);
 
       } else if (msg.command === 'enhancedInspectorMoreRows') {
-        if (msg.methodSelector !== activeMethodSelector || !msg.data) return;
-        const spec = specs && specs.find(s => s.methodSelector === msg.methodSelector);
+        if (msg.methodSelector !== col.activeMethodSelector || !msg.data) return;
+        const spec = col.specs && col.specs.find(s => s.methodSelector === msg.methodSelector);
         if (!spec) return;
         let newRows;
         try { newRows = JSON.parse(msg.data); } catch { return; }
-        const table = document.querySelector('.ei-table');
+        const table = col.el.contentPane.querySelector('.ei-table');
         if (!table) return;
         const cols = spec.columnSpecifications || [];
         const isTree = spec.viewName && spec.viewName.includes('Tree');
-        // Remove old load-more row
         const oldBtn = table.querySelector('.load-more-row');
         if (oldBtn) oldBtn.remove();
-        // Append new rows
         newRows.forEach(row => { table.insertAdjacentHTML('beforeend', makeRowHtml(row, cols, isTree, 0, [row.nodeId])); });
-        loadedRowCounts[msg.methodSelector] = (loadedRowCounts[msg.methodSelector] || 0) + newRows.length;
+        col.loadedRowCounts[msg.methodSelector] = (col.loadedRowCounts[msg.methodSelector] || 0) + newRows.length;
         if (newRows.length >= PAGE_SIZE) table.insertAdjacentHTML('beforeend', makeLoadMoreHtml());
 
       } else if (msg.command === 'fullPrintString') {
-        cachedViewData[msg.methodSelector] = msg.data;
-        if (msg.methodSelector === activeMethodSelector) {
-          const spec = specs && specs.find(s => s.methodSelector === msg.methodSelector);
-          const cp = document.getElementById('contentPane');
-          if (spec) renderEnhancedInspectorContent(cp, spec, msg.data);
+        col.cachedViewData[msg.methodSelector] = msg.data;
+        if (msg.methodSelector === col.activeMethodSelector) {
+          const spec = col.specs && col.specs.find(s => s.methodSelector === msg.methodSelector);
+          if (spec) renderEnhancedInspectorContent(col, col.el.contentPane, spec, msg.data);
         }
 
       } else if (msg.command === 'methodSource') {
         const cacheKey = (msg.isClassSide ? 'c:' : 'i:') + msg.methodSelector;
-        methodSourceCache[cacheKey] = msg.source;
-        if (cacheKey === openMethodSel && activeMethodSelector === '__meta__') {
-          const sc = document.getElementById('metaSubContent');
-          if (sc) {
-            let d2; try { d2 = metaData ? JSON.parse(metaData) : null; } catch { d2 = null; }
-            sc.innerHTML = renderMetaSubTab(d2);
-          }
+        col.methodSourceCache[cacheKey] = msg.source;
+        if (cacheKey === col.openMethodSel && col.activeMethodSelector === '__meta__') {
+          const sc = col.el.contentPane.querySelector('.meta-sub-content');
+          if (sc) sc.innerHTML = renderMetaSubTab(col, metaDataOf(col));
         }
 
       } else if (msg.command === 'enhancedInspectorTreeChildren') {
-        if (msg.methodSelector !== activeMethodSelector || !msg.data) return;
-        const spec = specs && specs.find(s => s.methodSelector === msg.methodSelector);
+        if (msg.methodSelector !== col.activeMethodSelector || !msg.data) return;
+        const spec = col.specs && col.specs.find(s => s.methodSelector === msg.methodSelector);
         if (!spec) return;
         let children;
         try { children = JSON.parse(msg.data); } catch { return; }
         const path = msg.path;
-        const table = document.querySelector('.ei-table');
+        const table = col.el.contentPane.querySelector('.ei-table');
         if (!table) return;
         const cols = spec.columnSpecifications || [];
         const parentDepth = path.length - 1;
-        // Find parent row and insert children after it
         const parentRow = table.querySelector('tr[data-path="' + JSON.stringify(path) + '"]');
         if (!parentRow) return;
-        // If no children, revert toggle button
         if (!children.length) {
           const btn = parentRow.querySelector('.tree-toggle');
           if (btn) { btn.textContent = '–'; btn.dataset.state = 'leaf'; btn.style.opacity = '0.3'; }
@@ -861,15 +1072,15 @@ export class EnhancedInspector {
           : '');
     }
 
-    function insertRangeItems(rangeNode, rawData, spec) {
+    function insertRangeItems(col, rangeNode, rawData, spec) {
       let rows;
       try { rows = JSON.parse(rawData); } catch { return; }
       const selector = spec.methodSelector;
       const cols = spec.columnSpecifications || [];
       const isTree = spec.viewName && spec.viewName.includes('Tree');
       const start = parseInt(rangeNode.dataset.rangeStart, 10);
-      if (!rangeDataCache[selector]) rangeDataCache[selector] = {};
-      rangeDataCache[selector][start] = rawData;
+      if (!col.rangeDataCache[selector]) col.rangeDataCache[selector] = {};
+      col.rangeDataCache[selector][start] = rawData;
       rangeNode.querySelector('.range-expand').textContent = '▼';
       rangeNode.dataset.expanded = 'true';
       let insertAfter = rangeNode;
@@ -879,7 +1090,7 @@ export class EnhancedInspector {
       });
     }
 
-    function renderEnhancedInspectorTable(el, spec, rawData) {
+    function renderEnhancedInspectorTable(col, el, spec, rawData) {
       let rows;
       try { rows = JSON.parse(rawData); } catch { el.innerHTML = '<div class="placeholder">Error parsing data.</div>'; return; }
       if (!rows || !rows.length) { el.innerHTML = '<div class="placeholder">No items.</div>'; return; }
@@ -887,8 +1098,8 @@ export class EnhancedInspector {
       const isTree = spec.viewName && spec.viewName.includes('Tree');
       const selector = spec.methodSelector;
       const hasMore = rows.length >= PAGE_SIZE;
-      const inRangesMode = rangesMode[selector];
-      const total = rangeTotals[selector];
+      const inRangesMode = col.rangesMode[selector];
+      const total = col.rangeTotals[selector];
 
       el.className = '';
       el.style.cssText = 'flex:1;overflow:hidden;display:flex;flex-direction:column';
@@ -908,7 +1119,7 @@ export class EnhancedInspector {
         html += '<div class="ei-table-wrap">' + makeTableHtml(selector, cols, isTree);
         for (let start = 1; start <= total; start += PAGE_SIZE) {
           const end = Math.min(start + PAGE_SIZE - 1, total);
-          const cached = rangeDataCache[selector] && rangeDataCache[selector][start];
+          const cached = col.rangeDataCache[selector] && col.rangeDataCache[selector][start];
           const expanded = !!cached;
           html += '<tr class="range-node" data-range-start="' + start + '" data-range-end="' + end +
             '" data-expanded="' + expanded + '">' +
@@ -927,7 +1138,7 @@ export class EnhancedInspector {
         // Flat view
         html += '<div class="ei-table-wrap">' + makeTableHtml(selector, cols, isTree);
         rows.forEach(row => { html += makeRowHtml(row, cols, isTree, 0, [row.nodeId]); });
-        loadedRowCounts[selector] = rows.length;
+        col.loadedRowCounts[selector] = rows.length;
         if (hasMore) html += makeLoadMoreHtml();
         html += '</table></div>';
       }
@@ -937,16 +1148,16 @@ export class EnhancedInspector {
       // Wire up ranges toggle button
       const btn = el.querySelector('#rangesToggle');
       if (btn) btn.addEventListener('click', () => {
-        if (rangesMode[selector]) {
-          rangesMode[selector] = false;
-          renderEnhancedInspectorTable(el, spec, rawData);
+        if (col.rangesMode[selector]) {
+          col.rangesMode[selector] = false;
+          renderEnhancedInspectorTable(col, el, spec, rawData);
         } else {
-          rangesMode[selector] = true;
-          if (rangeTotals[selector]) {
-            renderEnhancedInspectorTable(el, spec, rawData);
+          col.rangesMode[selector] = true;
+          if (col.rangeTotals[selector]) {
+            renderEnhancedInspectorTable(col, el, spec, rawData);
           } else {
             el.querySelector('.ei-table-wrap').innerHTML = '<div class="placeholder">Loading…</div>';
-            vscode.postMessage({ command: 'fetchEnhancedInspectorViewTotal', oop: currentOop, methodSelector: selector, viewName: spec.viewName });
+            vscode.postMessage({ command: 'fetchEnhancedInspectorViewTotal', columnId: col.id, oop: col.oop, methodSelector: selector, viewName: spec.viewName });
           }
         }
       });
@@ -954,26 +1165,21 @@ export class EnhancedInspector {
       // Bake column widths for resizing (flat mode only — ranges use colspan)
       if (!inRangesMode) {
         const table = el.querySelector('.ei-table');
-        if (colWidths[selector]) {
-          applyColWidths(table, colWidths[selector]);
+        if (col.colWidths[selector]) {
+          applyColWidths(table, col.colWidths[selector]);
         } else if (cols.length > 0) {
           const measured = Array.from(table.querySelectorAll('th')).map(th => Math.ceil(th.getBoundingClientRect().width));
-          if (measured.some(w => w > 0)) { colWidths[selector] = measured; applyColWidths(table, measured); }
+          if (measured.some(w => w > 0)) { col.colWidths[selector] = measured; applyColWidths(table, measured); }
         }
       }
     }
 
-    // Meta tab state
-    let metaSubTab = 'instanceMethods';
-    let openMethodSel = null;
-
-    function renderMetaTab(el) {
-      let d;
-      try { d = metaData ? JSON.parse(metaData) : null; } catch { d = null; }
+    function renderMetaTab(col, el) {
+      const d = metaDataOf(col);
       el.className = '';
       el.style.cssText = 'flex:1;overflow:hidden;display:flex;flex-direction:column';
 
-      const className = d ? d.className : (currentOop ? 'OOP ' + currentOop : '');
+      const className = d ? d.className : (col.oop ? 'OOP ' + col.oop : '');
       const superclass = d ? d.superclassName : '';
       const category   = d ? d.category : '';
 
@@ -987,62 +1193,34 @@ export class EnhancedInspector {
         '<div style="padding:2px 12px 6px 12px;flex-shrink:0;font-size:0.82em;color:var(--vscode-descriptionForeground);border-bottom:1px solid var(--vscode-panel-border);display:flex;gap:12px;flex-wrap:wrap">' +
           '<span>Superclass: <strong style="color:var(--vscode-foreground)">' + esc(superclass || '—') + '</strong></span>' +
           '<span>Package: <strong style="color:var(--vscode-foreground)">' + esc(category || '—') + '</strong></span>' +
-          '<span>OOP: <strong style="color:var(--vscode-foreground)">' + esc(currentOop || '') + '</strong></span>' +
+          '<span>OOP: <strong style="color:var(--vscode-foreground)">' + esc(col.oop || '') + '</strong></span>' +
         '</div>' +
         // Sub-tab bar
-        '<div class="tab-bar" id="metaSubTabBar" style="flex-shrink:0;border-bottom:1px solid var(--vscode-panel-border)">';
+        '<div class="tab-bar meta-sub-tab-bar" style="flex-shrink:0;border-bottom:1px solid var(--vscode-panel-border)">';
 
       const subTabs = [['instanceMethods','Instance Methods'],['classMethods','Class Methods'],['definition','Definition'],['comment','Comment']];
       subTabs.forEach(([id, label]) => {
-        html += '<div class="tab' + (metaSubTab === id ? ' active' : '') + '" data-metatab="' + id + '">' + label + '</div>';
+        html += '<div class="tab' + (col.metaSubTab === id ? ' active' : '') + '" data-metatab="' + id + '">' + label + '</div>';
       });
       html += '</div>' +
         // Sub-tab content
-        '<div id="metaSubContent" style="flex:1;overflow:auto;padding:8px 12px">' +
-          renderMetaSubTab(d) +
+        '<div class="meta-sub-content" style="flex:1;overflow:auto;padding:8px 12px">' +
+          renderMetaSubTab(col, d) +
         '</div>';
 
       el.innerHTML = html;
-
-      el.querySelector('#metaSubTabBar').addEventListener('click', e => {
-        const tab = e.target.closest('[data-metatab]');
-        if (!tab) return;
-        metaSubTab = tab.dataset.metatab;
-        openMethodSel = null;
-        el.querySelectorAll('[data-metatab]').forEach(t => t.classList.toggle('active', t === tab));
-        el.querySelector('#metaSubContent').innerHTML = renderMetaSubTab(d);
-      });
-
-      el.querySelector('#metaSubContent').addEventListener('click', e => {
-        if (metaSubTab !== 'instanceMethods' && metaSubTab !== 'classMethods') return;
-        const browseBtn = e.target.closest('.method-browse-btn');
-        if (browseBtn) {
-          vscode.postMessage({ command: 'browseMethod', oop: currentOop, methodSelector: browseBtn.dataset.sel, isClassSide: browseBtn.dataset.classSide === 'true' });
-          return;
-        }
-        if (e.target.closest('.method-source-box')) return;
-        const item = e.target.closest('.method-item');
-        const sel = item ? item.dataset.sel : null;
-        const isClassSide = metaSubTab === 'classMethods';
-        const cacheKey = (isClassSide ? 'c:' : 'i:') + sel;
-        openMethodSel = (sel && openMethodSel !== cacheKey) ? cacheKey : null;
-        if (openMethodSel && !(openMethodSel in methodSourceCache)) {
-          vscode.postMessage({ command: 'fetchMethodSource', oop: currentOop, methodSelector: sel, isClassSide });
-        }
-        el.querySelector('#metaSubContent').innerHTML = renderMetaSubTab(d);
-      });
     }
 
-    function renderMetaSubTab(d) {
+    function renderMetaSubTab(col, d) {
       if (!d) return '<div class="placeholder">No metadata available.</div>';
-      if (metaSubTab === 'instanceMethods' || metaSubTab === 'classMethods') {
-        const isClassTab = metaSubTab === 'classMethods';
+      if (col.metaSubTab === 'instanceMethods' || col.metaSubTab === 'classMethods') {
+        const isClassTab = col.metaSubTab === 'classMethods';
         const dotColor = isClassTab ? '#e08052' : 'var(--vscode-button-background)';
         const methods = isClassTab ? (d.classMethodSelectors || []) : (d.methodSelectors || []);
         if (!methods.length) return '<div class="placeholder">No methods.</div>';
         return methods.map(sel => {
           const cacheKey = (isClassTab ? 'c:' : 'i:') + sel;
-          const isOpen = openMethodSel === cacheKey;
+          const isOpen = col.openMethodSel === cacheKey;
           return '<div class="method-item" data-sel="' + esc(sel) + '">' +
             '<div style="display:flex;align-items:center;gap:6px">' +
             '<span style="width:8px;height:8px;border-radius:2px;background:' + dotColor + ';flex-shrink:0;display:inline-block"></span>' +
@@ -1054,8 +1232,8 @@ export class EnhancedInspector {
                 '<span class="method-browse-btn" data-sel="' + esc(sel) + '" data-class-side="' + isClassTab + '">Browse →</span>' +
                 '</div>' +
                 '<span class="method-source-code">' +
-                (cacheKey in methodSourceCache
-                  ? (methodSourceCache[cacheKey] !== null ? esc(methodSourceCache[cacheKey]) : '<span style="color:var(--vscode-errorForeground)">Error fetching source.</span>')
+                (cacheKey in col.methodSourceCache
+                  ? (col.methodSourceCache[cacheKey] !== null ? esc(col.methodSourceCache[cacheKey]) : '<span style="color:var(--vscode-errorForeground)">Error fetching source.</span>')
                   : '<span style="color:var(--vscode-descriptionForeground)">Loading…</span>') +
                 '</span>' +
                 '</div>'
@@ -1063,11 +1241,11 @@ export class EnhancedInspector {
             '</div>';
         }).join('');
       }
-      if (metaSubTab === 'definition') {
+      if (col.metaSubTab === 'definition') {
         return '<pre style="font-family:var(--vscode-editor-font-family);font-size:var(--vscode-editor-font-size);white-space:pre-wrap;margin:0">' +
           esc(d.definition || '') + '</pre>';
       }
-      if (metaSubTab === 'comment') {
+      if (col.metaSubTab === 'comment') {
         const comment = d.comment || '';
         return comment
           ? '<pre style="font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);white-space:pre-wrap;margin:0;line-height:1.5">' + esc(comment) + '</pre>'
@@ -1076,7 +1254,7 @@ export class EnhancedInspector {
       return '';
     }
 
-    function renderEnhancedInspectorContent(el, spec, data) {
+    function renderEnhancedInspectorContent(col, el, spec, data) {
       if (data === null || data === undefined) { el.innerHTML = '<div class="placeholder">No data.</div>'; return; }
       const effectiveViewName = spec.resolvedViewName || spec.viewName;
       if (effectiveViewName === 'GtPhlowTextViewSpecification' || effectiveViewName === 'GtPhlowTextEditorViewSpecification') {
@@ -1087,7 +1265,7 @@ export class EnhancedInspector {
         const effectiveSpec = spec.resolvedViewName
           ? Object.assign({}, spec, { viewName: spec.resolvedViewName, columnSpecifications: spec.resolvedColumnSpecifications || spec.columnSpecifications })
           : spec;
-        renderEnhancedInspectorTable(el, effectiveSpec, data);
+        renderEnhancedInspectorTable(col, el, effectiveSpec, data);
       }
     }
 

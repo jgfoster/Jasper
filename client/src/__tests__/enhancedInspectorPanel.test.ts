@@ -255,39 +255,79 @@ describe('EnhancedInspector', () => {
     });
   });
 
-  describe('F — enhancedInspectRow: double-click opens new inspector', () => {
-    it('opens a new panel beside the editor without stealing focus when a row is double-clicked', () => {
+  describe('F — enhancedInspectRow: double-click drills into a new miller column', () => {
+    it('appends a column in the same webview rather than opening a new panel', () => {
+      expect.assertions(2);
+      vi.mocked(queries.fetchEnhancedInspectorRowOop).mockReturnValue(9999n);
+      setup();
+      const callsBefore = vi.mocked(vscode.window.createWebviewPanel).mock.calls.length;
+      mock.sendMessage({ command: 'enhancedInspectRow', columnId: 0, itemOop: '1000', methodSelector: 'gtItemsFor:', nodeId: 3, viewName: 'GtPhlowListViewSpecification' });
+      expect(mock.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'addColumn', sourceColumnId: 0, oop: '9999' }),
+      );
+      expect(vi.mocked(vscode.window.createWebviewPanel).mock.calls.length).toBe(callsBefore);
+    });
+
+    it('carries a fresh column id that differs from the source column', () => {
       expect.assertions(1);
       vi.mocked(queries.fetchEnhancedInspectorRowOop).mockReturnValue(9999n);
       setup();
-      const newMock = makeMockPanel();
-      vi.mocked(vscode.window.createWebviewPanel).mockReturnValueOnce(newMock.panel as any);
-      mock.sendMessage({ command: 'enhancedInspectRow', itemOop: '1000', methodSelector: 'gtItemsFor:', nodeId: 3, viewName: 'GtPhlowListViewSpecification' });
-      expect(vscode.window.createWebviewPanel).toHaveBeenLastCalledWith(
-        'gemstoneEnhancedInspector',
-        'Inspector',
-        { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
-        expect.any(Object),
-      );
+      mock.sendMessage({ command: 'enhancedInspectRow', columnId: 0, itemOop: '1000', methodSelector: 'gtItemsFor:', nodeId: 3, viewName: 'GtPhlowListViewSpecification' });
+      const addColumn = mock.postMessage.mock.calls.map(c => c[0]).find(m => m.command === 'addColumn');
+      expect(addColumn.columnId).not.toBe(addColumn.sourceColumnId);
     });
 
     it('uses fetchEnhancedInspectorForwardRowOop for double-click on a forward view row', () => {
       expect.assertions(1);
       vi.mocked(queries.fetchEnhancedInspectorForwardRowOop).mockReturnValue(8888n);
       setup();
-      const newMock = makeMockPanel();
-      vi.mocked(vscode.window.createWebviewPanel).mockReturnValueOnce(newMock.panel as any);
-      mock.sendMessage({ command: 'enhancedInspectRow', itemOop: '1000', methodSelector: 'gtForwardFor:', nodeId: 2, viewName: 'GtPhlowForwardViewSpecification' });
+      mock.sendMessage({ command: 'enhancedInspectRow', columnId: 0, itemOop: '1000', methodSelector: 'gtForwardFor:', nodeId: 2, viewName: 'GtPhlowForwardViewSpecification' });
       expect(queries.fetchEnhancedInspectorForwardRowOop).toHaveBeenCalled();
     });
 
-    it('does not open a new inspector when row OOP is null', () => {
+    it('does not append a column when row OOP is null', () => {
       expect.assertions(1);
       vi.mocked(queries.fetchEnhancedInspectorRowOop).mockReturnValue(null);
       setup();
-      const callsBefore = vi.mocked(vscode.window.createWebviewPanel).mock.calls.length;
-      mock.sendMessage({ command: 'enhancedInspectRow', itemOop: '1000', methodSelector: 'gtItemsFor:', nodeId: 3, viewName: 'GtPhlowListViewSpecification' });
-      expect(vi.mocked(vscode.window.createWebviewPanel).mock.calls.length).toBe(callsBefore);
+      mock.sendMessage({ command: 'enhancedInspectRow', columnId: 0, itemOop: '1000', methodSelector: 'gtItemsFor:', nodeId: 3, viewName: 'GtPhlowListViewSpecification' });
+      expect(mock.postMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'addColumn' }),
+      );
+    });
+  });
+
+  describe('M — column-aware message protocol', () => {
+    it('tags the root view specs message with the root column id', () => {
+      expect.assertions(1);
+      setup();
+      mock.sendMessage({ command: 'ready' });
+      expect(mock.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'enhancedInspectorViewSpecs', columnId: 0 }),
+      );
+    });
+
+    it('echoes the requesting column id back on a view-data response', () => {
+      expect.assertions(1);
+      vi.mocked(queries.fetchEnhancedInspectorListData).mockReturnValue('[]');
+      setup();
+      mock.sendMessage({ command: 'fetchEnhancedInspectorViewData', columnId: 7, oop: '1000', methodSelector: 'gtItemsFor:', viewName: 'GtPhlowListViewSpecification' });
+      expect(mock.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'enhancedInspectorViewData', columnId: 7 }),
+      );
+    });
+
+    it('updates the panel title when the focused column changes', () => {
+      expect.assertions(1);
+      setup();
+      mock.sendMessage({ command: 'setTitle', title: 'a Character' });
+      expect(mock.title).toBe('a Character');
+    });
+
+    it('disposes the whole panel when the root column is closed', () => {
+      expect.assertions(1);
+      setup();
+      mock.sendMessage({ command: 'closePanel' });
+      expect(mock.panel.dispose).toHaveBeenCalled();
     });
   });
 
