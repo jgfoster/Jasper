@@ -1,24 +1,13 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { GciLibrary } from '../../gciLibrary';
-
-const libraryPath = process.env.GCI_LIBRARY_PATH;
-if (!libraryPath) {
-  console.error('GCI_LIBRARY_PATH not set. Skipping GCI tests.');
-  process.exit(1);
-}
+import { GCI_LIBRARY_PATH, STONE_NRS, GEM_NRS, GS_USER, GS_PASSWORD, NETLDI_NAME } from './gciTestConfig';
 
 function bigIntReplacer(_key: string, value: unknown): unknown {
   return typeof value === 'bigint' ? value.toString() + 'n' : value;
 }
 
-const STONE_NRS = '!tcp@localhost#server!gs64stone';
-const GEM_NRS = '!tcp@localhost#netldi:50377#task!gemnetobject';
-const NETLDI_NAME = 'gs64ldi';
-const GS_USER = 'DataCurator';
-const GS_PASSWORD = 'swordfish';
-
 describe('GciTsLogin / GciTsLogout', () => {
-  const gci = new GciLibrary(libraryPath);
+  const gci = new GciLibrary(GCI_LIBRARY_PATH);
 
   afterAll(() => {
     gci.close();

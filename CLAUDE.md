@@ -87,7 +87,7 @@ Query functions in `queries/` take a `QueryExecutor` argument — in tests, pass
 
 Tests using `useIntegrationTest` require a live GemStone instance. Run `npm run test:server:start` once to provision one; it writes connection details to `.env.test`. Override with `.env.test.local` for a custom instance. CI runs these as a matrix over `client/.gemstone-integration-releases.json`.
 
-`npm run test:gci` is a deeper suite that tests the GCI native library bindings directly (`client/src/__tests__/gci/**`). It does not use `useIntegrationTest` or `.env.test` — it reads `GCI_LIBRARY_PATH` straight from the shell environment (not `VITE_`-prefixed), so `test:server:start` alone is not enough. You also need a running stone at localhost. Only needed when working on the GCI bindings layer (`gciLibrary.ts`).
+`npm run test:gci` is a deeper suite that tests the GCI native library bindings directly (`client/src/__tests__/gci/**`). It is defined as a separate vitest project named `gci` (in `client/vitest.config.ts`) and is excluded from `npm test` (which runs the `unit` project); run it on demand with `npm run test:gci` (which passes `--project gci`). Like the automatic integration tests, it reads its connection from `.env.test` (`VITE_GEMSTONE_*`) via `client/src/__tests__/gci/gciTestConfig.ts`, so `npm run test:server:start` is enough to run it; plain `GCI_LIBRARY_PATH` / `GS_*` shell variables are honored as a fallback for a custom stone. It needs a running stone at localhost. Only needed when working on the GCI bindings layer (`gciLibrary.ts`).
 
 ## GCI / native library
 

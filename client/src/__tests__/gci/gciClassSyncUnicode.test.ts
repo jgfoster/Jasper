@@ -6,6 +6,7 @@ vi.mock('vscode', () => ({
 }));
 
 import { GciLibrary } from '../../gciLibrary';
+import { GCI_LIBRARY_PATH, STONE_NRS, GEM_NRS, GS_USER, GS_PASSWORD } from './gciTestConfig';
 import { ActiveSession } from '../../sessionManager';
 import { GemStoneLogin } from '../../loginTypes';
 import * as queries from '../../browserQueries';
@@ -13,17 +14,6 @@ import { boundLimitExecutor } from '../../browserQueries';
 import { fetchBlob } from '../../sync/syncTransport';
 import { contentBuildExpr, MANIFEST_BUILD_EXPR } from '../../sync/syncProtocol';
 import { parseContent, parseManifest } from '../../sync/syncFraming';
-
-const libraryPath = process.env.GCI_LIBRARY_PATH;
-if (!libraryPath) {
-  console.error('GCI_LIBRARY_PATH not set. Skipping GCI class-sync tests.');
-  process.exit(1);
-}
-
-const STONE_NRS = '!tcp@localhost#server!gs64stone';
-const GEM_NRS = '!tcp@localhost#netldi:50377#task!gemnetobject';
-const GS_USER = 'DataCurator';
-const GS_PASSWORD = 'swordfish';
 
 const TEST_CLASS = 'VsCodeSyncUnicodeTest';
 const EM_DASH = '—'; // — : a wide (Unicode16) char in GemStone
@@ -40,7 +30,7 @@ describe('Class sync round-trip with non-ASCII source (integration)', () => {
   let ugIndex: number;
 
   beforeAll(() => {
-    gci = new GciLibrary(libraryPath);
+    gci = new GciLibrary(GCI_LIBRARY_PATH);
     const login = gci.GciTsLogin(
       STONE_NRS, null, null, false, GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
     );
