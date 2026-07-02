@@ -8,27 +8,17 @@ vi.mock('vscode', () => ({
 }));
 
 import { GciLibrary } from '../../gciLibrary';
+import { GCI_LIBRARY_PATH, STONE_NRS, GEM_NRS, GS_USER, GS_PASSWORD } from './gciTestConfig';
 import { ActiveSession } from '../../sessionManager';
 import { GemStoneLogin } from '../../loginTypes';
 import * as queries from '../../browserQueries';
-
-const libraryPath = process.env.GCI_LIBRARY_PATH;
-if (!libraryPath) {
-  console.error('GCI_LIBRARY_PATH not set. Skipping GCI browser tests.');
-  process.exit(1);
-}
-
-const STONE_NRS = '!tcp@localhost#server!gs64stone';
-const GEM_NRS = '!tcp@localhost#netldi:50377#task!gemnetobject';
-const GS_USER = 'DataCurator';
-const GS_PASSWORD = 'swordfish';
 
 describe('Browser Queries (integration)', () => {
   let gci: GciLibrary;
   let session: ActiveSession;
 
   beforeAll(() => {
-    gci = new GciLibrary(libraryPath);
+    gci = new GciLibrary(GCI_LIBRARY_PATH);
     const login = gci.GciTsLogin(
       STONE_NRS, null, null, false,
       GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
@@ -180,28 +170,22 @@ describe('Browser Queries (integration)', () => {
       }
     });
 
-    it('compiles a new method', () => {
-      const result = queries.compileMethod(
+    it('compiles a method, reads it back, then deletes it', () => {
+      const compiled = queries.compileMethod(
         session, testClass, false, testCategory, testSource,
       );
-      expect(result).not.toBe(0n);
-    });
+      expect(compiled).not.toBe(0n);
 
-    it('the compiled method source is retrievable', () => {
       const source = queries.getMethodSource(session, testClass, false, testSelector);
       expect(source).toContain(testSelector);
-    });
 
-    it('the method appears in the category', () => {
-      const selectors = queries.getMethodSelectors(session, testClass, false, testCategory);
-      expect(selectors).toContain(testSelector);
-    });
+      const afterCompile = queries.getMethodSelectors(session, testClass, false, testCategory);
+      expect(afterCompile).toContain(testSelector);
 
-    it('deletes the method', () => {
       queries.deleteMethod(session, testClass, false, testSelector);
-      // Verify it's gone by checking the category
-      const selectors = queries.getMethodSelectors(session, testClass, false, testCategory);
-      expect(selectors).not.toContain(testSelector);
+
+      const afterDelete = queries.getMethodSelectors(session, testClass, false, testCategory);
+      expect(afterDelete).not.toContain(testSelector);
     });
   });
 });

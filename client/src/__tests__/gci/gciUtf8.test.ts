@@ -1,14 +1,9 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { GciLibrary } from '../../gciLibrary';
-
-const libraryPath = process.env.GCI_LIBRARY_PATH;
-if (!libraryPath) {
-  console.error('GCI_LIBRARY_PATH not set. Skipping GCI tests.');
-  process.exit(1);
-}
+import { GCI_LIBRARY_PATH } from './gciTestConfig';
 
 describe('GCI session-free UTF-8 functions', () => {
-  const gci = new GciLibrary(libraryPath);
+  const gci = new GciLibrary(GCI_LIBRARY_PATH);
 
   afterAll(() => {
     gci.close();
