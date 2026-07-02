@@ -13,7 +13,9 @@ import { executeFetchString } from '../browserQueries';
 import {
   installEnhancedInspectorSupport,
   isEnhancedInspectorInstalled,
+  supportsEnhancedInspector,
   ENHANCED_INSPECTOR_FILES,
+  ENHANCED_INSPECTOR_MIN_VERSION,
 } from '../enhancedInspectorInstall';
 
 const executeFetchStringMock = executeFetchString as ReturnType<typeof vi.fn>;
@@ -43,6 +45,51 @@ function filedInFileFrom(code: string): string | undefined {
   if (!code.includes('GsFileIn fromServerPath')) return undefined;
   return ENHANCED_INSPECTOR_FILES.find((f) => code.includes(f));
 }
+
+describe('supportsEnhancedInspector', () => {
+  it('accepts the supported minimum version', () => {
+    expect(supportsEnhancedInspector(ENHANCED_INSPECTOR_MIN_VERSION)).toBe(true);
+  });
+
+  it.each(['3.6.2', '3.7.0', '3.7.2', '3.7.4', '3.7'])(
+    'rejects %s (below the supported minimum)',
+    (version) => {
+      expect(supportsEnhancedInspector(version)).toBe(false);
+    },
+  );
+
+  it('accepts later patch releases via semantic comparison', () => {
+    expect(supportsEnhancedInspector('3.7.6')).toBe(true);
+    expect(supportsEnhancedInspector('3.7.10')).toBe(true);
+  });
+
+  it('accepts a later major release', () => {
+    expect(supportsEnhancedInspector('4.0.0')).toBe(true);
+  });
+
+  it('accepts a short major.minor future version like "4.0"', () => {
+    expect(supportsEnhancedInspector('4.0')).toBe(true);
+  });
+
+  it('accepts a short future version that carries a build suffix', () => {
+    expect(supportsEnhancedInspector('4.0 build 64bit')).toBe(true);
+  });
+
+  it('accepts a raw GciTsVersion string with a trailing build suffix', () => {
+    expect(supportsEnhancedInspector('3.7.5 build 64bit')).toBe(true);
+    expect(supportsEnhancedInspector('3.7.5, gss64')).toBe(true);
+  });
+
+  it('honors the gate on a version with a trailing suffix that is below the minimum', () => {
+    expect(supportsEnhancedInspector('3.7.2 build 64bit')).toBe(false);
+  });
+
+  it('rejects a missing or unparseable version rather than throwing', () => {
+    expect(supportsEnhancedInspector(undefined)).toBe(false);
+    expect(supportsEnhancedInspector('')).toBe(false);
+    expect(supportsEnhancedInspector('not-a-version')).toBe(false);
+  });
+});
 
 describe('installEnhancedInspectorSupport', () => {
   beforeEach(() => {

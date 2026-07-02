@@ -23,7 +23,9 @@ import { refreshEnhancedInspectorAvailable } from './enhancedInspectorAvailabili
 import {
   installEnhancedInspectorSupport,
   isEnhancedInspectorInstalled,
+  supportsEnhancedInspector,
   ENHANCED_INSPECTOR_FILES,
+  ENHANCED_INSPECTOR_MIN_VERSION,
   messageOf,
 } from './enhancedInspectorInstall';
 
@@ -266,6 +268,13 @@ export async function runInstallEnhancedInspector(
     vscode.window.showErrorMessage('No active GemStone session — connect to a stone first.');
     return;
   }
+  if (!supportsEnhancedInspector(base.stoneVersion)) {
+    vscode.window.showErrorMessage(
+      `Enhanced inspector support requires GemStone ${ENHANCED_INSPECTOR_MIN_VERSION} or later. `
+        + `The stone "${base.login.stone}" is ${base.stoneVersion}.`,
+    );
+    return;
+  }
   await performInstall(base, sessionManager, extensionPath, true);
 }
 
@@ -284,6 +293,10 @@ export async function maybeOfferEnhancedInspectorInstall(
   sessionManager: SessionManager,
   extensionPath: string,
 ): Promise<void> {
+  // The support only works on 3.7.5+ stones; never offer or auto-install on
+  // older ones, regardless of the autoInstall setting.
+  if (!supportsEnhancedInspector(base.stoneVersion)) return;
+
   const mode = getAutoInstallMode();
   if (mode === 'never') return;
   if (mode === 'always') {

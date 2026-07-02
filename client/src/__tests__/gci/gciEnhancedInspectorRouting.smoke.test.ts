@@ -26,7 +26,8 @@ import { ActiveSession } from '../../sessionManager';
 import { GemStoneLogin } from '../../loginTypes';
 import * as queries from '../../browserQueries';
 import * as debug from '../../debugQueries';
-import { isEnhancedInspectorInstalled } from '../../enhancedInspectorInstall';
+import { isEnhancedInspectorInstalled, supportsEnhancedInspector } from '../../enhancedInspectorInstall';
+import { refreshEnhancedInspectorAvailable } from '../../enhancedInspectorAvailability';
 
 const OOP_NIL = 0x14n;
 
@@ -47,7 +48,10 @@ describe('Inspect It routing (integration)', () => {
       gci,
       handle: login.session,
       login: { label: 'Test' } as GemStoneLogin,
-      stoneVersion: '3.7.2',
+      // Use the stone's actual version, not a hardcoded fixture — the routing
+      // decision now depends on it (the Enhanced Inspector is gated to 3.7.5+),
+      // so an honest version is what makes the gated assertion below meaningful.
+      stoneVersion: gci.GciTsVersion().version,
     };
   });
 
@@ -72,6 +76,23 @@ describe('Inspect It routing (integration)', () => {
     expect(typeof available).toBe('boolean');
     expect(typeof installed).toBe('boolean');
     expect(available).toBe(installed);
+  });
+
+  // The flag that Inspect It actually routes on is set by
+  // refreshEnhancedInspectorAvailable, which gates the raw probe behind the
+  // 3.7.5+ version requirement. On a supported stone it must equal the raw
+  // probe; on an older one it must be false regardless of what the probe finds.
+  // Written against the live stone's real version so it stays correct across the
+  // whole CI version matrix, not just 3.7.5.
+  it('routes to the enhanced inspector only on a supported version with the classes present', () => {
+    const routed = refreshEnhancedInspectorAvailable(session);
+
+    const supported = supportsEnhancedInspector(session.stoneVersion);
+    const probe = queries.checkEnhancedInspectorAvailable(session);
+    expect(routed).toBe(supported && probe);
+    if (!supported) {
+      expect(routed).toBe(false);
+    }
   });
 
   // When the enhanced inspector is absent, every Inspect It falls back to the

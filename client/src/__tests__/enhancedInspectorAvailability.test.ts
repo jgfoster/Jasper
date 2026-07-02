@@ -9,10 +9,11 @@ vi.mock('vscode', () => ({
 import { ActiveSession } from '../sessionManager';
 import { GemStoneLogin } from '../loginTypes';
 import * as queries from '../browserQueries';
+import { refreshEnhancedInspectorAvailable } from '../enhancedInspectorAvailability';
 
 const noErr = { number: 0, message: '', context: 0n, category: 0, fatal: false, argCount: 0, exceptionObj: 0n, args: [] };
 
-function createMockSession(executeFetchData = ''): ActiveSession {
+function createMockSession(executeFetchData = '', stoneVersion = '3.7.5'): ActiveSession {
   const mockGci = {
     GciTsResolveSymbol: vi.fn(() => ({ result: 1000n, err: { ...noErr } })),
     GciTsExecuteFetchBytes: vi.fn(() => ({ data: executeFetchData, err: { ...noErr } })),
@@ -24,7 +25,7 @@ function createMockSession(executeFetchData = ''): ActiveSession {
     gci: mockGci as unknown as ActiveSession['gci'],
     handle: {},
     login: { label: 'Test' } as GemStoneLogin,
-    stoneVersion: '3.7.2',
+    stoneVersion,
   };
 }
 
@@ -64,5 +65,42 @@ describe('checkEnhancedInspectorAvailable', () => {
     const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
     const code = mockExec.mock.calls[0][1] as string;
     expect(code).toContain('GtRemotePhlowViewedObject');
+  });
+});
+
+describe('refreshEnhancedInspectorAvailable', () => {
+  // The minimum plus future releases — a patch bump and a major bump — all pass
+  // the semantic gate with no list to update.
+  const SUPPORTED_VERSIONS = ['3.7.5', '3.7.6', '4.0'];
+
+  it.each(SUPPORTED_VERSIONS)(
+    'marks support available on a supported %s stone that has the classes',
+    (version) => {
+      const session = createMockSession('true', version);
+
+      expect(refreshEnhancedInspectorAvailable(session)).toBe(true);
+      expect(session.enhancedInspectorAvailable).toBe(true);
+    },
+  );
+
+  // 3.6.2, 3.7.0, and 3.7.2 are all below the 3.7.5 floor.
+  const UNSUPPORTED_VERSIONS = ['3.6.2', '3.7.0', '3.7.2'];
+
+  it.each(UNSUPPORTED_VERSIONS)(
+    'reports unavailable on a %s stone even when the classes are present',
+    (version) => {
+      const session = createMockSession('true', version);
+
+      expect(refreshEnhancedInspectorAvailable(session)).toBe(false);
+      expect(session.enhancedInspectorAvailable).toBe(false);
+    },
+  );
+
+  it.each(UNSUPPORTED_VERSIONS)('does not probe a %s stone at all', (version) => {
+    const session = createMockSession('true', version);
+
+    refreshEnhancedInspectorAvailable(session);
+
+    expect(session.gci.GciTsExecuteFetchBytes).not.toHaveBeenCalled();
   });
 });

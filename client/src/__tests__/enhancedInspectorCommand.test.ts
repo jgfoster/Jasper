@@ -103,12 +103,18 @@ vi.mock('../browserQueries', () => ({
   checkEnhancedInspectorAvailable: vi.fn(() => true),
 }));
 
-vi.mock('../enhancedInspectorInstall', () => ({
-  installEnhancedInspectorSupport: mocks.installSupport,
-  isEnhancedInspectorInstalled: vi.fn(() => false),
-  ENHANCED_INSPECTOR_FILES: ['Announcements.gs'],
-  messageOf: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}));
+// Partial mock: only the GCI-touching pieces are stubbed. The version gate
+// (supportsEnhancedInspector / ENHANCED_INSPECTOR_MIN_VERSION) is the real
+// implementation, so the gating tests exercise the actual semantic comparison.
+vi.mock('../enhancedInspectorInstall', async (importActual) => {
+  const actual = await importActual<typeof import('../enhancedInspectorInstall')>();
+  return {
+    ...actual,
+    installEnhancedInspectorSupport: mocks.installSupport,
+    isEnhancedInspectorInstalled: vi.fn(() => false),
+    ENHANCED_INSPECTOR_FILES: ['Announcements.gs'],
+  };
+});
 
 import { ActiveSession } from '../sessionManager';
 import {
@@ -119,7 +125,10 @@ import {
 
 const AUTO_INSTALL_KEY = 'enhancedInspector.autoInstall';
 
-function createBaseSession(systemUserLoginSucceeds = true): ActiveSession {
+function createBaseSession(
+  systemUserLoginSucceeds = true,
+  stoneVersion = '3.7.5',
+): ActiveSession {
   return {
     id: 1,
     login: { stone: 'demo', gem_host: 'localhost', netldi: 'netldi' },
@@ -131,7 +140,7 @@ function createBaseSession(systemUserLoginSucceeds = true): ActiveSession {
       ),
       GciTsLogout: vi.fn(),
     },
-    stoneVersion: '3.7.0',
+    stoneVersion,
     enhancedInspectorAvailable: false,
   } as unknown as ActiveSession;
 }
@@ -211,6 +220,50 @@ describe('maybeOfferEnhancedInspectorInstall', () => {
     await offer(createBaseSession());
 
     expect(wasOffered()).toBe(true);
+  });
+
+  // 3.6.2 (payload won't even file in), 3.7.0 (files in but views are broken),
+  // and 3.7.2 (ditto) are all below the 3.7.5 floor.
+  const UNSUPPORTED_VERSIONS = ['3.6.2', '3.7.0', '3.7.2'];
+
+  it.each(UNSUPPORTED_VERSIONS)('never offers on a %s stone', async (version) => {
+    mocks.state.config[AUTO_INSTALL_KEY] = 'ask';
+
+    await offer(createBaseSession(true, version));
+
+    expect(wasOffered()).toBe(false);
+    expect(mocks.installSupport).not.toHaveBeenCalled();
+  });
+
+  it.each(UNSUPPORTED_VERSIONS)(
+    'never auto-installs on a %s stone even when set to "always"',
+    async (version) => {
+      mocks.state.config[AUTO_INSTALL_KEY] = 'always';
+
+      await offer(createBaseSession(true, version));
+
+      expect(mocks.installSupport).not.toHaveBeenCalled();
+    },
+  );
+
+  // The minimum plus future releases — a patch bump and a major bump — all pass
+  // the semantic gate with no list to update.
+  const SUPPORTED_VERSIONS = ['3.7.5', '3.7.6', '4.0'];
+
+  it.each(SUPPORTED_VERSIONS)('offers on a supported %s stone', async (version) => {
+    mocks.state.config[AUTO_INSTALL_KEY] = 'ask';
+
+    await offer(createBaseSession(true, version));
+
+    expect(wasOffered()).toBe(true);
+  });
+
+  it.each(SUPPORTED_VERSIONS)('auto-installs on a supported %s stone when set to "always"', async (version) => {
+    mocks.state.config[AUTO_INSTALL_KEY] = 'always';
+
+    await offer(createBaseSession(true, version));
+
+    expect(mocks.installSupport).toHaveBeenCalledTimes(1);
   });
 
   it('persists "never" and skips installing when the user declines for good', async () => {
@@ -432,6 +485,20 @@ describe('runInstallEnhancedInspector', () => {
     expect(mocks.showInputBox).not.toHaveBeenCalled();
     expect(mocks.installSupport).toHaveBeenCalledTimes(1);
   });
+
+  it.each(['3.6.2', '3.7.0', '3.7.2'])(
+    'reports an error and installs nothing on a %s stone',
+    async (version) => {
+      getSelectedSessionMock.mockReturnValue(createBaseSession(true, version));
+
+      await run();
+
+      expect(mocks.showErrorMessage).toHaveBeenCalledWith(
+        expect.stringContaining('requires GemStone 3.7.5 or later'),
+      );
+      expect(mocks.installSupport).not.toHaveBeenCalled();
+    },
+  );
 
   it('prompts for the SystemUser password when the default is rejected, then installs', async () => {
     const base = createBaseSession(false);

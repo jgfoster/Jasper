@@ -3,8 +3,10 @@
 The **enhanced inspector** replaces the plain list of instance variables with
 rich, object-specific views, so you can explore an object more deeply.
 
-It isn't part of a stock GemStone image, so it's installed once per stone. Rather
-than install it here, you choose *how* Jasper should handle it when you connect:
+It requires **GemStone 3.7.5 or later** and isn't part of a stock GemStone
+image, so it's installed once per stone. On older stones Jasper keeps the default
+Inspector and won't offer to install it. Rather than install it here, you choose
+*how* Jasper should handle it when you connect to a supported stone:
 
 - **Ask on connect** — Jasper offers to install it when you reach a stone that
   lacks it (the default).
