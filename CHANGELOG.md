@@ -4,6 +4,8 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.7.5] - 2026-07-02
+
 ### Changed
 
 - **System Browser: auto-populate the next column on selection.** Selecting a dictionary now auto-selects the "All classes" pseudo-category so the Classes column fills immediately, and selecting a class (or toggling the instance/class side) auto-selects "All methods" so the Methods column fills immediately — in both cases without waiting for a further click on the pseudo-category itself.
