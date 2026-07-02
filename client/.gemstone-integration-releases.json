@@ -1,6 +1,6 @@
 [
   {
-    "version": "3.6.1",
+    "version": "3.6.2",
     "reasons": [
       "Minimum supported version.",
       "Validates core GCI functionality that Jasper depends on is present and working."
