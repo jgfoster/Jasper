@@ -10,3 +10,9 @@ gemstone
 .gemstone/
 tsconfig.tsbuildinfo
 .gemstone
+
+# Ignore Jetbrains related files
+.idea/
+
+# Ignore MacOS related files
+.DS_Store
