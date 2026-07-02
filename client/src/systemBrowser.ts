@@ -149,6 +149,13 @@ export function planDictionaryFileOut(
   return { files, indexContent };
 }
 
+// Sentinel categories that can be selected so the next column populates all items.
+// These strings are part of the extension↔webview wire format — the webview
+// template in getHtml() interpolates these same constants, so there is nothing
+// else to keep in sync when this value changes.
+export const ALL_CLASSES_CATEGORY = '** ALL CLASSES **';
+export const ALL_METHODS_CATEGORY = '** ALL METHODS **';
+
 // Save-dialog file filters for file-out, matching Jade's GemStone/Smalltalk/All.
 const FILE_OUT_FILTERS: Record<string, string[]> = {
   'GemStone Files': ['gs'],
@@ -449,10 +456,10 @@ export class SystemBrowser {
     }
 
     // Ensure the class is visible — if the current category doesn't include
-    // this class, switch to "** ALL CLASSES **"
+    // this class, switch to the "All classes" pseudo-category
     if (this.state.selectedClass !== className) {
       if (!this.state.classes.includes(className)) {
-        this.handleSelectCategory('** ALL CLASSES **');
+        this.handleSelectCategory(ALL_CLASSES_CATEGORY);
       }
       this.state.selectedClass = className;
       this.state.selectedMethodCategory = null;
@@ -530,16 +537,16 @@ export class SystemBrowser {
           this.handleReady();
           break;
         case 'selectDictionary':
-          this.handleSelectDictionary(message.index as number);
+          this.handleSelectDictionary(message.index as number, false, true);
           break;
         case 'selectCategory':
           this.handleSelectCategory(message.name as string);
           break;
         case 'selectClass':
-          this.handleSelectClass(message.name as string);
+          this.applyClassSelection(message.name as string, false, true);
           break;
         case 'toggleSide':
-          this.handleToggleSide(message.isMeta as boolean);
+          this.handleToggleSide(message.isMeta as boolean, true);
           break;
         case 'selectMethodCategory':
           this.handleSelectMethodCategory(message.name as string);
@@ -678,7 +685,17 @@ export class SystemBrowser {
     }
   }
 
-  private async handleSelectDictionary(dictIndex: number, skipPanels = false): Promise<void> {
+  /**
+   * Selecting a dictionary resets the downstream selection (category, class,
+   * method) and loads the dictionary's class categories into the Classes
+   * column.
+   *
+   * `skipPanels` suppresses opening the Globals / Class browser panels.
+   * `autoSelectAllClassesCategory` auto-selects the "all classes"
+   * pseudo-category so the Classes column fills immediately instead of
+   * staying blank until the user clicks a category.
+   */
+  private async handleSelectDictionary(dictIndex: number, skipPanels = false, autoSelectAllClassesCategory = false): Promise<void> {
     this.state.selectedDictIndex = dictIndex;
     this.state.selectedCategory = null;
     this.state.selectedClass = null;
@@ -697,14 +714,19 @@ export class SystemBrowser {
     }
     const sorted = [...categorySet].sort();
     this.state.classCategories = [
-      '** ALL CLASSES **',
+      ALL_CLASSES_CATEGORY,
       ...sorted,
     ];
 
     this.panel.webview.postMessage({
       command: 'loadClassCategories',
       items: this.state.classCategories,
+      selected: autoSelectAllClassesCategory ? ALL_CLASSES_CATEGORY : undefined,
     });
+
+    if (autoSelectAllClassesCategory) {
+      this.handleSelectCategory(ALL_CLASSES_CATEGORY);
+    }
 
     if (skipPanels) return;
 
@@ -733,7 +755,7 @@ export class SystemBrowser {
 
     const entries = this.getCachedDictEntries(dictIndex);
     let names: string[];
-    if (category === '** ALL CLASSES **') {
+    if (category === ALL_CLASSES_CATEGORY) {
       names = entries.filter(e => e.isClass).map(e => e.name);
     } else {
       names = entries
@@ -748,8 +770,10 @@ export class SystemBrowser {
     });
   }
 
-  private handleSelectClass(className: string): void {
-    this.applyClassSelection(className);
+  // Loads method categories and auto-selects the "all methods" pseudo-category.
+  private selectAllMethods(): void {
+    this.loadMethodCategories(ALL_METHODS_CATEGORY);
+    this.handleSelectMethodCategory(ALL_METHODS_CATEGORY);
   }
 
   /**
@@ -767,14 +791,24 @@ export class SystemBrowser {
    * `openClassFile` separately afterwards. The column click leaves the
    * editor untouched on purpose — clicking a class shouldn't shove a new
    * file in front of whatever the user was editing.
+   *
+   * `skipClassBrowser` suppresses the Class Definition panel refresh (used
+   * when the Class Browser is already handling the selection independently).
+   * `autoSelectAllMethodsCategory` auto-selects the "all methods"
+   * pseudo-category so the Methods column fills immediately; when false, only
+   * the method-category list is loaded with no category pre-selected.
    */
-  private applyClassSelection(className: string, skipClassBrowser = false): void {
+  private applyClassSelection(className: string, skipClassBrowser = false, autoSelectAllMethodsCategory = false): void {
     this.state.selectedClass = className;
     this.state.selectedMethodCategory = null;
     this.state.selectedMethod = null;
     this.panel.title = `Browser: ${className}`;
 
-    this.loadMethodCategories();
+    if (autoSelectAllMethodsCategory) {
+      this.selectAllMethods();
+    } else {
+      this.loadMethodCategories();
+    }
 
     if (!skipClassBrowser) {
       const dictIndex = this.state.selectedDictIndex;
@@ -785,13 +819,26 @@ export class SystemBrowser {
     }
   }
 
-  private handleToggleSide(isMeta: boolean): void {
+  /**
+   * Toggles the instance / class side for the currently selected class and
+   * clears the method selection (category + method).
+   *
+   * When `autoSelectAllMethodsCategory` is set and a class is selected,
+   * re-selects the "all methods" pseudo-category so the Methods column
+   * re-fills for the newly toggled side; otherwise it just reloads the method
+   * categories.
+   */
+  private handleToggleSide(isMeta: boolean, autoSelectAllMethodsCategory = false): void {
     this.state.isMeta = isMeta;
     this.state.selectedMethodCategory = null;
     this.state.selectedMethod = null;
 
     if (this.state.selectedClass) {
-      this.loadMethodCategories();
+      if (autoSelectAllMethodsCategory) {
+        this.selectAllMethods();
+      } else {
+        this.loadMethodCategories();
+      }
     }
   }
 
@@ -810,7 +857,7 @@ export class SystemBrowser {
     );
 
     let methods: string[];
-    if (category === '** ALL METHODS **') {
+    if (category === ALL_METHODS_CATEGORY) {
       const set = new Set<string>();
       for (const entry of filtered) {
         for (const sel of entry.selectors) set.add(sel);
@@ -850,10 +897,10 @@ export class SystemBrowser {
       this.panel.webview.postMessage({ command: 'selectDictionaryItem', index: dictIndex });
     }
 
-    // Ensure the class is visible — switch to "** ALL CLASSES **" if needed
+    // Ensure the class is visible — switch to the "All classes" pseudo-category if needed
     if (!this.state.classes.includes(className)) {
-      this.handleSelectCategory('** ALL CLASSES **');
-      this.panel.webview.postMessage({ command: 'selectCategoryItem', name: '** ALL CLASSES **' });
+      this.handleSelectCategory(ALL_CLASSES_CATEGORY);
+      this.panel.webview.postMessage({ command: 'selectCategoryItem', name: ALL_CLASSES_CATEGORY });
     }
 
     // Route through the canonical class-selection helper so the Class
@@ -897,6 +944,11 @@ export class SystemBrowser {
     if (openFile) this.openClassFile(className, selector, isMeta);
   }
 
+  /**
+   * Navigates the browser to a class without targeting a specific method.
+   * Auto-selects "all methods" so the Methods column fills immediately —
+   * distinguishing it from `handleNavigateTo`, which navigates to a specific method.
+   */
   private handleNavigateToClass(dictName: string, className: string): void {
     const dictIndex = this.state.dictionaries.indexOf(dictName) + 1;
     if (dictIndex === 0) return;
@@ -909,32 +961,17 @@ export class SystemBrowser {
     }
 
     if (!this.state.classes.includes(className)) {
-      this.handleSelectCategory('** ALL CLASSES **');
-      this.panel.webview.postMessage({ command: 'selectCategoryItem', name: '** ALL CLASSES **' });
+      this.handleSelectCategory(ALL_CLASSES_CATEGORY);
+      this.panel.webview.postMessage({ command: 'selectCategoryItem', name: ALL_CLASSES_CATEGORY });
     }
 
-    this.handleSelectClass(className);
-
-    this.panel.webview.postMessage({
-      command: 'loadClassCategories',
-      items: this.state.classCategories,
-      selected: this.state.selectedCategory,
-    });
     this.panel.webview.postMessage({
       command: 'loadClasses',
       items: this.state.classes,
       selected: className,
     });
-    this.panel.webview.postMessage({
-      command: 'loadMethodCategories',
-      items: this.state.methodCategories,
-      selected: this.state.selectedMethodCategory,
-    });
-    this.panel.webview.postMessage({
-      command: 'loadMethods',
-      items: [],
-      selected: null,
-    });
+
+    this.applyClassSelection(className, false, true);
   }
 
   private handleRefresh(): void {
@@ -1070,7 +1107,7 @@ export class SystemBrowser {
     // Route through the canonical class-selection helper so the Class
     // Definition panel updates too — the earlier inline mutations did
     // not, so a hierarchy-view click left Class Definition stale.
-    this.applyClassSelection(className);
+    this.applyClassSelection(className, false, true);
     this.openClassFile(className);
   }
 
@@ -1090,7 +1127,7 @@ export class SystemBrowser {
       const categoryToSelect =
         previousCategory !== null && availableInNewEnv.has(previousCategory)
           ? previousCategory
-          : '** ALL METHODS **';
+          : ALL_METHODS_CATEGORY;
       this.state.selectedMethodCategory = categoryToSelect;
       this.loadMethodCategories(categoryToSelect);
       this.handleSelectMethodCategory(categoryToSelect);
@@ -1227,11 +1264,11 @@ export class SystemBrowser {
     if (!name) return;
 
     if (!this.state.classCategories.includes(name)) {
-      // Insert sorted, keeping "** ALL CLASSES **" at front
+      // Insert sorted, keeping the "All classes" pseudo-category at front
       const rest = this.state.classCategories.slice(1);
       rest.push(name);
       rest.sort();
-      this.state.classCategories = ['** ALL CLASSES **', ...rest];
+      this.state.classCategories = [ALL_CLASSES_CATEGORY, ...rest];
     }
     this.panel.webview.postMessage({
       command: 'loadClassCategories',
@@ -1248,7 +1285,7 @@ export class SystemBrowser {
     }
 
     const dictName = this.state.dictionaries[dictIndex - 1];
-    const category = (this.state.selectedCategory && this.state.selectedCategory !== '** ALL CLASSES **')
+    const category = (this.state.selectedCategory && this.state.selectedCategory !== ALL_CLASSES_CATEGORY)
       ? this.state.selectedCategory : undefined;
     const categoryQuery = category ? `?category=${encodeURIComponent(category)}` : '';
     const uri = vscode.Uri.parse(
@@ -1283,7 +1320,7 @@ export class SystemBrowser {
     const entries = this.getCachedDictEntries(dictIndex);
     const category = this.state.selectedCategory;
     let classes: string[];
-    if (!category || category === '** ALL CLASSES **') {
+    if (!category || category === ALL_CLASSES_CATEGORY) {
       classes = entries.filter(e => e.isClass).map(e => e.name);
     } else {
       classes = entries
@@ -1324,7 +1361,7 @@ export class SystemBrowser {
     this.state.selectedMethod = null;
     this.clearDimming();
 
-    this.handleSelectCategory(this.state.selectedCategory || '** ALL CLASSES **');
+    this.handleSelectCategory(this.state.selectedCategory || ALL_CLASSES_CATEGORY);
     vscode.window.showInformationMessage(`Moved ${className} to ${picked.label}.`);
   }
 
@@ -1453,7 +1490,7 @@ export class SystemBrowser {
     }
 
     const dictName = this.state.dictionaries[dictIndex - 1];
-    const category = (this.state.selectedMethodCategory && this.state.selectedMethodCategory !== '** ALL METHODS **')
+    const category = (this.state.selectedMethodCategory && this.state.selectedMethodCategory !== ALL_METHODS_CATEGORY)
       ? this.state.selectedMethodCategory : 'as yet unclassified';
     const uri = buildNewMethodUri(this.session.id, dictName, className, this.state.isMeta, category, this.state.selectedEnvId);
     const viewColumn = await this.getBrowserViewColumn();
@@ -1464,7 +1501,7 @@ export class SystemBrowser {
   private async handleRenameCategory(): Promise<void> {
     const className = this.state.selectedClass;
     const oldCategory = this.state.selectedMethodCategory;
-    if (!className || !oldCategory || oldCategory === '** ALL METHODS **') return;
+    if (!className || !oldCategory || oldCategory === ALL_METHODS_CATEGORY) return;
 
     const newName = await vscode.window.showInputBox({
       prompt: `Rename category "${oldCategory}" to:`,
@@ -1611,7 +1648,7 @@ export class SystemBrowser {
     this.state.selectedMethod = null;
     this.clearDimming();
 
-    this.handleSelectCategory(this.state.selectedCategory || '** ALL CLASSES **');
+    this.handleSelectCategory(this.state.selectedCategory || ALL_CLASSES_CATEGORY);
     vscode.window.showInformationMessage(`Moved ${className} to ${dictName}.`);
   }
 
@@ -1693,7 +1730,7 @@ export class SystemBrowser {
     );
 
     const categories = filtered.map(e => e.category).sort();
-    this.state.methodCategories = ['** ALL METHODS **', ...categories];
+    this.state.methodCategories = [ALL_METHODS_CATEGORY, ...categories];
 
     this.panel.webview.postMessage({
       command: 'loadMethodCategories',
@@ -1753,7 +1790,7 @@ export class SystemBrowser {
 
     // Open the method in a gemstone:// editor tab (editable, one method at a time)
     const side = isMeta ? 'class' : 'instance';
-    const category = (this.state.selectedMethodCategory && this.state.selectedMethodCategory !== '** ALL METHODS **')
+    const category = (this.state.selectedMethodCategory && this.state.selectedMethodCategory !== ALL_METHODS_CATEGORY)
       ? this.state.selectedMethodCategory : 'as yet unclassified';
     const envQuery = this.state.selectedEnvId > 0 ? `?env=${this.state.selectedEnvId}` : '';
     const uri = vscode.Uri.parse(
@@ -2374,7 +2411,7 @@ export class SystemBrowser {
     // Methods can be dragged onto method categories
     setupDragSource(cols.methods, 'method');
     setupDropTarget(cols.methodCats, 'method', (selector, category) => {
-      if (category === '** ALL METHODS **') return;
+      if (category === '${ALL_METHODS_CATEGORY}') return;
       vscode.postMessage({ command: 'dropMethodOnCategory', selector, category });
     });
 
@@ -2537,7 +2574,7 @@ export class SystemBrowser {
           break;
         case 'loadClassCategories':
           clearFrom('categories');
-          populateColumn(cols.categories, msg.items, ['** ALL CLASSES **']);
+          populateColumn(cols.categories, msg.items, ['${ALL_CLASSES_CATEGORY}']);
           if (msg.selected) selectItemInColumn(cols.categories, msg.selected);
           break;
         case 'loadClasses':
@@ -2547,7 +2584,7 @@ export class SystemBrowser {
           break;
         case 'loadMethodCategories':
           clearFrom('methodCats');
-          populateColumn(cols.methodCats, msg.items, ['** ALL METHODS **']);
+          populateColumn(cols.methodCats, msg.items, ['${ALL_METHODS_CATEGORY}']);
           if (msg.selected) selectItemInColumn(cols.methodCats, msg.selected);
           break;
         case 'loadMethods':
