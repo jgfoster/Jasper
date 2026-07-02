@@ -9,38 +9,11 @@
 // this to pick which GemStone build to download and run tests against.
 
 const fs = require('fs');
+const { compareGemStoneVersions } = require('../src/gemStoneVersion.js');
 
 const releasesFileContents = fs.readFileSync(`${__dirname}/../.gemstone-integration-releases.json`, 'utf8');
 const releasesInAscendingOrder = JSON.parse(releasesFileContents)
-    .sort((release, anotherRelease) => compareVersions(release.version, anotherRelease.version));
-
-function compareVersions(versionString, anotherVersionString) {
-    const version = parseVersion(versionString);
-    const anotherVersion = parseVersion(anotherVersionString);
-    
-    for (let segmentIndex = 0; segmentIndex < 4; segmentIndex++) {
-        const difference = version[segmentIndex] - anotherVersion[segmentIndex];
-        if (difference !== 0) return difference;
-    }
-    
-    return 0;
-}
-
-function parseVersion(versionString) {
-    assertIsValidVersionString(versionString);
-    
-    const segments = versionString.split('.').map(Number);
-
-    // normalize to 4 parts so compareVersions can always iterate exactly 4
-    if (segments.length === 3) segments.push(0);
-    
-    return segments;
-}
-
-function assertIsValidVersionString(versionString) {
-    if (!/^\d+\.\d+\.\d+(\.\d+)?$/.test(versionString))
-        throw new Error(`Invalid version: ${versionString}`);
-}
+    .sort((release, anotherRelease) => compareGemStoneVersions(release.version, anotherRelease.version));
 
 if (process.argv.includes('--oldest')) {
     console.log(releasesInAscendingOrder[0].version);

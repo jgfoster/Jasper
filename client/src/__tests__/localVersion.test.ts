@@ -329,6 +329,44 @@ describe('VersionManager.fetchAvailableVersions', () => {
     const versionStrings = versions.map(v => `${v.version}${v.local ? ' (local)' : ''}`);
     expect(versionStrings).toEqual(['3.8.0', '3.7.6 (local)', '3.6.4']);
   });
+
+  it('excludes remote versions older than the minimum supported gemstone version', async () => {
+    const storage = new SysadminStorage();
+    const manager = new VersionManager(storage);
+    const platformKey = storage.getPlatformKey();
+    const ext = storage.getDownloadExtension();
+
+    const html = [
+      `<a href="GemStone64Bit3.6.1-${platformKey}.${ext}">file</a>  01-Jan-2021 12:00  160000000`,
+      `<a href="GemStone64Bit3.6.1.9-${platformKey}.${ext}">file</a>  01-Jun-2021 12:00  161000000`,
+      `<a href="GemStone64Bit3.6.2-${platformKey}.${ext}">file</a>  01-Jun-2021 12:00  161000000`,
+      `<a href="GemStone64Bit3.7.0-${platformKey}.${ext}">file</a>  01-Jan-2022 12:00  170000000`,
+    ].join('\n');
+    vi.spyOn(manager as any, 'fetchUrl').mockResolvedValue(html);
+
+    const versions = await manager.fetchAvailableVersions();
+
+    expect(versions.map(v => v.version)).toEqual(['3.7.0', '3.6.2']);
+  });
+
+  it('keeps a local version even when it is older than 3.6.2', async () => {
+    const storage = new SysadminStorage();
+    const manager = new VersionManager(storage);
+    const suffix = storage.getPlatformSuffix();
+
+    const productDir = path.join(tmpDir, 'product');
+    fs.mkdirSync(productDir);
+    writeVersionTxt(productDir, SAMPLE_VERSION_TXT);
+    fs.symlinkSync(productDir, path.join(tmpDir, `GemStone64Bit3.5.0${suffix}`));
+
+    vi.spyOn(manager as any, 'fetchUrl').mockResolvedValue('');
+
+    const versions = await manager.fetchAvailableVersions();
+
+    expect(versions).toHaveLength(1);
+    expect(versions[0].version).toBe('3.5.0');
+    expect(versions[0].local).toBe(true);
+  });
 });
 
 // ── GCI library auto-detection ───────────────────────────────

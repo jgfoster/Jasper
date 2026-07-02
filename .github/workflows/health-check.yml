@@ -13,6 +13,7 @@ jobs:
           sparse-checkout: |
             client/.gemstone-integration-releases.json
             client/bin/gemstone-integration-versions.js
+            client/src/gemStoneVersion.js
           sparse-checkout-cone-mode: false
       - id: read
         run: echo "versions=$(node client/bin/gemstone-integration-versions.js)" >> $GITHUB_OUTPUT
