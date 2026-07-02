@@ -2102,7 +2102,7 @@ describe('SystemBrowser', () => {
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({ command: 'loadMethods', selected: 'name' }),
       );
-      // setEditorLayout reorganizes ALL editor groups globally — calling it would clobber the GT Inspector panel
+      // setEditorLayout reorganizes ALL editor groups globally — calling it would clobber the enhanced inspector panel
       expect(commands.executeCommand).not.toHaveBeenCalledWith('vscode.setEditorLayout', expect.anything());
     });
 

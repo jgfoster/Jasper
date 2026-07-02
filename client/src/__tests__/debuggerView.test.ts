@@ -117,7 +117,7 @@ function setup(
     <div class="main"><ul id="stack"></ul><div id="variables"></div></div>
     <input id="evalInput"><div id="evalResult"></div>
     <div id="ctxmenu"><div id="copyFrameItem">Copy Frame</div><div id="browseFrameItem" style="display:none;">Browse</div><div id="homeFrameItem" style="display:none;">Go to home method</div><div id="frameImplItem" style="display:none;">Implement in receiver</div></div>
-    <div id="varctxmenu"><div id="varInspectItem">GT Inspect</div></div>
+    <div id="varctxmenu"><div id="varInspectItem">Inspect</div></div>
     <div id="busyOverlay" class="busy-overlay" style="display:none;"><div class="busy-box"><div class="busy-spinner"></div><button id="busyCancel" style="display:none;">Cancel</button></div></div>`;
   document.body.classList.remove('busy');
   const refs: Refs = {
@@ -798,7 +798,7 @@ describe('DebuggerView.renderVariables', () => {
     expect(group.classList.contains('collapsed')).toBe(false);
   });
 
-  it('right-clicking a row invokes the contextMenu handler with the row oop + name (GT Inspect)', () => {
+  it('right-clicking a row invokes the contextMenu handler with the row oop + name (Inspect)', () => {
     const el = document.getElementById('variables')!;
     const contextMenu = vi.fn();
     api().renderVariables(el, [
@@ -1021,7 +1021,7 @@ describe('DebuggerView.init — inbound variables / evalResult', () => {
     expect(refs.variables.querySelectorAll('.var')).toHaveLength(2);
   });
 
-  it('right-clicking a pushed variable row then GT Inspect posts inspectVariable to the host', () => {
+  it('right-clicking a pushed variable row then Inspect posts inspectVariable to the host', () => {
     const { refs, vscode } = setup();
     vi.mocked(vscode.postMessage).mockClear();
     window.dispatchEvent(new MessageEvent('message', {

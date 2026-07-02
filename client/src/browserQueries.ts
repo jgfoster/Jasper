@@ -188,11 +188,11 @@ export function boundLimitExecutor(session: ActiveSession) {
     executeFetchStringWithLimit(session, label, code, maxBytes);
 }
 
-export function checkGtAvailable(session: ActiveSession): boolean {
+export function checkEnhancedInspectorAvailable(session: ActiveSession): boolean {
   try {
     const result = executeFetchString(
       session,
-      'checkGtAvailable',
+      'checkEnhancedInspectorAvailable',
       '[GtRemotePhlowViewedObject notNil printString] on: Error do: [:e | \'false\']',
     );
     return result.trim() === 'true';

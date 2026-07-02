@@ -195,10 +195,25 @@
               }
             }
           },
-          "gemstone.gtPerfTracking": {
+          "gemstone.enhancedInspectorPerfTracking": {
             "type": "boolean",
             "default": false,
-            "description": "Enable GT Perf Tracking: count GCI round trips in the GT Inspector. When enabled, shows a status bar counter and logs to the 'GemStone GT Perf' output channel. Intended for performance tuning only."
+            "description": "Enable enhanced inspector perf tracking: count GCI round trips in the enhanced inspector. When enabled, shows a status bar counter and logs to the 'GemStone Enhanced Inspector Perf' output channel. Intended for performance tuning only."
+          },
+          "gemstone.enhancedInspector.autoInstall": {
+            "type": "string",
+            "enum": [
+              "ask",
+              "always",
+              "never"
+            ],
+            "enumDescriptions": [
+              "When a stone without enhanced inspector support is connected, offer to install it.",
+              "Install enhanced inspector support automatically (requires the SystemUser default password; otherwise a notification explains how to install manually).",
+              "Never offer to install enhanced inspector support."
+            ],
+            "default": "ask",
+            "description": "What to do on connecting to a stone that does not have enhanced inspector support installed. The buttons on the install prompt update this setting."
           },
           "gemstone.displayItMode": {
             "type": "string",
@@ -430,6 +445,17 @@
             ]
           },
           {
+            "id": "enhancedInspector",
+            "title": "Try the enhanced inspector",
+            "description": "Get richer, object-specific views in the Inspector. Choose how Jasper installs it when you connect.\n[Enhanced Inspector Auto-Install…](command:gemstone.configureEnhancedInspectorAutoInstall)",
+            "media": {
+              "markdown": "resources/walkthrough/enhancedInspector.md"
+            },
+            "completionEvents": [
+              "onSettingChanged:gemstone.enhancedInspector.autoInstall"
+            ]
+          },
+          {
             "id": "reopen",
             "title": "Reopen this walkthrough later",
             "description": "Closed this? Reopen it anytime from Help → Welcome, or the Command Palette.\n[Open Walkthrough...](command:welcome.showAllWalkthroughs)",
@@ -442,24 +468,24 @@
     ],
     "commands": [
       {
-        "command": "gemstone.enableGtPerfTracking",
-        "title": "Enable GT Perf Tracking",
-        "category": "GemStone GT"
+        "command": "gemstone.enableEnhancedInspectorPerfTracking",
+        "title": "Enable Enhanced Inspector Perf Tracking",
+        "category": "GemStone"
       },
       {
-        "command": "gemstone.disableGtPerfTracking",
-        "title": "Disable GT Perf Tracking",
-        "category": "GemStone GT"
+        "command": "gemstone.disableEnhancedInspectorPerfTracking",
+        "title": "Disable Enhanced Inspector Perf Tracking",
+        "category": "GemStone"
       },
       {
-        "command": "gemstone.resetGtPerfCounter",
-        "title": "Reset GT Perf Counter",
-        "category": "GemStone GT"
+        "command": "gemstone.resetEnhancedInspectorPerfCounter",
+        "title": "Reset Enhanced Inspector Perf Counter",
+        "category": "GemStone"
       },
       {
-        "command": "gemstone.showGtPerfDetails",
-        "title": "Show GT Perf Details",
-        "category": "GemStone GT"
+        "command": "gemstone.showEnhancedInspectorPerfDetails",
+        "title": "Show Enhanced Inspector Perf Details",
+        "category": "GemStone"
       },
       {
         "command": "gemstone.resetGrailNotebookScope",
@@ -559,6 +585,16 @@
         "icon": "$(notebook)"
       },
       {
+        "command": "gemstone.installEnhancedInspector",
+        "title": "Install Enhanced Inspector Support",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.configureEnhancedInspectorAutoInstall",
+        "title": "Enhanced Inspector Auto-Install…",
+        "category": "GemStone"
+      },
+      {
         "command": "gemstone.openWalkthrough",
         "title": "Get Started with GemStone",
         "category": "GemStone",
@@ -621,12 +657,6 @@
       {
         "command": "gemstone.inspectIt",
         "title": "Inspect It",
-        "category": "GemStone",
-        "icon": "$(eye)"
-      },
-      {
-        "command": "gemstone.superInspectIt",
-        "title": "GT Inspect It",
         "category": "GemStone",
         "icon": "$(eye)"
       },
@@ -909,19 +939,19 @@
           "when": "false"
         },
         {
-          "command": "gemstone.enableGtPerfTracking",
-          "when": "!gemstone.gtPerfTracking"
+          "command": "gemstone.enableEnhancedInspectorPerfTracking",
+          "when": "!gemstone.enhancedInspectorPerfTracking"
         },
         {
-          "command": "gemstone.disableGtPerfTracking",
-          "when": "gemstone.gtPerfTracking"
+          "command": "gemstone.disableEnhancedInspectorPerfTracking",
+          "when": "gemstone.enhancedInspectorPerfTracking"
         },
         {
-          "command": "gemstone.resetGtPerfCounter",
+          "command": "gemstone.resetEnhancedInspectorPerfCounter",
           "when": "false"
         },
         {
-          "command": "gemstone.showGtPerfDetails",
+          "command": "gemstone.showEnhancedInspectorPerfDetails",
           "when": "false"
         }
       ],
@@ -1138,11 +1168,6 @@
           "group": "1_gemstone@1"
         },
         {
-          "command": "gemstone.superInspectIt",
-          "when": "editorTextFocus && resourceLangId == gemstone-smalltalk && gemstone.gtAvailable && !gemstone.executing",
-          "group": "1_gemstone@2"
-        },
-        {
           "command": "gemstone.executeIt",
           "when": "editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing",
           "group": "1_gemstone@3"
@@ -1252,12 +1277,6 @@
         "key": "ctrl+k i",
         "mac": "cmd+k i",
         "when": "editorTextFocus && gemstone.hasActiveSession && !gemstone.executing"
-      },
-      {
-        "command": "gemstone.superInspectIt",
-        "key": "ctrl+k o",
-        "mac": "cmd+k o",
-        "when": "editorTextFocus && gemstone.hasActiveSession && gemstone.gtAvailable && !gemstone.executing"
       },
       {
         "command": "gemstone.openBrowser",
