@@ -3,7 +3,7 @@ import { SessionManager, ActiveSession } from './sessionManager';
 import { OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG, GCI_PERFORM_FLAG_SINGLE_STEP } from './gciConstants';
 import { logQuery, logResult, logError, logInfo } from './gciLog';
 import { InspectorTreeProvider } from './inspectorTreeProvider';
-import { EnhancedInspector } from './enhancedInspector';
+import { routeInspect } from './inspectRouter';
 import { DebuggerPanel } from './debuggerPanel';
 import { clearStack, getObjectPrintString, acquireStepping, releaseStepping } from './debugQueries';
 import { appendTranscript, showTranscript } from './transcriptChannel';
@@ -708,103 +708,6 @@ __t`;
 
   // ── Inspect ──────────────────────────────────────────
 
-  async superInspectIt(): Promise<void> {
-    const session = await this.sessionManager.resolveSession();
-    if (!session) return;
-
-    if (this.executing.has(session.id)) {
-      vscode.window.showWarningMessage(
-        'A GemStone execution is already in progress on this session.'
-      );
-      return;
-    }
-
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-      vscode.window.showErrorMessage('No active text editor.');
-      return;
-    }
-
-    let selection = editor.selection;
-    if (selection.isEmpty) {
-      const line = editor.document.lineAt(selection.active.line);
-      selection = new vscode.Selection(line.range.start, line.range.end);
-    }
-
-    const code = editor.document.getText(selection);
-    if (!code.trim()) {
-      vscode.window.showWarningMessage('No code to execute.');
-      return;
-    }
-
-    const label = code.trim().split('\n')[0].slice(0, 40);
-    await this.executeAndSuperInspect(session, code, label);
-  }
-
-  private async executeAndSuperInspect(
-    session: ActiveSession, code: string, label: string,
-  ): Promise<void> {
-    const oopClassString = this.resolveOopClassString(session);
-    if (oopClassString === undefined) return;
-
-    this.setExecuting(session.id, true);
-    logQuery(session.id, 'GT Inspect It', code);
-    const { wrappedCode } = this.wrapWithTranscriptCapture(code);
-
-    const editor = vscode.window.activeTextEditor;
-    if (editor) {
-      editor.setDecorations(executingDecorationType, [editor.selection]);
-    }
-
-    // Run interpreted (native code off) so a halt/error is steppable in the
-    // debugger — GemStone can't step native code (error 6014), and the process
-    // must START interpreted. Released in finally; if it halts, the debugger
-    // panel holds its own ref to keep native off while it's open.
-    acquireStepping(session);
-    try {
-      const { success, err: startErr } = session.gci.GciTsNbExecute(
-        session.handle, wrappedCode, oopClassString,
-        OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG, 0,
-      );
-      if (!success) {
-        const msg = `Execution failed to start: ${startErr.message || `error ${startErr.number}`}`;
-        logError(session.id, msg);
-        vscode.window.showErrorMessage(msg);
-        return;
-      }
-
-      const oop = await this.pollForResultOop(session);
-
-      const transcript = this.fetchTranscriptOutput(session);
-      if (transcript) appendTranscript(transcript);
-
-      logResult(session.id, `OOP ${oop}`);
-      EnhancedInspector.create(session, oop, label);
-    } catch (e: unknown) {
-      if (e instanceof NbCancelledError) return;
-      const msg = e instanceof Error ? e.message : String(e);
-      logError(session.id, msg);
-
-      if (e instanceof DebuggableError) {
-        // If it halts, resuming/stepping to completion should still open the
-        // enhanced inspector on the result — mirroring the success path above.
-        await this.promptDebuggableError(session, e.context, msg, (resultOop: bigint) => {
-          const transcript = this.fetchTranscriptOutput(session);
-          if (transcript) appendTranscript(transcript);
-          EnhancedInspector.create(session, resultOop, label);
-        });
-      } else {
-        vscode.window.showErrorMessage(`GemStone execution error: ${msg}`);
-      }
-    } finally {
-      if (editor) {
-        editor.setDecorations(executingDecorationType, []);
-      }
-      releaseStepping(session);
-      this.setExecuting(session.id, false);
-    }
-  }
-
   async inspectIt(inspectorProvider: InspectorTreeProvider): Promise<void> {
     const session = await this.sessionManager.resolveSession();
     if (!session) return;
@@ -894,7 +797,7 @@ __t`;
       if (transcript) appendTranscript(transcript);
 
       logResult(session.id, `OOP ${oop}`);
-      inspectorProvider.addRoot(session.id, oop, label);
+      routeInspect(session, oop, label, inspectorProvider);
     } catch (e: unknown) {
       if (e instanceof NbCancelledError) return;
       const msg = e instanceof Error ? e.message : String(e);
@@ -906,7 +809,7 @@ __t`;
         await this.promptDebuggableError(session, e.context, msg, (resultOop: bigint) => {
           const transcript = this.fetchTranscriptOutput(session);
           if (transcript) appendTranscript(transcript);
-          inspectorProvider.addRoot(session.id, resultOop, label);
+          routeInspect(session, resultOop, label, inspectorProvider);
         });
       } else {
         vscode.window.showErrorMessage(`GemStone execution error: ${msg}`);

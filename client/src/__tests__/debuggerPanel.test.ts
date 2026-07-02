@@ -187,6 +187,7 @@ function makeSession(): ActiveSession {
       label: 'Test', gs_user: 'DataCurator', stone: 'gs64stone', gem_host: 'devhost',
     } as GemStoneLogin,
     stoneVersion: '3.7.2',
+    enhancedInspectorAvailable: true,
     gci: { GciTsClearStack: vi.fn() } as unknown as ActiveSession['gci'],
   } as ActiveSession;
 }
@@ -462,6 +463,10 @@ describe('DebuggerPanel', () => {
     // whichever read-only-frame test happened to run first.
     (DebuggerPanel as unknown as { providerRegistered: boolean }).providerRegistered = false;
     (DebuggerPanel as unknown as { readOnlySources: Map<string, string> }).readOnlySources.clear();
+    // The injected inspector provider is a static (set once at activation); clear
+    // it so a test that assigns it (the fallback-inspect case) doesn't leak into
+    // the next under sequence.shuffle.
+    DebuggerPanel.inspectorProvider = undefined;
     // tabGroups.all is a plain array on the mock, not a vi.fn — reset it so a
     // test that populates it doesn't leak into the next.
     (vscode.window.tabGroups.all as unknown as unknown[]).length = 0;
@@ -1278,7 +1283,7 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'selectFrame', level: 3 });
       await flush();
 
-      // GT Inspect two variables → two inspectors, each a closable handle.
+      // Inspect two variables → two inspectors, each a closable handle.
       sendMessage(panel, { command: 'inspectVariable', oop: '300', name: 'self' });
       sendMessage(panel, { command: 'inspectVariable', oop: '901', name: 'total' });
       const inspectorCloses = vi.mocked(EnhancedInspector.create).mock.results
@@ -1825,10 +1830,22 @@ describe('DebuggerPanel', () => {
       expect(vi.mocked(debug.fetchFrameVariables)).toHaveBeenCalled();
     });
 
-    it('opens an enhanced inspector for a clicked variable via inspectVariable', () => {
+    it('opens an enhanced inspector for a clicked variable when the session has one', () => {
       const panel = openPanel();
       sendMessage(panel, { command: 'inspectVariable', oop: '300', name: 'self' });
       expect(EnhancedInspector.create).toHaveBeenCalledWith(session, 300n, 'self');
+    });
+
+    it('falls back to the sidebar Inspector for a clicked variable when the session has no enhanced inspector', () => {
+      session.enhancedInspectorAvailable = false;
+      const addRoot = vi.fn();
+      DebuggerPanel.inspectorProvider = { addRoot } as unknown as typeof DebuggerPanel.inspectorProvider;
+      const panel = openPanel();
+
+      sendMessage(panel, { command: 'inspectVariable', oop: '300', name: 'self' });
+
+      expect(EnhancedInspector.create).not.toHaveBeenCalled();
+      expect(addRoot).toHaveBeenCalledWith(1, 300n, 'self');
     });
 
     it('setVariable (instvar) evaluates the expr, writes via instVarAt:put:, refreshes, and reports ok', () => {

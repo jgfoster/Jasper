@@ -18,8 +18,18 @@ function getMenuItem(command: string): MenuItem | undefined {
 }
 
 describe('editor/context menu', () => {
-  it('shows exactly eight GemStone actions in the editor context menu', () => {
-    expect(editorContext).toHaveLength(8);
+  it('contributes the GemStone editor-context actions', () => {
+    const commands = editorContext.map((item) => item.command);
+
+    expect(commands).toEqual([
+      'gemstone.displayIt',
+      'gemstone.inspectIt',
+      'gemstone.executeIt',
+      'gemstone.debugIt',
+      'gemstone.sendersOf',
+      'gemstone.implementorsOf',
+      'gemstone.toggleSelectorBreakpoint',
+    ]);
   });
 
   it('shows "Display It" in gemstone documents when code execution is available', () => {
@@ -30,11 +40,6 @@ describe('editor/context menu', () => {
   it('shows "Inspect It" in gemstone documents when code execution is available', () => {
     expect(getMenuItem('gemstone.inspectIt')?.when)
       .toBe(`editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing`);
-  });
-
-  it('shows "GT Inspect It" in gemstone documents when code execution is available', () => {
-    expect(getMenuItem('gemstone.superInspectIt')?.when)
-      .toBe('editorTextFocus && resourceLangId == gemstone-smalltalk && gemstone.enhancedInspectorAvailable && !gemstone.executing');
   });
 
   it('shows "Execute It" in gemstone documents when code execution is available', () => {

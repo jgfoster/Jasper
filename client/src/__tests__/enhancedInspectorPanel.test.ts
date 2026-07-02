@@ -116,13 +116,13 @@ afterEach(() => {
 
 describe('EnhancedInspector', () => {
   describe('A — panel lifecycle', () => {
-    it('create() opens the panel with ViewColumn.Beside', () => {
+    it('create() opens the panel beside the editor without stealing focus', () => {
       expect.assertions(1);
       EnhancedInspector.create(session, 1000n, 'test');
       expect(vscode.window.createWebviewPanel).toHaveBeenCalledWith(
         'gemstoneEnhancedInspector',
         'Inspector',
-        vscode.ViewColumn.Beside,
+        { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
         expect.any(Object),
       );
     });
@@ -256,7 +256,7 @@ describe('EnhancedInspector', () => {
   });
 
   describe('F — enhancedInspectRow: double-click opens new inspector', () => {
-    it('opens a new panel with ViewColumn.Beside when a row is double-clicked', () => {
+    it('opens a new panel beside the editor without stealing focus when a row is double-clicked', () => {
       expect.assertions(1);
       vi.mocked(queries.fetchEnhancedInspectorRowOop).mockReturnValue(9999n);
       setup();
@@ -266,7 +266,7 @@ describe('EnhancedInspector', () => {
       expect(vscode.window.createWebviewPanel).toHaveBeenLastCalledWith(
         'gemstoneEnhancedInspector',
         'Inspector',
-        vscode.ViewColumn.Beside,
+        { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
         expect.any(Object),
       );
     });

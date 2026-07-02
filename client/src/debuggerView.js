@@ -57,8 +57,8 @@
   // host-computed printString. onInspect(oop, name) is called when a row is
   // clicked (opens an enhanced inspector); it's optional so tests can omit it.
   // Render the grouped variables. `handlers` (all optional) wires the T1
-  // variable evaluator + GT Inspect:
-  //   contextMenu(e, oop, name) — right-click a row (GT Inspect lives here now).
+  // variable evaluator + Inspect:
+  //   contextMenu(e, oop, name) — right-click a row (Inspect lives here now).
   //   commit(edit, expr)        — Enter in an editable row's inline editor;
   //                               posts the new expression to the host.
   //   setActiveEditor(ctrl|null)— register the open inline editor so the host's
@@ -123,7 +123,7 @@
         }
         row.appendChild(oop);
 
-        // Right-click → GT Inspect (moved off left-click).
+        // Right-click → Inspect (moved off left-click).
         row.addEventListener('contextmenu', function (e) {
           if (handlers.contextMenu) handlers.contextMenu(e, v.oop, v.name);
         });
@@ -492,7 +492,7 @@
       });
     }
 
-    // Variable context menu: GT Inspect the right-clicked variable.
+    // Variable context menu: Inspect the right-clicked variable.
     if (varInspectItem) {
       varInspectItem.addEventListener('click', (e) => {
         e.stopPropagation();

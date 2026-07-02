@@ -227,7 +227,6 @@ export function activate(context: vscode.ExtensionContext) {
   // SessionManager is created early so the Logins panel can mark the connected
   // login row (and swap its inline Login action for Logout) in single-session mode.
   sessionManager = new SessionManager();
-  vscode.commands.executeCommand('setContext', 'gemstone.enhancedInspectorAvailable', false);
   const treeProvider = new LoginTreeProvider(storage, sessionManager);
 
   const treeView = vscode.window.createTreeView('gemstoneLogins', {
@@ -273,6 +272,10 @@ export function activate(context: vscode.ExtensionContext) {
 
   // ── Object Inspector ──────────────────────────────────────
   const inspectorProvider = new InspectorTreeProvider(sessionManager);
+  // The debugger's "Inspect" falls back to this tree view when the session has
+  // no enhanced inspector; give the panel a handle to it (it isn't constructed
+  // with one — its factory is called from deep in codeExecutor).
+  DebuggerPanel.inspectorProvider = inspectorProvider;
 
   const inspectorView = vscode.window.createTreeView('gemstoneInspector', {
     treeDataProvider: inspectorProvider,
@@ -449,10 +452,6 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     sessionManager.onDidChangeSelection(() => updateStatusBar()),
-    sessionManager.onDidChangeSelection(id => {
-      const s = id !== null ? sessionManager.getSession(id) : undefined;
-      vscode.commands.executeCommand('setContext', 'gemstone.enhancedInspectorAvailable', s?.enhancedInspectorAvailable ?? false);
-    }),
   );
   updateStatusBar();
 
@@ -1059,10 +1058,6 @@ export function activate(context: vscode.ExtensionContext) {
       codeExecutor.inspectIt(inspectorProvider);
     }),
 
-    vscode.commands.registerCommand('gemstone.superInspectIt', () => {
-      codeExecutor.superInspectIt();
-    }),
-
     vscode.commands.registerCommand('gemstone.showTranscript', () => {
       showTranscript();
     }),
@@ -1084,10 +1079,17 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand('gemstone.inspectGlobal', async (args: { className: string }) => {
-      const existing = inspectorProvider.findRootByLabel(args.className);
-      if (existing) {
-        await inspectorView.reveal(existing, { select: true, focus: true });
-        return;
+      // The reveal-existing dedup only applies to the classic Inspector tree: when
+      // the session has the Enhanced Inspector, inspectExpression opens a webview
+      // (not a tree root), so findRootByLabel could never match — skip the lookup
+      // and just inspect (a fresh panel, like editor Inspect It).
+      const selected = sessionManager.getSelectedSession();
+      if (!selected?.enhancedInspectorAvailable) {
+        const existing = inspectorProvider.findRootByLabel(args.className);
+        if (existing) {
+          await inspectorView.reveal(existing, { select: true, focus: true });
+          return;
+        }
       }
       await codeExecutor.inspectExpression(inspectorProvider, args.className, args.className);
     }),

@@ -51,7 +51,6 @@ describe('keybindings', () => {
       e: 'gemstone.executeIt',
       r: 'gemstone.debugIt',
       i: 'gemstone.inspectIt',
-      o: 'gemstone.superInspectIt',
       b: 'gemstone.openBrowser',
       c: 'gemstone.findClass',
       m: 'gemstone.findMethod',

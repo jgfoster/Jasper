@@ -661,12 +661,6 @@
         "icon": "$(eye)"
       },
       {
-        "command": "gemstone.superInspectIt",
-        "title": "GT Inspect It",
-        "category": "GemStone",
-        "icon": "$(eye)"
-      },
-      {
         "command": "gemstone.showTranscript",
         "title": "Show Transcript",
         "category": "GemStone",
@@ -1174,11 +1168,6 @@
           "group": "1_gemstone@1"
         },
         {
-          "command": "gemstone.superInspectIt",
-          "when": "editorTextFocus && resourceLangId == gemstone-smalltalk && gemstone.enhancedInspectorAvailable && !gemstone.executing",
-          "group": "1_gemstone@2"
-        },
-        {
           "command": "gemstone.executeIt",
           "when": "editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing",
           "group": "1_gemstone@3"
@@ -1288,12 +1277,6 @@
         "key": "ctrl+k i",
         "mac": "cmd+k i",
         "when": "editorTextFocus && gemstone.hasActiveSession && !gemstone.executing"
-      },
-      {
-        "command": "gemstone.superInspectIt",
-        "key": "ctrl+k o",
-        "mac": "cmd+k o",
-        "when": "editorTextFocus && gemstone.hasActiveSession && gemstone.enhancedInspectorAvailable && !gemstone.executing"
       },
       {
         "command": "gemstone.openBrowser",

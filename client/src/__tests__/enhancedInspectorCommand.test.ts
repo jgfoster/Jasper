@@ -263,7 +263,6 @@ describe('maybeOfferEnhancedInspectorInstall', () => {
     expect(wasRefreshPrompted()).toBe(false);
     expect(sessionManager.abort).toHaveBeenCalledWith(base.id);
     expect(base.enhancedInspectorAvailable).toBe(true);
-    expect(mocks.executeCommand).toHaveBeenCalledWith('setContext', 'gemstone.enhancedInspectorAvailable', true);
   });
 
   it('prompts before discarding uncommitted changes, then refreshes on confirm', async () => {

@@ -33,7 +33,7 @@ export class EnhancedInspector {
     const panel = vscode.window.createWebviewPanel(
       'gemstoneEnhancedInspector',
       'Inspector',
-      vscode.ViewColumn.Beside,
+      { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
       { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] },
     );
     const inspector = new EnhancedInspector(panel, session, oop, label);

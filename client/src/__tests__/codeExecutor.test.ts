@@ -22,8 +22,13 @@ vi.mock('../debuggerPanel', () => ({
   DebuggerPanel: { create: vi.fn() },
 }));
 
+vi.mock('../enhancedInspector', () => ({
+  EnhancedInspector: { create: vi.fn() },
+}));
+
 import { CodeExecutor } from '../codeExecutor';
 import { DebuggerPanel } from '../debuggerPanel';
+import { EnhancedInspector } from '../enhancedInspector';
 import { SessionManager, ActiveSession } from '../sessionManager';
 import * as vscode from 'vscode';
 import { __resetConfig } from '../__mocks__/vscode';
@@ -1122,6 +1127,30 @@ describe('CodeExecutor', () => {
         .filter(([cmd]) => cmd === 'setContext');
       expect(calls[0]).toEqual(['setContext', 'gemstone.executing', true]);
       expect(calls[calls.length - 1]).toEqual(['setContext', 'gemstone.executing', false]);
+    });
+
+    it('opens the result in an enhanced inspector when the session has one', async () => {
+      session.enhancedInspectorAvailable = true;
+      const editor = makeEditor('3 + 4');
+      setActiveEditor(editor);
+
+      const inspectorProvider = { addRoot: vi.fn(), findRootByLabel: vi.fn() };
+      await executor.inspectIt(inspectorProvider as unknown as import('../inspectorTreeProvider').InspectorTreeProvider);
+
+      expect(EnhancedInspector.create).toHaveBeenCalledWith(session, 200n, '3 + 4');
+      expect(inspectorProvider.addRoot).not.toHaveBeenCalled();
+    });
+
+    it('opens the result in the sidebar Inspector when the session has no enhanced inspector', async () => {
+      session.enhancedInspectorAvailable = false;
+      const editor = makeEditor('3 + 4');
+      setActiveEditor(editor);
+
+      const inspectorProvider = { addRoot: vi.fn(), findRootByLabel: vi.fn() };
+      await executor.inspectIt(inspectorProvider as unknown as import('../inspectorTreeProvider').InspectorTreeProvider);
+
+      expect(inspectorProvider.addRoot).toHaveBeenCalledWith(1, 200n, '3 + 4');
+      expect(EnhancedInspector.create).not.toHaveBeenCalled();
     });
 
     // The dim decoration is applied before setExecuting(true) so that if anything
