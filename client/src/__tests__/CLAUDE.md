@@ -14,3 +14,21 @@ Test names state what is always true, not what happens to be true in this one ru
 
 **Test structure: three parts, separated by blank lines.**
 Tests have up to three parts — setup (optional), exercise, and assert(s) — each separated by a blank line. Always use blank lines between present parts; they make the structure scannable at a glance. Never use section-label comments.
+
+## VS Code API mocking (client workspace)
+
+The VS Code API is not available in tests. Vitest picks up `src/__mocks__/vscode.ts` automatically — a comprehensive manual mock of the `vscode` module. Any test importing extension code that touches the VS Code API gets it for free; no explicit import or `vi.mock()` call is needed.
+
+Mock test helpers:
+- `__resetConfig()` — clears all stored configuration values; call in `beforeEach` if your test uses `workspace.getConfiguration`.
+- `__setConfig(section, key, value)` — pre-seeds a config value before the test runs.
+
+Two vitest setup files run before every suite: `vitest.windowSetup.cjs` (polyfills `CSS.escape` for jsdom) and `vitest.uriSetup.ts` (registers a URI equality tester so `expect(uri).toEqual(otherUri)` compares by string value rather than object identity).
+
+Query functions in `queries/` take a `QueryExecutor` — in tests, pass a `vi.fn()` returning a canned string; this avoids any GCI dependency for unit tests of query-dependent code.
+
+Tests run in random order; the seed is printed at the top of the output. Reproduce a run by replaying that seed via `VITEST_SEED=<seed>` (a root `SeededSequencer` in `client/vitest.config.ts` reads it and pins it into both projects for a fully reproducible file order).
+
+## Integration tests
+
+Tests using `useIntegrationTest` require a live GemStone instance so plain `npm test` needs a running stone. Run `npm run test:server:start` once to provision one; it writes connection details to `.env.test` (which the user may override with `.env.test.local`). CI runs these as a matrix over `client/.gemstone-integration-releases.json`. The deep GCI binding suite (`npm run test:gci`) is separate
