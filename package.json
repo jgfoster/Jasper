@@ -15,7 +15,8 @@
     "url": "https://github.com/jgfoster/Jasper/issues"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.85.0",
+    "node": ">=22.12"
   },
   "icon": "resources/gemstone-icon.png",
   "categories": [
@@ -1337,13 +1338,13 @@
     "compile:mcp": "tsc -p mcp-server/tsconfig.json",
     "bundle": "node esbuild.mjs",
     "watch": "tsc -b -w client/tsconfig.json server/tsconfig.json",
-    "test": "npm run test:server && npm run test:client && npm run test:mcp",
+    "test": "npm run test --workspaces",
     "test:server:start": "npm run test:server:start --workspace client",
     "test:server:stop": "npm run test:server:stop --workspace client",
     "test:server:list": "npm run test:server:list --workspace client",
-    "test:server": "cd server && npx vitest run",
+    "test:server": "npm test --workspace server",
     "test:client": "npm test --workspace client",
-    "test:mcp": "cd mcp-server && npx vitest run",
+    "test:mcp": "npm test --workspace mcp-server",
     "//test:gci": "Runs only the on-demand 'gci' vitest project (client/vitest.config.ts); needs a live test stone (npm run test:server:start). `npm test` runs the 'default' project and excludes these.",
     "test:gci": "cd client && npx vitest run --project gci",
     "package": "vsce package",

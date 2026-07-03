@@ -5,7 +5,7 @@
   "description": "MCP server for GemStone database interaction",
   "main": "out/index.js",
   "scripts": {
-    "test": "NODE_OPTIONS=--experimental-require-module npx vitest run"
+    "test": "vitest run"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
