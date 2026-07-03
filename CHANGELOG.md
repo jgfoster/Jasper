@@ -4,6 +4,10 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+### Fixed
+
+- **System Browser: clicking a class in the hierarchy view no longer reopens its source file.** The hierarchy click already refreshed the Class Definition pane; it also called `openClassFile`, shoving a file in front of whatever the user was editing. That call is removed, matching the column click's definition-only behavior.
+
 ## [1.7.7] - 2026-07-07
 
 ### Added
