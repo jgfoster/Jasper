@@ -31,6 +31,7 @@ import {
   maybeOfferEnhancedInspectorInstall,
 } from './enhancedInspectorCommand';
 import { refreshEnhancedInspectorAvailable } from './enhancedInspectorAvailability';
+import { supportsEnhancedInspector } from './enhancedInspectorInstall';
 import { DebuggerPanel } from './debuggerPanel';
 import { InlineValuesCodeLensProvider } from './inlineValuesCodeLens';
 import { GemStoneFileSystemProvider, MethodCompiledEvent, ClassDefinitionCompiledEvent } from './gemstoneFileSystemProvider';
@@ -454,6 +455,23 @@ export function activate(context: vscode.ExtensionContext) {
     sessionManager.onDidChangeSelection(() => updateStatusBar()),
   );
   updateStatusBar();
+
+  // Drive the `gemstone.enhancedInspectorSupported` context key off the selected
+  // session's version, so the "Install Enhanced Inspector Support" command is
+  // only offered where it can actually work (see package.json commandPalette
+  // when-clause). Recomputed on every selection change.
+  function updateEnhancedInspectorSupportedContext(): void {
+    const selected = sessionManager.getSelectedSession();
+    vscode.commands.executeCommand(
+      'setContext',
+      'gemstone.enhancedInspectorSupported',
+      !!selected && supportsEnhancedInspector(selected.stoneVersion),
+    );
+  }
+  context.subscriptions.push(
+    sessionManager.onDidChangeSelection(() => updateEnhancedInspectorSupportedContext()),
+  );
+  updateEnhancedInspectorSupportedContext();
 
   // ── Enhanced Inspector Perf Tracking ───────────────────────────────────
   const enhancedInspectorPerfChannel = vscode.window.createOutputChannel('GemStone Enhanced Inspector Perf');

@@ -25,6 +25,49 @@
  */
 import { ActiveSession } from './sessionManager';
 import { executeFetchString } from './browserQueries';
+import { compareGemStoneVersions } from './gemStoneVersion';
+
+/**
+ * Minimum GemStone version the Enhanced Inspector support is limited to.
+ *
+ * The vendored GT payload requires kernel classes that only exist in 3.7+
+ * (e.g. `GcFinalizeNotification`), and — more subtly — on stones before 3.7.5
+ * string literals in GCI-compiled queries compile as Unicode, which the
+ * platform refuses to `=`-compare against the byte-String dictionary keys the
+ * payload builds. That mismatch makes the inspector return no views. 3.7.5 is
+ * the first release where the whole pipeline (install + views) works, so we gate
+ * on it rather than trying to paper over the platform behavior.
+ */
+export const ENHANCED_INSPECTOR_MIN_VERSION = '3.7.5';
+
+/**
+ * True when `stoneVersion` supports the Enhanced Inspector, i.e. it is
+ * `ENHANCED_INSPECTOR_MIN_VERSION` or later. The comparison is semantic
+ * (numeric per version segment), so future releases — 3.7.6, 3.7.10, 4.0 — pass
+ * automatically without any list to maintain.
+ *
+ * `stoneVersion` is the raw `GciTsVersion` string, which starts with the numeric
+ * version but may carry a trailing build/description suffix
+ * (e.g. "3.7.5 build ..."). We extract the leading `x.y.z[.w]` token before
+ * comparing — `compareGemStoneVersions` requires a bare numeric string and would
+ * otherwise throw on the suffix (and fail closed, blocking a supported stone).
+ */
+export function supportsEnhancedInspector(stoneVersion: string | undefined): boolean {
+  // Extract the leading numeric version: major.minor with optional patch and
+  // build segments — "3.7.5", "3.7.5.1", or a future short form like "4.0" —
+  // ignoring any trailing build/description suffix from GciTsVersion.
+  const numeric = stoneVersion?.match(/^\d+\.\d+(\.\d+){0,2}/)?.[0];
+  if (!numeric) return false;
+  // compareGemStoneVersions requires 3–4 numeric segments; pad a short version
+  // (e.g. "4.0" -> "4.0.0") so it compares cleanly instead of throwing.
+  const padded = numeric.split('.').length < 3 ? `${numeric}.0` : numeric;
+  try {
+    return compareGemStoneVersions(padded, ENHANCED_INSPECTOR_MIN_VERSION) >= 0;
+  } catch {
+    // Defensive: fail closed rather than offer an install that would break.
+    return false;
+  }
+}
 
 /**
  * The payload files, in dependency order — must match the `input` order in

@@ -9,10 +9,18 @@
  */
 import { ActiveSession } from './sessionManager';
 import { checkEnhancedInspectorAvailable } from './browserQueries';
+import { supportsEnhancedInspector } from './enhancedInspectorInstall';
 
 /** Re-probe the session and cache `enhancedInspectorAvailable` on it. Returns
- *  the freshly-probed value. */
+ *  the freshly-probed value.
+ *
+ *  Stones older than the supported minimum never route to the Enhanced
+ *  Inspector — even if the support classes happen to be present (e.g. a shared
+ *  stone, or one installed by an older build) — because the inspector returns no
+ *  views there. Short-circuit to false without probing so routing
+ *  (see inspectRouter.ts) falls back to the classic inspector. */
 export function refreshEnhancedInspectorAvailable(session: ActiveSession): boolean {
-  session.enhancedInspectorAvailable = checkEnhancedInspectorAvailable(session);
+  session.enhancedInspectorAvailable =
+    supportsEnhancedInspector(session.stoneVersion) && checkEnhancedInspectorAvailable(session);
   return session.enhancedInspectorAvailable;
 }

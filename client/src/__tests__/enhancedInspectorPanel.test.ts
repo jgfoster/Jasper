@@ -83,7 +83,7 @@ function createMockSession(): ActiveSession {
     gci: {} as unknown as ActiveSession['gci'],
     handle: {},
     login: { label: 'Test' } as GemStoneLogin,
-    stoneVersion: '3.7.2',
+    stoneVersion: '3.7.5',
   };
 }
 

@@ -213,7 +213,7 @@
               "Never offer to install enhanced inspector support."
             ],
             "default": "ask",
-            "description": "What to do on connecting to a stone that does not have enhanced inspector support installed. The buttons on the install prompt update this setting."
+            "description": "What to do on connecting to a stone that does not have enhanced inspector support installed. Only applies to GemStone 3.7.5 and later, which the enhanced inspector requires; older stones are never offered it. The buttons on the install prompt update this setting."
           },
           "gemstone.displayItMode": {
             "type": "string",
@@ -447,7 +447,7 @@
           {
             "id": "enhancedInspector",
             "title": "Try the enhanced inspector",
-            "description": "Get richer, object-specific views in the Inspector. Choose how Jasper installs it when you connect.\n[Enhanced Inspector Auto-Install…](command:gemstone.configureEnhancedInspectorAutoInstall)",
+            "description": "Get richer, object-specific views in the Inspector. Requires GemStone 3.7.5 or later. Choose how Jasper installs it when you connect.\n[Enhanced Inspector Auto-Install…](command:gemstone.configureEnhancedInspectorAutoInstall)",
             "media": {
               "markdown": "resources/walkthrough/enhancedInspector.md"
             },
@@ -953,6 +953,10 @@
         {
           "command": "gemstone.showEnhancedInspectorPerfDetails",
           "when": "false"
+        },
+        {
+          "command": "gemstone.installEnhancedInspector",
+          "when": "gemstone.hasActiveSession && gemstone.enhancedInspectorSupported"
         }
       ],
       "view/title": [
