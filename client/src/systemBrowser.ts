@@ -803,8 +803,8 @@ export class SystemBrowser {
    * panel never goes stale relative to the column-list selection.
    *
    * Does NOT open the class's source file. Paths that should *also* reveal
-   * source (hierarchy click, external method navigation) call
-   * `openClassFile` separately afterwards. The column click leaves the
+   * source (external method navigation) call `openClassFile` separately
+   * afterwards. The column click (and the hierarchy click) leaves the
    * editor untouched on purpose — clicking a class shouldn't shove a new
    * file in front of whatever the user was editing.
    *
@@ -1217,9 +1217,9 @@ export class SystemBrowser {
     this.state.selectedDictIndex = dictIndex;
     // Route through the canonical class-selection helper so the Class
     // Definition panel updates too — the earlier inline mutations did
-    // not, so a hierarchy-view click left Class Definition stale.
+    // not, so a hierarchy-view click left Class Definition stale. This
+    // mirrors the column click: definition-only, no source-file reveal.
     this.applyClassSelection(className, false, true);
-    this.openClassFile(className);
   }
 
   private handleToggleEnvironment(envId: number): void {
