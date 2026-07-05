@@ -64,12 +64,23 @@ export class ExportManager {
     return this.writing;
   }
 
-  private log(message: string): void {
+  /**
+   * Create (once) and return the "GemStone Class Sync" output channel. Called
+   * from activate() so the channel is listed in the Output dropdown up front —
+   * not only after the first sync — and by log() as a fallback. Returns
+   * undefined only in the test environment, where createOutputChannel is absent.
+   */
+  ensureLogChannel(): vscode.OutputChannel | undefined {
     if (!this.logChannel && vscode.window.createOutputChannel) {
       this.logChannel = vscode.window.createOutputChannel('GemStone Class Sync');
     }
+    return this.logChannel;
+  }
+
+  private log(message: string): void {
+    const channel = this.ensureLogChannel();
     const ts = new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
-    this.logChannel?.appendLine(`[${ts}] ${message}`);
+    channel?.appendLine(`[${ts}] ${message}`);
   }
 
   /**

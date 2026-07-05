@@ -49,11 +49,12 @@ import { GrailNotebookController } from './grailNotebookController';
 import { SmalltalkNotebookController } from './smalltalkNotebookController';
 import { ExportManager } from './exportManager';
 import { FileInManager } from './fileInManager';
-import { showTranscript } from './transcriptChannel';
+import { showTranscript, getTranscriptChannel } from './transcriptChannel';
+import { getGciLog } from './gciLog';
 import { GemStoneCodeLensProvider } from './gemstoneCodeLensProvider';
 import * as queries from './browserQueries';
 import { SysadminStorage } from './sysadminStorage';
-import { appendSysadmin } from './sysadminChannel';
+import { appendSysadmin, getSysadminChannel } from './sysadminChannel';
 import { VersionManager } from './versionManager';
 import { VersionTreeProvider, VersionItem } from './versionTreeProvider';
 import { DatabaseManager } from './databaseManager';
@@ -136,8 +137,18 @@ const GETTING_STARTED_SEEN_KEY = 'gemstone.hasSeenGettingStarted';
 const GETTING_STARTED_WALKTHROUGH_ID = 'gemtalksystems.gemstone-ide#gemstoneGettingStarted';
 
 export function activate(context: vscode.ExtensionContext) {
+  // Create every output channel up front — not lazily on first use — so the
+  // full set is discoverable in the Output view's channel dropdown from
+  // activation. (The Class Sync channel is created just after ExportManager is
+  // constructed; the LSP channel by client.start(); the Enhanced Inspector Perf
+  // channel with the perf tracker.) See docs/output-channels.md.
   jasperChannel = vscode.window.createOutputChannel('Jasper');
-  context.subscriptions.push(jasperChannel);
+  context.subscriptions.push(
+    jasperChannel,
+    getGciLog(),
+    getTranscriptChannel(),
+    getSysadminChannel(),
+  );
 
   initializeBundledGci(context.extensionPath);
 
@@ -267,6 +278,9 @@ export function activate(context: vscode.ExtensionContext) {
   // Active sessions are shown as children of their login in the Logins &
   // Sessions tree (treeProvider above); there is no separate Sessions view.
   exportManager = new ExportManager();
+  // Create the Class Sync channel now so it joins the others in the dropdown.
+  const classSyncChannel = exportManager.ensureLogChannel();
+  if (classSyncChannel) context.subscriptions.push(classSyncChannel);
   SystemBrowser.setExportManager(exportManager);
   fileInManager = new FileInManager(sessionManager, exportManager);
   fileInManager.register(context);
