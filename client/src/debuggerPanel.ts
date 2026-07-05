@@ -5,7 +5,8 @@ import * as fs from 'fs';
 import { ActiveSession } from './sessionManager';
 import * as debug from './debugQueries';
 import * as queries from './browserQueries';
-import { unwrapTranscriptCapture, transcriptCaptureUserCodeOffset } from './transcriptCapture';
+import { drainTranscript } from './transcriptSink';
+import { appendTranscriptOutput } from './transcriptChannel';
 import { buildLineOffsets, mapOffsetToStepPoint } from './breakpointManager';
 import { EnhancedInspector } from './enhancedInspector';
 import { InspectorTreeProvider } from './inspectorTreeProvider';
@@ -2390,6 +2391,9 @@ export class DebuggerPanel {
    * lands a hit exactly like a Resume that re-halted.
    */
   private handleContinueResult(result: debug.StepResult): void {
+    // Transcript writes buffered during the resumed run are shown now (the
+    // completion path drains in onCompleted).
+    if (!result.completed) appendTranscriptOutput(drainTranscript(this.session));
     if (result.completed) {
       this.onCompleted(result);
     } else if (result.errorNumber === GS_ERR_UNCONTINUABLE) {
@@ -2521,22 +2525,16 @@ export class DebuggerPanel {
       return undefined;
     }
 
-    // The editable source is shown 1:1 (shift 0); a doit shows the user code
-    // unwrapped from the transcript-capture glue, so its step-point offsets are
-    // shifted by the stripped prefix.
-    const shift = home.uriInfo ? 0 : transcriptCaptureUserCodeOffset(rawSource);
-    const displayedSource = home.uriInfo ? rawSource : unwrapTranscriptCapture(rawSource);
-
-    // The cursor's offset in the DISPLAYED source, shifted into STORED coords (where
-    // `offsets` live), so a doit's wrapped step points line up with the cursor.
-    const dispLineOffsets = buildLineOffsets(displayedSource);
+    // Source is always shown 1:1 — doits run the user's raw code (no wrapper
+    // glue), so displayed and stored coordinates coincide.
+    const dispLineOffsets = buildLineOffsets(rawSource);
     const pos = editor.selection.active;
     const dispLineStart = dispLineOffsets[pos.line + 1];
     if (dispLineStart === undefined) return undefined; // cursor past the source (stale editor)
-    const cursorOffset = dispLineStart + pos.character + shift;
+    const cursorOffset = dispLineStart + pos.character;
 
     // Column-aware map needs the cursor's line bounds in STORED coords.
-    const storedLineOffsets = shift === 0 ? dispLineOffsets : buildLineOffsets(rawSource);
+    const storedLineOffsets = dispLineOffsets;
     let storedLine = 1;
     for (let l = 1; l < storedLineOffsets.length; l++) {
       if (storedLineOffsets[l] <= cursorOffset) storedLine = l; else break;
@@ -2628,6 +2626,9 @@ export class DebuggerPanel {
    * then close the panel.
    */
   private onCompleted(result: debug.StepResult): void {
+    // Show Transcript output the completing run buffered (harmlessly empty if
+    // an onComplete callback drains again).
+    appendTranscriptOutput(drainTranscript(this.session));
     if (result.resultOop != null) this.onComplete?.(result.resultOop);
     this.panel.dispose();
   }
@@ -2679,6 +2680,9 @@ export class DebuggerPanel {
       // a looping method no longer freezes the extension host (see nbRunner.ts).
       // Forwarding opts wires the in-panel Cancel button for a runaway step.
       const result = await fn(this.session, this.gsProcess, level, opts);
+      // The sink buffers Transcript writes while debugging (a live forwarder
+      // send would swallow the step) — show whatever this step produced.
+      appendTranscriptOutput(drainTranscript(this.session));
       if (this.disposed) return; // panel closed while the step ran
       if (result.completed) {
         this.onCompleted(result);
@@ -2944,13 +2948,9 @@ export class DebuggerPanel {
       let uri: vscode.Uri;
       let methodForOffsets: { className: string; isMeta: boolean; selector: string } | undefined;
       // For a read-only view we still highlight the step point from the frame's
-      // method OOP. The server's step-point offsets are in the stored source's
-      // coordinates; when the displayed source was unwrapped from the Transcript-
-      // capture glue (Display It / Execute It / Inspect It), shift them by the
-      // stripped prefix so they land in the user code. `readOnlyOffsetShift` is 0
-      // for a raw Debug It / non-symbol-list method shown 1:1.
+      // method OOP. Doits run the user's raw code, so the displayed source is
+      // always the stored source and offsets apply 1:1.
       let readOnlyOffsetMethodOop: bigint | undefined;
-      let readOnlyOffsetShift = 0;
       if (home.uriInfo) {
         // In the symbol list → the real editable gemstone:// editor.
         uri = vscode.Uri.parse(buildMethodSourceUri(this.session.id, home.uriInfo));
@@ -2960,10 +2960,10 @@ export class DebuggerPanel {
       } else {
         // A read-only doit / non-symbol-list method can't be edited-and-continued.
         this.editableSourceUri = undefined;
-        // No gemstone:// URI: show the source read-only. Strip the Transcript-
-        // capture glue so a doit shows just the user's code (e.g.
-        // `JasperDebugDemo new run`). Title by the method when we have one, so a
-        // non-symbol-list method isn't mislabelled "Executed Code".
+        // No gemstone:// URI: show the source read-only, exactly as stored —
+        // doits run the user's raw code, so there is no wrapper glue to strip.
+        // Title by the method when we have one, so a non-symbol-list method
+        // isn't mislabelled "Executed Code".
         //
         // Source AND offsets come from the HOME method, never the block's own
         // GsNMethod. A block's `_sourceOffsets` covers only its own step points,
@@ -2972,14 +2972,8 @@ export class DebuggerPanel {
         // array overruns it (undefined) and the highlight collapses to the line.
         // The home method's offsets include every block's step points, so they
         // line up. (This mirrors the editable path, which uses home offsets.)
-        const rawSource = debug.getMethodSource(this.session, homeMethodOop);
-        const source = unwrapTranscriptCapture(rawSource);
-        // Highlight from the home method's offsets, shifted into the displayed
-        // source's coordinates. The shift is 0 when nothing was unwrapped (the
-        // displayed source IS the server source — a raw Debug It), and the
-        // stripped-prefix length when the Transcript-capture glue was removed.
+        const source = debug.getMethodSource(this.session, homeMethodOop);
         readOnlyOffsetMethodOop = homeMethodOop;
-        readOnlyOffsetShift = transcriptCaptureUserCodeOffset(rawSource);
         const title = home.isExecutedCode ? 'Executed Code' : `${home.definingClassName}>>#${home.selector}`;
         uri = DebuggerPanel.stashReadOnlySource(this.session.id, homeMethodOop, title, source);
         this.stashedSourceKeys.add(uri.toString());
@@ -3007,13 +3001,11 @@ export class DebuggerPanel {
       }
 
       // Highlight the current step point: from class>>selector offsets for an
-      // editable method, or from the method OOP for a read-only doit — shifting
-      // the offsets into the displayed source when the Transcript-capture glue
-      // was stripped (Display It / Execute It / Inspect It).
+      // editable method, or from the method OOP for a read-only doit.
       const range = methodForOffsets
         ? this.stepPointRange(editor.document, highlightInfo, highlightLevel, methodForOffsets)
         : readOnlyOffsetMethodOop !== undefined
-          ? this.stepPointRange(editor.document, highlightInfo, highlightLevel, undefined, readOnlyOffsetMethodOop, readOnlyOffsetShift)
+          ? this.stepPointRange(editor.document, highlightInfo, highlightLevel, undefined, readOnlyOffsetMethodOop)
           : undefined;
       // Clear a stale highlight if the source moved to a different editor.
       if (this.decoratedEditor && this.decoratedEditor !== editor) {
@@ -3369,15 +3361,13 @@ export class DebuggerPanel {
     level: number,
     method: { className: string; isMeta: boolean; selector: string } | undefined,
     readOnlyMethodOop?: bigint,
-    readOnlyOffsetShift = 0,
   ): vscode.Range | undefined {
     let pos: vscode.Position | undefined;
 
     // Exact step-point offset → the precise sub-expression start. The offsets
     // come from class>>selector for an editable method, or straight from the
-    // method OOP for a read-only doit. For a doit shown with its Transcript-
-    // capture glue stripped, the offsets are in the stored (wrapped) source's
-    // coordinates, so shift them into the displayed source.
+    // method OOP for a read-only doit. The displayed source is always the
+    // stored source (doits run the user's raw code), so offsets apply 1:1.
     if (method || readOnlyMethodOop !== undefined) {
       try {
         const stepPoint = debug.getStepPoint(this.session, this.gsProcess, level);
@@ -3389,20 +3379,14 @@ export class DebuggerPanel {
             ? queries.getSourceOffsets(this.session, method.className, method.isMeta, method.selector)
             : debug.getSourceOffsetsForMethod(this.session, readOnlyMethodOop!);
           const offset = offsets[stepPoint - 1];
-          const displayOffset = offset != null ? offset - 1 - readOnlyOffsetShift : -1;
-          // A negative offset means the step point sits before the displayed
-          // source (in the stripped Transcript-capture prefix) — skip it rather
-          // than let positionAt clamp the highlight to the document start.
+          const displayOffset = offset != null ? offset - 1 : -1;
           if (displayOffset >= 0 && doc.positionAt) pos = doc.positionAt(displayOffset);
         }
       } catch { /* best-effort; fall back to the IP line below */ }
     }
 
-    // Fallback: the first non-whitespace token of the IP's source line. Only
-    // valid when the displayed source's line numbering matches the server's —
-    // i.e. an editable method or a 1:1 read-only doit. A stripped wrapper shifts
-    // every line, so skip the fallback there (the offset path above is exact).
-    if (!pos && readOnlyOffsetShift === 0) {
+    // Fallback: the first non-whitespace token of the IP's source line.
+    if (!pos) {
       let line = 0;
       try { line = debug.getLineForIp(this.session, info.methodOop, info.ipOffset); } catch { /* */ }
       if (line > 0) {

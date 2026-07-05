@@ -1,7 +1,10 @@
 import { SessionManager, ActiveSession } from './sessionManager';
-import { executeFetchString } from './browserQueries';
 import { wrapExecuteCode } from './queries/executeCode';
 import { GemStoneNotebookKernel } from './gemstoneNotebookKernel';
+import { setTranscriptLive, settleNbResult } from './transcriptSink';
+import { appendTranscriptOutput } from './transcriptChannel';
+import { runNbCall } from './nbRunner';
+import { OOP_ILLEGAL, OOP_NIL, OOP_CLASS_UTF8 } from './gciConstants';
 
 // GemStone Smalltalk as a Jupyter kernel — see gemstoneNotebookKernel.ts for
 // the Jupyter integration mechanics. Each cell is an independent doit (the
@@ -18,8 +21,54 @@ import { GemStoneNotebookKernel } from './gemstoneNotebookKernel';
 export const SMALLTALK_CONTROLLER_ID = 'gemstone-smalltalk-kernel';
 export const SMALLTALK_CONTROLLER_LABEL = 'GemStone Smalltalk';
 
-export function evalSmalltalk(session: ActiveSession, source: string): string {
-  return executeFetchString(session, 'smalltalkNotebookCell', wrapExecuteCode(source));
+const MAX_CELL_RESULT = 256 * 1024;
+
+// Cells run on the NON-BLOCKING execute path with the transcript sink in live
+// mode, so `Transcript show:` output streams to the GemStone Transcript channel
+// while the cell runs (and a long cell doesn't freeze the extension host).
+export async function evalSmalltalk(session: ActiveSession, source: string): Promise<string> {
+  const { result: inProgress } = session.gci.GciTsCallInProgress(session.handle);
+  if (inProgress !== 0) {
+    throw new Error('Session is busy with another operation. Please wait or use a different session.');
+  }
+
+  const code = wrapExecuteCode(source);
+  appendTranscriptOutput(setTranscriptLive(session, true));
+  try {
+    const resultOop = await runNbCall(
+      session,
+      () => {
+        // OOP_CLASS_UTF8 declares the source bytes UTF-8, so cells with
+        // non-ASCII literals compile correctly (same convention as
+        // browserQueries.executeFetchString).
+        const { success, err } = session.gci.GciTsNbExecute(
+          session.handle, code, OOP_CLASS_UTF8, OOP_ILLEGAL, OOP_NIL, 0, 0,
+        );
+        return { success, err };
+      },
+      async () => {
+        const { result, err } = await settleNbResult(
+          session, text => appendTranscriptOutput(text),
+        );
+        if (err.number !== 0) {
+          throw new Error(err.message || `GCI error ${err.number}`);
+        }
+        return result;
+      },
+      { title: 'GemStone: Running cell…' },
+    );
+
+    // wrapExecuteCode printStrings server-side, so the result IS a string.
+    const { data, err: fetchErr } = session.gci.GciTsFetchUtf8(
+      session.handle, resultOop, MAX_CELL_RESULT,
+    );
+    if (fetchErr.number !== 0) {
+      throw new Error(fetchErr.message || `GCI error ${fetchErr.number}`);
+    }
+    return data;
+  } finally {
+    appendTranscriptOutput(setTranscriptLive(session, false));
+  }
 }
 
 export class SmalltalkNotebookController extends GemStoneNotebookKernel {

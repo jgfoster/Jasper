@@ -8,6 +8,15 @@ import { wrapExecuteCode } from './queries/executeCode';
 import type { TestRunResult } from './queries/runTestMethod';
 import type { TestFailureDetails } from './queries/describeTestFailure';
 import { withMcpErrorMap } from './mcpZodErrorMap';
+import { drainTranscript } from './transcriptSink';
+import { appendTranscriptOutput } from './transcriptChannel';
+
+// AI-executed code writes to the Transcript too: the sink buffers those writes
+// (MCP tools run on the FetchBytes path, which cannot host live forwarding —
+// see transcriptSink.ts), so surface them in the channel after each code run.
+function showBufferedTranscript(session: ActiveSession): void {
+  appendTranscriptOutput(drainTranscript(session));
+}
 
 // Refresh the session's view of committed state if it's safe to do so.
 // GemStone's GCI pins read-only operations to the session's transaction
@@ -313,7 +322,11 @@ export function registerMcpTools(
       source: z.string().describe('Python source string to evaluate'),
     },
     async (args) => wrap<typeof args>((session, a) => {
-      return python.evalPython(session, a.source);
+      try {
+        return python.evalPython(session, a.source);
+      } finally {
+        showBufferedTranscript(session);
+      }
     })(args),
   );
 
@@ -329,7 +342,11 @@ export function registerMcpTools(
       // See queries/executeCode.ts. Block-wraps multi-statement bodies and
       // guards against AlmostOutOfStack / AbstractException so a runaway
       // block returns a clean error string instead of taking the gem down.
-      return executeString(session, wrapExecuteCode(a.code));
+      try {
+        return executeString(session, wrapExecuteCode(a.code));
+      } finally {
+        showBufferedTranscript(session);
+      }
     })(args),
   );
 
@@ -591,9 +608,13 @@ export function registerMcpTools(
     },
     async (args) => wrap<typeof args>((session, a) => {
       refreshIfClean(session);
-      return withResolvedDict(session, a.className, a.dictionary, (dictName) =>
-        formatTestResults(sunit.runTestClass(session, a.className, dictName)),
-      );
+      try {
+        return withResolvedDict(session, a.className, a.dictionary, (dictName) =>
+          formatTestResults(sunit.runTestClass(session, a.className, dictName)),
+        );
+      } finally {
+        showBufferedTranscript(session);
+      }
     })(args),
   );
 
@@ -614,9 +635,13 @@ export function registerMcpTools(
     },
     async (args) => wrap<typeof args>((session, a) => {
       refreshIfClean(session);
-      return withResolvedDict(session, a.className, a.dictionary, (dictName) =>
-        formatTestResult(sunit.runTestMethod(session, a.className, a.selector, dictName)),
-      );
+      try {
+        return withResolvedDict(session, a.className, a.dictionary, (dictName) =>
+          formatTestResult(sunit.runTestMethod(session, a.className, a.selector, dictName)),
+        );
+      } finally {
+        showBufferedTranscript(session);
+      }
     })(args),
   );
 

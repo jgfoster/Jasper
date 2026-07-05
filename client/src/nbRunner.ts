@@ -85,7 +85,11 @@ export interface NbRunOptions {
  *
  * @param onReady reads the result once polling reports it's ready (typically
  *                `GciTsNbResult`) and returns the caller's value; may throw to
- *                signal failure.
+ *                signal failure. May be async: when it returns a promise (e.g.
+ *                the transcript-forwarding settle loop, which chains async
+ *                GciTsContinueWith calls), the run only settles when that
+ *                promise does — so the progress notification and its
+ *                soft/hard-break Cancel keep working for the whole run.
  *
  * If the call outlives `PROGRESS_THRESHOLD_MS`, a cancellable progress
  * notification appears: the first cancel sends a soft break and updates the
@@ -94,7 +98,7 @@ export interface NbRunOptions {
  */
 export function pollNbToCompletion<T>(
   session: ActiveSession,
-  onReady: () => T,
+  onReady: () => T | Promise<T>,
   opts: NbRunOptions = {},
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -143,9 +147,20 @@ export function pollNbToCompletion<T>(
       const { result: pollResult, err: pollErr } = pollNbResultReady(session);
 
       if (pollResult === 1) {
-        settle(() => {
-          try { resolve(onReady()); } catch (e) { reject(e); }
-        });
+        // Don't settle until onReady's (possibly async) work finishes — a
+        // transcript-forwarding settle loop may keep the server running well
+        // past this first ready signal, and Cancel must stay live throughout.
+        let ready: T | Promise<T>;
+        try {
+          ready = onReady();
+        } catch (e) {
+          settle(() => reject(e));
+          return;
+        }
+        Promise.resolve(ready).then(
+          value => settle(() => resolve(value)),
+          e => settle(() => reject(e)),
+        );
         return;
       }
       if (pollResult === -1) {

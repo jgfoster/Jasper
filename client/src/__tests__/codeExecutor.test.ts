@@ -11,6 +11,7 @@ vi.mock('../gciLog', () => ({
 
 vi.mock('../transcriptChannel', () => ({
   appendTranscript: vi.fn(),
+  appendTranscriptOutput: vi.fn(),
   showTranscript: vi.fn(),
 }));
 
@@ -32,7 +33,7 @@ import { EnhancedInspector } from '../enhancedInspector';
 import { SessionManager, ActiveSession } from '../sessionManager';
 import * as vscode from 'vscode';
 import { __resetConfig } from '../__mocks__/vscode';
-import { appendTranscript, showTranscript } from '../transcriptChannel';
+import { appendTranscript, appendTranscriptOutput, showTranscript } from '../transcriptChannel';
 import { pollReadable } from '../socketPoll';
 import { GCI_PERFORM_FLAG_ENABLE_DEBUG, GCI_PERFORM_FLAG_SINGLE_STEP } from '../gciConstants';
 
@@ -198,12 +199,6 @@ function lastDiagCollection() {
   return results[results.length - 1].value;
 }
 
-/** Access private wrapWithTranscriptCapture for direct testing. */
-function callWrap(exec: CodeExecutor, code: string) {
-  return (exec as unknown as Record<string, (c: string) => { wrappedCode: string; codeOffset: number }>)
-    .wrapWithTranscriptCapture(code);
-}
-
 // ── Tests ────────────────────────────────────────────────────
 
 describe('CodeExecutor', () => {
@@ -217,52 +212,6 @@ describe('CodeExecutor', () => {
     gci = makeGci();
     session = makeSession(gci);
     executor = new CodeExecutor(makeSessionManager(session));
-  });
-
-  // ── wrapWithTranscriptCapture ──────────────────────────────
-
-  describe('wrapWithTranscriptCapture', () => {
-    it('does not escape single quotes in user code', () => {
-      const { wrappedCode } = callWrap(executor, "UserGlobals at: #'James' put: 'Foster'.");
-      expect(wrappedCode).toContain("UserGlobals at: #'James' put: 'Foster'.");
-      expect(wrappedCode).not.toContain("''James''");
-      expect(wrappedCode).not.toContain("''Foster''");
-    });
-
-    it('preserves string literals with single quotes', () => {
-      const { wrappedCode } = callWrap(executor, "'hello world'");
-      expect(wrappedCode).toContain("'hello world'");
-    });
-
-    it('preserves symbols with single quotes', () => {
-      const { wrappedCode } = callWrap(executor, "#'a symbol'");
-      expect(wrappedCode).toContain("#'a symbol'");
-    });
-
-    it('preserves escaped single quotes inside Smalltalk strings', () => {
-      const { wrappedCode } = callWrap(executor, "'it''s a test'");
-      expect(wrappedCode).toContain("'it''s a test'");
-    });
-
-    it('returns the correct codeOffset', () => {
-      const code = '3 + 4';
-      const { wrappedCode, codeOffset } = callWrap(executor, code);
-      expect(wrappedCode.substring(codeOffset, codeOffset + code.length)).toBe(code);
-    });
-
-    it('wraps code in a Transcript capture block', () => {
-      const { wrappedCode } = callWrap(executor, '3 + 4');
-      expect(wrappedCode).toContain('WriteStream on: String new');
-      expect(wrappedCode).toContain('#Transcript');
-      expect(wrappedCode).toContain('ensure:');
-      expect(wrappedCode).toContain('[__vscResult := [3 + 4] value]');
-    });
-
-    it('handles multi-line code', () => {
-      const code = "| x |\nx := 42.\nx printString";
-      const { wrappedCode, codeOffset } = callWrap(executor, code);
-      expect(wrappedCode.substring(codeOffset, codeOffset + code.length)).toBe(code);
-    });
   });
 
   // ── Syntax error diagnostics ───────────────────────────────
@@ -292,14 +241,13 @@ describe('CodeExecutor', () => {
     });
 
     it('extracts character offset from error and maps to user code position', async () => {
-      const prefixLen = callWrap(executor, 'x').codeOffset;
-      // Error at the 5th character of user code (1-based in GemStone = prefixLen + 5)
-      const gsCharOffset = prefixLen + 5;
+      // The code executes verbatim (no wrapper), so GemStone's 1-based source
+      // character offsets map straight onto the user's selection.
       (gci.GciTsNbExecute as Mock).mockReturnValue({
         success: false,
         err: {
           number: 1001,
-          message: `a CompileError occurred (error 1001), near source character ${gsCharOffset}`,
+          message: 'a CompileError occurred (error 1001), near source character 5',
         },
       });
 
@@ -372,16 +320,13 @@ describe('CodeExecutor', () => {
     });
 
     it('maps multi-line code offset to correct editor line', async () => {
-      const prefixLen = callWrap(executor, 'x').codeOffset;
-
       const code = "| x |\nx := 42.\nx foo";
       // 'foo' starts at offset 18 in user code: "| x |\n" (6) + "x := 42.\n" (9) + "x " (2) + "f" = 17; 1-based = 18
-      const gsCharOffset = prefixLen + 18;
       (gci.GciTsNbExecute as Mock).mockReturnValue({
         success: false,
         err: {
           number: 1001,
-          message: `near source character ${gsCharOffset}`,
+          message: 'near source character 18',
         },
       });
 
@@ -430,6 +375,64 @@ describe('CodeExecutor', () => {
       expect(wrappedCode).toContain("UserGlobals at: #'James' put: 'Foster'.");
       expect(wrappedCode).not.toContain("''James''");
       expect(wrappedCode).not.toContain("''Foster''");
+    });
+
+    it('runs with the transcript sink live, restoring buffered mode after', async () => {
+      setActiveEditor(makeEditor('3 + 4'));
+
+      await executor.executeIt();
+
+      const sinkCalls = (gci.GciTsExecuteFetchBytes as Mock).mock.calls
+        .map(c => c[1] as string)
+        .filter(code => code.includes('jasperLive:'));
+      expect(sinkCalls.some(code => code.includes('jasperLive: true'))).toBe(true);
+      expect(sinkCalls.some(code => code.includes('jasperLive: false'))).toBe(true);
+    });
+
+    it('restores buffered mode even when the execution errors', async () => {
+      (gci.GciTsNbResult as Mock).mockReturnValue({
+        result: 0x01n,
+        err: { number: 2003, message: 'a UndefinedObject does not understand #foo', context: OOP_NIL },
+      });
+      setActiveEditor(makeEditor('nil foo'));
+
+      await executor.executeIt();
+
+      const sinkCalls = (gci.GciTsExecuteFetchBytes as Mock).mock.calls
+        .map(c => c[1] as string);
+      expect(sinkCalls.some(code => code.includes('jasperLive: false'))).toBe(true);
+    });
+
+    it('streams a mid-execution Transcript write to the channel and resumes to the result', async () => {
+      // First NbResult: a forwarder send (error 2336) carrying 'live text';
+      // ContinueWithAsync then completes with the real result.
+      (gci.GciTsNbResult as Mock).mockReturnValue({
+        result: 0x01n,
+        err: {
+          number: 2336, context: 0x999n, argCount: 4,
+          args: [0x10n, 0x11n, 0x12n, 0x13n], message: 'clientForwarderSend',
+        },
+      });
+      (gci as Record<string, unknown>).GciTsOopToI64 =
+        vi.fn(() => ({ success: true, value: 2n, err: { number: 0 } }));
+      (gci as Record<string, unknown>).GciTsFetchUtf8 =
+        vi.fn((_h: unknown, oop: bigint) => (
+          oop === 0x12n
+            ? { data: 'nextPutAll:', err: { number: 0 } }
+            : { data: 'live text', err: { number: 0 } }
+        ));
+      (gci as Record<string, unknown>).GciTsFetchOops =
+        vi.fn(() => ({ result: 1, oops: [0x77n], err: { number: 0 } }));
+      (gci as Record<string, unknown>).GciTsContinueWithAsync =
+        vi.fn(async () => ({ result: 200n, err: { number: 0, context: 0n } }));
+      setActiveEditor(makeEditor("Transcript show: 'live text'. 3 + 4"));
+
+      await executor.executeIt();
+
+      expect(appendTranscriptOutput).toHaveBeenCalledWith('live text');
+      expect((gci as Record<string, unknown>).GciTsContinueWithAsync).toHaveBeenCalledTimes(1);
+      // The execution completed normally — no error dialog, no diagnostic.
+      expect(vscode.window.showErrorMessage).not.toHaveBeenCalled();
     });
   });
 
@@ -501,24 +504,22 @@ describe('CodeExecutor', () => {
       expect(lastExecFlags() & GCI_PERFORM_FLAG_SINGLE_STEP).toBe(0);
     });
 
-    it('runs the RAW selection — no transcript-capture wrapper — so the halt lands on user code', async () => {
+    it('runs the RAW selection so the halt lands on user code', async () => {
       const code = 'Array new add: 1; add: 2';
       setActiveEditor(makeEditor(code));
 
       await executor.debugIt();
 
-      // The wrapper nests code in `[[ <code> ] value]` and declares `__vscCapture`
-      // temps; Debug It must send the selection verbatim instead.
       expect(lastExecCode()).toBe(code);
-      expect(lastExecCode()).not.toContain('__vscCapture');
     });
 
-    it('still wraps Execute It in the transcript-capture glue (contrast with Debug It)', async () => {
-      setActiveEditor(makeEditor('Array new add: 1; add: 2'));
+    it('Execute It also runs the raw selection (transcript arrives via the sink, not a wrapper)', async () => {
+      const code = 'Array new add: 1; add: 2';
+      setActiveEditor(makeEditor(code));
 
       await executor.executeIt();
 
-      expect(lastExecCode()).toContain('__vscCapture');
+      expect(lastExecCode()).toBe(code);
     });
   });
 

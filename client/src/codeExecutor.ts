@@ -6,8 +6,8 @@ import { InspectorTreeProvider } from './inspectorTreeProvider';
 import { routeInspect } from './inspectRouter';
 import { DebuggerPanel } from './debuggerPanel';
 import { clearStack, getObjectPrintString, acquireStepping, releaseStepping } from './debugQueries';
-import { appendTranscript, showTranscript } from './transcriptChannel';
-import { wrapWithTranscriptCapture } from './transcriptCapture';
+import { appendTranscript, appendTranscriptOutput, showTranscript } from './transcriptChannel';
+import { setTranscriptLive, drainTranscript, settleNbResult } from './transcriptSink';
 import { pollNbToCompletion, NbCancelledError } from './nbRunner';
 
 const MAX_RESULT_SIZE = 64 * 1024;
@@ -157,21 +157,11 @@ export class CodeExecutor {
     const label = mode === 'display' ? 'Display It'
       : mode === 'debug' ? 'Debug It' : 'Execute It';
     logQuery(session.id, label, code);
-    // Debug It runs the raw selection, NOT the transcript-capture wrapper. The
-    // wrapper nests the code as `[[ <code> ] value] ensure: [...]`, so a
-    // single-step halt lands on the OUTER block and Step Over treats the inner
-    // `[<code>] value` send as one atomic unit — stepping clean over all the
-    // user's code into the ensure: cleanup. Running unwrapped makes step point 1
-    // the user's first statement so stepping advances through it. (Transcript
-    // capture is sacrificed while debugging — an acceptable trade.)
-    const { wrappedCode, codeOffset } = mode === 'debug'
-      ? { wrappedCode: code, codeOffset: 0 }
-      : this.wrapWithTranscriptCapture(code);
 
     // Dim the selected code while executing
     const execRange = new vscode.Range(selection.start, selection.end);
     editor.setDecorations(executingDecorationType, [execRange]);
-    
+
     this.setExecuting(session.id, true);
     // Run interpreted (native code off) so a halt/error is steppable in the
     // debugger — GemStone can't step native code (error 6014), and the process
@@ -182,22 +172,23 @@ export class CodeExecutor {
     // statement of the compiled code and we open the debugger sitting there.
     const execFlags = GCI_PERFORM_FLAG_ENABLE_DEBUG
       | (mode === 'debug' ? GCI_PERFORM_FLAG_SINGLE_STEP : 0);
+    // Transcript writes stream live to the output channel while this execute
+    // runs (see transcriptSink). Any residue buffered since the last drain is
+    // displayed now. Switched back to buffered mode in finally.
+    appendTranscriptOutput(setTranscriptLive(session, true));
     try {
       const { success, err: startErr } = session.gci.GciTsNbExecute(
-        session.handle, wrappedCode, oopClassString,
+        session.handle, code, oopClassString,
         OOP_ILLEGAL, OOP_NIL, execFlags, 0,
       );
       if (!success) {
         const msg = startErr.message || `error ${startErr.number}`;
         logError(session.id, msg);
-        this.showCompileError(editor, selection, code, codeOffset, msg);
+        this.showCompileError(editor, selection, code, 0, msg);
         return;
       }
 
       const resultString = await this.pollForResult(session);
-
-      const transcript = this.fetchTranscriptOutput(session);
-      if (transcript) appendTranscript(transcript);
 
       logResult(session.id, resultString);
       this.diagnostics.delete(editor.document.uri);
@@ -228,14 +219,15 @@ export class CodeExecutor {
           return;
         }
         // Try to show as inline diagnostic first; fall back to debug dialog
-        this.showCompileError(editor, selection, code, codeOffset, msg);
+        this.showCompileError(editor, selection, code, 0, msg);
         // For a Display It, resuming/stepping to completion should render the
         // result back in the workspace, just as if it had never halted. (Execute
         // It is intentionally silent, so no callback.)
         const onComplete = displayResult
           ? (resultOop: bigint): void => {
-              const transcript = this.fetchTranscriptOutput(session);
-              if (transcript) appendTranscript(transcript);
+              // The debugger runs with the sink in buffered mode; show what
+              // accumulated while stepping/resuming to completion.
+              appendTranscriptOutput(drainTranscript(session));
               const resultString = getObjectPrintString(session, resultOop, MAX_RESULT_SIZE);
               // Capture the editor's column now, while it is still visible — by the
               // next tick (after the panel disposes) editor.viewColumn may be
@@ -254,10 +246,14 @@ export class CodeExecutor {
           : undefined;
         await this.promptDebuggableError(session, e.context, msg, onComplete);
       } else {
-        this.showCompileError(editor, selection, code, codeOffset, msg);
+        this.showCompileError(editor, selection, code, 0, msg);
       }
     } finally {
       editor.setDecorations(executingDecorationType, []);
+      // Back to buffered mode; display anything that raced the switch. (After
+      // a hard-break cancel the gem may still be settling — the switch then
+      // fails quietly and the next execute's switch-on drains the residue.)
+      appendTranscriptOutput(setTranscriptLive(session, false));
       releaseStepping(session);
       this.setExecuting(session.id, false);
     }
@@ -503,28 +499,6 @@ export class CodeExecutor {
     }
   }
 
-  private wrapWithTranscriptCapture(code: string): { wrappedCode: string; codeOffset: number } {
-    // Delegate to the shared wrapper so the Enhanced Debugger's unwrap
-    // (transcriptCapture.unwrapTranscriptCapture) stays in lock step with it.
-    return wrapWithTranscriptCapture(code);
-  }
-
-  private fetchTranscriptOutput(session: ActiveSession): string {
-    try {
-      const code = `| __t |
-__t := SessionTemps current at: #'__vscTranscriptResult' ifAbsent: [''].
-SessionTemps current removeKey: #'__vscTranscriptResult' ifAbsent: [].
-__t`;
-      const { data, err } = session.gci.GciTsExecuteFetchBytes(
-        session.handle, code, -1, OOP_NIL, OOP_ILLEGAL, OOP_NIL, MAX_RESULT_SIZE,
-      );
-      if (err.number !== 0) return '';
-      return data || '';
-    } catch {
-      return '';
-    }
-  }
-
   private resolveOopClassString(session: ActiveSession): bigint | undefined {
     let oop = this.oopClassStringCache.get(session.handle);
     if (oop !== undefined) return oop;
@@ -660,7 +634,7 @@ __t`;
   }
 
   private pollForCompletion<T>(
-    session: ActiveSession, onReady: () => T,
+    session: ActiveSession, onReady: () => Promise<T>,
   ): Promise<T> {
     // Delegates to the shared non-blocking poll loop (nbRunner) so Execute/Display
     // It and the debugger's step/trim share ONE cancel/break/backoff/progress
@@ -677,9 +651,12 @@ __t`;
     return this.pollForCompletion(session, () => this.fetchResultOop(session));
   }
 
-  private fetchResultOop(session: ActiveSession): bigint {
-    const { result: resultOop, err: resultErr } = session.gci.GciTsNbResult(
-      session.handle,
+  private async fetchResultOop(session: ActiveSession): Promise<bigint> {
+    // Transcript writes arrive here as forwarder sends (error 2336) while the
+    // code is still running: settleNbResult displays each one and resumes the
+    // execution, only returning when a real result or error arrives.
+    const { result: resultOop, err: resultErr } = await settleNbResult(
+      session, text => appendTranscriptOutput(text),
     );
     if (resultErr.number !== 0) {
       const msg = resultErr.message || `GemStone error ${resultErr.number}`;
@@ -693,8 +670,8 @@ __t`;
     return resultOop;
   }
 
-  private fetchResultString(session: ActiveSession): string {
-    const resultOop = this.fetchResultOop(session);
+  private async fetchResultString(session: ActiveSession): Promise<string> {
+    const resultOop = await this.fetchResultOop(session);
 
     const { data, err: fetchErr } = session.gci.GciTsPerformFetchBytes(
       session.handle, resultOop, 'printString', [], MAX_RESULT_SIZE,
@@ -765,7 +742,6 @@ __t`;
     if (oopClassString === undefined) return;
 
     logQuery(session.id, 'Inspect It', code);
-    const { wrappedCode } = this.wrapWithTranscriptCapture(code);
 
     // Dim the selected code in the active editor while executing
     const editor = vscode.window.activeTextEditor;
@@ -779,9 +755,11 @@ __t`;
     // must START interpreted. Released in finally; if it halts, the debugger
     // panel holds its own ref to keep native off while it's open.
     acquireStepping(session);
+    // Live transcript for the duration; see execute() above.
+    appendTranscriptOutput(setTranscriptLive(session, true));
     try {
       const { success, err: startErr } = session.gci.GciTsNbExecute(
-        session.handle, wrappedCode, oopClassString,
+        session.handle, code, oopClassString,
         OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG, 0,
       );
       if (!success) {
@@ -792,9 +770,6 @@ __t`;
       }
 
       const oop = await this.pollForResultOop(session);
-
-      const transcript = this.fetchTranscriptOutput(session);
-      if (transcript) appendTranscript(transcript);
 
       logResult(session.id, `OOP ${oop}`);
       routeInspect(session, oop, label, inspectorProvider);
@@ -807,8 +782,7 @@ __t`;
         // If it halts, resuming/stepping to completion should still inspect the
         // result — mirroring the success path above.
         await this.promptDebuggableError(session, e.context, msg, (resultOop: bigint) => {
-          const transcript = this.fetchTranscriptOutput(session);
-          if (transcript) appendTranscript(transcript);
+          appendTranscriptOutput(drainTranscript(session));
           routeInspect(session, resultOop, label, inspectorProvider);
         });
       } else {
@@ -818,6 +792,7 @@ __t`;
       if (editor) {
         editor.setDecorations(executingDecorationType, []);
       }
+      appendTranscriptOutput(setTranscriptLive(session, false));
       releaseStepping(session);
       this.setExecuting(session.id, false);
     }

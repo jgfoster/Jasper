@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { SessionManager, ActiveSession } from './sessionManager';
 import { logError } from './gciLog';
+import { drainTranscript } from './transcriptSink';
+import { appendTranscriptOutput } from './transcriptChannel';
 
 // Shared base for GemStone-backed kernels in Microsoft's Jupyter extension.
 // The Jupyter extension owns the `jupyter-notebook` notebook type; any
@@ -21,8 +23,10 @@ export interface NotebookKernelSpec {
    * Evaluate one cell's source on the session and return the result string.
    * scopeId identifies the notebook (its URI) for kernels that keep
    * per-notebook state on the GemStone side; stateless kernels ignore it.
+   * May be async (the Smalltalk kernel runs cells non-blocking so Transcript
+   * output streams live while the cell executes).
    */
-  evaluate: (session: ActiveSession, source: string, scopeId: string) => string;
+  evaluate: (session: ActiveSession, source: string, scopeId: string) => string | Promise<string>;
 }
 
 export interface NotebookCellResult {
@@ -104,12 +108,17 @@ export class GemStoneNotebookKernel {
     let result: NotebookCellResult;
     try {
       const scopeId = cell.notebook.uri.toString();
-      result = classifyCellResult(this.evaluate(session, source, scopeId));
+      result = classifyCellResult(await this.evaluate(session, source, scopeId));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       logError(session.id, `Notebook cell failed: ${msg}`);
       await this.endWithError(execution, msg);
       return;
+    } finally {
+      // Show Transcript output the cell buffered server-side (kernels running
+      // on the blocking path — e.g. Grail Python — can't stream it live; for
+      // the live Smalltalk path this is an empty no-op drain).
+      appendTranscriptOutput(drainTranscript(session));
     }
 
     if (result.success) {

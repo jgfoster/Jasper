@@ -131,7 +131,6 @@ import {
   inlineHoverMarkdown,
 } from '../debuggerPanel';
 import { InlineValuesCodeLensProvider } from '../inlineValuesCodeLens';
-import { wrapWithTranscriptCapture, TRANSCRIPT_CAPTURE_PREFIX } from '../transcriptCapture';
 import { EnhancedInspector } from '../enhancedInspector';
 import { SystemBrowser } from '../systemBrowser';
 import { ActiveSession } from '../sessionManager';
@@ -987,15 +986,13 @@ describe('DebuggerPanel', () => {
       expect(editor.revealRange).toHaveBeenCalled();
     });
 
-    it('shows the executed source read-only, stripped of the Transcript-capture glue', async () => {
+    it('shows the executed source read-only, exactly as stored on the server', async () => {
       const panel = openPanelWithStack();
       // A true doit frame: no class>>selector at all (getMethodUriInfo AND
-      // getMethodInfo both fail to resolve a home class). Its stored source is
-      // the wrapped form; the panel must unwrap it.
+      // getMethodInfo both fail to resolve a home class). Doits run the user's
+      // raw code, so the stored source IS the displayed source.
       vi.mocked(debug.getMethodInfo).mockImplementationOnce(() => { throw new Error('doit: nil inClass'); });
-      vi.mocked(debug.getMethodSource).mockReturnValueOnce(
-        wrapWithTranscriptCapture('JasperDebugDemo new run').wrappedCode,
-      );
+      vi.mocked(debug.getMethodSource).mockReturnValueOnce('JasperDebugDemo new run');
       sendMessage(panel, { command: 'selectFrame', level: 3 });
       await flush();
 
@@ -1006,7 +1003,7 @@ describe('DebuggerPanel', () => {
       expect(openUri.query).toMatch(/session=\d+&method=\d+/);
       expect(debug.getMethodSource).toHaveBeenCalled();
 
-      // The content provider serves the UNWRAPPED user code (read-only, never dirty).
+      // The content provider serves the source 1:1 (read-only, never dirty).
       // (First read-only frame in the suite, so registration happens here.)
       const reg = vi.mocked(vscode.workspace.registerTextDocumentContentProvider).mock.calls[0];
       expect(reg[0]).toBe('gemstone-debug');
@@ -1028,10 +1025,10 @@ describe('DebuggerPanel', () => {
     });
 
     it('highlights a read-only frame whose source matches the server source 1:1', async () => {
-      // A non-symbol-list method (or a raw Debug It doit) is shown unmodified —
-      // nothing was unwrapped — so the server step-point offsets map onto the
-      // displayed source directly and the step point IS highlighted.
-      const panel = openPanelWithStack(); // frame 3 → read-only, source has no wrapper
+      // A non-symbol-list method or a doit is shown unmodified, so the server
+      // step-point offsets map onto the displayed source directly and the step
+      // point IS highlighted.
+      const panel = openPanelWithStack(); // frame 3 → read-only
       sendMessage(panel, { command: 'selectFrame', level: 3 });
       await flush();
 
@@ -1059,57 +1056,11 @@ describe('DebuggerPanel', () => {
       expect(debug.getSourceOffsetsForMethod).toHaveBeenCalledWith(session, 999n);
     });
 
-    it('highlights an unwrapped read-only frame, shifting offsets into the displayed source (step-point highlight)', async () => {
-      // A doit whose stored source is the Transcript-capture-wrapped form
-      // (Display It / Execute It / Inspect It). The panel unwraps it for display,
-      // so the server's offsets — in WRAPPED coordinates — must be shifted back
-      // by the stripped prefix to land on the displayed user code.
-      const panel = openPanelWithStack();
-      vi.mocked(debug.getMethodInfo).mockImplementationOnce(() => { throw new Error('doit: nil inClass'); });
-      vi.mocked(debug.getMethodSource).mockReturnValueOnce(
-        wrapWithTranscriptCapture('JasperDebugDemo new run').wrappedCode,
-      );
-      // Same 1-based offsets as the 1:1 case, but pushed into wrapped coordinates
-      // by the prefix length — so after the shift they reproduce the column-7 hit.
-      vi.mocked(debug.getSourceOffsetsForMethod).mockReturnValueOnce(
-        [1, 8, 26].map(o => o + TRANSCRIPT_CAPTURE_PREFIX.length),
-      );
-      sendMessage(panel, { command: 'selectFrame', level: 3 });
-      await flush();
-
-      const editor = await shownEditor();
-      // step point 2 → (8 + prefix) - 1 - prefix → positionAt(7) → (0, 7).
-      const range = vi.mocked(editor.setDecorations).mock.calls[0][1][0] as vscode.Range;
-      expect(range.start.line).toBe(0);
-      expect(range.start.character).toBe(7);
-      expect(editor.revealRange).toHaveBeenCalled();
-    });
-
-    it('does NOT highlight when the shifted offset falls in the stripped prefix', async () => {
-      // Guard for the shift: if a step point's offset lands inside the stripped
-      // Transcript-capture prefix, the shifted offset goes negative — skip the
-      // highlight rather than let positionAt clamp it to the document start.
-      const panel = openPanelWithStack();
-      vi.mocked(debug.getMethodInfo).mockImplementationOnce(() => { throw new Error('doit: nil inClass'); });
-      vi.mocked(debug.getMethodSource).mockReturnValueOnce(
-        wrapWithTranscriptCapture('JasperDebugDemo new run').wrappedCode,
-      );
-      // Small offsets (< prefix length) → shifted offset < 0.
-      vi.mocked(debug.getSourceOffsetsForMethod).mockReturnValueOnce([1, 8, 26]);
-      sendMessage(panel, { command: 'selectFrame', level: 3 });
-      await flush();
-
-      const editor = await shownEditor();
-      expect(vi.mocked(editor.setDecorations).mock.calls[0][1]).toEqual([]); // cleared, not set
-      expect(editor.revealRange).not.toHaveBeenCalled();
-    });
-
-    // A collapsed Executed Code frame: Display It / Execute It / Inspect It run
-    // user code inside the Transcript-capture wrapper's nested blocks, and
-    // filterStack collapses those frames into the single DEEPEST doit frame —
-    // but execution stopped in the TOP block (the user's halt). The highlight
-    // must use that top frame's step point, not the collapsed doit frame's
-    // (which sits out in the wrapper glue, after the user code).
+    // A collapsed Executed Code frame: a doit whose code contains blocks
+    // produces several frames sharing the doit's home method, and filterStack
+    // collapses those into the single DEEPEST doit frame — but execution
+    // stopped in the TOP block (the user's halt). The highlight must use that
+    // top frame's step point, not the collapsed doit frame's.
     describe('collapsed executed-code highlight (step-point highlight on the stop frame)', () => {
       // These overrides leak past clearAllMocks — restore the factory defaults.
       afterEach(() => {
@@ -1148,17 +1099,16 @@ describe('DebuggerPanel', () => {
         // No symbol-list entry and no resolvable class → executed code (a doit).
         vi.mocked(debug.getMethodInfo).mockImplementation(() => { throw new Error('doit'); });
         vi.mocked(debug.getMethodSource).mockImplementation(
-          () => wrapWithTranscriptCapture('Array new add: 1; halt; add: 2').wrappedCode,
+          () => '[Array new add: 1; halt; add: 2] value',
         );
         // Step point differs by frame: the stop frame (level 1) is at the halt;
-        // the collapsed doit (level 3) is out in the glue.
+        // the collapsed doit (level 3) is at the trailing `value` send.
         vi.mocked(debug.getStepPoint).mockImplementation((_s: unknown, _p: unknown, level: number) =>
           level === 1 ? 2 : 5);
-        // Home-method offsets in WRAPPED coordinates; the shift maps them back:
-        // sp 2 → 8 → col 7 (the halt); sp 5 → 40 → col 39 (the glue).
-        const shift = TRANSCRIPT_CAPTURE_PREFIX.length;
+        // Home-method offsets (1-based): sp 2 → 8 → col 7 (the halt);
+        // sp 5 → 40 → col 39 (the `value` send).
         vi.mocked(debug.getSourceOffsetsForMethod).mockImplementation(
-          () => [1, 8, 15, 22, 40].map(o => o + shift),
+          () => [1, 8, 15, 22, 40],
         );
 
         DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
@@ -2299,7 +2249,7 @@ describe('DebuggerPanel', () => {
       it('runs to cursor in a doit frame by setting + clearing the break by method OOP', async () => {
         vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true });
         // A single-frame doit stack: getMethodInfo throws (no home class) → the frame
-        // is "Executed Code"; source is shown read-only (gemstone-debug:), unwrapped.
+        // is "Executed Code"; source is shown read-only (gemstone-debug:), 1:1.
         vi.mocked(debug.getStackDepth).mockReturnValue(1);
         vi.mocked(debug.getFrameInfo).mockReturnValue({
           methodOop: 50n, ipOffset: 5, receiverOop: 0n, argAndTempNames: [], argAndTempOops: [],
@@ -2326,46 +2276,6 @@ describe('DebuggerPanel', () => {
         expect(debug.clearBreakAtStepPointByOop).toHaveBeenCalledWith(session, 50n, 2);
         expect(queries.setBreakAtStepPoint).not.toHaveBeenCalled();
         expect(debug.continueExecution).toHaveBeenCalledWith(session, GS_PROCESS);
-      });
-
-      // A WRAPPED doit (Execute/Display/Inspect It): the displayed source is the
-      // user code UNWRAPPED from the transcript-capture glue, so the cursor offset
-      // must be shifted back into the stored (wrapped) coords where `_sourceOffsets`
-      // live. Locks in the offset-shift math (the doit test above is shift 0).
-      it('applies the transcript-capture offset shift for a wrapped doit', async () => {
-        vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true });
-        // User code is 'X\nY Z'; wrap it exactly as CodeExecutor does. The user code
-        // begins at `codeOffset` in the stored source (= the shift).
-        const userCode = 'X\nY Z';
-        const { wrappedCode, codeOffset } = wrapWithTranscriptCapture(userCode);
-        // Step points (1-based stored offsets) for X, Y, Z in the WRAPPED source:
-        // X@userOffset0 → stored codeOffset+1; Y@2 → codeOffset+3; Z@4 → codeOffset+5.
-        const offsets = [codeOffset + 1, codeOffset + 3, codeOffset + 5];
-
-        vi.mocked(debug.getStackDepth).mockReturnValue(1);
-        vi.mocked(debug.getFrameInfo).mockReturnValue({
-          methodOop: 60n, ipOffset: 5, receiverOop: 0n, argAndTempNames: [], argAndTempOops: [],
-        });
-        vi.mocked(debug.getMethodBlockInfo).mockReturnValue({ isBlock: false, homeMethodOop: 60n });
-        vi.mocked(debug.getMethodUriInfo).mockReturnValue(undefined);
-        vi.mocked(debug.getMethodInfo).mockImplementation(() => { throw new Error('doit: nil inClass'); });
-        vi.mocked(debug.getMethodSource).mockReturnValue(wrappedCode);
-        vi.mocked(debug.getSourceOffsetsForMethod).mockReturnValue(offsets);
-
-        const panel = openPanel();
-        sendMessage(panel, { command: 'selectFrame', level: 1 });
-        await flush();
-        const results = vi.mocked(vscode.window.showTextDocument).mock.results;
-        const editor = await results[results.length - 1].value;
-        editor.document.uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
-        // Cursor on `Z` in the DISPLAYED (unwrapped) source: line 2 (0-based 1), col 2.
-        editor.selection = new vscode.Selection(new vscode.Position(1, 2), new vscode.Position(1, 2));
-
-        sendMessage(panel, { command: 'runToCursor', level: 1 });
-
-        // The cursor (displayed offset 4) + shift lands on Z's stored step point (sp3).
-        // If the shift were dropped, it would map to X/Y instead.
-        expect(debug.setBreakAtStepPointByOop).toHaveBeenCalledWith(session, 60n, 3);
       });
 
       // Column-aware: the cursor's COLUMN picks the step point, not just its line.

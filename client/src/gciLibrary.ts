@@ -848,6 +848,38 @@ export class GciLibrary {
     };
   }
 
+  /**
+   * GciTsContinueWith on a koffi worker thread. GciTsContinueWith blocks until
+   * the resumed execution's NEXT event (another forwarder send, an error, or
+   * completion) — on the main thread that would freeze the extension host for
+   * the whole remaining run (there is no GciTsNbContinue in 3.7.x). The GciTs
+   * API is thread-safe (one call in progress per session, from any thread), so
+   * a pool thread may own the call while the event loop stays free — and a
+   * GciTsBreak from the main thread still interrupts it.
+   */
+  GciTsContinueWithAsync(
+    session: unknown,
+    gsProcess: bigint,
+    replaceTopOfStack: bigint,
+    continueWithError: GciError | null,
+    flags: number,
+  ): Promise<{ result: bigint; err: GciError }> {
+    const err: Record<string, unknown> = {};
+    return new Promise((resolve, reject) => {
+      this._GciTsContinueWith.async(
+        session, gsProcess, replaceTopOfStack,
+        continueWithError, flags, err,
+        (asyncErr: unknown, raw: number | bigint) => {
+          if (asyncErr) {
+            reject(asyncErr instanceof Error ? asyncErr : new Error(String(asyncErr)));
+            return;
+          }
+          resolve({ result: toBigInt(raw), err: err as unknown as GciError });
+        },
+      );
+    });
+  }
+
   GciTsDoubleToOop(session: unknown, aDouble: number): { result: bigint; err: GciError } {
     const err: Record<string, unknown> = {};
     const raw = this._GciTsDoubleToOop(session, aDouble, err);

@@ -26,6 +26,8 @@ export const GCI_PERFORM_FLAG_ENABLE_DEBUG = 1;
 export const GCI_PERFORM_FLAG_SINGLE_STEP = 4;
 
 // Class OOPs (from gcioop.ht)
+export const OOP_CLASS_STRING = 74753n;
+export const OOP_CLASS_UTF8 = 154113n;
 export const OOP_CLASS_BOOLEAN = 68097n;
 export const OOP_CLASS_CHARACTER = 68353n;
 export const OOP_CLASS_SMALL_INTEGER = 74241n;

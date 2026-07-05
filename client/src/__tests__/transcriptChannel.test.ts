@@ -3,7 +3,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('vscode', () => import('../__mocks__/vscode'));
 
 import { window } from 'vscode';
-import { getTranscriptChannel, appendTranscript, showTranscript, _resetTranscriptChannelForTests } from '../transcriptChannel';
+import {
+  getTranscriptChannel, appendTranscript, appendTranscriptOutput, showTranscript,
+  _resetTranscriptChannelForTests,
+} from '../transcriptChannel';
 
 describe('transcriptChannel', () => {
   beforeEach(() => {
@@ -40,6 +43,34 @@ describe('transcriptChannel', () => {
       const channel = getTranscriptChannel();
       appendTranscript('');
       expect(channel.appendLine).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('appendTranscriptOutput', () => {
+    it('appends verbatim — the server controls its own line breaks', () => {
+      const channel = getTranscriptChannel();
+
+      appendTranscriptOutput('no newline');
+
+      expect(channel.append).toHaveBeenCalledWith('no newline');
+      expect(channel.appendLine).not.toHaveBeenCalled();
+    });
+
+    it('brings the channel to the front on every write, preserving focus', () => {
+      const channel = getTranscriptChannel();
+
+      appendTranscriptOutput('output');
+
+      expect(channel.show).toHaveBeenCalledWith(true);
+    });
+
+    it('does nothing (no reveal) for empty output', () => {
+      const channel = getTranscriptChannel();
+
+      appendTranscriptOutput('');
+
+      expect(channel.append).not.toHaveBeenCalled();
+      expect(channel.show).not.toHaveBeenCalled();
     });
   });
 

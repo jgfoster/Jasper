@@ -207,7 +207,7 @@ export const window = {
   showInformationMessage: vi.fn(),
   showWarningMessage: vi.fn(),
   createTreeView: vi.fn(() => ({ dispose: () => {} })),
-  createOutputChannel: vi.fn(() => ({ appendLine: vi.fn(), show: vi.fn(), dispose: vi.fn() })),
+  createOutputChannel: vi.fn(() => ({ append: vi.fn(), appendLine: vi.fn(), show: vi.fn(), dispose: vi.fn() })),
   createTextEditorDecorationType: vi.fn(() => ({ dispose: vi.fn() })),
   visibleTextEditors: [] as unknown[],
   onDidChangeActiveTextEditor: vi.fn(() => ({ dispose: () => {} })),

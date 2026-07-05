@@ -2,10 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('vscode', () => import('../__mocks__/vscode'));
 
-vi.mock('../browserQueries', () => ({
-  executeFetchString: vi.fn(() => '7'),
-}));
-
 vi.mock('../gciLog', () => ({
   logError: vi.fn(),
 }));
@@ -18,19 +14,38 @@ import {
 } from '../smalltalkNotebookController';
 import { GEMSTONE_NOTEBOOK_TYPE } from '../gemstoneNotebookKernel';
 import { SessionManager } from '../sessionManager';
-import { executeFetchString } from '../browserQueries';
 
-const SESSION = {
-  id: 1,
-  gci: {},
-  handle: {},
-  login: { label: 'Test' },
-  stoneVersion: '3.7.2',
-};
-
-function makeSessionManager(hasSession: boolean) {
+// Cells run on the non-blocking execute path (live transcript). The mock gci
+// covers that path: NbExecute starts the doit, NbPoll reports ready, NbResult
+// yields the result oop, FetchUtf8 reads its string. The transcript sink's
+// live-toggle/drain calls go through GciTsExecuteFetchBytes.
+function makeGci(overrides: Record<string, unknown> = {}) {
   return {
-    resolveSession: vi.fn(async () => (hasSession ? SESSION : undefined)),
+    GciTsCallInProgress: vi.fn(() => ({ result: 0, err: { number: 0 } })),
+    GciTsResolveSymbol: vi.fn(() => ({ result: 100n, err: { number: 0 } })),
+    GciTsNbExecute: vi.fn((..._args: unknown[]) => ({ success: true, err: { number: 0, message: '' } })),
+    isAvailable: vi.fn(() => true),
+    GciTsNbPoll: vi.fn(() => ({ result: 1, err: { number: 0 } })),
+    GciTsNbResult: vi.fn(() => ({ result: 200n, err: { number: 0, message: '', context: 0x14n } })),
+    GciTsFetchUtf8: vi.fn(() => ({ data: '7', err: { number: 0 } })),
+    GciTsExecuteFetchBytes: vi.fn((..._args: unknown[]) => ({ data: '', err: { number: 0 } })),
+    ...overrides,
+  };
+}
+
+function makeSession(gci = makeGci()) {
+  return {
+    id: 1,
+    gci,
+    handle: {},
+    login: { label: 'Test' },
+    stoneVersion: '3.7.2',
+  };
+}
+
+function makeSessionManager(session: ReturnType<typeof makeSession> | undefined) {
+  return {
+    resolveSession: vi.fn(async () => session),
   } as unknown as SessionManager;
 }
 
@@ -60,7 +75,7 @@ describe('SmalltalkNotebookController', () => {
   });
 
   it('registers a controller for the jupyter-notebook type with smalltalk cells', () => {
-    const ctrl = new SmalltalkNotebookController(makeSessionManager(true));
+    const ctrl = new SmalltalkNotebookController(makeSessionManager(makeSession()));
     expect(notebooks.createNotebookController).toHaveBeenCalledWith(
       SMALLTALK_CONTROLLER_ID, GEMSTONE_NOTEBOOK_TYPE, SMALLTALK_CONTROLLER_LABEL,
     );
@@ -74,13 +89,13 @@ describe('SmalltalkNotebookController', () => {
   // contract as the MCP execute_code tool: block-wrapped, stack-guarded,
   // printString of the last statement's value.
   it('executes a cell as a guarded doit and shows the printString result', async () => {
-    const ctrl = new SmalltalkNotebookController(makeSessionManager(true));
+    const gci = makeGci();
+    const ctrl = new SmalltalkNotebookController(makeSessionManager(makeSession(gci)));
+
     await runCells([makeCell('3 + 4')]);
 
-    expect(executeFetchString).toHaveBeenCalledTimes(1);
-    const [sessionArg, label, code] = vi.mocked(executeFetchString).mock.calls[0];
-    expect(sessionArg).toBe(SESSION);
-    expect(label).toBe('smalltalkNotebookCell');
+    expect(gci.GciTsNbExecute).toHaveBeenCalledTimes(1);
+    const code = gci.GciTsNbExecute.mock.calls[0][1] as string;
     expect(code).toContain('[[[3 + 4] value printString]');
     expect(code).toContain('on: AlmostOutOfStack');
     expect(code).toContain('on: AbstractException');
@@ -93,11 +108,29 @@ describe('SmalltalkNotebookController', () => {
     ctrl.dispose();
   });
 
+  it('runs the cell with the transcript sink toggled live, restoring buffered mode after', async () => {
+    const gci = makeGci();
+    const ctrl = new SmalltalkNotebookController(makeSessionManager(makeSession(gci)));
+
+    await runCells([makeCell('3 + 4')]);
+
+    const sinkCalls = gci.GciTsExecuteFetchBytes.mock.calls
+      .map(c => c[1] as string)
+      .filter(code => code.includes('jasperLive:'));
+    expect(sinkCalls.some(code => code.includes('jasperLive: true'))).toBe(true);
+    expect(sinkCalls.some(code => code.includes('jasperLive: false'))).toBe(true);
+    ctrl.dispose();
+  });
+
   it('ends with an error output when the doit reports an inline error', async () => {
-    vi.mocked(executeFetchString).mockReturnValueOnce(
-      'Error: ZeroDivide — attempt to divide 1 by zero',
-    );
-    const ctrl = new SmalltalkNotebookController(makeSessionManager(true));
+    const gci = makeGci({
+      GciTsFetchUtf8: vi.fn(() => ({
+        data: 'Error: ZeroDivide — attempt to divide 1 by zero',
+        err: { number: 0 },
+      })),
+    });
+    const ctrl = new SmalltalkNotebookController(makeSessionManager(makeSession(gci)));
+
     await runCells([makeCell('1 / 0')]);
 
     const execution = executionAt(0);
@@ -108,21 +141,23 @@ describe('SmalltalkNotebookController', () => {
     ctrl.dispose();
   });
 
-  it('reports a thrown query error (e.g. session busy) as a cell error', async () => {
-    vi.mocked(executeFetchString).mockImplementationOnce(() => {
-      throw new Error('Session is busy with another operation.');
+  it('reports a busy session as a cell error without starting the execute', async () => {
+    const gci = makeGci({
+      GciTsCallInProgress: vi.fn(() => ({ result: 1, err: { number: 0 } })),
     });
-    const ctrl = new SmalltalkNotebookController(makeSessionManager(true));
+    const ctrl = new SmalltalkNotebookController(makeSessionManager(makeSession(gci)));
+
     await runCells([makeCell('3 + 4')]);
+
+    expect(gci.GciTsNbExecute).not.toHaveBeenCalled();
     expect(executionAt(0).end).toHaveBeenCalledWith(false, expect.any(Number));
     ctrl.dispose();
   });
 
   it('fails the cell without executing when no session is active', async () => {
-    const ctrl = new SmalltalkNotebookController(makeSessionManager(false));
+    const ctrl = new SmalltalkNotebookController(makeSessionManager(undefined));
     await runCells([makeCell('3 + 4')]);
 
-    expect(executeFetchString).not.toHaveBeenCalled();
     const execution = executionAt(0);
     expect(execution.end).toHaveBeenCalledWith(false, expect.any(Number));
     const item = execution.replaceOutput.mock.calls[0][0][0].items[0];
@@ -131,7 +166,7 @@ describe('SmalltalkNotebookController', () => {
   });
 
   it('increments executionOrder independently of other kernels', async () => {
-    const ctrl = new SmalltalkNotebookController(makeSessionManager(true));
+    const ctrl = new SmalltalkNotebookController(makeSessionManager(makeSession()));
     await runCells([makeCell('1'), makeCell('2')]);
     expect(executionAt(0).executionOrder).toBe(1);
     expect(executionAt(1).executionOrder).toBe(2);
@@ -139,7 +174,7 @@ describe('SmalltalkNotebookController', () => {
   });
 
   it('dispose releases the controller', () => {
-    const ctrl = new SmalltalkNotebookController(makeSessionManager(true));
+    const ctrl = new SmalltalkNotebookController(makeSessionManager(makeSession()));
     const mock = lastController();
     ctrl.dispose();
     expect(mock.dispose).toHaveBeenCalled();

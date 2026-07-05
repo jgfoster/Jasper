@@ -14,6 +14,19 @@ export function appendTranscript(text: string): void {
   getTranscriptChannel().appendLine(text);
 }
 
+/**
+ * Append server Transcript output verbatim (no injected newline — the server
+ * controls its own line breaks) and bring the channel to the front. Every
+ * write reveals the channel, per the Jade-style Transcript behavior;
+ * preserveFocus keeps the user's cursor where it is.
+ */
+export function appendTranscriptOutput(text: string): void {
+  if (!text) return;
+  const channel = getTranscriptChannel();
+  channel.append(text);
+  channel.show(true);
+}
+
 export function showTranscript(): void {
   getTranscriptChannel().show(true);
 }

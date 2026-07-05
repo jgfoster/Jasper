@@ -18,12 +18,16 @@ vi.mock('vscode', () => ({
 }));
 
 let pingErrNumber = 0;
+// The transcript-sink install (run at login) executes a doit via
+// GciTsExecuteFetchBytes; capture the calls so tests can assert on them.
+const executeFetchBytes = vi.fn((..._args: unknown[]) => ({ data: 'installed', err: { number: 0, message: '' } }));
 
 vi.mock('../gciLibrary', () => ({
   GciLibrary: class {
     GciTsLogin() { return { session: {}, err: { number: 0, message: '' } }; }
     GciTsVersion() { return { version: '3.7.2' }; }
     GciTsFetchSize() { return { result: pingErrNumber ? -1n : 0n, err: { number: pingErrNumber, message: pingErrNumber ? 'boom' : '' } }; }
+    GciTsExecuteFetchBytes(...args: unknown[]) { return executeFetchBytes(...(args as [])); }
     GciTsLogout() {}
     close() {}
   },
@@ -31,6 +35,7 @@ vi.mock('../gciLibrary', () => ({
 
 vi.mock('../gciLog', () => ({
   logInfo: vi.fn(),
+  logError: vi.fn(),
 }));
 
 import { SessionManager, evaluateLoginPolicy } from '../sessionManager';
@@ -73,6 +78,26 @@ describe('SessionManager', () => {
 
   it('allows a first login', () => {
     const session = manager.login({ ...DEFAULT_LOGIN, label: 'Test' }, '/mock/lib');
+    expect(session.id).toBe(1);
+  });
+
+  it('installs the server-side Transcript sink at login', () => {
+    manager.login({ ...DEFAULT_LOGIN, label: 'Test' }, '/mock/lib');
+
+    const installCall = executeFetchBytes.mock.calls.find(
+      c => typeof c[1] === 'string' && (c[1] as string).includes('JasperTranscriptSink'),
+    );
+    expect(installCall).toBeDefined();
+    expect(installCall![1]).toContain('TranscriptStream_SessionStream');
+  });
+
+  it('still logs in when the Transcript sink install fails', () => {
+    executeFetchBytes.mockReturnValueOnce({
+      data: '', err: { number: 4001, message: 'no compile privilege' },
+    });
+
+    const session = manager.login({ ...DEFAULT_LOGIN, label: 'Test' }, '/mock/lib');
+
     expect(session.id).toBe(1);
   });
 

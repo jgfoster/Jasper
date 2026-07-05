@@ -4,6 +4,7 @@ import { OOP_NIL } from './gciConstants';
 import { GemStoneLogin, loginLabel } from './loginTypes';
 import { logInfo } from './gciLog';
 import { wrapWithEnhancedInspectorPerfProxy } from './enhancedInspectorPerfTracker';
+import { installTranscriptSink } from './transcriptSink';
 
 export interface ActiveSession {
   id: number;
@@ -156,6 +157,11 @@ export class SessionManager {
 
     this.sessions.set(session.id, session);
     logInfo(`[Session ${session.id}] Logged in: ${login.gs_user}@${login.gem_host}/${login.stone} (${version})`);
+
+    // Jade-style server-side Transcript sink: compiled into the session at
+    // login, kept alive via SessionTemps, never committed. Non-fatal on
+    // failure — the session simply has no Transcript display.
+    installTranscriptSink(session);
 
     // Auto-select when this is the only session
     if (this.sessions.size === 1) {
