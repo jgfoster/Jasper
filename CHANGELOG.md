@@ -4,8 +4,19 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.7.6] - 2026-07-05
+
+### Added
+
+- **Enhanced Inspector — a GT-style, multi-column object inspector.** A new inspector modeled on Glamorous Toolkit's Phlow views: drilling into a field opens a new column immediately to the right of its source (rather than replacing the view), so a parent→child lineage reads left-to-right in a horizontal miller-column strip. Columns grow to fill spare space, can be pinned to an exact width by dragging an edge, and are closed independently. The required server-side support is offered for automatic install on connect — a tri-state **Ask / Always / Never** preference, also settable any time via the **GemStone: Enhanced Inspector Auto-Install…** command — and files in cleanly on both String- and Unicode-mode stones. **Inspect It** is now a single command that opens the Enhanced Inspector when a stone has the support installed and falls back to the classic sidebar Inspector otherwise (the separate "GT Inspect It" command and its `Ctrl+K O` keybinding are removed). Requires GemStone 3.7.5+ — earlier releases can't file in or render the payload, so they transparently use the classic Inspector. ([#137](https://github.com/jgfoster/Jasper/pull/137), [#138](https://github.com/jgfoster/Jasper/pull/138))
+- **GemStone Transcript now streams live.** At login a small server-side sink class is installed behind the stream GemStone's `Transcript` actually writes to; the previous wrapper keyed a slot no supported version consults, so Transcript output was silently lost. `Transcript show:` from Execute/Display/Inspect It and notebook cells now appears in the **GemStone Transcript** output channel mid-execution, without blocking the extension host. Queries, MCP tools, and debugger stepping buffer their output server-side and drain it after each operation.
+- **GemStone Smalltalk tutorial notebook.** A hands-on tutorial modeled on Prof Stef, opened via **GemStone: Open Tutorial Notebook** as an untitled Jupyter notebook — each lesson is a Markdown cell followed by runnable code cells (Shift+Enter). Adds an "Introduction to GemStone" section on persistence-by-reachability, transactions, and the shared multi-user repository; every snippet was validated against a live 3.7.5 stone.
+- **Versions panel: inline Open Terminal button.** Opens a terminal rooted at a version's product directory, setting `GEMSTONE` and `GEMSTONE_GLOBAL_DIR` (a lighter environment than the Databases terminal, which configures the full stone environment). Available on extracted server versions and local builds.
+
 ### Changed
 
+- **Minimum supported GemStone version is now 3.6.2.** Remote versions older than 3.6.2 are filtered out of the Versions panel and the Quick Setup picker; local (symlinked) installs are always kept regardless of age. ([#135](https://github.com/jgfoster/Jasper/pull/135))
+- **GCI output channel renamed to "GemStone GCI", with timestamps and call durations.** Every log line is now prefixed with wall-clock time `[HH:MM:SS.mmm]`, and each call reports the time spent in it (tracked per session, so it stays exact even when sessions interleave). All output channels are now created up front at activation, so the full set is discoverable in the Output dropdown rather than appearing lazily on first use. Adds `docs/output-channels.md` summarizing every channel.
 - **Integration test default version is now the oldest supported release.** `npm run test:server:start` (and the `--oldest` flag on `gemstone-integration-versions.js`) now defaults to the oldest version in `.gemstone-integration-releases.json` instead of the latest, ensuring new releases do not silently drop the minimum-version bar.
 
 ## [1.7.5] - 2026-07-02
