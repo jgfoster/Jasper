@@ -15,6 +15,7 @@ vi.mock('../wslBridge', async () => {
   };
 });
 
+import * as vscode from 'vscode';
 import { spawn } from 'child_process';
 import { ProcessManager, parseGslist, classifyPidOwnership, versionsMatch } from '../processManager';
 import { GemStoneDatabase, GemStoneProcess } from '../sysadminTypes';
@@ -515,6 +516,68 @@ describe('ProcessManager', () => {
       const manager = new ProcessManager(makeStorage() as any);
       const ok = manager.deleteStaleLock('/home/user/gemstone/locks/gs64stone..LCK');
       expect(ok).toBe(false);
+    });
+  });
+
+  // ── openVersionTerminal ───────────────────────────────────
+
+  describe('openVersionTerminal', () => {
+    beforeEach(() => {
+      vi.mocked(vscode.window.createTerminal).mockClear();
+      vi.mocked(wslBridge.needsWsl).mockReturnValue(false);
+    });
+
+    it('opens a terminal rooted at the version product directory', () => {
+      const manager = new ProcessManager(makeStorage('/gs/3.7.4') as any);
+
+      manager.openVersionTerminal('3.7.4');
+
+      expect(vscode.window.createTerminal).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'GemStone: 3.7.4', cwd: '/gs/3.7.4' }),
+      );
+      const terminal = vi.mocked(vscode.window.createTerminal).mock.results[0].value;
+      expect(terminal.show).toHaveBeenCalled();
+    });
+
+    it('sets only GEMSTONE and GEMSTONE_GLOBAL_DIR, not the full stone environment', () => {
+      const manager = new ProcessManager(makeStorage('/gs/3.7.4') as any);
+
+      manager.openVersionTerminal('3.7.4');
+
+      const options = vi.mocked(vscode.window.createTerminal).mock.calls[0][0] as any;
+      expect(options.env).toEqual({
+        GEMSTONE: '/gs/3.7.4',
+        GEMSTONE_GLOBAL_DIR: '/home/user/gemstone',
+      });
+    });
+
+    it('refuses when the requested version has not been extracted', () => {
+      const storage = { ...makeStorage(), getGemstonePath: vi.fn(() => undefined) };
+      const manager = new ProcessManager(storage as any);
+
+      expect(() => manager.openVersionTerminal('9.9.9')).toThrow(/not found/);
+      expect(vscode.window.createTerminal).not.toHaveBeenCalled();
+    });
+
+    it('under WSL launches a bash shell that cds and exports the version paths', () => {
+      vi.mocked(wslBridge.needsWsl).mockReturnValue(true);
+      const storage = {
+        ...makeStorage(),
+        getWslGemstonePath: vi.fn(() => '/mnt/c/gs/3.7.4'),
+        getWslRootPath: vi.fn(() => '/mnt/c/gemstone'),
+      };
+      const manager = new ProcessManager(storage as any);
+
+      manager.openVersionTerminal('3.7.4');
+
+      expect(vscode.window.createTerminal).toHaveBeenCalledWith(
+        expect.objectContaining({ shellPath: 'wsl.exe' }),
+      );
+      const terminal = vi.mocked(vscode.window.createTerminal).mock.results[0].value;
+      const sent = vi.mocked(terminal.sendText).mock.calls[0][0] as string;
+      expect(sent).toContain("cd '/mnt/c/gs/3.7.4'");
+      expect(sent).toContain("export GEMSTONE='/mnt/c/gs/3.7.4'");
+      expect(sent).toContain("export GEMSTONE_GLOBAL_DIR='/mnt/c/gemstone'");
     });
   });
 });

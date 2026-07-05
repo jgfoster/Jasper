@@ -285,6 +285,43 @@ export class ProcessManager {
     );
   }
 
+  /**
+   * Open a terminal in a version's product directory. Unlike a database
+   * terminal, this configures only GEMSTONE (the version's product directory)
+   * and GEMSTONE_GLOBAL_DIR (the root path) — nothing that ties it to a
+   * particular stone.
+   */
+  openVersionTerminal(version: string): void {
+    const gsPath = needsWsl()
+      ? this.storage.getWslGemstonePath(version)
+      : this.storage.getGemstonePath(version);
+    if (!gsPath) throw new Error(`GemStone ${version} not found. Please extract it first.`);
+    const rootPath = needsWsl() ? this.storage.getWslRootPath() : this.storage.getRootPath();
+    const env: Record<string, string> = {
+      GEMSTONE: gsPath,
+      GEMSTONE_GLOBAL_DIR: rootPath,
+    };
+    if (needsWsl()) {
+      const envExports = Object.entries(env)
+        .map(([k, v]) => `export ${k}='${v}'`)
+        .join('; ');
+      const terminal = vscode.window.createTerminal({
+        name: `GemStone: ${version}`,
+        shellPath: 'wsl.exe',
+        shellArgs: ['-e', 'bash'],
+      });
+      terminal.show();
+      terminal.sendText(`cd '${gsPath}' && ${envExports} && exec bash`);
+    } else {
+      const terminal = vscode.window.createTerminal({
+        name: `GemStone: ${version}`,
+        env,
+        cwd: gsPath,
+      });
+      terminal.show();
+    }
+  }
+
   /** Open a terminal with GemStone environment */
   openTerminal(db: GemStoneDatabase): void {
     const env = this.getEnvironment(db);

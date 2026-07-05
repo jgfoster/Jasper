@@ -1975,6 +1975,14 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
 
+    vscode.commands.registerCommand('gemstone.openVersionTerminal', (item: VersionItem) => {
+      try {
+        processManager.openVersionTerminal(item.version.version);
+      } catch (e) {
+        vscode.window.showErrorMessage(e instanceof Error ? e.message : String(e));
+      }
+    }),
+
     vscode.commands.registerCommand('gemstone.downloadWindowsClient', async (item: VersionItem) => {
       const version = item.version.version;
       try {

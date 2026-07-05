@@ -785,6 +785,12 @@
         "icon": "$(folder-opened)"
       },
       {
+        "command": "gemstone.openVersionTerminal",
+        "title": "Open Terminal",
+        "category": "GemStone Admin",
+        "icon": "$(terminal)"
+      },
+      {
         "command": "gemstone.downloadWindowsClient",
         "title": "Install Windows Client",
         "category": "GemStone Admin",
@@ -1085,9 +1091,19 @@
           "group": "inline@3"
         },
         {
+          "command": "gemstone.openVersionTerminal",
+          "when": "view == gemstoneVersions && viewItem =~ /ServerExtracted/",
+          "group": "inline@6"
+        },
+        {
           "command": "gemstone.openVersionFolder",
           "when": "view == gemstoneVersions && viewItem == gemstoneVersionLocal",
           "group": "inline@1"
+        },
+        {
+          "command": "gemstone.openVersionTerminal",
+          "when": "view == gemstoneVersions && viewItem == gemstoneVersionLocal",
+          "group": "inline@2"
         },
         {
           "command": "gemstone.downloadWindowsClient",
