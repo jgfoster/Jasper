@@ -87,6 +87,7 @@ errorcount
 iferr 1 stk
 iferr 2 exit 1
 login
+fileformat utf8
 input $PAYLOAD_DIR/Announcements.gs
 input $PAYLOAD_DIR/RemoteServiceReplication.gs
 input $PAYLOAD_DIR/STON.gs

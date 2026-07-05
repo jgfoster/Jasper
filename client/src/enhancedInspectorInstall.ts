@@ -2,9 +2,10 @@
  * Server-side installation of Enhanced Inspector support.
  *
  * Files the vendored enhanced inspector support `.gs` payload into a stone over a GCI session.
- * Each file is filed in with a single server-side `GsFileIn fromServerPath:`
- * call (the gem reads and compiles the file itself), in the dependency order
- * the topaz loader uses, then the work is committed and verified.
+ * Each file is filed in with a single server-side
+ * `GsFileIn fromPath:on:#serverUtf8File to:` call (the gem reads and compiles
+ * the file itself), in the dependency order the topaz loader uses, then the
+ * work is committed and verified.
  *
  * Why server-side `GsFileIn` rather than client-side per-method compilation:
  * the payload is ~520 classes and ~3,700 methods. Compiling each over the GCI
@@ -174,10 +175,18 @@ export async function installEnhancedInspectorSupport(
       executeFetchString(
         session,
         `install:${file}`,
+        // #serverUtf8File (not fromServerPath:) because the payload contains
+        // UTF-8 test data (e.g. GtWireEncodingExamples' 'čtyři'). The plain
+        // file-in reads the file as the repository's StringConfiguration
+        // class, and on a stone in Unicode comparison mode any byte > 127
+        // raises error 2710 before a single line is processed. The UTF-8
+        // variant decodes correctly in both String and Unicode16 modes
+        // (UTF-8 decode of the all-ASCII files is the identity).
+        //
         // Must end in a byte object (String): executeFetchString fetches the
         // result via GciTsExecuteFetchBytes, and a non-byte result (e.g. the
         // boolean `true`) raises ArgumentTypeError 2103 ("not a byte object").
-        `GsFileIn fromServerPath: ${gsStringLiteral(serverPath(file))}. 'ok'`,
+        `GsFileIn fromPath: ${gsStringLiteral(serverPath(file))} on: #serverUtf8File to: nil. 'ok'`,
       );
       filedIn.push(file);
     } catch (e: unknown) {

@@ -26,7 +26,7 @@ const PAYLOAD_DIR = '/payload/enhancedInspector';
 function happyPath(_s: unknown, _label: string, code: string): string {
   if (code.includes('existsOnServer')) return 'true';
   if (code.includes('gtViewsInCurrentContext')) return 'true';
-  if (code.includes('GsFileIn fromServerPath')) return 'true';
+  if (code.includes('GsFileIn fromPath')) return 'true';
   return 'nil';
 }
 
@@ -42,7 +42,7 @@ function createMockSession() {
 }
 
 function filedInFileFrom(code: string): string | undefined {
-  if (!code.includes('GsFileIn fromServerPath')) return undefined;
+  if (!code.includes('GsFileIn fromPath')) return undefined;
   return ENHANCED_INSPECTOR_FILES.find((f) => code.includes(f));
 }
 
@@ -129,9 +129,27 @@ describe('installEnhancedInspectorSupport', () => {
     await installEnhancedInspectorSupport(session, PAYLOAD_DIR);
 
     const fileInCalls = executeFetchStringMock.mock.calls.filter(
-      (c) => String(c[2]).includes('GsFileIn fromServerPath'),
+      (c) => String(c[2]).includes('GsFileIn fromPath'),
     );
     expect(fileInCalls).toHaveLength(ENHANCED_INSPECTOR_FILES.length);
+  });
+
+  // Regression: the payload contains UTF-8 (GtWireEncodingExamples test data),
+  // and a plain #serverText file-in raises error 2710 ("File contains code
+  // points > 127, and utf8 not specified") on stones in Unicode comparison
+  // mode. Every file-in must use the #serverUtf8File type.
+  it('files every file in as #serverUtf8File so UTF-8 payload bytes survive Unicode-mode stones', async () => {
+    const { session } = createMockSession();
+
+    await installEnhancedInspectorSupport(session, PAYLOAD_DIR);
+
+    const fileInCalls = executeFetchStringMock.mock.calls
+      .map((c) => String(c[2]))
+      .filter((code) => code.includes('GsFileIn fromPath'));
+    expect(fileInCalls).toHaveLength(ENHANCED_INSPECTOR_FILES.length);
+    for (const code of fileInCalls) {
+      expect(code).toContain('on: #serverUtf8File to: nil');
+    }
   });
 
   it('fails clearly without committing when the gem cannot read the payload', async () => {
@@ -153,7 +171,7 @@ describe('installEnhancedInspectorSupport', () => {
     const { session, commit, abort } = createMockSession();
     const failing = ENHANCED_INSPECTOR_FILES[1];
     executeFetchStringMock.mockImplementation((s, label, code: string) => {
-      if (code.includes('GsFileIn fromServerPath') && code.includes(failing)) {
+      if (code.includes('GsFileIn fromPath') && code.includes(failing)) {
         throw new Error('compile failed');
       }
       return happyPath(s, label, code);
