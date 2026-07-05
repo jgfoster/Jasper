@@ -20,6 +20,9 @@ import { OOP_ILLEGAL, OOP_NIL, OOP_CLASS_UTF8 } from './gciConstants';
 
 export const SMALLTALK_CONTROLLER_ID = 'gemstone-smalltalk-kernel';
 export const SMALLTALK_CONTROLLER_LABEL = 'GemStone Smalltalk';
+// The language id for Smalltalk notebook cells — must match the controller's
+// supportedLanguages and the `gemstone-smalltalk` language contribution.
+export const SMALLTALK_LANGUAGE_ID = 'gemstone-smalltalk';
 
 const MAX_CELL_RESULT = 256 * 1024;
 
@@ -77,7 +80,7 @@ export class SmalltalkNotebookController extends GemStoneNotebookKernel {
       id: SMALLTALK_CONTROLLER_ID,
       label: SMALLTALK_CONTROLLER_LABEL,
       description: 'Run Smalltalk in the active GemStone session',
-      supportedLanguages: ['gemstone-smalltalk'],
+      supportedLanguages: [SMALLTALK_LANGUAGE_ID],
       evaluate: (session, source) => evalSmalltalk(session, source),
     });
   }

@@ -203,6 +203,7 @@ export const window = {
     return panel;
   }),
   showTextDocument: vi.fn(async () => createMockTextEditor()),
+  showNotebookDocument: vi.fn(async (doc: unknown) => ({ notebook: doc })),
   showErrorMessage: vi.fn(),
   showInformationMessage: vi.fn(),
   showWarningMessage: vi.fn(),
@@ -290,6 +291,7 @@ export const workspace = {
   registerTextDocumentContentProvider: vi.fn(() => ({ dispose: () => {} })),
   registerFileSystemProvider: vi.fn(() => ({ dispose: () => {} })),
   openTextDocument: vi.fn(async (_uri: unknown) => ({ uri: _uri, getText: vi.fn(() => ''), isDirty: false })),
+  openNotebookDocument: vi.fn(async (notebookType: string, data?: unknown) => ({ notebookType, data })),
   applyEdit: vi.fn(async () => true),
   textDocuments: [] as unknown[],
 };
@@ -644,6 +646,26 @@ export class NotebookCellOutputItem {
 
 export class NotebookCellOutput {
   constructor(public readonly items: NotebookCellOutputItem[]) {}
+}
+
+export const NotebookCellKind = {
+  Markup: 1,
+  Code: 2,
+} as const;
+
+export class NotebookCellData {
+  metadata: Record<string, unknown> | undefined;
+  outputs: NotebookCellOutput[] | undefined;
+  constructor(
+    public kind: number,
+    public value: string,
+    public languageId: string,
+  ) {}
+}
+
+export class NotebookData {
+  metadata: Record<string, unknown> | undefined;
+  constructor(public cells: NotebookCellData[]) {}
 }
 
 function createMockCellExecution(cell: unknown) {

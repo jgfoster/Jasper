@@ -357,7 +357,7 @@
     "viewsWelcome": [
       {
         "view": "gemstoneLogins",
-        "contents": "New to GemStone? Start with the guided walkthrough.\n[Get Started with GemStone](command:gemstone.openWalkthrough)\nOr jump straight into a scratch workspace.\n[Open Getting Started Workspace](command:gemstone.openWorkspace)\nThen add a login to connect to a stone.\n[Add a Login](command:gemstone.login)"
+        "contents": "New to GemStone? Start with the guided walkthrough.\n[Get Started with GemStone](command:gemstone.openWalkthrough)\nOr learn the language in the interactive tutorial notebook.\n[Open Tutorial Notebook](command:gemstone.openTutorial)\nOr jump straight into a scratch workspace.\n[Open Getting Started Workspace](command:gemstone.openWorkspace)\nThen add a login to connect to a stone.\n[Add a Login](command:gemstone.login)"
       },
       {
         "view": "gemstoneInspector",
@@ -583,6 +583,12 @@
         "title": "Open Getting Started Workspace",
         "category": "GemStone",
         "icon": "$(notebook)"
+      },
+      {
+        "command": "gemstone.openTutorial",
+        "title": "Open Tutorial Notebook",
+        "category": "GemStone",
+        "icon": "$(mortar-board)"
       },
       {
         "command": "gemstone.installEnhancedInspector",

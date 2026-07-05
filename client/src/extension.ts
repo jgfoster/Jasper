@@ -36,6 +36,7 @@ import { DebuggerPanel } from './debuggerPanel';
 import { InlineValuesCodeLensProvider } from './inlineValuesCodeLens';
 import { GemStoneFileSystemProvider, MethodCompiledEvent, ClassDefinitionCompiledEvent } from './gemstoneFileSystemProvider';
 import { openWorkspace } from './workspace';
+import { openTutorialNotebook } from './tutorialNotebook';
 import { GemStoneDebugSession } from './gemstoneDebugSession';
 import { InspectorTreeProvider, InspectorNode } from './inspectorTreeProvider';
 import { GemStoneWorkspaceSymbolProvider } from './gemstoneSymbolProvider';
@@ -693,6 +694,10 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('gemstone.openWorkspace', async () => {
       await openWorkspace();
+    }),
+
+    vscode.commands.registerCommand('gemstone.openTutorial', async () => {
+      await openTutorialNotebook();
     }),
 
     vscode.commands.registerCommand('gemstone.installEnhancedInspector', async () => {
