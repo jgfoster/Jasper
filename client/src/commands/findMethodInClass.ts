@@ -5,28 +5,53 @@ import { SystemBrowser } from '../systemBrowser';
 
 /**
  * Command handler for "Find Method in Class". Resolves the target class (the
- * System Browser's current selection, or a manually entered name), lets the
- * user pick a method via quick-pick, and navigates the browser to it —
- * falling back to opening the `gemstone://` virtual document if no browser
- * is open for the session.
+ * System Browser's current selection, or a class picked from a filterable
+ * quick-pick), lets the user pick a method via quick-pick, and navigates the
+ * browser to it — falling back to opening the `gemstone://` virtual document
+ * if no browser is open for the session.
  */
 export async function findMethodInClass(sessionManager: SessionManager): Promise<void> {
   const session = await sessionManager.resolveSession();
   if (!session) return;
 
-  let className: string | undefined;
-  let dictName: string | undefined;
+  let className: string;
+  let dictName: string;
 
   const current = SystemBrowser.getSelectedClassName(session.id);
   if (current) {
     className = current.className;
     dictName = current.dictName;
   } else {
-    className = await vscode.window.showInputBox({
-      prompt: 'Enter class name',
-      placeHolder: 'e.g. Array',
+    let entries: queries.ClassNameEntry[];
+    try {
+      entries = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Loading class list…',
+          cancellable: false,
+        },
+        () => Promise.resolve(queries.getAllClassNames(session)),
+      );
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      vscode.window.showErrorMessage(`Failed to load classes: ${msg}`);
+      return;
+    }
+
+    const classItems = entries.map(e => ({
+      label: e.className,
+      description: e.dictName,
+      entry: e,
+    }));
+
+    const pickedClass = await vscode.window.showQuickPick(classItems, {
+      placeHolder: 'Type to find a class…',
+      matchOnDescription: true,
     });
-    if (!className) return;
+    if (!pickedClass) return;
+
+    className = pickedClass.entry.className;
+    dictName = pickedClass.entry.dictName;
   }
 
   let methods: queries.MethodEntry[];
@@ -37,7 +62,7 @@ export async function findMethodInClass(sessionManager: SessionManager): Promise
         title: `Loading methods for ${className}…`,
         cancellable: false,
       },
-      () => Promise.resolve(queries.getMethodList(session, className!)),
+      () => Promise.resolve(queries.getMethodList(session, className)),
     );
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -63,8 +88,8 @@ export async function findMethodInClass(sessionManager: SessionManager): Promise
   if (!picked) return;
 
   const result: queries.MethodSearchResult = {
-    dictName: dictName || '',
-    className: className!,
+    dictName,
+    className,
     isMeta: picked.method.isMeta,
     selector: picked.method.selector,
     category: picked.method.category,
