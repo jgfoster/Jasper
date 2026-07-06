@@ -53,3 +53,14 @@ describe.each([
     expect(code).toContain('7');
   });
 });
+
+describe('fetchEnhancedInspectorRowOop drills into the send-block result', () => {
+  it('resolves the row to its sent item, not the raw list node', () => {
+    expect.assertions(2);
+    const execute = vi.fn(() => '338');
+    fetchEnhancedInspectorRowOop(execute, 1000n, 'gtRawFor:', 3);
+    const code = (execute as ReturnType<typeof vi.fn>).mock.calls[0][1] as string;
+    expect(code).toContain('retrieveSentItemAt: 3');
+    expect(code).not.toContain('targetObject');
+  });
+});

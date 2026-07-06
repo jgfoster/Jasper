@@ -383,8 +383,9 @@ gtSummaryFor: aView
 !     -> Inspect) opens an inspector on exactly that subset (e.g. the 8 Paid
 !     invoices). Section column groups the rows; Category cell is color-coded.
 !
-!     NOTE: Jasper inspects a row's `targetObject`, which is the list item
-!     itself -- NOT a per-column `spawn:` target. So each item must BE the
+!     NOTE: Jasper inspects a row's *sent* item -- the result of the view's
+!     row-level send block (identity here, since no `send:` is given, so the
+!     item itself) -- NOT a per-column `spawn:` target. So each item must BE the
 !     collection you want to drill into; labels are derived from its contents.
 !     ------------------------------------------------------------------------
 category: 'gt views'

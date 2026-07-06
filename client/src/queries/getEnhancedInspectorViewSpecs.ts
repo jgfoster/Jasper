@@ -147,13 +147,19 @@ export function fetchEnhancedInspectorRowOop(
   nodeId: number,
 ): bigint | null {
   if (!isValidSelector(methodSelector)) return null;
+  // Drill into the view's *sent* item — the result of GtPhlow's send block —
+  // not the raw `node targetObject`. For collection views the send is identity,
+  // so this is unchanged; but for the Raw view each row's targetObject is a
+  // (variable name -> value) Association and the sent item is the value itself,
+  // so double-clicking the "value" row now inspects the value rather than the
+  // wrapping SymbolAssociation. This matches GT's own navigation and mirrors
+  // fetchEnhancedInspectorForwardRowOop, which already uses retrieveSentItemAt:.
   const code =
-    `| viewed ds node item |
+    `| viewed ds item |
 viewed := GtRemotePhlowViewedObject new initializeWith: (Object _objectForOop: ${itemOop}).
 ds := (viewed viewSpecificationsBySelector at: #'${escapeString(methodSelector)}') phlowDataSource.
-STONJSON toString: (ds retrieveItems: 1 fromIndex: ${nodeId}).
-node := ds cachedNodes at: ${nodeId}.
-item := node targetObject.
+ds retrieveItems: 1 fromIndex: ${nodeId}.
+item := ds retrieveSentItemAt: ${nodeId}.
 [item asOop printString] on: Error do: [:e | '']`;
   const result = enhancedInspectorExecute(execute, 'fetchEnhancedInspectorRowOop', code);
   if (!result || result.trim() === '') return null;
