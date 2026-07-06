@@ -1,21 +1,16 @@
-# Tests
+---
+paths:
+  - "client/**/*.test.ts"
+  - "client/src/**/__tests__/**"
+---
+
+# Client tests
+
+General test conventions (naming, three-part structure) are in `.claude/rules/tests.md`. This file covers `client/` workspace specifics.
 
 Tests that use `useIntegrationTest` run against the real GCI shared library — do not use mocks or stubs for `GciLibrary` or any GCI calls.
 
-Test names should use plain language, not code identifiers. Describe the scenario from a functional or user perspective — avoid mirroring internal field names, variable names, or implementation details.
-
-- ✗ `when isNewMethod is true`
-- ✓ `when the previous URI is a template`
-
-Test names state what is always true, not what happens to be true in this one run. `'returns 3 when adding 1 + 2'` describes the example; `'adds two positive numbers'` describes the guarantee. If the example changes, the first name rots; the second stays valid.
-
-- ✗ `returns 3 when adding 1 + 2`
-- ✓ `adds two positive numbers`
-
-**Test structure: three parts, separated by blank lines.**
-Tests have up to three parts — setup (optional), exercise, and assert(s) — each separated by a blank line. Always use blank lines between present parts; they make the structure scannable at a glance. Never use section-label comments.
-
-## VS Code API mocking (client workspace)
+## VS Code API mocking
 
 The VS Code API is not available in tests. Vitest picks up `src/__mocks__/vscode.ts` automatically — a comprehensive manual mock of the `vscode` module. Any test importing extension code that touches the VS Code API gets it for free; no explicit import or `vi.mock()` call is needed.
 
@@ -38,4 +33,4 @@ Tests run in random order; the seed is printed at the top of the output. Reprodu
 
 ## Integration tests
 
-Tests using `useIntegrationTest` require a live GemStone instance so plain `npm test` needs a running stone. Run `npm run test:server:start` once to provision one; it writes connection details to `.env.test` (which the user may override with `.env.test.local`). CI runs these as a matrix over `client/.gemstone-integration-releases.json`. The deep GCI binding suite (`npm run test:gci`) is separate
+Tests using `useIntegrationTest` require a live GemStone instance so plain `npm test` needs a running stone. Run `npm run test:server:start` once to provision one; it writes connection details to `.env.test` (which the user may override with `.env.test.local`). CI runs these as a matrix over `client/.gemstone-integration-releases.json`. The deep GCI binding suite (`npm run test:gci`) is separate.
