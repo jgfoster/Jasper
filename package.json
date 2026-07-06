@@ -873,8 +873,8 @@
         "icon": "$(search)"
       },
       {
-        "command": "gemstone.findMethod",
-        "title": "Find Method\u2026",
+        "command": "gemstone.findMethodInClass",
+        "title": "Find Method in Class…",
         "category": "GemStone",
         "icon": "$(search)"
       },
@@ -1916,7 +1916,7 @@
         "when": "gemstone.hasActiveSession"
       },
       {
-        "command": "gemstone.findMethod",
+        "command": "gemstone.findMethodInClass",
         "key": "ctrl+k m",
         "mac": "cmd+k m",
         "when": "gemstone.hasActiveSession"

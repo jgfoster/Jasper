@@ -1990,7 +1990,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
 
-    vscode.commands.registerCommand('gemstone.findMethod', () => findMethodInClass(sessionManager)),
+    vscode.commands.registerCommand('gemstone.findMethodInClass', () => findMethodInClass(sessionManager)),
   );
 
   // ── SysAdmin ──────────────────────────────────────────────
