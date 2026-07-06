@@ -22,6 +22,13 @@ interface ParsedMethodUri {
   category: string;
   selector: string;
   environmentId: number;
+  // When true, serve the PERSISTENT base method source (what a session override
+  // shadows) rather than the session/merged source. Used by the override diff.
+  base?: boolean;
+  // True when the selector segment carried a " (…)" display label (the override
+  // diff decorates each side so its filename reads "sel (base)" / "sel (session
+  // override)"). Such view URIs are always read-only.
+  diffView?: boolean;
 }
 
 interface ParsedDefinitionUri {
@@ -65,6 +72,7 @@ function parseUri(uri: vscode.Uri): ParsedUri {
   // Parse optional ?env=N from query string
   const envMatch = uri.query?.match(/env=(\d+)/);
   const environmentId = envMatch ? parseInt(envMatch[1], 10) : 0;
+  const base = /(?:^|&)base=1(?:&|$)/.test(uri.query ?? '');
 
   if (parts.length === 3 && parts[2] === 'new-class') {
     const catMatch = uri.query?.match(/category=([^&]+)/);
@@ -89,6 +97,10 @@ function parseUri(uri: vscode.Uri): ParsedUri {
     };
   }
   if (parts.length === 6) {
+    // The override diff decorates each side's selector segment with a display
+    // label — "sel (base)" / "sel (session override)". Strip it for the real
+    // selector; its presence marks a read-only comparison view.
+    const labelled = parts[5].match(/^(.*) \((?:base|session override)\)$/);
     return {
       kind: 'method',
       sessionId,
@@ -96,8 +108,10 @@ function parseUri(uri: vscode.Uri): ParsedUri {
       className: parts[2],
       isMeta: parts[3] === 'class',
       category: parts[4],
-      selector: parts[5],
+      selector: labelled ? labelled[1] : parts[5],
       environmentId,
+      base,
+      diffView: labelled != null,
     };
    }
    throw vscode.FileSystemError.FileNotFound(uri);
@@ -131,11 +145,14 @@ export function buildMethodUri(parsedUri: ParsedMethodUri): vscode.Uri {
   assertIsValidUriPath('Selector', parsedUri.selector);
   
   const side = parsedUri.isMeta ? 'class' : 'instance';
+  const params: string[] = [];
+  if (parsedUri.environmentId > 0) params.push(`env=${parsedUri.environmentId}`);
+  if (parsedUri.base) params.push('base=1');
   return vscode.Uri.from({
     scheme: 'gemstone',
     authority: String(parsedUri.sessionId),
     path: `/${parsedUri.dictName}/${parsedUri.className}/${side}/${parsedUri.category}/${parsedUri.selector}`,
-    query: parsedUri.environmentId > 0 ? `env=${parsedUri.environmentId}` : '',
+    query: params.join('&'),
   });
 }
 
@@ -191,6 +208,12 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
     const parsed = parseUri(uri);
     // New documents are always writable — no existing class to check
     if (parsed.kind === 'new-class' || parsed.kind === 'new-method') return stat;
+    // Override-diff view URIs are read-only on both sides — it's a comparison,
+    // not an editor.
+    if (parsed.kind === 'method' && parsed.diffView) {
+      stat.permissions = vscode.FilePermission.Readonly;
+      return stat;
+    }
     const session = this.sessionManager.getSession(parsed.sessionId);
     if (!session) return stat;
     try {
@@ -238,7 +261,9 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
     let text: string;
     switch (parsed.kind) {
       case 'method':
-        text = queries.getMethodSource(session, parsed.className, parsed.isMeta, parsed.selector, parsed.environmentId);
+        text = parsed.base
+          ? queries.getBaseMethodSource(session, parsed.className, parsed.isMeta, parsed.selector, parsed.environmentId)
+          : queries.getMethodSource(session, parsed.className, parsed.isMeta, parsed.selector, parsed.environmentId);
         break;
       case 'definition':
         text = queries.getClassDefinition(session, parsed.className);

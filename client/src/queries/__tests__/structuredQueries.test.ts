@@ -4,6 +4,7 @@ import { getDictionaryEntries } from '../getDictionaryEntries';
 import { getGlobalsForDictionary } from '../getGlobalsForDictionary';
 import { getAllClassNames } from '../getAllClassNames';
 import { getClassEnvironments } from '../getClassEnvironments';
+import { getBaseMethodSource } from '../getBaseMethodSource';
 import { getClassHierarchy } from '../getClassHierarchy';
 import { getMethodList } from '../getMethodList';
 import { getStepPointSelectorRanges } from '../getStepPointSelectorRanges';
@@ -57,9 +58,9 @@ describe('getAllClassNames', () => {
 
 describe('getClassEnvironments', () => {
   it('detects class side via " class" suffix on receiver name', () => {
-    // Each selector token carries a leading override-flag digit (0..3).
-    const raw = 'Array class\t0\tinstance creation\t0new\t0with:\n'
-              + 'Array\t0\taccessing\t0size\n';
+    // Each selector token carries a fixed 2-digit leading flag byte (00..15).
+    const raw = 'Array class\t0\tinstance creation\t00new\t00with:\n'
+              + 'Array\t0\taccessing\t00size\n';
     const results = getClassEnvironments(vi.fn<QueryExecutor>(() => raw), 1, 'Array', 0);
     expect(results).toHaveLength(2);
     expect(results[0]).toMatchObject({
@@ -71,24 +72,55 @@ describe('getClassEnvironments', () => {
 
   it('parses the per-selector override bitmask and strips its prefix', () => {
     // 1 = overrides super (▲), 2 = overridden in subclass (▼), 3 = both.
-    const raw = 'Array\t0\taccessing\t1at:\t2size\t3printOn:\t0name\n';
+    const raw = 'Array\t0\taccessing\t01at:\t02size\t03printOn:\t00name\n';
     const results = getClassEnvironments(vi.fn<QueryExecutor>(() => raw), 1, 'Array', 0);
     expect(results[0].selectors).toEqual(['at:', 'name', 'printOn:', 'size']);
     expect(results[0].methodOverrideBits).toEqual({ 'at:': 1, size: 2, 'printOn:': 3 });
+    expect(results[0].sessionMethodBits).toEqual({});
   });
 
   it('omits zero-bit (neither overrides nor overridden) selectors from the map', () => {
-    const raw = 'Array\t0\taccessing\t0a\t0b\n';
+    const raw = 'Array\t0\taccessing\t00a\t00b\n';
     const results = getClassEnvironments(vi.fn<QueryExecutor>(() => raw), 1, 'Array', 0);
     expect(results[0].selectors).toEqual(['a', 'b']);
     expect(results[0].methodOverrideBits).toEqual({});
   });
 
   it('records override bits on the class side too', () => {
-    const raw = 'Array class\t0\tinstance creation\t3new\t1basicNew\n';
+    const raw = 'Array class\t0\tinstance creation\t03new\t01basicNew\n';
     const results = getClassEnvironments(vi.fn<QueryExecutor>(() => raw), 1, 'Array', 0);
     expect(results[0].isMeta).toBe(true);
     expect(results[0].methodOverrideBits).toEqual({ new: 3, basicNew: 1 });
+  });
+
+  it('parses the session-method flag: bit 4 = extension, bit 8 = override', () => {
+    // 04 = session extension (transient only), 12 = session override (4+8,
+    // also in persistent dict). 00 = ordinary persistent method.
+    const raw = 'Object\t0\t*mypkg\t04sessionExt\t12isVowel\t00hash\n';
+    const results = getClassEnvironments(vi.fn<QueryExecutor>(() => raw), 1, 'Object', 0);
+    expect(results[0].selectors).toEqual(['hash', 'isVowel', 'sessionExt']);
+    expect(results[0].sessionMethodBits).toEqual({ sessionExt: 1, isVowel: 2 });
+    expect(results[0].methodOverrideBits).toEqual({});
+  });
+
+  it('records session and override bits independently when they co-occur', () => {
+    // 05 = overrides super (1) + session extension (4); a session method may
+    // also shadow a superclass impl. Both maps must carry their own bits.
+    const raw = 'Object\t0\t*mypkg\t05foo\t14bar\n';
+    const results = getClassEnvironments(vi.fn<QueryExecutor>(() => raw), 1, 'Object', 0);
+    // 14 = overridden-in-subclass (2) + session override (4+8) -> not asserted
+    // on override map beyond bit 2; session map sees an override.
+    expect(results[0].methodOverrideBits).toEqual({ foo: 1, bar: 2 });
+    expect(results[0].sessionMethodBits).toEqual({ foo: 1, bar: 2 });
+  });
+
+  it('emits the session-detection primitives (transient/persistent dicts, at:otherwise:)', () => {
+    const execute = vi.fn<QueryExecutor>(() => '');
+    getClassEnvironments(execute, 1, 'Object', 0);
+    const code = execute.mock.calls[0][1];
+    expect(code).toContain('transientMethodDictForEnv:');
+    expect(code).toContain('persistentMethodDictForEnv:');
+    expect(code).toContain('at: each otherwise: nil'); // NOT includesKey: on the transient dict
   });
 
   it('embeds dictIndex, escaped class name, and maxEnv', () => {
@@ -110,6 +142,36 @@ describe('getClassEnvironments', () => {
     expect(code).toContain('whichClassIncludesSelector:'); // walks all ancestors
     expect(code).toContain('allSubclasses');               // walks all descendants
     expect(code).not.toContain('lookupSelector:');         // the rejected approach
+  });
+});
+
+describe('getBaseMethodSource', () => {
+  it('reads the persistent (base) method, not the merged/session view', () => {
+    const execute = vi.fn<QueryExecutor>(() => 'isVowel\n  ^ base');
+    getBaseMethodSource(execute, 'Character', false, 'isVowel', 0);
+    const code = execute.mock.calls[0][1];
+    expect(code).toContain('persistentMethodDictForEnv: 0');
+    expect(code).toContain("at: #'isVowel' otherwise: nil");
+    expect(code).not.toContain('compiledMethodAt:'); // that would return the override
+  });
+
+  it('targets the metaclass for a class-side selector', () => {
+    const execute = vi.fn<QueryExecutor>(() => '');
+    getBaseMethodSource(execute, 'Character', true, 'foo', 0);
+    expect(execute.mock.calls[0][1]).toContain('Character class');
+  });
+
+  it('threads a non-zero environment id into the persistent lookup', () => {
+    const execute = vi.fn<QueryExecutor>(() => '');
+    getBaseMethodSource(execute, 'Character', false, 'foo', 2);
+    expect(execute.mock.calls[0][1]).toContain('persistentMethodDictForEnv: 2');
+  });
+
+  it('emits ASCII-only source (3.6.x miscompiles non-ASCII: ComStrmSetCursor)', () => {
+    const execute = vi.fn<QueryExecutor>(() => '');
+    getBaseMethodSource(execute, 'Character', false, 'isVowel', 0);
+    // eslint-disable-next-line no-control-regex
+    expect(/[^\x00-\x7F]/.test(execute.mock.calls[0][1])).toBe(false);
   });
 });
 

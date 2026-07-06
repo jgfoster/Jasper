@@ -18,7 +18,11 @@ type ClickMessage =
 
 type MethodListViewApi = {
   makeOverrideArrow(selector: string, dir: 'up' | 'down'): HTMLSpanElement;
+  makeSessionIndicator(selector: string, sessionBit: number): HTMLSpanElement;
   applyOverrideArrows(div: HTMLElement, selector: string, methodOverrideBit: number): void;
+  applyMethodIndicators(
+    div: HTMLElement, selector: string, methodOverrideBit: number, sessionBit: number,
+  ): void;
   methodListClickMessage(event: { target: Element }, listEl: HTMLElement): ClickMessage;
 };
 
@@ -28,12 +32,12 @@ function api(): MethodListViewApi {
 
 // Build a method-list <div class="item"> the way populateColumn does, applying
 // the override bits so arrows (if any) become real leading children.
-function makeItem(selector: string, methodOverrideBit = 0): HTMLDivElement {
+function makeItem(selector: string, methodOverrideBit = 0, sessionBit = 0): HTMLDivElement {
   const div = document.createElement('div');
   div.className = 'item';
   div.dataset.value = selector;
-  if (methodOverrideBit) {
-    api().applyOverrideArrows(div, selector, methodOverrideBit);
+  if (methodOverrideBit || sessionBit) {
+    api().applyMethodIndicators(div, selector, methodOverrideBit, sessionBit);
   } else {
     div.textContent = selector;
   }
@@ -91,6 +95,64 @@ describe('MethodListView.applyOverrideArrows', () => {
   });
 });
 
+describe('MethodListView.makeSessionIndicator', () => {
+  it('builds the extension glyph (+) with the extension tooltip', () => {
+    const span = api().makeSessionIndicator('isVowel', 1);
+    expect(span.textContent).toBe('+');
+    expect(span.className).toBe('session-indicator extension');
+    expect(span.title).toContain('adds new behavior');
+  });
+
+  it('builds the override glyph (±) whose tooltip names the ± icon and the compare action', () => {
+    const span = api().makeSessionIndicator('isVowel', 2);
+    expect(span.textContent).toBe('±');
+    expect(span.className).toBe('session-indicator override');
+    expect(span.title).toContain('±');
+    expect(span.title).toContain('compare');
+  });
+});
+
+describe('MethodListView.applyMethodIndicators session methods', () => {
+  it('marks an extension row italic and prefixes the + glyph', () => {
+    const div = makeItem('isVowel', 0, 1);
+    expect(div.classList.contains('session-extension')).toBe(true);
+    expect(div.querySelector('.session-indicator')!.textContent).toBe('+');
+    expect(div.textContent).toBe('+isVowel');
+  });
+
+  it('marks an override row italic and prefixes the ± glyph', () => {
+    const div = makeItem('isVowel', 0, 2);
+    expect(div.classList.contains('session-override')).toBe(true);
+    expect(div.querySelector('.session-indicator')!.textContent).toBe('±');
+  });
+
+  it('describes the session method on the whole row, without the click hint (that lives on the ± glyph)', () => {
+    const div = makeItem('isVowel', 0, 2);
+    expect(div.title).toContain('overrides a persistent base method');
+    expect(div.title.toLowerCase()).not.toContain('click');
+  });
+
+  it('renders override arrows before the session glyph when a method is both', () => {
+    const div = makeItem('printOn:', 1, 1);
+    const leading = [...div.children].map(c => c.className);
+    expect(leading).toEqual(['override-arrow up', 'session-indicator extension']);
+    expect(div.textContent).toBe('▲+printOn:');
+    expect(div.classList.contains('session-extension')).toBe(true);
+  });
+
+  it('leaves a non-session row unstyled and glyph-free', () => {
+    const div = makeItem('size', 1, 0);
+    expect(div.querySelector('.session-indicator')).toBeNull();
+    expect(div.classList.contains('session-extension')).toBe(false);
+    expect(div.classList.contains('session-override')).toBe(false);
+  });
+
+  it('keeps dataset.value the bare selector so filtering/selection still match', () => {
+    const div = makeItem('at:put:', 0, 2);
+    expect(div.dataset.value).toBe('at:put:');
+  });
+});
+
 describe('MethodListView.methodListClickMessage', () => {
   it('clicking an arrow posts showHierarchyImpls with selector and direction', () => {
     const list = document.createElement('div');
@@ -140,6 +202,30 @@ describe('MethodListView.methodListClickMessage', () => {
 
     expect(first.classList.contains('selected')).toBe(false);
     expect(second.classList.contains('selected')).toBe(true);
+  });
+
+  it('clicking the override glyph asks to compare with the base method', () => {
+    const list = document.createElement('div');
+    const item = makeItem('isVowel', 0, 2);
+    list.appendChild(item);
+    const glyph = item.querySelector('.session-indicator')!;
+
+    const msg = api().methodListClickMessage({ target: glyph }, list);
+
+    expect(msg).toEqual({ command: 'compareSessionOverride', selector: 'isVowel' });
+    expect(item.classList.contains('selected')).toBe(true);
+  });
+
+  it('clicking the extension glyph just selects the method (no base to compare)', () => {
+    const list = document.createElement('div');
+    const item = makeItem('jasperGreeting', 0, 1);
+    list.appendChild(item);
+    const glyph = item.querySelector('.session-indicator')!;
+
+    const msg = api().methodListClickMessage({ target: glyph }, list);
+
+    expect(msg).toEqual({ command: 'selectMethod', selector: 'jasperGreeting' });
+    expect(item.classList.contains('selected')).toBe(true);
   });
 
   it('clicking empty space (neither arrow nor item) returns null', () => {

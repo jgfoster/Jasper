@@ -12,6 +12,7 @@ vi.mock('../browserQueries', () => ({
     }
   },
   getMethodSource: vi.fn(() => 'at: index\n  ^self basicAt: index'),
+  getBaseMethodSource: vi.fn(() => 'isVowel\n  ^ base impl'),
   getClassDefinition: vi.fn(() => "Object subclass: 'Array'\n  instVarNames: #()"),
   getClassComment: vi.fn(() => 'An ordered collection.'),
   compileMethod: vi.fn(() => 'Compiled: Array >> at:'),
@@ -69,6 +70,12 @@ describe('GemStoneFileSystemProvider', () => {
     it('returns read-only when canClassBeWritten returns false', () => {
       vi.mocked(queries.canClassBeWritten).mockReturnValue(false);
       const stat = provider.stat(Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A'));
+      expect(stat.permissions).toBe(FilePermission.Readonly);
+    });
+
+    it('returns read-only for an override-diff view URI even on a writable class', () => {
+      vi.mocked(queries.canClassBeWritten).mockReturnValue(true);
+      const stat = provider.stat(Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A%20(base)?base=1'));
       expect(stat.permissions).toBe(FilePermission.Readonly);
     });
 
@@ -133,6 +140,39 @@ describe('GemStoneFileSystemProvider', () => {
       provider.readFile(uri);
       expect(queries.getMethodSource).toHaveBeenCalledWith(
         expect.anything(), 'Array', false, '__len__', 2,
+      );
+    });
+
+    it('reads the persistent base source for a ?base=1 method URI', () => {
+      const uri = Uri.parse('gemstone://1/Globals/Character/instance/converting/isVowel?base=1');
+      const content = new TextDecoder().decode(provider.readFile(uri));
+      expect(queries.getBaseMethodSource).toHaveBeenCalledWith(
+        expect.anything(), 'Character', false, 'isVowel', 0,
+      );
+      expect(queries.getMethodSource).not.toHaveBeenCalled();
+      expect(content).toContain('base impl');
+    });
+
+    it('reads the session/merged source (not base) for a plain method URI', () => {
+      const uri = Uri.parse('gemstone://1/Globals/Character/instance/converting/isVowel');
+      provider.readFile(uri);
+      expect(queries.getMethodSource).toHaveBeenCalled();
+      expect(queries.getBaseMethodSource).not.toHaveBeenCalled();
+    });
+
+    it('strips the " (base)" diff label to recover the real selector', () => {
+      const uri = Uri.parse('gemstone://1/Globals/Character/instance/converting/isVowel%20(base)?base=1');
+      provider.readFile(uri);
+      expect(queries.getBaseMethodSource).toHaveBeenCalledWith(
+        expect.anything(), 'Character', false, 'isVowel', 0,
+      );
+    });
+
+    it('strips the " (session override)" diff label to recover the real selector', () => {
+      const uri = Uri.parse('gemstone://1/Globals/Character/instance/converting/isVowel%20(session%20override)');
+      provider.readFile(uri);
+      expect(queries.getMethodSource).toHaveBeenCalledWith(
+        expect.anything(), 'Character', false, 'isVowel', 0,
       );
     });
 
@@ -751,6 +791,16 @@ describe('buildMethodUri', () => {
   it('appends the env query parameter when environmentId is non-zero', () => {
     const uri = buildMethodUri({ kind: 'method', sessionId: 1, dictName: 'Globals', className: 'Array', isMeta: false, category: 'accessing', selector: 'at', environmentId: 2 });
     expect(uri.query).toBe('env=2');
+  });
+
+  it('appends base=1 when the base flag is set', () => {
+    const uri = buildMethodUri({ kind: 'method', sessionId: 1, dictName: 'Globals', className: 'Character', isMeta: false, category: 'converting', selector: 'isVowel', environmentId: 0, base: true });
+    expect(uri.query).toBe('base=1');
+  });
+
+  it('combines env and base in the query', () => {
+    const uri = buildMethodUri({ kind: 'method', sessionId: 1, dictName: 'Globals', className: 'Character', isMeta: false, category: 'converting', selector: 'isVowel', environmentId: 2, base: true });
+    expect(uri.query).toBe('env=2&base=1');
   });
 
   it('throws when dictName contains a slash', () => {

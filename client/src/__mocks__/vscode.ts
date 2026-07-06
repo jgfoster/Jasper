@@ -228,7 +228,7 @@ export const window = {
   showOpenDialog: vi.fn(),
   showSaveDialog: vi.fn(),
   tabGroups: {
-    all: [] as { tabs: { input: unknown }[] }[],
+    all: [] as { viewColumn?: number; tabs: { input: unknown }[] }[],
     close: vi.fn(),
   },
   withProgress: vi.fn(async (_opts: unknown, task: (progress: unknown, token: unknown) => Promise<unknown>) => {
@@ -307,6 +307,10 @@ export const commands = {
 
 export class TabInputText {
   constructor(public readonly uri: Uri) {}
+}
+
+export class TabInputTextDiff {
+  constructor(public readonly original: Uri, public readonly modified: Uri) {}
 }
 
 // ── FileSystemError mock ──────────────────────────────────
