@@ -11,7 +11,10 @@ import { logInfo, logError } from './gciLog';
  * disappears at logout (the same pattern as JadeServer's `_installTranscript`).
  * The instance replaces the stream GemStone's `TranscriptStreamPortable` keeps
  * at `SessionTemps at: #'TranscriptStream_SessionStream'`, which is where every
- * `Transcript show:` / `nextPutAll:` in the session ultimately writes.
+ * `Transcript show:` / `nextPutAll:` in the session ultimately writes. Note the
+ * key must be `#TranscriptStream_SessionStream`, not `#Transcript`: an earlier
+ * version keyed the sink at `#Transcript`, which no supported version consults,
+ * so Transcript output was silently lost — don't reintroduce that.
  *
  * The sink runs in one of two modes:
  *
