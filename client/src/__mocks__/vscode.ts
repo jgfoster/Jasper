@@ -226,6 +226,43 @@ export const window = {
   })),
   showInputBox: vi.fn(),
   showQuickPick: vi.fn(),
+  // Controllable low-level QuickPick. Each call returns a fresh instance whose
+  // registered handlers can be fired from a test via `__accept()` / `__hide()`
+  // (or `hide()`), after inspecting/setting `items`, `activeItems`, and
+  // `selectedItems`. Grab the created instance with
+  // `vi.mocked(vscode.window.createQuickPick).mock.results.at(-1).value`.
+  createQuickPick: vi.fn(() => {
+    const acceptHandlers: Array<() => void | Promise<void>> = [];
+    const hideHandlers: Array<() => void> = [];
+    const qp: Record<string, unknown> = {
+      title: '',
+      placeholder: '',
+      value: '',
+      items: [] as unknown[],
+      selectedItems: [] as unknown[],
+      activeItems: [] as unknown[],
+      enabled: true,
+      busy: false,
+      matchOnDescription: false,
+      matchOnDetail: false,
+      onDidAccept: vi.fn((h: () => void | Promise<void>) => {
+        acceptHandlers.push(h);
+        return { dispose: vi.fn() };
+      }),
+      onDidHide: vi.fn((h: () => void) => {
+        hideHandlers.push(h);
+        return { dispose: vi.fn() };
+      }),
+      show: vi.fn(),
+      hide: vi.fn(() => hideHandlers.forEach((h) => h())),
+      dispose: vi.fn(),
+      __accept: async () => {
+        for (const h of acceptHandlers) await h();
+      },
+      __hide: () => hideHandlers.forEach((h) => h()),
+    };
+    return qp;
+  }),
   showOpenDialog: vi.fn(),
   showSaveDialog: vi.fn(),
   tabGroups: {
