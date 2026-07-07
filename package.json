@@ -2,7 +2,7 @@
   "name": "gemstone-ide",
   "displayName": "Jasper: A GemStone Smalltalk IDE",
   "description": "GemStone/S IDE for Visual Studio Code",
-  "version": "1.7.7",
+  "version": "1.7.8",
   "publisher": "gemtalksystems",
   "license": "MIT",
   "author": "James Foster",
@@ -585,6 +585,12 @@
         "icon": "$(notebook)"
       },
       {
+        "command": "gemstone.sessionOpenWorkspace",
+        "title": "Open Workspace",
+        "category": "GemStone",
+        "icon": "$(notebook)"
+      },
+      {
         "command": "gemstone.openTutorial",
         "title": "Open Tutorial Notebook",
         "category": "GemStone",
@@ -1025,8 +1031,8 @@
           "group": "inline@1"
         },
         {
-          "command": "gemstone.deleteLogin",
-          "when": "view == gemstoneLogins && viewItem == gemstoneLogin",
+          "command": "gemstone.login",
+          "when": "view == gemstoneLogins && (viewItem == gemstoneLogin || (viewItem == gemstoneLoginConnected && gemstone.multipleSessions))",
           "group": "inline@1"
         },
         {
@@ -1035,8 +1041,8 @@
           "group": "inline@2"
         },
         {
-          "command": "gemstone.login",
-          "when": "view == gemstoneLogins && (viewItem == gemstoneLogin || (viewItem == gemstoneLoginConnected && gemstone.multipleSessions))",
+          "command": "gemstone.deleteLogin",
+          "when": "view == gemstoneLogins && viewItem == gemstoneLogin",
           "group": "inline@3"
         },
         {
@@ -1044,12 +1050,12 @@
           "when": "view == gemstoneLogins && (viewItem == gemstoneLogin || viewItem == gemstoneLoginConnected)"
         },
         {
-          "command": "gemstone.sessionLogout",
+          "command": "gemstone.openBrowser",
           "when": "view == gemstoneLogins && viewItem == gemstoneSession",
           "group": "inline@1"
         },
         {
-          "command": "gemstone.sessionAbort",
+          "command": "gemstone.sessionOpenWorkspace",
           "when": "view == gemstoneLogins && viewItem == gemstoneSession",
           "group": "inline@2"
         },
@@ -1059,14 +1065,19 @@
           "group": "inline@3"
         },
         {
-          "command": "gemstone.sessionPing",
+          "command": "gemstone.sessionAbort",
           "when": "view == gemstoneLogins && viewItem == gemstoneSession",
           "group": "inline@4"
         },
         {
-          "command": "gemstone.openBrowser",
+          "command": "gemstone.sessionPing",
           "when": "view == gemstoneLogins && viewItem == gemstoneSession",
           "group": "inline@5"
+        },
+        {
+          "command": "gemstone.sessionLogout",
+          "when": "view == gemstoneLogins && viewItem == gemstoneSession",
+          "group": "inline@6"
         },
         {
           "command": "gemstone.exportClasses",

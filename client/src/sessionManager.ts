@@ -163,6 +163,26 @@ export class SessionManager {
     // failure — the session simply has no Transcript display.
     installTranscriptSink(session);
 
+    // Clear the spurious "uncommitted changes" a fresh login carries. Beginning
+    // the login transaction rebuilds the session-method dictionary, which bumps a
+    // change-counter on the *persistent* singleton
+    // `SessionMethodTransactionBoundaryPolicy current` — so a session that only
+    // browsed shows uncommitted work at logout, and two concurrent committers
+    // false-conflict on that kernel object. The session methods themselves (and
+    // the Transcript sink above) are transient and survive abort, and the
+    // counter's cross-session cache invalidation is driven by the *committed*
+    // value, so aborting only drops the noise. Safe here because a just-logged-in
+    // session has no user-authored work to lose. (A kernel-side fix — not bumping
+    // the counter during a session-local rebuild — remains the proper fix.)
+    try {
+      const { success, err } = session.gci.GciTsAbort(session.handle);
+      if (!success) {
+        logInfo(`[Session ${session.id}] Post-login abort failed (error ${err.number}); leaving spurious uncommitted state`);
+      }
+    } catch (e: unknown) {
+      logInfo(`[Session ${session.id}] Post-login abort threw: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
     // Auto-select when this is the only session
     if (this.sessions.size === 1) {
       this.selectSession(session.id);

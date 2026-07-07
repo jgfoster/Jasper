@@ -12,6 +12,15 @@ describe('getClassDefinition', () => {
     expect(getClassDefinition(execute, 'Foo')).toBe('Object subclass: #Foo');
     expect(execute).toHaveBeenCalledWith('getClassDefinition(Foo)', 'Foo definition');
   });
+
+  it('scopes the lookup to a SymbolList index when a dict is given', () => {
+    const execute = vi.fn<QueryExecutor>(() => 'Object subclass: #Foo');
+    getClassDefinition(execute, 'Foo', 9);
+    const code = execute.mock.calls[0][1];
+    expect(code).toContain('System myUserProfile symbolList at: 9');
+    expect(code).toContain("at: #'Foo' ifAbsent: [nil]");
+    expect(code).toContain('cls definition');
+  });
 });
 
 describe('getClassComment', () => {
@@ -19,6 +28,14 @@ describe('getClassComment', () => {
     const execute = vi.fn<QueryExecutor>(() => 'a class for testing');
     expect(getClassComment(execute, 'Foo')).toBe('a class for testing');
     expect(execute).toHaveBeenCalledWith('getClassComment(Foo)', 'Foo comment');
+  });
+
+  it('scopes the lookup to a SymbolList index when a dict is given', () => {
+    const execute = vi.fn<QueryExecutor>(() => 'c');
+    getClassComment(execute, 'Foo', 3);
+    const code = execute.mock.calls[0][1];
+    expect(code).toContain('System myUserProfile symbolList at: 3');
+    expect(code).toContain('cls comment');
   });
 });
 
@@ -36,6 +53,14 @@ describe('canClassBeWritten', () => {
   it('trims surrounding whitespace before comparing', () => {
     const execute = vi.fn<QueryExecutor>(() => '  true\n');
     expect(canClassBeWritten(execute, 'Foo')).toBe(true);
+  });
+
+  it('scopes the lookup to a SymbolList index when a dict is given', () => {
+    const execute = vi.fn<QueryExecutor>(() => 'true');
+    canClassBeWritten(execute, 'Foo', 5);
+    const code = execute.mock.calls[0][1];
+    expect(code).toContain('System myUserProfile symbolList at: 5');
+    expect(code).toContain('cls canBeWritten printString');
   });
 });
 

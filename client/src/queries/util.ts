@@ -2,8 +2,14 @@ export function escapeString(s: string): string {
   return s.replace(/'/g, "''");
 }
 
-export function receiver(className: string, isMeta: boolean): string {
-  return isMeta ? `${className} class` : className;
+// A Smalltalk expression for the class (or its metaclass) that receives a
+// method-level operation. `dict` (a 1-based SymbolList index, or a name) scopes
+// the resolution to a specific dictionary so the same key in two dictionaries
+// resolves to the intended class; without it, the bare class name is resolved as
+// a global (first match in the symbol list).
+export function receiver(className: string, isMeta: boolean, dict?: number | string): string {
+  const base = dict === undefined ? className : `(${classLookupExpr(className, dict)})`;
+  return isMeta ? `${base} class` : base;
 }
 
 export function splitLines(result: string): string[] {
@@ -12,8 +18,9 @@ export function splitLines(result: string): string[] {
 
 export function compiledMethodExpr(
   className: string, isMeta: boolean, selector: string, environmentId: number,
+  dict?: number | string,
 ): string {
-  return `(${receiver(className, isMeta)} compiledMethodAt: #'${escapeString(selector)}' environmentId: ${environmentId})`;
+  return `(${receiver(className, isMeta, dict)} compiledMethodAt: #'${escapeString(selector)}' environmentId: ${environmentId})`;
 }
 
 // Compose a Smalltalk expression that resolves a class by name, optionally
@@ -31,6 +38,9 @@ export function classLookupExpr(className: string, dict?: number | string): stri
   if (dict === undefined) {
     return `System myUserProfile symbolList objectNamed: #'${esc}'`;
   }
+  // Prefer a 1-based SymbolList index (unambiguous — two dictionaries can share a
+  // name). A number scopes to exactly that dictionary; a name is a best-effort
+  // fallback for callers that only have a name (e.g. some MCP tools).
   if (typeof dict === 'number') {
     return `(System myUserProfile symbolList at: ${dict}) at: #'${esc}' ifAbsent: [nil]`;
   }

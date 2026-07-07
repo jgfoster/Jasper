@@ -332,4 +332,39 @@ describe('browserQueries', () => {
       expect(code).toContain('class := MyClass');
     });
   });
+
+  describe('sessionNeedsCommit', () => {
+    it('reports pending work when the image says a commit is needed', () => {
+      const session = createMockSession('true');
+      expect(queries.sessionNeedsCommit(session)).toBe(true);
+    });
+
+    it('reports a clean transaction when the image says no commit is needed', () => {
+      const session = createMockSession('false');
+      expect(queries.sessionNeedsCommit(session)).toBe(false);
+    });
+
+    it('tolerates surrounding whitespace in the reply', () => {
+      const session = createMockSession('  true\n');
+      expect(queries.sessionNeedsCommit(session)).toBe(true);
+    });
+
+    it('cannot tell when the reply is unrecognized', () => {
+      const session = createMockSession('nil');
+      expect(queries.sessionNeedsCommit(session)).toBeUndefined();
+    });
+
+    it('cannot tell when the session is busy with another operation', () => {
+      const session = createMockSession('true');
+      (session.gci.GciTsCallInProgress as ReturnType<typeof vi.fn>).mockReturnValue({ result: 1 });
+      expect(queries.sessionNeedsCommit(session)).toBeUndefined();
+    });
+
+    it('asks the image via System needsCommit', () => {
+      const session = createMockSession('false');
+      queries.sessionNeedsCommit(session);
+      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+      expect(mockExec.mock.calls[0][1]).toContain('System needsCommit');
+    });
+  });
 });

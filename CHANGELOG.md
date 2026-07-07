@@ -8,6 +8,23 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 - **System Browser: clicking a class in the hierarchy view no longer reopens its source file.** The hierarchy click already refreshed the Class Definition pane; it also called `openClassFile`, shoving a file in front of whatever the user was editing. That call is removed, matching the column click's definition-only behavior.
 
+## [1.7.8] - 2026-07-07
+
+### Added
+
+- **System Browser: prompt-based Browse Senders / Implementors / Methods Containing.** Three new method-list context-menu commands that prompt for text rather than acting on the selected method: **Browse Senders Of…** and **Browse Implementors Of…** (prompt for a selector) and **Browse Methods Containing…** (prompt for a string), each running the same ClassOrganizer-backed search and results view as the existing commands. They sit just after **New Method** and are always available since they take typed input and need no selection. The Command Palette's **Search Method Source** now delegates to the same single search path.
+- **Sessions view: inline "Open Workspace" button.** Each session row gains an inline **Open Workspace** action (between Browser and Commit) that opens the scratch Workspace against that session — selecting the clicked session first, so with several sessions open, Execute It targets the one you clicked rather than whichever was already active.
+
+### Changed
+
+- **Session Abort and Logout now guard uncommitted work, and the inline buttons are reordered.** Logout prompts **Commit & Logout / Logout Anyway / Cancel** when the transaction is (or might be) dirty — committing first aborts the logout if the commit fails — and Abort's confirmation now fires on a dirty-or-unknown transaction, not only when editor buffers are unsaved. Session and login inline buttons are reordered so the most-used/safe action leads and the destructive one trails (Browser first, Logout last; Login first, Delete last).
+
+### Fixed
+
+- **System Browser resolves classes and methods by dictionary, not first-match name.** A class can be registered under more than one dictionary/key (e.g. `Globals>Object` and `Python>object`, `OrderedCollection` aliased as `Python>list`), and two SymbolDictionaries can even share a name. **Find Class** now lists every `(dictionary, key)` pair as its own navigable entry, and definition/comment/method operations carry the exact dictionary (by SymbolList index) so the right class backs every read, compile, delete, recategorize, rename, and copy — aliases that were previously unfindable now resolve correctly.
+- **System Browser: companion tabs close with the browser, and methods keep their real category.** Tabs a browser opened (Globals, class definition, comment, method source, override diff) now close when the browser closes or the session logs out. Also, opening a method while a pseudo-category (**\*\* ALL METHODS \*\*** / **\*\* SESSION METHODS \*\***) was selected no longer mislabels it "as yet unclassified" nor recompiles it into that category on save — the method's actual category is used.
+- **A fresh login no longer reports spurious uncommitted changes.** Beginning the login transaction rebuilds the session-method dictionary, bumping a change-counter on a persistent kernel singleton, so a session that only browsed showed "uncommitted changes" at logout and two concurrent committers could false-conflict on that object. Login now issues a single abort after setup to drop that spurious write; the transient session methods and Transcript sink survive it.
+
 ## [1.7.7] - 2026-07-07
 
 ### Added

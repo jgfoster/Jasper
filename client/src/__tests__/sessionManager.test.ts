@@ -21,6 +21,9 @@ let pingErrNumber = 0;
 // The transcript-sink install (run at login) executes a doit via
 // GciTsExecuteFetchBytes; capture the calls so tests can assert on them.
 const executeFetchBytes = vi.fn((..._args: unknown[]) => ({ data: 'installed', err: { number: 0, message: '' } }));
+// login() aborts once after setup to drop the session-method-policy's spurious
+// write; capture those calls so tests can assert on them.
+const gciTsAbort = vi.fn((..._args: unknown[]) => ({ success: true, err: { number: 0, message: '' } }));
 
 vi.mock('../gciLibrary', () => ({
   GciLibrary: class {
@@ -28,6 +31,7 @@ vi.mock('../gciLibrary', () => ({
     GciTsVersion() { return { version: '3.7.2' }; }
     GciTsFetchSize() { return { result: pingErrNumber ? -1n : 0n, err: { number: pingErrNumber, message: pingErrNumber ? 'boom' : '' } }; }
     GciTsExecuteFetchBytes(...args: unknown[]) { return executeFetchBytes(...(args as [])); }
+    GciTsAbort(...args: unknown[]) { return gciTsAbort(...(args as [])); }
     GciTsLogout() {}
     close() {}
   },
@@ -95,6 +99,28 @@ describe('SessionManager', () => {
     executeFetchBytes.mockReturnValueOnce({
       data: '', err: { number: 4001, message: 'no compile privilege' },
     });
+
+    const session = manager.login({ ...DEFAULT_LOGIN, label: 'Test' }, '/mock/lib');
+
+    expect(session.id).toBe(1);
+  });
+
+  it('aborts the fresh session after login to drop the spurious session-method-policy write', () => {
+    const session = manager.login({ ...DEFAULT_LOGIN, label: 'Test' }, '/mock/lib');
+
+    expect(gciTsAbort).toHaveBeenCalledWith(session.handle);
+  });
+
+  it('still completes login when the post-login abort fails', () => {
+    gciTsAbort.mockReturnValueOnce({ success: false, err: { number: 1, message: 'boom' } });
+
+    const session = manager.login({ ...DEFAULT_LOGIN, label: 'Test' }, '/mock/lib');
+
+    expect(session.id).toBe(1);
+  });
+
+  it('still completes login when the post-login abort throws', () => {
+    gciTsAbort.mockImplementationOnce(() => { throw new Error('gci down'); });
 
     const session = manager.login({ ...DEFAULT_LOGIN, label: 'Test' }, '/mock/lib');
 

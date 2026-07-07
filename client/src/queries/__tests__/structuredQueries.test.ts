@@ -54,6 +54,36 @@ describe('getAllClassNames', () => {
       { dictIndex: 2, dictName: 'UserGlobals', className: 'MyClass' },
     ]);
   });
+
+  it('does not de-duplicate by object identity, so aliases of one class each appear', () => {
+    // The same class object registered under two different dictionary/key pairs
+    // (Python>object and Globals>Object both resolve to Object) must yield two
+    // rows — one per registration.
+    const raw = '1\tPython\tobject\n9\tGlobals\tObject\n';
+    const results = getAllClassNames(vi.fn<QueryExecutor>(() => raw));
+    expect(results).toEqual([
+      { dictIndex: 1, dictName: 'Python', className: 'object' },
+      { dictIndex: 9, dictName: 'Globals', className: 'Object' },
+    ]);
+  });
+
+  it('lists two keys aliased to one class within the same dictionary', () => {
+    // Globals>Float and Globals>FloatD are the same class object under two keys.
+    const raw = '9\tGlobals\tFloat\n9\tGlobals\tFloatD\n';
+    const results = getAllClassNames(vi.fn<QueryExecutor>(() => raw));
+    expect(results).toEqual([
+      { dictIndex: 9, dictName: 'Globals', className: 'Float' },
+      { dictIndex: 9, dictName: 'Globals', className: 'FloatD' },
+    ]);
+  });
+
+  it('emits a query that lists every (dictionary, key) pair without an identity filter', () => {
+    const execute = vi.fn<QueryExecutor>(() => '');
+    getAllClassNames(execute);
+    const code = execute.mock.calls[0][1];
+    expect(code).not.toContain('IdentitySet');
+    expect(code).not.toContain('seen');
+  });
 });
 
 describe('getClassEnvironments', () => {

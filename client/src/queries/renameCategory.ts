@@ -5,10 +5,11 @@ import { escapeString, receiver } from './util';
 export function renameCategory(
   execute: QueryExecutor,
   className: string, isMeta: boolean, oldCategory: string, newCategory: string,
+  dict?: number | string,
 ): string {
-  const recv = receiver(className, isMeta);
+  const recv = receiver(className, isMeta, dict);
   const code = `${recv} renameCategory: '${escapeString(oldCategory)}' to: '${escapeString(newCategory)}'. 'ok'`;
   return execute(
-    `renameCategory(${recv}, '${oldCategory}' -> '${newCategory}')`, code,
+    `renameCategory(${receiver(className, isMeta)}, '${oldCategory}' -> '${newCategory}')`, code,
   );
 }

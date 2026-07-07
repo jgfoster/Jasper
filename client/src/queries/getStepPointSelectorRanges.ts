@@ -11,8 +11,9 @@ export interface StepPointSelectorInfo {
 export function getStepPointSelectorRanges(
   execute: QueryExecutor,
   className: string, isMeta: boolean, selector: string, environmentId: number = 0,
+  dict?: number | string,
 ): StepPointSelectorInfo[] {
-  const method = compiledMethodExpr(className, isMeta, selector, environmentId);
+  const method = compiledMethodExpr(className, isMeta, selector, environmentId, dict);
   // _sourceOffsets returns 1-based; we emit 0-based selectorOffset for JS callers.
   const code = `| method source offsets ws |
 method := ${method}.

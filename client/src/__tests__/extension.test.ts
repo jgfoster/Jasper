@@ -30,6 +30,7 @@ import * as vscode from 'vscode';
 import * as extension from '../extension';
 import { GemStoneFileSystemProvider } from '../gemstoneFileSystemProvider';
 import type { SessionManager } from '../sessionManager';
+import type { GemStoneSessionItem } from '../loginTreeProvider';
 import * as queries from '../browserQueries';
 
 describe('openTextEditorOn', () => {
@@ -333,6 +334,130 @@ describe('onMethodCompiled event subscription (functional)', () => {
     expect(event.previousUri.toString()).toBe(newMethodUri.toString());
     expect(event.uri.toString()).toBe('gemstone://1/Globals/Array/instance/accessing/foo');
     expect(event.previousUriIsTemplate).toBe(true);
+  });
+});
+
+describe('confirmLogoutWithUncommittedChanges', () => {
+  beforeEach(() => {
+    vi.mocked(vscode.window.showWarningMessage).mockReset();
+    vi.mocked(vscode.window.showErrorMessage).mockReset();
+  });
+
+  it('proceeds without prompting when the transaction is clean', async () => {
+    const commit = vi.fn();
+
+    const decision = await extension.confirmLogoutWithUncommittedChanges(3, false, commit);
+
+    expect(decision).toBe('proceed');
+    expect(vscode.window.showWarningMessage).not.toHaveBeenCalled();
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it('commits then proceeds when the user chooses to commit before logging out', async () => {
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Commit & Logout' as any);
+    const commit = vi.fn(() => ({ success: true, err: { number: 0, message: '' } }));
+
+    const decision = await extension.confirmLogoutWithUncommittedChanges(3, true, commit);
+
+    expect(commit).toHaveBeenCalledWith(3);
+    expect(decision).toBe('proceed');
+  });
+
+  it('cancels the logout when the requested commit fails', async () => {
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Commit & Logout' as any);
+    const commit = vi.fn(() => ({ success: false, err: { number: 4001, message: 'no privilege' } }));
+
+    const decision = await extension.confirmLogoutWithUncommittedChanges(3, true, commit);
+
+    expect(decision).toBe('cancel');
+    expect(vscode.window.showErrorMessage).toHaveBeenCalled();
+  });
+
+  it('proceeds without committing when the user chooses to log out anyway', async () => {
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Logout Anyway' as any);
+    const commit = vi.fn();
+
+    const decision = await extension.confirmLogoutWithUncommittedChanges(3, true, commit);
+
+    expect(decision).toBe('proceed');
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it('cancels when the user dismisses the prompt', async () => {
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined);
+    const commit = vi.fn();
+
+    const decision = await extension.confirmLogoutWithUncommittedChanges(3, true, commit);
+
+    expect(decision).toBe('cancel');
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it('still prompts when the commit state could not be determined', async () => {
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Logout Anyway' as any);
+    const commit = vi.fn();
+
+    const decision = await extension.confirmLogoutWithUncommittedChanges(3, undefined, commit);
+
+    expect(vscode.window.showWarningMessage).toHaveBeenCalledTimes(1);
+    expect(decision).toBe('proceed');
+  });
+});
+
+describe('abortConfirmMessage', () => {
+  it('needs no confirmation when the transaction is clean and no editors are dirty', () => {
+    expect(extension.abortConfirmMessage(false, false)).toBeNull();
+  });
+
+  it('warns about the transaction when there are uncommitted changes', () => {
+    expect(extension.abortConfirmMessage(true, false)).toMatch(/uncommitted changes/);
+  });
+
+  it('warns that it cannot be sure when the commit state is unknown', () => {
+    expect(extension.abortConfirmMessage(undefined, false)).toMatch(/could not be checked/);
+  });
+
+  it('warns about unsaved editors even when the transaction is clean', () => {
+    expect(extension.abortConfirmMessage(false, true)).toMatch(/unsaved edits/);
+  });
+
+  it('mentions both losses when the transaction is dirty and editors are unsaved', () => {
+    const message = extension.abortConfirmMessage(true, true);
+    expect(message).toMatch(/uncommitted changes/);
+    expect(message).toMatch(/unsaved edits/);
+  });
+});
+
+describe('openWorkspaceForSession', () => {
+  beforeEach(() => {
+    vi.mocked(vscode.workspace.openTextDocument).mockReset();
+    vi.mocked(vscode.workspace.openTextDocument).mockResolvedValue({
+      languageId: 'gemstone-smalltalk',
+      getText: () => '',
+    } as never);
+    vi.mocked(vscode.window.showTextDocument).mockReset();
+    vi.mocked(vscode.window.showTextDocument).mockResolvedValue({} as vscode.TextEditor);
+  });
+
+  it('selects the clicked session before opening the workspace', async () => {
+    const selectSession = vi.fn();
+    const sessionManager = { selectSession } as unknown as SessionManager;
+    const item = { activeSession: { id: 3 } } as unknown as GemStoneSessionItem;
+
+    await extension.openWorkspaceForSession(sessionManager, item);
+
+    expect(selectSession).toHaveBeenCalledWith(3);
+    expect(vscode.workspace.openTextDocument).toHaveBeenCalled();
+  });
+
+  it('opens the workspace without selecting anything when invoked from the palette', async () => {
+    const selectSession = vi.fn();
+    const sessionManager = { selectSession } as unknown as SessionManager;
+
+    await extension.openWorkspaceForSession(sessionManager, undefined);
+
+    expect(selectSession).not.toHaveBeenCalled();
+    expect(vscode.workspace.openTextDocument).toHaveBeenCalled();
   });
 });
 

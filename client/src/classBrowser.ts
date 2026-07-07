@@ -5,10 +5,10 @@ import { ActiveSession } from './sessionManager';
 
 /**
  * Opens class definitions as regular gemstone:// documents in the editor.
- * 
- * Class-definition tabs are closed automatically when the session logs out
- * via GemStoneFileSystemProvider.closeTabsForSession in the extension logout flow,
- * so no explicit cleanup is needed in disposeForSession.
+ *
+ * These tabs are closed by closeGemstoneTabsForSession when the owning browser
+ * closes (SystemBrowser.dispose) or the session logs out (the extension logout
+ * flow), so no explicit cleanup is needed here.
  */
 export class ClassBrowser {
   static async showOrUpdate(
@@ -22,8 +22,11 @@ export class ClassBrowser {
     const dictName = dictionaries[dictIndex - 1];
     if (!dictName) return;
 
+    // ?dict=<index> scopes the definition lookup to this exact dictionary (by its
+    // 1-based SymbolList position), so the same key in two dictionaries — which
+    // can even share a name — resolves to the class the user actually selected.
     const uri = vscode.Uri.parse(
-      `gemstone://${session.id}/${encodeURIComponent(dictName)}/${encodeURIComponent(className)}/definition`,
+      `gemstone://${session.id}/${encodeURIComponent(dictName)}/${encodeURIComponent(className)}/definition?dict=${dictIndex}`,
     );
 
     // Don't re-fetch and re-open if the tab is already present anywhere

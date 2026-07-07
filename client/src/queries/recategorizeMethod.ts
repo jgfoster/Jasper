@@ -5,10 +5,11 @@ import { escapeString, receiver } from './util';
 export function recategorizeMethod(
   execute: QueryExecutor,
   className: string, isMeta: boolean, selector: string, newCategory: string,
+  dict?: number | string,
 ): string {
-  const recv = receiver(className, isMeta);
+  const recv = receiver(className, isMeta, dict);
   const code = `${recv} moveMethod: #'${escapeString(selector)}' toCategory: '${escapeString(newCategory)}'. 'ok'`;
   return execute(
-    `recategorizeMethod(${recv}>>#${selector} -> '${newCategory}')`, code,
+    `recategorizeMethod(${receiver(className, isMeta)}>>#${selector} -> '${newCategory}')`, code,
   );
 }

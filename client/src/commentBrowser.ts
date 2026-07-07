@@ -26,8 +26,12 @@ export class CommentBrowser {
 
   // The class the panel currently shows — the save target. Updated on each
   // showOrUpdate so a save always writes the comment of the visible class.
+  // `dictIndex` (1-based SymbolList position) scopes the lookup to the exact
+  // dictionary, disambiguating the same key in two dictionaries; `dictName` is
+  // kept for the mirror sync (exportManager.syncClass takes a name).
   private className = '';
   private dictName = '';
+  private dictIndex = 0;
 
   // Dirty guard: the webview reports edits (and their text) so that switching to
   // a different class doesn't silently discard unsaved changes. `currentText` is
@@ -38,6 +42,7 @@ export class CommentBrowser {
   static async showOrUpdate(
     session: ActiveSession,
     dictName: string,
+    dictIndex: number,
     className: string,
     exportManager?: ExportManager,
   ): Promise<void> {
@@ -62,7 +67,7 @@ export class CommentBrowser {
         if (choice === undefined) return; // Cancel — keep editing the current class
         if (choice === 'Save') existing.save(existing.currentText);
       }
-      existing.loadClass(dictName, className);
+      existing.loadClass(dictName, dictIndex, className);
       return;
     }
 
@@ -77,9 +82,9 @@ export class CommentBrowser {
       },
     );
 
-    const browser = new CommentBrowser(panel, session, dictName, className, exportManager);
+    const browser = new CommentBrowser(panel, session, exportManager);
     CommentBrowser.panels.set(session.id, browser);
-    browser.loadClass(dictName, className);
+    browser.loadClass(dictName, dictIndex, className);
   }
 
   static disposeForSession(sessionId: number): void {
@@ -90,13 +95,9 @@ export class CommentBrowser {
   private constructor(
     panel: vscode.WebviewPanel,
     private readonly session: ActiveSession,
-    dictName: string,
-    className: string,
     private exportManager?: ExportManager,
   ) {
     this.panel = panel;
-    this.dictName = dictName;
-    this.className = className;
     this.panel.webview.html = this.getHtml();
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -119,11 +120,12 @@ export class CommentBrowser {
   }
 
   /** Fetch the class's comment and writability and (re)fill the panel with it. */
-  private loadClass(dictName: string, className: string): void {
+  private loadClass(dictName: string, dictIndex: number, className: string): void {
     this.dictName = dictName;
+    this.dictIndex = dictIndex;
     this.className = className;
     const canWrite = this.computeCanWrite(className);
-    const text = queries.getClassComment(this.session, className);
+    const text = queries.getClassComment(this.session, className, this.dictIndex);
     this.panel.title = `Comment: ${className}`;
     this.dirty = false;
     this.currentText = text;
@@ -132,7 +134,7 @@ export class CommentBrowser {
 
   private computeCanWrite(className: string): boolean {
     try {
-      return queries.canClassBeWritten(this.session, className);
+      return queries.canClassBeWritten(this.session, className, this.dictIndex);
     } catch {
       // If the check fails (e.g. session busy), assume writable — a failed save
       // will surface the real error rather than blocking editing pre-emptively.
@@ -154,7 +156,7 @@ export class CommentBrowser {
 
   private save(text: string): void {
     try {
-      queries.setClassComment(this.session, this.className, text);
+      queries.setClassComment(this.session, this.className, text, this.dictIndex);
       vscode.window.showInformationMessage(`Comment updated for ${this.className}`);
       void this.exportManager?.syncClass(this.session, this.dictName, this.className);
       this.dirty = false;

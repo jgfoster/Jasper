@@ -1,3 +1,7 @@
+// Standalone MCP server tool registration (stdio/SSE/proxy transport); the
+// out-of-extension counterpart to client/src/mcpTools.ts, wrapping its own GCI
+// session (mcpSession.ts) for AI tool calls.
+// Full design: docs/mcp-server.md
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { McpSession } from './mcpSession';
