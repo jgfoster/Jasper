@@ -9,6 +9,8 @@
 // Slicing on code-point boundaries (copyFrom:to:) keeps every chunk valid UTF-8,
 // so the wrapper's UTF-8 decode is lossless and JS concatenation reproduces the
 // exact payload.
+//
+// Full design of the incremental class-sync engine: docs/incremental-class-sync.md
 
 import { escapeString } from '../queries/util';
 

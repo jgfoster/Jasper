@@ -1,3 +1,6 @@
+// Client-side MCP tool registration: exposes GemStone operations to AI tools
+// (Claude Desktop, Claude Code) over the in-extension MCP server.
+// Full design: docs/mcp-server.md
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { ActiveSession } from './sessionManager';
