@@ -1,6 +1,7 @@
 import { ActiveSession } from './sessionManager';
 import { OOP_NIL, OOP_ILLEGAL } from './gciConstants';
 import { logQuery, logResult, logError, logGciCall, logGciResult } from './gciLog';
+import { runNbCall } from './nbRunner';
 
 import { QueryExecutor } from './queries/types';
 
@@ -30,6 +31,19 @@ import { getAllSelectors as sharedGetAllSelectors } from './queries/getAllSelect
 import { getMethodList as sharedGetMethodList } from './queries/getMethodList';
 import { getSourceOffsets as sharedGetSourceOffsets } from './queries/getSourceOffsets';
 import { getStepPointSelectorRanges as sharedGetStepPointSelectorRanges } from './queries/getStepPointSelectorRanges';
+import { listRowanProjects as sharedListRowanProjects } from './queries/rowan/listRowanProjects';
+import { getRowanProjectDetail as sharedGetRowanProjectDetail } from './queries/rowan/getRowanProjectDetail';
+import { exportRowanProject as sharedExportRowanProject } from './queries/rowan/exportRowanProject';
+import { findRowanClassOwners as sharedFindRowanClassOwners } from './queries/rowan/findRowanClassOwners';
+import { listAllRowanClasses as sharedListAllRowanClasses } from './queries/rowan/listAllRowanClasses';
+import {
+  loadRowanProject as sharedLoadRowanProject,
+  buildLoadRowanProjectCode,
+  parseRowanLoadResult,
+  RowanLoadResult,
+} from './queries/rowan/loadRowanProject';
+import { diffRowanProject as sharedDiffRowanProject } from './queries/rowan/diffRowanProject';
+import { unloadRowanProject as sharedUnloadRowanProject } from './queries/rowan/unloadRowanProject';
 import {
   searchMethodSource as sharedSearchMethodSource,
   sendersOf as sharedSendersOf,
@@ -69,6 +83,15 @@ export type { MethodEntry } from './queries/getMethodList';
 export type { StepPointSelectorInfo } from './queries/getStepPointSelectorRanges';
 export type { MethodSearchResult } from './queries/methodSearch';
 export type { ClassInfo } from './queries/loadClassInfo';
+export type { RowanProject, RowanProjectList } from './queries/rowan/listRowanProjects';
+export type { RowanProjectDetail } from './queries/rowan/getRowanProjectDetail';
+export type { RowanExportResult } from './queries/rowan/exportRowanProject';
+export type { RowanClassOwner, RowanClassOwners } from './queries/rowan/findRowanClassOwners';
+export type { RowanClassLocation } from './queries/rowan/listAllRowanClasses';
+export type { RowanLoadResult } from './queries/rowan/loadRowanProject';
+export type { RowanDiff, RowanDiffOp } from './queries/rowan/diffRowanProject';
+export { formatRowanDiff } from './queries/rowan/diffRowanProject';
+export type { RowanUnloadResult } from './queries/rowan/unloadRowanProject';
 
 const MAX_RESULT = 256 * 1024;
 
@@ -145,6 +168,55 @@ export function executeFetchString(session: ActiveSession, label: string, code: 
     logError(session.id, msg);
     throw new BrowserQueryError(msg, err.number);
   }
+  logResult(session.id, data);
+  return data;
+}
+
+// Non-blocking variant of executeFetchString for LONG-RUNNING queries (e.g. a
+// Rowan project load, which can take minutes). The synchronous GCI call would
+// freeze the whole extension host for the duration; this one starts the
+// execution with GciTsNbExecute and polls via the shared nb runner, which keeps
+// VS Code responsive and, past ~2s, shows a cancellable progress notification
+// (soft break on first Cancel, hard break on second — see nbRunner). The result
+// must be a String, fetched verbatim (no printString quoting) for parity with
+// executeFetchString.
+export async function executeFetchStringNb(
+  session: ActiveSession, label: string, code: string, progressTitle?: string,
+): Promise<string> {
+  logQuery(session.id, label, code);
+
+  const { result: inProgress } = session.gci.GciTsCallInProgress(session.handle);
+  if (inProgress !== 0) {
+    const msg = 'Session is busy with another operation. Please wait or use a different session.';
+    logError(session.id, msg);
+    throw new BrowserQueryError(msg);
+  }
+
+  const oopClassUtf8 = resolveClassUtf8(session);
+
+  const data = await runNbCall(
+    session,
+    () => session.gci.GciTsNbExecute(
+      session.handle, code, oopClassUtf8, OOP_ILLEGAL, OOP_NIL, 0, 0,
+    ),
+    () => {
+      const { result: resultOop, err } = session.gci.GciTsNbResult(session.handle);
+      if (err.number !== 0) {
+        const msg = err.message || `GCI error ${err.number}`;
+        logError(session.id, msg);
+        throw new BrowserQueryError(msg, err.number);
+      }
+      const fetched = session.gci.GciTsFetchChars(session.handle, resultOop, 1n, MAX_RESULT);
+      if (fetched.err.number !== 0) {
+        const msg = fetched.err.message || `GCI error ${fetched.err.number}`;
+        logError(session.id, msg);
+        throw new BrowserQueryError(msg, fetched.err.number);
+      }
+      return fetched.data;
+    },
+    { title: progressTitle ?? `GemStone: ${label}…` },
+  );
+
   logResult(session.id, data);
   return data;
 }
@@ -240,6 +312,57 @@ export function getDictionaryNames(session: ActiveSession): string[] {
 
 export function getPoolDictionaryNames(session: ActiveSession): string[] {
   return sharedGetPoolDictionaryNames(bind(session));
+}
+
+// ── Rowan browser queries ─────────────────────────────────────────────────
+
+export function listRowanProjects(session: ActiveSession) {
+  return sharedListRowanProjects(bind(session));
+}
+
+export function getRowanProjectDetail(session: ActiveSession, projectName: string) {
+  return sharedGetRowanProjectDetail(bind(session), projectName);
+}
+
+export function exportRowanProject(
+  session: ActiveSession, projectName: string, targetDir: string,
+) {
+  return sharedExportRowanProject(bind(session), projectName, targetDir);
+}
+
+export function findRowanClassOwners(session: ActiveSession, className: string) {
+  return sharedFindRowanClassOwners(bind(session), className);
+}
+
+export function listAllRowanClasses(session: ActiveSession) {
+  return sharedListAllRowanClasses(bind(session));
+}
+
+export function loadRowanProject(session: ActiveSession, specPath: string, diskPath: string) {
+  return sharedLoadRowanProject(bind(session), specPath, diskPath);
+}
+
+// Non-blocking load for the extension: same Smalltalk, run via
+// executeFetchStringNb so a minutes-long load doesn't freeze the extension host
+// and the user gets a cancellable progress notification.
+export async function loadRowanProjectNb(
+  session: ActiveSession, specPath: string, diskPath: string, progressTitle: string,
+): Promise<RowanLoadResult> {
+  const raw = await executeFetchStringNb(
+    session,
+    `loadRowanProject(${specPath})`,
+    buildLoadRowanProjectCode(specPath, diskPath),
+    progressTitle,
+  );
+  return parseRowanLoadResult(raw);
+}
+
+export function diffRowanProject(session: ActiveSession, projectName: string) {
+  return sharedDiffRowanProject(bind(session), projectName);
+}
+
+export function unloadRowanProject(session: ActiveSession, projectName: string) {
+  return sharedUnloadRowanProject(bind(session), projectName);
 }
 
 export function getClassNames(
