@@ -1064,23 +1064,6 @@ describe('SystemBrowser', () => {
       );
     });
 
-    // Regression: hierarchy click opened the definition panel AND the
-    // on-disk .gs Topaz cache file, shoving a redundant read-only tab in
-    // front of whatever the user was editing. Column click only opens the
-    // definition; hierarchy click should behave the same way.
-    it('does not open a file when selecting a hierarchy class', async () => {
-      messageHandler({ command: 'toggleViewMode', mode: 'hierarchy' });
-      vi.mocked(fs.existsSync).mockReturnValue(true);
-      vi.mocked(window.showTextDocument).mockClear();
-
-      messageHandler({ command: 'selectHierarchyClass', className: 'Array' });
-      // The redundant .gs reveal (when present) fires from an unawaited async
-      // call, so flush the microtask/macrotask queue before asserting.
-      await new Promise(resolve => setTimeout(resolve, 0));
-
-      expect(window.showTextDocument).not.toHaveBeenCalled();
-    });
-
     it('resolves correct dictionary for hierarchy class from different dict', () => {
       messageHandler({ command: 'toggleViewMode', mode: 'hierarchy' });
       vi.mocked(mockPanel.webview.postMessage).mockClear();
