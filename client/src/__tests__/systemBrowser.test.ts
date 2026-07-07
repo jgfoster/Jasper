@@ -17,6 +17,9 @@ vi.mock('../browserQueries', () => ({
   moveClass: vi.fn(),
   deleteMethod: vi.fn(),
   recategorizeMethod: vi.fn(),
+  recategorizeClass: vi.fn(),
+  copyMethodToClass: vi.fn(),
+  getClassNames: vi.fn(),
   removeDictionary: vi.fn(),
   renameCategory: vi.fn(),
   getMethodCategories: vi.fn(),
@@ -32,6 +35,13 @@ vi.mock('../globalsBrowser', () => ({
 
 vi.mock('../classBrowser', () => ({
   ClassBrowser: {
+    showOrUpdate: vi.fn().mockResolvedValue(undefined),
+    disposeForSession: vi.fn(),
+  },
+}));
+
+vi.mock('../commentBrowser', () => ({
+  CommentBrowser: {
     showOrUpdate: vi.fn().mockResolvedValue(undefined),
     disposeForSession: vi.fn(),
   },
@@ -57,6 +67,7 @@ import { SystemBrowser, extractSelector, planDictionaryFileOut, isComputedMethod
 import * as queries from '../browserQueries';
 import { GlobalsBrowser } from '../globalsBrowser';
 import { ClassBrowser } from '../classBrowser';
+import { CommentBrowser } from '../commentBrowser';
 import type { ActiveSession } from '../sessionManager';
 import type { ExportManager } from '../exportManager';
 
@@ -1608,7 +1619,9 @@ describe('SystemBrowser', () => {
     });
   });
 
-  describe('drag-and-drop', () => {
+  describe('move class to category / copy method to class', () => {
+    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+
     beforeEach(() => {
       SystemBrowser.show(session, exportManager);
       messageHandler({ command: 'ready' });
@@ -1617,62 +1630,73 @@ describe('SystemBrowser', () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
       messageHandler({ command: 'selectClass', name: 'Array' });
       messageHandler({ command: 'selectMethodCategory', name: 'Accessing' });
+      messageHandler({ command: 'selectMethod', selector: 'name' });
       vi.mocked(mockPanel.webview.postMessage).mockClear();
     });
 
-    it('recategorizes method when dropped on a category', () => {
-      messageHandler({ command: 'dropMethodOnCategory', selector: 'name', category: 'Comparing' });
+    it('moves the class to the chosen category', async () => {
+      vi.mocked(window.showQuickPick).mockResolvedValue('Collections' as never);
 
-      expect(queries.recategorizeMethod).toHaveBeenCalledWith(
-        session, 'Array', false, 'name', 'Comparing',
+      messageHandler({ command: 'ctxMoveClassToCategory' });
+      await flush();
+
+      expect(queries.recategorizeClass).toHaveBeenCalledWith(session, 'Array', 'Collections');
+      expect(exportManager.syncClass).toHaveBeenCalledWith(session, 'UserGlobals', 'Array');
+      expect(window.showInformationMessage).toHaveBeenCalledWith("Moved Array to category 'Collections'.");
+    });
+
+    it('offers the real class categories, excluding the "all classes" pseudo-entry', async () => {
+      vi.mocked(window.showQuickPick).mockResolvedValue(undefined as never);
+
+      messageHandler({ command: 'ctxMoveClassToCategory' });
+      await flush();
+
+      const offered = vi.mocked(window.showQuickPick).mock.calls[0][0];
+      expect(offered).toEqual(['Collections', 'Kernel']);
+    });
+
+    it('does nothing to the category when the quick pick is cancelled', async () => {
+      vi.mocked(window.showQuickPick).mockResolvedValue(undefined as never);
+
+      messageHandler({ command: 'ctxMoveClassToCategory' });
+      await flush();
+
+      expect(queries.recategorizeClass).not.toHaveBeenCalled();
+    });
+
+    it('copies the selected method to the chosen class, preserving side and environment', async () => {
+      vi.mocked(queries.getClassNames).mockReturnValue(['Array', 'Bag', 'Set']);
+      vi.mocked(window.showQuickPick).mockResolvedValue('Set' as never);
+
+      messageHandler({ command: 'ctxCopyMethodToClass' });
+      await flush();
+
+      expect(queries.copyMethodToClass).toHaveBeenCalledWith(session, 'Array', 'Set', false, 'name', 0);
+      expect(exportManager.syncClass).toHaveBeenCalledWith(session, 'UserGlobals', 'Set');
+      expect(window.showInformationMessage).toHaveBeenCalledWith('Copied #name to Set.');
+    });
+
+    it('excludes the source class from the copy targets', async () => {
+      vi.mocked(queries.getClassNames).mockReturnValue(['Array', 'Bag', 'Set']);
+      vi.mocked(window.showQuickPick).mockResolvedValue(undefined as never);
+
+      messageHandler({ command: 'ctxCopyMethodToClass' });
+      await flush();
+
+      expect(vi.mocked(window.showQuickPick).mock.calls[0][0]).toEqual(['Bag', 'Set']);
+    });
+
+    it('reports when there is no other class to copy to', async () => {
+      vi.mocked(queries.getClassNames).mockReturnValue(['Array']);
+
+      messageHandler({ command: 'ctxCopyMethodToClass' });
+      await flush();
+
+      expect(window.showQuickPick).not.toHaveBeenCalled();
+      expect(queries.copyMethodToClass).not.toHaveBeenCalled();
+      expect(window.showInformationMessage).toHaveBeenCalledWith(
+        'No other classes in this dictionary to copy to.',
       );
-    });
-
-    it('reloads method categories after drop', () => {
-      messageHandler({ command: 'dropMethodOnCategory', selector: 'name', category: 'Comparing' });
-
-      expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ command: 'loadMethodCategories' }),
-      );
-    });
-
-    it('does nothing when no class is selected for method drop', () => {
-      // Deselect class by selecting a new dictionary
-      messageHandler({ command: 'selectDictionary', index: 2 });
-      vi.mocked(mockPanel.webview.postMessage).mockClear();
-
-      messageHandler({ command: 'dropMethodOnCategory', selector: 'name', category: 'Comparing' });
-
-      expect(queries.recategorizeMethod).not.toHaveBeenCalled();
-    });
-
-    it('moves class when dropped on a different dictionary', () => {
-      messageHandler({ command: 'dropClassOnDictionary', className: 'Array', dictName: 'Globals' });
-
-      expect(queries.moveClass).toHaveBeenCalledWith(session, 1, 2, 'Array');
-    });
-
-    it('shows info message after moving class', () => {
-      messageHandler({ command: 'dropClassOnDictionary', className: 'Array', dictName: 'Globals' });
-
-      expect(window.showInformationMessage).toHaveBeenCalledWith('Moved Array to Globals.');
-    });
-
-    it('does not move class to the same dictionary', () => {
-      messageHandler({ command: 'dropClassOnDictionary', className: 'Array', dictName: 'UserGlobals' });
-
-      expect(queries.moveClass).not.toHaveBeenCalled();
-    });
-
-    it('does not move class when no dictionary is selected', () => {
-      // Create a fresh browser with no dictionary selected
-      (SystemBrowser as unknown as { panels: Map<number, unknown> }).panels.clear();
-      SystemBrowser.show(session, exportManager);
-      messageHandler({ command: 'ready' });
-
-      messageHandler({ command: 'dropClassOnDictionary', className: 'Array', dictName: 'Globals' });
-
-      expect(queries.moveClass).not.toHaveBeenCalled();
     });
   });
 
@@ -1711,6 +1735,23 @@ describe('SystemBrowser', () => {
       expect(vi.mocked(ClassBrowser.showOrUpdate)).toHaveBeenCalledWith(
         session, ['UserGlobals', 'Globals'], 1, 'Array',
       );
+    });
+
+    it('opens the Comment tab after the definition, for the selected class and dictionary', async () => {
+      vi.mocked(ClassBrowser.showOrUpdate).mockClear();
+      vi.mocked(CommentBrowser.showOrUpdate).mockClear();
+      messageHandler({ command: 'selectCategory', name: ALL_CLASSES_CATEGORY });
+      messageHandler({ command: 'selectClass', name: 'Array' });
+
+      // The comment is opened only after the definition resolves, so its tab sits
+      // to the right — let the ClassBrowser→CommentBrowser chain flush first.
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(vi.mocked(CommentBrowser.showOrUpdate)).toHaveBeenCalledWith(
+        session, 'UserGlobals', 'Array', exportManager,
+      );
+      expect(vi.mocked(ClassBrowser.showOrUpdate).mock.invocationCallOrder[0])
+        .toBeLessThan(vi.mocked(CommentBrowser.showOrUpdate).mock.invocationCallOrder[0]);
     });
   });
 

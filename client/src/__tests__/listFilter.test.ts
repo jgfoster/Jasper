@@ -244,6 +244,63 @@ describe('ListFilter', () => {
     });
   });
 
+  describe('hiding non-matching items', () => {
+    function isHidden(el: Element): boolean {
+      return el.classList.contains('filter-hidden');
+    }
+
+    it('hides items that do not match the query', () => {
+      makeList('items', ['Array', 'Bag', 'Set']);
+      const filter = makeFilter('items');
+
+      filter.searchBox.value = 'arr';
+      filter.applyFilter();
+
+      const items = [...document.querySelectorAll('#items .item')] as HTMLElement[];
+      const shown = items.filter(el => !isHidden(el)).map(el => el.dataset.value);
+      expect(shown).toEqual(['Array']);
+    });
+
+    it('keeps every matching item visible', () => {
+      makeList('items', ['Array', 'Bag', 'Barcode']);
+      const filter = makeFilter('items');
+
+      filter.searchBox.value = 'ba';
+      filter.applyFilter();
+
+      const items = [...document.querySelectorAll('#items .item')] as HTMLElement[];
+      const shown = items.filter(el => !isHidden(el)).map(el => el.dataset.value);
+      expect(shown).toEqual(['Bag', 'Barcode']);
+    });
+
+    it('shows every item again when the query is cleared', () => {
+      makeList('items', ['Array', 'Bag', 'Set']);
+      const filter = makeFilter('items');
+
+      filter.searchBox.value = 'arr';
+      filter.applyFilter();
+      filter.clearFilter();
+
+      const items = [...document.querySelectorAll('#items .item')];
+      expect(items.every(el => !isHidden(el))).toBe(true);
+    });
+
+    it('re-reveals an item when a later query matches it after an earlier one hid it', () => {
+      makeList('items', ['Array', 'Bag']);
+      const filter = makeFilter('items');
+
+      filter.searchBox.value = 'arr';
+      filter.applyFilter();
+      const bag = [...document.querySelectorAll('#items .item')].find(
+        el => (el as HTMLElement).dataset.value === 'Bag')!;
+      expect(isHidden(bag)).toBe(true);
+
+      filter.searchBox.value = 'ba';
+      filter.applyFilter();
+      expect(isHidden(bag)).toBe(false);
+    });
+  });
+
   describe('keyboard focus after applyFilter', () => {
     it('sets focusedIndex to 0 when there are matches', () => {
       makeList('items', ['Array', 'Bag']);
@@ -678,6 +735,57 @@ describe('ListFilter', () => {
       const leading = [...item.children].map(c => c.className);
       expect(leading).toEqual(['override-arrow up', 'session-indicator']);
       expect(item.textContent).toBe('▲+printOn:');
+    });
+  });
+
+  // The methods column wraps its indicators in a fixed-width .method-gutter so
+  // names align. ListFilter must keep that gutter (and its contents) intact.
+  describe('indicator-gutter preservation', () => {
+    function makeListWithGutter(id: string, selector: string, arrow: boolean): HTMLDivElement {
+      const list = document.createElement('div');
+      list.id = id;
+      const div = document.createElement('div');
+      div.className = 'item';
+      div.dataset.value = selector;
+      const gutter = document.createElement('span');
+      gutter.className = 'method-gutter';
+      if (arrow) {
+        const a = document.createElement('span');
+        a.className = 'override-arrow up';
+        a.textContent = '▲';
+        gutter.appendChild(a);
+      }
+      div.appendChild(gutter);
+      div.appendChild(document.createTextNode(selector));
+      list.appendChild(div);
+      document.body.appendChild(list);
+      return list;
+    }
+
+    it('keeps a populated gutter and rebuilds the selector text on a matched render', () => {
+      makeListWithGutter('items', 'size', true);
+      const filter = makeFilter('items');
+
+      filter.searchBox.value = 'iz';
+      filter.applyFilter();
+
+      const item = document.querySelector('#items .item') as HTMLElement;
+      expect(item.querySelectorAll('.method-gutter')).toHaveLength(1);
+      expect(item.querySelector('.method-gutter .override-arrow')?.textContent).toBe('▲');
+      expect(item.querySelector('.match-highlight')?.textContent).toBe('iz');
+      expect(item.textContent).toBe('▲size');
+    });
+
+    it('keeps an empty gutter so an indicator-free name still aligns after filtering', () => {
+      makeListWithGutter('items', 'name', false);
+      const filter = makeFilter('items');
+
+      filter.searchBox.value = '';
+      filter.applyFilter();
+
+      const item = document.querySelector('#items .item') as HTMLElement;
+      expect(item.firstElementChild?.className).toBe('method-gutter');
+      expect(item.textContent).toBe('name');
     });
   });
 });

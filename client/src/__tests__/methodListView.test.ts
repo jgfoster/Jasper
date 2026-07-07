@@ -30,17 +30,14 @@ function api(): MethodListViewApi {
   return (globalThis as unknown as { MethodListView: MethodListViewApi }).MethodListView;
 }
 
-// Build a method-list <div class="item"> the way populateColumn does, applying
-// the override bits so arrows (if any) become real leading children.
+// Build a method-list <div class="item"> the way populateColumn does for the
+// methods column: always render the indicator gutter (empty when there are no
+// indicators) so names align.
 function makeItem(selector: string, methodOverrideBit = 0, sessionBit = 0): HTMLDivElement {
   const div = document.createElement('div');
   div.className = 'item';
   div.dataset.value = selector;
-  if (methodOverrideBit || sessionBit) {
-    api().applyMethodIndicators(div, selector, methodOverrideBit, sessionBit);
-  } else {
-    div.textContent = selector;
-  }
+  api().applyMethodIndicators(div, selector, methodOverrideBit, sessionBit);
   return div;
 }
 
@@ -60,6 +57,14 @@ describe('MethodListView.makeOverrideArrow', () => {
     expect(span.className).toBe('override-arrow down');
     expect(span.dataset.dir).toBe('down');
     expect(span.title).toContain('Overridden in a subclass');
+  });
+
+  it('carries the triangle in an inner glyph so shrinking it never narrows the slot', () => {
+    const span = api().makeOverrideArrow('size', 'up');
+    const glyph = span.querySelector('.indicator-glyph');
+
+    expect(glyph).not.toBeNull();
+    expect(glyph!.textContent).toBe('▲');
   });
 });
 
@@ -134,8 +139,10 @@ describe('MethodListView.applyMethodIndicators session methods', () => {
 
   it('renders override arrows before the session glyph when a method is both', () => {
     const div = makeItem('printOn:', 1, 1);
-    const leading = [...div.children].map(c => c.className);
-    expect(leading).toEqual(['override-arrow up', 'session-indicator extension']);
+    const slots = [...div.querySelector('.method-gutter')!.children];
+    expect(slots[0].textContent).toBe('▲');
+    expect(slots[1].textContent).toBe('');
+    expect(slots[2].textContent).toBe('+');
     expect(div.textContent).toBe('▲+printOn:');
     expect(div.classList.contains('session-extension')).toBe(true);
   });
@@ -153,6 +160,61 @@ describe('MethodListView.applyMethodIndicators session methods', () => {
   });
 });
 
+describe('MethodListView indicator gutter', () => {
+  it('holds three fixed slots in up, down, session order when all markers are present', () => {
+    const div = makeItem('new', 3, 2);
+    const gutters = div.querySelectorAll('.method-gutter');
+
+    expect(gutters).toHaveLength(1);
+    expect([...gutters[0].children].map(c => c.textContent)).toEqual(['▲', '▼', '±']);
+  });
+
+  it('renders three empty slots for a method with no markers so its name still aligns', () => {
+    const div = makeItem('size', 0, 0);
+    const gutter = div.querySelector('.method-gutter')!;
+
+    expect(gutter.children).toHaveLength(3);
+    expect(gutter.textContent).toBe('');
+    expect(gutter.querySelector('.override-arrow, .session-indicator')).toBeNull();
+    expect(div.textContent).toBe('size');
+  });
+
+  it('keeps the down arrow in the second slot even when the up arrow is absent', () => {
+    const upOnly = [...makeItem('a', 1, 0).querySelector('.method-gutter')!.children];
+    const downOnly = [...makeItem('b', 2, 0).querySelector('.method-gutter')!.children];
+
+    expect(upOnly.map(s => s.textContent)).toEqual(['▲', '', '']);
+    expect(downOnly.map(s => s.textContent)).toEqual(['', '▼', '']);
+  });
+
+  it('keeps the session glyph in the third slot regardless of the arrows', () => {
+    const sessionOnly = [...makeItem('x', 0, 1).querySelector('.method-gutter')!.children];
+
+    expect(sessionOnly.map(s => s.textContent)).toEqual(['', '', '+']);
+  });
+
+  it('fills an absent marker with a non-interactive placeholder slot, not an arrow/glyph', () => {
+    const div = makeItem('b', 2, 0);
+    const gutter = div.querySelector('.method-gutter')!;
+    const emptyUpSlot = gutter.children[0];
+    const emptySessionSlot = gutter.children[2];
+
+    expect(emptyUpSlot.classList.contains('indicator-slot')).toBe(true);
+    expect(emptyUpSlot.classList.contains('override-arrow')).toBe(false);
+    // Each placeholder matches the width class of the marker it stands in for.
+    expect(emptyUpSlot.classList.contains('arrow')).toBe(true);
+    expect(emptySessionSlot.classList.contains('session')).toBe(true);
+  });
+
+  it('places the selector text after the gutter, not inside it', () => {
+    const div = makeItem('printOn:', 1, 0);
+
+    expect(div.firstElementChild!.className).toBe('method-gutter');
+    expect(div.lastChild!.nodeType).toBe(Node.TEXT_NODE);
+    expect(div.lastChild!.textContent).toBe('printOn:');
+  });
+});
+
 describe('MethodListView.methodListClickMessage', () => {
   it('clicking an arrow posts showHierarchyImpls with selector and direction', () => {
     const list = document.createElement('div');
@@ -166,6 +228,21 @@ describe('MethodListView.methodListClickMessage', () => {
       command: 'showHierarchyImpls',
       selector: 'printOn:',
       direction: 'up',
+    });
+  });
+
+  it('clicking the inner triangle glyph still posts showHierarchyImpls for its arrow', () => {
+    const list = document.createElement('div');
+    const item = makeItem('printOn:', 2);
+    list.appendChild(item);
+    const glyph = item.querySelector('.override-arrow .indicator-glyph')!;
+
+    const msg = api().methodListClickMessage({ target: glyph }, list);
+
+    expect(msg).toEqual({
+      command: 'showHierarchyImpls',
+      selector: 'printOn:',
+      direction: 'down',
     });
   });
 
@@ -232,5 +309,17 @@ describe('MethodListView.methodListClickMessage', () => {
     const list = document.createElement('div');
     const msg = api().methodListClickMessage({ target: list }, list);
     expect(msg).toBeNull();
+  });
+
+  it('clicking an empty indicator slot just selects the method', () => {
+    const list = document.createElement('div');
+    const item = makeItem('size', 2, 0);
+    list.appendChild(item);
+    const emptyUpSlot = item.querySelector('.method-gutter')!.children[0];
+
+    const msg = api().methodListClickMessage({ target: emptyUpSlot }, list);
+
+    expect(msg).toEqual({ command: 'selectMethod', selector: 'size' });
+    expect(item.classList.contains('selected')).toBe(true);
   });
 });

@@ -24,6 +24,7 @@ import {
 import { CodeExecutor } from './codeExecutor';
 import { SystemBrowser } from './systemBrowser';
 import { GlobalsBrowser } from './globalsBrowser';
+import { CommentBrowser } from './commentBrowser';
 import { EnhancedInspector } from './enhancedInspector';
 import {
   runInstallEnhancedInspector,
@@ -1000,6 +1001,7 @@ export function activate(context: vscode.ExtensionContext) {
       // rebuilding it from scratch (especially for large, remote images).
       SystemBrowser.disposeForSession(session.id);
       GlobalsBrowser.disposeForSession(session.id);
+      CommentBrowser.disposeForSession(session.id);
       EnhancedInspector.disposeForSession(session.id);
       // Dispose before logout so each panel's dispose() can still release its
       // suspended GsProcess against a live handle.

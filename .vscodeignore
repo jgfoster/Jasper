@@ -38,6 +38,7 @@ client/src/**
 !client/src/methodListView.js
 !client/src/debuggerView.js
 !client/src/enhancedInspectorColumns.js
+!client/src/browserColumnResize.js
 server/src/**
 mcp-server/src/**
 

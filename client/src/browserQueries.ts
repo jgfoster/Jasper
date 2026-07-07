@@ -44,6 +44,8 @@ import { compileClassDefinition as sharedCompileClassDefinition } from './querie
 import { setClassComment as sharedSetClassComment } from './queries/setClassComment';
 import { deleteMethod as sharedDeleteMethod } from './queries/deleteMethod';
 import { recategorizeMethod as sharedRecategorizeMethod } from './queries/recategorizeMethod';
+import { recategorizeClass as sharedRecategorizeClass } from './queries/recategorizeClass';
+import { copyMethodToClass as sharedCopyMethodToClass } from './queries/copyMethodToClass';
 import { renameCategory as sharedRenameCategory } from './queries/renameCategory';
 import { deleteClass as sharedDeleteClass } from './queries/deleteClass';
 import { moveClass as sharedMoveClass } from './queries/moveClass';
@@ -402,6 +404,19 @@ export function setClassComment(
   session: ActiveSession, className: string, comment: string, dict?: number | string,
 ): string {
   return sharedSetClassComment(bind(session), className, comment, dict);
+}
+
+export function recategorizeClass(
+  session: ActiveSession, className: string, newCategory: string, dict?: number | string,
+): string {
+  return sharedRecategorizeClass(bind(session), className, newCategory, dict);
+}
+
+export function copyMethodToClass(
+  session: ActiveSession, sourceClass: string, targetClass: string, isMeta: boolean,
+  selector: string, environmentId: number = 0, dict?: number | string,
+): string {
+  return sharedCopyMethodToClass(bind(session), sourceClass, targetClass, isMeta, selector, environmentId, dict);
 }
 
 export function deleteMethod(

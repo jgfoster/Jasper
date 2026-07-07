@@ -6,6 +6,8 @@ import { compileClassDefinition } from '../compileClassDefinition';
 import { setClassComment } from '../setClassComment';
 import { deleteMethod } from '../deleteMethod';
 import { recategorizeMethod } from '../recategorizeMethod';
+import { recategorizeClass } from '../recategorizeClass';
+import { copyMethodToClass } from '../copyMethodToClass';
 import { renameCategory } from '../renameCategory';
 import { deleteClass } from '../deleteClass';
 import { moveClass } from '../moveClass';
@@ -261,5 +263,69 @@ describe('breakpoint ops', () => {
     const execute = vi.fn<QueryExecutor>(() => 'ok');
     setBreakAtStepPoint(execute, 'Array', true, 'new', 2);
     expect(execute.mock.calls[0][1]).toContain('Array class compiledMethodAt:');
+  });
+});
+
+describe('recategorizeClass', () => {
+  it('sets the class category via Class>>category:', () => {
+    const execute = vi.fn<QueryExecutor>(() => 'Recategorized: Array');
+    recategorizeClass(execute, 'Array', 'Collections');
+    expect(execute.mock.calls[0][1]).toContain("cls category: 'Collections'");
+  });
+
+  it('guards against a missing class', () => {
+    const execute = vi.fn<QueryExecutor>(() => '');
+    recategorizeClass(execute, 'Nope', 'Cat');
+    expect(execute.mock.calls[0][1]).toContain("cls ifNil: [^ 'Class not found: Nope']");
+  });
+
+  it('escapes the class name and category', () => {
+    const execute = vi.fn<QueryExecutor>(() => '');
+    recategorizeClass(execute, "Fo'o", "Ca't");
+    const code = execute.mock.calls[0][1];
+    expect(code).toContain("#'Fo''o'");
+    expect(code).toContain("category: 'Ca''t'");
+  });
+
+  it('scopes the lookup to a dictionary index when given', () => {
+    const execute = vi.fn<QueryExecutor>(() => '');
+    recategorizeClass(execute, 'Array', 'Cat', 2);
+    expect(execute.mock.calls[0][1]).toContain('symbolList at: 2');
+  });
+});
+
+describe('copyMethodToClass', () => {
+  it('reads the source method and category and compiles it into the target', () => {
+    const execute = vi.fn<QueryExecutor>(() => 'Copied: Set >> name');
+    copyMethodToClass(execute, 'Array', 'Set', false, 'name');
+    const code = execute.mock.calls[0][1];
+    expect(code).toContain("compiledMethodAt: #'name'");
+    expect(code).toContain("categoryOfSelector: #'name'");
+    expect(code).toContain('compileMethod: source');
+    expect(code).toContain('category: (category ifNil:');
+  });
+
+  it('guards against missing source and target classes', () => {
+    const execute = vi.fn<QueryExecutor>(() => '');
+    copyMethodToClass(execute, 'Src', 'Dst', false, 'sel');
+    const code = execute.mock.calls[0][1];
+    expect(code).toContain("^ 'Source class not found: Src'");
+    expect(code).toContain("^ 'Target class not found: Dst'");
+  });
+
+  it('copies class-side methods via the "Class class" receiver on both sides', () => {
+    const execute = vi.fn<QueryExecutor>(() => '');
+    copyMethodToClass(execute, 'Array', 'Set', true, 'new');
+    const code = execute.mock.calls[0][1];
+    expect(code).toContain('srcRecv := src class');
+    expect(code).toContain('tgtRecv := target class');
+  });
+
+  it('reads from the given environment when non-zero', () => {
+    const execute = vi.fn<QueryExecutor>(() => '');
+    copyMethodToClass(execute, 'Array', 'Set', false, 'name', 1);
+    const code = execute.mock.calls[0][1];
+    expect(code).toContain("compiledMethodAt: #'name' environmentId: 1");
+    expect(code).toContain('environmentId: 1');
   });
 });

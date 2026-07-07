@@ -4,11 +4,11 @@ const listFilterTag = 'list-filter';
  * A live search filter for any column list.
  *
  * Drop a <list-filter for="some-list-id"> tag for a list, and it becomes
- * instantly filterable. As the user types, matching items get their matching
- * portion highlighted in bold. Non-matching items remain visible but unhighlighted.
- * The first match is automatically focused so the user can hit Enter to select it
- * without reaching for the mouse. Arrow keys cycle through matches (wrapping at
- * both ends), and Escape clears the filter and restores the full list.
+ * instantly filterable. As the user types, non-matching items are hidden and the
+ * matching portion of each remaining item is highlighted in bold. The first
+ * match is automatically focused so the user can hit Enter to select it without
+ * reaching for the mouse. Arrow keys cycle through matches (wrapping at both
+ * ends), and Escape clears the filter and restores the full list.
  *
  * When the list is reloaded from the server, call clearFilter() or
  * ListFilter.clearAllFilters() to reset the search box and show everything again.
@@ -111,15 +111,28 @@ class ListFilter extends HTMLElement {
         if (!item.dataset.value) return;
 
         if (!query) {
+            this.showItem(item);
             return this.renderUnmatchedItem(item);
         }
 
         const match = this.matchQuery(item.dataset.value, query);
         if (!match) {
-            return this.renderUnmatchedItem(item);
+            // Reset to plain text so the item is clean when the filter clears and
+            // it reappears, then hide it — non-matching items drop out of the list.
+            this.renderUnmatchedItem(item);
+            return this.hideItem(item);
         }
 
+        this.showItem(item);
         this.renderMatchedItem(item, match);
+    }
+
+    showItem(item) {
+        item.classList.remove('filter-hidden');
+    }
+
+    hideItem(item) {
+        item.classList.add('filter-hidden');
     }
 
     toggleClearFilterButtonVisibility() {
@@ -147,12 +160,14 @@ class ListFilter extends HTMLElement {
 
     // Matched item rendering
 
-    // Clear the item's text while keeping any leading indicator elements
-    // (override arrows, session-method glyph) that were rendered before the
-    // selector text. querySelectorAll returns them in document order, so their
+    // Clear the item's text while keeping any leading indicator elements that
+    // were rendered before the selector text: the method-list indicator gutter
+    // (which wraps the override arrows + session glyph), or — for callers that
+    // render those indicators as bare leading children — the arrows/glyph
+    // themselves. querySelectorAll returns them in document order, so their
     // original leading order is preserved when re-appended.
     clearItemText(item) {
-        const keep = [...item.querySelectorAll(':scope > .override-arrow, :scope > .session-indicator')];
+        const keep = [...item.querySelectorAll(':scope > .method-gutter, :scope > .override-arrow, :scope > .session-indicator')];
         item.textContent = '';
         for (const el of keep) item.appendChild(el);
     }
@@ -293,6 +308,9 @@ class ListFilter extends HTMLElement {
             }
             list-filter.has-text .clear-btn {
                 visibility: visible;
+            }
+            .filter-hidden {
+                display: none;
             }
             .match-highlight {
                 font-weight: bold;

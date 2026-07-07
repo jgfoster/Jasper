@@ -8,6 +8,7 @@ import {parseTopazDocument} from './topazFileIn';
 import * as queries from './browserQueries';
 import {GlobalsBrowser} from './globalsBrowser';
 import {ClassBrowser} from './classBrowser';
+import {CommentBrowser} from './commentBrowser';
 import {buildNewMethodUri, buildMethodUri} from './gemstoneFileSystemProvider';
 
 /**
@@ -21,6 +22,7 @@ import {buildNewMethodUri, buildMethodUri} from './gemstoneFileSystemProvider';
  */
 const listFilterJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'listFilter.js'), 'utf8');
 const methodListViewJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'methodListView.js'), 'utf8');
+const browserColumnResizeJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'browserColumnResize.js'), 'utf8');
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -660,18 +662,11 @@ export class SystemBrowser {
         case 'ctxBrowseReferences':
           this.handleBrowseReferences(message.name as string);
           break;
-        // Drag-and-drop commands
-        case 'dropMethodOnCategory':
-          this.handleDropMethodOnCategory(
-            message.selector as string,
-            message.category as string,
-          );
+        case 'ctxMoveClassToCategory':
+          this.handleMoveClassToCategory().catch(e => this.postError(e));
           break;
-        case 'dropClassOnDictionary':
-          this.handleDropClassOnDictionary(
-            message.className as string,
-            message.dictName as string,
-          );
+        case 'ctxCopyMethodToClass':
+          this.handleCopyMethodToClass().catch(e => this.postError(e));
           break;
       }
     } catch (e: unknown) {
@@ -835,7 +830,13 @@ export class SystemBrowser {
     if (!skipClassBrowser) {
       const dictIndex = this.state.selectedDictIndex;
       if (dictIndex) {
+        const dictName = this.state.dictionaries[dictIndex - 1];
+        // Open the definition BEFORE the comment so its tab sits to the left:
+        // ClassBrowser awaits openTextDocument, whereas CommentBrowser creates its
+        // webview synchronously — without sequencing, the comment tab lands first.
         ClassBrowser.showOrUpdate(this.session, this.state.dictionaries, dictIndex, className)
+          .catch(e => this.postError(e))
+          .then(() => CommentBrowser.showOrUpdate(this.session, dictName, className, this.exportManager))
           .catch(e => this.postError(e));
       }
     }
@@ -1145,9 +1146,15 @@ export class SystemBrowser {
         this.handleSelectMethodCategory(prev.selectedMethodCategory);
       }
 
+      const prevDictName = this.state.dictionaries[prev.selectedDictIndex - 1];
+      const prevClass = prev.selectedClass;
+      // Definition before comment (see applyClassSelection for why sequencing matters).
       ClassBrowser.showOrUpdate(
-        this.session, this.state.dictionaries, prev.selectedDictIndex, prev.selectedClass,
-      ).catch(e => this.postError(e));
+        this.session, this.state.dictionaries, prev.selectedDictIndex, prevClass,
+      )
+        .catch(e => this.postError(e))
+        .then(() => CommentBrowser.showOrUpdate(this.session, prevDictName, prevClass, this.exportManager))
+        .catch(e => this.postError(e));
     } else if (prevCategory) {
       // No class to restore — just highlight the category in the webview
       this.panel.webview.postMessage({
@@ -1715,46 +1722,78 @@ export class SystemBrowser {
     });
   }
 
-  // ── Drag-and-drop handlers ──────────────────────
-
-  private handleDropMethodOnCategory(selector: string, category: string): void {
+  // Move the selected class to a different class category (Class>>category:).
+  private async handleMoveClassToCategory(): Promise<void> {
     const className = this.state.selectedClass;
-    if (!className) return;
-
-    queries.recategorizeMethod(this.session, className, this.state.isMeta, selector, category);
-    this.syncSelectedClass(className);
     const dictIndex = this.state.selectedDictIndex;
-    if (dictIndex) {
-      this.envCache.delete(`${dictIndex}/${className}`);
-    }
-    this.loadMethodCategories();
-    if (this.state.selectedMethodCategory) {
-      this.handleSelectMethodCategory(this.state.selectedMethodCategory);
-    }
+    if (!className || !dictIndex) return;
+
+    // Offer the dictionary's existing (real) class categories, dropping the
+    // "all classes" pseudo-entry and the empty "uncategorized" bucket. New
+    // categories are created via the categories column's "New Class Category".
+    const categories = this.state.classCategories
+      .filter(c => c !== ALL_CLASSES_CATEGORY && c !== '');
+    const picked = await vscode.window.showQuickPick(categories, {
+      placeHolder: `Move ${className} to which category?`,
+    });
+    if (!picked) return;
+
+    queries.recategorizeClass(this.session, className, picked);
+    void this.exportManager.syncClass(this.session, this.state.dictionaries[dictIndex - 1], className);
+    // The class may leave its old category — re-read the dictionary and rebuild
+    // the categories column and class list.
+    this.dictEntryCache.delete(dictIndex);
+    this.rebuildClassCategories();
+    vscode.window.showInformationMessage(`Moved ${className} to category '${picked}'.`);
   }
 
-  private handleDropClassOnDictionary(className: string, dictName: string): void {
-    const srcIndex = this.state.selectedDictIndex;
-    if (!srcIndex) return;
+  // Copy the selected method's source into another class, preserving its category.
+  private async handleCopyMethodToClass(): Promise<void> {
+    const sourceClass = this.state.selectedClass;
+    const selector = this.state.selectedMethod;
+    const dictIndex = this.state.selectedDictIndex;
+    if (!sourceClass || !selector || !dictIndex) return;
 
-    const destIndex = this.state.dictionaries.indexOf(dictName) + 1;
-    if (destIndex < 1 || destIndex === srcIndex) return;
+    const targets = queries.getClassNames(this.session, dictIndex)
+      .filter(name => name !== sourceClass)
+      .sort();
+    if (targets.length === 0) {
+      vscode.window.showInformationMessage('No other classes in this dictionary to copy to.');
+      return;
+    }
+    const picked = await vscode.window.showQuickPick(targets, {
+      placeHolder: `Copy #${selector} to which class?`,
+    });
+    if (!picked) return;
 
-    queries.moveClass(this.session, srcIndex, destIndex, className);
-    this.exportManager.removeClassFile(
-      this.session, srcIndex, this.state.dictionaries[srcIndex - 1], className,
+    queries.copyMethodToClass(
+      this.session, sourceClass, picked, this.state.isMeta, selector, this.state.selectedEnvId,
     );
-    void this.exportManager.syncClass(this.session, dictName, className);
-    this.dictEntryCache.delete(srcIndex);
-    this.dictEntryCache.delete(destIndex);
-    this.envCache.clear();
-    this.state.selectedClass = null;
-    this.state.selectedMethodCategory = null;
-    this.state.selectedMethod = null;
-    this.clearDimming();
+    void this.exportManager.syncClass(this.session, this.state.dictionaries[dictIndex - 1], picked);
+    this.envCache.delete(`${dictIndex}/${picked}`);
+    vscode.window.showInformationMessage(`Copied #${selector} to ${picked}.`);
+  }
 
-    this.handleSelectCategory(this.state.selectedCategory || ALL_CLASSES_CATEGORY);
-    vscode.window.showInformationMessage(`Moved ${className} to ${dictName}.`);
+  // Recompute the class categories from the (freshly-read) dictionary entries and
+  // reload the categories column + the current category's class list.
+  private rebuildClassCategories(): void {
+    const dictIndex = this.state.selectedDictIndex;
+    if (!dictIndex) return;
+
+    const entries = this.getCachedDictEntries(dictIndex);
+    const categorySet = new Set<string>();
+    for (const entry of entries) {
+      if (entry.isClass) categorySet.add(entry.category || '');
+    }
+    this.state.classCategories = [ALL_CLASSES_CATEGORY, ...[...categorySet].sort()];
+
+    const selected = this.state.selectedCategory || ALL_CLASSES_CATEGORY;
+    this.panel.webview.postMessage({
+      command: 'loadClassCategories',
+      items: this.state.classCategories,
+      selected,
+    });
+    this.handleSelectCategory(selected);
   }
 
   // ── Data helpers ──────────────────────────────────────────
@@ -2096,10 +2135,29 @@ export class SystemBrowser {
       flex-direction: column;
       border-right: 1px solid var(--vscode-panel-border);
       min-width: 0;
+      position: relative;
     }
 
     .column:last-child {
       border-right: none;
+    }
+
+    /* Drag-to-resize splitter straddling a column's right border. Sits above the
+       column content so it can be grabbed; highlights on hover and while active. */
+    .column-resizer {
+      position: absolute;
+      top: 0;
+      right: -3px;
+      bottom: 0;
+      width: 6px;
+      cursor: col-resize;
+      z-index: 5;
+    }
+
+    .column-resizer:hover,
+    .column-resizer.active {
+      background: var(--vscode-focusBorder, #007fd4);
+      opacity: 0.7;
     }
 
     .column-header {
@@ -2146,16 +2204,46 @@ export class SystemBrowser {
       color: var(--vscode-list-activeSelectionForeground);
     }
 
+    /* Leading indicator column for a method row. It holds three fixed slots in a
+       stable order — up arrow, down arrow, session glyph — so each marker keeps
+       the same horizontal position whether or not the markers to its left are
+       present, and every method name aligns. Each slot (marker or empty
+       placeholder) is sized to its own indicator's width via the two vars below;
+       the arrows are narrower than the session glyph. Total gutter width is the
+       sum of the three slots. */
+    .method-gutter {
+      --arrow-slot: 0.8em;
+      --session-slot: 0.9em;
+      display: inline-block;
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+
+    /* An empty placeholder occupying one slot. It carries the SAME width as the
+       marker it stands in for (arrow vs session), so a present marker and a
+       missing one take identical space and the columns never shift. */
+    .indicator-slot {
+      display: inline-block;
+      vertical-align: middle;
+    }
+    .indicator-slot.arrow { width: var(--arrow-slot, 0.8em); }
+    .indicator-slot.session { width: var(--session-slot, 0.9em); }
+
     .override-arrow {
       display: inline-block;
-      width: 0.85em;
-      margin-right: 1px;
+      width: var(--arrow-slot, 0.8em);
       text-align: center;
-      font-size: 0.72em;
       line-height: 1;
       vertical-align: middle;
       cursor: pointer;
       opacity: 0.8;
+    }
+
+    /* The small triangle is shrunk here, on the glyph, NOT on .override-arrow —
+       an em width on the arrow would otherwise be scaled by this smaller
+       font-size, making the arrow slot narrower than the placeholder slots. */
+    .indicator-glyph {
+      font-size: 0.72em;
     }
 
     .override-arrow.up {
@@ -2173,8 +2261,8 @@ export class SystemBrowser {
 
     /* Session methods: italic row + a muted leading glyph (+ extension, ±
        override). Italic gives an at-a-glance "this is a session method"; the
-       glyph disambiguates the kind. The glyph stays upright and sits in its own
-       fixed leading slot so rows do not shift relative to the override arrows. */
+       glyph disambiguates the kind. The glyph stays upright and sits inside the
+       fixed-width .method-gutter alongside any override arrows. */
     .column-list .item.session-extension,
     .column-list .item.session-override {
       font-style: italic;
@@ -2182,8 +2270,7 @@ export class SystemBrowser {
 
     .session-indicator {
       display: inline-block;
-      width: 0.9em;
-      margin-right: 3px;
+      width: var(--session-slot, 0.9em);
       text-align: center;
       font-size: 1em;
       font-weight: bold;
@@ -2300,20 +2387,6 @@ export class SystemBrowser {
       background: var(--vscode-menu-separatorBackground, var(--vscode-panel-border));
     }
 
-    .column-list .item.drag-over {
-      outline: 1px solid var(--vscode-focusBorder);
-      outline-offset: -1px;
-      background-color: var(--vscode-list-hoverBackground);
-    }
-
-    .column-list .item[draggable="true"] {
-      cursor: grab;
-    }
-
-    .column-list .item.dragging {
-      opacity: 0.4;
-    }
-
     .loading {
       padding: 8px;
       color: var(--vscode-descriptionForeground);
@@ -2334,6 +2407,7 @@ export class SystemBrowser {
   </style>
   <script nonce="${nonce}">${listFilterJs}</script>
   <script nonce="${nonce}">${methodListViewJs}</script>
+  <script nonce="${nonce}">${browserColumnResizeJs}</script>
 </head>
 <body>
   <div class="error-banner" id="errorBanner"></div>
@@ -2416,8 +2490,11 @@ export class SystemBrowser {
     const catBtn = document.getElementById('catBtn');
     const hierBtn = document.getElementById('hierBtn');
     const errorBanner = document.getElementById('errorBanner');
+
+    // Drag-to-resize splitters between the browser columns.
+    BrowserColumnResize.setupColumnResize({ container: document.querySelector('.columns'), minWidth: 80 });
     // ── Populate a column with items ───────────────
-    function populateColumn(listEl, items, virtualItems, draggable, methodOverrideBits, sessionMethodBits) {
+    function populateColumn(listEl, items, virtualItems, methodOverrideBits, sessionMethodBits, withIndicatorGutter) {
       listEl.innerHTML = '';
       const virtualSet = new Set(virtualItems || []);
       for (const item of items) {
@@ -2426,13 +2503,12 @@ export class SystemBrowser {
         div.dataset.value = item;
         const methodOverrideBit = (methodOverrideBits && methodOverrideBits[item]) || 0;
         const sessionBit = (sessionMethodBits && sessionMethodBits[item]) || 0;
-        if (methodOverrideBit || sessionBit) {
+        // The methods column always gets the gutter (even with no indicators) so
+        // names align in a dedicated indicator column; other columns render plain.
+        if (withIndicatorGutter || methodOverrideBit || sessionBit) {
           MethodListView.applyMethodIndicators(div, item, methodOverrideBit, sessionBit);
         } else {
           div.textContent = item;
-        }
-        if (draggable && !virtualSet.has(item)) {
-          div.draggable = true;
         }
         listEl.appendChild(div);
       }
@@ -2558,63 +2634,6 @@ export class SystemBrowser {
       });
     });
 
-    // ── Drag-and-drop ───────────────────────────────
-    let dragSource = null;  // { type: 'method'|'class', value: string }
-
-    function setupDragSource(listEl, type) {
-      listEl.addEventListener('dragstart', (e) => {
-        const item = e.target.closest('.item');
-        if (!item || !item.draggable) return;
-        dragSource = { type, value: item.dataset.value };
-        item.classList.add('dragging');
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', item.dataset.value);
-      });
-      listEl.addEventListener('dragend', (e) => {
-        const item = e.target.closest('.item');
-        if (item) item.classList.remove('dragging');
-        dragSource = null;
-      });
-    }
-
-    function setupDropTarget(listEl, acceptType, onDrop) {
-      listEl.addEventListener('dragover', (e) => {
-        if (!dragSource || dragSource.type !== acceptType) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        const item = e.target.closest('.item');
-        // Clear previous drag-over highlights
-        listEl.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
-        if (item) item.classList.add('drag-over');
-      });
-      listEl.addEventListener('dragleave', (e) => {
-        const item = e.target.closest('.item');
-        if (item) item.classList.remove('drag-over');
-      });
-      listEl.addEventListener('drop', (e) => {
-        e.preventDefault();
-        listEl.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
-        if (!dragSource || dragSource.type !== acceptType) return;
-        const item = e.target.closest('.item');
-        if (!item) return;
-        onDrop(dragSource.value, item.dataset.value);
-        dragSource = null;
-      });
-    }
-
-    // Methods can be dragged onto method categories
-    setupDragSource(cols.methods, 'method');
-    setupDropTarget(cols.methodCats, 'method', (selector, category) => {
-      if (category === '${ALL_METHODS_CATEGORY}' || category === '${SESSION_METHODS_CATEGORY}') return;
-      vscode.postMessage({ command: 'dropMethodOnCategory', selector, category });
-    });
-
-    // Classes can be dragged onto dictionaries
-    setupDragSource(cols.classes, 'class');
-    setupDropTarget(cols.dicts, 'class', (className, dictName) => {
-      vscode.postMessage({ command: 'dropClassOnDictionary', className, dictName });
-    });
-
     // ── Context menu ────────────────────────────────
     const contextMenu = document.getElementById('contextMenu');
 
@@ -2706,6 +2725,7 @@ export class SystemBrowser {
         ...(item ? [
           { separator: true },
           { label: 'Delete Class', action: () => vscode.postMessage({ command: 'ctxDeleteClass' }) },
+          { label: 'Move to Category\\u2026', action: () => vscode.postMessage({ command: 'ctxMoveClassToCategory' }) },
           { label: 'Move to Dictionary\\u2026', action: () => vscode.postMessage({ command: 'ctxMoveClass' }) },
           { separator: true },
           { label: 'File Out Class\\u2026', action: () => vscode.postMessage({ command: 'ctxFileOutClass' }) },
@@ -2749,6 +2769,7 @@ export class SystemBrowser {
           { separator: true },
           { label: 'Delete Method', action: () => vscode.postMessage({ command: 'ctxDeleteMethod' }) },
           { label: 'Move to Category\\u2026', action: () => vscode.postMessage({ command: 'ctxMoveToCategory' }) },
+          { label: 'Copy to Class\\u2026', action: () => vscode.postMessage({ command: 'ctxCopyMethodToClass' }) },
           { separator: true },
           { label: 'Senders Of', action: () => vscode.postMessage({ command: 'ctxSendersOf' }) },
           { label: 'Implementors Of', action: () => vscode.postMessage({ command: 'ctxImplementorsOf' }) },
@@ -2777,7 +2798,7 @@ export class SystemBrowser {
           break;
         case 'loadClasses':
           clearFrom('classes');
-          populateColumn(cols.classes, msg.items, [], true);
+          populateColumn(cols.classes, msg.items, []);
           if (msg.selected) selectItemInColumn(cols.classes, msg.selected);
           break;
         case 'loadMethodCategories':
@@ -2787,7 +2808,7 @@ export class SystemBrowser {
           break;
         case 'loadMethods':
           cols.methods.innerHTML = '';
-          populateColumn(cols.methods, msg.items, [], true, msg.methodOverrideBits, msg.sessionMethodBits);
+          populateColumn(cols.methods, msg.items, [], msg.methodOverrideBits, msg.sessionMethodBits, true);
           if (msg.selected) selectItemInColumn(cols.methods, msg.selected);
           break;
         case 'setViewMode':
