@@ -28,7 +28,44 @@ npm run test:server:stop   # stop the test stone's Stone and NetLDI processes
 npm run test:server:list   # list running GemStone processes for the test stone
 npm run test:gci           # deep GCI binding tests (see below)
 npm run package          # produce .vsix package
+
+# Dev helpers
+npm run dev:fresh        # launch the extension in a throwaway editor window (see below)
+npm run serve:seaside    # start a Seaside server gem for the loaded hello app (see below)
+
+# End-user acceptance tests (Playwright drives a real editor window; see acceptance/)
+npm run test:acceptance         # run the specs locally (opens a window — macOS can't headless it)
+npm run test:acceptance:docker  # run them headless in a Linux container (no window)
+npm run test:acceptance:rowan   # the Rowan add-from-git → load e2e (in-container stone)
+npm run test:acceptance:seaside # the Seaside Hello World e2e (install → serve → integrated browser)
+npm run test:acceptance:report  # open the HTML report / flip through per-step screenshots
 ```
+
+### Running the extension in a clean slate
+
+`npm run dev:fresh [-- <folder>]` (`scripts/dev-fresh.sh`) launches the editor
+(`codium`, falling back to `code`) with `--extensionDevelopmentPath` pointing at
+this repo and throwaway `--user-data-dir`/`--extensions-dir` — **none of your
+personal settings, extensions, or login keychain** (`--password-store=basic`,
+the keychain-isolation flag the acceptance harness also needs). It compiles the
+extension first if `client/out` is missing; use `npm run watch` + Reload Window
+for a live loop. It does **not** isolate `gemstone.rootPath`, so it still sees
+your real GemStone installs (to connect).
+
+### Serving Seaside
+
+After loading Seaside + the `hello-seaside-rowan` project through Jasper, view
+the app two ways:
+
+- **From the editor:** the **GemStone: Serve Seaside** command
+  (`gemstone.serveSeaside` in `seasideServer.ts`) — spawns a detached serving
+  gem (`WAGsZincAdaptor startOn:` blocks, so it can't run in the GCI session) as
+  SystemUser and opens the URL in the integrated browser; **GemStone: Stop
+  Seaside Server** stops it.
+- **From the shell:** `npm run serve:seaside [-- <port> <stone>]` /
+  `npm run serve:seaside -- stop` (`scripts/serve-seaside.sh`) does the same
+  detached gem; then open `http://localhost:8383/hello` via the editor's
+  "Simple Browser: Show" command.
 
 Run a single test file: `cd client && npx vitest run src/__tests__/extension.test.ts` (or use the equivalent path for the workspace you're in).
 

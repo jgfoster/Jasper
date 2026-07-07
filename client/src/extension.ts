@@ -24,6 +24,12 @@ import {
 import { CodeExecutor } from './codeExecutor';
 import { SystemBrowser } from './systemBrowser';
 import { obtainSystemUserSession, refreshWorkingSession } from './systemUserSession';
+import {
+  startSeasideServer,
+  stopSeasideServer,
+  stopAllSeasideServers,
+  SEASIDE_DEFAULT_PORT,
+} from './seasideServer';
 import { findRowanLoadSpecs, deriveRepoName, cloneGitRepo, rowanClonesDir, updateGitRepo } from './rowanLoad';
 import { NbCancelledError } from './nbRunner';
 import { RowanRepoRegistry } from './rowanRepos';
@@ -1099,6 +1105,63 @@ export function activate(context: vscode.ExtensionContext) {
       // forget so the connect flow completes; the offer surfaces its own UI.
       if (!session.enhancedInspectorAvailable) {
         void maybeOfferEnhancedInspectorInstall(session, sessionManager, context.extensionPath);
+      }
+    }),
+
+    vscode.commands.registerCommand('gemstone.serveSeaside', async () => {
+      const session = sessionManager.getSelectedSession();
+      if (!session) {
+        vscode.window.showErrorMessage('Connect to a GemStone session before serving Seaside.');
+        return;
+      }
+      const host = session.login.gem_host;
+      if (host !== 'localhost' && host !== '127.0.0.1') {
+        vscode.window.showErrorMessage(
+          'Serve Seaside currently supports a local stone (the server runs where the stone does).',
+        );
+        return;
+      }
+      const version = session.login.version;
+      const gciPath = storage.getGciLibraryPath(version);
+      const gemstonePath =
+        sysadminStorage.getGemstonePath(version) ??
+        (gciPath ? path.dirname(path.dirname(gciPath)) : undefined);
+      if (!gemstonePath) {
+        vscode.window.showErrorMessage(
+          `Could not locate the GemStone ${version} install for this session.`,
+        );
+        return;
+      }
+      const globalDir = sysadminStorage.getRootPath();
+      try {
+        const url = await vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification, title: 'Starting Seaside server…' },
+          () => startSeasideServer({ session, gemstonePath, globalDir }),
+        );
+        // Prefer the integrated browser; fall back to the external one if this
+        // editor build has no Simple Browser.
+        try {
+          await vscode.commands.executeCommand('simpleBrowser.show', url);
+        } catch {
+          await vscode.env.openExternal(vscode.Uri.parse(url));
+        }
+        vscode.window.showInformationMessage(`Seaside is serving at ${url}`);
+      } catch (e) {
+        vscode.window.showErrorMessage(
+          `Serve Seaside failed: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+    }),
+
+    vscode.commands.registerCommand('gemstone.stopSeaside', async () => {
+      if (stopSeasideServer(SEASIDE_DEFAULT_PORT)) {
+        vscode.window.showInformationMessage(
+          `Stopped the Seaside server on port ${SEASIDE_DEFAULT_PORT}.`,
+        );
+      } else {
+        vscode.window.showInformationMessage(
+          `No Seaside server is running on port ${SEASIDE_DEFAULT_PORT}.`,
+        );
       }
     }),
 
@@ -2726,6 +2789,7 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate(): Thenable<void> | undefined {
+  stopAllSeasideServers();
   if (fileInManager) {
     fileInManager.dispose();
   }

@@ -1022,6 +1022,18 @@
         "title": "Open MCP Inspector",
         "category": "GemStone",
         "icon": "$(open-preview)"
+      },
+      {
+        "command": "gemstone.serveSeaside",
+        "title": "Serve Seaside",
+        "category": "GemStone",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "gemstone.stopSeaside",
+        "title": "Stop Seaside Server",
+        "category": "GemStone",
+        "icon": "$(circle-slash)"
       }
     ],
     "menus": {
@@ -1073,6 +1085,14 @@
         {
           "command": "gemstone.installEnhancedInspector",
           "when": "gemstone.hasActiveSession && gemstone.enhancedInspectorSupported"
+        },
+        {
+          "command": "gemstone.serveSeaside",
+          "when": "gemstone.hasActiveSession"
+        },
+        {
+          "command": "gemstone.stopSeaside",
+          "when": "gemstone.hasActiveSession"
         }
       ],
       "view/title": [
