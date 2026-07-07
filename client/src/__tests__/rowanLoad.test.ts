@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { findRowanLoadSpecs, deriveRepoName, rowanClonesDir, updateGitRepo, cloneGitRepo } from '../rowanLoad';
+import { findRowanLoadSpecs, deriveRepoName, updateGitRepo, cloneGitRepo } from '../rowanLoad';
 
 const LOAD_SPEC = (name: string) => `RwLoadSpecificationV2 {
 \t#specName : '${name}',
@@ -110,18 +110,6 @@ describe('deriveRepoName', () => {
     expect(spec.minTempObjCacheKB).toBeUndefined();
   });
 });
-
-describe('rowanClonesDir', () => {
-  it('is a repos folder inside global storage, created on demand', () => {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gstorage-'));
-
-    const dir = rowanClonesDir(base);
-
-    expect(dir).toBe(path.join(base, 'repos'));
-    expect(fs.existsSync(dir)).toBe(true);
-  });
-});
-
 
 describe('updateGitRepo', () => {
   const { execFileSync } = require('child_process') as typeof import('child_process');

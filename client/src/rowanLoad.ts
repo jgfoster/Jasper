@@ -98,16 +98,6 @@ export function deriveRepoName(url: string): string {
   return segment.replace(/\.git$/i, '') || 'project';
 }
 
-// Where Jasper clones tracked Rowan repositories: a `repos/` folder inside the
-// extension's global storage. Global (not workspace) storage matches where the
-// repo registry lives — a tracked repo stays available across windows and
-// stones. The default clone location so the user isn't asked to pick a folder.
-export function rowanClonesDir(globalStoragePath: string): string {
-  const dir = path.join(globalStoragePath, 'repos');
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
 // Clone a git repository to `dest` using the user's own git (so their SSH keys /
 // credential helper apply — a gem-side clone wouldn't have them). Submodules are
 // cloned too: a Rowan project may vendor its package sources that way (e.g.

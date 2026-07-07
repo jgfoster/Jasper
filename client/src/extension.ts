@@ -30,7 +30,7 @@ import {
   stopAllSeasideServers,
   SEASIDE_DEFAULT_PORT,
 } from './seasideServer';
-import { findRowanLoadSpecs, deriveRepoName, cloneGitRepo, rowanClonesDir, updateGitRepo } from './rowanLoad';
+import { findRowanLoadSpecs, deriveRepoName, cloneGitRepo, updateGitRepo } from './rowanLoad';
 import { NbCancelledError } from './nbRunner';
 import { RowanRepoRegistry } from './rowanRepos';
 import { RowanTreeProvider, RowanRepoItem, RowanLoadedProjectItem, RowanChangesProjectItem } from './rowanTreeProvider';
@@ -242,6 +242,20 @@ export async function openWorkspaceForSession(
 // again on the next connect.
 const GETTING_STARTED_SEEN_KEY = 'gemstone.hasSeenGettingStarted';
 const GETTING_STARTED_WALKTHROUGH_ID = 'gemtalksystems.gemstone-ide#gemstoneGettingStarted';
+
+// Where a git-cloned Rowan repository is checked out: a folder in the open
+// workspace, so the source is visible and editable in the Explorer. Returns
+// undefined (and warns) when no folder is open.
+function rowanCloneDest(url: string): string | undefined {
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  if (!folder) {
+    vscode.window.showErrorMessage(
+      'Open a folder or workspace first — Rowan repositories are cloned into it.',
+    );
+    return undefined;
+  }
+  return path.join(folder.uri.fsPath, deriveRepoName(url));
+}
 
 // Load a Rowan project from an on-disk directory: find its load spec (picking
 // among several), load it over a transient SystemUser session, then refresh the
@@ -1320,8 +1334,9 @@ export function activate(context: vscode.ExtensionContext) {
       }))?.trim();
       if (!url) return;
 
-      // Clone into the extension's managed repos folder — no folder prompt.
-      const dest = path.join(rowanClonesDir(context.globalStorageUri.fsPath), deriveRepoName(url));
+      // Clone into the open workspace folder.
+      const dest = rowanCloneDest(url);
+      if (!dest) return;
       if (!fs.existsSync(dest)) {
         try {
           await vscode.window.withProgress(
@@ -2315,8 +2330,9 @@ export function activate(context: vscode.ExtensionContext) {
           ignoreFocusOut: true,
         }))?.trim();
         if (!url) return;
-        // Clone into the extension's managed repos folder — no folder prompt.
-        const dest = path.join(rowanClonesDir(context.globalStorageUri.fsPath), deriveRepoName(url));
+        // Clone into the open workspace folder.
+        const dest = rowanCloneDest(url);
+        if (!dest) return;
         if (!fs.existsSync(dest)) {
           try {
             await vscode.window.withProgress(
