@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { listRowanProjects } from '../queries/rowan/listRowanProjects';
+import { getGemCacheKB } from '../queries/rowan/getGemCacheKB';
 import { getRowanProjectDetail } from '../queries/rowan/getRowanProjectDetail';
 import { exportRowanProject } from '../queries/rowan/exportRowanProject';
 import { findRowanClassOwners } from '../queries/rowan/findRowanClassOwners';
@@ -225,5 +226,23 @@ describe('exportRowanProject', () => {
     expect(code).toContain('writeResolvedProject:');
     expect(code).toContain('exportLoadSpecification');
     expect(code).toContain("diskRepositoryRoot: '/out/Cypress'");
+  });
+});
+
+describe('getGemCacheKB', () => {
+  it('parses the gem temp-object cache size into KB', () => {
+    expect(getGemCacheKB(executor('512000'))).toBe(512000);
+  });
+
+  it('queries GemTempObjCacheSize in KB units', () => {
+    const execute = executor('0');
+    getGemCacheKB(execute);
+    expect(execute.mock.calls[0][1]).toContain('GemTempObjCacheSize');
+    expect(execute.mock.calls[0][1]).toContain('// 1024');
+  });
+
+  it('returns undefined when the value is not a positive number', () => {
+    expect(getGemCacheKB(executor('nil'))).toBeUndefined();
+    expect(getGemCacheKB(executor('0'))).toBeUndefined();
   });
 });

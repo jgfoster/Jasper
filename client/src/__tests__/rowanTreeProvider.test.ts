@@ -4,9 +4,11 @@ vi.mock('vscode', () => import('../__mocks__/vscode'));
 
 const listRowanProjectsMock = vi.fn();
 const diffRowanProjectMock = vi.fn();
+const getGemCacheKBMock = vi.fn();
 vi.mock('../browserQueries', () => ({
   listRowanProjects: (...args: unknown[]) => listRowanProjectsMock(...args),
   diffRowanProject: (...args: unknown[]) => diffRowanProjectMock(...args),
+  getGemCacheKB: (...args: unknown[]) => getGemCacheKBMock(...args),
 }));
 
 import * as fs from 'fs';
@@ -38,7 +40,7 @@ function fakeMemento(): vscode.Memento {
 
 // A real directory on disk, holding a Rowan load spec when asked — the
 // provider inspects the filesystem to describe each tracked repo.
-function makeRepoDir(withSpec: boolean, specName = 'MyProject'): string {
+function makeRepoDir(withSpec: boolean, specName = 'MyProject', minCacheKB?: number): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rowan-repo-'));
   if (withSpec) {
     const specsDir = path.join(dir, 'rowan', 'specs');
@@ -47,6 +49,12 @@ function makeRepoDir(withSpec: boolean, specName = 'MyProject'): string {
       path.join(specsDir, `${specName}.ston`),
       `RwLoadSpecificationV2 {\n\t#specName : '${specName}'\n}\n`,
     );
+    if (minCacheKB !== undefined) {
+      fs.writeFileSync(
+        path.join(dir, 'rowan', 'gemstone.ston'),
+        `{ #minTempObjCacheKB : ${minCacheKB} }`,
+      );
+    }
   }
   return dir;
 }
@@ -72,6 +80,8 @@ describe('RowanTreeProvider', () => {
     listRowanProjectsMock.mockReturnValue({ available: true, projects: [] });
     diffRowanProjectMock.mockReset();
     diffRowanProjectMock.mockReturnValue({ ok: true, error: '', operations: [] });
+    getGemCacheKBMock.mockReset();
+    getGemCacheKBMock.mockReturnValue(2000000);
   });
 
   it('shows Repositories, Loaded Projects, and Changes sections at the root', () => {
@@ -151,6 +161,38 @@ describe('RowanTreeProvider', () => {
 
       expect(item.description).toBe('missing on disk');
       expect(item.contextValue).toBe('rowanRepoMissing');
+    });
+
+    it('flags a repo whose declared cache exceeds the connected gem', async () => {
+      await registry.add({ name: 'seaside', path: makeRepoDir(true, 'Seaside', 500000) });
+      getGemCacheKBMock.mockReturnValue(50000);
+      const provider = makeProvider(registry, fakeSession);
+
+      const [item] = sectionChildren(provider, 'repositories') as RowanRepoItem[];
+
+      expect(item.underProvisionedMinKB).toBe(500000);
+      expect((item.iconPath as { id: string }).id).toBe('warning');
+      expect(String(item.tooltip)).toContain('500 MB');
+    });
+
+    it('does not flag when the gem cache is adequate', async () => {
+      await registry.add({ name: 'seaside', path: makeRepoDir(true, 'Seaside', 500000) });
+      getGemCacheKBMock.mockReturnValue(2000000);
+      const provider = makeProvider(registry, fakeSession);
+
+      const [item] = sectionChildren(provider, 'repositories') as RowanRepoItem[];
+
+      expect(item.underProvisionedMinKB).toBeUndefined();
+    });
+
+    it('does not flag when disconnected (gem cache unknown)', async () => {
+      await registry.add({ name: 'seaside', path: makeRepoDir(true, 'Seaside', 500000) });
+      const provider = makeProvider(registry, null);
+
+      const [item] = sectionChildren(provider, 'repositories') as RowanRepoItem[];
+
+      expect(item.underProvisionedMinKB).toBeUndefined();
+      expect(getGemCacheKBMock).not.toHaveBeenCalled();
     });
 
     it('sorts repos by name', async () => {

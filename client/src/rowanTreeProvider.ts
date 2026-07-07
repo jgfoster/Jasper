@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import { RowanRepoRegistry, TrackedRepo } from './rowanRepos';
 import { findRowanLoadSpecs } from './rowanLoad';
 import { ActiveSession } from './sessionManager';
-import { listRowanProjects, diffRowanProject, RowanProject, RowanDiff, RowanDiffOp } from './browserQueries';
+import { listRowanProjects, diffRowanProject, getGemCacheKB, RowanProject, RowanDiff, RowanDiffOp } from './browserQueries';
 import { loadedProjectUri, changeUri } from './rowanDecorations';
 
 // The "Rowan" sidebar view. Rowan is a package manager, so the view is about
@@ -59,6 +59,13 @@ export class RowanRepoItem extends vscode.TreeItem {
     public readonly missing: boolean,
     /** True when a loaded project in the connected stone matches a spec name. */
     loaded: boolean,
+    /**
+     * Set when the project declares (in its gemstone.ston) a gem temp-object cache
+     * larger than the connected gem actually has — a load would overflow. Holds
+     * the declared minimum in KB; undefined when the gem is adequate, unknown,
+     * or no minimum is declared.
+     */
+    public readonly underProvisionedMinKB?: number,
   ) {
     super(repo.name, vscode.TreeItemCollapsibleState.None);
     this.id = `rowan-repo-${repo.path}`;
@@ -71,9 +78,14 @@ export class RowanRepoItem extends vscode.TreeItem {
       repo.path,
       repo.gitUrl ? `from ${repo.gitUrl}` : undefined,
       missing ? 'The tracked directory no longer exists.' : undefined,
+      underProvisionedMinKB
+        ? `This stone's gem cache is too small to load this project — it needs about ${Math.round(underProvisionedMinKB / 1000)} MB. Raise GEM_TEMPOBJ_CACHE_SIZE and restart the stone.`
+        : undefined,
     ].filter(Boolean).join('\n');
+    // A too-small gem cache gets the warning triangle even on a valid repo —
+    // loading would overflow, so it's flagged before you try.
     this.iconPath = new vscode.ThemeIcon(
-      missing ? 'warning' : loaded ? 'repo' : 'repo',
+      missing || underProvisionedMinKB ? 'warning' : 'repo',
     );
     // Loadable only when the checkout exists and holds at least one spec —
     // package.json menus key inline actions off this.
@@ -206,6 +218,7 @@ export class RowanTreeProvider implements vscode.TreeDataProvider<RowanTreeNode>
   refresh(): void {
     this.loadedQuery = null;
     this.diffCache.clear();
+    this.gemCacheKB = undefined;
     this._onDidChangeTreeData.fire(undefined);
   }
 
@@ -372,8 +385,32 @@ export class RowanTreeProvider implements vscode.TreeDataProvider<RowanTreeNode>
     if (!fs.existsSync(repo.path)) {
       return new RowanRepoItem(repo, [], true, false);
     }
-    const specNames = findRowanLoadSpecs(repo.path).map(s => s.name);
+    const specs = findRowanLoadSpecs(repo.path);
+    const specNames = specs.map(s => s.name);
     const loaded = specNames.some(name => loadedNames.has(name));
-    return new RowanRepoItem(repo, specNames, false, loaded);
+    // Warn when a spec declares a bigger gem cache than the connected gem has —
+    // only meaningful while connected and after the gem-cache probe succeeds.
+    const gemKB = this.queryGemCacheKB();
+    const declaredMin = Math.max(0, ...specs.map(s => s.minTempObjCacheKB ?? 0));
+    const underProvisioned = gemKB !== undefined && declaredMin > gemKB
+      ? declaredMin
+      : undefined;
+    return new RowanRepoItem(repo, specNames, false, loaded, underProvisioned);
+  }
+
+  // The connected gem's temp-object cache (KB), probed once per refresh. null
+  // once probed-and-failed/absent so we don't re-probe; undefined result means
+  // "unknown", which suppresses the warning rather than crying wolf.
+  private gemCacheKB: number | null | undefined = undefined;
+  private queryGemCacheKB(): number | undefined {
+    if (this.gemCacheKB !== undefined) return this.gemCacheKB ?? undefined;
+    const session = this.sessions.getSession();
+    if (!session) { this.gemCacheKB = null; return undefined; }
+    try {
+      this.gemCacheKB = getGemCacheKB(session) ?? null;
+    } catch {
+      this.gemCacheKB = null;
+    }
+    return this.gemCacheKB ?? undefined;
   }
 }

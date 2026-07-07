@@ -259,6 +259,30 @@ async function loadRowanFromDirectory(
     spec = picked.spec;
   }
 
+  // If the project declares it needs more gem temp-object cache than this stone
+  // has, the load will overflow ("VM temporary object memory is full"). Warn
+  // with the fix before spending minutes on a doomed load — but let the user
+  // proceed, since the requirement is a conservative author estimate.
+  if (spec.minTempObjCacheKB !== undefined) {
+    let gemKB: number | undefined;
+    try { gemKB = queries.getGemCacheKB(session); } catch { gemKB = undefined; }
+    if (gemKB !== undefined && gemKB < spec.minTempObjCacheKB) {
+      const needMB = Math.round(spec.minTempObjCacheKB / 1000);
+      const haveMB = Math.round(gemKB / 1000);
+      const choice = await vscode.window.showWarningMessage(
+        `"${spec.name}" needs about ${needMB} MB of gem temp-object cache, but this stone's gems have ${haveMB} MB — the load will likely run out of memory.`,
+        {
+          modal: true,
+          detail:
+            `To fix: set GEM_TEMPOBJ_CACHE_SIZE = ${spec.minTempObjCacheKB}; in the stone's ` +
+            `gem.conf and restart it (a Jasper-created stone does this automatically on its next start).`,
+        },
+        'Load Anyway',
+      );
+      if (choice !== 'Load Anyway') return;
+    }
+  }
+
   // Loading mutates Rowan's system registry — needs SystemUser.
   const sys = await obtainSystemUserSession(session, `load Rowan project "${spec.name}"`);
   if (!sys) return;

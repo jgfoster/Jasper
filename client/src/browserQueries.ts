@@ -32,6 +32,7 @@ import { getMethodList as sharedGetMethodList } from './queries/getMethodList';
 import { getSourceOffsets as sharedGetSourceOffsets } from './queries/getSourceOffsets';
 import { getStepPointSelectorRanges as sharedGetStepPointSelectorRanges } from './queries/getStepPointSelectorRanges';
 import { listRowanProjects as sharedListRowanProjects } from './queries/rowan/listRowanProjects';
+import { getGemCacheKB as sharedGetGemCacheKB } from './queries/rowan/getGemCacheKB';
 import { getRowanProjectDetail as sharedGetRowanProjectDetail } from './queries/rowan/getRowanProjectDetail';
 import { exportRowanProject as sharedExportRowanProject } from './queries/rowan/exportRowanProject';
 import { findRowanClassOwners as sharedFindRowanClassOwners } from './queries/rowan/findRowanClassOwners';
@@ -315,6 +316,10 @@ export function getPoolDictionaryNames(session: ActiveSession): string[] {
 }
 
 // ── Rowan browser queries ─────────────────────────────────────────────────
+
+export function getGemCacheKB(session: ActiveSession) {
+  return sharedGetGemCacheKB(bind(session));
+}
 
 export function listRowanProjects(session: ActiveSession) {
   return sharedListRowanProjects(bind(session));

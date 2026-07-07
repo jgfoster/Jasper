@@ -70,6 +70,45 @@ describe('deriveRepoName', () => {
     expect(deriveRepoName('https://example.com/foo/Bar/')).toBe('Bar');
     expect(deriveRepoName('file:///tmp/repos/MyProject')).toBe('MyProject');
   });
+
+  it('applies the gemstone.ston cache minimum to every spec in the project', () => {
+    write('rowan/specs/Big.ston', LOAD_SPEC('Big'));
+    write('rowan/specs/Also.ston', LOAD_SPEC('Also'));
+    write('rowan/gemstone.ston', '{ #minTempObjCacheKB : 500000 }');
+
+    const specs = findRowanLoadSpecs(root);
+
+    expect(specs.map(s => s.minTempObjCacheKB)).toEqual([500000, 500000]);
+  });
+
+  it('reads the minimum even when gemstone.ston is walked after the spec', () => {
+    // `specs/` sorts before a sibling `gemstone.ston`, so the metadata file is
+    // visited only after the spec — the value must still be applied.
+    write('rowan/specs/Late.ston', LOAD_SPEC('Late'));
+    write('rowan/gemstone.ston', '{\n\t#minTempObjCacheKB : 750000\n}');
+
+    const [spec] = findRowanLoadSpecs(root);
+
+    expect(spec.minTempObjCacheKB).toBe(750000);
+  });
+
+  it('leaves the minimum undefined when there is no gemstone.ston', () => {
+    write('rowan/specs/Plain.ston', LOAD_SPEC('Plain'));
+
+    const [spec] = findRowanLoadSpecs(root);
+
+    expect(spec.minTempObjCacheKB).toBeUndefined();
+  });
+
+  it('ignores a gemstone.ston without the cache key rather than failing', () => {
+    write('rowan/specs/Ok.ston', LOAD_SPEC('Ok'));
+    write('rowan/gemstone.ston', '{ #somethingElse : 1 }');
+
+    const [spec] = findRowanLoadSpecs(root);
+
+    expect(spec.name).toBe('Ok');
+    expect(spec.minTempObjCacheKB).toBeUndefined();
+  });
 });
 
 describe('rowanClonesDir', () => {
