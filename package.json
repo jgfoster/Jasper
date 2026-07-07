@@ -1491,6 +1491,7 @@
     "compile:mcp": "tsc -p mcp-server/tsconfig.json",
     "bundle": "node esbuild.mjs",
     "watch": "tsc -b -w client/tsconfig.json server/tsconfig.json",
+    "dev:fresh": "bash scripts/dev-fresh.sh",
     "test": "npm run test:server && npm run test:client && npm run test:mcp",
     "test:server:start": "npm run test:server:start --workspace client",
     "test:server:stop": "npm run test:server:stop --workspace client",
