@@ -4,6 +4,22 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.7.7] - 2026-07-07
+
+### Added
+
+- **System Browser: session methods, with a base-vs-override diff.** Session methods (transient extensions and overrides installed in the current session) now appear in the System Browser under a computed **\*\* SESSION METHODS \*\*** category, shown only when the current class side/environment actually has them. Session rows are italicized with a leading glyph (`+` extension, `±` override) and a hover tooltip. Clicking the `±` glyph on an override (or its context-menu item) opens a read-only base-vs-override diff in the source pane, comparing the override against the base method it shadows; clicking again toggles back, and it auto-closes on navigation. ([#143](https://github.com/jgfoster/Jasper/pull/143))
+- **System Browser: an editable Comment tab.** A new **Comment** tab (beside the Globals/definition tab) fills with the selected class's comment; saving writes it back. It guards unsaved edits when you switch classes, shows a read-only indicator for locked classes, and never steals the active tab on (re)selection.
+
+### Changed
+
+- **System Browser: draggable column splitters, aligned indicators, and real column filtering.** The miller columns now have draggable splitters between them; method-list indicators (override arrows and the session glyph) sit in a fixed three-slot gutter so every method name aligns in its own column; and the per-column **Filter…** boxes now truly filter — non-matching rows are hidden, not merely left un-highlighted.
+- **System Browser: class and method moves are now in the context menus.** Class/method drag-and-drop (and its grab cursor) is removed in favor of context-menu actions: class **Move to Category…** and method **Copy to Class…**.
+
+### Fixed
+
+- **Enhanced Inspector: drilling into a Raw-view row now opens the row's value.** Double-clicking a Raw-view row previously opened an inspector on the wrapping variable→value association rather than the value itself; rows are now resolved through GemStone's Phlow send-block (matching the forward view and GT's own navigation). Collection and custom views are unaffected.
+
 ## [1.7.6] - 2026-07-05
 
 ### Added
