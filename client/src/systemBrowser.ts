@@ -8,7 +8,7 @@ import {parseTopazDocument} from './topazFileIn';
 import * as queries from './browserQueries';
 import {GlobalsBrowser} from './globalsBrowser';
 import {ClassBrowser} from './classBrowser';
-import {buildNewMethodUri} from './gemstoneFileSystemProvider';
+import {buildNewMethodUri, buildMethodUri} from './gemstoneFileSystemProvider';
 
 /**
  * The webview HTML is a large template literal in getHtml(). Embedding JS directly
@@ -155,6 +155,17 @@ export function planDictionaryFileOut(
 // else to keep in sync when this value changes.
 export const ALL_CLASSES_CATEGORY = '** ALL CLASSES **';
 export const ALL_METHODS_CATEGORY = '** ALL METHODS **';
+// Computed category, shown at the head of the list (right after ALL METHODS)
+// only when the browsed class carries session methods on the current side/env.
+// Selecting it lists every session method (extension + override). Like the
+// other sentinels it is interpolated into the webview template.
+export const SESSION_METHODS_CATEGORY = '** SESSION METHODS **';
+
+// The synthetic categories are display-only: they can never be the target of a
+// category operation (rename, a new method's default category, or a method drop).
+export function isComputedMethodCategory(category: string | null | undefined): boolean {
+  return category === ALL_METHODS_CATEGORY || category === SESSION_METHODS_CATEGORY;
+}
 
 // Save-dialog file filters for file-out, matching Jade's GemStone/Smalltalk/All.
 const FILE_OUT_FILTERS: Record<string, string[]> = {
@@ -217,6 +228,13 @@ export class SystemBrowser {
   private dictEntryCache = new Map<number, queries.DictEntry[]>();
   private envCache = new Map<string, queries.EnvCategoryLine[]>();
   private hierarchyCache = new Map<string, queries.ClassHierarchyEntry[]>();
+  // The `original` (base) URI string of the open session-override diff, if any,
+  // so it can be closed again when the user navigates off that override.
+  private comparisonDiffBaseUri: string | null = null;
+  // Serializes override-diff toggling: opening/closing the diff is async, so a
+  // rapid second ± click must be ignored until the first settles — otherwise
+  // overlapping runs interleave and the editor state goes haywire.
+  private comparisonBusy = false;
 
   // Dimming
   private dimDecorationType: vscode.TextEditorDecorationType;
@@ -554,6 +572,9 @@ export class SystemBrowser {
         case 'selectMethod':
           this.handleSelectMethod(message.selector as string);
           break;
+        case 'compareSessionOverride':
+          this.handleCompareSessionOverride(message.selector as string).catch(e => this.postError(e));
+          break;
         case 'refresh':
           this.handleRefresh();
           break;
@@ -799,6 +820,7 @@ export class SystemBrowser {
    * the method-category list is loaded with no category pre-selected.
    */
   private applyClassSelection(className: string, skipClassBrowser = false, autoSelectAllMethodsCategory = false): void {
+    void this.closeComparisonDiff();
     this.state.selectedClass = className;
     this.state.selectedMethodCategory = null;
     this.state.selectedMethod = null;
@@ -829,6 +851,7 @@ export class SystemBrowser {
    * categories.
    */
   private handleToggleSide(isMeta: boolean, autoSelectAllMethodsCategory = false): void {
+    void this.closeComparisonDiff();
     this.state.isMeta = isMeta;
     this.state.selectedMethodCategory = null;
     this.state.selectedMethod = null;
@@ -843,6 +866,7 @@ export class SystemBrowser {
   }
 
   private handleSelectMethodCategory(category: string): void {
+    void this.closeComparisonDiff();
     this.state.selectedMethodCategory = category;
     this.state.selectedMethod = null;
     this.clearDimming();
@@ -863,6 +887,8 @@ export class SystemBrowser {
         for (const sel of entry.selectors) set.add(sel);
       }
       methods = [...set].sort();
+    } else if (category === SESSION_METHODS_CATEGORY) {
+      methods = this.sessionMethodsFor(filtered).sort();
     } else {
       const entry = filtered.find(e => e.category === category);
       methods = entry ? [...entry.selectors] : [];
@@ -873,12 +899,89 @@ export class SystemBrowser {
   }
 
   private handleSelectMethod(selector: string): void {
+    // Leaving the override we were comparing — the diff should disappear.
+    void this.closeComparisonDiff();
     this.state.selectedMethod = selector;
 
     const className = this.state.selectedClass;
     if (!className) return;
 
     this.openClassFile(className, selector, this.state.isMeta);
+  }
+
+  // Open a side-by-side diff of a session override against the persistent base
+  // method it shadows, in the browser's source pane. Each side's selector
+  // segment is decorated ("(base)" / "(session override)") so the diff tab and
+  // per-pane breadcrumb name which is which; both are served read-only by the
+  // gemstone:// FS provider (the base via a ?base=1 variant). Clicking the same
+  // override's glyph again toggles the diff off, back to the session source.
+  private async handleCompareSessionOverride(selector: string): Promise<void> {
+    if (this.comparisonBusy) return;
+    const dictIndex = this.state.selectedDictIndex;
+    const className = this.state.selectedClass;
+    if (!dictIndex || !className) return;
+
+    this.comparisonBusy = true;
+    try {
+      const isMeta = this.state.isMeta;
+      const dictName = this.state.dictionaries[dictIndex - 1];
+      const category = (this.state.selectedMethodCategory && !isComputedMethodCategory(this.state.selectedMethodCategory))
+        ? this.state.selectedMethodCategory : 'as yet unclassified';
+      const environmentId = this.state.selectedEnvId;
+      const common = {
+        kind: 'method' as const,
+        sessionId: this.session.id, dictName, className, isMeta, category, environmentId,
+      };
+      const baseUri = buildMethodUri({ ...common, selector: `${selector} (base)`, base: true });
+
+      // Toggle: if this override's diff is actually open, a second click returns
+      // to the session source. Keyed off the live tab (not just the tracked URI)
+      // so it stays correct even if the diff was dismissed via its ✕ or Esc.
+      // Open the source FIRST — while the diff is still open — so its group is
+      // found and reused (the source replaces the diff there); THEN drop the
+      // diff tab. Closing first would leave the group holding only a non-text
+      // tab (e.g. the Globals webview) that getBrowserViewColumn can't match,
+      // spawning a new group that splits the layout.
+      if (this.findComparisonDiffTab(baseUri.toString())) {
+        this.state.selectedMethod = selector;
+        await this.openClassFile(className, selector, isMeta);
+        await this.closeComparisonDiff();
+        return;
+      }
+
+      const overrideUri = buildMethodUri({ ...common, selector: `${selector} (session override)` });
+      await this.closeComparisonDiff();
+      this.state.selectedMethod = selector;
+      const viewColumn = await this.getBrowserViewColumn();
+      const title = `${className}${isMeta ? ' class' : ''}>>${selector} - base vs session override`;
+      this.comparisonDiffBaseUri = baseUri.toString();
+      await vscode.commands.executeCommand('vscode.diff', baseUri, overrideUri, title, { viewColumn, preview: true });
+    } finally {
+      this.comparisonBusy = false;
+    }
+  }
+
+  // The open diff tab whose left/original side is `baseUriString`, if any.
+  private findComparisonDiffTab(baseUriString: string): vscode.Tab | undefined {
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        const input = tab.input;
+        if (input instanceof vscode.TabInputTextDiff && input.original.toString() === baseUriString) {
+          return tab;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  // Close the open session-override diff, if any (matched by its base/original
+  // URI). Safe to call when nothing is open.
+  private async closeComparisonDiff(): Promise<void> {
+    const target = this.comparisonDiffBaseUri;
+    if (!target) return;
+    this.comparisonDiffBaseUri = null;
+    const tab = this.findComparisonDiffTab(target);
+    if (tab) await vscode.window.tabGroups.close(tab);
   }
 
   private handleNavigateTo(result: queries.MethodSearchResult, openFile = true, skipClassBrowser = false): void {
@@ -1096,6 +1199,7 @@ export class SystemBrowser {
   }
 
   private handleSelectHierarchyClass(className: string): void {
+    void this.closeComparisonDiff();
     // Find which dictionary contains this class from the hierarchy entries
     const entry = this.state.hierarchyEntries.find(e => e.className === className);
     if (!entry) return;
@@ -1112,6 +1216,7 @@ export class SystemBrowser {
   }
 
   private handleToggleEnvironment(envId: number): void {
+    void this.closeComparisonDiff();
     const previousCategory = this.state.selectedMethodCategory;
     this.state.selectedEnvId = envId;
     this.state.selectedMethod = null;
@@ -1490,7 +1595,7 @@ export class SystemBrowser {
     }
 
     const dictName = this.state.dictionaries[dictIndex - 1];
-    const category = (this.state.selectedMethodCategory && this.state.selectedMethodCategory !== ALL_METHODS_CATEGORY)
+    const category = (this.state.selectedMethodCategory && !isComputedMethodCategory(this.state.selectedMethodCategory))
       ? this.state.selectedMethodCategory : 'as yet unclassified';
     const uri = buildNewMethodUri(this.session.id, dictName, className, this.state.isMeta, category, this.state.selectedEnvId);
     const viewColumn = await this.getBrowserViewColumn();
@@ -1501,7 +1606,7 @@ export class SystemBrowser {
   private async handleRenameCategory(): Promise<void> {
     const className = this.state.selectedClass;
     const oldCategory = this.state.selectedMethodCategory;
-    if (!className || !oldCategory || oldCategory === ALL_METHODS_CATEGORY) return;
+    if (!className || !oldCategory || isComputedMethodCategory(oldCategory)) return;
 
     const newName = await vscode.window.showInputBox({
       prompt: `Rename category "${oldCategory}" to:`,
@@ -1697,6 +1802,38 @@ export class SystemBrowser {
     return bits;
   }
 
+  // Session methods (extensions + overrides) among the given already-filtered
+  // (current side/env) category lines, derived from cached env data — no extra
+  // round trip. Empty when the class carries no session methods here.
+  private sessionMethodsFor(filtered: queries.EnvCategoryLine[]): string[] {
+    const set = new Set<string>();
+    for (const entry of filtered) {
+      if (!entry.sessionMethodBits) continue;
+      for (const sel of entry.selectors) {
+        if (entry.sessionMethodBits[sel]) set.add(sel);
+      }
+    }
+    return [...set];
+  }
+
+  // Per-selector session-method flag (1 = extension, 2 = override) for the
+  // currently displayed selectors on the current side. Same cheap derivation as
+  // methodOverrideBitsFor — no extra round trip.
+  private sessionMethodBitsFor(items: string[]): Record<string, number> {
+    const dictIndex = this.state.selectedDictIndex;
+    const className = this.state.selectedClass;
+    if (!dictIndex || !className || items.length === 0) return {};
+    const itemSet = new Set(items);
+    const bits: Record<string, number> = {};
+    for (const line of this.getCachedEnvData(dictIndex, className)) {
+      if (line.isMeta !== this.state.isMeta || !line.sessionMethodBits) continue;
+      for (const sel of Object.keys(line.sessionMethodBits)) {
+        if (itemSet.has(sel)) bits[sel] = line.sessionMethodBits[sel];
+      }
+    }
+    return bits;
+  }
+
   // Post the methods column to the webview with override bits attached.
   private postMethods(items: string[], selected?: string | null): void {
     this.panel.webview.postMessage({
@@ -1704,6 +1841,7 @@ export class SystemBrowser {
       items,
       selected: selected ?? undefined,
       methodOverrideBits: this.methodOverrideBitsFor(items),
+      sessionMethodBits: this.sessionMethodBitsFor(items),
     });
   }
 
@@ -1730,7 +1868,13 @@ export class SystemBrowser {
     );
 
     const categories = filtered.map(e => e.category).sort();
-    this.state.methodCategories = [ALL_METHODS_CATEGORY, ...categories];
+    // Surface the computed Session Methods category at the head, right after
+    // ALL METHODS, only when this side/env actually has session methods — so it
+    // is never buried among the real categories and absent when there are none.
+    const head = this.sessionMethodsFor(filtered).length > 0
+      ? [ALL_METHODS_CATEGORY, SESSION_METHODS_CATEGORY]
+      : [ALL_METHODS_CATEGORY];
+    this.state.methodCategories = [...head, ...categories];
 
     this.panel.webview.postMessage({
       command: 'loadMethodCategories',
@@ -1790,7 +1934,7 @@ export class SystemBrowser {
 
     // Open the method in a gemstone:// editor tab (editable, one method at a time)
     const side = isMeta ? 'class' : 'instance';
-    const category = (this.state.selectedMethodCategory && this.state.selectedMethodCategory !== ALL_METHODS_CATEGORY)
+    const category = (this.state.selectedMethodCategory && !isComputedMethodCategory(this.state.selectedMethodCategory))
       ? this.state.selectedMethodCategory : 'as yet unclassified';
     const envQuery = this.state.selectedEnvId > 0 ? `?env=${this.state.selectedEnvId}` : '';
     const uri = vscode.Uri.parse(
@@ -1805,16 +1949,30 @@ export class SystemBrowser {
   private async getBrowserViewColumn(): Promise<vscode.ViewColumn> {
     const sessionId = String(this.session.id);
     const sessionRoot = this.exportManager.getSessionRoot(this.session);
-    for (const editor of vscode.window.visibleTextEditors) {
-      const { scheme, authority, fsPath } = editor.document.uri;
-      if (scheme === 'gemstone' && authority === sessionId) {
-        return editor.viewColumn ?? vscode.ViewColumn.Beside;
-      }
-      if (sessionRoot && scheme === 'file' && fsPath.startsWith(sessionRoot)) {
-        return editor.viewColumn ?? vscode.ViewColumn.Beside;
+    const matches = (uri: vscode.Uri | undefined): boolean =>
+      !!uri && (
+        (uri.scheme === 'gemstone' && uri.authority === sessionId) ||
+        (!!sessionRoot && uri.scheme === 'file' && uri.fsPath.startsWith(sessionRoot))
+      );
+
+    // Prefer the group that already hosts a session editor — even a BACKGROUND
+    // tab (the class definition, another method, or the override diff), which
+    // `visibleTextEditors` can't see. This keeps method source and diffs as
+    // peers in that group instead of spawning a new group that squeezes it.
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        const input = tab.input;
+        const uri = input instanceof vscode.TabInputText ? input.uri
+          : input instanceof vscode.TabInputTextDiff ? input.modified
+          : undefined;
+        if (matches(uri) && group.viewColumn) return group.viewColumn;
       }
     }
-    // No existing editor — split the browser's column vertically so the source
+    // Fallback: any currently-visible session editor.
+    for (const editor of vscode.window.visibleTextEditors) {
+      if (matches(editor.document.uri)) return editor.viewColumn ?? vscode.ViewColumn.Beside;
+    }
+    // Nothing open yet — split the browser's column vertically so the source
     // appears below the browser, not beside the inspector in a separate column.
     // Focus the browser first so newGroupBelow targets column 1, then the new
     // (now-active) group below is where we open the file.
@@ -1963,7 +2121,7 @@ export class SystemBrowser {
 
     .column-list .item {
       padding: 1px 8px;
-      cursor: pointer;
+      cursor: default;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -2010,6 +2168,41 @@ export class SystemBrowser {
 
     .override-arrow:hover {
       opacity: 1;
+      color: var(--vscode-textLink-activeForeground);
+    }
+
+    /* Session methods: italic row + a muted leading glyph (+ extension, ±
+       override). Italic gives an at-a-glance "this is a session method"; the
+       glyph disambiguates the kind. The glyph stays upright and sits in its own
+       fixed leading slot so rows do not shift relative to the override arrows. */
+    .column-list .item.session-extension,
+    .column-list .item.session-override {
+      font-style: italic;
+    }
+
+    .session-indicator {
+      display: inline-block;
+      width: 0.9em;
+      margin-right: 3px;
+      text-align: center;
+      font-size: 1em;
+      font-weight: bold;
+      line-height: 1;
+      vertical-align: middle;
+      font-style: normal;
+      color: var(--vscode-descriptionForeground);
+    }
+
+    .column-list .item.selected .session-indicator {
+      color: var(--vscode-list-activeSelectionForeground);
+    }
+
+    /* The override glyph is clickable: it opens a base-vs-override diff. */
+    .session-indicator.override {
+      cursor: pointer;
+    }
+
+    .session-indicator.override:hover {
       color: var(--vscode-textLink-activeForeground);
     }
 
@@ -2224,16 +2417,17 @@ export class SystemBrowser {
     const hierBtn = document.getElementById('hierBtn');
     const errorBanner = document.getElementById('errorBanner');
     // ── Populate a column with items ───────────────
-    function populateColumn(listEl, items, virtualItems, draggable, methodOverrideBits) {
+    function populateColumn(listEl, items, virtualItems, draggable, methodOverrideBits, sessionMethodBits) {
       listEl.innerHTML = '';
       const virtualSet = new Set(virtualItems || []);
       for (const item of items) {
         const div = document.createElement('div');
         div.className = 'item' + (virtualSet.has(item) ? ' virtual' : '');
         div.dataset.value = item;
-        const methodOverrideBit = methodOverrideBits && methodOverrideBits[item];
-        if (methodOverrideBit) {
-          MethodListView.applyOverrideArrows(div, item, methodOverrideBit);
+        const methodOverrideBit = (methodOverrideBits && methodOverrideBits[item]) || 0;
+        const sessionBit = (sessionMethodBits && sessionMethodBits[item]) || 0;
+        if (methodOverrideBit || sessionBit) {
+          MethodListView.applyMethodIndicators(div, item, methodOverrideBit, sessionBit);
         } else {
           div.textContent = item;
         }
@@ -2411,7 +2605,7 @@ export class SystemBrowser {
     // Methods can be dragged onto method categories
     setupDragSource(cols.methods, 'method');
     setupDropTarget(cols.methodCats, 'method', (selector, category) => {
-      if (category === '${ALL_METHODS_CATEGORY}') return;
+      if (category === '${ALL_METHODS_CATEGORY}' || category === '${SESSION_METHODS_CATEGORY}') return;
       vscode.postMessage({ command: 'dropMethodOnCategory', selector, category });
     });
 
@@ -2558,6 +2752,10 @@ export class SystemBrowser {
           { separator: true },
           { label: 'Senders Of', action: () => vscode.postMessage({ command: 'ctxSendersOf' }) },
           { label: 'Implementors Of', action: () => vscode.postMessage({ command: 'ctxImplementorsOf' }) },
+          ...(item.classList.contains('session-override') ? [
+            { separator: true },
+            { label: 'Compare with base method', action: () => vscode.postMessage({ command: 'compareSessionOverride', selector: item.dataset.value }) },
+          ] : []),
           { separator: true },
           { label: 'Run SUnit Test', action: () => vscode.postMessage({ command: 'ctxRunMethodTests' }) },
         ] : []),
@@ -2584,12 +2782,12 @@ export class SystemBrowser {
           break;
         case 'loadMethodCategories':
           clearFrom('methodCats');
-          populateColumn(cols.methodCats, msg.items, ['${ALL_METHODS_CATEGORY}']);
+          populateColumn(cols.methodCats, msg.items, ['${ALL_METHODS_CATEGORY}', '${SESSION_METHODS_CATEGORY}']);
           if (msg.selected) selectItemInColumn(cols.methodCats, msg.selected);
           break;
         case 'loadMethods':
           cols.methods.innerHTML = '';
-          populateColumn(cols.methods, msg.items, [], true, msg.methodOverrideBits);
+          populateColumn(cols.methods, msg.items, [], true, msg.methodOverrideBits, msg.sessionMethodBits);
           if (msg.selected) selectItemInColumn(cols.methods, msg.selected);
           break;
         case 'setViewMode':

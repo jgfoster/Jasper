@@ -52,8 +52,8 @@ vi.mock('fs', async () => {
 import * as fs from 'fs';
 
 import * as path from 'path';
-import { window, workspace, ViewColumn, TextEditorRevealType, Range, Selection, Position, commands, Uri, __setConfig, __resetConfig } from '../__mocks__/vscode';
-import { SystemBrowser, extractSelector, planDictionaryFileOut, ALL_CLASSES_CATEGORY, ALL_METHODS_CATEGORY } from '../systemBrowser';
+import { window, workspace, ViewColumn, TextEditorRevealType, Range, Selection, Position, commands, Uri, TabInputText, TabInputTextDiff, __setConfig, __resetConfig } from '../__mocks__/vscode';
+import { SystemBrowser, extractSelector, planDictionaryFileOut, isComputedMethodCategory, ALL_CLASSES_CATEGORY, ALL_METHODS_CATEGORY, SESSION_METHODS_CATEGORY } from '../systemBrowser';
 import * as queries from '../browserQueries';
 import { GlobalsBrowser } from '../globalsBrowser';
 import { ClassBrowser } from '../classBrowser';
@@ -134,6 +134,21 @@ describe('extractSelector', () => {
 
 // ── File-out planning ───────────────────────────────────────
 
+describe('isComputedMethodCategory', () => {
+  it('treats the ALL METHODS and SESSION METHODS sentinels as computed', () => {
+    expect(isComputedMethodCategory(ALL_METHODS_CATEGORY)).toBe(true);
+    expect(isComputedMethodCategory(SESSION_METHODS_CATEGORY)).toBe(true);
+  });
+
+  it('treats a real category, empty, null, and undefined as not computed', () => {
+    expect(isComputedMethodCategory('accessing')).toBe(false);
+    expect(isComputedMethodCategory('*mypkg-override')).toBe(false);
+    expect(isComputedMethodCategory('')).toBe(false);
+    expect(isComputedMethodCategory(null)).toBe(false);
+    expect(isComputedMethodCategory(undefined)).toBe(false);
+  });
+});
+
 describe('planDictionaryFileOut', () => {
   it('names each class file after the class and preserves the given order', () => {
     const plan = planDictionaryFileOut('Animals', ['Object', 'Animal', 'Dog']);
@@ -204,6 +219,7 @@ describe('SystemBrowser', () => {
     (SystemBrowser as unknown as { sharedExportManager: unknown }).sharedExportManager = undefined;
     (SystemBrowser as unknown as { pendingNavigation: Map<number, unknown> }).pendingNavigation = new Map();
     window.visibleTextEditors = [];
+    window.tabGroups.all = [];
 
     session = makeSession();
     exportManager = makeExportManager();
@@ -399,6 +415,7 @@ describe('SystemBrowser', () => {
         command: 'loadMethods',
         items: ['=', 'hash', 'name', 'name:'],
         methodOverrideBits: {},
+        sessionMethodBits: {},
       });
     });
 
@@ -427,6 +444,7 @@ describe('SystemBrowser', () => {
         command: 'loadMethods',
         items: ['new', 'new:'],
         methodOverrideBits: {},
+        sessionMethodBits: {},
       });
     });
 
@@ -441,6 +459,7 @@ describe('SystemBrowser', () => {
         command: 'loadMethods',
         items: ['=', 'hash', 'name', 'name:'],
         methodOverrideBits: {},
+        sessionMethodBits: {},
       });
     });
 
@@ -455,6 +474,7 @@ describe('SystemBrowser', () => {
         command: 'loadMethods',
         items: ['name', 'name:'],
         methodOverrideBits: {},
+        sessionMethodBits: {},
       });
     });
 
@@ -509,6 +529,167 @@ describe('SystemBrowser', () => {
         const msg = lastLoadMethods();
         expect(msg.items).toEqual(['new', 'new:']);
         expect(msg.methodOverrideBits).toEqual({ new: 2 });
+      });
+    });
+
+    describe('session methods', () => {
+      type LoadMethodsMsg = { command: string; items: string[]; sessionMethodBits: Record<string, number> };
+      type LoadCategoriesMsg = { command: string; items: string[] };
+
+      beforeEach(() => {
+        // Instance side carries session methods (an extension and an override
+        // living in a *package category); the class side carries none.
+        vi.mocked(queries.getClassEnvironments).mockReturnValue([
+          { isMeta: false, envId: 0, category: 'Accessing', selectors: ['name', 'name:'],
+            methodOverrideBits: {}, sessionMethodBits: {} },
+          { isMeta: false, envId: 0, category: '*mypkg', selectors: ['ext1', 'isVowel'],
+            methodOverrideBits: {}, sessionMethodBits: { ext1: 1, isVowel: 2 } },
+          { isMeta: true, envId: 0, category: 'Instance Creation', selectors: ['new'],
+            methodOverrideBits: {}, sessionMethodBits: {} },
+        ]);
+      });
+
+      function selectArray(): void {
+        messageHandler({ command: 'ready' });
+        messageHandler({ command: 'selectDictionary', index: 1 });
+        messageHandler({ command: 'selectCategory', name: ALL_CLASSES_CATEGORY });
+        vi.mocked(fs.existsSync).mockReturnValue(false);
+        messageHandler({ command: 'selectClass', name: 'Array' });
+      }
+
+      function lastCategories(): LoadCategoriesMsg {
+        const calls = vi.mocked(mockPanel.webview.postMessage).mock.calls
+          .map(c => c[0] as LoadCategoriesMsg)
+          .filter(m => m.command === 'loadMethodCategories');
+        return calls[calls.length - 1];
+      }
+
+      function lastLoadMethods(): LoadMethodsMsg {
+        const calls = vi.mocked(mockPanel.webview.postMessage).mock.calls
+          .map(c => c[0] as LoadMethodsMsg)
+          .filter(m => m.command === 'loadMethods');
+        return calls[calls.length - 1];
+      }
+
+      it('offers the computed Session Methods category at the head, right after ALL METHODS', () => {
+        selectArray();
+        expect(lastCategories().items).toEqual(
+          [ALL_METHODS_CATEGORY, SESSION_METHODS_CATEGORY, '*mypkg', 'Accessing'],
+        );
+      });
+
+      it('omits the Session Methods category on a side that has no session methods', () => {
+        selectArray();
+        messageHandler({ command: 'toggleSide', isMeta: true });
+        expect(lastCategories().items).toEqual([ALL_METHODS_CATEGORY, 'Instance Creation']);
+      });
+
+      it('lists every session method (extension and override) when the category is selected', () => {
+        selectArray();
+        messageHandler({ command: 'selectMethodCategory', name: SESSION_METHODS_CATEGORY });
+        const msg = lastLoadMethods();
+        expect(msg.items).toEqual(['ext1', 'isVowel']);
+        expect(msg.sessionMethodBits).toEqual({ ext1: 1, isVowel: 2 });
+      });
+
+      it('does not list ordinary persistent methods under the Session Methods category', () => {
+        selectArray();
+        messageHandler({ command: 'selectMethodCategory', name: SESSION_METHODS_CATEGORY });
+        expect(lastLoadMethods().items).not.toContain('name');
+      });
+
+      it('attaches session flags for the displayed selectors of a normal category', () => {
+        selectArray();
+        messageHandler({ command: 'selectMethodCategory', name: '*mypkg' });
+        expect(lastLoadMethods().sessionMethodBits).toEqual({ ext1: 1, isVowel: 2 });
+      });
+
+      function lastDiffCall(): [string, Uri, Uri, string, unknown] | undefined {
+        return vi.mocked(commands.executeCommand).mock.calls
+          .filter(c => c[0] === 'vscode.diff')
+          .pop() as [string, Uri, Uri, string, unknown] | undefined;
+      }
+
+      function diffCallCount(): number {
+        return vi.mocked(commands.executeCommand).mock.calls.filter(c => c[0] === 'vscode.diff').length;
+      }
+
+      it('compares an override against its persistent base, labeling each pane', async () => {
+        selectArray();
+        messageHandler({ command: 'compareSessionOverride', selector: 'isVowel' });
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        const call = lastDiffCall();
+        expect(call).toBeDefined();
+        const [, baseUri, overrideUri] = call!;
+        expect(baseUri.query).toContain('base=1');   // left = persistent base
+        expect(overrideUri.query).not.toContain('base=1'); // right = session view
+        expect(decodeURIComponent(baseUri.path)).toContain('isVowel (base)');
+        expect(decodeURIComponent(overrideUri.path)).toContain('isVowel (session override)');
+      });
+
+      it('toggles the diff off and reopens the plain session source when the same override is clicked again', async () => {
+        selectArray();
+        messageHandler({ command: 'compareSessionOverride', selector: 'isVowel' });
+        await new Promise(resolve => setTimeout(resolve, 0));
+        const [, baseUri, overrideUri] = lastDiffCall()!;
+        window.tabGroups.all = [{ tabs: [{ input: new TabInputTextDiff(baseUri, overrideUri) }] }];
+        const before = diffCallCount();
+        vi.mocked(workspace.openTextDocument).mockClear();
+
+        messageHandler({ command: 'compareSessionOverride', selector: 'isVowel' });
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        // Reopened the plain method source — no diff, no "(base)/(session override)" label.
+        const opened = vi.mocked(workspace.openTextDocument).mock.calls.map(c => decodeURIComponent(String(c[0])));
+        expect(opened.some(u => u.includes('isVowel') && !u.includes('(base)') && !u.includes('(session override)'))).toBe(true);
+        expect(diffCallCount()).toBe(before);              // no new diff opened
+        expect(window.tabGroups.close).toHaveBeenCalled(); // diff closed
+        // Source opens BEFORE the diff closes, so the diff's group is reused
+        // (closing first would strand a webview-only group → new split group).
+        const lastOpen = vi.mocked(window.showTextDocument).mock.invocationCallOrder.at(-1)!;
+        const lastClose = vi.mocked(window.tabGroups.close).mock.invocationCallOrder.at(-1)!;
+        expect(lastOpen).toBeLessThan(lastClose);
+        window.tabGroups.all = [];
+      });
+
+      it('ignores a second ± click while the first toggle is still opening', async () => {
+        selectArray();
+        let releaseGroup: () => void = () => {};
+        vi.mocked(commands.executeCommand).mockImplementation((cmd: string) => {
+          if (cmd === 'workbench.action.newGroupBelow') return new Promise<void>(r => { releaseGroup = r; });
+          return undefined as unknown as Thenable<unknown>;
+        });
+        try {
+          // First click starts opening the diff and blocks awaiting the new group.
+          messageHandler({ command: 'compareSessionOverride', selector: 'isVowel' });
+          await new Promise(resolve => setTimeout(resolve, 0));
+          // Second click lands mid-flight — the busy guard must drop it.
+          messageHandler({ command: 'compareSessionOverride', selector: 'isVowel' });
+          await new Promise(resolve => setTimeout(resolve, 0));
+
+          releaseGroup();
+          await new Promise(resolve => setTimeout(resolve, 0));
+
+          expect(diffCallCount()).toBe(1); // only the first click opened a diff
+        } finally {
+          vi.mocked(commands.executeCommand).mockReset();
+        }
+      });
+
+      it('closes the override diff when navigating to another method', async () => {
+        selectArray();
+        messageHandler({ command: 'compareSessionOverride', selector: 'isVowel' });
+        await new Promise(resolve => setTimeout(resolve, 0));
+        const [, baseUri, overrideUri] = lastDiffCall()!;
+        const diffTab = { input: new TabInputTextDiff(baseUri, overrideUri) };
+        window.tabGroups.all = [{ tabs: [diffTab] }];
+
+        messageHandler({ command: 'selectMethod', selector: 'name' });
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        expect(window.tabGroups.close).toHaveBeenCalledWith(diffTab);
+        window.tabGroups.all = [];
       });
     });
 
@@ -1682,6 +1863,7 @@ describe('SystemBrowser', () => {
         command: 'loadMethods',
         items: ['rb_name'],
         methodOverrideBits: {},
+        sessionMethodBits: {},
       });
     });
 
@@ -1814,6 +1996,7 @@ describe('SystemBrowser', () => {
         command: 'loadMethods',
         items: ['name', 'name:'],
         methodOverrideBits: {},
+        sessionMethodBits: {},
       });
     });
 
@@ -1879,6 +2062,7 @@ describe('SystemBrowser', () => {
         command: 'loadMethods',
         items: ['name', 'name:'],
         methodOverrideBits: {},
+        sessionMethodBits: {},
       });
     });
 
@@ -2028,6 +2212,26 @@ describe('SystemBrowser', () => {
         expect.anything(),
         expect.objectContaining({ viewColumn: ViewColumn.Two }),
       );
+    });
+
+    it('reuses the group holding a background session tab (definition/method), not just visible editors', async () => {
+      window.visibleTextEditors = [];
+      window.tabGroups.all = [{
+        viewColumn: ViewColumn.Two,
+        tabs: [{ input: new TabInputText(Uri.parse(`gemstone://${session.id}/Globals/Array/definition`)) }],
+      }];
+      vi.mocked(commands.executeCommand).mockClear();
+      vi.mocked(window.showTextDocument).mockClear();
+
+      SystemBrowser.navigateTo(session.id, result);
+      await vi.waitFor(() => expect(window.showTextDocument).toHaveBeenCalled());
+
+      expect(commands.executeCommand).not.toHaveBeenCalledWith('workbench.action.newGroupBelow');
+      expect(window.showTextDocument).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ viewColumn: ViewColumn.Two }),
+      );
+      window.tabGroups.all = [];
     });
 
     it('calls newGroupBelow only on the first navigation, reuses the column on subsequent ones', async () => {

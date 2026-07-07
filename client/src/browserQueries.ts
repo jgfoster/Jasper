@@ -6,6 +6,7 @@ import { QueryExecutor } from './queries/types';
 
 // Read-path shared queries.
 import { getMethodSource as sharedGetMethodSource } from './queries/getMethodSource';
+import { getBaseMethodSource as sharedGetBaseMethodSource } from './queries/getBaseMethodSource';
 import { getDictionaryNames as sharedGetDictionaryNames } from './queries/getDictionaryNames';
 import { getPoolDictionaryNames as sharedGetPoolDictionaryNames } from './queries/getPoolDictionaryNames';
 import { getClassNames as sharedGetClassNames } from './queries/getClassNames';
@@ -261,6 +262,13 @@ export function getMethodSource(
   environmentId: number = 0,
 ): string {
   return sharedGetMethodSource(bind(session), className, isMeta, selector, environmentId);
+}
+
+export function getBaseMethodSource(
+  session: ActiveSession, className: string, isMeta: boolean, selector: string,
+  environmentId: number = 0,
+): string {
+  return sharedGetBaseMethodSource(bind(session), className, isMeta, selector, environmentId);
 }
 
 export function getClassDefinition(session: ActiveSession, className: string): string {

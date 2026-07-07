@@ -148,9 +148,11 @@ class ListFilter extends HTMLElement {
     // Matched item rendering
 
     // Clear the item's text while keeping any leading indicator elements
-    // (e.g. override arrows) that were rendered before the selector text.
+    // (override arrows, session-method glyph) that were rendered before the
+    // selector text. querySelectorAll returns them in document order, so their
+    // original leading order is preserved when re-appended.
     clearItemText(item) {
-        const keep = [...item.querySelectorAll(':scope > .override-arrow')];
+        const keep = [...item.querySelectorAll(':scope > .override-arrow, :scope > .session-indicator')];
         item.textContent = '';
         for (const el of keep) item.appendChild(el);
     }

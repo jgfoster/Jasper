@@ -613,4 +613,71 @@ describe('ListFilter', () => {
       expect((document.querySelector('#items .item') as HTMLElement).textContent).toBe('▲▼new');
     });
   });
+
+  // Session methods prepend a glyph (+ extension / ± override) as a leading
+  // child, the same way override arrows do. ListFilter must preserve it too.
+  describe('session-glyph preservation', () => {
+    function makeListWithSession(
+      id: string, specs: Array<{ selector: string; glyph: string; arrow?: boolean }>,
+    ): HTMLDivElement {
+      const list = document.createElement('div');
+      list.id = id;
+      for (const { selector, glyph, arrow } of specs) {
+        const div = document.createElement('div');
+        div.className = 'item';
+        div.dataset.value = selector;
+        if (arrow) {
+          const a = document.createElement('span');
+          a.className = 'override-arrow up';
+          a.textContent = '▲';
+          div.appendChild(a);
+        }
+        const g = document.createElement('span');
+        g.className = 'session-indicator';
+        g.textContent = glyph;
+        div.appendChild(g);
+        div.appendChild(document.createTextNode(selector));
+        list.appendChild(div);
+      }
+      document.body.appendChild(list);
+      return list;
+    }
+
+    it('keeps the session glyph and rebuilds selector text on an empty render', () => {
+      makeListWithSession('items', [{ selector: 'jasperGreeting', glyph: '+' }]);
+      const filter = makeFilter('items');
+
+      filter.searchBox.value = '';
+      filter.applyFilter();
+
+      const item = document.querySelector('#items .item') as HTMLElement;
+      expect(item.querySelectorAll('.session-indicator')).toHaveLength(1);
+      expect(item.textContent).toBe('+jasperGreeting');
+    });
+
+    it('keeps the session glyph and highlights the match on a matched render', () => {
+      makeListWithSession('items', [{ selector: 'isVowel', glyph: '±' }]);
+      const filter = makeFilter('items');
+
+      filter.searchBox.value = 'vow';
+      filter.applyFilter();
+
+      const item = document.querySelector('#items .item') as HTMLElement;
+      expect(item.querySelectorAll('.session-indicator')).toHaveLength(1);
+      expect(item.querySelector('.match-highlight')?.textContent).toBe('Vow');
+    });
+
+    it('preserves an override arrow and the session glyph together, arrow first', () => {
+      makeListWithSession('items', [{ selector: 'printOn:', glyph: '+', arrow: true }]);
+      const filter = makeFilter('items');
+
+      filter.searchBox.value = '';
+      filter.applyFilter();
+
+      const item = document.querySelector('#items .item') as HTMLElement;
+      const leading = [...item.children].map(c => c.className);
+      expect(leading).toEqual(['override-arrow up', 'session-indicator']);
+      expect(item.textContent).toBe('▲+printOn:');
+    });
+  });
 });
