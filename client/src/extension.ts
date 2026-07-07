@@ -110,6 +110,84 @@ async function logJasperError(message: string, scope: string, error: unknown) {
       });
 }
 
+/**
+ * Pre-logout guard for a session that may hold uncommitted work. Given the
+ * tri-state result of `sessionNeedsCommit` (true = pending, false = clean,
+ * undefined = couldn't tell), returns:
+ *  - `'proceed'` — nothing pending, or the user chose to log out (having
+ *    optionally committed first);
+ *  - `'cancel'`  — the user backed out, or a requested commit failed.
+ *
+ * `commit` is injected so the flow is unit-testable without a live session, and
+ * `undefined` is treated like `true`: a failed probe is not evidence of a clean
+ * transaction, so we prompt rather than silently discard.
+ */
+export async function confirmLogoutWithUncommittedChanges(
+  sessionId: number,
+  needsCommit: boolean | undefined,
+  commit: (id: number) => { success: boolean; err: { number: number; message: string } },
+): Promise<'proceed' | 'cancel'> {
+  if (needsCommit === false) return 'proceed';
+
+  const title =
+    needsCommit === true
+      ? `Session ${sessionId} has uncommitted changes.`
+      : `Session ${sessionId} may have uncommitted changes.`;
+  const detail =
+    needsCommit === true
+      ? 'Logging out discards them. Commit first to keep your work.'
+      : 'Its commit state could not be checked; logging out may discard uncommitted work.';
+  const choice = await vscode.window.showWarningMessage(
+    title,
+    { modal: true, detail },
+    'Commit & Logout',
+    'Logout Anyway',
+  );
+
+  if (choice === 'Commit & Logout') {
+    try {
+      const { success, err } = commit(sessionId);
+      if (!success) {
+        vscode.window.showErrorMessage(
+          `Session ${sessionId}: Commit failed — ${err.message || `error ${err.number}`}. Not logging out.`,
+        );
+        return 'cancel';
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      vscode.window.showErrorMessage(`Session ${sessionId}: Commit failed — ${msg}. Not logging out.`);
+      return 'cancel';
+    }
+    return 'proceed';
+  }
+
+  return choice === 'Logout Anyway' ? 'proceed' : 'cancel';
+}
+
+/**
+ * The confirmation message to show before aborting, or `null` when the abort is
+ * safe to run silently — a clean transaction with no unsaved editors, where the
+ * abort discards nothing. Covers two independent losses: the transaction's
+ * uncommitted changes (`sessionNeedsCommit`, tri-state, where `undefined` =
+ * couldn't tell is treated as pending) and unsaved edits in open `.gs`/method
+ * editors that a post-abort refresh would overwrite.
+ */
+export function abortConfirmMessage(
+  needsCommit: boolean | undefined,
+  hasUnsavedEditors: boolean,
+): string | null {
+  const parts: string[] = [];
+  if (needsCommit === true) {
+    parts.push('This discards this session’s uncommitted changes.');
+  } else if (needsCommit === undefined) {
+    parts.push('This may discard uncommitted changes (the commit state could not be checked).');
+  }
+  if (hasUnsavedEditors) {
+    parts.push('Exported .gs files have unsaved edits that will be overwritten.');
+  }
+  return parts.length ? parts.join('\n') : null;
+}
+
 export async function handleMethodCompiled(event: MethodCompiledEvent) {
   if (event.uri.toString() === event.previousUri.toString()) {
     return;
@@ -955,9 +1033,13 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand('gemstone.sessionAbort', async (item: GemStoneSessionItem) => {
-      if (fileInManager.hasUnsavedChanges(item.activeSession)) {
+      const message = abortConfirmMessage(
+        queries.sessionNeedsCommit(item.activeSession),
+        fileInManager.hasUnsavedChanges(item.activeSession),
+      );
+      if (message) {
         const choice = await vscode.window.showWarningMessage(
-          'Exported .gs files have unsaved edits that will be overwritten.',
+          message,
           { modal: true },
           'Abort Anyway',
         );
@@ -996,6 +1078,12 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage('No GemStone session to log out of.');
         return;
       }
+      const decision = await confirmLogoutWithUncommittedChanges(
+        session.id,
+        queries.sessionNeedsCommit(session),
+        (id) => sessionManager.commit(id),
+      );
+      if (decision === 'cancel') return;
       // Keep the class mirror on disk: it's keyed by connection target and is
       // re-synced incrementally on the next login, which is far cheaper than
       // rebuilding it from scratch (especially for large, remote images).

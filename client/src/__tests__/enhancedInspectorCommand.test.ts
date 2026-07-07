@@ -67,9 +67,12 @@ const mocks = vi.hoisted(() => {
     installSupport: vi.fn(() =>
       Promise.resolve({ success: true, committed: true, verified: true, filedIn: [], message: 'ok' }),
     ),
-    // Probed for `System needsCommit` during the post-install refresh; default
-    // 'false' = nothing pending (the freshly-logged-in case).
+    // executeFetchString no longer backs the needsCommit probe (that moved to
+    // sessionNeedsCommit) but stays mocked for any other importer of the module.
     executeFetchString: vi.fn(() => 'false'),
+    // Tri-state needsCommit probe used by the post-install refresh; default
+    // false = nothing pending (the freshly-logged-in case).
+    sessionNeedsCommit: vi.fn<() => boolean | undefined>(() => false),
     // Controls whether the payload .gs files appear present on disk.
     existsSync: vi.fn(() => true),
   };
@@ -100,6 +103,7 @@ vi.mock('fs', () => ({ existsSync: mocks.existsSync }));
 
 vi.mock('../browserQueries', () => ({
   executeFetchString: mocks.executeFetchString,
+  sessionNeedsCommit: mocks.sessionNeedsCommit,
   checkEnhancedInspectorAvailable: vi.fn(() => true),
 }));
 
@@ -182,6 +186,8 @@ beforeEach(() => {
   mocks.existsSync.mockReturnValue(true);
   mocks.showInputBox.mockReset();
   mocks.showInputBox.mockResolvedValue(undefined);
+  mocks.sessionNeedsCommit.mockReset();
+  mocks.sessionNeedsCommit.mockReturnValue(false);
   getSelectedSessionMock.mockReset();
 });
 
@@ -322,7 +328,7 @@ describe('maybeOfferEnhancedInspectorInstall', () => {
     mocks.state.config[AUTO_INSTALL_KEY] = 'ask';
     mocks.state.offerChoice = 'Install';
     mocks.state.refreshChoice = 'Refresh';
-    mocks.executeFetchString.mockReturnValueOnce('true');
+    mocks.sessionNeedsCommit.mockReturnValueOnce(true);
     const base = createBaseSession();
 
     await offer(base);
@@ -336,7 +342,7 @@ describe('maybeOfferEnhancedInspectorInstall', () => {
     mocks.state.config[AUTO_INSTALL_KEY] = 'ask';
     mocks.state.offerChoice = 'Install';
     mocks.state.refreshChoice = 'Later';
-    mocks.executeFetchString.mockReturnValueOnce('true');
+    mocks.sessionNeedsCommit.mockReturnValueOnce(true);
     const base = createBaseSession();
 
     await offer(base);
@@ -350,9 +356,7 @@ describe('maybeOfferEnhancedInspectorInstall', () => {
     mocks.state.config[AUTO_INSTALL_KEY] = 'ask';
     mocks.state.offerChoice = 'Install';
     mocks.state.refreshChoice = 'Later';
-    mocks.executeFetchString.mockImplementationOnce(() => {
-      throw new Error('session busy');
-    });
+    mocks.sessionNeedsCommit.mockReturnValueOnce(undefined);
     const base = createBaseSession();
 
     await offer(base);

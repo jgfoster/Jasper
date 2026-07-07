@@ -204,6 +204,29 @@ export function checkEnhancedInspectorAvailable(session: ActiveSession): boolean
   }
 }
 
+/**
+ * Tri-state probe of whether the session's transaction holds uncommitted changes
+ * that an abort or logout would discard: `true` = pending work, `false` = clean,
+ * `undefined` = couldn't tell (session busy, unreachable, or an unrecognized reply).
+ *
+ * Callers must treat `undefined` like `true` — prompt rather than silently
+ * discard — since a failed probe is not evidence that the transaction is clean.
+ */
+export function sessionNeedsCommit(session: ActiveSession): boolean | undefined {
+  try {
+    const result = executeFetchString(
+      session,
+      'sessionNeedsCommit',
+      'System needsCommit printString',
+    ).trim();
+    if (result === 'true') return true;
+    if (result === 'false') return false;
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // Bind a session to the QueryExecutor shape that shared queries expect.
 function bind(session: ActiveSession): QueryExecutor {
   return (label, code) => executeFetchString(session, label, code);

@@ -18,7 +18,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { ActiveSession, SessionManager } from './sessionManager';
-import { executeFetchString } from './browserQueries';
+import { sessionNeedsCommit } from './browserQueries';
 import { refreshEnhancedInspectorAvailable } from './enhancedInspectorAvailability';
 import {
   installEnhancedInspectorSupport,
@@ -138,16 +138,10 @@ async function refreshWorkingSessionAfterInstall(
   base: ActiveSession,
   sessionManager: SessionManager,
 ): Promise<boolean> {
-  // Tri-state: true = pending work, false = clean, undefined = couldn't tell.
-  let needsCommit: boolean | undefined;
-  try {
-    needsCommit =
-      executeFetchString(base, 'needsCommit', 'System needsCommit printString').trim() === 'true';
-  } catch {
-    // The probe failed (e.g. the session is busy). Leave it undefined and
-    // prompt below rather than risk a silent abort that discards work.
-    needsCommit = undefined;
-  }
+  // Tri-state: true = pending work, false = clean, undefined = couldn't tell
+  // (e.g. the session is busy). A failed probe stays undefined so we prompt
+  // below rather than risk a silent abort that discards work.
+  const needsCommit = sessionNeedsCommit(base);
 
   // Definitely clean (always the case right after login): refresh silently so
   // the installed code appears immediately.
