@@ -19,6 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libasound2t64 \
       build-essential \
       python3 \
+      unzip \
+      curl \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -31,6 +33,12 @@ COPY client/package.json ./client/
 COPY server/package.json ./server/
 COPY mcp-server/package.json ./mcp-server/
 RUN npm ci
+
+# Install GemStone/S 64 Bit for the in-container stone. This layer depends only
+# on the provisioning scripts, so it caches across source edits (it downloads
+# ~450 MB, so we very much want it cached).
+COPY client/bin ./client/bin
+RUN cd client && bash bin/gs-install.sh 3.7.5
 
 COPY . .
 

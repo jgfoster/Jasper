@@ -711,7 +711,7 @@
       },
       {
         "command": "gemstone.rowanAddRepo",
-        "title": "Add Rowan Repository…",
+        "title": "Add Rowan Repository\u2026",
         "category": "GemStone",
         "icon": "$(add)"
       },
@@ -734,7 +734,7 @@
       },
       {
         "command": "gemstone.rowanExportProject",
-        "title": "Export Copy…",
+        "title": "Export Copy\u2026",
         "category": "GemStone"
       },
       {
@@ -761,17 +761,17 @@
       },
       {
         "command": "gemstone.loadRowanProject",
-        "title": "Load Rowan Project…",
+        "title": "Load Rowan Project\u2026",
         "category": "GemStone"
       },
       {
         "command": "gemstone.loadRowanProjectFromGit",
-        "title": "Load Rowan Project from Git…",
+        "title": "Load Rowan Project from Git\u2026",
         "category": "GemStone"
       },
       {
         "command": "gemstone.unloadRowanProject",
-        "title": "Unload Rowan Project…",
+        "title": "Unload Rowan Project\u2026",
         "category": "GemStone"
       },
       {
@@ -1504,6 +1504,7 @@
     "test:acceptance": "playwright test -c acceptance/playwright.config.ts",
     "test:acceptance:report": "playwright show-report acceptance/playwright-report",
     "test:acceptance:docker": "bash acceptance/docker-test.sh",
+    "test:acceptance:rowan": "bash acceptance/docker-test-rowan.sh",
     "package": "vsce package",
     "publish": "npm run publish:vsce && npm run publish:ovsx",
     "publish:vsce": "vsce publish",
