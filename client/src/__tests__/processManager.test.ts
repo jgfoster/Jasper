@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as nodePath from 'path';
 
 vi.mock('vscode', () => import('../__mocks__/vscode'));
 vi.mock('child_process');
@@ -580,4 +583,56 @@ describe('ProcessManager', () => {
       expect(sent).toContain("export GEMSTONE_GLOBAL_DIR='/mnt/c/gemstone'");
     });
   });
+
+  describe('gem temp-object cache self-heal (via startNetldi)', () => {
+    function dbWithGemConf(cacheLine: string | null): { db: ReturnType<typeof makeDatabase>; confFile: string } {
+      const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'pm-db-'));
+      fs.mkdirSync(nodePath.join(dir, 'conf'));
+      fs.mkdirSync(nodePath.join(dir, 'log'), { recursive: true });
+      const confFile = nodePath.join(dir, 'conf', 'gem.conf');
+      fs.writeFileSync(confFile, `# gem config\n${cacheLine ?? ''}`);
+      return { db: makeDatabase({ path: dir }), confFile };
+    }
+
+    it('raises an existing 50 MB cache to 500 MB on start', async () => {
+      const { db, confFile } = dbWithGemConf('GEM_TEMPOBJ_CACHE_SIZE = 50000;');
+      const manager = new ProcessManager(makeStorage() as any);
+      const proc = makeChildProcess(0);
+      vi.mocked(spawn).mockReturnValue(proc as any);
+
+      const promise = manager.startNetldi(db);
+      proc.finish();
+      await promise;
+
+      expect(fs.readFileSync(confFile, 'utf8')).toContain('GEM_TEMPOBJ_CACHE_SIZE = 500000;');
+      expect(fs.readFileSync(confFile, 'utf8')).not.toContain('50000;');
+    });
+
+    it('adds the cache setting when the conf lacks it', async () => {
+      const { db, confFile } = dbWithGemConf(null);
+      const manager = new ProcessManager(makeStorage() as any);
+      const proc = makeChildProcess(0);
+      vi.mocked(spawn).mockReturnValue(proc as any);
+
+      const promise = manager.startNetldi(db);
+      proc.finish();
+      await promise;
+
+      expect(fs.readFileSync(confFile, 'utf8')).toContain('GEM_TEMPOBJ_CACHE_SIZE = 500000;');
+    });
+
+    it('leaves an already-adequate cache untouched', async () => {
+      const { db, confFile } = dbWithGemConf('GEM_TEMPOBJ_CACHE_SIZE = 2000000;');
+      const manager = new ProcessManager(makeStorage() as any);
+      const proc = makeChildProcess(0);
+      vi.mocked(spawn).mockReturnValue(proc as any);
+
+      const promise = manager.startNetldi(db);
+      proc.finish();
+      await promise;
+
+      expect(fs.readFileSync(confFile, 'utf8')).toContain('GEM_TEMPOBJ_CACHE_SIZE = 2000000;');
+    });
+  });
+
 });
