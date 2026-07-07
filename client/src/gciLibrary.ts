@@ -1,5 +1,7 @@
 import koffi from 'koffi';
 import * as path from 'path';
+import {OOP_ILLEGAL, OOP_NIL, OOP_TRUE} from "./gciConstants";
+import {GciLibraryError} from "./gciLibraryError";
 
 // OopType is uint64_t in C; koffi maps this to BigInt in JS
 const OopType = 'uint64';
@@ -148,6 +150,37 @@ function toBigInt(value: number | bigint): bigint {
   return typeof value === 'bigint' ? value : BigInt(value);
 }
 
+/**
+ * FFI bindings to GemStone's native `libgcits` shared library, loaded via koffi.
+ * All GemStone VM calls go through this class.
+ *
+ * Two tiers of methods:
+ * - Raw `GciTsXxx` methods (e.g. `GciTsExecute`, `GciTsLogin`) are thin 1:1
+ *   wrappers around the C functions of the same name — one per exported
+ *   symbol, following the struct/pointer patterns already established below.
+ * - The remaining methods (grouped into labeled sections further down: Session
+ *   lifecycle, Code execution, Symbol resolution & Utf8 caching, Object
+ *   lifecycle & PureExportSet, UserGlobals/SessionTemps management, OOP
+ *   predicates) are an ergonomic layer on top: they call one or more
+ *   `GciTsXxx` methods, throw {@link GciLibraryError} on failure instead of
+ *   returning a `{success, err}`/`{result, err}` pair, and give the raw calls
+ *   memorable names and typed parameters.
+ *
+ * Recurring GemStone vocabulary used throughout this file's JSDoc:
+ * - **OOP** — the 64-bit handle GemStone uses to reference an object across
+ *   the GCI boundary.
+ * - **PureExportSet** — a session-level set of OOPs the GCI layer pins so
+ *   they aren't garbage-collected before the client is done with them. Most
+ *   calls that hand back a new OOP add it here; callers release entries via
+ *   {@link releaseObject} / {@link releaseAllObjects} once done.
+ * - **SessionTemps** / **UserGlobals** — two session-level dictionaries for
+ *   stashing values between GCI calls. SessionTemps is GemStone's own
+ *   built-in temp store; UserGlobals is this codebase's convention for
+ *   values that need to survive a commit/abort (SessionTemps does not).
+ * - **symbol list** — the ordered set of dictionaries (UserGlobals, Globals,
+ *   Published) GemStone searches to resolve a name, e.g. via
+ *   {@link resolveSymbol} or `Smalltalk at: #someSymbol`.
+ */
 export class GciLibrary {
   private lib: koffi.IKoffiLib;
   private _netldiLib: koffi.IKoffiLib | undefined;
@@ -774,6 +807,9 @@ export class GciLibrary {
   GciTsLogout(session: unknown): { success: boolean; err: GciError } {
     const err: Record<string, unknown> = {};
     const result = this._GciTsLogout(session, err);
+    // TODO: cache cleanup lives here temporarily; move into a `logout()`
+    // ergonomic method once call sites are migrated off GciTsLogout directly.
+    this.deleteCachedUtf8OopFor(session);
     return {
       success: result !== 0,
       err: err as unknown as GciError,
@@ -1794,4 +1830,488 @@ export class GciLibrary {
   close(): void {
     this.lib.unload();
   }
+
+  // ---------------------------------------------------------------------
+  // Session lifecycle
+  // ---------------------------------------------------------------------
+
+  /**
+   * Logs into a GemStone stone and returns the resulting session.
+   *
+   * `HostUserId`/`HostPassword` are not exposed by this overload — the gem
+   * process runs as the netldi process's user. Login flags and
+   * `haltOnErrNum` are left at their defaults (see `GciTsLogin` in
+   * `gcits.hf` for what they control).
+   *
+   * @param stoneNrs - The NRS of the stone to log into.
+   * @param gemServiceNrs - The NRS of the gem service to use.
+   * @param gemstoneUsername - The GemStone user to log in as.
+   * @param gemstonePassword - The GemStone user's password, in plaintext.
+   * @returns The new session.
+   * @throws {GciLibraryError} If login fails (no session was created). A
+   *   successful login that still carries a non-fatal warning is logged via
+   *   `console.warn` rather than thrown.
+   */
+  public login(stoneNrs: string, gemServiceNrs: string, gemstoneUsername: string, gemstonePassword: string) {
+    const {session, err} = this.GciTsLogin(
+        stoneNrs,
+        null,
+        null,
+        false,
+        gemServiceNrs,
+        gemstoneUsername,
+        gemstonePassword,
+        0,
+        0,
+    );
+
+    this.throwUnless(session !== null, err);
+    
+    // A non-NULL session means login succeeded, but *err may still carry a
+    // non-fatal warning (per GciTsLogin in gcits.hf) — log it, don't fail.
+    if (err.number !== 0) {
+      console.warn(`GciTsLogin warning [${err.number}]: ${err.message}`);
+    }
+
+    return session;
+  }
+
+  /**
+   * Logs out `session`. Failures are logged via `console.warn` rather than
+   * thrown — the session is gone regardless, and a teardown error would
+   * obscure real test failures above it.
+   *
+   * @param session - The GemStone session to log out.
+   */
+  public logout(session: unknown) {
+    const {success, err} = this.GciTsLogout(session);
+    // Warn rather than throw — the session is gone regardless, and a
+    // teardown error would obscure real test failures above it.
+    if (!success) console.warn(`GciTsLogout failed [${err.number}]: ${err.message}`);
+
+  }
+
+  /**
+   * Begins a new transaction on `session`.
+   *
+   * @param session - The GemStone session to operate in.
+   * @throws {GciLibraryError} If the underlying GCI call fails.
+   */
+  public beginTransaction(session: unknown) {
+    const {success, err} = this.GciTsBegin(session);
+
+    this.throwUnless(success, err);
+  }
+
+  /**
+   * Aborts the current transaction on `session`.
+   *
+   * @param session - The GemStone session to operate in.
+   * @throws {GciLibraryError} If the underlying GCI call fails.
+   */
+  public abortTransaction(session: unknown) {
+    const { success, err } = this.GciTsAbort(session);
+
+    this.throwUnless(success, err);
+  }
+
+  // ---------------------------------------------------------------------
+  // Code execution
+  // ---------------------------------------------------------------------
+
+  /**
+   * Evaluates Smalltalk code in the current session and returns the OOP of the
+   * result.
+   *
+   * The code is compiled as an anonymous method: `self` is `nil` and there is
+   * no receiver object. Names are resolved against the user's symbol list
+   * (UserGlobals, Globals, and Published). Code runs in environment 0 (the
+   * default GemStone environment). If the code contains multiple statements
+   * separated by `.`, the value of the last statement is returned.
+   *
+   * The result OOP is retained in the session's PureExportSet — the caller is
+   * responsible for releasing it when no longer needed.
+   *
+   * @param session - The GemStone session to operate in.
+   * @param code - Smalltalk source to evaluate.
+   * @returns The OOP of the result object.
+   * @throws {GciLibraryError} If the evaluated code signals an error, or if
+   *   the underlying GCI call fails.
+   */
+  public execute(session: unknown, code: string) {
+      const { result, err } = this.GciTsExecute(
+          session, code, this.utf8ClassOop(session), OOP_ILLEGAL, OOP_NIL, 0, 0,
+      );
+
+      this.throwOnIllegalOop(result, err);
+
+      return result;
+  }
+
+  /**
+   * Evaluates `code` for effect, discarding its result.
+   *
+   * Appends an explicit `nil` as the final statement so `execute`'s result
+   * OOP is nil — a special object that is never added to the PureExportSet —
+   * instead of retaining `code`'s own result there indefinitely.
+   *
+   * @param session - The GemStone session to operate in.
+   * @param code - Smalltalk source to evaluate.
+   * @throws {GciLibraryError} If the evaluated code signals an error, or if
+   *   the underlying GCI call fails.
+   */
+  public executeDiscardingResult(session: unknown, code: string) {
+    this.execute(session, `[ ${code} ] value. nil`);
+  }
+
+  // ---------------------------------------------------------------------
+  // Symbol resolution & Utf8 caching
+  // ---------------------------------------------------------------------
+
+  private _utfCache: Map<unknown, bigint> = new Map<unknown, bigint>();
+
+  /**
+   * Returns the OOP of the `Utf8` class — see {@link resolveSymbol} for
+   * error behavior. Cached per session: only resolves via a GCI round-trip
+   * the first time it's called for a given session. Call
+   * {@link releaseCachedSymbolOops} to release the cached oop and clear the
+   * cache for a session.
+   *
+   * `Utf8` is used as the source class when compiling code via {@link execute}:
+   * it causes the compiler to treat string literals as UTF-8 strings rather
+   * than single-byte strings.
+   */
+  public utf8ClassOop(session: unknown) {
+    const cachedOop = this.cachedUtf8OopFor(session);
+    if (cachedOop) return cachedOop;
+
+    const resolvedOop = this.resolveSymbol(session, 'Utf8');
+    this._utfCache.set(session, resolvedOop);
+
+    return resolvedOop;
+  }
+
+  /**
+   * Resolves a symbol name to its OOP using the user's symbol list
+   * (UserGlobals, Globals, and Published).
+   *
+   * Equivalent to evaluating `Smalltalk at: #symbol` in GemStone. This method
+   * does not cache (`Utf8` is the one exception: it's cached separately by
+   * {@link utf8ClassOop}).
+   *
+   * Goes through `createString` + `GciTsResolveSymbolObj` + `releaseObject`
+   * (three GCI round-trips) rather than the single-call `GciTsResolveSymbol`
+   * (which takes the name as a raw C string). `GciTsResolveSymbol` has a
+   * known memory leak that the GemStone team is currently investigating —
+   * use this slower path until that's fixed. See TODO.md.
+   *
+   * @param session - The GemStone session to operate in.
+   * @param symbolName - The name to resolve (e.g. `'Object'`, `'Utf8'`).
+   * @returns The OOP of the object the symbol resolves to.
+   * @throws {GciLibraryError} If the symbol is not found in the user's symbol
+   *   list, or if the underlying GCI call fails.
+   */
+  public resolveSymbol(session: unknown, symbolName: string) {
+    const symbolNameOop = this.createString(session, symbolName);
+
+    try {
+      const {result, err} = this.GciTsResolveSymbolObj(session, symbolNameOop, OOP_NIL);
+
+      this.throwOnIllegalOop(result, err);
+
+      return result;
+    } finally {
+      // Swallow release failures here -- letting one replace an in-flight
+      // resolve error (or mask a successful resolve) would hide the result
+      // that actually matters to the caller.
+      try {
+        this.releaseObject(session, symbolNameOop);
+      } catch (releaseError) {
+        console.warn(`Failed to release symbol name oop for '${symbolName}':`, releaseError);
+      }
+    }
+  }
+
+  /**
+   * Creates a GemStone String object from `contents`.
+   *
+   * @param session - The GemStone session to operate in.
+   * @param contents - The string contents to create.
+   * @returns The OOP of the newly created String object.
+   * @throws {GciLibraryError} If the underlying GCI call fails.
+   */
+  public createString(session: unknown, contents: string){
+    const {result, err} = this.GciTsNewString(session, contents);
+
+    this.throwOnIllegalOop(result, err);
+
+    return result;
+  }
+
+  /** Returns the cached `Utf8` class oop for `session`, or `undefined` if none is cached. */
+  public cachedUtf8OopFor(session: unknown) {
+    return this._utfCache.get(session);
+  }
+
+  /** Removes the cached `Utf8` class oop for `session`, without releasing it. */
+  private deleteCachedUtf8OopFor(session: unknown) {
+    this._utfCache.delete(session);
+  }
+
+  /**
+   * Releases the session's cached `Utf8` class oop (see {@link utf8ClassOop})
+   * from the PureExportSet and clears it from the cache. A no-op if nothing
+   * is cached for `session`.
+   *
+   * @param session - The GemStone session to operate in.
+   * @throws {GciLibraryError} If releasing the cached oop fails.
+   */
+  public releaseCachedSymbolOops(session: unknown) {
+    const cachedOop = this.cachedUtf8OopFor(session);
+    if (!cachedOop) return;
+
+    this.releaseObject(session, cachedOop);
+    this.deleteCachedUtf8OopFor(session);
+  }
+
+  // ---------------------------------------------------------------------
+  // Object lifecycle & PureExportSet
+  // ---------------------------------------------------------------------
+
+  /**
+   * Releases a single oop from the session's PureExportSet.
+   *
+   * @param session - The GemStone session to operate in.
+   * @param oop - The oop to release.
+   * @throws {GciLibraryError} If the underlying GCI call fails.
+   */
+  public releaseObject(session: unknown, oop: bigint) {
+    const {success, err} = this.GciTsReleaseObjs(session, [oop]);
+
+    this.throwUnless(success, err);
+  }
+
+  /**
+   * Releases every oop in the session's PureExportSet.
+   *
+   * @param session - The GemStone session to operate in.
+   * @throws {GciLibraryError} If the underlying GCI call fails.
+   */
+  public releaseAllObjects(session: unknown) {
+    const {success, err} = this.GciTsReleaseAllObjs(session);
+
+    this.throwUnless(success, err);
+  }
+
+  /**
+   * Runs `expectedOopsProvider` and returns whether the session's
+   * PureExportSet ended up containing exactly its prior contents plus the
+   * oops `expectedOopsProvider` declares -- nothing removed, replaced, or
+   * added beyond that. Order does not matter: PureExportSet is a set, and
+   * newly added oops are not guaranteed to sort after existing members (oop
+   * values are not allocated in increasing order).
+   *
+   * Takes a snapshot of the PureExportSet (as an Array) before invoking
+   * `expectedOopsProvider`, then compares it to the PureExportSet
+   * afterwards. `expectedOopsProvider` returns the oops it expects to have
+   * added; this returns `true` only if the "after" snapshot, compared as a
+   * bag (so a duplicate can't mask a missing or extra oop), is exactly the
+   * "before" snapshot plus precisely those oops. Anything else -- oops
+   * removed or replaced, or actual additions that don't match what
+   * `expectedOopsProvider` declared (including declaring additions that
+   * never happened) -- returns `false`.
+   *
+   * @param session - The GemStone session to operate in.
+   * @param expectedOopsProvider - The operation to observe. Returns the oops
+   *   it expects to have added to the PureExportSet (an empty array if it
+   *   expects none).
+   * @returns `true` if the PureExportSet gained only the oops
+   *   `expectedOopsProvider` declared, `false` otherwise.
+   * @throws {GciLibraryError} If either of the snapshot expressions signals a
+   *   GCI error.
+   */
+  public didPureExportSetGainOnlyOopsProvidedBy(session: unknown, expectedOopsProvider: (snapshotName: string) => bigint[]) {
+    const takePureExportSetSnapshotExpression = '(GsBitmap newForHiddenSet: #PureExportSet) asArray';
+    const snapshotName = this.storeInUniqueUserGlobalsKey(session, takePureExportSetSnapshotExpression);
+    
+    let expectedAddedOops: bigint[];
+    try {
+      expectedAddedOops = expectedOopsProvider(snapshotName);
+    } catch (error) {
+      // The snippet below hasn't run yet, so the 'before' snapshot is still
+      // sitting in UserGlobals under snapshotName -- clean it up before
+      // re-throwing. If expectedOopsProvider already removed it itself,
+      // this second removal fails too; that's fine, the original error is
+      // what matters here.
+      try {
+        this.executeDiscardingResult(session, `UserGlobals removeKey: ${snapshotName}`);
+      } catch (cleanupError) {
+        console.warn(`Failed to clean up UserGlobals key '${snapshotName}' after callback error:`, cleanupError);
+      }
+      throw error;
+    }
+
+    const expectedAddedObjectsExpression = `{ ${expectedAddedOops.map(oop => `Object objectForOop: ${oop}`).join('. ')} }`;
+
+    // No try/catch needed below: removeKey: is the snippet's first
+    // statement, so by the time anything here could fail, the snapshot key
+    // is already gone -- either removed successfully, or the removeKey:
+    // itself is what's failing, meaning there was never anything to clean up.
+    const pureExportSetGainedOnlyTheExpectedOops = this.execute(session, `
+        | previousSnapshot currentSnapshot |
+
+        "Grab the 'before' snapshot we stashed in UserGlobals, and remove it
+        now that we're done with it -- it was only needed for this check."
+        previousSnapshot := UserGlobals removeKey: ${snapshotName}.
+
+        "Take an 'after' snapshot of the PureExportSet, now that
+        expectedOopsProvider has run."
+        currentSnapshot := ${takePureExportSetSnapshotExpression}.
+
+        "Compare as bags, not sequences -- a newly added oop can sort
+        anywhere in currentSnapshot, not just at the end. Bag equality
+        (rather than set) also catches a caller declaring an addition that
+        never actually happened, which set equality alone could mask if it
+        duplicated an oop already in previousSnapshot."
+        (previousSnapshot, ${expectedAddedObjectsExpression}) asIdentityBag = currentSnapshot asIdentityBag
+    `);
+
+    return this.isTrueOop(pureExportSetGainedOnlyTheExpectedOops);
+  }
+
+  // ---------------------------------------------------------------------
+  // UserGlobals management
+  // ---------------------------------------------------------------------
+
+  private uniqueKeyCounter = 0n;
+
+  /**
+   * Returns a Smalltalk symbol literal (e.g. `#Key_12345`) guaranteed not to
+   * already be in use as a key in the caller's chosen dictionary (typically
+   * `UserGlobals` or `SessionTemps`).
+   */
+  public nextUniqueKey(): string {
+    return `#Key_${this.uniqueKeyCounter++}`;
+  }
+
+  /**
+   * Returns whether `UserGlobals` already has an entry for `keyExpression`.
+   *
+   * @param session - The GemStone session to operate in.
+   * @param keyExpression - A Smalltalk expression evaluating to the key to
+   *   look up (e.g. a symbol literal such as `#Key_12345`).
+   * @throws {GciLibraryError} If the underlying GCI call fails.
+   */
+  public isIncludedInUserGlobals(session: unknown, keyExpression: string) {
+    return this.isTrueOop(
+        this.execute(session, `UserGlobals includesKey: ${keyExpression}`)
+    );
+  }
+
+  /**
+   * Evaluates `valueExpression` and stores its result under a fresh key (see
+   * {@link nextUniqueKey}) in `UserGlobals`.
+   *
+   * @param session - The GemStone session to operate in.
+   * @param valueExpression - A Smalltalk expression evaluating to the value
+   *   to store.
+   * @returns The Smalltalk symbol literal used as the key.
+   * @throws {GciLibraryError} If the generated key is already in use, or if
+   *   the underlying GCI call fails.
+   */
+  public storeInUniqueUserGlobalsKey(session: unknown, valueExpression: string) {
+    const keyExpression = this.nextUniqueKey();
+
+    this.executeDiscardingResult(session, `
+      (UserGlobals includesKey: ${keyExpression})
+        ifTrue: [ self error: 'Key is not unique' ].
+
+      UserGlobals at: ${keyExpression} put: ${valueExpression}
+    `);
+
+    return keyExpression;
+  }
+
+  // ---------------------------------------------------------------------
+  // SessionTemps management
+  // ---------------------------------------------------------------------
+
+  /**
+   * Removes every key from the session's SessionTemps dictionary.
+   *
+   * @param session - The GemStone session to operate in.
+   * @throws {GciLibraryError} If the underlying GCI call fails.
+   */
+  public resetSessionTemps(session: unknown) {
+    this.executeDiscardingResult(session, `SessionTemps current removeAllKeys`);
+  }
+
+  // ---------------------------------------------------------------------
+  // OOP predicates
+  // ---------------------------------------------------------------------
+
+  /**
+   * Returns whether `oop` is `OOP_ILLEGAL` — the GCI sentinel used to signal
+   * that a call produced no valid result (symbol not found, error, etc.).
+   */
+  private isIllegalOop(oop: bigint) {
+    return OOP_ILLEGAL === oop;
+  }
+
+  /** Returns whether `oop` is the OOP of GemStone's `nil` singleton. */
+  public isNilOop(oop: bigint) {
+    return OOP_NIL === oop;
+  }
+
+  /** Returns whether `oop` is the OOP of GemStone's `true` singleton. */
+  public isTrueOop(oop: bigint) {
+    return OOP_TRUE === oop;
+  }
+
+  // ---------------------------------------------------------------------
+  // Error handling helpers
+  // ---------------------------------------------------------------------
+
+  /** Throws a {@link GciLibraryError} built from `error` unless `condition` is true. */
+  private throwUnless(condition: boolean, error: GciError) {
+    if (!condition) {
+      throw GciLibraryError.fromGciError(error);
+    }
+  }
+
+  /** Throws a {@link GciLibraryError} built from `err` if `result` is `OOP_ILLEGAL`. */
+  private throwOnIllegalOop(result: bigint, err: GciError) {
+    if (this.isIllegalOop(result)) {
+      throw GciLibraryError.fromGciError(err);
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Session reset
+  // ---------------------------------------------------------------------
+
+  /**
+   * Resets `session`'s non-transactional state — empties `SessionTemps`,
+   * releases the cached `Utf8` class oop, and releases everything remaining
+   * in the PureExportSet. Intended for use between tests (or any other point
+   * where a session needs to look freshly logged-in), alongside — but
+   * independent of — transaction cleanup: `SessionTemps` and the
+   * PureExportSet are session-level GCI structures that survive commit/abort,
+   * so this method does not touch the current transaction; callers that also
+   * need a clean transaction should abort it themselves, before calling this.
+   *
+   * @param session - The GemStone session to operate in.
+   * @throws {GciLibraryError} If any of the underlying GCI calls fail.
+   */
+  public resetNonTransactionalSessionState(session: unknown) {
+    // Order matters: resetSessionTemps evaluates code, which re-resolves (and
+    // re-caches) the Utf8 class oop as a side effect if it isn't already
+    // cached, so it must run before releaseCachedSymbolOops clears that
+    // cache. releaseAllObjects must run last so it sweeps up whatever that
+    // re-resolution just added to the PureExportSet.
+    this.resetSessionTemps(session);
+    this.releaseCachedSymbolOops(session);
+    this.releaseAllObjects(session);
+  }
 }
+

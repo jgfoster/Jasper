@@ -28,7 +28,7 @@ import type { EnvCategoryLine } from '../queries/getClassEnvironments';
 describe('session methods (integration)', () => {
   let gci: GciLibrary;
   let handle: unknown;
-  useIntegrationTest((g, s) => { gci = g; handle = s; });
+  useIntegrationTest((testContext) => { gci = testContext.gciLibrary; handle = testContext.session; });
 
   const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
   const exec = (code: string): string => browserQueries.executeFetchString(session(), 'sessionMethods-it', code);

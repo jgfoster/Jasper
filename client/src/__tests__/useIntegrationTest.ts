@@ -1,7 +1,21 @@
 import {GciLibrary} from "../gciLibrary";
-import {afterAll, afterEach, beforeAll, beforeEach} from "vitest";
+import {afterAll, afterEach, beforeAll, beforeEach, expect} from "vitest";
 
-type UseIntegrationTestCallback = (gciLibraryToUse: GciLibrary, sessionToUse: unknown) => void;
+/** The live GCI state handed to a `useIntegrationTest` callback on every login. */
+export type GciTestContext = {
+    gciLibrary: GciLibrary,
+    session: unknown;
+    login: (options?: LoginOptions) => void
+    logout: () => unknown
+}
+
+type UseIntegrationTestCallback = (testContext: GciTestContext) => void;
+
+/** Options accepted by a `GciTestContext`'s `login`. */
+type LoginOptions = {
+    /** GemStone user to log in as. Defaults to `VITE_GEMSTONE_USER`; override to test login with different (e.g. invalid) credentials. */
+    user?: string;
+};
 
 /**
  * Sets up a full GemStone integration test environment for a Vitest describe block.
@@ -12,15 +26,18 @@ type UseIntegrationTestCallback = (gciLibraryToUse: GciLibrary, sessionToUse: un
  *   so database changes never leak between tests.
  * - Logs out and closes the library after all tests finish.
  *
- * The `callback` fires at the end of `beforeAll`, right after login — use it
- * to capture the `gciLibrary` and `session` into variables your tests can reach:
+ * The `callback` fires after every login, starting with the one at the end of
+ * `beforeAll` — use it to capture the {@link GciTestContext} fields you need
+ * into variables your tests can reach. If a test calls `logout`, a later
+ * test's `beforeEach` re-logs in automatically and the callback fires again,
+ * so these variables stay current instead of going stale:
  *
  * ```ts
  * describe('my feature', () => {
  *   let gci: GciLibrary;
  *   let session: unknown;
  *
- *   useIntegrationTest((g, s) => { gci = g; session = s; });
+ *   useIntegrationTest(({gciLibrary, session: s}) => { gci = gciLibrary; session = s; });
  *
  *   it('does something', () => { ... });
  * });
@@ -40,6 +57,7 @@ export function useIntegrationTest(callback: UseIntegrationTestCallback) {
     let gciLibrary: GciLibrary;
     let session: unknown;
     let originalGemstoneGlobalDir: string | undefined;
+    let sessionCleanupFailed = false;
 
     // gciLibrary and session are created inside a beforeAll hook, so they don't
     // exist at call time. The callback fires at the end of that hook, letting
@@ -49,20 +67,15 @@ export function useIntegrationTest(callback: UseIntegrationTestCallback) {
         
         handleIntegrationTestSetupErrorDuring(() => {
             gciLibrary = new GciLibrary(process.env.VITE_GEMSTONE_GCI_LIBRARY_PATH!);
-            session = loginUsing(gciLibrary);
+            login();
         });
-
-        callback(gciLibrary, session);
     });
-
+    
     afterAll(() => {
+        if (!gciLibrary) return;
         try {
-            if (!gciLibrary) return;
             if (session) {
-                const {success, err} = gciLibrary.GciTsLogout(session);
-                // Warn rather than throw — the session is gone regardless, and a
-                // teardown error would obscure real test failures above it.
-                if (!success) console.warn(`GciTsLogout failed [${err.number}]: ${err.message}`);
+                logout();
             }
             gciLibrary.close();
         } finally {
@@ -73,38 +86,82 @@ export function useIntegrationTest(callback: UseIntegrationTestCallback) {
     // Wrap each test in a GCI transaction. Always abort (never commit) so
     // database changes from one test don't leak into the next.
     beforeEach(() => {
-            const { success, err } = gciLibrary.GciTsBegin(session);
-            if (!success) {
-                throw new Error(`GciTsBegin failed [${err.number}]: ${err.message}`)
+        if (sessionCleanupFailed) {
+            throw new Error(
+                `useIntegrationTest: skipping this test — a previous test's cleanup failed, leaving the GemStone session in an unknown state. See the earlier failure in this file for the actual error.`
+            );
         }
+        
+        // A prior test may have called logout() — re-establish a session rather
+        // than leaving the rest of the file to fail, since shuffled test order
+        // means "prior" and "rest of the file" aren't fixed relative to any one test.
+        if (!session) {
+            console.warn(
+                `useIntegrationTest: no active session in beforeEach for "${expect.getState().currentTestName}" — a previous test called logout() and didn't log back in. Re-logging in automatically.`
+            );
+            login();
+        }
+        gciLibrary.releaseCachedSymbolOops(session)
+        gciLibrary.beginTransaction(session);
     });
 
     afterEach(() => {
-        const { success, err } = gciLibrary.GciTsAbort(session);
-        if (!success) {
-            throw new Error(`GciTsAbort failed [${err.number}]: ${err.message}`)
+        if (!session) return;
+        
+        try {
+            gciLibrary.abortTransaction(session);
+            gciLibrary.resetNonTransactionalSessionState(session);
+        } catch (error) {
+            sessionCleanupFailed = true;
+            throw error;
         }
     });
 
-    function loginUsing(gciLibrary: GciLibrary) {
-        const {session, err} = gciLibrary.GciTsLogin(
+    /**
+     * Logs in (using `options.user`, or `VITE_GEMSTONE_USER` by default) and
+     * stores the result as the current session, then re-invokes `callback`
+     * with a fresh {@link GciTestContext} so callers stay in sync.
+     *
+     * @throws {GciLibraryError} If login fails (see `GciLibrary.login`).
+     */
+    function login(options?: LoginOptions) {
+        session = gciLibrary.login(
             process.env.VITE_GEMSTONE_STONE_NRS!,
-            null,
-            null,
-            false,
             process.env.VITE_GEMSTONE_GEM_NRS!,
-            process.env.VITE_GEMSTONE_USER!,
-            process.env.VITE_GEMSTONE_PASSWORD!,
-            0,
-            0,
+            options?.user || process.env.VITE_GEMSTONE_USER!,
+            process.env.VITE_GEMSTONE_PASSWORD!
         );
-        
-        if (err.number !== 0) throw new Error(`Login failed [${err.number}]: ${err.message}`);
-        if (!session) throw new Error('GciTsLogin returned null session');
 
-        return session;
+        callback({
+            gciLibrary,
+            session,
+            login,
+            logout
+        });
     }
 
+    /**
+     * Logs out the current session and clears it.
+     *
+     * @returns The session that was just logged out, so a test can still
+     *   reference that specific (now invalid) session after this clears the
+     *   shared one.
+     */
+    function logout() {
+        gciLibrary.logout(session);
+        const loggedOutSession = session;
+
+        session = undefined;
+
+        return loggedOutSession;
+    }
+
+    /**
+     * Runs `callback`, and if it throws, rewrites the error's message with a
+     * banner explaining how to provision a test environment before
+     * re-throwing — so a missing `.env.test` fails with actionable guidance
+     * instead of an opaque login/library-load error.
+     */
     function handleIntegrationTestSetupErrorDuring(callback: () => void) {
         try{
             callback();
@@ -132,6 +189,7 @@ export function useIntegrationTest(callback: UseIntegrationTestCallback) {
         }
     }
     
+    /** Points `GEMSTONE_GLOBAL_DIR` at the suite's test stone for the suite's duration. */
     function configureGemstoneGlobalDir() {
         // Vite only exposes VITE_-prefixed variables to test code. GemStone
         // expects GEMSTONE_GLOBAL_DIR (no prefix), so we copy the VITE_ variant
@@ -140,6 +198,7 @@ export function useIntegrationTest(callback: UseIntegrationTestCallback) {
         process.env.GEMSTONE_GLOBAL_DIR = process.env.VITE_GEMSTONE_GLOBAL_DIR;
     }
 
+    /** Restores `GEMSTONE_GLOBAL_DIR` to whatever it was before this suite ran. */
     function restoreGemstoneGlobalDir() {
         // Restore the original value so subsequent suites — including other
         // useIntegrationTest blocks — don't inherit this suite's GEMSTONE_GLOBAL_DIR.
@@ -149,4 +208,5 @@ export function useIntegrationTest(callback: UseIntegrationTestCallback) {
             process.env.GEMSTONE_GLOBAL_DIR = originalGemstoneGlobalDir;
         }
     }
+    
 }

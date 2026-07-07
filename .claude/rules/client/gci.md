@@ -8,6 +8,8 @@ paths:
 
 The GCI library (`libgcits`) is a platform-native `.so`/`.dylib`/`.dll` bundled with each GemStone distribution. `gciLibrary.ts` loads it at runtime via [koffi](https://github.com/Koromix/koffi) (FFI). All GemStone VM calls go through here. When adding new GCI calls, follow the struct and pointer patterns already in that file.
 
+`GciLibrary` also has an ergonomic layer on top of the raw `GciTsXxx` wrappers (see the class-level doc comment in `gciLibrary.ts`). When adding a new ergonomic method: throw `GciLibraryError` (via `throwUnless`/`throwOnIllegalOop`, or `GciLibraryError.fromGciError`/`.withMessage` directly) instead of returning a `{success, err}`/`{result, err}` pair, and document it with JSDoc — including a `@throws {GciLibraryError}` line whenever the method can throw.
+
 `docs/3.7/` contains the GCI header files (`gcits.hf`, `gci.ht`, `gcicmn.ht`, `gcits.ht`) — the authoritative reference for GCI function signatures, struct layouts, and constants.
 
 ## Running the deep GCI suite (`npm run test:gci`)
