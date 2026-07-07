@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { findRowanLoadSpecs, deriveRepoName } from '../rowanLoad';
+import { findRowanLoadSpecs, deriveRepoName , rowanClonesDir } from '../rowanLoad';
 
 const LOAD_SPEC = (name: string) => `RwLoadSpecificationV2 {
 \t#specName : '${name}',
@@ -69,5 +69,16 @@ describe('deriveRepoName', () => {
     expect(deriveRepoName('https://github.com/GemTalk/Rowan.git')).toBe('Rowan');
     expect(deriveRepoName('https://example.com/foo/Bar/')).toBe('Bar');
     expect(deriveRepoName('file:///tmp/repos/MyProject')).toBe('MyProject');
+  });
+});
+
+describe('rowanClonesDir', () => {
+  it('is a repos folder inside global storage, created on demand', () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gstorage-'));
+
+    const dir = rowanClonesDir(base);
+
+    expect(dir).toBe(path.join(base, 'repos'));
+    expect(fs.existsSync(dir)).toBe(true);
   });
 });

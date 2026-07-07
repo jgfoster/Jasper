@@ -24,7 +24,7 @@ import {
 import { CodeExecutor } from './codeExecutor';
 import { SystemBrowser } from './systemBrowser';
 import { obtainSystemUserSession, refreshWorkingSession } from './systemUserSession';
-import { findRowanLoadSpecs, deriveRepoName, cloneGitRepo } from './rowanLoad';
+import { findRowanLoadSpecs, deriveRepoName, cloneGitRepo, rowanClonesDir } from './rowanLoad';
 import { NbCancelledError } from './nbRunner';
 import { RowanRepoRegistry } from './rowanRepos';
 import { RowanTreeProvider, RowanRepoItem, RowanLoadedProjectItem, RowanChangesProjectItem } from './rowanTreeProvider';
@@ -1233,31 +1233,18 @@ export function activate(context: vscode.ExtensionContext) {
       }))?.trim();
       if (!url) return;
 
-      const parent = await vscode.window.showOpenDialog({
-        canSelectFolders: true, canSelectFiles: false, canSelectMany: false,
-        openLabel: 'Select Parent Folder',
-        title: 'Clone into a new subfolder of…',
-      });
-      if (!parent || parent.length === 0) return;
-
-      // Cloned into a new subfolder named after the repo, not directly into the
-      // chosen folder — confirm the exact destination so it isn't a surprise.
-      const dest = path.join(parent[0].fsPath, deriveRepoName(url));
-      if (fs.existsSync(dest)) {
-        vscode.window.showErrorMessage(`"${dest}" already exists. Choose another location or remove it.`);
-        return;
-      }
-      if (await vscode.window.showInformationMessage(
-        `Clone into ${dest}?`, { modal: true }, 'Clone') !== 'Clone') return;
-
-      try {
-        await vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: `Cloning ${url}…`, cancellable: false },
-          () => cloneGitRepo(url, dest),
-        );
-      } catch (e: unknown) {
-        vscode.window.showErrorMessage(`git clone failed: ${e instanceof Error ? e.message : String(e)}`);
-        return;
+      // Clone into the extension's managed repos folder — no folder prompt.
+      const dest = path.join(rowanClonesDir(context.globalStorageUri.fsPath), deriveRepoName(url));
+      if (!fs.existsSync(dest)) {
+        try {
+          await vscode.window.withProgress(
+            { location: vscode.ProgressLocation.Notification, title: `Cloning ${url}…`, cancellable: false },
+            () => cloneGitRepo(url, dest),
+          );
+        } catch (e: unknown) {
+          vscode.window.showErrorMessage(`git clone failed: ${e instanceof Error ? e.message : String(e)}`);
+          return;
+        }
       }
 
       await loadRowanFromDirectory(session, dest, sessionManager);
@@ -2241,29 +2228,18 @@ export function activate(context: vscode.ExtensionContext) {
           ignoreFocusOut: true,
         }))?.trim();
         if (!url) return;
-        const parent = await vscode.window.showOpenDialog({
-          canSelectFolders: true, canSelectFiles: false, canSelectMany: false,
-          openLabel: 'Select Parent Folder',
-          title: 'Clone into a new subfolder of…',
-        });
-        if (!parent || parent.length === 0) return;
-        // Cloned into a new subfolder named after the repo, not directly into
-        // the chosen folder — confirm the exact destination.
-        const dest = path.join(parent[0].fsPath, deriveRepoName(url));
-        if (fs.existsSync(dest)) {
-          vscode.window.showErrorMessage(`"${dest}" already exists. Choose another location or remove it.`);
-          return;
-        }
-        if (await vscode.window.showInformationMessage(
-          `Clone into ${dest}?`, { modal: true }, 'Clone') !== 'Clone') return;
-        try {
-          await vscode.window.withProgress(
-            { location: vscode.ProgressLocation.Notification, title: `Cloning ${url}…`, cancellable: false },
-            () => cloneGitRepo(url, dest),
-          );
-        } catch (e: unknown) {
-          vscode.window.showErrorMessage(`git clone failed: ${e instanceof Error ? e.message : String(e)}`);
-          return;
+        // Clone into the extension's managed repos folder — no folder prompt.
+        const dest = path.join(rowanClonesDir(context.globalStorageUri.fsPath), deriveRepoName(url));
+        if (!fs.existsSync(dest)) {
+          try {
+            await vscode.window.withProgress(
+              { location: vscode.ProgressLocation.Notification, title: `Cloning ${url}…`, cancellable: false },
+              () => cloneGitRepo(url, dest),
+            );
+          } catch (e: unknown) {
+            vscode.window.showErrorMessage(`git clone failed: ${e instanceof Error ? e.message : String(e)}`);
+            return;
+          }
         }
         repoPath = dest;
         gitUrl = url;
