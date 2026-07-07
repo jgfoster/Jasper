@@ -58,7 +58,7 @@ import { refreshEnhancedInspectorAvailable } from './enhancedInspectorAvailabili
 import { supportsEnhancedInspector } from './enhancedInspectorInstall';
 import { DebuggerPanel } from './debuggerPanel';
 import { InlineValuesCodeLensProvider } from './inlineValuesCodeLens';
-import { GemStoneFileSystemProvider, MethodCompiledEvent, ClassDefinitionCompiledEvent, closeGemstoneTabsForSession, installStaleGemstoneTabReaper } from './gemstoneFileSystemProvider';
+import { GemStoneFileSystemProvider, MethodCompiledEvent, ClassDefinitionCompiledEvent, closeGemstoneTabsForSession, installStaleGemstoneTabReaper, buildMethodUri } from './gemstoneFileSystemProvider';
 import { openWorkspace } from './workspace';
 import { openTutorialNotebook } from './tutorialNotebook';
 import { GemStoneDebugSession } from './gemstoneDebugSession';
@@ -921,15 +921,7 @@ export function activate(context: vscode.ExtensionContext) {
     // method (updates all 5 columns) and open the method editor from there.
     // Otherwise fall back to opening the document directly.
     if (!SystemBrowser.navigateTo(session.id, r)) {
-      const side = r.isMeta ? 'class' : 'instance';
-      const uri = vscode.Uri.parse(
-        `gemstone://${session.id}` +
-        `/${encodeURIComponent(r.dictName)}` +
-        `/${encodeURIComponent(r.className)}` +
-        `/${side}` +
-        `/${encodeURIComponent(r.category)}` +
-        `/${encodeURIComponent(r.selector)}`
-      );
+      const uri = buildMethodUri({ kind: 'method', sessionId: session.id, ...r, environmentId: 0 });
       vscode.commands.executeCommand('gemstone.openDocument', uri);
     }
   }

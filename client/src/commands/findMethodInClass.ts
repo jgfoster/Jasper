@@ -2,9 +2,32 @@ import * as vscode from 'vscode';
 import * as queries from '../browserQueries';
 import { SessionManager } from '../sessionManager';
 import { SystemBrowser } from '../systemBrowser';
+import { buildMethodUri } from '../gemstoneFileSystemProvider';
 
 interface ClassPickItem extends vscode.QuickPickItem {
   entry: queries.ClassNameEntry;
+}
+
+/**
+ * Run `fn` behind a modal progress notification, surfacing any thrown error as
+ * an error message. Returns `undefined` when the work failed. `fn` may be
+ * synchronous — the notification still shows for the duration of the call.
+ */
+async function withLoadingProgress<T>(
+  title: string,
+  failLabel: string,
+  fn: () => T,
+): Promise<T | undefined> {
+  try {
+    return await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title, cancellable: false },
+      () => Promise.resolve(fn()),
+    );
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    vscode.window.showErrorMessage(`${failLabel}: ${msg}`);
+    return undefined;
+  }
 }
 
 /**
@@ -22,21 +45,12 @@ export async function findMethodInClass(sessionManager: SessionManager): Promise
 
   const current = SystemBrowser.getSelectedClassName(session.id);
 
-  let entries: queries.ClassNameEntry[];
-  try {
-    entries = await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: 'Loading class list…',
-        cancellable: false,
-      },
-      () => Promise.resolve(queries.getAllClassNames(session)),
-    );
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    vscode.window.showErrorMessage(`Failed to load classes: ${msg}`);
-    return;
-  }
+  const entries = await withLoadingProgress(
+    'Loading class list…',
+    'Failed to load classes',
+    () => queries.getAllClassNames(session),
+  );
+  if (!entries) return;
 
   const classItems: ClassPickItem[] = entries.map(e => ({
     label: e.className,
@@ -69,24 +83,14 @@ export async function findMethodInClass(sessionManager: SessionManager): Promise
   });
   if (!pickedClass) return;
 
-  const className = pickedClass.entry.className;
-  const dictName = pickedClass.entry.dictName;
+  const { className, dictName } = pickedClass.entry;
 
-  let methods: queries.MethodEntry[];
-  try {
-    methods = await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: `Loading methods for ${className}…`,
-        cancellable: false,
-      },
-      () => Promise.resolve(queries.getMethodList(session, className)),
-    );
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    vscode.window.showErrorMessage(`Failed to load methods: ${msg}`);
-    return;
-  }
+  const methods = await withLoadingProgress(
+    `Loading methods for ${className}…`,
+    'Failed to load methods',
+    () => queries.getMethodList(session, className),
+  );
+  if (!methods) return;
 
   if (methods.length === 0) {
     vscode.window.showInformationMessage(`No methods found for ${className}.`);
@@ -105,24 +109,10 @@ export async function findMethodInClass(sessionManager: SessionManager): Promise
   });
   if (!picked) return;
 
-  const result: queries.MethodSearchResult = {
-    dictName,
-    className,
-    isMeta: picked.method.isMeta,
-    selector: picked.method.selector,
-    category: picked.method.category,
-  };
+  const result: queries.MethodSearchResult = { dictName, className, ...picked.method };
 
   if (!SystemBrowser.navigateTo(session.id, result)) {
-    const side = result.isMeta ? 'class' : 'instance';
-    const uri = vscode.Uri.parse(
-      `gemstone://${session.id}` +
-      `/${encodeURIComponent(result.dictName)}` +
-      `/${encodeURIComponent(result.className)}` +
-      `/${side}` +
-      `/${encodeURIComponent(result.category)}` +
-      `/${encodeURIComponent(result.selector)}`
-    );
+    const uri = buildMethodUri({ kind: 'method', sessionId: session.id, ...result, environmentId: 0 });
     vscode.commands.executeCommand('gemstone.openDocument', uri);
   }
 }
