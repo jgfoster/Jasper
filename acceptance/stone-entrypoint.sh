@@ -26,25 +26,14 @@ mkdir -p /app/gemconf
 printf 'GEM_TEMPOBJ_CACHE_SIZE = 500000;\n' > /app/gemconf/gem.conf
 export GEMSTONE_EXE_CONF=/app/gemconf
 
-# The stone and guest NetLDI must run as a non-root user (guest mode is refused
-# as root). Hand the server files to pwuser and start everything as pwuser; the
-# root VS Code process still connects fine over the guest-mode NetLDI socket.
-chown -R pwuser "$GEMSTONE_DATA_DIR" "$GEMSTONE_GLOBAL_DIR" /app/gemconf
-
-runuser -u pwuser -- env \
-  GEMSTONE="$GEMSTONE" \
-  PATH="$PATH" \
-  GEMSTONE_GLOBAL_DIR="$GEMSTONE_GLOBAL_DIR" \
-  GEMSTONE_EXE_CONF="$GEMSTONE_EXE_CONF" \
-  bash -c '
-    set -e
-    gslist -c || true
-    echo "Starting stone '"$STONE_NAME"'…"
-    startstone "'"$STONE_NAME"'"
-    echo "Starting guest NetLDI '"$LDI_NAME"'…"
-    startnetldi "'"$LDI_NAME"'" -g
-    gslist -clv || true
-  '
+# The whole container runs as pwuser (guest NetLDI refuses root), so start the
+# server processes directly.
+gslist -c || true
+echo "Starting stone ${STONE_NAME}…"
+startstone "$STONE_NAME"
+echo "Starting guest NetLDI ${LDI_NAME}…"
+startnetldi "$LDI_NAME" -g
+gslist -clv || true
 
 # Hand the connection details to the test process. The Playwright fixture
 # forwards the environment to the VS Code it launches, and the extension needs
@@ -53,5 +42,12 @@ export JASPER_STONE_NAME="$STONE_NAME"
 export JASPER_LDI_NAME="$LDI_NAME"
 export JASPER_GCI_LIBRARY_PATH="$GCI_LIBRARY_PATH"
 export JASPER_GS_VERSION="$VERSION"
+# Jasper's login forces GEMSTONE_GLOBAL_DIR from the gemstone.rootPath setting
+# (that's where the GCI library finds the NetLDI's port), so the e2e points
+# rootPath here rather than at an isolated temp dir.
+export JASPER_GEMSTONE_GLOBAL_DIR="$GEMSTONE_GLOBAL_DIR"
 
+# The GemStone setup above needed the client workspace, but the test command
+# (`npm run test:acceptance`) lives in the root package.json.
+cd /app
 exec "$@"

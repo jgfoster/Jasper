@@ -11,7 +11,13 @@ cd "$(dirname "$0")/.."
 mkdir -p acceptance/playwright-report acceptance/test-results
 
 docker build -f acceptance/Dockerfile -t jasper-acceptance .
-docker volume create jasper-vscode-cache >/dev/null
+
+# The container runs as pwuser; ensure the cache volume is owned by pwuser by
+# (re)creating it so it initialises from the image's pwuser-owned mount point.
+if [ "$(docker volume inspect -f '{{.Labels.owner}}' jasper-vscode-cache 2>/dev/null)" != "pwuser" ]; then
+  docker volume rm jasper-vscode-cache >/dev/null 2>&1 || true
+  docker volume create --label owner=pwuser jasper-vscode-cache >/dev/null
+fi
 
 exec docker run --rm --init --shm-size=1g \
   -v jasper-vscode-cache:/app/.vscode-test \

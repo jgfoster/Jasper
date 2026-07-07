@@ -7,6 +7,8 @@ export interface ContainerStone {
   user: string;
   password: string;
   gciLibraryPath: string;
+  /** The stone's GEMSTONE_GLOBAL_DIR; Jasper's login derives it from gemstone.rootPath. */
+  globalDir: string;
 }
 
 /**
@@ -19,7 +21,8 @@ export function readContainerStone(): ContainerStone | undefined {
   const netldi = process.env.JASPER_LDI_NAME;
   const gciLibraryPath = process.env.JASPER_GCI_LIBRARY_PATH;
   const version = process.env.JASPER_GS_VERSION;
-  if (!stone || !netldi || !gciLibraryPath || !version) return undefined;
+  const globalDir = process.env.JASPER_GEMSTONE_GLOBAL_DIR;
+  if (!stone || !netldi || !gciLibraryPath || !version || !globalDir) return undefined;
 
   return {
     version,
@@ -29,5 +32,6 @@ export function readContainerStone(): ContainerStone | undefined {
     user: 'DataCurator',
     password: 'swordfish',
     gciLibraryPath,
+    globalDir,
   };
 }

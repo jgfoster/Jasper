@@ -45,5 +45,14 @@ COPY . .
 # The extension must be built for VS Code to load it from source.
 RUN npm run compile:client
 
+# The stone must run as a non-root user (guest NetLDI refuses root), so run the
+# whole container — including VS Code — as pwuser. Then the git clones VS Code
+# writes are owned by the same user as the gem that loads them (no cross-user
+# EACCES). Pre-create the mount points so their fresh named volume / bind mounts
+# inherit pwuser ownership.
+RUN mkdir -p /app/.vscode-test /app/acceptance/test-results /app/acceptance/playwright-report \
+ && chown -R pwuser:pwuser /app
+USER pwuser
+
 # `xvfb-run` gives the run a virtual X display; VS Code renders there.
 CMD ["xvfb-run", "-a", "--server-args=-screen 0 1280x1024x24", "npm", "run", "test:acceptance"]
