@@ -14,13 +14,13 @@ const repoRoot = path.resolve(__dirname, '..', '..');
  */
 function electronBinary(vscodeCliPath: string): string {
   if (process.platform === 'darwin') {
+    // macOS hands back the CLI launcher inside the .app; Playwright needs the
+    // Electron binary that sits beside it in the bundle.
     const appRoot = vscodeCliPath.slice(0, vscodeCliPath.indexOf('.app/') + '.app'.length);
     return path.join(appRoot, 'Contents', 'MacOS', 'Electron');
   }
-  const installRoot = path.dirname(path.dirname(vscodeCliPath));
-  return process.platform === 'win32'
-    ? path.join(installRoot, 'Code.exe')
-    : path.join(installRoot, 'code');
+  // On Linux and Windows the returned path is already the launchable binary.
+  return vscodeCliPath;
 }
 
 /**
