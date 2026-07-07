@@ -1,0 +1,22 @@
+# The image runs `npm ci` itself, so never ship host artifacts — especially
+# native modules built for macOS and multi-gigabyte GemStone downloads.
+**/node_modules
+client/tmp
+.vscode-test
+**/out
+*.vsix
+.git
+.gemstone
+gemstone
+
+# Acceptance-test outputs (regenerated inside the container)
+acceptance/playwright-report
+acceptance/test-results
+
+# Local test-stone connection details — a darwin path, useless in the container
+client/.env.test
+client/.env.test.local
+
+# Editor / OS cruft
+.DS_Store
+.idea

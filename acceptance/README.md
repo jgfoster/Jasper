@@ -5,8 +5,28 @@ extension loaded — using [Playwright](https://playwright.dev)'s Electron suppo
 Where the unit tests call the extension's API, these click the actual UI: the
 GemStone activity-bar item, the tree views, the command palette.
 
-They are slow and GUI-bound, so they are **not** part of `npm test`. Run them on
-demand:
+They are slow and GUI-bound, so they are **not** part of `npm test`.
+
+## Running headless (recommended)
+
+macOS has no headless VS Code — a real window is created and focused during the
+editor's own startup, before Playwright can intervene, so a *local* run always
+flashes a window and steals focus. To run without anything appearing on your
+desktop, run inside the Linux container, where VS Code renders to a virtual X
+display (this is also how CI runs it):
+
+```sh
+npm run test:acceptance:docker              # builds the image and runs the suite
+npm run test:acceptance:docker -- isolation # run a single spec
+npm run test:acceptance:report              # flip through the per-step screenshots
+```
+
+The report and traces are written back to the host under `acceptance/`, so the
+report command works the same whether the run was local or containerised.
+
+## Running locally
+
+Only do this when you've stepped away — every local run opens a VS Code window.
 
 ```sh
 npm run compile            # the extension must be built first
