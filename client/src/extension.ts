@@ -1321,15 +1321,25 @@ export function activate(context: vscode.ExtensionContext) {
       });
       if (!term) return;
 
+      await vscode.commands.executeCommand('gemstone.searchMethodsFor', { term, sessionId: session.id });
+    }),
+
+    // Search method source for a term in a specific session (no prompt). Used by
+    // the browser's "Browse Methods Containing…" context command, which supplies
+    // the term; gemstone.searchMethods prompts and then delegates here.
+    vscode.commands.registerCommand('gemstone.searchMethodsFor', async (args: { term: string; sessionId: number }) => {
+      const session = sessionManager.getSession(args.sessionId);
+      if (!session) return;
+
       let results: queries.MethodSearchResult[];
       try {
         results = await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
-            title: `Searching methods for "${term}"...`,
+            title: `Searching methods for "${args.term}"...`,
             cancellable: false,
           },
-          () => Promise.resolve(queries.searchMethodSource(session, term, true)),
+          () => Promise.resolve(queries.searchMethodSource(session, args.term, true)),
         );
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -1337,7 +1347,7 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
 
-      await showMethodResults(session, results, `Methods containing "${term}"`);
+      await showMethodResults(session, results, `Methods containing "${args.term}"`);
     }),
 
     vscode.commands.registerCommand('gemstone.sendersOf', async () => {

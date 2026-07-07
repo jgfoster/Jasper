@@ -1606,6 +1606,51 @@ describe('SystemBrowser', () => {
       );
     });
 
+    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+
+    it('prompts for a selector and browses its senders', async () => {
+      vi.mocked(window.showInputBox).mockResolvedValue('  printOn:  ');
+      messageHandler({ command: 'ctxBrowseSendersOfString' });
+      await flush();
+
+      expect(commands.executeCommand).toHaveBeenCalledWith(
+        'gemstone.sendersOfSelector',
+        { selector: 'printOn:', sessionId: 1 },   // trimmed
+      );
+    });
+
+    it('prompts for a selector and browses its implementors', async () => {
+      vi.mocked(window.showInputBox).mockResolvedValue('at:put:');
+      messageHandler({ command: 'ctxBrowseImplementorsOfString' });
+      await flush();
+
+      expect(commands.executeCommand).toHaveBeenCalledWith(
+        'gemstone.implementorsOfSelector',
+        { selector: 'at:put:', sessionId: 1 },
+      );
+    });
+
+    it('prompts for a string and browses methods containing it', async () => {
+      vi.mocked(window.showInputBox).mockResolvedValue('asString');
+      messageHandler({ command: 'ctxBrowseMethodsContaining' });
+      await flush();
+
+      expect(commands.executeCommand).toHaveBeenCalledWith(
+        'gemstone.searchMethodsFor',
+        { term: 'asString', sessionId: 1 },
+      );
+    });
+
+    it('does nothing when the browse prompt is cancelled', async () => {
+      vi.mocked(window.showInputBox).mockResolvedValue(undefined);
+      messageHandler({ command: 'ctxBrowseSendersOfString' });
+      await flush();
+
+      expect(commands.executeCommand).not.toHaveBeenCalledWith(
+        'gemstone.sendersOfSelector', expect.anything(),
+      );
+    });
+
     it('opens new method template below the browser', async () => {
       vi.mocked(workspace.openTextDocument).mockClear();
       vi.mocked(window.showTextDocument).mockClear();

@@ -665,6 +665,15 @@ export class SystemBrowser {
         case 'ctxImplementorsOf':
           this.handleImplementorsOf();
           break;
+        case 'ctxBrowseSendersOfString':
+          this.promptAndBrowse('senders').catch(e => this.postError(e));
+          break;
+        case 'ctxBrowseImplementorsOfString':
+          this.promptAndBrowse('implementors').catch(e => this.postError(e));
+          break;
+        case 'ctxBrowseMethodsContaining':
+          this.promptAndBrowse('source').catch(e => this.postError(e));
+          break;
         case 'showHierarchyImpls':
           this.handleShowHierarchyImpls(
             message.selector as string,
@@ -1707,6 +1716,26 @@ export class SystemBrowser {
       selector,
       sessionId: this.session.id,
     });
+  }
+
+  // Prompt for a string and browse senders/implementors of it (as a selector) or
+  // methods whose source contains it. Unlike "Senders Of" / "Implementors Of",
+  // which act on the selected method, these ask for an arbitrary string — so they
+  // don't require a selection. All three reuse the same ClassOrganizer-backed
+  // search + results view as the existing commands.
+  private async promptAndBrowse(kind: 'senders' | 'implementors' | 'source'): Promise<void> {
+    const input = (await vscode.window.showInputBox(kind === 'source'
+      ? { prompt: 'Browse methods containing string', placeHolder: 'e.g. asString' }
+      : { prompt: `Browse ${kind} of selector`, placeHolder: 'e.g. at:put:' }
+    ))?.trim();
+    if (!input) return;
+
+    if (kind === 'source') {
+      await vscode.commands.executeCommand('gemstone.searchMethodsFor', { term: input, sessionId: this.session.id });
+    } else {
+      const command = kind === 'senders' ? 'gemstone.sendersOfSelector' : 'gemstone.implementorsOfSelector';
+      await vscode.commands.executeCommand(command, { selector: input, sessionId: this.session.id });
+    }
   }
 
   // Clicking an override arrow: show the implementations of `selector` in the
@@ -2795,6 +2824,10 @@ export class SystemBrowser {
       }
       showContextMenu(e.clientX, e.clientY, [
         { label: 'New Method', action: () => vscode.postMessage({ command: 'ctxNewMethod' }) },
+        { separator: true },
+        { label: 'Browse Senders Of\\u2026', action: () => vscode.postMessage({ command: 'ctxBrowseSendersOfString' }) },
+        { label: 'Browse Implementors Of\\u2026', action: () => vscode.postMessage({ command: 'ctxBrowseImplementorsOfString' }) },
+        { label: 'Browse Methods Containing\\u2026', action: () => vscode.postMessage({ command: 'ctxBrowseMethodsContaining' }) },
         ...(item ? [
           { separator: true },
           { label: 'Delete Method', action: () => vscode.postMessage({ command: 'ctxDeleteMethod' }) },
