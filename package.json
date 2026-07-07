@@ -340,6 +340,12 @@
           "icon": "$(key)"
         },
         {
+          "id": "gemstoneRowan",
+          "name": "Rowan",
+          "type": "tree",
+          "icon": "$(package)"
+        },
+        {
           "id": "gemstoneMcpServer",
           "name": "MCP Server",
           "type": "tree",
@@ -358,6 +364,10 @@
       {
         "view": "gemstoneLogins",
         "contents": "New to GemStone? Start with the guided walkthrough.\n[Get Started with GemStone](command:gemstone.openWalkthrough)\nOr learn the language in the interactive tutorial notebook.\n[Open Tutorial Notebook](command:gemstone.openTutorial)\nOr jump straight into a scratch workspace.\n[Open Getting Started Workspace](command:gemstone.openWorkspace)\nThen add a login to connect to a stone.\n[Add a Login](command:gemstone.login)"
+      },
+      {
+        "view": "gemstoneRowan",
+        "contents": "Not connected."
       },
       {
         "view": "gemstoneInspector",
@@ -697,6 +707,65 @@
         "icon": "$(list-tree)"
       },
       {
+        "command": "gemstone.rowanAddRepo",
+        "title": "Add Rowan Repository…",
+        "category": "GemStone",
+        "icon": "$(add)"
+      },
+      {
+        "command": "gemstone.rowanRemoveRepo",
+        "title": "Stop Tracking",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.rowanLoadRepo",
+        "title": "Load into Image",
+        "category": "GemStone",
+        "icon": "$(play)"
+      },
+      {
+        "command": "gemstone.rowanExportProject",
+        "title": "Export Copy…",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.rowanOpenProjectDiff",
+        "title": "Open Diff Against Disk",
+        "category": "GemStone",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "gemstone.rowanRefreshView",
+        "title": "Refresh Rowan View",
+        "category": "GemStone",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "gemstone.rowanFindClassPackage",
+        "title": "Find Class's Rowan Package",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.searchRowanClasses",
+        "title": "Search Rowan Classes",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.loadRowanProject",
+        "title": "Load Rowan Project…",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.loadRowanProjectFromGit",
+        "title": "Load Rowan Project from Git…",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.unloadRowanProject",
+        "title": "Unload Rowan Project…",
+        "category": "GemStone"
+      },
+      {
         "command": "gemstone.refreshBrowser",
         "title": "Refresh Browser",
         "category": "GemStone",
@@ -949,6 +1018,22 @@
     "menus": {
       "commandPalette": [
         {
+          "command": "gemstone.rowanRemoveRepo",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.rowanLoadRepo",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.rowanOpenProjectDiff",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.rowanExportProject",
+          "when": "false"
+        },
+        {
           "command": "gemstone.toggleInlineValues",
           "when": "false"
         },
@@ -982,6 +1067,16 @@
           "command": "gemstone.openWalkthrough",
           "when": "view == gemstoneVersions",
           "group": "navigation@0"
+        },
+        {
+          "command": "gemstone.rowanAddRepo",
+          "when": "view == gemstoneRowan",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gemstone.rowanRefreshView",
+          "when": "view == gemstoneRowan",
+          "group": "navigation@2"
         },
         {
           "command": "gemstone.addLogin",
@@ -1020,6 +1115,36 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "gemstone.rowanLoadRepo",
+          "when": "view == gemstoneRowan && viewItem == rowanRepo",
+          "group": "inline@1"
+        },
+        {
+          "command": "gemstone.rowanRemoveRepo",
+          "when": "view == gemstoneRowan && (viewItem == rowanRepo || viewItem == rowanRepoMissing || viewItem == rowanRepoNoSpec)",
+          "group": "rowan@1"
+        },
+        {
+          "command": "gemstone.rowanOpenProjectDiff",
+          "when": "view == gemstoneRowan && viewItem == rowanChangesProject",
+          "group": "inline@1"
+        },
+        {
+          "command": "gemstone.rowanOpenProjectDiff",
+          "when": "view == gemstoneRowan && viewItem == rowanLoadedProject",
+          "group": "rowan@0"
+        },
+        {
+          "command": "gemstone.rowanExportProject",
+          "when": "view == gemstoneRowan && viewItem == rowanLoadedProject",
+          "group": "rowan@1"
+        },
+        {
+          "command": "gemstone.unloadRowanProject",
+          "when": "view == gemstoneRowan && viewItem == rowanLoadedProject",
+          "group": "rowan@2"
+        },
         {
           "command": "gemstone.copyNetldiHost",
           "when": "view == gemstoneProcesses && viewItem == gemstoneProcessNetldi && gemstone.isWindows && gemstone.wslAvailable",

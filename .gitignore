@@ -16,3 +16,4 @@ tsconfig.tsbuildinfo
 
 # Ignore MacOS related files
 .DS_Store
+topazerrors.log
