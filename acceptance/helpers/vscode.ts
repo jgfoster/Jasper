@@ -31,17 +31,44 @@ function electronBinary(vscodeCliPath: string): string {
  * open editors, or installed extensions.
  *
  * Fixtures:
+ *   - `workspaceSettings` — seeds the workspace's `.vscode/settings.json`
+ *      before launch (override per test with `test.use({ workspaceSettings })`)
+ *      to declare logins, GCI library paths, etc. Defaults to none.
  *   - `app`    — the Electron application handle
  *   - `window` — the workbench window, ready to drive (`.monaco-workbench` present)
  */
-export const test = base.extend<{ app: ElectronApplication; window: Page }>({
-  app: async ({}, use) => {
+export const test = base.extend<{
+  workspaceSettings: Record<string, unknown>;
+  app: ElectronApplication;
+  window: Page;
+}>({
+  workspaceSettings: [{}, { option: true }],
+
+  app: async ({ workspaceSettings }, use) => {
     const vscodeCliPath = await downloadAndUnzipVSCode('stable');
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'jasper-acceptance-'));
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'jasper-workspace-'));
 
+    if (Object.keys(workspaceSettings).length > 0) {
+      const dotVscode = path.join(workspace, '.vscode');
+      fs.mkdirSync(dotVscode, { recursive: true });
+      fs.writeFileSync(
+        path.join(dotVscode, 'settings.json'),
+        JSON.stringify(workspaceSettings, null, 2),
+      );
+    }
+
+    // If ELECTRON_RUN_AS_NODE leaks in from the parent shell, VS Code's Electron
+    // boots as plain Node and rejects every VS Code CLI flag ("bad option").
+    // Hand the child a clean environment without it.
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) {
+      if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE') env[key] = value;
+    }
+
     const app = await electron.launch({
       executablePath: electronBinary(vscodeCliPath),
+      env,
       args: [
         `--extensionDevelopmentPath=${repoRoot}`,
         `--user-data-dir=${path.join(profile, 'user-data')}`,
