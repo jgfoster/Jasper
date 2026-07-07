@@ -87,11 +87,16 @@ export class RowanRepoItem extends vscode.TreeItem {
     this.iconPath = new vscode.ThemeIcon(
       missing || underProvisionedMinKB ? 'warning' : 'repo',
     );
-    // Loadable only when the checkout exists and holds at least one spec —
-    // package.json menus key inline actions off this.
-    this.contextValue = missing
-      ? 'rowanRepoMissing'
-      : specNames.length > 0 ? 'rowanRepo' : 'rowanRepoNoSpec';
+    // Loadable only when the checkout exists and holds at least one spec.
+    // A `Git` suffix marks a clone Jasper can update from its remote — the
+    // package.json menus key the Load / Update / Stop-Tracking actions off
+    // these (`=~ /^rowanRepo/` matches them all; `=~ Git` the updatable ones).
+    if (missing) {
+      this.contextValue = 'rowanRepoMissing';
+    } else {
+      const base = specNames.length > 0 ? 'rowanRepo' : 'rowanRepoNoSpec';
+      this.contextValue = repo.gitUrl ? `${base}Git` : base;
+    }
   }
 }
 

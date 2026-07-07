@@ -24,7 +24,7 @@ import {
 import { CodeExecutor } from './codeExecutor';
 import { SystemBrowser } from './systemBrowser';
 import { obtainSystemUserSession, refreshWorkingSession } from './systemUserSession';
-import { findRowanLoadSpecs, deriveRepoName, cloneGitRepo, rowanClonesDir } from './rowanLoad';
+import { findRowanLoadSpecs, deriveRepoName, cloneGitRepo, rowanClonesDir, updateGitRepo } from './rowanLoad';
 import { NbCancelledError } from './nbRunner';
 import { RowanRepoRegistry } from './rowanRepos';
 import { RowanTreeProvider, RowanRepoItem, RowanLoadedProjectItem, RowanChangesProjectItem } from './rowanTreeProvider';
@@ -2337,6 +2337,28 @@ export function activate(context: vscode.ExtensionContext) {
       if (!session) return;
       await loadRowanFromDirectory(session, item.repo.path, sessionManager);
       rowanProvider.refresh();
+    }),
+
+    vscode.commands.registerCommand('gemstone.rowanUpdateRepo', async (item?: RowanRepoItem) => {
+      if (!item || !item.repo.gitUrl) return;
+      let result: { updated: boolean };
+      try {
+        result = await vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification, title: `Updating ${item.repo.name}…`, cancellable: false },
+          () => updateGitRepo(item.repo.path),
+        );
+      } catch (e: unknown) {
+        vscode.window.showErrorMessage(`Update of "${item.repo.name}" failed: ${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
+      // Re-read the checkout (a new gemstone.ston, spec, etc. may now be present)
+      // so the row's state — and any cache warning — reflects the update.
+      rowanProvider.refresh();
+      vscode.window.showInformationMessage(
+        result.updated
+          ? `Updated "${item.repo.name}" to the latest from its remote.`
+          : `"${item.repo.name}" is already up to date.`,
+      );
     }),
   );
 

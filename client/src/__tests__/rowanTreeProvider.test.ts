@@ -130,6 +130,32 @@ describe('RowanTreeProvider', () => {
       expect(item.contextValue).toBe('rowanRepo');
     });
 
+    it('marks a git-backed repo so it can be updated from its remote', async () => {
+      await registry.add({
+        name: 'seaside',
+        path: makeRepoDir(true, 'Seaside'),
+        gitUrl: 'git@github.com:x/seaside-rowan.git',
+      });
+      const provider = makeProvider(registry, null);
+
+      const [item] = sectionChildren(provider, 'repositories') as RowanRepoItem[];
+
+      expect(item.contextValue).toBe('rowanRepoGit');
+    });
+
+    it('marks a git-backed repo with no spec as updatable but not loadable', async () => {
+      await registry.add({
+        name: 'empty',
+        path: makeRepoDir(false),
+        gitUrl: 'https://x/empty.git',
+      });
+      const provider = makeProvider(registry, null);
+
+      const [item] = sectionChildren(provider, 'repositories') as RowanRepoItem[];
+
+      expect(item.contextValue).toBe('rowanRepoNoSpecGit');
+    });
+
     it('marks a repo whose project is loaded in the connected stone', async () => {
       await registry.add({ name: 'my-repo', path: makeRepoDir(true, 'Seaside') });
       listRowanProjectsMock.mockReturnValue({

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { findRowanLoadSpecs, deriveRepoName , rowanClonesDir } from '../rowanLoad';
+import { findRowanLoadSpecs, deriveRepoName, rowanClonesDir, updateGitRepo, cloneGitRepo } from '../rowanLoad';
 
 const LOAD_SPEC = (name: string) => `RwLoadSpecificationV2 {
 \t#specName : '${name}',
@@ -119,5 +119,59 @@ describe('rowanClonesDir', () => {
 
     expect(dir).toBe(path.join(base, 'repos'));
     expect(fs.existsSync(dir)).toBe(true);
+  });
+});
+
+
+describe('updateGitRepo', () => {
+  const { execFileSync } = require('child_process') as typeof import('child_process');
+  const g = (args: string[], cwd: string) => execFileSync('git', args, { cwd, stdio: 'pipe' });
+
+  // A bare remote, plus a clone of it. Advancing the remote is done through a
+  // throwaway second clone so the first clone genuinely lags behind.
+  function setup(): { remote: string; clone: string; bump: () => void } {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'rowan-git-'));
+    const seed = path.join(base, 'seed');
+    const remote = path.join(base, 'remote.git');
+    fs.mkdirSync(seed);
+    g(['init', '-q', '-b', 'main'], seed);
+    g(['config', 'user.email', 't@t'], seed);
+    g(['config', 'user.name', 'T'], seed);
+    fs.writeFileSync(path.join(seed, 'a.txt'), 'one\n');
+    g(['add', '-A'], seed);
+    g(['commit', '-qm', 'one'], seed);
+    g(['clone', '-q', '--bare', seed, remote], base);
+
+    const clone = path.join(base, 'clone');
+    g(['clone', '-q', remote, clone], base);
+
+    let n = 1;
+    const bump = () => {
+      const pusher = path.join(base, `pusher-${n}`);
+      g(['clone', '-q', remote, pusher], base);
+      g(['config', 'user.email', 't@t'], pusher);
+      g(['config', 'user.name', 'T'], pusher);
+      fs.writeFileSync(path.join(pusher, 'a.txt'), `rev-${n}\n`);
+      g(['commit', '-aqm', `rev-${n}`], pusher);
+      g(['push', '-q', 'origin', 'main'], pusher);
+      n += 1;
+    };
+    return { remote, clone, bump };
+  }
+
+  it('reports no change when the clone is already current', async () => {
+    const { clone } = setup();
+
+    expect(await updateGitRepo(clone)).toEqual({ updated: false });
+  });
+
+  it('fast-forwards and reports the change when the remote has advanced', async () => {
+    const { clone, bump } = setup();
+    bump();
+
+    const result = await updateGitRepo(clone);
+
+    expect(result.updated).toBe(true);
+    expect(fs.readFileSync(path.join(clone, 'a.txt'), 'utf8')).toBe('rev-1\n');
   });
 });

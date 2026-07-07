@@ -121,3 +121,24 @@ export function cloneGitRepo(url: string, dest: string): Promise<void> {
     });
   });
 }
+
+function git(args: string[], cwd: string, timeoutMs = 300_000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile('git', ['-C', cwd, ...args], { timeout: timeoutMs }, (err, stdout, stderr) => {
+      if (err) reject(new Error((stderr && stderr.trim()) || err.message));
+      else resolve(stdout);
+    });
+  });
+}
+
+// Pull the latest for a tracked clone and update its submodules. Fast-forward
+// only, so a diverged (locally-committed) checkout fails loudly rather than
+// producing a merge — a tracked repo is meant to mirror its remote. Returns
+// whether the checkout actually moved, by comparing HEAD before and after.
+export async function updateGitRepo(dest: string): Promise<{ updated: boolean }> {
+  const before = (await git(['rev-parse', 'HEAD'], dest)).trim();
+  await git(['pull', '--recurse-submodules', '--ff-only'], dest);
+  await git(['submodule', 'update', '--init', '--recursive'], dest);
+  const after = (await git(['rev-parse', 'HEAD'], dest)).trim();
+  return { updated: before !== after };
+}
