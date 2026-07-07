@@ -38,6 +38,7 @@ describe('session row inline button order', () => {
 
     expect(order).toEqual([
       'gemstone.openBrowser',
+      'gemstone.sessionOpenWorkspace',
       'gemstone.sessionCommit',
       'gemstone.sessionAbort',
       'gemstone.sessionPing',

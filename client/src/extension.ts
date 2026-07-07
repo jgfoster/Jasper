@@ -209,6 +209,21 @@ export async function handleClassDefinitionCompiled(event: ClassDefinitionCompil
   }
 }
 
+/**
+ * Open a scratch Workspace targeting a specific session (the inline action on a
+ * session in the Sessions view). The Workspace is a session-agnostic buffer that
+ * runs against the *selected* session, so select the clicked session first —
+ * otherwise, with several sessions open, Execute It would target whichever
+ * session happened to already be active.
+ */
+export async function openWorkspaceForSession(
+  sessionManager: SessionManager,
+  item?: GemStoneSessionItem,
+): Promise<void> {
+  if (item) sessionManager.selectSession(item.activeSession.id);
+  await openWorkspace();
+}
+
 // Getting Started onboarding. The walkthrough auto-opens once per machine on the
 // first successful connect; this globalState key records that it has been shown.
 // Clear it via the `gemstone.resetGettingStarted` command to make it auto-open
@@ -1071,6 +1086,10 @@ export function activate(context: vscode.ExtensionContext) {
       if (!session) return;
       SystemBrowser.show(session, exportManager);
     }),
+
+    vscode.commands.registerCommand('gemstone.sessionOpenWorkspace', (item?: GemStoneSessionItem) =>
+      openWorkspaceForSession(sessionManager, item),
+    ),
 
     vscode.commands.registerCommand('gemstone.sessionLogout', async (item?: GemStoneSessionItem) => {
       const session = item ? item.activeSession : sessionManager.getSelectedSession();
