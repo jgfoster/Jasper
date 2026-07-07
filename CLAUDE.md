@@ -1,6 +1,6 @@
-# CLAUDE.md
+# Jasper Monorepo
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+<!-- Maintainer note (stripped from agent context): This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository. -->
 
 ## Overview
 
@@ -30,17 +30,6 @@ npm run test:gci           # deep GCI binding tests (requires a running stone)
 npm run package          # produce .vsix package
 ```
 
-Run a single test file: `cd client && npx vitest run src/__tests__/extension.test.ts`.
-
 Before considering something done: `npm run compile && npm test` must pass. `npm test` bundles an automatic integration test that logs into a live stone, so run `npm run test:server:start` once first — without a running test stone `npm test` **hard-fails** (it does not skip).
 
-## Conventions (non-standard — read before editing these areas)
-
-- **Queries** (`client/src/queries/`) are pure functions `(execute: QueryExecutor, ...args) => string` that build a Smalltalk snippet and call `execute(label, code)`. `QueryExecutor` is `(label: string, code: string) => string`, supplied by the caller, so the same query runs in the extension (executor wraps `gciLibrary`) and in the MCP server (its own session). Shared helpers live in `util.ts` (`escapeString`, `classLookupExpr`, …).
-- **Webview scripts** (`debuggerView.js`, `listFilter.js`, `methodListView.js`, `enhancedInspectorColumns.js`) are plain JS that runs in the webview DOM, **not** compiled into the extension bundle. They are read at runtime via `fs.readFileSync` and injected as `<script>` tags, and live in separate files so they can be unit-tested in jsdom. Follow this pattern for new webview behavior.
-
-## Architecture
-
-`client/src/extension.ts` registers all commands, tree views, and language features, starts the LSP client and MCP socket server, and manages sessions. Major client subsystems: GCI bridge (`gciLibrary.ts`), views (`systemBrowser.ts`, `globalsBrowser.ts`, `enhancedInspector.ts`, `debuggerPanel.ts`, `classBrowser.ts`), class sync (`sync/`), sessions (`sessionManager.ts`, `codeExecutor.ts`), Transcript sink (`transcriptSink.ts` — server-side Transcript with live streaming), infrastructure (`versionManager.ts`, `databaseManager.ts`, `processManager.ts`, `sysadminStorage.ts`), virtual FS (`gemstoneFileSystemProvider.ts`), debugger (`gemstoneDebugSession.ts`, `debugQueries.ts`), WSL support (`wslBridge.ts`, `wslFs.ts`). The `server/` LSP parses Topaz (`.gs`/`.tpz`), Tonel (`.st`), and GemStone Smalltalk (`.gst`) into an AST with per-feature services under `server/src/services/`.
-
-<!-- Maintainer note (stripped from agent context): this map is intentionally lean. Deeper per-subsystem detail lives in .claude/rules/ (GCI, tests, client tests); all auto-load by path when relevant files are opened. Don't re-expand the map above. -->
+<!-- Maintainer note (stripped from agent context): Be careful with the edits to this file, anything included here will be auto-loaded in the context for ALL conversations. Keep only the most relevant and non-obvious details that are needed on all conversations. And only details that agents won't typically auto-discover by browsing the code -->
