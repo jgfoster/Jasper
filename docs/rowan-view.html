@@ -168,9 +168,21 @@
       <span class="ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M5 2h7v12l-3-2-3 2V2z"/><path d="M5 2H4a1.5 1.5 0 0 0 0 3h1" /></svg></span>
       <span class="label">seaside-rowan</span>
       <span class="desc">Seaside · loaded</span>
-      <span class="actions"><span class="tbtn" title="Load into Image"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M5 3l8 5-8 5V3z"/></svg></span></span>
+      <span class="actions">
+        <span class="tbtn" title="Update from Git"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13 8a5 5 0 1 1-1.5-3.6M11.5 1.5v3h-3"/></svg></span>
+        <span class="tbtn" title="Load into Image"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M5 3l8 5-8 5V3z"/></svg></span>
+      </span>
     </div>
-    <div class="row indent-1" title="~/GemTalk/scratch/experiments">
+    <div class="row indent-1 show-actions" title="~/GemTalk/big-project&#10;This stone's gem cache is too small to load this project — it needs about 500 MB. Raise GEM_TEMPOBJ_CACHE_SIZE and restart the stone.">
+      <span class="ic warn"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 2L1 14h14L8 2zm-.6 4h1.2v4H7.4V6zm0 5h1.2v1.4H7.4V11z"/></svg></span>
+      <span class="label">big-project</span>
+      <span class="desc">Core</span>
+      <span class="actions">
+        <span class="tbtn" title="Update from Git"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13 8a5 5 0 1 1-1.5-3.6M11.5 1.5v3h-3"/></svg></span>
+        <span class="tbtn" title="Load into Image"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M5 3l8 5-8 5V3z"/></svg></span>
+      </span>
+    </div>
+    <div class="row indent-1" title="~/GemTalk/scratch/experiments (local folder, not a clone)">
       <span class="ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M5 2h7v12l-3-2-3 2V2z"/><path d="M5 2H4a1.5 1.5 0 0 0 0 3h1" /></svg></span>
       <span class="label">experiments</span>
       <span class="desc">no load spec found</span>
@@ -246,9 +258,32 @@
     <div class="note">
       <span class="tag">REPOSITORIES — the disk lens</span>
       <p>Repos you track, added once via <b>＋</b> (clone a git URL, or point at a
-      folder). Tracking ≠ loading: the row shows its load spec, and hovering
-      reveals <b>▶ Load into Image</b>. A repo already in the connected stone
-      says <b>· loaded</b>; broken states say so plainly.</p>
+      folder). Tracking ≠ loading: the row shows its load spec, and hovering a
+      git clone reveals <b>↻ Update from Git</b> and <b>▶ Load into Image</b>. A
+      repo already in the connected stone says <b>· loaded</b>; broken states say
+      so plainly.</p>
+    </div>
+    <div class="note">
+      <span class="tag">↻ UPDATE FROM GIT</span>
+      <p>A repo Jasper cloned from a URL can be refreshed in place — a
+      fast-forward <code>pull</code> that also updates submodules (a Rowan
+      project may vendor its packages that way). Handy when the project gains a
+      file your clone predates. Locally-checked-out <i>folders</i> have no remote,
+      so they get no update button.</p>
+    </div>
+    <div class="note">
+      <span class="tag">⚠ WHEN A LOAD WON'T FIT</span>
+      <p>Loading a big project builds its whole transient object graph before the
+      final commit, and overflows a small gem's temp-object cache
+      (<i>“VM temporary object memory is full”</i>). A project can declare the
+      cache it needs in <code>rowan/gemstone.ston</code>
+      (<code>#minTempObjCacheKB</code> — a GemStone-platform STON file Rowan
+      ignores). When the connected gem falls short the repo gets a
+      <b style="color:var(--warn)">warning triangle</b>, and pressing Load first
+      opens a dialog with the fix rather than grinding through a doomed load.
+      Databases Jasper creates get a 500&nbsp;MB gem cache, and Jasper raises an
+      existing database's cache to 500&nbsp;MB when it starts the stone — so a
+      Jasper-managed stone meets the declaration and never trips the warning.</p>
     </div>
     <div class="note">
       <span class="tag">LOADED PROJECTS — the image lens</span>
@@ -284,14 +319,22 @@
 
   <div class="variant">
     <div class="sidebar">
+      <div style="padding: 14px 16px; color: var(--sb-desc);">Not connected.</div>
+    </div>
+    <p class="cap">Nothing tracked and no session: the whole view collapses to a
+    plain note — no empty sections, no buttons to nowhere.</p>
+  </div>
+
+  <div class="variant">
+    <div class="sidebar">
       <div class="section"><span class="chev"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 6l4 4 4-4H4z"/></svg></span>REPOSITORIES</div>
       <div class="row indent-1">
-        <span class="ic"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 3v4.5H3.5v1H8V13h1V8.5h4.5v-1H9V3H8z"/></svg></span>
         <span class="label" style="color:var(--sb-desc)">No repositories tracked — add one…</span>
       </div>
       <div style="height:6px"></div>
     </div>
-    <p class="cap">Empty registry: the placeholder row is a button — clicking it runs Add Repository.</p>
+    <p class="cap">Connected but nothing tracked yet: the placeholder row is itself
+    the Add Repository button (no icon, no dead <b>＋</b>).</p>
   </div>
 
   <div class="variant">
