@@ -209,7 +209,9 @@ export class DatabaseManager {
     // gem.conf
     wslWriteFileSync(path.join(dbDir, 'conf', 'gem.conf'),
       `# Edit this file to change your gem or topaz configuration\n\n` +
-      `GEM_TEMPOBJ_CACHE_SIZE = 50000;\n` +
+      `# 500 MB: large Rowan project loads (e.g. Seaside) overflow the 50 MB\n` +
+      `# default's old space; a development gem can afford the headroom.\n` +
+      `GEM_TEMPOBJ_CACHE_SIZE = 500000;\n` +
       `GEM_TEMPOBJ_POMGEN_PRUNE_ON_VOTE = 90;\n\n` +
       `# Set the following to FALSE if you get an error\n` +
       `# related to native code when stepping in the debugger\n` +
