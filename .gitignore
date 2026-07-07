@@ -16,3 +16,8 @@ tsconfig.tsbuildinfo
 
 # Ignore MacOS related files
 .DS_Store
+
+# Playwright acceptance-test artifacts
+acceptance/playwright-report/
+acceptance/test-results/
+acceptance/.vscode-test/

@@ -118,7 +118,10 @@
           },
           "gemstone.sessionMode": {
             "type": "string",
-            "enum": ["single", "multiple"],
+            "enum": [
+              "single",
+              "multiple"
+            ],
             "default": "single",
             "description": "Number of concurrent GemStone sessions allowed. 'single' (default) keeps one session at a time for a clearer mental model — the connected login shows an inline Logout action and the Sessions panel is hidden. 'multiple' (beta) re-enables concurrent sessions and the Sessions panel."
           },
@@ -1357,13 +1360,18 @@
     "test:mcp": "cd mcp-server && npx vitest run",
     "//test:gci": "Runs only the on-demand 'gci' vitest project (client/vitest.config.ts); needs a live test stone (npm run test:server:start). `npm test` runs the 'default' project and excludes these.",
     "test:gci": "cd client && npx vitest run --project gci",
+    "//test:acceptance": "End-user acceptance tests that drive a real VS Code window (Playwright + Electron). Slow and GUI-bound, so excluded from `npm test`. Run `npm run compile` first.",
+    "test:acceptance": "playwright test -c acceptance/playwright.config.ts",
+    "test:acceptance:report": "playwright show-report acceptance/playwright-report",
     "package": "vsce package",
     "publish": "npm run publish:vsce && npm run publish:ovsx",
     "publish:vsce": "vsce publish",
     "publish:ovsx": "ovsx publish"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/node": "^20.0.0",
+    "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.7.1",
     "esbuild": "^0.28.1",
     "ovsx": "^0.10.5",
