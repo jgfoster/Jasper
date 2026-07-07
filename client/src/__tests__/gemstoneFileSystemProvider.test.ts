@@ -21,8 +21,8 @@ vi.mock('../browserQueries', () => ({
   canClassBeWritten: vi.fn(() => true),
 }));
 
-import { Uri, FileSystemError, FilePermission, window, languages } from '../__mocks__/vscode';
-import { GemStoneFileSystemProvider, buildMethodUri, buildNewMethodUri, buildClassDefinitionUri } from '../gemstoneFileSystemProvider';
+import { Uri, FileSystemError, FilePermission, window, languages, TabInputText, TabInputTextDiff } from '../__mocks__/vscode';
+import { GemStoneFileSystemProvider, buildMethodUri, buildNewMethodUri, buildClassDefinitionUri, closeGemstoneTabsForSession } from '../gemstoneFileSystemProvider';
 import { SessionManager } from '../sessionManager';
 import * as queries from '../browserQueries';
 import { BrowserQueryError } from '../browserQueries';
@@ -926,5 +926,37 @@ describe('buildClassDefinitionUri', () => {
   it('throws when className contains a slash', () => {
     expect(() => buildClassDefinitionUri(1, 'Globals', 'My/Class'))
       .toThrow("Class name must not contain '/': My/Class");
+  });
+});
+
+describe('closeGemstoneTabsForSession', () => {
+  it('closes this session\'s gemstone tabs (definition, method, diff) and leaves the rest', async () => {
+    vi.mocked(window.tabGroups.close).mockClear();
+    const s1def = { input: new TabInputText(Uri.parse('gemstone://1/Globals/Array/definition')) };
+    const s1method = { input: new TabInputText(Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A')) };
+    const s1diff = { input: new TabInputTextDiff(
+      Uri.parse('gemstone://1/Globals/Array/instance/x/y%20(base)?base=1'),
+      Uri.parse('gemstone://1/Globals/Array/instance/x/y%20(session%20override)'),
+    ) };
+    const s2def = { input: new TabInputText(Uri.parse('gemstone://2/Globals/Array/definition')) };
+    const plainFile = { input: new TabInputText(Uri.parse('file:///tmp/Array.gs')) };
+    window.tabGroups.all = [{ tabs: [s1def, s1method, s1diff, s2def, plainFile] }];
+
+    await closeGemstoneTabsForSession(1);
+
+    expect(window.tabGroups.close).toHaveBeenCalledWith([s1def, s1method, s1diff]);
+    window.tabGroups.all = [];
+  });
+
+  it('does nothing when no gemstone tab belongs to the session', async () => {
+    vi.mocked(window.tabGroups.close).mockClear();
+    window.tabGroups.all = [{ tabs: [
+      { input: new TabInputText(Uri.parse('gemstone://9/Globals/Array/definition')) },
+    ] }];
+
+    await closeGemstoneTabsForSession(1);
+
+    expect(window.tabGroups.close).not.toHaveBeenCalled();
+    window.tabGroups.all = [];
   });
 });

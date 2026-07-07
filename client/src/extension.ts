@@ -35,7 +35,7 @@ import { refreshEnhancedInspectorAvailable } from './enhancedInspectorAvailabili
 import { supportsEnhancedInspector } from './enhancedInspectorInstall';
 import { DebuggerPanel } from './debuggerPanel';
 import { InlineValuesCodeLensProvider } from './inlineValuesCodeLens';
-import { GemStoneFileSystemProvider, MethodCompiledEvent, ClassDefinitionCompiledEvent } from './gemstoneFileSystemProvider';
+import { GemStoneFileSystemProvider, MethodCompiledEvent, ClassDefinitionCompiledEvent, closeGemstoneTabsForSession } from './gemstoneFileSystemProvider';
 import { openWorkspace } from './workspace';
 import { openTutorialNotebook } from './tutorialNotebook';
 import { GemStoneDebugSession } from './gemstoneDebugSession';
@@ -1090,6 +1090,10 @@ export function activate(context: vscode.ExtensionContext) {
       SystemBrowser.disposeForSession(session.id);
       GlobalsBrowser.disposeForSession(session.id);
       CommentBrowser.disposeForSession(session.id);
+      // Close any lingering class-definition / method-source editor tabs for this
+      // session (e.g. opened via go-to-definition without a browser). Browser-owned
+      // tabs are already closed when the browser is disposed above.
+      void closeGemstoneTabsForSession(session.id);
       EnhancedInspector.disposeForSession(session.id);
       // Dispose before logout so each panel's dispose() can still release its
       // suspended GsProcess against a live handle.

@@ -866,7 +866,7 @@ describe('SystemBrowser', () => {
       expect(uri.path).toContain('/class/');
     });
 
-    it('uses "as yet unclassified" when ALL METHODS is selected', async () => {
+    it('uses the method\'s real category (not "as yet unclassified") when ALL METHODS is selected', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);
 
       messageHandler({ command: 'selectClass', name: 'Array' });
@@ -875,15 +875,31 @@ describe('SystemBrowser', () => {
       await vi.waitFor(() => { expect(workspace.openTextDocument).toHaveBeenCalled(); });
 
       const uri = (workspace.openTextDocument as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(uri.path).toContain('as yet unclassified');
+      expect(uri.path).toContain('Accessing');   // name's real category
+      expect(uri.path).not.toContain('as yet unclassified');
       expect(uri.path).not.toContain('ALL METHODS');
     });
 
-    it('uses "as yet unclassified" when no method category is selected', async () => {
+    it('uses the class-side method\'s real category when ALL METHODS is selected', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);
 
       messageHandler({ command: 'selectClass', name: 'Array' });
-      messageHandler({ command: 'selectMethod', selector: 'name' });
+      messageHandler({ command: 'toggleSide', isMeta: true });
+      messageHandler({ command: 'selectMethodCategory', name: ALL_METHODS_CATEGORY });
+      messageHandler({ command: 'selectMethod', selector: 'new' });
+      await vi.waitFor(() => { expect(workspace.openTextDocument).toHaveBeenCalled(); });
+
+      const uri = (workspace.openTextDocument as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(uri.path).toContain('/class/');
+      expect(uri.path).toContain('Instance Creation');   // new's real category
+      expect(uri.path).not.toContain('as yet unclassified');
+    });
+
+    it('falls back to "as yet unclassified" only for a method with no environment entry', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+
+      messageHandler({ command: 'selectClass', name: 'Array' });
+      messageHandler({ command: 'selectMethod', selector: 'ghostMethod' });
       await vi.waitFor(() => { expect(workspace.openTextDocument).toHaveBeenCalled(); });
 
       const uri = (workspace.openTextDocument as ReturnType<typeof vi.fn>).mock.calls[0][0];
@@ -2519,6 +2535,41 @@ describe('SystemBrowser', () => {
 
       const result = SystemBrowser.getSelectedClassName(session.id);
       expect(result).toEqual({ dictName: 'UserGlobals', className: 'Array' });
+    });
+  });
+
+  describe('closing the browser closes its companion tabs', () => {
+    it('closes the Globals/Comment webviews and gemstone editor tabs when the last browser closes', () => {
+      SystemBrowser.show(session, exportManager);
+      messageHandler({ command: 'ready' });
+      const closeHandler = vi.mocked(mockPanel.onDidDispose).mock.calls[0][0] as () => void;
+      const editorTab = { input: new TabInputText(Uri.parse(`gemstone://${session.id}/Globals/Array/definition`)) };
+      window.tabGroups.all = [{ tabs: [editorTab] }];
+      vi.mocked(GlobalsBrowser.disposeForSession).mockClear();
+      vi.mocked(CommentBrowser.disposeForSession).mockClear();
+      vi.mocked(window.tabGroups.close).mockClear();
+
+      closeHandler(); // simulate the user closing the browser tab
+
+      expect(GlobalsBrowser.disposeForSession).toHaveBeenCalledWith(session.id);
+      expect(CommentBrowser.disposeForSession).toHaveBeenCalledWith(session.id);
+      expect(window.tabGroups.close).toHaveBeenCalledWith([editorTab]);
+      window.tabGroups.all = [];
+    });
+
+    it('leaves companion tabs alone while another browser for the session remains open', () => {
+      SystemBrowser.show(session, exportManager);
+      const firstPanel = mockPanel;
+      SystemBrowser.show(session, exportManager); // second browser for the same session
+      messageHandler({ command: 'ready' });
+      vi.mocked(GlobalsBrowser.disposeForSession).mockClear();
+      vi.mocked(CommentBrowser.disposeForSession).mockClear();
+
+      const firstClose = vi.mocked(firstPanel.onDidDispose).mock.calls[0][0] as () => void;
+      firstClose(); // close only the first browser
+
+      expect(GlobalsBrowser.disposeForSession).not.toHaveBeenCalled();
+      expect(CommentBrowser.disposeForSession).not.toHaveBeenCalled();
     });
   });
 

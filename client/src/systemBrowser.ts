@@ -9,7 +9,7 @@ import * as queries from './browserQueries';
 import {GlobalsBrowser} from './globalsBrowser';
 import {ClassBrowser} from './classBrowser';
 import {CommentBrowser} from './commentBrowser';
-import {buildNewMethodUri, buildMethodUri} from './gemstoneFileSystemProvider';
+import {buildNewMethodUri, buildMethodUri, closeGemstoneTabsForSession} from './gemstoneFileSystemProvider';
 
 /**
  * The webview HTML is a large template literal in getHtml(). Embedding JS directly
@@ -548,6 +548,16 @@ export class SystemBrowser {
     this.dimDecorationType.dispose();
     this.panel.dispose();
     for (const d of this.disposables) d.dispose();
+
+    // When the last browser for this session closes, close the companion tabs it
+    // opened: the Globals and Comment webviews (per-session singletons) and the
+    // class-definition / method-source editors (gemstone:// tabs). While another
+    // browser for the session is still open they're left alone — they're shared.
+    if (!set || set.size === 0) {
+      GlobalsBrowser.disposeForSession(this.session.id);
+      CommentBrowser.disposeForSession(this.session.id);
+      void closeGemstoneTabsForSession(this.session.id);
+    }
   }
 
   // ── Message dispatch ──────────────────────────────────────
@@ -928,8 +938,7 @@ export class SystemBrowser {
     try {
       const isMeta = this.state.isMeta;
       const dictName = this.state.dictionaries[dictIndex - 1];
-      const category = (this.state.selectedMethodCategory && !isComputedMethodCategory(this.state.selectedMethodCategory))
-        ? this.state.selectedMethodCategory : 'as yet unclassified';
+      const category = this.methodCategoryFor(className, isMeta, selector);
       const environmentId = this.state.selectedEnvId;
       const common = {
         kind: 'method' as const,
@@ -1951,6 +1960,23 @@ export class SystemBrowser {
 
   // ── File navigation + dimming ─────────────────────────────
 
+  // The method's actual category, looked up from the cached environment data.
+  // Used for the gemstone:// method URI so the breadcrumb — and, on save, the
+  // recompile category — reflect the method's real category rather than the
+  // pseudo "** ALL METHODS **" / "** SESSION METHODS **" selection (which would
+  // otherwise fall back to 'as yet unclassified' and silently recategorize the
+  // method when saved).
+  private methodCategoryFor(className: string, isMeta: boolean, selector: string): string {
+    const dictIndex = this.state.selectedDictIndex;
+    if (dictIndex) {
+      const entry = this.getCachedEnvData(dictIndex, className).find(e =>
+        e.isMeta === isMeta && e.envId === this.state.selectedEnvId && e.selectors.includes(selector));
+      if (entry) return entry.category;
+    }
+    return (this.state.selectedMethodCategory && !isComputedMethodCategory(this.state.selectedMethodCategory))
+      ? this.state.selectedMethodCategory : 'as yet unclassified';
+  }
+
   private async openClassFile(
     className: string,
     selector?: string,
@@ -1975,8 +2001,7 @@ export class SystemBrowser {
 
     // Open the method in a gemstone:// editor tab (editable, one method at a time)
     const side = isMeta ? 'class' : 'instance';
-    const category = (this.state.selectedMethodCategory && !isComputedMethodCategory(this.state.selectedMethodCategory))
-      ? this.state.selectedMethodCategory : 'as yet unclassified';
+    const category = this.methodCategoryFor(className, !!isMeta, selector);
     // ?dict=<index> scopes the method's class lookup to this exact dictionary,
     // disambiguating the same key in two dictionaries (which can share a name).
     const params = [`dict=${dictIndex}`];

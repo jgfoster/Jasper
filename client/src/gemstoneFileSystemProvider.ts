@@ -183,6 +183,33 @@ function assertIsValidUriPath(parameterName: string, value: string) {
   }
 }
 
+/**
+ * Close every open editor tab backed by a gemstone:// document for `sessionId`
+ * — class definitions, class comments, method source, and override-diff views.
+ * Used when a browser (or its session) goes away so its companion editors don't
+ * linger against a closed session. A dirty tab still prompts to save (VS Code's
+ * default for tabGroups.close).
+ */
+export async function closeGemstoneTabsForSession(sessionId: number): Promise<void> {
+  const authority = String(sessionId);
+  const belongsToSession = (uri: vscode.Uri | undefined): boolean =>
+    !!uri && uri.scheme === 'gemstone' && uri.authority === authority;
+
+  const tabs: vscode.Tab[] = [];
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      const input = tab.input;
+      const matches = input instanceof vscode.TabInputText
+        ? belongsToSession(input.uri)
+        : input instanceof vscode.TabInputTextDiff
+          ? (belongsToSession(input.original) || belongsToSession(input.modified))
+          : false;
+      if (matches) tabs.push(tab);
+    }
+  }
+  if (tabs.length > 0) await vscode.window.tabGroups.close(tabs);
+}
+
 export interface MethodCompiledEvent{
   uri: vscode.Uri;
   previousUri: vscode.Uri;
