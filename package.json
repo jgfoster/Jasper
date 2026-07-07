@@ -302,10 +302,49 @@
           "id": "gemstone",
           "title": "GemStone",
           "icon": "resources/gemstone-sidebar.png"
+        },
+        {
+          "id": "gemstoneStage",
+          "title": "GemStone Browser",
+          "icon": "resources/gemstone-browser.svg"
         }
       ]
     },
     "views": {
+      "gemstoneStage": [
+        {
+          "id": "gemstoneStageDicts",
+          "name": "Dictionaries",
+          "type": "tree",
+          "icon": "$(symbol-namespace)",
+          "when": "gemstone.stageBrowserActive",
+          "size": 1
+        },
+        {
+          "id": "gemstoneStageCategories",
+          "name": "Class Categories",
+          "type": "tree",
+          "icon": "$(symbol-folder)",
+          "when": "gemstone.stageBrowserActive",
+          "size": 1
+        },
+        {
+          "id": "gemstoneStageClasses",
+          "name": "Classes",
+          "type": "tree",
+          "icon": "$(symbol-class)",
+          "when": "gemstone.stageBrowserActive",
+          "size": 3
+        },
+        {
+          "id": "gemstoneStageMethods",
+          "name": "Methods",
+          "type": "tree",
+          "icon": "$(symbol-method)",
+          "when": "gemstone.stageBrowserActive",
+          "size": 4
+        }
+      ],
       "gemstone": [
         {
           "id": "gemstoneSharedMemory",
@@ -755,6 +794,66 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "gemstone.stageBrowser.refresh",
+        "title": "Refresh Stage Browser",
+        "category": "GemStone",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "gemstone.stageBrowser.openMethodToSide",
+        "title": "Open Method to the Side",
+        "category": "GemStone",
+        "icon": "$(split-horizontal)"
+      },
+      {
+        "command": "gemstoneStageDicts.filter",
+        "title": "Filter",
+        "category": "GemStone",
+        "icon": "$(search)"
+      },
+      {
+        "command": "gemstoneStageCategories.filter",
+        "title": "Filter",
+        "category": "GemStone",
+        "icon": "$(search)"
+      },
+      {
+        "command": "gemstoneStageClasses.filter",
+        "title": "Filter",
+        "category": "GemStone",
+        "icon": "$(search)"
+      },
+      {
+        "command": "gemstoneStageMethods.filter",
+        "title": "Filter",
+        "category": "GemStone",
+        "icon": "$(search)"
+      },
+      {
+        "command": "gemstoneStageDicts.clearFilter",
+        "title": "Clear Filter",
+        "category": "GemStone",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "gemstoneStageCategories.clearFilter",
+        "title": "Clear Filter",
+        "category": "GemStone",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "gemstoneStageClasses.clearFilter",
+        "title": "Clear Filter",
+        "category": "GemStone",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "gemstoneStageMethods.clearFilter",
+        "title": "Clear Filter",
+        "category": "GemStone",
+        "icon": "$(clear-all)"
+      },
+      {
         "command": "gemstone.downloadVersion",
         "title": "Download",
         "category": "GemStone Admin",
@@ -979,6 +1078,51 @@
       ],
       "view/title": [
         {
+          "command": "gemstone.stageBrowser.refresh",
+          "when": "view == gemstoneStageDicts",
+          "group": "navigation"
+        },
+        {
+          "command": "gemstoneStageDicts.filter",
+          "when": "view == gemstoneStageDicts && focusedView == gemstoneStageDicts",
+          "group": "navigation@0"
+        },
+        {
+          "command": "gemstoneStageCategories.filter",
+          "when": "view == gemstoneStageCategories && focusedView == gemstoneStageCategories",
+          "group": "navigation@0"
+        },
+        {
+          "command": "gemstoneStageClasses.filter",
+          "when": "view == gemstoneStageClasses && focusedView == gemstoneStageClasses",
+          "group": "navigation@0"
+        },
+        {
+          "command": "gemstoneStageMethods.filter",
+          "when": "view == gemstoneStageMethods && focusedView == gemstoneStageMethods",
+          "group": "navigation@0"
+        },
+        {
+          "command": "gemstoneStageDicts.clearFilter",
+          "when": "view == gemstoneStageDicts && focusedView == gemstoneStageDicts && gemstone.stageFiltered.gemstoneStageDicts",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gemstoneStageCategories.clearFilter",
+          "when": "view == gemstoneStageCategories && focusedView == gemstoneStageCategories && gemstone.stageFiltered.gemstoneStageCategories",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gemstoneStageClasses.clearFilter",
+          "when": "view == gemstoneStageClasses && focusedView == gemstoneStageClasses && gemstone.stageFiltered.gemstoneStageClasses",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gemstoneStageMethods.clearFilter",
+          "when": "view == gemstoneStageMethods && focusedView == gemstoneStageMethods && gemstone.stageFiltered.gemstoneStageMethods",
+          "group": "navigation@1"
+        },
+        {
           "command": "gemstone.openWalkthrough",
           "when": "view == gemstoneVersions",
           "group": "navigation@0"
@@ -1020,6 +1164,11 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "gemstone.stageBrowser.openMethodToSide",
+          "when": "view == gemstoneStageMethods && viewItem == stageMethod",
+          "group": "inline"
+        },
         {
           "command": "gemstone.copyNetldiHost",
           "when": "view == gemstoneProcesses && viewItem == gemstoneProcessNetldi && gemstone.isWindows && gemstone.wslAvailable",

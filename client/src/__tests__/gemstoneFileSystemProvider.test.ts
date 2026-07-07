@@ -22,7 +22,7 @@ vi.mock('../browserQueries', () => ({
 }));
 
 import { Uri, FileSystemError, FilePermission, window, languages, TabInputText, TabInputTextDiff } from '../__mocks__/vscode';
-import { GemStoneFileSystemProvider, buildMethodUri, buildNewMethodUri, buildClassDefinitionUri, closeGemstoneTabsForSession } from '../gemstoneFileSystemProvider';
+import { GemStoneFileSystemProvider, buildMethodUri, buildNewMethodUri, buildClassDefinitionUri, closeGemstoneTabsForSession, installStaleGemstoneTabReaper, escapeSelectorSlashes } from '../gemstoneFileSystemProvider';
 import { SessionManager } from '../sessionManager';
 import * as queries from '../browserQueries';
 import { BrowserQueryError } from '../browserQueries';
@@ -174,6 +174,31 @@ describe('GemStoneFileSystemProvider', () => {
       provider.readFile(uri);
       expect(queries.getMethodSource).toHaveBeenCalledWith(
         expect.anything(), 'Character', false, 'isVowel', 0, 'Globals',
+      );
+    });
+
+    it('recovers a binary selector containing a slash', () => {
+      const uri = Uri.parse(`gemstone://1/Globals/FileReference/instance/accessing/${encodeURIComponent('/')}`);
+      provider.readFile(uri);
+      expect(queries.getMethodSource).toHaveBeenCalledWith(
+        expect.anything(), 'FileReference', false, '/', 0, 'Globals',
+      );
+    });
+
+    it('recovers a binary selector made only of slashes', () => {
+      const uri = Uri.parse(`gemstone://1/Globals/Number/instance/arithmetic/${encodeURIComponent('//')}`);
+      provider.readFile(uri);
+      expect(queries.getMethodSource).toHaveBeenCalledWith(
+        expect.anything(), 'Number', false, '//', 0, 'Globals',
+      );
+    });
+
+    it('recovers a slash selector escaped with the sentinel (the real open path)', () => {
+      const seg = encodeURIComponent(escapeSelectorSlashes('/'));
+      const uri = Uri.parse(`gemstone://1/Globals/FileReference/class/cross%20platform/${seg}`);
+      provider.readFile(uri);
+      expect(queries.getMethodSource).toHaveBeenCalledWith(
+        expect.anything(), 'FileReference', true, '/', 0, 'Globals',
       );
     });
 
@@ -958,5 +983,54 @@ describe('closeGemstoneTabsForSession', () => {
 
     expect(window.tabGroups.close).not.toHaveBeenCalled();
     window.tabGroups.all = [];
+  });
+});
+
+describe('installStaleGemstoneTabReaper', () => {
+  it('closes gemstone tabs whose session is not live and leaves the rest', () => {
+    vi.mocked(window.tabGroups.close).mockClear();
+    const noSessions = { getSession: vi.fn(() => undefined) } as unknown as SessionManager;
+    const staleMethod = { input: new TabInputText(Uri.parse('gemstone://7/Globals/Array/instance/accessing/at%3A')) };
+    const plainFile = { input: new TabInputText(Uri.parse('file:///tmp/Array.gs')) };
+    window.tabGroups.all = [{ tabs: [staleMethod, plainFile] }];
+
+    installStaleGemstoneTabReaper(noSessions);
+
+    expect(window.tabGroups.close).toHaveBeenCalledWith([staleMethod]);
+    window.tabGroups.all = [];
+  });
+
+  it('leaves gemstone tabs whose session is live', () => {
+    vi.mocked(window.tabGroups.close).mockClear();
+    const session = makeSession(3);
+    const mgr = { getSession: vi.fn((id: number) => id === 3 ? session : undefined) } as unknown as SessionManager;
+    const liveTab = { input: new TabInputText(Uri.parse('gemstone://3/Globals/Array/definition')) };
+    window.tabGroups.all = [{ tabs: [liveTab] }];
+
+    installStaleGemstoneTabReaper(mgr);
+
+    expect(window.tabGroups.close).not.toHaveBeenCalled();
+    window.tabGroups.all = [];
+  });
+
+  it('does not throw with a stale tab present when no session manager is available', () => {
+    vi.mocked(window.tabGroups.close).mockClear();
+    const staleTab = { input: new TabInputText(Uri.parse('gemstone://7/Globals/Array/definition')) };
+    window.tabGroups.all = [{ tabs: [staleTab] }];
+
+    expect(() => installStaleGemstoneTabReaper(undefined as unknown as SessionManager)).not.toThrow();
+
+    expect(window.tabGroups.close).toHaveBeenCalledWith([staleTab]);
+    window.tabGroups.all = [];
+  });
+
+  it('watches for tabs appearing after activation (wins the restore race)', () => {
+    vi.mocked(window.tabGroups.onDidChangeTabs).mockClear();
+    const noSessions = { getSession: vi.fn(() => undefined) } as unknown as SessionManager;
+    window.tabGroups.all = [];
+
+    installStaleGemstoneTabReaper(noSessions);
+
+    expect(window.tabGroups.onDidChangeTabs).toHaveBeenCalled();
   });
 });

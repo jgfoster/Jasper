@@ -35,11 +35,12 @@ import { refreshEnhancedInspectorAvailable } from './enhancedInspectorAvailabili
 import { supportsEnhancedInspector } from './enhancedInspectorInstall';
 import { DebuggerPanel } from './debuggerPanel';
 import { InlineValuesCodeLensProvider } from './inlineValuesCodeLens';
-import { GemStoneFileSystemProvider, MethodCompiledEvent, ClassDefinitionCompiledEvent, closeGemstoneTabsForSession } from './gemstoneFileSystemProvider';
+import { GemStoneFileSystemProvider, MethodCompiledEvent, ClassDefinitionCompiledEvent, closeGemstoneTabsForSession, installStaleGemstoneTabReaper } from './gemstoneFileSystemProvider';
 import { openWorkspace } from './workspace';
 import { openTutorialNotebook } from './tutorialNotebook';
 import { GemStoneDebugSession } from './gemstoneDebugSession';
 import { InspectorTreeProvider, InspectorNode } from './inspectorTreeProvider';
+import { registerStageBrowser } from './stageBrowser';
 import { GemStoneWorkspaceSymbolProvider } from './gemstoneSymbolProvider';
 import { GemStoneDefinitionProvider } from './gemstoneDefinitionProvider';
 import { GemStoneHoverProvider } from './gemstoneHoverProvider';
@@ -252,6 +253,7 @@ export function activate(context: vscode.ExtensionContext) {
   // and broken — no session to resolve gemstone://). See DebuggerPanel.
   DebuggerPanel.initSourceTabCleanup(context.workspaceState);
 
+
   // Inline-value overlay (#5): a source-pane CodeLens toggles it. The lens is
   // emitted only for source docs a live debugger is showing; the command it fires
   // carries that doc's URI so the right panel toggles.
@@ -334,6 +336,14 @@ export function activate(context: vscode.ExtensionContext) {
   // SessionManager is created early so the Logins panel can mark the connected
   // login row (and swap its inline Login action for Logout) in single-session mode.
   sessionManager = new SessionManager();
+
+  // Sessions don't survive a window reload, so any gemstone:// method/class tab
+  // VS Code restored from the previous window is unservable and shows a broken
+  // "could not be opened" editor. Reap such stale tabs — both those already
+  // present and (winning the async-restore race) those that appear afterward.
+  // Must run after sessionManager exists (the reaper checks for a live session).
+  context.subscriptions.push(installStaleGemstoneTabReaper(sessionManager));
+
   const treeProvider = new LoginTreeProvider(storage, sessionManager);
 
   const treeView = vscode.window.createTreeView('gemstoneLogins', {
@@ -393,6 +403,9 @@ export function activate(context: vscode.ExtensionContext) {
   });
   inspectorProvider.setView(inspectorView);
   context.subscriptions.push(inspectorView, inspectorProvider);
+
+  // ── Stage Browser (cascading navigation panes) ───────────
+  registerStageBrowser(context, sessionManager);
 
   // ── GemStone FileSystem Provider ─────────────────────────
   const gemstoneFs = new GemStoneFileSystemProvider(sessionManager, exportManager);

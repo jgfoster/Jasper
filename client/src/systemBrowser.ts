@@ -9,7 +9,7 @@ import * as queries from './browserQueries';
 import {GlobalsBrowser} from './globalsBrowser';
 import {ClassBrowser} from './classBrowser';
 import {CommentBrowser} from './commentBrowser';
-import {buildNewMethodUri, buildMethodUri, closeGemstoneTabsForSession} from './gemstoneFileSystemProvider';
+import {buildNewMethodUri, buildMethodUri, closeGemstoneTabsForSession, escapeSelectorSlashes} from './gemstoneFileSystemProvider';
 
 /**
  * The webview HTML is a large template literal in getHtml(). Embedding JS directly
@@ -2038,7 +2038,7 @@ export class SystemBrowser {
     const uri = vscode.Uri.parse(
       `gemstone://${this.session.id}/${encodeURIComponent(dictName)}/` +
       `${encodeURIComponent(className)}/${side}/` +
-      `${encodeURIComponent(category)}/${encodeURIComponent(selector)}?${params.join('&')}`
+      `${encodeURIComponent(category)}/${encodeURIComponent(escapeSelectorSlashes(selector))}?${params.join('&')}`
     );
     const doc = await vscode.workspace.openTextDocument(uri);
     vscode.window.showTextDocument(doc, { viewColumn, preview: true });

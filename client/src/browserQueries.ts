@@ -10,6 +10,10 @@ import { getBaseMethodSource as sharedGetBaseMethodSource } from './queries/getB
 import { getDictionaryNames as sharedGetDictionaryNames } from './queries/getDictionaryNames';
 import { getPoolDictionaryNames as sharedGetPoolDictionaryNames } from './queries/getPoolDictionaryNames';
 import { getClassNames as sharedGetClassNames } from './queries/getClassNames';
+import {
+  getClassesWithCategory as sharedGetClassesWithCategory,
+  ClassCategoryEntry,
+} from './queries/getClassesWithCategory';
 import { getDictionaryClassFileOutOrder as sharedGetDictionaryClassFileOutOrder } from './queries/getDictionaryClassFileOutOrder';
 import { getDictionaryEntries as sharedGetDictionaryEntries } from './queries/getDictionaryEntries';
 import { getGlobalsForDictionary as sharedGetGlobalsForDictionary } from './queries/getGlobalsForDictionary';
@@ -63,6 +67,7 @@ import { clearAllBreaks as sharedClearAllBreaks } from './queries/clearAllBreaks
 export type { DictEntry } from './queries/getDictionaryEntries';
 export type { GlobalEntry } from './queries/getGlobalsForDictionary';
 export type { ClassNameEntry } from './queries/getAllClassNames';
+export type { ClassCategoryEntry } from './queries/getClassesWithCategory';
 export type { EnvCategoryLine } from './queries/getClassEnvironments';
 export type { ClassHierarchyEntry } from './queries/getClassHierarchy';
 export type { MethodEntry } from './queries/getMethodList';
@@ -246,6 +251,12 @@ export function getClassNames(
   session: ActiveSession, dict: number | string,
 ): string[] {
   return sharedGetClassNames(bind(session), dict);
+}
+
+export function getClassesWithCategory(
+  session: ActiveSession, dict: number | string,
+): ClassCategoryEntry[] {
+  return sharedGetClassesWithCategory(bind(session), dict);
 }
 
 export function getDictionaryClassFileOutOrder(

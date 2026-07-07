@@ -6,6 +6,19 @@ import { ExportManager } from './exportManager';
 import { logInfo } from './gciLog';
 import {receiver} from "./queries/util";
 
+// A binary selector can contain '/', but a slash in a URI path segment (raw or
+// %2F-encoded) is collapsed by VS Code's path normalization, losing the
+// selector. Callers escape slashes to this sentinel — which is not a path
+// separator and never appears in a Smalltalk selector — for transport in the
+// path; parseUri reverses it.
+const SELECTOR_SLASH = '⁄'; // FRACTION SLASH
+export function escapeSelectorSlashes(selector: string): string {
+  return selector.split('/').join(SELECTOR_SLASH);
+}
+function unescapeSelectorSlashes(segment: string): string {
+  return segment.split(SELECTOR_SLASH).join('/');
+}
+
 // ── URI Structure ────────────────────────────────────────────
 // Method:     gemstone://{sessionId}/{dictName}/{className}/{side}/{category}/{selector}
 // Definition: gemstone://{sessionId}/{dictName}/{className}/definition
@@ -109,11 +122,18 @@ function parseUri(uri: vscode.Uri): ParsedUri {
       dictIndex,
     };
   }
-  if (parts.length === 6) {
+  if (parts.length >= 6) {
+    // The first five segments (dict/class/side/category) are slash-free names,
+    // so anything after them is the selector. Rejoin the tail with '/' and undo
+    // the slash-sentinel escaping to recover binary selectors containing a
+    // slash ('/', '//'): a %2F-encoded slash decodes to a real separator that
+    // VS Code's path normalization then collapses, so it can't ride in the path
+    // literally (see escapeSelectorSlashes).
+    const rawSelector = unescapeSelectorSlashes(parts.slice(5).join('/'));
     // The override diff decorates each side's selector segment with a display
     // label — "sel (base)" / "sel (session override)". Strip it for the real
     // selector; its presence marks a read-only comparison view.
-    const labelled = parts[5].match(/^(.*) \((?:base|session override)\)$/);
+    const labelled = rawSelector.match(/^(.*) \((?:base|session override)\)$/);
     return {
       kind: 'method',
       sessionId,
@@ -121,7 +141,7 @@ function parseUri(uri: vscode.Uri): ParsedUri {
       className: parts[2],
       isMeta: parts[3] === 'class',
       category: parts[4],
-      selector: labelled ? labelled[1] : parts[5],
+      selector: labelled ? labelled[1] : rawSelector,
       environmentId,
       base,
       diffView: labelled != null,
@@ -208,6 +228,47 @@ export async function closeGemstoneTabsForSession(sessionId: number): Promise<vo
     }
   }
   if (tabs.length > 0) await vscode.window.tabGroups.close(tabs);
+}
+
+/**
+ * Reap stale gemstone:// editor tabs — those whose session isn't live.
+ *
+ * VS Code persists open tabs across window reloads, but GemStone sessions do
+ * not survive a reload, so a restored gemstone:// tab has no session behind it,
+ * can't be served, and shows a broken "could not be opened" editor. A one-shot
+ * scan at activation loses the restore race (tabs restore asynchronously and
+ * often aren't in `tabGroups` yet), so we also listen for tabs appearing and
+ * close any gemstone:// tab with no matching live session. During normal use a
+ * freshly opened method/class tab always has a live session, so it's untouched;
+ * only orphaned (post-reload, pre-login) tabs are reaped. Call once from
+ * `activate()`; dispose with the returned handle.
+ */
+export function installStaleGemstoneTabReaper(sessionManager: SessionManager): vscode.Disposable {
+  // Optional chaining keeps this from throwing (and taking down all of
+  // activation with it) if it is ever wired before sessionManager exists — a
+  // missing manager simply means no session is live, so the tab is stale.
+  const isStale = (uri: vscode.Uri | undefined): boolean =>
+    !!uri && uri.scheme === 'gemstone'
+    && sessionManager?.getSession(parseInt(uri.authority, 10)) === undefined;
+
+  const reap = () => {
+    const tabs: vscode.Tab[] = [];
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        const input = tab.input;
+        const stale = input instanceof vscode.TabInputText
+          ? isStale(input.uri)
+          : input instanceof vscode.TabInputTextDiff
+            ? (isStale(input.original) || isStale(input.modified))
+            : false;
+        if (stale) tabs.push(tab);
+      }
+    }
+    if (tabs.length > 0) void vscode.window.tabGroups.close(tabs);
+  };
+
+  reap();
+  return vscode.window.tabGroups.onDidChangeTabs(() => reap());
 }
 
 export interface MethodCompiledEvent{

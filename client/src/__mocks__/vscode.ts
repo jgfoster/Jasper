@@ -230,6 +230,7 @@ export const window = {
   tabGroups: {
     all: [] as { viewColumn?: number; tabs: { input: unknown }[] }[],
     close: vi.fn(),
+    onDidChangeTabs: vi.fn(() => ({ dispose: vi.fn() })),
   },
   withProgress: vi.fn(async (_opts: unknown, task: (progress: unknown, token: unknown) => Promise<unknown>) => {
     const progress = { report: vi.fn() };
