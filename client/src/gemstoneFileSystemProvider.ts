@@ -15,7 +15,7 @@ const SELECTOR_SLASH = '⁄'; // FRACTION SLASH
 export function escapeSelectorSlashes(selector: string): string {
   return selector.split('/').join(SELECTOR_SLASH);
 }
-function unescapeSelectorSlashes(segment: string): string {
+export function unescapeSelectorSlashes(segment: string): string {
   return segment.split(SELECTOR_SLASH).join('/');
 }
 
@@ -107,6 +107,11 @@ function parseUri(uri: vscode.Uri): ParsedUri {
   if (parts.length === 4 && parts[3] === 'definition') {
     return { kind: 'definition', sessionId, dictName: parts[1], className: parts[2], dictIndex };
   }
+  // 5-segment form `/dict/Class/definition/Class` — the trailing repeat makes the
+  // editor tab read as the class name (see buildClassDefinitionUri).
+  if (parts.length === 5 && parts[3] === 'definition') {
+    return { kind: 'definition', sessionId, dictName: parts[1], className: parts[2], dictIndex };
+  }
   if (parts.length === 4 && parts[3] === 'comment') {
     return { kind: 'comment', sessionId, dictName: parts[1], className: parts[2], dictIndex };
   }
@@ -171,7 +176,11 @@ export function buildClassDefinitionUri(
   return vscode.Uri.from({
     scheme: 'gemstone',
     authority: String(sessionId),
-    path: `/${dictName}/${className}/definition`,
+    // The class name is repeated as the final segment so the editor *tab* shows
+    // the class name (VS Code labels a tab by its URI basename) — otherwise every
+    // class definition reads just "definition". parseUri accepts this 5-segment
+    // form as well as the legacy 4-segment `…/definition`.
+    path: `/${dictName}/${className}/definition/${className}`,
     // The 1-based SymbolList index scopes the class lookup to a specific
     // dictionary (dictionaries can share a name). Omitted → dictName fallback.
     query: dictIndex !== undefined ? `dict=${dictIndex}` : '',
@@ -268,7 +277,22 @@ export function installStaleGemstoneTabReaper(sessionManager: SessionManager): v
   };
 
   reap();
-  return vscode.window.tabGroups.onDidChangeTabs(() => reap());
+
+  const subscriptions: vscode.Disposable[] = [
+    // Any tab change: catches the restore-after-reload race and sweeps away any
+    // dead tab the moment the user touches the tab bar.
+    vscode.window.tabGroups.onDidChangeTabs(() => reap()),
+  ];
+  // Session lifecycle: a logout — or the session dying (e.g. the host going
+  // unresponsive) — fires NO tab event, so without this a now-dead session's
+  // gemstone:// tabs would linger unservable. Reaping here removes them as soon
+  // as the session leaves the manager.
+  if (sessionManager?.onDidChangeSelection) {
+    subscriptions.push(sessionManager.onDidChangeSelection(() => reap()));
+  }
+  return new vscode.Disposable(() => {
+    for (const sub of subscriptions) sub.dispose();
+  });
 }
 
 export interface MethodCompiledEvent{

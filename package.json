@@ -337,6 +337,14 @@
           "size": 3
         },
         {
+          "id": "gemstoneStageHierarchy",
+          "name": "Hierarchy",
+          "type": "tree",
+          "icon": "$(type-hierarchy)",
+          "when": "gemstone.stageBrowserActive",
+          "size": 2
+        },
+        {
           "id": "gemstoneStageMethods",
           "name": "Methods",
           "type": "tree",
@@ -854,6 +862,85 @@
         "icon": "$(clear-all)"
       },
       {
+        "command": "gemstone.stageBrowser.findClass",
+        "title": "Find Class in Browser Panels",
+        "category": "GemStone",
+        "icon": "$(search-fuzzy)"
+      },
+      {
+        "command": "gemstone.stageBrowser.newDictionary",
+        "title": "New Dictionary",
+        "category": "GemStone",
+        "icon": "$(add)"
+      },
+      {
+        "command": "gemstone.stageBrowser.newClassCategory",
+        "title": "New Class Category",
+        "category": "GemStone",
+        "icon": "$(add)"
+      },
+      {
+        "command": "gemstone.stageBrowser.newClass",
+        "title": "New Class",
+        "category": "GemStone",
+        "icon": "$(add)"
+      },
+      {
+        "command": "gemstone.stageBrowser.newMethodCategory",
+        "title": "New Method Category",
+        "category": "GemStone",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "gemstone.stageBrowser.newMethod",
+        "title": "New Method",
+        "category": "GemStone",
+        "icon": "$(add)"
+      },
+      {
+        "command": "gemstone.stageBrowser.implementorsOf",
+        "title": "Implementors Of",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.stageBrowser.sendersOf",
+        "title": "Senders Of",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.stageBrowser.superImplementors",
+        "title": "Superclass Implementors (▲)",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.stageBrowser.subOverrides",
+        "title": "Subclass Overrides (▼)",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.stageBrowser.openDefinition",
+        "title": "Open Class Definition",
+        "category": "GemStone",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "gemstone.stageBrowser.openDefinitionToSide",
+        "title": "Open Class Definition to the Side",
+        "category": "GemStone",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "gemstone.stageBrowser.openHierarchyDefinition",
+        "title": "Open Class Definition to the Side",
+        "category": "GemStone",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "gemstone.stageBrowser.classClicked",
+        "title": "Class Clicked",
+        "category": "GemStone"
+      },
+      {
         "command": "gemstone.downloadVersion",
         "title": "Download",
         "category": "GemStone Admin",
@@ -1048,6 +1135,10 @@
     "menus": {
       "commandPalette": [
         {
+          "command": "gemstone.stageBrowser.classClicked",
+          "when": "false"
+        },
+        {
           "command": "gemstone.toggleInlineValues",
           "when": "false"
         },
@@ -1123,6 +1214,36 @@
           "group": "navigation@1"
         },
         {
+          "command": "gemstone.stageBrowser.newDictionary",
+          "when": "view == gemstoneStageDicts",
+          "group": "navigation@2"
+        },
+        {
+          "command": "gemstone.stageBrowser.newClassCategory",
+          "when": "view == gemstoneStageCategories",
+          "group": "navigation@2"
+        },
+        {
+          "command": "gemstone.stageBrowser.newClass",
+          "when": "view == gemstoneStageClasses",
+          "group": "navigation@2"
+        },
+        {
+          "command": "gemstone.stageBrowser.findClass",
+          "when": "view == gemstoneStageClasses",
+          "group": "navigation@3"
+        },
+        {
+          "command": "gemstone.stageBrowser.newMethod",
+          "when": "view == gemstoneStageMethods",
+          "group": "navigation@2"
+        },
+        {
+          "command": "gemstone.stageBrowser.newMethodCategory",
+          "when": "view == gemstoneStageMethods",
+          "group": "navigation@3"
+        },
+        {
           "command": "gemstone.openWalkthrough",
           "when": "view == gemstoneVersions",
           "group": "navigation@0"
@@ -1166,8 +1287,53 @@
       "view/item/context": [
         {
           "command": "gemstone.stageBrowser.openMethodToSide",
-          "when": "view == gemstoneStageMethods && viewItem == stageMethod",
+          "when": "view == gemstoneStageMethods && viewItem =~ /^stageMethod/",
+          "group": "inline@3"
+        },
+        {
+          "command": "gemstone.stageBrowser.implementorsOf",
+          "when": "view == gemstoneStageMethods && viewItem =~ /^stageMethod/",
+          "group": "1_browse@1"
+        },
+        {
+          "command": "gemstone.stageBrowser.sendersOf",
+          "when": "view == gemstoneStageMethods && viewItem =~ /^stageMethod/",
+          "group": "1_browse@2"
+        },
+        {
+          "command": "gemstone.stageBrowser.superImplementors",
+          "when": "view == gemstoneStageMethods && viewItem =~ /\\.up/",
+          "group": "1_browse@3"
+        },
+        {
+          "command": "gemstone.stageBrowser.subOverrides",
+          "when": "view == gemstoneStageMethods && viewItem =~ /\\.down/",
+          "group": "1_browse@4"
+        },
+        {
+          "command": "gemstone.stageBrowser.openDefinitionToSide",
+          "when": "view == gemstoneStageClasses && viewItem == stageClass",
           "group": "inline"
+        },
+        {
+          "command": "gemstone.stageBrowser.openHierarchyDefinition",
+          "when": "view == gemstoneStageHierarchy && viewItem == stageHierClass",
+          "group": "inline"
+        },
+        {
+          "command": "gemstone.stageBrowser.openHierarchyDefinition",
+          "when": "view == gemstoneStageHierarchy && viewItem == stageHierClass",
+          "group": "1_open@1"
+        },
+        {
+          "command": "gemstone.stageBrowser.openDefinition",
+          "when": "view == gemstoneStageClasses && viewItem == stageClass",
+          "group": "1_open@1"
+        },
+        {
+          "command": "gemstone.stageBrowser.openDefinitionToSide",
+          "when": "view == gemstoneStageClasses && viewItem == stageClass",
+          "group": "1_open@2"
         },
         {
           "command": "gemstone.copyNetldiHost",

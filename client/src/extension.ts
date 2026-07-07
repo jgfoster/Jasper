@@ -405,7 +405,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(inspectorView, inspectorProvider);
 
   // ── Stage Browser (cascading navigation panes) ───────────
-  registerStageBrowser(context, sessionManager);
+  const stageBrowser = registerStageBrowser(context, sessionManager);
 
   // ── GemStone FileSystem Provider ─────────────────────────
   const gemstoneFs = new GemStoneFileSystemProvider(sessionManager, exportManager);
@@ -496,6 +496,12 @@ export function activate(context: vscode.ExtensionContext) {
               const sessionId = parseInt(uri.authority, 10);
               const className = parts[2];
               SystemBrowser.methodCompiled(sessionId, className);
+              // Keep the Stage Browser's method list in sync too (new-class URIs
+              // carry no real class name, so skip those — the class-definition
+              // event below handles class creation).
+              if (className !== 'new-class') {
+                stageBrowser.onMethodCompiled(sessionId, className);
+              }
             }
           }
         }
@@ -506,6 +512,15 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     gemstoneFs.onMethodCompiled(handleMethodCompiled),
     gemstoneFs.onClassDefinitionCompiled(handleClassDefinitionCompiled),
+    // Refresh the Stage Browser's class list when a class is created/redefined
+    // (the definition event carries the real class name; the new-class URI
+    // doesn't). parts: ['', dictName, className, 'definition'].
+    gemstoneFs.onClassDefinitionCompiled((e) => {
+      const parts = e.uri.path.split('/').map(decodeURIComponent);
+      if (parts.length >= 3) {
+        stageBrowser.onClassCompiled(parseInt(e.uri.authority, 10), parts[2]);
+      }
+    }),
   );
 
   context.subscriptions.push(
@@ -1312,7 +1327,7 @@ export function activate(context: vscode.ExtensionContext) {
       });
       const side = args.isMeta ? ' class' : '';
       const title = args.direction === 'up'
-        ? `${args.className}${side} >> #${args.selector} — superclass implementations`
+        ? `${args.className}${side} >> #${args.selector} — superclass implementors`
         : `${args.className}${side} >> #${args.selector} — subclass overrides`;
       await showMethodResults(session, results, title);
     }),

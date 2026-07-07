@@ -1,16 +1,33 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
-  <!-- GemStone inverted-gem-triangle motif (matches gemstone-sidebar icon) -->
+  <!-- GemStone logo: a downward-pointing triangle of small triangles (matches
+       resources/gemstone-icon.png). Small gaps between the triangles keep the
+       lattice legible even when the activity bar renders the icon as a single
+       monochrome mask (otherwise the triangles merge into one solid triangle). -->
   <g>
-    <polygon points="7.5,3 9.4,4.9 7.5,6.8 5.6,4.9" fill="#34A853"/>
-    <polygon points="12,3 13.9,4.9 12,6.8 10.1,4.9" fill="#FBBC05"/>
-    <polygon points="16.5,3 18.4,4.9 16.5,6.8 14.6,4.9" fill="#4285F4"/>
-    <polygon points="9.75,7 11.65,8.9 9.75,10.8 7.85,8.9" fill="#4285F4"/>
-    <polygon points="14.25,7 16.15,8.9 14.25,10.8 12.35,8.9" fill="#A142F4"/>
-    <polygon points="12,11 13.9,12.9 12,14.8 10.1,12.9" fill="#34A853"/>
+    <!-- row 0 → row 1 -->
+    <polygon points="4.4,2.22 7.6,2.22 6,4.82" fill="#34A853"/>
+    <polygon points="6.4,5.03 9.6,5.03 8,2.43" fill="#FBBC05"/>
+    <polygon points="8.4,2.22 11.6,2.22 10,4.82" fill="#4285F4"/>
+    <polygon points="10.4,5.03 13.6,5.03 12,2.43" fill="#EA4335"/>
+    <polygon points="12.4,2.22 15.6,2.22 14,4.82" fill="#34A853"/>
+    <polygon points="14.4,5.03 17.6,5.03 16,2.43" fill="#A142F4"/>
+    <polygon points="16.4,2.22 19.6,2.22 18,4.82" fill="#FBBC05"/>
+    <!-- row 1 → row 2 -->
+    <polygon points="6.4,5.47 9.6,5.47 8,8.07" fill="#4285F4"/>
+    <polygon points="8.4,8.28 11.6,8.28 10,5.68" fill="#34A853"/>
+    <polygon points="10.4,5.47 13.6,5.47 12,8.07" fill="#FBBC05"/>
+    <polygon points="12.4,8.28 15.6,8.28 14,5.68" fill="#4285F4"/>
+    <polygon points="14.4,5.47 17.6,5.47 16,8.07" fill="#EA4335"/>
+    <!-- row 2 → row 3 -->
+    <polygon points="8.4,8.72 11.6,8.72 10,11.32" fill="#A142F4"/>
+    <polygon points="10.4,11.53 13.6,11.53 12,8.93" fill="#34A853"/>
+    <polygon points="12.4,8.72 15.6,8.72 14,11.32" fill="#4285F4"/>
+    <!-- row 3 → point -->
+    <polygon points="10.4,11.97 13.6,11.97 12,14.57" fill="#FBBC05"/>
   </g>
-  <!-- Open book, signalling "browse" -->
+  <!-- Little open book, signalling "browse" -->
   <g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round">
-    <path d="M12 17.5 C10.4 16.4 8.2 16.2 6 16.6 L6 21.2 C8.2 20.8 10.4 21 12 22.1 C13.6 21 15.8 20.8 18 21.2 L18 16.6 C15.8 16.2 13.6 16.4 12 17.5 Z"/>
-    <path d="M12 17.5 L12 22.1"/>
+    <path d="M12 17.6 C10.5 16.6 8.5 16.4 6.5 16.8 L6.5 21 C8.5 20.6 10.5 20.8 12 21.8 C13.5 20.8 15.5 20.6 17.5 21 L17.5 16.8 C15.5 16.4 13.5 16.6 12 17.6 Z"/>
+    <path d="M12 17.6 L12 21.8"/>
   </g>
 </svg>
