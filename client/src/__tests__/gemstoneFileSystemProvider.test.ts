@@ -58,7 +58,8 @@ describe('GemStoneFileSystemProvider', () => {
 
     it('calls canClassBeWritten for method URIs', () => {
       provider.stat(Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A'));
-      expect(queries.canClassBeWritten).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'Array');
+      // A method URI carries no ?dict, so the lookup falls back to the dict name.
+      expect(queries.canClassBeWritten).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'Array', 'Globals');
     });
 
     it('returns writable when canClassBeWritten returns true', () => {
@@ -123,7 +124,7 @@ describe('GemStoneFileSystemProvider', () => {
       const content = new TextDecoder().decode(provider.readFile(uri));
       expect(content).toBe('at: index\n  ^self basicAt: index');
       expect(queries.getMethodSource).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 1 }), 'Array', false, 'at:', 0,
+        expect.objectContaining({ id: 1 }), 'Array', false, 'at:', 0, 'Globals',
       );
     });
 
@@ -131,7 +132,7 @@ describe('GemStoneFileSystemProvider', () => {
       const uri = Uri.parse('gemstone://1/Globals/Array/class/creation/new%3A');
       provider.readFile(uri);
       expect(queries.getMethodSource).toHaveBeenCalledWith(
-        expect.anything(), 'Array', true, 'new:', 0,
+        expect.anything(), 'Array', true, 'new:', 0, 'Globals',
       );
     });
 
@@ -139,7 +140,7 @@ describe('GemStoneFileSystemProvider', () => {
       const uri = Uri.parse('gemstone://1/Globals/Array/instance/python/__len__?env=2');
       provider.readFile(uri);
       expect(queries.getMethodSource).toHaveBeenCalledWith(
-        expect.anything(), 'Array', false, '__len__', 2,
+        expect.anything(), 'Array', false, '__len__', 2, 'Globals',
       );
     });
 
@@ -147,7 +148,7 @@ describe('GemStoneFileSystemProvider', () => {
       const uri = Uri.parse('gemstone://1/Globals/Character/instance/converting/isVowel?base=1');
       const content = new TextDecoder().decode(provider.readFile(uri));
       expect(queries.getBaseMethodSource).toHaveBeenCalledWith(
-        expect.anything(), 'Character', false, 'isVowel', 0,
+        expect.anything(), 'Character', false, 'isVowel', 0, 'Globals',
       );
       expect(queries.getMethodSource).not.toHaveBeenCalled();
       expect(content).toContain('base impl');
@@ -164,7 +165,7 @@ describe('GemStoneFileSystemProvider', () => {
       const uri = Uri.parse('gemstone://1/Globals/Character/instance/converting/isVowel%20(base)?base=1');
       provider.readFile(uri);
       expect(queries.getBaseMethodSource).toHaveBeenCalledWith(
-        expect.anything(), 'Character', false, 'isVowel', 0,
+        expect.anything(), 'Character', false, 'isVowel', 0, 'Globals',
       );
     });
 
@@ -172,25 +173,30 @@ describe('GemStoneFileSystemProvider', () => {
       const uri = Uri.parse('gemstone://1/Globals/Character/instance/converting/isVowel%20(session%20override)');
       provider.readFile(uri);
       expect(queries.getMethodSource).toHaveBeenCalledWith(
-        expect.anything(), 'Character', false, 'isVowel', 0,
+        expect.anything(), 'Character', false, 'isVowel', 0, 'Globals',
       );
     });
 
-    it('reads a class definition', () => {
+    it('reads a class definition, scoped to the dictionary (name fallback when no ?dict)', () => {
       const uri = Uri.parse('gemstone://1/Globals/Array/definition');
       const content = new TextDecoder().decode(provider.readFile(uri));
       expect(content).toContain("Object subclass: 'Array'");
       expect(queries.getClassDefinition).toHaveBeenCalledWith(
-        expect.anything(), 'Array',
+        expect.anything(), 'Array', 'Globals',
       );
     });
 
-    it('reads a class comment', () => {
+    it('scopes a class definition to the SymbolList index given by ?dict', () => {
+      provider.readFile(Uri.parse('gemstone://1/Globals/Array/definition?dict=9'));
+      expect(queries.getClassDefinition).toHaveBeenCalledWith(expect.anything(), 'Array', 9);
+    });
+
+    it('reads a class comment, scoped to the dictionary', () => {
       const uri = Uri.parse('gemstone://1/Globals/Array/comment');
       const content = new TextDecoder().decode(provider.readFile(uri));
       expect(content).toBe('An ordered collection.');
       expect(queries.getClassComment).toHaveBeenCalledWith(
-        expect.anything(), 'Array',
+        expect.anything(), 'Array', 'Globals',
       );
     });
 
@@ -221,7 +227,7 @@ describe('GemStoneFileSystemProvider', () => {
       const uri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A');
       provider.writeFile(uri, encode('at: index\n  ^self basicAt: index'), { create: false, overwrite: true });
       expect(queries.compileMethod).toHaveBeenCalledWith(
-        expect.anything(), 'Array', false, 'accessing', 'at: index\n  ^self basicAt: index', 0,
+        expect.anything(), 'Array', false, 'accessing', 'at: index\n  ^self basicAt: index', 0, 'Globals',
       );
     });
 
@@ -229,7 +235,7 @@ describe('GemStoneFileSystemProvider', () => {
       const uri = Uri.parse('gemstone://1/Globals/Array/instance/python/__len__?env=1');
       provider.writeFile(uri, encode('__len__\n  ^self size'), { create: false, overwrite: true });
       expect(queries.compileMethod).toHaveBeenCalledWith(
-        expect.anything(), 'Array', false, 'python', '__len__\n  ^self size', 1,
+        expect.anything(), 'Array', false, 'python', '__len__\n  ^self size', 1, 'Globals',
       );
     });
 
@@ -241,11 +247,11 @@ describe('GemStoneFileSystemProvider', () => {
       expect(queries.compileClassDefinition).toHaveBeenCalledWith(expect.anything(), source);
     });
 
-    it('sets class comment on save', () => {
-      const uri = Uri.parse('gemstone://1/Globals/Array/comment');
+    it('sets class comment on save, scoped to the dictionary', () => {
+      const uri = Uri.parse('gemstone://1/Globals/Array/comment?dict=9');
       provider.writeFile(uri, encode('Updated comment'), { create: false, overwrite: true });
       expect(queries.setClassComment).toHaveBeenCalledWith(
-        expect.anything(), 'Array', 'Updated comment',
+        expect.anything(), 'Array', 'Updated comment', 9,
       );
     });
 
@@ -475,7 +481,7 @@ describe('GemStoneFileSystemProvider', () => {
        vi.mocked(queries.compileMethod).mockReturnValueOnce('Compiled: Array >> foo');
        provider.writeFile(uri, encode(source), { create: true, overwrite: true });
        expect(queries.compileMethod).toHaveBeenCalledWith(
-         expect.anything(), 'Array', false, 'accessing', source, 0,
+         expect.anything(), 'Array', false, 'accessing', source, 0, 'Globals',
        );
      });
 
@@ -598,7 +604,7 @@ describe('GemStoneFileSystemProvider', () => {
       const uri = Uri.parse('gemstone://1/Globals/Array/class/creation/new%3A');
       provider.writeFile(uri, encode('new: size\n  ^self basicNew: size'), { create: false, overwrite: true });
       expect(queries.compileMethod).toHaveBeenCalledWith(
-        expect.anything(), 'Array', true, 'creation', 'new: size\n  ^self basicNew: size', 0,
+        expect.anything(), 'Array', true, 'creation', 'new: size\n  ^self basicNew: size', 0, 'Globals',
       );
     });
 
@@ -713,7 +719,7 @@ describe('GemStoneFileSystemProvider', () => {
       const uri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3Aput%3A');
       const content = provider.readFile(uri);
       expect(queries.getMethodSource).toHaveBeenCalledWith(
-        expect.anything(), 'Array', false, 'at:put:', 0,
+        expect.anything(), 'Array', false, 'at:put:', 0, 'Globals',
       );
     });
 
@@ -721,7 +727,7 @@ describe('GemStoneFileSystemProvider', () => {
       const uri = Uri.parse('gemstone://1/Globals/Array/class/creation/new%3A');
       provider.readFile(uri);
       expect(queries.getMethodSource).toHaveBeenCalledWith(
-        expect.anything(), 'Array', true, 'new:', 0,
+        expect.anything(), 'Array', true, 'new:', 0, 'Globals',
       );
     });
 
@@ -735,7 +741,7 @@ describe('GemStoneFileSystemProvider', () => {
       const uri2 = Uri.parse('gemstone://1/Globals/Array/instance/accessing/size');
       provider.readFile(uri2);
       expect(queries.getMethodSource).toHaveBeenCalledWith(
-        expect.anything(), 'Array', false, 'size', 0,
+        expect.anything(), 'Array', false, 'size', 0, 'Globals',
       );
     });
   });

@@ -32,11 +32,12 @@ describe('ClassBrowser', () => {
   it('opens the class definition editor when the class name is not null', async () => {
     await ClassBrowser.showOrUpdate(session, ['UserGlobals'], 1, 'Array');
 
+    // ?dict=<index> scopes the definition lookup to this exact dictionary.
     expect(workspace.openTextDocument).toHaveBeenCalledWith(
-      Uri.parse('gemstone://1/UserGlobals/Array/definition'),
+      Uri.parse('gemstone://1/UserGlobals/Array/definition?dict=1'),
     );
     expect(window.showTextDocument).toHaveBeenCalledWith(
-      expect.objectContaining({ uri: Uri.parse('gemstone://1/UserGlobals/Array/definition') }),
+      expect.objectContaining({ uri: Uri.parse('gemstone://1/UserGlobals/Array/definition?dict=1') }),
       expect.objectContaining({
         viewColumn: ViewColumn.Two,
         preview: true,

@@ -265,15 +265,16 @@ export function getGlobalsForDictionary(session: ActiveSession, dictIndex: numbe
 }
 
 export function getMethodCategories(
-  session: ActiveSession, className: string, isMeta: boolean,
+  session: ActiveSession, className: string, isMeta: boolean, dict?: number | string,
 ): string[] {
-  return sharedGetMethodCategories(bind(session), className, isMeta);
+  return sharedGetMethodCategories(bind(session), className, isMeta, dict);
 }
 
 export function getMethodSelectors(
   session: ActiveSession, className: string, isMeta: boolean, category: string,
+  dict?: number | string,
 ): string[] {
-  return sharedGetMethodSelectors(bind(session), className, isMeta, category);
+  return sharedGetMethodSelectors(bind(session), className, isMeta, category, dict);
 }
 
 export function getClassEnvironments(
@@ -284,24 +285,28 @@ export function getClassEnvironments(
 
 export function getMethodSource(
   session: ActiveSession, className: string, isMeta: boolean, selector: string,
-  environmentId: number = 0,
+  environmentId: number = 0, dict?: number | string,
 ): string {
-  return sharedGetMethodSource(bind(session), className, isMeta, selector, environmentId);
+  return sharedGetMethodSource(bind(session), className, isMeta, selector, environmentId, dict);
 }
 
 export function getBaseMethodSource(
   session: ActiveSession, className: string, isMeta: boolean, selector: string,
-  environmentId: number = 0,
+  environmentId: number = 0, dict?: number | string,
 ): string {
-  return sharedGetBaseMethodSource(bind(session), className, isMeta, selector, environmentId);
+  return sharedGetBaseMethodSource(bind(session), className, isMeta, selector, environmentId, dict);
 }
 
-export function getClassDefinition(session: ActiveSession, className: string): string {
-  return sharedGetClassDefinition(bind(session), className);
+export function getClassDefinition(
+  session: ActiveSession, className: string, dict?: number | string,
+): string {
+  return sharedGetClassDefinition(bind(session), className, dict);
 }
 
-export function getClassComment(session: ActiveSession, className: string): string {
-  return sharedGetClassComment(bind(session), className);
+export function getClassComment(
+  session: ActiveSession, className: string, dict?: number | string,
+): string {
+  return sharedGetClassComment(bind(session), className, dict);
 }
 
 export function getSuperclassDictName(
@@ -310,8 +315,10 @@ export function getSuperclassDictName(
   return sharedGetSuperclassDictName(bind(session), dictIndex, className);
 }
 
-export function canClassBeWritten(session: ActiveSession, className: string): boolean {
-  return sharedCanClassBeWritten(bind(session), className);
+export function canClassBeWritten(
+  session: ActiveSession, className: string, dict?: number | string,
+): boolean {
+  return sharedCanClassBeWritten(bind(session), className, dict);
 }
 
 export function getAllClassNames(session: ActiveSession) {
@@ -355,15 +362,17 @@ export function getMethodList(session: ActiveSession, className: string) {
 export function getSourceOffsets(
   session: ActiveSession,
   className: string, isMeta: boolean, selector: string, environmentId: number = 0,
+  dict?: number | string,
 ): number[] {
-  return sharedGetSourceOffsets(bind(session), className, isMeta, selector, environmentId);
+  return sharedGetSourceOffsets(bind(session), className, isMeta, selector, environmentId, dict);
 }
 
 export function getStepPointSelectorRanges(
   session: ActiveSession,
   className: string, isMeta: boolean, selector: string, environmentId: number = 0,
+  dict?: number | string,
 ) {
-  return sharedGetStepPointSelectorRanges(bind(session), className, isMeta, selector, environmentId);
+  return sharedGetStepPointSelectorRanges(bind(session), className, isMeta, selector, environmentId, dict);
 }
 
 export function searchMethodSource(
@@ -451,16 +460,16 @@ export function deleteMethod(
 
 export function recategorizeMethod(
   session: ActiveSession, className: string, isMeta: boolean,
-  selector: string, newCategory: string,
+  selector: string, newCategory: string, dict?: number | string,
 ): string {
-  return sharedRecategorizeMethod(bind(session), className, isMeta, selector, newCategory);
+  return sharedRecategorizeMethod(bind(session), className, isMeta, selector, newCategory, dict);
 }
 
 export function renameCategory(
   session: ActiveSession, className: string, isMeta: boolean,
-  oldCategory: string, newCategory: string,
+  oldCategory: string, newCategory: string, dict?: number | string,
 ): string {
-  return sharedRenameCategory(bind(session), className, isMeta, oldCategory, newCategory);
+  return sharedRenameCategory(bind(session), className, isMeta, oldCategory, newCategory, dict);
 }
 
 export function deleteClass(
@@ -502,28 +511,29 @@ export function moveDictionaryDown(session: ActiveSession, dictIndex: number): s
 export function setBreakAtStepPoint(
   session: ActiveSession,
   className: string, isMeta: boolean, selector: string,
-  stepPoint: number, environmentId: number = 0,
+  stepPoint: number, environmentId: number = 0, dict?: number | string,
 ): string {
   return sharedSetBreakAtStepPoint(
-    bind(session), className, isMeta, selector, stepPoint, environmentId,
+    bind(session), className, isMeta, selector, stepPoint, environmentId, dict,
   );
 }
 
 export function clearBreakAtStepPoint(
   session: ActiveSession,
   className: string, isMeta: boolean, selector: string,
-  stepPoint: number, environmentId: number = 0,
+  stepPoint: number, environmentId: number = 0, dict?: number | string,
 ): string {
   return sharedClearBreakAtStepPoint(
-    bind(session), className, isMeta, selector, stepPoint, environmentId,
+    bind(session), className, isMeta, selector, stepPoint, environmentId, dict,
   );
 }
 
 export function clearAllBreaks(
   session: ActiveSession,
   className: string, isMeta: boolean, selector: string, environmentId: number = 0,
+  dict?: number | string,
 ): string {
   return sharedClearAllBreaks(
-    bind(session), className, isMeta, selector, environmentId,
+    bind(session), className, isMeta, selector, environmentId, dict,
   );
 }

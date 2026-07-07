@@ -130,6 +130,13 @@ describe('recategorizeMethod', () => {
     expect(code).toContain("moveMethod: #'size'");
     expect(code).toContain("toCategory: 'it''s new'");
   });
+
+  it('scopes the receiver to a SymbolList index when a dict is given', () => {
+    const execute = vi.fn<QueryExecutor>(() => 'ok');
+    recategorizeMethod(execute, 'object', false, 'size', 'cat', 1);
+    const code = execute.mock.calls[0][1];
+    expect(code).toContain("(System myUserProfile symbolList at: 1) at: #'object' ifAbsent: [nil]");
+  });
 });
 
 describe('renameCategory', () => {

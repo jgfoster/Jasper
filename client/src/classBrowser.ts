@@ -22,8 +22,11 @@ export class ClassBrowser {
     const dictName = dictionaries[dictIndex - 1];
     if (!dictName) return;
 
+    // ?dict=<index> scopes the definition lookup to this exact dictionary (by its
+    // 1-based SymbolList position), so the same key in two dictionaries — which
+    // can even share a name — resolves to the class the user actually selected.
     const uri = vscode.Uri.parse(
-      `gemstone://${session.id}/${encodeURIComponent(dictName)}/${encodeURIComponent(className)}/definition`,
+      `gemstone://${session.id}/${encodeURIComponent(dictName)}/${encodeURIComponent(className)}/definition?dict=${dictIndex}`,
     );
 
     // Don't re-fetch and re-open if the tab is already present anywhere

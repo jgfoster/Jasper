@@ -1522,12 +1522,17 @@ export function activate(context: vscode.ExtensionContext) {
       });
       if (!picked) return;
 
-      if (!SystemBrowser.navigateToClass(session.id, picked.entry.dictName, picked.entry.className)) {
+      if (!SystemBrowser.navigateToClass(
+        session.id, picked.entry.dictName, picked.entry.className, picked.entry.dictIndex,
+      )) {
+        // ?dict=<index> scopes the definition to the exact dictionary the entry
+        // came from, so aliases sharing a key (or dictionaries sharing a name)
+        // resolve to the class the user picked.
         const uri = vscode.Uri.parse(
           `gemstone://${session.id}` +
           `/${encodeURIComponent(picked.entry.dictName)}` +
           `/${encodeURIComponent(picked.entry.className)}` +
-          `/definition`
+          `/definition?dict=${picked.entry.dictIndex}`
         );
         vscode.commands.executeCommand('gemstone.openDocument', uri);
       }

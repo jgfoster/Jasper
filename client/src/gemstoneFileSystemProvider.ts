@@ -22,6 +22,9 @@ interface ParsedMethodUri {
   category: string;
   selector: string;
   environmentId: number;
+  // Optional 1-based SymbolList index (?dict=N) — scopes the class lookup to a
+  // specific dictionary. Falls back to dictName when absent.
+  dictIndex?: number;
   // When true, serve the PERSISTENT base method source (what a session override
   // shadows) rather than the session/merged source. Used by the override diff.
   base?: boolean;
@@ -36,6 +39,10 @@ interface ParsedDefinitionUri {
   sessionId: number;
   dictName: string;
   className: string;
+  // Optional 1-based SymbolList index (?dict=N). Scopes the class lookup to a
+  // specific dictionary — disambiguates the same key in two dictionaries, which
+  // can even share a name. Falls back to dictName when absent.
+  dictIndex?: number;
 }
 
 interface ParsedCommentUri {
@@ -43,6 +50,7 @@ interface ParsedCommentUri {
   sessionId: number;
   dictName: string;
   className: string;
+  dictIndex?: number;
 }
 
 interface ParsedNewClassUri {
@@ -60,6 +68,7 @@ interface ParsedNewMethodUri {
   isMeta: boolean;
   category: string;
   environmentId: number;
+  dictIndex?: number;
 }
 
 type ParsedUri = ParsedMethodUri | ParsedDefinitionUri | ParsedCommentUri | ParsedNewClassUri | ParsedNewMethodUri;
@@ -73,6 +82,9 @@ function parseUri(uri: vscode.Uri): ParsedUri {
   const envMatch = uri.query?.match(/env=(\d+)/);
   const environmentId = envMatch ? parseInt(envMatch[1], 10) : 0;
   const base = /(?:^|&)base=1(?:&|$)/.test(uri.query ?? '');
+  // Optional ?dict=N — the 1-based SymbolList index that scopes a class lookup.
+  const dictMatch = uri.query?.match(/(?:^|&)dict=(\d+)(?:&|$)/);
+  const dictIndex = dictMatch ? parseInt(dictMatch[1], 10) : undefined;
 
   if (parts.length === 3 && parts[2] === 'new-class') {
     const catMatch = uri.query?.match(/category=([^&]+)/);
@@ -80,10 +92,10 @@ function parseUri(uri: vscode.Uri): ParsedUri {
     return { kind: 'new-class', sessionId, dictName: parts[1], category };
   }
   if (parts.length === 4 && parts[3] === 'definition') {
-    return { kind: 'definition', sessionId, dictName: parts[1], className: parts[2] };
+    return { kind: 'definition', sessionId, dictName: parts[1], className: parts[2], dictIndex };
   }
   if (parts.length === 4 && parts[3] === 'comment') {
-    return { kind: 'comment', sessionId, dictName: parts[1], className: parts[2] };
+    return { kind: 'comment', sessionId, dictName: parts[1], className: parts[2], dictIndex };
   }
   if (parts.length === 6 && parts[5] === 'new-method') {
     return {
@@ -94,6 +106,7 @@ function parseUri(uri: vscode.Uri): ParsedUri {
       isMeta: parts[3] === 'class',
       category: parts[4],
       environmentId,
+      dictIndex,
     };
   }
   if (parts.length === 6) {
@@ -112,6 +125,7 @@ function parseUri(uri: vscode.Uri): ParsedUri {
       environmentId,
       base,
       diffView: labelled != null,
+      dictIndex,
     };
    }
    throw vscode.FileSystemError.FileNotFound(uri);
@@ -124,17 +138,23 @@ export function buildNewMethodUri(
   isMeta: boolean,
   category: string,
   environmentId: number,
+  dictIndex?: number,
 ): vscode.Uri {
-  return buildMethodUri({ kind: 'method', sessionId, dictName, className, isMeta, category, selector: 'new-method', environmentId });
+  return buildMethodUri({ kind: 'method', sessionId, dictName, className, isMeta, category, selector: 'new-method', environmentId, dictIndex });
 }
 
-export function buildClassDefinitionUri(sessionId: number, dictName: string, className: string): vscode.Uri {
+export function buildClassDefinitionUri(
+  sessionId: number, dictName: string, className: string, dictIndex?: number,
+): vscode.Uri {
   assertIsValidUriPath('Dictionary name', dictName);
   assertIsValidUriPath('Class name', className);
   return vscode.Uri.from({
     scheme: 'gemstone',
     authority: String(sessionId),
     path: `/${dictName}/${className}/definition`,
+    // The 1-based SymbolList index scopes the class lookup to a specific
+    // dictionary (dictionaries can share a name). Omitted → dictName fallback.
+    query: dictIndex !== undefined ? `dict=${dictIndex}` : '',
   });
 }
 
@@ -146,6 +166,7 @@ export function buildMethodUri(parsedUri: ParsedMethodUri): vscode.Uri {
   
   const side = parsedUri.isMeta ? 'class' : 'instance';
   const params: string[] = [];
+  if (parsedUri.dictIndex !== undefined) params.push(`dict=${parsedUri.dictIndex}`);
   if (parsedUri.environmentId > 0) params.push(`env=${parsedUri.environmentId}`);
   if (parsedUri.base) params.push('base=1');
   return vscode.Uri.from({
@@ -216,8 +237,11 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
     }
     const session = this.sessionManager.getSession(parsed.sessionId);
     if (!session) return stat;
+    const dictRef = 'dictIndex' in parsed && parsed.dictIndex !== undefined
+      ? parsed.dictIndex
+      : parsed.dictName;
     try {
-      if (!queries.canClassBeWritten(session, parsed.className)) {
+      if (!queries.canClassBeWritten(session, parsed.className, dictRef)) {
         stat.permissions = vscode.FilePermission.Readonly;
       }
     } catch {
@@ -260,16 +284,18 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
 
     let text: string;
     switch (parsed.kind) {
-      case 'method':
+      case 'method': {
+        const dictRef = parsed.dictIndex ?? parsed.dictName;
         text = parsed.base
-          ? queries.getBaseMethodSource(session, parsed.className, parsed.isMeta, parsed.selector, parsed.environmentId)
-          : queries.getMethodSource(session, parsed.className, parsed.isMeta, parsed.selector, parsed.environmentId);
+          ? queries.getBaseMethodSource(session, parsed.className, parsed.isMeta, parsed.selector, parsed.environmentId, dictRef)
+          : queries.getMethodSource(session, parsed.className, parsed.isMeta, parsed.selector, parsed.environmentId, dictRef);
         break;
+      }
       case 'definition':
-        text = queries.getClassDefinition(session, parsed.className);
+        text = queries.getClassDefinition(session, parsed.className, parsed.dictIndex ?? parsed.dictName);
         break;
       case 'comment':
-        text = queries.getClassComment(session, parsed.className);
+        text = queries.getClassComment(session, parsed.className, parsed.dictIndex ?? parsed.dictName);
         break;
     }
 
@@ -295,7 +321,7 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
           this.compileClassDefinition(uri, parsed, source, session);
           break;
         case 'comment':
-          queries.setClassComment(session, parsed.className, source);
+          queries.setClassComment(session, parsed.className, source, parsed.dictIndex ?? parsed.dictName);
           vscode.window.showInformationMessage(
             `Comment updated for ${parsed.className}`
           );
@@ -336,7 +362,8 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
 
   private compileMethod(uri: vscode.Uri, parsedMethodUri: ParsedNewMethodUri | ParsedMethodUri, sourceCode: string, session: ActiveSession) {
     const result = queries.compileMethod(
-        session, parsedMethodUri.className, parsedMethodUri.isMeta, parsedMethodUri.category, sourceCode, parsedMethodUri.environmentId,
+        session, parsedMethodUri.className, parsedMethodUri.isMeta, parsedMethodUri.category, sourceCode,
+        parsedMethodUri.environmentId, parsedMethodUri.dictIndex ?? parsedMethodUri.dictName,
     );
     const selector = result.split('>> ')[1]?.trim();
 
@@ -380,7 +407,11 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
     // in both cases, parsed.className does not reflect the class that was actually created.
     void this.exportManager?.syncClass(session, parsed.dictName, className);
 
-    const definitionUri = buildClassDefinitionUri(parsed.sessionId, parsed.dictName, className);
+    // Preserve the dictionary index (when the edited URI carried one) so the
+    // reopened definition tab targets the same dictionary and matches the tab
+    // being replaced.
+    const dictIndex = parsed.kind === 'definition' ? parsed.dictIndex : undefined;
+    const definitionUri = buildClassDefinitionUri(parsed.sessionId, parsed.dictName, className, dictIndex);
 
     setImmediate(() => this._onClassDefinitionCompiled.fire({
       uri: definitionUri,

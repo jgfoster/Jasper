@@ -12,8 +12,9 @@ export function getBaseMethodSource(
   isMeta: boolean,
   selector: string,
   environmentId: number = 0,
+  dict?: number | string,
 ): string {
-  const recv = receiver(className, isMeta);
+  const recv = receiver(className, isMeta, dict);
   const sel = escapeString(selector);
   // Single expression, ASCII-only literal: on 3.6.x the compiler miscomputes
   // source cursor positions (ComStrmSetCursor error 1001) when the compiled
@@ -23,5 +24,5 @@ export function getBaseMethodSource(
     `ifNotNil: [:d | d at: #'${sel}' otherwise: nil]) ` +
     `ifNil: ['"(no base method: this selector has no persistent implementation on this class)"'] ` +
     `ifNotNil: [:m | m sourceString]`;
-  return execute(`getBaseMethodSource(${recv}>>#${selector} env:${environmentId})`, code);
+  return execute(`getBaseMethodSource(${receiver(className, isMeta)}>>#${selector} env:${environmentId})`, code);
 }

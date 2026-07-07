@@ -1456,7 +1456,7 @@ describe('SystemBrowser', () => {
       await messageHandler({ command: 'ctxRenameCategory' });
 
       expect(queries.renameCategory).toHaveBeenCalledWith(
-        session, 'Array', false, 'Accessing', 'Getters',
+        session, 'Array', false, 'Accessing', 'Getters', 1,
       );
     });
 
@@ -1508,7 +1508,7 @@ describe('SystemBrowser', () => {
 
       await messageHandler({ command: 'ctxDeleteMethod' });
 
-      expect(queries.deleteMethod).toHaveBeenCalledWith(session, 'Array', false, 'name');
+      expect(queries.deleteMethod).toHaveBeenCalledWith(session, 'Array', false, 'name', 1);
       // The class's mirror file is re-filed-out to reflect the removed method.
       expect(exportManager.syncClass).toHaveBeenCalledWith(session, 'UserGlobals', 'Array');
     });
@@ -1540,7 +1540,7 @@ describe('SystemBrowser', () => {
       await messageHandler({ command: 'ctxMoveToCategory' });
 
       expect(queries.recategorizeMethod).toHaveBeenCalledWith(
-        session, 'Array', false, 'name', 'Printing',
+        session, 'Array', false, 'name', 'Printing', 1,
       );
     });
 
@@ -1640,7 +1640,7 @@ describe('SystemBrowser', () => {
       messageHandler({ command: 'ctxMoveClassToCategory' });
       await flush();
 
-      expect(queries.recategorizeClass).toHaveBeenCalledWith(session, 'Array', 'Collections');
+      expect(queries.recategorizeClass).toHaveBeenCalledWith(session, 'Array', 'Collections', 1);
       expect(exportManager.syncClass).toHaveBeenCalledWith(session, 'UserGlobals', 'Array');
       expect(window.showInformationMessage).toHaveBeenCalledWith("Moved Array to category 'Collections'.");
     });
@@ -1671,7 +1671,7 @@ describe('SystemBrowser', () => {
       messageHandler({ command: 'ctxCopyMethodToClass' });
       await flush();
 
-      expect(queries.copyMethodToClass).toHaveBeenCalledWith(session, 'Array', 'Set', false, 'name', 0);
+      expect(queries.copyMethodToClass).toHaveBeenCalledWith(session, 'Array', 'Set', false, 'name', 0, 1);
       expect(exportManager.syncClass).toHaveBeenCalledWith(session, 'UserGlobals', 'Set');
       expect(window.showInformationMessage).toHaveBeenCalledWith('Copied #name to Set.');
     });
@@ -1748,7 +1748,7 @@ describe('SystemBrowser', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
 
       expect(vi.mocked(CommentBrowser.showOrUpdate)).toHaveBeenCalledWith(
-        session, 'UserGlobals', 'Array', exportManager,
+        session, 'UserGlobals', 1, 'Array', exportManager,
       );
       expect(vi.mocked(ClassBrowser.showOrUpdate).mock.invocationCallOrder[0])
         .toBeLessThan(vi.mocked(CommentBrowser.showOrUpdate).mock.invocationCallOrder[0]);
@@ -2307,6 +2307,35 @@ describe('SystemBrowser', () => {
         expect.anything(),
         expect.objectContaining({ viewColumn: ViewColumn.Two }),
       );
+    });
+  });
+
+  describe('navigateToClass', () => {
+    beforeEach(() => {
+      SystemBrowser.show(session, exportManager);
+      messageHandler({ command: 'ready' }); // dictionaries = ['UserGlobals', 'Globals']
+      vi.mocked(ClassBrowser.showOrUpdate).mockClear();
+    });
+
+    it('opens the class in the exact SymbolList index given, not the first name match', () => {
+      // Pass index 2 (Globals) explicitly; the definition opens scoped to it.
+      SystemBrowser.navigateToClass(session.id, 'Globals', 'Array', 2);
+
+      expect(ClassBrowser.showOrUpdate).toHaveBeenCalledWith(
+        session, ['UserGlobals', 'Globals'], 2, 'Array',
+      );
+    });
+
+    it('falls back to resolving the dictionary by name when no index is given', () => {
+      SystemBrowser.navigateToClass(session.id, 'UserGlobals', 'Array');
+
+      expect(ClassBrowser.showOrUpdate).toHaveBeenCalledWith(
+        session, ['UserGlobals', 'Globals'], 1, 'Array',
+      );
+    });
+
+    it('returns false when no browser is open for the session', () => {
+      expect(SystemBrowser.navigateToClass(999, 'Globals', 'Array', 2)).toBe(false);
     });
   });
 
