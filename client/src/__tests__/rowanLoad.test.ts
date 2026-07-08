@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { findRowanLoadSpecs, deriveRepoName, updateGitRepo, cloneGitRepo } from '../rowanLoad';
+import { findRowanLoadSpecs, deriveRepoName, normalizeGitUrl, updateGitRepo, cloneGitRepo } from '../rowanLoad';
 
 const LOAD_SPEC = (name: string) => `RwLoadSpecificationV2 {
 \t#specName : '${name}',
@@ -63,12 +63,39 @@ describe('findRowanLoadSpecs', () => {
   });
 });
 
+describe('normalizeGitUrl', () => {
+  it('adds .git and drops browser cruft from an https URL', () => {
+    expect(normalizeGitUrl('https://github.com/o/repo')).toBe('https://github.com/o/repo.git');
+    expect(normalizeGitUrl('https://github.com/o/repo.git')).toBe('https://github.com/o/repo.git');
+    expect(normalizeGitUrl('https://github.com/o/repo/')).toBe('https://github.com/o/repo.git');
+    expect(normalizeGitUrl('https://github.com/o/repo/tree/main')).toBe('https://github.com/o/repo.git');
+    expect(normalizeGitUrl('https://github.com/o/repo?tab=readme')).toBe('https://github.com/o/repo.git');
+    expect(normalizeGitUrl('  https://github.com/o/repo  ')).toBe('https://github.com/o/repo.git');
+  });
+
+  it('normalizes scp-style ssh URLs the same way', () => {
+    expect(normalizeGitUrl('git@github.com:o/repo')).toBe('git@github.com:o/repo.git');
+    expect(normalizeGitUrl('git@github.com:o/repo.git')).toBe('git@github.com:o/repo.git');
+  });
+
+  it('leaves local paths and other schemes alone (just trimmed)', () => {
+    expect(normalizeGitUrl('/tmp/repos/MyProject/')).toBe('/tmp/repos/MyProject');
+    expect(normalizeGitUrl('file:///tmp/repos/MyProject')).toBe('file:///tmp/repos/MyProject');
+  });
+});
+
 describe('deriveRepoName', () => {
   it('takes the repo name from scp-style, https, and file URLs, dropping .git', () => {
     expect(deriveRepoName('git@github.com:GemTalk/Rowan.git')).toBe('Rowan');
     expect(deriveRepoName('https://github.com/GemTalk/Rowan.git')).toBe('Rowan');
     expect(deriveRepoName('https://example.com/foo/Bar/')).toBe('Bar');
     expect(deriveRepoName('file:///tmp/repos/MyProject')).toBe('MyProject');
+  });
+
+  it('derives the right name from a browser URL (no .git, extra path)', () => {
+    expect(deriveRepoName('https://github.com/o/seaside-rowan')).toBe('seaside-rowan');
+    expect(deriveRepoName('https://github.com/o/seaside-rowan/tree/master')).toBe('seaside-rowan');
+    expect(deriveRepoName('https://github.com/o/seaside-rowan?tab=readme')).toBe('seaside-rowan');
   });
 
   it('applies the gemstone.ston cache minimum to every spec in the project', () => {

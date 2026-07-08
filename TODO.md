@@ -59,6 +59,11 @@ exercised the `gemstone` MCP server retroactively after a CLI workflow. Items gr
   already does, but the gap is small and not worth the new surface area for Jasper users.
 
 ## Ideas
+- **Configurable Rowan repo location** — Rowan repos currently always land in the open
+  workspace (git clones and copied-in local folders alike), and the sidebar Repositories list
+  is filtered to the workspace. Make this configurable: open workspace vs the extension's
+  global storage vs tracking a local folder in place. See `rowanWorkspaceDest` /
+  `workspaceRepos` (both marked `TODO` in the source).
 - **Code Snippets** — Templates for common patterns: do:, collect:, ifTrue:ifFalse:, class definition boilerplate.
 - **Lint / Warnings** — Flag common issues: unused temporaries, missing super sends in initialize, etc.
 - **Bookmarks** — Pin frequently-visited methods for quick access (the Inspector view is close to this already).

@@ -14,6 +14,7 @@ vi.mock('../browserQueries', () => ({
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { __setWorkspaceFolders } from '../__mocks__/vscode';
 import {
   RowanTreeProvider,
   RowanSectionItem,
@@ -75,6 +76,9 @@ describe('RowanTreeProvider', () => {
   let registry: RowanRepoRegistry;
 
   beforeEach(() => {
+    // Repos are shown only when their checkout is inside the open workspace;
+    // makeRepoDir() creates them under the temp dir, so open that as the folder.
+    __setWorkspaceFolders([os.tmpdir()]);
     registry = new RowanRepoRegistry(fakeMemento());
     listRowanProjectsMock.mockReset();
     listRowanProjectsMock.mockReturnValue({ available: true, projects: [] });
@@ -99,7 +103,7 @@ describe('RowanTreeProvider', () => {
   });
 
   it('keeps the sections once anything exists to show', async () => {
-    await registry.add({ name: 'repo', path: '/somewhere' });
+    await registry.add({ name: 'repo', path: path.join(os.tmpdir(), 'rowan-somewhere') });
     const provider = makeProvider(registry, null);
 
     expect(provider.getChildren()).toHaveLength(3);
@@ -180,7 +184,7 @@ describe('RowanTreeProvider', () => {
     });
 
     it('flags a repo whose directory has disappeared', async () => {
-      await registry.add({ name: 'gone', path: '/definitely/not/here' });
+      await registry.add({ name: 'gone', path: path.join(os.tmpdir(), 'rowan-gone-missing') });
       const provider = makeProvider(registry, null);
 
       const [item] = sectionChildren(provider, 'repositories') as RowanRepoItem[];
@@ -231,11 +235,30 @@ describe('RowanTreeProvider', () => {
 
       expect(labels).toEqual(['alpha', 'zeta']);
     });
+
+    it('shows only repos checked out inside the open workspace', async () => {
+      const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'rowan-ws-'));
+      __setWorkspaceFolders([ws]);
+      const inside = path.join(ws, 'inside');
+      fs.mkdirSync(path.join(inside, 'rowan', 'specs'), { recursive: true });
+      fs.writeFileSync(
+        path.join(inside, 'rowan', 'specs', 'In.ston'),
+        `RwLoadSpecificationV2 {\n\t#specName : 'In'\n}\n`,
+      );
+      await registry.add({ name: 'inside', path: inside });
+      await registry.add({ name: 'outside', path: makeRepoDir(true) });
+      const provider = makeProvider(registry, null);
+
+      const labels = (sectionChildren(provider, 'repositories') as RowanRepoItem[])
+        .map(i => i.label);
+
+      expect(labels).toEqual(['inside']);
+    });
   });
 
   describe('loaded projects section', () => {
     it('asks for a connection when no session is selected', async () => {
-      await registry.add({ name: 'repo', path: '/somewhere' });
+      await registry.add({ name: 'repo', path: path.join(os.tmpdir(), 'rowan-somewhere') });
       const provider = makeProvider(registry, null);
 
       const [item] = sectionChildren(provider, 'loaded') as RowanMessageItem[];

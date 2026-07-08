@@ -93,9 +93,24 @@ export function findRowanLoadSpecs(root: string): RowanLoadSpec[] {
 // path segment of the URL with a trailing `.git` removed. Handles scp-style
 // (git@host:owner/repo.git), https, and file URLs.
 export function deriveRepoName(url: string): string {
-  const trimmed = url.trim().replace(/\/+$/, '');
-  const segment = trimmed.split(/[/:]/).pop() || '';
+  const trimmed = normalizeGitUrl(url);
+  const segment = trimmed.replace(/\/+$/, '').split(/[/:]/).pop() || '';
   return segment.replace(/\.git$/i, '') || 'project';
+}
+
+// Turn whatever the user pasted into a clonable git URL. Handles the common
+// case of a *browser* URL (`https://host/owner/repo/tree/main`, `…?tab=readme`,
+// a trailing slash, or no `.git`) by reducing it to `host/owner/repo.git`. SSH
+// scp-style URLs (`git@host:owner/repo`) are normalized the same way. Anything
+// that isn't an https/ssh repo URL (local paths, `git://`, `ssh://…`) is left
+// as-is aside from trimming — git already accepts those.
+export function normalizeGitUrl(raw: string): string {
+  const url = raw.trim();
+  const https = url.match(/^(https?:\/\/[^/\s]+\/[^/\s]+\/[^/\s?#]+)/);
+  if (https) return https[1].replace(/\.git$/i, '') + '.git';
+  const ssh = url.match(/^([^@\s]+@[^:\s]+:[^/\s]+\/[^/\s?#]+)/);
+  if (ssh) return ssh[1].replace(/\.git$/i, '') + '.git';
+  return url.replace(/\/+$/, '');
 }
 
 // Clone a git repository to `dest` using the user's own git (so their SSH keys /

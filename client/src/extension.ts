@@ -30,7 +30,7 @@ import {
   stopAllSeasideServers,
   SEASIDE_DEFAULT_PORT,
 } from './seasideServer';
-import { findRowanLoadSpecs, deriveRepoName, cloneGitRepo, updateGitRepo } from './rowanLoad';
+import { findRowanLoadSpecs, deriveRepoName, cloneGitRepo, updateGitRepo, normalizeGitUrl } from './rowanLoad';
 import { NbCancelledError } from './nbRunner';
 import { RowanRepoRegistry } from './rowanRepos';
 import { RowanTreeProvider, RowanRepoItem, RowanLoadedProjectItem, RowanChangesProjectItem } from './rowanTreeProvider';
@@ -243,18 +243,48 @@ export async function openWorkspaceForSession(
 const GETTING_STARTED_SEEN_KEY = 'gemstone.hasSeenGettingStarted';
 const GETTING_STARTED_WALKTHROUGH_ID = 'gemtalksystems.gemstone-ide#gemstoneGettingStarted';
 
-// Where a git-cloned Rowan repository is checked out: a folder in the open
-// workspace, so the source is visible and editable in the Explorer. Returns
-// undefined (and warns) when no folder is open.
-function rowanCloneDest(url: string): string | undefined {
+// Where a tracked Rowan repository is checked out: a folder named `name` in the
+// open workspace, so the source is visible and editable in the Explorer.
+// Returns undefined (and warns) when no folder is open.
+//
+// TODO: make the location configurable (workspace vs the extension's global
+// storage vs tracking a folder in place). FOR NOW everything lands in the open
+// workspace — git clones and copied-in local folders alike.
+function rowanWorkspaceDest(name: string): string | undefined {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
     vscode.window.showErrorMessage(
-      'Open a folder or workspace first — Rowan repositories are cloned into it.',
+      'Open a folder or workspace first — Rowan repositories live inside it.',
     );
     return undefined;
   }
-  return path.join(folder.uri.fsPath, deriveRepoName(url));
+  return path.join(folder.uri.fsPath, name);
+}
+
+// Live feedback for the "Rowan repository URL" input box: warn on input that
+// isn't a git URL, and otherwise preview the normalized URL that will be cloned
+// (so pasting a browser URL like `…/owner/repo/tree/main` visibly resolves to
+// `…/owner/repo.git`).
+function validateRowanGitUrl(value: string): vscode.InputBoxValidationMessage | undefined {
+  const v = value.trim();
+  if (!v) return undefined;
+  if (!/^(https?:\/\/|git@|ssh:\/\/|git:\/\/|file:\/\/|\/|~|\.)/.test(v)) {
+    return {
+      message: 'Expected a git URL, e.g. https://github.com/owner/repo',
+      severity: vscode.InputBoxValidationSeverity.Warning,
+    };
+  }
+  const normalized = normalizeGitUrl(v);
+  return normalized === v
+    ? undefined
+    : { message: `Will clone: ${normalized}`, severity: vscode.InputBoxValidationSeverity.Info };
+}
+
+// True when `p` is already inside one of the open workspace folders.
+function isInsideWorkspace(p: string): boolean {
+  return (vscode.workspace.workspaceFolders ?? []).some(
+    (f) => p === f.uri.fsPath || p.startsWith(f.uri.fsPath + path.sep),
+  );
 }
 
 // Load a Rowan project from an on-disk directory: find its load spec (picking
@@ -1327,15 +1357,17 @@ export function activate(context: vscode.ExtensionContext) {
       const session = await sessionManager.resolveSession();
       if (!session) return;
 
-      const url = (await vscode.window.showInputBox({
+      const raw = (await vscode.window.showInputBox({
         prompt: 'Git repository URL of the Rowan project',
-        placeHolder: 'git@github.com:owner/repo.git',
+        placeHolder: 'https://github.com/owner/repo.git',
         ignoreFocusOut: true,
+        validateInput: validateRowanGitUrl,
       }))?.trim();
-      if (!url) return;
+      if (!raw) return;
+      const url = normalizeGitUrl(raw);
 
       // Clone into the open workspace folder.
-      const dest = rowanCloneDest(url);
+      const dest = rowanWorkspaceDest(deriveRepoName(url));
       if (!dest) return;
       if (!fs.existsSync(dest)) {
         try {
@@ -2324,14 +2356,16 @@ export function activate(context: vscode.ExtensionContext) {
       let repoPath: string;
       let gitUrl: string | undefined;
       if (source.origin === 'git') {
-        const url = (await vscode.window.showInputBox({
+        const raw = (await vscode.window.showInputBox({
           prompt: 'Git repository URL of the Rowan project',
-          placeHolder: 'git@github.com:owner/repo.git',
+          placeHolder: 'https://github.com/owner/repo.git',
           ignoreFocusOut: true,
+          validateInput: validateRowanGitUrl,
         }))?.trim();
-        if (!url) return;
+        if (!raw) return;
+        const url = normalizeGitUrl(raw);
         // Clone into the open workspace folder.
-        const dest = rowanCloneDest(url);
+        const dest = rowanWorkspaceDest(deriveRepoName(url));
         if (!dest) return;
         if (!fs.existsSync(dest)) {
           try {
@@ -2349,10 +2383,39 @@ export function activate(context: vscode.ExtensionContext) {
       } else {
         const folder = await vscode.window.showOpenDialog({
           canSelectFolders: true, canSelectFiles: false, canSelectMany: false,
-          openLabel: 'Track Repository', title: 'Select a Rowan project directory to track',
+          openLabel: 'Add Repository', title: 'Select a Rowan project directory',
         });
         if (!folder || folder.length === 0) return;
-        repoPath = folder[0].fsPath;
+        const src = folder[0].fsPath;
+        if (isInsideWorkspace(src)) {
+          // Already in the workspace — track it in place.
+          repoPath = src;
+        } else {
+          // FOR NOW, copy it into the workspace too (so it's visible/editable
+          // there, like git clones). TODO: make this configurable.
+          const dest = rowanWorkspaceDest(path.basename(src));
+          if (!dest) return;
+          if (!fs.existsSync(dest)) {
+            try {
+              await vscode.window.withProgress(
+                {
+                  location: vscode.ProgressLocation.Notification,
+                  title: `Copying ${path.basename(src)} into the workspace…`,
+                  cancellable: false,
+                },
+                async () => {
+                  fs.cpSync(src, dest, { recursive: true });
+                },
+              );
+            } catch (e: unknown) {
+              vscode.window.showErrorMessage(
+                `Could not copy the folder into the workspace: ${e instanceof Error ? e.message : String(e)}`,
+              );
+              return;
+            }
+          }
+          repoPath = dest;
+        }
       }
 
       if (findRowanLoadSpecs(repoPath).length === 0) {

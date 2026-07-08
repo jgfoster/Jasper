@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as path from 'path';
 import { RowanRepoRegistry, TrackedRepo } from './rowanRepos';
 import { findRowanLoadSpecs } from './rowanLoad';
 import { ActiveSession } from './sessionManager';
@@ -236,7 +237,7 @@ export class RowanTreeProvider implements vscode.TreeDataProvider<RowanTreeNode>
       // A bare start (nothing tracked, no session) renders as viewsWelcome
       // content instead of three empty sections — that's where the real
       // "Add Rowan Repository" button lives (package.json viewsWelcome).
-      if (this.registry.list().length === 0 && !this.sessions.getSession()) {
+      if (this.workspaceRepos().length === 0 && !this.sessions.getSession()) {
         return [];
       }
       return [
@@ -317,8 +318,19 @@ export class RowanTreeProvider implements vscode.TreeDataProvider<RowanTreeNode>
       .map(op => new RowanChangeItem(projectName, op));
   }
 
+  // The registry persists globally, but FOR NOW the sidebar shows only repos
+  // checked out inside the open workspace (matching where clones now land).
+  // TODO: make the clone/track location configurable — see rowanCloneDest.
+  private workspaceRepos(): TrackedRepo[] {
+    const roots = (vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath);
+    if (roots.length === 0) return [];
+    return this.registry.list().filter(r =>
+      roots.some(root => r.path === root || r.path.startsWith(root + path.sep)),
+    );
+  }
+
   private repositoryChildren(): RowanTreeNode[] {
-    const repos = this.registry.list();
+    const repos = this.workspaceRepos();
     if (repos.length === 0) {
       const item = new RowanMessageItem(
         'rowanEmpty', 'No repositories tracked — add one…', '',
