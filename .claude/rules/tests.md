@@ -1,6 +1,12 @@
+---
+paths:
+  - "**/*.test.ts"
+  - "**/__tests__/**"
+---
+
 # Tests
 
-Tests that use `useIntegrationTest` run against the real GCI shared library — do not use mocks or stubs for `GciLibrary` or any GCI calls.
+Repo-wide test conventions (all workspaces). Workspace specifics live in their respective nested rules.
 
 Test names should use plain language, not code identifiers. Describe the scenario from a functional or user perspective — avoid mirroring internal field names, variable names, or implementation details.
 

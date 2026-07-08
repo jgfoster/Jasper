@@ -1,3 +1,6 @@
+// In-extension MCP server (stdio/socket). Serves the tools in mcpTools.ts to AI
+// clients connecting to a running GemStone session.
+// Full design: docs/mcp-server.md
 import * as fs from 'fs';
 import * as net from 'net';
 import * as os from 'os';
