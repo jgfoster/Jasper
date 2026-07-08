@@ -3,7 +3,6 @@ out/
 *.js.map
 *.vsix
 .vscode-test/
-.claude/
 .vscode/settings.json
 .vscode/extensions.json
 gemstone
@@ -11,8 +10,30 @@ gemstone
 tsconfig.tsbuildinfo
 .gemstone
 
+# Claude Code: everything under .claude/ is personal/machine-local runtime state
+# by default (locks, checkpoints, mailbox, routines, daemon/registry state, …).
+# Only the curated dirs/files below are un-ignored and shared with the team —
+# opt a new one in by adding a `!` line once the team has agreed to adopt it.
+.claude/*
+!.claude/rules/
+!.claude/skills/
+!.claude/commands/
+!.claude/agents/
+!.claude/output-styles/
+!.claude/settings.json
+# Personal overrides live outside .claude/ (or as the ignored settings.local.json);
+# never commit these even though they sit in an otherwise-shared tree.
+CLAUDE.local.md
+.claude/settings.local.json
+
 # Ignore Jetbrains related files
 .idea/
 
 # Ignore MacOS related files
 .DS_Store
+topazerrors.log
+
+# Playwright acceptance-test artifacts
+acceptance/playwright-report/
+acceptance/test-results/
+acceptance/.vscode-test/

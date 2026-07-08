@@ -295,7 +295,13 @@ export const workspace = {
   openNotebookDocument: vi.fn(async (notebookType: string, data?: unknown) => ({ notebookType, data })),
   applyEdit: vi.fn(async () => true),
   textDocuments: [] as unknown[],
+  workspaceFolders: undefined as { uri: { fsPath: string; path: string } }[] | undefined,
 };
+
+/** Set (or clear) the open workspace folders for a test. */
+export function __setWorkspaceFolders(paths: string[] | undefined): void {
+  workspace.workspaceFolders = paths?.map((p) => ({ uri: { fsPath: p, path: p } }));
+}
 
 // ── Commands mock ──────────────────────────────────────────
 
@@ -488,6 +494,13 @@ export const ProgressLocation = {
   SourceControl: 1,
   Window: 10,
   Notification: 15,
+};
+
+export const InputBoxValidationSeverity = {
+  Ignore: 0,
+  Info: 1,
+  Warning: 2,
+  Error: 3,
 };
 
 // ── MarkdownString mock ──────────────────────────────────

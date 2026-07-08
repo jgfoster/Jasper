@@ -2,7 +2,7 @@
   "name": "gemstone-ide",
   "displayName": "Jasper: A GemStone Smalltalk IDE",
   "description": "GemStone/S IDE for Visual Studio Code",
-  "version": "1.7.8",
+  "version": "1.8.0",
   "publisher": "gemtalksystems",
   "license": "MIT",
   "author": "James Foster",
@@ -15,7 +15,8 @@
     "url": "https://github.com/jgfoster/Jasper/issues"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.85.0",
+    "node": ">=22.12"
   },
   "icon": "resources/gemstone-icon.png",
   "categories": [
@@ -114,18 +115,21 @@
             "type": "integer",
             "default": 0,
             "minimum": 0,
-            "description": "Maximum method dictionary environment to show in the browser (0 = standard Smalltalk only, 2 = show environments 0–2)"
+            "description": "Maximum method dictionary environment to show in the browser (0 = standard Smalltalk only, 2 = show environments 0\u20132)"
           },
           "gemstone.sessionMode": {
             "type": "string",
-            "enum": ["single", "multiple"],
+            "enum": [
+              "single",
+              "multiple"
+            ],
             "default": "single",
-            "description": "Number of concurrent GemStone sessions allowed. 'single' (default) keeps one session at a time for a clearer mental model — the connected login shows an inline Logout action and the Sessions panel is hidden. 'multiple' (beta) re-enables concurrent sessions and the Sessions panel."
+            "description": "Number of concurrent GemStone sessions allowed. 'single' (default) keeps one session at a time for a clearer mental model \u2014 the connected login shows an inline Logout action and the Sessions panel is hidden. 'multiple' (beta) re-enables concurrent sessions and the Sessions panel."
           },
           "gemstone.exportPath": {
             "type": "string",
             "default": "",
-            "description": "Root path for the local class mirror (read-only .gs files used by Find in Files / Go to Definition). Variables: {workspaceRoot}, {session}, {host}, {stone}, {user}, {index}, {dictName}. Defaults to {workspaceRoot}/.gemstone/{host}/{stone}/{user}/{index}-{dictName} — keyed by connection target so it is shared across that target's sessions and kept (and re-synced incrementally) across logout."
+            "description": "Root path for the local class mirror (read-only .gs files used by Find in Files / Go to Definition). Variables: {workspaceRoot}, {session}, {host}, {stone}, {user}, {index}, {dictName}. Defaults to {workspaceRoot}/.gemstone/{host}/{stone}/{user}/{index}-{dictName} \u2014 keyed by connection target so it is shared across that target's sessions and kept (and re-synced incrementally) across logout."
           },
           "gemstone.classSync.readOnlyMirror": {
             "type": "boolean",
@@ -147,7 +151,7 @@
             "default": 27101,
             "minimum": 1024,
             "maximum": 65535,
-            "description": "Port on 127.0.0.1 where Jasper serves the MCP HTTPS/SSE surface. The URL to paste into connector UIs (e.g. Claude Desktop's 'Add custom connector') is https://127.0.0.1:<port>/sse. Jasper generates a self-signed TLS certificate on first run and stores it in the extension's global storage directory; trust it once via the 'GemStone: Install MCP TLS Certificate' command. First-come-first-served across VS Code windows — override this per-workspace in .vscode/settings.json to run multiple windows simultaneously."
+            "description": "Port on 127.0.0.1 where Jasper serves the MCP HTTPS/SSE surface. The URL to paste into connector UIs (e.g. Claude Desktop's 'Add custom connector') is https://127.0.0.1:<port>/sse. Jasper generates a self-signed TLS certificate on first run and stores it in the extension's global storage directory; trust it once via the 'GemStone: Install MCP TLS Certificate' command. First-come-first-served across VS Code windows \u2014 override this per-workspace in .vscode/settings.json to run multiple windows simultaneously."
           },
           "gemstone.logins": {
             "type": "array",
@@ -387,6 +391,12 @@
           "icon": "$(key)"
         },
         {
+          "id": "gemstoneRowan",
+          "name": "Rowan",
+          "type": "tree",
+          "icon": "$(package)"
+        },
+        {
           "id": "gemstoneMcpServer",
           "name": "MCP Server",
           "type": "tree",
@@ -405,6 +415,10 @@
       {
         "view": "gemstoneLogins",
         "contents": "New to GemStone? Start with the guided walkthrough.\n[Get Started with GemStone](command:gemstone.openWalkthrough)\nOr learn the language in the interactive tutorial notebook.\n[Open Tutorial Notebook](command:gemstone.openTutorial)\nOr jump straight into a scratch workspace.\n[Open Getting Started Workspace](command:gemstone.openWorkspace)\nThen add a login to connect to a stone.\n[Add a Login](command:gemstone.login)"
+      },
+      {
+        "view": "gemstoneRowan",
+        "contents": "Not connected."
       },
       {
         "view": "gemstoneInspector",
@@ -494,7 +508,7 @@
           {
             "id": "enhancedInspector",
             "title": "Try the enhanced inspector",
-            "description": "Get richer, object-specific views in the Inspector. Requires GemStone 3.7.5 or later. Choose how Jasper installs it when you connect.\n[Enhanced Inspector Auto-Install…](command:gemstone.configureEnhancedInspectorAutoInstall)",
+            "description": "Get richer, object-specific views in the Inspector. Requires GemStone 3.7.5 or later. Choose how Jasper installs it when you connect.\n[Enhanced Inspector Auto-Install\u2026](command:gemstone.configureEnhancedInspectorAutoInstall)",
             "media": {
               "markdown": "resources/walkthrough/enhancedInspector.md"
             },
@@ -505,7 +519,7 @@
           {
             "id": "reopen",
             "title": "Reopen this walkthrough later",
-            "description": "Closed this? Reopen it anytime from Help → Welcome, or the Command Palette.\n[Open Walkthrough...](command:welcome.showAllWalkthroughs)",
+            "description": "Closed this? Reopen it anytime from Help \u2192 Welcome, or the Command Palette.\n[Open Walkthrough...](command:welcome.showAllWalkthroughs)",
             "media": {
               "markdown": "resources/walkthrough/reopen.md"
             }
@@ -650,7 +664,7 @@
       },
       {
         "command": "gemstone.configureEnhancedInspectorAutoInstall",
-        "title": "Enhanced Inspector Auto-Install…",
+        "title": "Enhanced Inspector Auto-Install\u2026",
         "category": "GemStone"
       },
       {
@@ -744,6 +758,71 @@
         "icon": "$(list-tree)"
       },
       {
+        "command": "gemstone.rowanAddRepo",
+        "title": "Add Rowan Repository\u2026",
+        "category": "GemStone",
+        "icon": "$(add)"
+      },
+      {
+        "command": "gemstone.rowanRemoveRepo",
+        "title": "Stop Tracking",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.rowanLoadRepo",
+        "title": "Load into Image",
+        "category": "GemStone",
+        "icon": "$(play)"
+      },
+      {
+        "command": "gemstone.rowanUpdateRepo",
+        "title": "Update from Git",
+        "category": "GemStone",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "gemstone.rowanExportProject",
+        "title": "Export Copy\u2026",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.rowanOpenProjectDiff",
+        "title": "Open Diff Against Disk",
+        "category": "GemStone",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "gemstone.rowanRefreshView",
+        "title": "Refresh Rowan View",
+        "category": "GemStone",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "gemstone.rowanFindClassPackage",
+        "title": "Find Class's Rowan Package",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.searchRowanClasses",
+        "title": "Search Rowan Classes",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.loadRowanProject",
+        "title": "Load Rowan Project\u2026",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.loadRowanProjectFromGit",
+        "title": "Load Rowan Project from Git\u2026",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.unloadRowanProject",
+        "title": "Unload Rowan Project\u2026",
+        "category": "GemStone"
+      },
+      {
         "command": "gemstone.refreshBrowser",
         "title": "Refresh Browser",
         "category": "GemStone",
@@ -779,13 +858,13 @@
       },
       {
         "command": "gemstone.findClass",
-        "title": "Find Class…",
+        "title": "Find Class\u2026",
         "category": "GemStone",
         "icon": "$(search)"
       },
       {
         "command": "gemstone.findMethod",
-        "title": "Find Method…",
+        "title": "Find Method\u2026",
         "category": "GemStone",
         "icon": "$(search)"
       },
@@ -966,7 +1045,7 @@
       },
       {
         "command": "gemstone.registerLocalVersion",
-        "title": "Register Local Version…",
+        "title": "Register Local Version\u2026",
         "category": "GemStone Admin",
         "icon": "$(add)"
       },
@@ -1130,12 +1209,44 @@
         "title": "Open MCP Inspector",
         "category": "GemStone",
         "icon": "$(open-preview)"
+      },
+      {
+        "command": "gemstone.serveSeaside",
+        "title": "Serve Seaside",
+        "category": "GemStone",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "gemstone.stopSeaside",
+        "title": "Stop Seaside Server",
+        "category": "GemStone",
+        "icon": "$(circle-slash)"
       }
     ],
     "menus": {
       "commandPalette": [
         {
           "command": "gemstone.stageBrowser.classClicked",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.rowanRemoveRepo",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.rowanLoadRepo",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.rowanUpdateRepo",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.rowanOpenProjectDiff",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.rowanExportProject",
           "when": "false"
         },
         {
@@ -1165,6 +1276,14 @@
         {
           "command": "gemstone.installEnhancedInspector",
           "when": "gemstone.hasActiveSession && gemstone.enhancedInspectorSupported"
+        },
+        {
+          "command": "gemstone.serveSeaside",
+          "when": "gemstone.hasActiveSession"
+        },
+        {
+          "command": "gemstone.stopSeaside",
+          "when": "gemstone.hasActiveSession"
         }
       ],
       "view/title": [
@@ -1247,6 +1366,16 @@
           "command": "gemstone.openWalkthrough",
           "when": "view == gemstoneVersions",
           "group": "navigation@0"
+        },
+        {
+          "command": "gemstone.rowanAddRepo",
+          "when": "view == gemstoneRowan",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gemstone.rowanRefreshView",
+          "when": "view == gemstoneRowan",
+          "group": "navigation@2"
         },
         {
           "command": "gemstone.addLogin",
@@ -1334,6 +1463,41 @@
           "command": "gemstone.stageBrowser.openDefinitionToSide",
           "when": "view == gemstoneStageClasses && viewItem == stageClass",
           "group": "1_open@2"
+        },
+        {
+          "command": "gemstone.rowanUpdateRepo",
+          "when": "view == gemstoneRowan && viewItem =~ /^rowanRepo.*Git$/",
+          "group": "inline@0"
+        },
+        {
+          "command": "gemstone.rowanLoadRepo",
+          "when": "view == gemstoneRowan && (viewItem == rowanRepo || viewItem == rowanRepoGit)",
+          "group": "inline@1"
+        },
+        {
+          "command": "gemstone.rowanRemoveRepo",
+          "when": "view == gemstoneRowan && viewItem =~ /^rowanRepo/",
+          "group": "rowan@1"
+        },
+        {
+          "command": "gemstone.rowanOpenProjectDiff",
+          "when": "view == gemstoneRowan && viewItem == rowanChangesProject",
+          "group": "inline@1"
+        },
+        {
+          "command": "gemstone.rowanOpenProjectDiff",
+          "when": "view == gemstoneRowan && viewItem == rowanLoadedProject",
+          "group": "rowan@0"
+        },
+        {
+          "command": "gemstone.rowanExportProject",
+          "when": "view == gemstoneRowan && viewItem == rowanLoadedProject",
+          "group": "rowan@1"
+        },
+        {
+          "command": "gemstone.unloadRowanProject",
+          "when": "view == gemstoneRowan && viewItem == rowanLoadedProject",
+          "group": "rowan@2"
         },
         {
           "command": "gemstone.copyNetldiHost",
@@ -1663,22 +1827,33 @@
     "compile:mcp": "tsc -p mcp-server/tsconfig.json",
     "bundle": "node esbuild.mjs",
     "watch": "tsc -b -w client/tsconfig.json server/tsconfig.json",
+    "dev:fresh": "bash scripts/dev-fresh.sh",
+    "serve:seaside": "bash scripts/serve-seaside.sh",
     "test": "npm run test:server && npm run test:client && npm run test:mcp",
+    "test": "npm run test --workspaces",
     "test:server:start": "npm run test:server:start --workspace client",
     "test:server:stop": "npm run test:server:stop --workspace client",
     "test:server:list": "npm run test:server:list --workspace client",
-    "test:server": "cd server && npx vitest run",
+    "test:server": "npm test --workspace server",
     "test:client": "npm test --workspace client",
-    "test:mcp": "cd mcp-server && npx vitest run",
+    "test:mcp": "npm test --workspace mcp-server",
     "//test:gci": "Runs only the on-demand 'gci' vitest project (client/vitest.config.ts); needs a live test stone (npm run test:server:start). `npm test` runs the 'default' project and excludes these.",
     "test:gci": "cd client && npx vitest run --project gci",
+    "//test:acceptance": "End-user acceptance tests that drive a real VS Code window (Playwright + Electron). Slow and GUI-bound, so excluded from `npm test`. Run `npm run compile` first.",
+    "test:acceptance": "playwright test -c acceptance/playwright.config.ts",
+    "test:acceptance:report": "playwright show-report acceptance/playwright-report",
+    "test:acceptance:docker": "bash acceptance/docker-test.sh",
+    "test:acceptance:rowan": "bash acceptance/docker-test-rowan.sh",
+    "test:acceptance:seaside": "bash acceptance/docker-test-seaside.sh",
     "package": "vsce package",
     "publish": "npm run publish:vsce && npm run publish:ovsx",
     "publish:vsce": "vsce publish",
     "publish:ovsx": "ovsx publish"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/node": "^20.0.0",
+    "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.7.1",
     "esbuild": "^0.28.1",
     "ovsx": "^0.10.5",

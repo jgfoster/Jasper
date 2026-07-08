@@ -70,3 +70,25 @@ describe('integration-test artifacts are excluded from the .vsix', () => {
     expect(ignores).toContain('client/tmp/**');
   });
 });
+
+// The acceptance/ Playwright harness, the scripts/ dev helpers, .dockerignore, and the
+// per-directory CLAUDE.md guides are contributor tooling — none of it is read at runtime,
+// so it should never ship in the .vsix. New top-level tooling directories are not covered
+// by the existing client/src, server/src, docs/** rules, so each needs its own ignore line;
+// without it vsce silently bundles the whole tree (that is how acceptance/ + scripts/ first
+// leaked into the 1.8.0 package).
+describe('contributor tooling is excluded from the .vsix', () => {
+  const repoRoot = path.resolve(__dirname, '..', '..', '..');
+  const ignores = fs
+    .readFileSync(path.join(repoRoot, '.vscodeignore'), 'utf8')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#') && !line.startsWith('!'));
+
+  it.each(['acceptance/**', 'scripts/**', '.dockerignore', 'CLAUDE.md', '**/CLAUDE.md'])(
+    'excludes %s',
+    (pattern) => {
+      expect(ignores).toContain(pattern);
+    },
+  );
+});

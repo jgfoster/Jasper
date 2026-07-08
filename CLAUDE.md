@@ -1,14 +1,14 @@
-# CLAUDE.md
+# Jasper Monorepo
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+<!-- Maintainer note (stripped from agent context): This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository. -->
 
 ## Overview
 
 Jasper is a VS Code extension (`gemstone-ide`) that provides a full GemStone/S 64 Bit Smalltalk development environment. It is a monorepo with three npm workspaces:
 
-- **`client/`** — the VS Code extension itself (all UI, views, GCI bindings, debugger, MCP server integration)
-- **`server/`** — a Language Server Protocol (LSP) server implementing Smalltalk language features (parsing, completion, hover, diagnostics, formatting, semantic tokens)
-- **`mcp-server/`** — a standalone Model Context Protocol (MCP) server that exposes GemStone operations as AI-callable tools
+- **`client/`** — the VS Code extension itself (UI, views, GCI bindings, debugger, MCP integration). Entry point: `client/src/extension.ts`.
+- **`server/`** — a Language Server Protocol (LSP) server for Smalltalk (parsing, completion, hover, diagnostics, formatting, semantic tokens) under `server/src/`.
+- **`mcp-server/`** — a standalone Model Context Protocol (MCP) server exposing GemStone operations as AI-callable tools under `mcp-server/src/`.
 
 Node version is pinned in `.nvmrc` (`nvm use` before anything else).
 
@@ -19,22 +19,62 @@ nvm use                  # activate pinned Node version
 npm install              # install all workspace dependencies
 npm run compile          # TypeScript compile (all workspaces)
 npm run watch            # incremental watch build (client + server)
-npm test                 # run all tests (server → client → mcp-server)
+npm test                 # run all tests (server → client → mcp-server); needs a running test stone (see done-gate below)
 npm run test:server      # server workspace tests only
-npm run test:client      # client workspace tests only (npm test --workspace client)
+npm run test:client      # client workspace tests only
 npm run test:mcp         # mcp-server workspace tests only
 npm run test:server:start  # install GemStone (if needed), start a fresh test stone, write .env.test
 npm run test:server:stop   # stop the test stone's Stone and NetLDI processes
 npm run test:server:list   # list running GemStone processes for the test stone
-npm run test:gci           # deep GCI binding tests (see below)
+npm run test:gci           # deep GCI binding tests (requires a running stone)
 npm run package          # produce .vsix package
+
+# Dev helpers
+npm run dev:fresh        # launch the extension in a throwaway editor window (see below)
+npm run serve:seaside    # start a Seaside server gem for the loaded hello app (see below)
+
+# End-user acceptance tests (Playwright drives a real editor window; see acceptance/)
+npm run test:acceptance         # run the specs locally (opens a window — macOS can't headless it)
+npm run test:acceptance:docker  # run them headless in a Linux container (no window)
+npm run test:acceptance:rowan   # the Rowan add-from-git → load e2e (in-container stone)
+npm run test:acceptance:seaside # the Seaside Hello World e2e (install → serve → integrated browser)
+npm run test:acceptance:report  # open the HTML report / flip through per-step screenshots
 ```
+
+### Running the extension in a clean slate
+
+`npm run dev:fresh [-- <folder>]` (`scripts/dev-fresh.sh`) launches the editor
+(`codium`, falling back to `code`) with `--extensionDevelopmentPath` pointing at
+this repo and throwaway `--user-data-dir`/`--extensions-dir` — **none of your
+personal settings, extensions, or login keychain** (`--password-store=basic`,
+the keychain-isolation flag the acceptance harness also needs). It compiles the
+extension first if `client/out` is missing; use `npm run watch` + Reload Window
+for a live loop. It does **not** isolate `gemstone.rootPath`, so it still sees
+your real GemStone installs (to connect).
+
+### Serving Seaside
+
+After loading Seaside + the `hello-seaside-rowan` project through Jasper, view
+the app two ways:
+
+- **From the editor:** the **GemStone: Serve Seaside** command
+  (`gemstone.serveSeaside` in `seasideServer.ts`) — spawns a detached serving
+  gem (`WAGsZincAdaptor startOn:` blocks, so it can't run in the GCI session) as
+  SystemUser and opens the URL in the integrated browser; **GemStone: Stop
+  Seaside Server** stops it.
+- **From the shell:** `npm run serve:seaside [-- <port> <stone>]` /
+  `npm run serve:seaside -- stop` (`scripts/serve-seaside.sh`) does the same
+  detached gem; then open `http://localhost:8383/hello` via the editor's
+  "Simple Browser: Show" command.
 
 Run a single test file: `cd client && npx vitest run src/__tests__/extension.test.ts` (or use the equivalent path for the workspace you're in).
 
 Tests run in a random order on every run. The seed is printed at the top of the output — to reproduce a specific run, pass `--sequence.seed=<seed>` to that workspace's vitest directly (e.g. `cd client && npx vitest run --sequence.seed=<seed>`).
 
-Before considering something done: `npm run compile && npm test` must pass.
+Before considering something done: `npm run compile && npm test` must pass. 
+`npm test` bundles an automatic integration test that logs into a live stone, 
+so run `npm run test:server:start` once first since without a running test stone, 
+running `npm test` will **hard-fails** (it does not skip).
 
 ## Architecture
 
@@ -98,3 +138,4 @@ The GCI library (`libgcits`) is a platform-native `.so`/`.dylib`/`.dll` bundled 
 
 `docs/3.7/` contains the GCI header files (`gcits.hf`, `gci.ht`, `gcicmn.ht`, `gcits.ht`) — the authoritative reference for GCI function signatures, struct layouts, and constants. Consult these when working with `gciLibrary.ts` or any GCI call.
 
+<!-- Maintainer note (stripped from agent context): Be careful with the edits to this file, anything included here will be auto-loaded in the context for ALL conversations. Keep only the most relevant and non-obvious details that are needed on all conversations. And only details that agents won't typically auto-discover by browsing the code -->

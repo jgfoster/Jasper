@@ -2,6 +2,9 @@
   "name": "gemstone-smalltalk-server",
   "version": "0.1.0",
   "private": true,
+  "scripts": {
+    "test": "vitest run"
+  },
   "dependencies": {
     "esbuild": "^0.28.1",
     "vscode-languageserver": "^9.0.0",

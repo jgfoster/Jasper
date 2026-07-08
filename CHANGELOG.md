@@ -4,6 +4,20 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-07-08
+
+### Added
+
+- **Rowan package management (work in progress).** A new **Rowan** view lists tracked git repositories and the Rowan projects within them, and manages loading them into the image. Add a repository from a git URL (checked out into your workspace folder) and load/unload its projects; loads run non-blocking over a shared transient SystemUser session (Rowan loads require SystemUser). Git-backed repos get an inline **Update** that pulls with submodules and refreshes the row. A project can declare the gem cache it needs in a GemStone-native `rowan/gemstone.ston`; when the connected gem's cache falls short, Jasper flags the repo with a warning triangle and offers the fix before loading. Also adds **GemStone: Serve Seaside** / **GemStone: Stop Seaside Server** commands, which run a detached serving gem and open the app in the integrated browser. ([#144](https://github.com/jgfoster/Jasper/pull/144))
+
+### Changed
+
+- **New databases are created with a 500 MB gem cache, and existing databases are raised to 500 MB when Jasper starts the stone.** The former 50 MB default silently overflowed when loading a large Rowan project.
+
+### Fixed
+
+- **System Browser: clicking a class in the hierarchy view no longer reopens its source file.** The hierarchy click already refreshed the Class Definition pane; it also called `openClassFile`, shoving a file in front of whatever the user was editing. That call is removed, matching the column click's definition-only behavior.
+
 ## [1.7.8] - 2026-07-07
 
 ### Added

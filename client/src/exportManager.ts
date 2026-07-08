@@ -1,3 +1,6 @@
+// Orchestrates the incremental class-sync engine in client/src/sync/ (manifest
+// build/diff, chunked transport, and file-out of changed classes).
+// Full design: docs/incremental-class-sync.md
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';

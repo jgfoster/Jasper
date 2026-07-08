@@ -1,5 +1,6 @@
 import * as os from 'os';
 import * as path from 'path';
+import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { SysadminStorage } from './sysadminStorage';
 import { GemStoneDatabase, GemStoneProcess } from './sysadminTypes';
@@ -257,7 +258,33 @@ export class ProcessManager {
   }
 
   /** Start NetLDI */
+  // Databases created before the gem cache bump have a 50 MB gem.conf, which
+  // overflows loading a large Rowan project. Raise it here (idempotent) so an
+  // existing stone self-heals on its next start — the gem.conf path is
+  // host-native, so plain fs works under WSL too. Never lowers a larger value;
+  // any failure is swallowed so startup always proceeds.
+  private static readonly MIN_GEM_CACHE_KB = 500000;
+  private ensureAdequateGemCache(db: GemStoneDatabase): void {
+    const confFile = path.join(db.path, 'conf', 'gem.conf');
+    try {
+      if (!fs.existsSync(confFile)) return;
+      const original = fs.readFileSync(confFile, 'utf8');
+      const setting = /GEM_TEMPOBJ_CACHE_SIZE\s*=\s*(\d+)\s*;/;
+      const match = setting.exec(original);
+      if (match && Number(match[1]) >= ProcessManager.MIN_GEM_CACHE_KB) return;
+      const line = `GEM_TEMPOBJ_CACHE_SIZE = ${ProcessManager.MIN_GEM_CACHE_KB};`;
+      const updated = match
+        ? original.replace(match[0], line)
+        : `${original.replace(/\n?$/, '\n')}${line}\n`;
+      fs.writeFileSync(confFile, updated);
+      appendSysadmin(`Raised gem temp-object cache to ${ProcessManager.MIN_GEM_CACHE_KB} KB in ${confFile}`);
+    } catch {
+      /* leave the conf untouched; the gem just keeps its current cache */
+    }
+  }
+
   async startNetldi(db: GemStoneDatabase): Promise<string> {
+    this.ensureAdequateGemCache(db);
     const env = this.getEnvironment(db);
     const gsPath = env.GEMSTONE;
     const dbPath = needsWsl() ? windowsPathToWsl(db.path) : db.path;
