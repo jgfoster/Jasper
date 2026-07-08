@@ -2104,22 +2104,20 @@ export class GciLibrary {
   }
 
   /**
-   * Runs `expectedOopsProvider` and returns whether the session's
-   * PureExportSet ended up containing exactly its prior contents plus the
-   * oops `expectedOopsProvider` declares -- nothing removed, replaced, or
-   * added beyond that. Order does not matter: PureExportSet is a set, and
-   * newly added oops are not guaranteed to sort after existing members (oop
-   * values are not allocated in increasing order).
+   * Returns whether the session's PureExportSet ended up containing exactly
+   * its prior contents plus the oops `expectedOopsProvider` declares --
+   * nothing removed, replaced, or added beyond that. Order does not matter:
+   * PureExportSet is a set, and newly added oops are not guaranteed to sort
+   * after existing members (oop values are not allocated in increasing
+   * order).
    *
-   * Takes a snapshot of the PureExportSet (as an Array) before invoking
-   * `expectedOopsProvider`, then compares it to the PureExportSet
-   * afterwards. `expectedOopsProvider` returns the oops it expects to have
-   * added; this returns `true` only if the "after" snapshot, compared as a
-   * bag (so a duplicate can't mask a missing or extra oop), is exactly the
-   * "before" snapshot plus precisely those oops. Anything else -- oops
-   * removed or replaced, or actual additions that don't match what
-   * `expectedOopsProvider` declared (including declaring additions that
-   * never happened) -- returns `false`.
+   * `expectedOopsProvider` returns the oops it expects to have added; this
+   * returns `true` only if the "after" snapshot, compared as a bag (so a
+   * duplicate can't mask a missing or extra oop), is exactly the "before"
+   * snapshot plus precisely those oops. Anything else -- oops removed or
+   * replaced, or actual additions that don't match what `expectedOopsProvider`
+   * declared (including declaring additions that never happened) -- returns
+   * `false`.
    *
    * @param session - The GemStone session to operate in.
    * @param expectedOopsProvider - The operation to observe. Returns the oops
@@ -2127,56 +2125,115 @@ export class GciLibrary {
    *   expects none).
    * @returns `true` if the PureExportSet gained only the oops
    *   `expectedOopsProvider` declared, `false` otherwise.
+   * @throws {GciLibraryError} If the underlying GCI calls fail.
+   */
+  public didPureExportSetGainOnlyOopsProvidedBy(session: unknown, expectedOopsProvider: (snapshotName: string) => bigint[]) {
+    return this.checkAgainstPureExportSetSnapshot(
+        session,
+        (previousSnapshotName, currentSnapshotName, expectedAddedOops) => {
+          const expectedAddedObjectsExpression = `{ ${expectedAddedOops.map(oop => `Object objectForOop: ${oop}`).join('. ')} }`;
+          return `(${previousSnapshotName}, ${expectedAddedObjectsExpression}) asIdentityBag = ${currentSnapshotName} asIdentityBag`;
+        },
+        expectedOopsProvider
+    );
+  }
+
+  /**
+   * Returns whether the session's PureExportSet gained any oop it didn't
+   * already contain while running `callback`. Unlike
+   * {@link didPureExportSetGainOnlyOopsProvidedBy}, this doesn't care which
+   * oops were added, or whether any were also removed -- it only asks
+   * whether the "after" snapshot contains something the "before" snapshot
+   * didn't.
+   *
+   * @param session - The GemStone session to operate in.
+   * @param callback - The operation to observe.
+   * @returns `true` if the PureExportSet gained at least one new oop,
+   *   `false` otherwise.
+   * @throws {GciLibraryError} If the underlying GCI calls fail.
+   */
+  public didPureExportSetGrow(session: unknown, callback: (snapshotName: string) => unknown) {
+    return this.checkAgainstPureExportSetSnapshot(
+        session,
+        (previousSnapshotName, currentSnapshotName) => `
+          (${currentSnapshotName} asIdentitySet - ${previousSnapshotName} asIdentitySet) isEmpty not
+        `,
+        callback
+    );
+  }
+
+  /**
+   * Takes a snapshot of the session's PureExportSet, runs `callback`, then
+   * evaluates `buildComparisonExpression` against the "before" and "after"
+   * snapshots (plus whatever `callback` returned) to decide the result.
+   *
+   * Shared by {@link didPureExportSetGainOnlyOopsProvidedBy} and
+   * {@link didPureExportSetGrow}, which differ only in what comparison they
+   * need performed.
+   *
+   * @param session - The GemStone session to operate in.
+   * @param buildComparisonExpression - Builds the Smalltalk boolean
+   *   expression to evaluate, given the "before" snapshot's temp name, the
+   *   "after" snapshot's temp name, and `callback`'s return value.
+   * @param callback - The operation to observe.
    * @throws {GciLibraryError} If either of the snapshot expressions signals a
    *   GCI error.
    */
-  public didPureExportSetGainOnlyOopsProvidedBy(session: unknown, expectedOopsProvider: (snapshotName: string) => bigint[]) {
+  private checkAgainstPureExportSetSnapshot<T>(session: unknown,
+                    buildComparisonExpression: (previousSnapshotName: string, currentSnapshotName: string, callbackResult: T) => string,
+                    callback: (snapshotName: string) => T) {
     const takePureExportSetSnapshotExpression = '(GsBitmap newForHiddenSet: #PureExportSet) asArray';
     const snapshotName = this.storeInUniqueUserGlobalsKey(session, takePureExportSetSnapshotExpression);
-    
-    let expectedAddedOops: bigint[];
+
+    let callbackResult: T;
     try {
-      expectedAddedOops = expectedOopsProvider(snapshotName);
+      callbackResult = callback(snapshotName);
     } catch (error) {
       // The snippet below hasn't run yet, so the 'before' snapshot is still
       // sitting in UserGlobals under snapshotName -- clean it up before
-      // re-throwing. If expectedOopsProvider already removed it itself,
-      // this second removal fails too; that's fine, the original error is
-      // what matters here.
+      // re-throwing. If callback already removed it itself, this second
+      // removal fails too; that's fine, the original error is what matters
+      // here.
       try {
-        this.executeDiscardingResult(session, `UserGlobals removeKey: ${snapshotName}`);
+        this.removeKeyFromUserGlobals(session, snapshotName);
       } catch (cleanupError) {
         console.warn(`Failed to clean up UserGlobals key '${snapshotName}' after callback error:`, cleanupError);
       }
       throw error;
     }
 
-    const expectedAddedObjectsExpression = `{ ${expectedAddedOops.map(oop => `Object objectForOop: ${oop}`).join('. ')} }`;
-
     // No try/catch needed below: removeKey: is the snippet's first
     // statement, so by the time anything here could fail, the snapshot key
     // is already gone -- either removed successfully, or the removeKey:
     // itself is what's failing, meaning there was never anything to clean up.
-    const pureExportSetGainedOnlyTheExpectedOops = this.execute(session, `
+    const comparisonResult = this.execute(session, `
         | previousSnapshot currentSnapshot |
 
         "Grab the 'before' snapshot we stashed in UserGlobals, and remove it
         now that we're done with it -- it was only needed for this check."
         previousSnapshot := UserGlobals removeKey: ${snapshotName}.
 
-        "Take an 'after' snapshot of the PureExportSet, now that
-        expectedOopsProvider has run."
+        "Take an 'after' snapshot of the PureExportSet, now that callback has run."
         currentSnapshot := ${takePureExportSetSnapshotExpression}.
 
-        "Compare as bags, not sequences -- a newly added oop can sort
-        anywhere in currentSnapshot, not just at the end. Bag equality
-        (rather than set) also catches a caller declaring an addition that
-        never actually happened, which set equality alone could mask if it
-        duplicated an oop already in previousSnapshot."
-        (previousSnapshot, ${expectedAddedObjectsExpression}) asIdentityBag = currentSnapshot asIdentityBag
+        ${buildComparisonExpression('previousSnapshot', 'currentSnapshot', callbackResult)}
     `);
 
-    return this.isTrueOop(pureExportSetGainedOnlyTheExpectedOops);
+    return this.isTrueOop(comparisonResult);
+  }
+
+  /**
+   * Returns whether `oop` is currently a member of the session's
+   * PureExportSet.
+   *
+   * @param session - The GemStone session to operate in.
+   * @param oop - The oop to check for.
+   * @throws {GciLibraryError} If the underlying GCI call fails.
+   */
+  public isOopIncludedInPureExportSet(session: unknown, oop: bigint) {
+    return this.isTrueOop(
+        this.execute(session, `(GsBitmap newForHiddenSet: #PureExportSet) includes: (Object objectForOop: ${oop})`)
+    );
   }
 
   // ---------------------------------------------------------------------
@@ -2234,6 +2291,31 @@ export class GciLibrary {
     return keyExpression;
   }
 
+  /**
+   * Returns the value stored under `keyExpression` in `UserGlobals`.
+   *
+   * @param session - The GemStone session to operate in.
+   * @param keyExpression - A Smalltalk expression evaluating to the key to
+   *   look up (e.g. a symbol literal such as `#Key_12345`).
+   * @returns The oop of the value stored under `keyExpression`.
+   * @throws {GciLibraryError} If the underlying GCI call fails.
+   */
+  public valueOfUserGlobalsKey(session: unknown, keyExpression: string) {
+    return this.execute(session, `UserGlobals at: ${keyExpression}`);
+  }
+
+  /**
+   * Removes the entry for `keyExpression` from `UserGlobals`.
+   *
+   * @param session - The GemStone session to operate in.
+   * @param keyExpression - A Smalltalk expression evaluating to the key to
+   *   remove (e.g. a symbol literal such as `#Key_12345`).
+   * @throws {GciLibraryError} If the underlying GCI call fails.
+   */
+  public removeKeyFromUserGlobals(session: unknown, keyExpression: string) {
+    this.executeDiscardingResult(session, `UserGlobals removeKey: ${keyExpression}`);
+  }
+
   // ---------------------------------------------------------------------
   // SessionTemps management
   // ---------------------------------------------------------------------
@@ -2246,6 +2328,50 @@ export class GciLibrary {
    */
   public resetSessionTemps(session: unknown) {
     this.executeDiscardingResult(session, `SessionTemps current removeAllKeys`);
+  }
+
+  /**
+   * Evaluates `valueExpression` and stores its result under a fresh key (see
+   * {@link nextKey}) in the session's SessionTemps dictionary.
+   *
+   * @param session - The GemStone session to operate in.
+   * @param valueExpression - A Smalltalk expression evaluating to the value
+   *   to store.
+   * @returns The Smalltalk symbol literal used as the key.
+   * @throws {GciLibraryError} If the underlying GCI call fails.
+   */
+  public storeInUniqueSessionTempsKey(session: unknown, valueExpression: string) {
+    const key = this.nextKey();
+
+    this.executeDiscardingResult(session, `SessionTemps current at: ${key} put: ${valueExpression}`);
+
+    return key;
+  }
+
+  /**
+   * Returns whether the session's SessionTemps dictionary is empty.
+   *
+   * @param session - The GemStone session to operate in.
+   * @throws {GciLibraryError} If the underlying GCI call fails.
+   */
+  public isSessionTempsEmpty(session: unknown) {
+    return this.isTrueOop(
+        this.execute(session, 'SessionTemps current isEmpty')
+    )
+  }
+
+  /**
+   * Returns the value stored under `keyExpression` in the session's
+   * SessionTemps dictionary.
+   *
+   * @param session - The GemStone session to operate in.
+   * @param keyExpression - A Smalltalk expression evaluating to the key to
+   *   look up (e.g. a symbol literal such as `#Key_12345`).
+   * @returns The oop of the value stored under `keyExpression`.
+   * @throws {GciLibraryError} If the underlying GCI call fails.
+   */
+  public valueOfSessionTempsKey(session: unknown, keyExpression: string) {
+    return this.execute(session, `SessionTemps current at: ${keyExpression}`)
   }
 
   // ---------------------------------------------------------------------

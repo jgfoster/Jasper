@@ -76,6 +76,79 @@ describe('GciLibrary', () => {
     function expectUserGlobalsToInclude(key: string, shouldBeIncluded: boolean) {
         expect(gciLibrary.isIncludedInUserGlobals(session, key)).toBe(shouldBeIncluded);
     }
+
+    /**
+     * Asserts that the session's PureExportSet gains at least one new oop
+     * across `callback`, per `shouldGrow`.
+     *
+     * @param shouldGrow - Whether the PureExportSet is expected to gain a new oop.
+     * @param callback - The operation to observe.
+     */
+    function expectPureExportSetToGrow(shouldGrow: boolean, callback: () => unknown) {
+        expect(gciLibrary.didPureExportSetGrow(session, callback)).toBe(shouldGrow);
+    }
+
+    /** Spies on `resolveSymbol` for the duration of `callback`, then restores it. */
+    function spyOnResolveSymbol(callback: (spy: Mock<typeof GciLibrary.prototype.resolveSymbol>) => void) {
+        const spy =  vi.spyOn(gciLibrary, 'resolveSymbol');
+
+        try{
+            callback(spy);
+        } finally{
+            spy.mockRestore();
+        }
+    }
+
+    /**
+     * Asserts a fresh symbol lookup happens for `sessionToUse`.
+     *
+     * Checks the looked-up session with `toBe`, not `toHaveBeenCalledWith`
+     * -- koffi's session pointers have no enumerable properties, so
+     * vitest's deep equality can't tell two different sessions apart and
+     * would pass regardless of which one was actually used.
+     *
+     * @param sessionToUse - The session expected to require a fresh lookup; defaults to the shared `session`.
+     */
+    function expectUtf8OopToResolveViaSymbolLookup(sessionToUse: unknown = session) {
+        spyOnResolveSymbol(resolveSymbolSpy => {
+            gciLibrary.utf8ClassOop(sessionToUse);
+
+            expect(resolveSymbolSpy).toHaveBeenCalledTimes(1);
+            const [calledSession, calledSymbol] = resolveSymbolSpy.mock.calls[0];
+            expect(calledSession).toBe(sessionToUse);
+            expect(calledSymbol).toBe('Utf8');
+        });
+    }
+
+    /** Asserts `session`'s already-cached Utf8 oop is reused, without a fresh symbol lookup. */
+    function expectUtf8OopToBeCached() {
+        spyOnResolveSymbol(resolveSymbolSpy => {
+            gciLibrary.utf8ClassOop(session);
+
+            expect(resolveSymbolSpy).not.toHaveBeenCalled();
+        });
+    }
+
+    /**
+     * Asserts that `session`'s SessionTemps dictionary is (or is not) empty,
+     * per `shouldBeEmpty`.
+     *
+     * @param shouldBeEmpty - Whether SessionTemps is expected to be empty.
+     */
+    function expectSessionTempsToBeEmpty(shouldBeEmpty: boolean) {
+        expect(gciLibrary.isSessionTempsEmpty(session)).toBe(shouldBeEmpty);
+    }
+
+    /**
+     * Asserts that the session's PureExportSet includes (or does not
+     * include) `oop`, per `shouldBeIncluded`.
+     *
+     * @param shouldBeIncluded - Whether `oop` is expected to be included.
+     * @param oop - The oop to check for.
+     */
+    function expectPureExportSetToIncludeOop(shouldBeIncluded: boolean, oop: bigint) {
+        expect(gciLibrary.isOopIncludedInPureExportSet(session, oop)).toBe(shouldBeIncluded);
+    }
     
     describe('evaluating expressions', () => {
 
@@ -119,7 +192,7 @@ describe('GciLibrary', () => {
 
         it('evaluates an expression', () => {
             const key = gciLibrary.nextKey();
-
+            
             gciLibrary.executeDiscardingResult(session, `UserGlobals at: ${key} put: true`);
 
             expectUserGlobalsToInclude(key, true);
@@ -153,47 +226,6 @@ describe('GciLibrary', () => {
     });
 
     describe('resolving symbols', () => {
-
-        /** Spies on `resolveSymbol` for the duration of `callback`, then restores it. */
-        function spyOnResolveSymbol(callback: (spy: Mock<typeof GciLibrary.prototype.resolveSymbol>) => void) {
-            const spy =  vi.spyOn(gciLibrary, 'resolveSymbol');
-            
-            try{
-                callback(spy);
-            } finally{
-                spy.mockRestore();
-            }
-        }
-        
-        /**
-         * Asserts a fresh symbol lookup happens for `sessionToUse`.
-         *
-         * Checks the looked-up session with `toBe`, not `toHaveBeenCalledWith`
-         * -- koffi's session pointers have no enumerable properties, so
-         * vitest's deep equality can't tell two different sessions apart and
-         * would pass regardless of which one was actually used.
-         *
-         * @param sessionToUse - The session expected to require a fresh lookup; defaults to the shared `session`.
-         */
-        function expectUtf8OopToResolveViaSymbolLookup(sessionToUse: unknown = session) {
-            spyOnResolveSymbol(resolveSymbolSpy => {
-                gciLibrary.utf8ClassOop(sessionToUse);
-
-                expect(resolveSymbolSpy).toHaveBeenCalledTimes(1);
-                const [calledSession, calledSymbol] = resolveSymbolSpy.mock.calls[0];
-                expect(calledSession).toBe(sessionToUse);
-                expect(calledSymbol).toBe('Utf8');
-            });
-        }
-
-        /** Asserts `session`'s already-cached Utf8 oop is reused, without a fresh symbol lookup. */
-        function expectUtf8OopToBeCached() {
-            spyOnResolveSymbol(resolveSymbolSpy => {
-                gciLibrary.utf8ClassOop(session);
-
-                expect(resolveSymbolSpy).not.toHaveBeenCalled();
-            });
-        }
         
         it('resolves the Utf8 class', () => {
             const expectedOop = gciLibrary.execute(session, 'Utf8');
@@ -287,7 +319,7 @@ describe('GciLibrary', () => {
         it ('retrieves the stored value under the returned key', () => {
             const key = gciLibrary.storeInUniqueUserGlobalsKey(session, 'true');
 
-            const value = gciLibrary.execute(session, `UserGlobals at: ${key}`);
+            const value = gciLibrary.valueOfUserGlobalsKey(session, key);
 
             expectOopToBeTrue(value);
         })
@@ -302,31 +334,56 @@ describe('GciLibrary', () => {
             expectPureExportSetToStayUnchanged(() => gciLibrary.storeInUniqueUserGlobalsKey(session, 'true'));
         });
 
-        it('gives each call a distinct key', () => {
-            const firstKey = gciLibrary.storeInUniqueUserGlobalsKey(session, '1');
-            const secondKey = gciLibrary.storeInUniqueUserGlobalsKey(session, '2');
+        it('stores each value under a distinct key', () => {
+            const firstKey = gciLibrary.storeInUniqueUserGlobalsKey(session, 'true');
+            const secondKey = gciLibrary.storeInUniqueUserGlobalsKey(session, 'nil');
 
             expect(firstKey).not.toBe(secondKey);
-            expectOopToBeTrue(gciLibrary.execute(session, `(UserGlobals at: ${firstKey}) = 1`));
-            expectOopToBeTrue(gciLibrary.execute(session, `(UserGlobals at: ${secondKey}) = 2`));
+            expectOopToBeTrue(gciLibrary.valueOfUserGlobalsKey(session, firstKey));
+            expectOopToBeNil(gciLibrary.valueOfUserGlobalsKey(session, secondKey));
         });
     });
     
     describe('SessionTemps management', () =>{
         
         it('empties SessionTemps', () =>{
-            const key = gciLibrary.nextKey();
-            gciLibrary.executeDiscardingResult(session, `SessionTemps current at: ${key} put: true`);
+            gciLibrary.storeInUniqueSessionTempsKey(session, 'true');
 
             gciLibrary.resetSessionTemps(session);
 
-            expectOopToBeTrue(gciLibrary.execute(session, 'SessionTemps current isEmpty'));
+            expectSessionTempsToBeEmpty(true);
         })
 
         it('does not modify the PureExportSet when resetting SessionTemps', () =>{
             expectPureExportSetToStayUnchanged(()=> gciLibrary.resetSessionTemps(session));
         })
+        
+        it('is empty when nothing has been stored', () => {
+            expectSessionTempsToBeEmpty(true);
+        })
 
+        it('is not empty once a key has been stored', () => {
+            gciLibrary.storeInUniqueSessionTempsKey(session, 'true');
+
+            expectSessionTempsToBeEmpty(false);
+        })
+
+        it('retrieves the stored value under the returned key', () => {
+            const key = gciLibrary.storeInUniqueSessionTempsKey(session, 'true');
+
+            const value = gciLibrary.valueOfSessionTempsKey(session, key);
+
+            expectOopToBeTrue(value);
+        })
+
+        it('stores each value under a distinct key', () => {
+            const firstKey = gciLibrary.storeInUniqueSessionTempsKey(session, 'true');
+            const secondKey = gciLibrary.storeInUniqueSessionTempsKey(session, 'nil');
+
+            expect(firstKey).not.toBe(secondKey);
+            expectOopToBeTrue(gciLibrary.valueOfSessionTempsKey(session, firstKey));
+            expectOopToBeNil(gciLibrary.valueOfSessionTempsKey(session, secondKey));
+        })
     })
     
     describe('PureExportSet management', () => {
@@ -348,6 +405,12 @@ describe('GciLibrary', () => {
                 gciLibrary.execute(session, 'Object new');
                 return []
             });
+        });
+
+        it('does not gain only the provided oops when the callback declares an oop that was already present', () => {
+            const oopAlreadyPresent = gciLibrary.execute(session, 'Object new');
+
+            expectPureExportSetToGainOnlyOopsProvidedBy(false, () => [oopAlreadyPresent]);
         });
 
         it('gains only the provided oops when the callback does not change the PureExportSet', () => {
@@ -403,7 +466,7 @@ describe('GciLibrary', () => {
                     // Removing the key here means it's already gone by the time
                     // didPureExportSetGainOnlyOopsProvidedBy's own cleanup tries to
                     // remove it again, so that second removal genuinely fails.
-                    gciLibrary.executeDiscardingResult(session, `UserGlobals removeKey: ${snapshotName}`);
+                    gciLibrary.removeKeyFromUserGlobals(session, snapshotName);
                     return throwExpectedError();
                 })
             })
@@ -416,7 +479,21 @@ describe('GciLibrary', () => {
 
             expectOopToBeTrue(gciLibrary.execute(session, '(GsBitmap newForHiddenSet: #PureExportSet) isEmpty'));
         })
-        
+
+        it('includes an oop currently held in it', () => {
+            const existingOop = gciLibrary.execute(session, 'Object new');
+
+            expectPureExportSetToIncludeOop(true, existingOop);
+        })
+
+        it('does not include an oop after it is released', () => {
+            const oopToRelease = gciLibrary.execute(session, 'Object new');
+
+            gciLibrary.releaseObject(session, oopToRelease);
+
+            expectPureExportSetToIncludeOop(false, oopToRelease);
+        })
+
     });
 
     describe('logging in', () => {
@@ -429,5 +506,104 @@ describe('GciLibrary', () => {
         })
         
     })
-    
+
+    describe('resetting non-transactional session state', () => {
+        
+        it('empties SessionTemps', () => {
+            gciLibrary.storeInUniqueSessionTempsKey(session,'true');
+            
+            gciLibrary.resetNonTransactionalSessionState(session);
+            
+            expectSessionTempsToBeEmpty(true);
+        })
+
+        it('clears the cached Utf8 oop', () => {
+            gciLibrary.utf8ClassOop(session)
+
+            gciLibrary.resetNonTransactionalSessionState(session);
+
+           expectUtf8OopToResolveViaSymbolLookup();
+        })
+
+        it('releases previously created objects from the PureExportSet', () => {
+            const oopToRelease = gciLibrary.execute(session, 'Object new');
+
+            gciLibrary.resetNonTransactionalSessionState(session);
+
+            expectPureExportSetToIncludeOop(false, oopToRelease);
+        })
+
+        it('does not add anything new to the PureExportSet', () => {
+            expectPureExportSetToGrow(false, () => {
+                gciLibrary.resetNonTransactionalSessionState(session);
+            });
+        })
+    })
+
+    describe('checking whether the PureExportSet grew', () => {
+
+        it('does not grow when the callback does not modify the PureExportSet', () => {
+            expectPureExportSetToGrow(false, () => {});
+        })
+
+        it('grows when the callback adds a new object', () => {
+            expectPureExportSetToGrow(true, () => {
+                gciLibrary.execute(session, 'Object new')
+            });
+        })
+
+        it('does not grow when the callback only removes an object', () => {
+            const oop = gciLibrary.execute(session, 'Object new')
+
+            expectPureExportSetToGrow(false, () => {
+                gciLibrary.releaseObject(session, oop);
+            });
+        })
+        
+        it ('stores the snapshot in UserGlobals while the callback runs', () => {
+            gciLibrary.didPureExportSetGrow(session, (snapshotName) => {
+                expectUserGlobalsToInclude(snapshotName, true);
+            });
+        })
+
+        it('cleans up the snapshot key when the callback succeeds', () => {
+            let snapshotNameToRemove;
+
+            gciLibrary.didPureExportSetGrow(session, (snapshotName) => {
+                snapshotNameToRemove = snapshotName
+            });
+
+            expectUserGlobalsToInclude(snapshotNameToRemove!, false);
+        })
+
+        it('re-throws errors from the callback', () => {
+            expectToThrowExpectedError(throwExpectedError => {
+                gciLibrary.didPureExportSetGrow(session, throwExpectedError);
+            });
+        })
+
+        it('cleans up the snapshot key when the callback throws', () => {
+            let snapshotNameToRemove: string;
+            const captureSnapshotNameAndFail = (snapshotName: string) => {
+                snapshotNameToRemove = snapshotName;
+                throw new Error();
+            };
+
+            expect(() => gciLibrary.didPureExportSetGrow(session, captureSnapshotNameAndFail)).toThrow();
+
+            expectUserGlobalsToInclude(snapshotNameToRemove!, false);
+        })
+
+        it('still throws the original error when cleaning up the snapshot key also fails', () => {
+            expectToThrowExpectedError(throwExpectedError => {
+                gciLibrary.didPureExportSetGrow(session, (snapshotName: string) => {
+                    // Removing the key here means it's already gone by the time
+                    // didPureExportSetGrow's own cleanup tries to remove it again,
+                    // so that second removal genuinely fails.
+                    gciLibrary.removeKeyFromUserGlobals(session, snapshotName);
+                    return throwExpectedError();
+                })
+            })
+        });
+    })
 });
