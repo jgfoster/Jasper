@@ -244,7 +244,7 @@ describe('GciLibrary', () => {
     describe('SessionTemps management', () =>{
         
         it('empties SessionTemps', () =>{
-            const key = gciLibrary.nextUniqueKey();
+            const key = gciLibrary.nextKey();
             gciLibrary.executeDiscardingResult(session, `SessionTemps current at: ${key} put: true`);
 
             gciLibrary.resetSessionTemps(session);

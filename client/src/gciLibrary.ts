@@ -2183,15 +2183,17 @@ export class GciLibrary {
   // UserGlobals management
   // ---------------------------------------------------------------------
 
-  private uniqueKeyCounter = 0n;
+  private keyCounter = 0n;
 
   /**
-   * Returns a Smalltalk symbol literal (e.g. `#Key_12345`) guaranteed not to
-   * already be in use as a key in the caller's chosen dictionary (typically
-   * `UserGlobals` or `SessionTemps`).
+   * Returns a Smalltalk symbol literal (e.g. `#Key_12345`), unique among the
+   * keys returned by this method for this `GciLibrary` instance. This does
+   * *not* guarantee the key is unused in any particular dictionary (e.g.
+   * `UserGlobals` or `SessionTemps`) -- callers needing that guarantee must
+   * check for themselves (see {@link storeInUniqueUserGlobalsKey}).
    */
-  public nextUniqueKey(): string {
-    return `#Key_${this.uniqueKeyCounter++}`;
+  public nextKey(): string {
+    return `#Key_${this.keyCounter++}`;
   }
 
   /**
@@ -2210,7 +2212,7 @@ export class GciLibrary {
 
   /**
    * Evaluates `valueExpression` and stores its result under a fresh key (see
-   * {@link nextUniqueKey}) in `UserGlobals`.
+   * {@link nextKey}) in `UserGlobals`.
    *
    * @param session - The GemStone session to operate in.
    * @param valueExpression - A Smalltalk expression evaluating to the value
@@ -2220,7 +2222,7 @@ export class GciLibrary {
    *   the underlying GCI call fails.
    */
   public storeInUniqueUserGlobalsKey(session: unknown, valueExpression: string) {
-    const keyExpression = this.nextUniqueKey();
+    const keyExpression = this.nextKey();
 
     this.executeDiscardingResult(session, `
       (UserGlobals includesKey: ${keyExpression})
