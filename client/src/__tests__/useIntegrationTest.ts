@@ -7,12 +7,6 @@ export type GciTestContext = {
     session: unknown;
     login: (options?: LoginOptions) => void
     logout: () => unknown
-    /**
-     * Logs into a second, independent session for the duration of `callback`,
-     * then always logs it out afterward -- for tests that need to verify
-     * behavior is isolated per session (e.g. that one session's cache doesn't
-     * leak into another's).
-     */
     withTransientSession: (callback: (transientSession: unknown) => void) => void
 }
 
@@ -144,20 +138,7 @@ export function useIntegrationTest(callback: UseIntegrationTestCallback) {
             session,
             login,
             logout,
-            withTransientSession: (callback: (transientSession: unknown) => void) => {
-                const transientSession = gciLibrary.login(
-                    process.env.VITE_GEMSTONE_STONE_NRS!,
-                    process.env.VITE_GEMSTONE_GEM_NRS!,
-                    process.env.VITE_GEMSTONE_USER!,
-                    process.env.VITE_GEMSTONE_PASSWORD!
-                );
-                
-                try{
-                    callback(transientSession);
-                } finally {
-                    gciLibrary.logout(transientSession);
-                }
-            }
+            withTransientSession
         });
     }
 
@@ -175,6 +156,31 @@ export function useIntegrationTest(callback: UseIntegrationTestCallback) {
         session = undefined;
 
         return loggedOutSession;
+    }
+    
+    /**
+     * Logs into a second, independent session for the duration of `callback`,
+     * then always logs it out afterward -- for tests that need to verify
+     * behavior is isolated per session (e.g. that one session's cache doesn't
+     * leak into another's).
+     *
+     * @param callback - Runs with the transient session. The session is
+     *   logged out once this returns, whether it throws or not.
+     * @throws {GciLibraryError} If logging into the transient session fails.
+     */
+    function withTransientSession(callback: (transientSession: unknown) => void) {
+        const transientSession = gciLibrary.login(
+            process.env.VITE_GEMSTONE_STONE_NRS!,
+            process.env.VITE_GEMSTONE_GEM_NRS!,
+            process.env.VITE_GEMSTONE_USER!,
+            process.env.VITE_GEMSTONE_PASSWORD!
+        );
+
+        try {
+            callback(transientSession);
+        } finally {
+            gciLibrary.logout(transientSession);
+        }
     }
 
     /**

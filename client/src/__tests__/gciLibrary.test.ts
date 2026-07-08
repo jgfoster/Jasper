@@ -166,11 +166,14 @@ describe('GciLibrary', () => {
         }
         
         /**
-         * Asserts a fresh symbol lookup happens for `sessionToUse`. Checks the
-         * looked-up session with `toBe`, not `toHaveBeenCalledWith` -- koffi's
-         * session pointers have no enumerable properties, so vitest's deep
-         * equality can't tell two different sessions apart and would pass
-         * regardless of which one was actually used.
+         * Asserts a fresh symbol lookup happens for `sessionToUse`.
+         *
+         * Checks the looked-up session with `toBe`, not `toHaveBeenCalledWith`
+         * -- koffi's session pointers have no enumerable properties, so
+         * vitest's deep equality can't tell two different sessions apart and
+         * would pass regardless of which one was actually used.
+         *
+         * @param sessionToUse - The session expected to require a fresh lookup; defaults to the shared `session`.
          */
         function expectUtf8OopToResolveViaSymbolLookup(sessionToUse: unknown = session) {
             spyOnResolveSymbol(resolveSymbolSpy => {
@@ -183,10 +186,10 @@ describe('GciLibrary', () => {
             });
         }
 
-        /** Asserts `sessionToUse`'s already-cached Utf8 oop is reused, without a fresh symbol lookup. */
-        function expectUtf8OopToBeCached(sessionToUse: unknown = session) {
+        /** Asserts `session`'s already-cached Utf8 oop is reused, without a fresh symbol lookup. */
+        function expectUtf8OopToBeCached() {
             spyOnResolveSymbol(resolveSymbolSpy => {
-                gciLibrary.utf8ClassOop(sessionToUse);
+                gciLibrary.utf8ClassOop(session);
 
                 expect(resolveSymbolSpy).not.toHaveBeenCalled();
             });
@@ -247,7 +250,7 @@ describe('GciLibrary', () => {
             expectUtf8OopToResolveViaSymbolLookup();
         })
 
-        it('forces a fresh symbol lookup after logging out', () => {
+        it('re-resolves the Utf8 oop after a logout/login cycle', () => {
             gciLibrary.utf8ClassOop(session);
             testContext.logout();
 
@@ -256,15 +259,27 @@ describe('GciLibrary', () => {
             expectUtf8OopToResolveViaSymbolLookup();
         })
 
-        it('caches the Utf8 oop separately per session, without affecting others', () => {
+        it("a new session doesn't have another session's cached Utf8 oop", () => {
             gciLibrary.utf8ClassOop(session);
 
             testContext.withTransientSession(transientSession => {
                 expectUtf8OopToResolveViaSymbolLookup(transientSession);
             });
+        })
+
+        it("logging out a session does not clear another session's cached Utf8 oop", () => {
+            gciLibrary.utf8ClassOop(session);
+
+            testContext.withTransientSession(() => {
+                // Intentionally empty: withTransientSession logs it out as soon as this callback returns,
+                // which is all this test needs -- it exercises the logout cache-cleanup
+                // path for a session other than `session`, so the assertion below can
+                // check that `session`'s own cached oop survived it untouched.
+            });
 
             expectUtf8OopToBeCached();
         })
+        
     });
     
     describe('UserGlobals management', () => {
