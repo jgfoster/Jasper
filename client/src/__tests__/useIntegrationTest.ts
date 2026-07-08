@@ -102,7 +102,6 @@ export function useIntegrationTest(callback: UseIntegrationTestCallback) {
             );
             login();
         }
-        gciLibrary.releaseCachedUtf8Oop(session)
         gciLibrary.beginTransaction(session);
     });
 
