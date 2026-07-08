@@ -101,7 +101,7 @@ export function useIntegrationTest(callback: UseIntegrationTestCallback) {
             );
             login();
         }
-        gciLibrary.releaseCachedSymbolOops(session)
+        gciLibrary.releaseCachedUtf8Oop(session)
         gciLibrary.beginTransaction(session);
     });
 

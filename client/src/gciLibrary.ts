@@ -1974,7 +1974,7 @@ export class GciLibrary {
    * Returns the OOP of the `Utf8` class — see {@link resolveSymbol} for
    * error behavior. Cached per session: only resolves via a GCI round-trip
    * the first time it's called for a given session. Call
-   * {@link releaseCachedSymbolOops} to release the cached oop and clear the
+   * {@link releaseCachedUtf8Oop} to release the cached oop and clear the
    * cache for a session.
    *
    * `Utf8` is used as the source class when compiling code via {@link execute}:
@@ -2066,7 +2066,7 @@ export class GciLibrary {
    * @param session - The GemStone session to operate in.
    * @throws {GciLibraryError} If releasing the cached oop fails.
    */
-  public releaseCachedSymbolOops(session: unknown) {
+  public releaseCachedUtf8Oop(session: unknown) {
     const cachedOop = this.cachedUtf8OopFor(session);
     if (!cachedOop) return;
 
@@ -2308,11 +2308,11 @@ export class GciLibrary {
   public resetNonTransactionalSessionState(session: unknown) {
     // Order matters: resetSessionTemps evaluates code, which re-resolves (and
     // re-caches) the Utf8 class oop as a side effect if it isn't already
-    // cached, so it must run before releaseCachedSymbolOops clears that
+    // cached, so it must run before releaseCachedUtf8Oop clears that
     // cache. releaseAllObjects must run last so it sweeps up whatever that
     // re-resolution just added to the PureExportSet.
     this.resetSessionTemps(session);
-    this.releaseCachedSymbolOops(session);
+    this.releaseCachedUtf8Oop(session);
     this.releaseAllObjects(session);
   }
 }

@@ -200,7 +200,7 @@ describe('GciLibrary', () => {
         it ('forces a fresh symbol lookup after releasing the cached oop', () => {
             gciLibrary.utf8ClassOop(session);
             
-            gciLibrary.releaseCachedSymbolOops(session);
+            gciLibrary.releaseCachedUtf8Oop(session);
 
             spyOnResolveSymbol(resolveSymbolSpy => {
                 gciLibrary.utf8ClassOop(session);
