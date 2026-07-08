@@ -1,0 +1,382 @@
+<title>Rowan view — preview</title>
+<style>
+  /* ── Tokens: VS Code Dark+ / Light+, since the subject IS VS Code ────── */
+  :root {
+    --page-bg: #f6f7f9; --page-fg: #1f2328; --page-muted: #57606a;
+    --note-border: #d6dae0; --kbd-bg: #eef0f3;
+    --sb-bg: #f3f3f3; --sb-fg: #3b3b3b; --sb-desc: #717171;
+    --sb-header-bg: #e7e7e7; --sb-hover: #e8e8e8; --sb-sel: #d2e3f5;
+    --sb-border: #d4d4d4; --icon: #424242; --accent: #0067c0;
+    --git-add: #107c10; --git-del: #ad0116; --git-mod: #895503;
+    --warn: #855f00; --err: #b52a2a; --menu-bg: #ffffff; --menu-border: #c8c8c8;
+    --menu-shadow: rgba(0,0,0,.16); --chip-bg: #dde6ee;
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --page-bg: #17191c; --page-fg: #d8dce2; --page-muted: #8d949e;
+    --note-border: #2c3138; --kbd-bg: #22262b;
+    --sb-bg: #252526; --sb-fg: #cccccc; --sb-desc: #9a9a9a;
+    --sb-header-bg: #2d2d2e; --sb-hover: #2a2d2e; --sb-sel: #094771;
+    --sb-border: #3c3c3c; --icon: #c5c5c5; --accent: #4daafc;
+    --git-add: #81c995; --git-del: #f47067; --git-mod: #e2c08d;
+    --warn: #d7ba7d; --err: #f48771; --menu-bg: #303031; --menu-border: #454545;
+    --menu-shadow: rgba(0,0,0,.5); --chip-bg: #2b3440;
+  }}
+  :root[data-theme="dark"] {
+    --page-bg: #17191c; --page-fg: #d8dce2; --page-muted: #8d949e;
+    --note-border: #2c3138; --kbd-bg: #22262b;
+    --sb-bg: #252526; --sb-fg: #cccccc; --sb-desc: #9a9a9a;
+    --sb-header-bg: #2d2d2e; --sb-hover: #2a2d2e; --sb-sel: #094771;
+    --sb-border: #3c3c3c; --icon: #c5c5c5; --accent: #4daafc;
+    --git-add: #81c995; --git-del: #f47067; --git-mod: #e2c08d;
+    --warn: #d7ba7d; --err: #f48771; --menu-bg: #303031; --menu-border: #454545;
+    --menu-shadow: rgba(0,0,0,.5); --chip-bg: #2b3440;
+  }
+  :root[data-theme="light"] {
+    --page-bg: #f6f7f9; --page-fg: #1f2328; --page-muted: #57606a;
+    --note-border: #d6dae0; --kbd-bg: #eef0f3;
+    --sb-bg: #f3f3f3; --sb-fg: #3b3b3b; --sb-desc: #717171;
+    --sb-header-bg: #e7e7e7; --sb-hover: #e8e8e8; --sb-sel: #d2e3f5;
+    --sb-border: #d4d4d4; --icon: #424242; --accent: #0067c0;
+    --git-add: #107c10; --git-del: #ad0116; --git-mod: #895503;
+    --warn: #855f00; --err: #b52a2a; --menu-bg: #ffffff; --menu-border: #c8c8c8;
+    --menu-shadow: rgba(0,0,0,.16); --chip-bg: #dde6ee;
+  }
+
+  body {
+    margin: 0; background: var(--page-bg); color: var(--page-fg);
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 40px 24px 64px; }
+  header h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; text-wrap: balance; }
+  header p { margin: 0 0 28px; color: var(--page-muted); max-width: 62ch; }
+  header p code { font: 12px/1 ui-monospace, "SF Mono", Menlo, monospace; background: var(--kbd-bg); padding: 2px 5px; border-radius: 3px; }
+
+  .stage { display: flex; gap: 28px; align-items: flex-start; flex-wrap: wrap; }
+
+  /* ── The sidebar mock ───────────────────────────────────────────────── */
+  .sidebar {
+    width: 320px; flex: none; background: var(--sb-bg); color: var(--sb-fg);
+    border: 1px solid var(--sb-border); border-radius: 6px; overflow: hidden;
+    font-size: 13px; box-shadow: 0 2px 10px var(--menu-shadow);
+    position: relative; user-select: none;
+  }
+  .view-title {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 8px 6px 16px; font-size: 11px; font-weight: 700;
+    letter-spacing: .08em; color: var(--sb-desc);
+  }
+  .view-title .spacer { flex: 1; }
+  .tbtn { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 4px; color: var(--icon); }
+  .tbtn:hover { background: var(--sb-hover); }
+  .tbtn svg { width: 15px; height: 15px; }
+
+  .row {
+    display: flex; align-items: center; gap: 5px; height: 22px;
+    padding-right: 6px; white-space: nowrap; overflow: hidden;
+  }
+  .row .label { flex: none; }
+  .row .desc { color: var(--sb-desc); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; }
+  .row:hover { background: var(--sb-hover); }
+  .row.selected { background: var(--sb-sel); }
+  .row .actions { margin-left: auto; display: none; gap: 2px; }
+  .row:hover .actions, .row.show-actions .actions { display: flex; }
+  .row.show-actions { background: var(--sb-hover); }
+
+  .section {
+    height: 22px; display: flex; align-items: center; gap: 4px;
+    font-size: 11px; font-weight: 700; letter-spacing: .02em;
+    padding-left: 4px; background: var(--sb-header-bg);
+  }
+  .indent-1 { padding-left: 20px; }
+  .indent-2 { padding-left: 38px; }
+  .indent-3 { padding-left: 56px; }
+
+  .ic { width: 16px; height: 16px; flex: none; display: grid; place-items: center; color: var(--icon); }
+  .ic svg { width: 15px; height: 15px; display: block; }
+  .chev { width: 16px; height: 16px; flex: none; display: grid; place-items: center; color: var(--icon); }
+  .chev svg { width: 12px; height: 12px; }
+  .ic.add    { color: var(--git-add); }
+  .ic.del    { color: var(--git-del); }
+  .ic.mod    { color: var(--git-mod); }
+  .ic.warn   { color: var(--warn); }
+  .ic.dirty  { color: var(--git-mod); }
+  .ic.ok     { color: var(--git-add); }
+  .ic.plug   { color: var(--sb-desc); }
+  .badge {
+    margin-left: auto; flex: none; width: 16px; text-align: center;
+    font-size: 11px; font-weight: 600;
+  }
+  .row .actions + .badge, .row:hover .badge.hides { display: none; }
+  .lbl-add { color: var(--git-add); } .lbl-add + .desc { color: var(--git-add); opacity: .75; }
+  .lbl-del { color: var(--git-del); } .lbl-del + .desc { color: var(--git-del); opacity: .75; }
+  .lbl-mod { color: var(--git-mod); } .lbl-mod + .desc { color: var(--git-mod); opacity: .75; }
+  .badge.b-add { color: var(--git-add); } .badge.b-del { color: var(--git-del); } .badge.b-mod { color: var(--git-mod); }
+
+  /* context menu, drawn open against the Seaside row */
+  .menu {
+    position: absolute; left: 150px; z-index: 3; min-width: 200px;
+    background: var(--menu-bg); border: 1px solid var(--menu-border);
+    border-radius: 6px; box-shadow: 0 4px 14px var(--menu-shadow);
+    padding: 4px; font-size: 13px;
+  }
+  .menu .mi { padding: 4px 10px; border-radius: 4px; }
+  .menu .mi:hover { background: var(--sb-sel); }
+  .menu hr { border: none; border-top: 1px solid var(--menu-border); margin: 4px 2px; }
+
+  /* ── Annotations & variants ─────────────────────────────────────────── */
+  .notes { flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 14px; }
+  .note { border-left: 2px solid var(--note-border); padding: 2px 0 2px 14px; }
+  .note b { font-weight: 600; }
+  .note p { margin: 2px 0 0; color: var(--page-muted); font-size: 13.5px; max-width: 52ch; }
+  .note .tag {
+    display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: .05em;
+    color: var(--accent); margin-bottom: 1px;
+  }
+
+  h2 { font-size: 15px; font-weight: 600; margin: 44px 0 6px; }
+  .variants { display: flex; gap: 16px; flex-wrap: wrap; }
+  .variant { width: 300px; }
+  .variant .cap { font-size: 12.5px; color: var(--page-muted); margin: 6px 2px 0; max-width: 40ch; }
+  .variant .sidebar { width: 100%; box-shadow: none; }
+</style>
+
+<div class="wrap">
+<header>
+  <h1>The Rowan view, as it renders</h1>
+  <p>Drawn from what <code>rowanTreeProvider.ts</code> actually emits — labels,
+  descriptions, icons, and menus are the real ones. Lives in the GemStone
+  sidebar alongside Databases and Logins.</p>
+</header>
+
+<div class="stage">
+
+  <!-- ════════ main sidebar mock ════════ -->
+  <div class="sidebar" role="img" aria-label="Mock of the Rowan tree view">
+    <div class="view-title">
+      ROWAN
+      <span class="spacer"></span>
+      <span class="tbtn" title="Add Rowan Repository…"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 3v4.5H3.5v1H8V13h1V8.5h4.5v-1H9V3H8z"/></svg></span>
+      <span class="tbtn" title="Refresh Rowan View"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13 8a5 5 0 1 1-1.5-3.6M11.5 1.5v3h-3"/></svg></span>
+    </div>
+
+    <!-- REPOSITORIES -->
+    <div class="section">
+      <span class="chev"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 6l4 4 4-4H4z"/></svg></span>
+      REPOSITORIES
+    </div>
+    <div class="row indent-1 show-actions" title="~/GemTalk/seaside-rowan&#10;from git@github.com:srbaker/seaside-rowan.git">
+      <span class="ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M5 2h7v12l-3-2-3 2V2z"/><path d="M5 2H4a1.5 1.5 0 0 0 0 3h1" /></svg></span>
+      <span class="label">seaside-rowan</span>
+      <span class="desc">Seaside · loaded</span>
+      <span class="actions">
+        <span class="tbtn" title="Update from Git"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13 8a5 5 0 1 1-1.5-3.6M11.5 1.5v3h-3"/></svg></span>
+        <span class="tbtn" title="Load into Image"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M5 3l8 5-8 5V3z"/></svg></span>
+      </span>
+    </div>
+    <div class="row indent-1 show-actions" title="~/GemTalk/big-project&#10;This stone's gem cache is too small to load this project — it needs about 500 MB. Raise GEM_TEMPOBJ_CACHE_SIZE and restart the stone.">
+      <span class="ic warn"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 2L1 14h14L8 2zm-.6 4h1.2v4H7.4V6zm0 5h1.2v1.4H7.4V11z"/></svg></span>
+      <span class="label">big-project</span>
+      <span class="desc">Core</span>
+      <span class="actions">
+        <span class="tbtn" title="Update from Git"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13 8a5 5 0 1 1-1.5-3.6M11.5 1.5v3h-3"/></svg></span>
+        <span class="tbtn" title="Load into Image"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M5 3l8 5-8 5V3z"/></svg></span>
+      </span>
+    </div>
+    <div class="row indent-1" title="~/GemTalk/scratch/experiments (local folder, not a clone)">
+      <span class="ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M5 2h7v12l-3-2-3 2V2z"/><path d="M5 2H4a1.5 1.5 0 0 0 0 3h1" /></svg></span>
+      <span class="label">experiments</span>
+      <span class="desc">no load spec found</span>
+    </div>
+    <div class="row indent-1" title="/Volumes/old-disk/rowan-stuff&#10;The tracked directory no longer exists.">
+      <span class="ic warn"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 2L1 14h14L8 2zm-.6 4h1.2v4H7.4V6zm0 5h1.2v1.4H7.4V11z"/></svg></span>
+      <span class="label">rowan-stuff</span>
+      <span class="desc">missing on disk</span>
+    </div>
+
+    <!-- LOADED PROJECTS -->
+    <div class="section">
+      <span class="chev"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 6l4 4 4-4H4z"/></svg></span>
+      LOADED PROJECTS
+    </div>
+    <div class="row indent-1 selected" title="Seaside — has unsaved changes relative to its disk repository">
+      <span class="ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M8 1.8 14 5v6l-6 3.2L2 11V5l6-3.2z"/><path d="M2 5l6 3 6-3M8 8v6"/></svg></span>
+      <span class="label lbl-mod">Seaside</span>
+      <span class="badge b-mod">M</span>
+    </div>
+    <div class="row indent-1" title="Projects shipped with the GemStone image">
+      <span class="chev"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4V4z"/></svg></span>
+      <span class="ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 3h3v10H2zM6.5 3h3v10h-3zM11 3.6l3-.6 2 9.8-3 .6z" transform="scale(.82) translate(1.5 1.5)"/></svg></span>
+      <span class="label">Built-in</span>
+      <span class="desc">8</span>
+    </div>
+
+    <!-- the context menu, open on Seaside -->
+    <div class="menu" style="top: 150px;">
+      <div class="mi">Open Diff Against Disk</div>
+      <div class="mi">Export Copy…</div>
+      <hr>
+      <div class="mi">Unload Rowan Project…</div>
+    </div>
+
+    <!-- CHANGES -->
+    <div class="section">
+      <span class="chev"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 6l4 4 4-4H4z"/></svg></span>
+      CHANGES
+    </div>
+    <div class="row indent-1 show-actions">
+      <span class="chev"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 6l4 4 4-4H4z"/></svg></span>
+      <span class="label">Seaside</span>
+      <span class="actions"><span class="tbtn" title="Open Diff Against Disk"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M3 2h6v12H3zM9 5h4v9H9"/></svg></span></span>
+    </div>
+    <div class="row indent-3">
+      <span class="ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="8" cy="8" r="5"/><path d="M8 3v10M3.7 5.5C5 7 11 7 12.3 5.5M3.7 10.5C5 9 11 9 12.3 10.5"/></svg></span>
+      <span class="label lbl-mod">WAEncoder class&gt;&gt;initializeTable</span>
+      <span class="desc">Seaside-Core</span>
+      <span class="badge b-mod">M</span>
+    </div>
+    <div class="row indent-3">
+      <span class="ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="3" y="3" width="10" height="10" rx="1.5"/><path d="M5.5 10.5L8 5.5l2.5 5M6.3 9h3.4"/></svg></span>
+      <span class="label lbl-add">HelloJasper</span>
+      <span class="desc">Seaside-Component</span>
+      <span class="badge b-add">A</span>
+    </div>
+    <div class="row indent-3">
+      <span class="ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="3" y="3" width="10" height="10" rx="1.5"/><path d="M5.5 10.5L8 5.5l2.5 5M6.3 9h3.4"/></svg></span>
+      <span class="label lbl-del">WAOldWidget</span>
+      <span class="desc">Seaside-Widgets</span>
+      <span class="badge b-del">D</span>
+    </div>
+    <div class="row indent-1">
+      <span class="chev"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4V4z"/></svg></span>
+      <span class="label">STON</span>
+    </div>
+    <div style="height:8px"></div>
+  </div>
+
+  <!-- ════════ annotations ════════ -->
+  <div class="notes">
+    <div class="note">
+      <span class="tag">REPOSITORIES — the disk lens</span>
+      <p>Repos you track, added once via <b>＋</b> (clone a git URL, or point at a
+      folder). Tracking ≠ loading: the row shows its load spec, and hovering a
+      git clone reveals <b>↻ Update from Git</b> and <b>▶ Load into Image</b>. A
+      repo already in the connected stone says <b>· loaded</b>; broken states say
+      so plainly.</p>
+    </div>
+    <div class="note">
+      <span class="tag">↻ UPDATE FROM GIT</span>
+      <p>A repo Jasper cloned from a URL can be refreshed in place — a
+      fast-forward <code>pull</code> that also updates submodules (a Rowan
+      project may vendor its packages that way). Handy when the project gains a
+      file your clone predates. Locally-checked-out <i>folders</i> have no remote,
+      so they get no update button.</p>
+    </div>
+    <div class="note">
+      <span class="tag">⚠ WHEN A LOAD WON'T FIT</span>
+      <p>Loading a big project builds its whole transient object graph before the
+      final commit, and overflows a small gem's temp-object cache
+      (<i>“VM temporary object memory is full”</i>). A project can declare the
+      cache it needs in <code>rowan/gemstone.ston</code>
+      (<code>#minTempObjCacheKB</code> — a GemStone-platform STON file Rowan
+      ignores). When the connected gem falls short the repo gets a
+      <b style="color:var(--warn)">warning triangle</b>, and pressing Load first
+      opens a dialog with the fix rather than grinding through a doomed load.
+      Databases Jasper creates get a 500&nbsp;MB gem cache, and Jasper raises an
+      existing database's cache to 500&nbsp;MB when it starts the stone — so a
+      Jasper-managed stone meets the declaration and never trips the warning.</p>
+    </div>
+    <div class="note">
+      <span class="tag">LOADED PROJECTS — the image lens</span>
+      <p>What the connected stone actually has. A dirty project reads exactly
+      like a modified file in the git view — tinted name plus a right-aligned
+      <b style="color:var(--git-mod)">M</b>, in the real <b>gitDecoration</b>
+      theme colors. The image's own projects fold into a collapsed
+      <b>Built-in</b> group and can't be unloaded. Right-click a project of
+      yours (shown open) for <b>Diff</b>, <b>Export Copy…</b>, and
+      <b>Unload…</b>.</p>
+    </div>
+    <div class="note">
+      <span class="tag">CHANGES — the bridge</span>
+      <p>Image↔disk drift for <i>your</i> projects (built-ins are read-only
+      image trees, so they stay out), in git vocabulary:
+      <b style="color:var(--git-add)">A</b> only in the image,
+      <b style="color:var(--git-del)">D</b> only on disk,
+      <b style="color:var(--git-mod)">M</b> differs — tinted rows, class and
+      method icons. The section starts collapsed; a project's diff runs when
+      you expand it, cached until the next refresh. This is where
+      commit-to-disk staging will live.</p>
+    </div>
+    <div class="note">
+      <span class="tag">ONE QUERY PER REFRESH</span>
+      <p>Repositories and Loaded Projects share a single image query per
+      refresh cycle; diffs run once per project per cycle. Nothing polls.</p>
+    </div>
+  </div>
+</div>
+
+<h2>The states you'll meet on the way to a working stone</h2>
+<div class="variants">
+
+  <div class="variant">
+    <div class="sidebar">
+      <div style="padding: 14px 16px; color: var(--sb-desc);">Not connected.</div>
+    </div>
+    <p class="cap">Nothing tracked and no session: the whole view collapses to a
+    plain note — no empty sections, no buttons to nowhere.</p>
+  </div>
+
+  <div class="variant">
+    <div class="sidebar">
+      <div class="section"><span class="chev"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 6l4 4 4-4H4z"/></svg></span>REPOSITORIES</div>
+      <div class="row indent-1">
+        <span class="label" style="color:var(--sb-desc)">No repositories tracked — add one…</span>
+      </div>
+      <div style="height:6px"></div>
+    </div>
+    <p class="cap">Connected but nothing tracked yet: the placeholder row is itself
+    the Add Repository button (no icon, no dead <b>＋</b>).</p>
+  </div>
+
+  <div class="variant">
+    <div class="sidebar">
+      <div class="section"><span class="chev"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 6l4 4 4-4H4z"/></svg></span>LOADED PROJECTS</div>
+      <div class="row indent-1">
+        <span class="ic plug"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M6 2v4M10 2v4M4 6h8v3a4 4 0 0 1-8 0V6zM8 13v2"/></svg></span>
+        <span class="label" style="color:var(--sb-desc)">Not connected — log in to see loaded projects</span>
+      </div>
+      <div style="height:6px"></div>
+    </div>
+    <p class="cap">No session: the section says why it's empty instead of showing nothing.</p>
+  </div>
+
+  <div class="variant">
+    <div class="sidebar">
+      <div class="section"><span class="chev"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 6l4 4 4-4H4z"/></svg></span>LOADED PROJECTS</div>
+      <div class="row indent-1">
+        <span class="ic warn"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 2L1 14h14L8 2zm-.6 4h1.2v4H7.4V6zm0 5h1.2v1.4H7.4V11z"/></svg></span>
+        <span class="label">Rowan is not installed in this image</span>
+      </div>
+      <div style="height:6px"></div>
+    </div>
+    <p class="cap">Connected to a bare stone: detection is explicit — and this row is where
+    the future <b>Install Rowan…</b> action will live.</p>
+  </div>
+
+  <div class="variant">
+    <div class="sidebar">
+      <div class="section"><span class="chev"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 6l4 4 4-4H4z"/></svg></span>CHANGES</div>
+      <div class="row indent-1">
+        <span class="chev"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 6l4 4 4-4H4z"/></svg></span>
+        <span class="label">STON</span>
+      </div>
+      <div class="row indent-3">
+        <span class="ic ok"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8.5L6.5 12 13 4.5"/></svg></span>
+        <span class="label" style="color:var(--sb-desc)">No differences with disk</span>
+      </div>
+      <div style="height:6px"></div>
+    </div>
+    <p class="cap">A clean project says so, rather than presenting an empty node.</p>
+  </div>
+
+</div>
+</div>

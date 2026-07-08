@@ -31,4 +31,9 @@ CLAUDE.local.md
 
 # Ignore MacOS related files
 .DS_Store
+topazerrors.log
 
+# Playwright acceptance-test artifacts
+acceptance/playwright-report/
+acceptance/test-results/
+acceptance/.vscode-test/

@@ -217,6 +217,14 @@ describe('DatabaseManager.createDatabaseDirect', () => {
     expect(systemConf).toContain('conf/default.conf');
   });
 
+  it('gives gems a temp-object cache large enough for big Rowan project loads', async () => {
+    await makeCreateManager().createDatabaseDirect('3.7.4', 'extent0', 'gs64stone', 'gs64ldi');
+
+    const gemConf = vi.mocked(wslWriteFileSync).mock.calls
+      .find((c) => String(c[0]).endsWith('conf/gem.conf'))![1];
+    expect(gemConf).toContain('GEM_TEMPOBJ_CACHE_SIZE = 500000;');
+  });
+
   it('skips default.conf and still creates the database when the source is absent', async () => {
     vi.mocked(wslExistsSync).mockImplementation((p: string) => p !== '/gs/data/system.conf');
 
