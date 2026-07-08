@@ -115,6 +115,30 @@ describe('GciLibrary', () => {
 
     });
 
+    describe('evaluating expressions for effect only, discarding the result', () => {
+
+        it('evaluates an expression', () => {
+            const key = gciLibrary.nextKey();
+
+            gciLibrary.executeDiscardingResult(session, `UserGlobals at: ${key} put: true`);
+
+            expectUserGlobalsToInclude(key, true);
+        })
+
+        it('does not retain the discarded result in the PureExportSet', () => {
+            expectPureExportSetToStayUnchanged(() => {
+                gciLibrary.executeDiscardingResult(session, 'Object new');
+            });
+        })
+
+        it('throws when the evaluated code signals an error', () => {
+            expectToThrowExpectedGciLibraryError(throwOopsError => {
+                gciLibrary.executeDiscardingResult(session, throwOopsError);
+            });
+        })
+
+    });
+
     describe('creating strings', () => {
 
         it('creates a String object from the given contents', () => {
