@@ -2049,7 +2049,7 @@ export class GciLibrary {
   }
 
   /** Returns the cached `Utf8` class oop for `session`, or `undefined` if none is cached. */
-  public cachedUtf8OopFor(session: unknown) {
+  private cachedUtf8OopFor(session: unknown) {
     return this._utfCache.get(session);
   }
 
