@@ -11,6 +11,13 @@ TODO.md
 # be bundled into the .vsix (it is ~1GB and contains example private keys).
 client/tmp/**
 
+# Contributor tooling and docs — not part of the shipped extension.
+acceptance/**
+scripts/**
+.dockerignore
+CLAUDE.md
+**/CLAUDE.md
+
 docs/**
 !docs/mcp-server.md
 !docs/windows-wsl.md
