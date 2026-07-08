@@ -32,7 +32,7 @@ describe('GciLibrary', () => {
      * The callback receives the Smalltalk snippet as its argument so it can
      * embed it in any expression under test (e.g. pass it to `execute`).
      */
-    function expectToThrowExpectedGciLibraryError(callback: (throwOopsError: string) => unknown) {
+    function expectToThrowExpectedGciLibraryError(callback: (signalExpectedErrorExpression: string) => unknown) {
         expectToThrowGciLibraryError(
             () => callback(`self error: 'oops'`),
             'a UserDefinedError occurred (error 2318), reason:halt, oops');
@@ -108,8 +108,8 @@ describe('GciLibrary', () => {
         });
 
         it('throws when the expression signals an error', () => {
-            expectToThrowExpectedGciLibraryError(throwExpectedErrorExpression => {
-                gciLibrary.execute(session, throwExpectedErrorExpression);
+            expectToThrowExpectedGciLibraryError(signalExpectedErrorExpression => {
+                gciLibrary.execute(session, signalExpectedErrorExpression);
             });
         });
 
@@ -132,8 +132,8 @@ describe('GciLibrary', () => {
         })
 
         it('throws when the evaluated code signals an error', () => {
-            expectToThrowExpectedGciLibraryError(throwOopsError => {
-                gciLibrary.executeDiscardingResult(session, throwOopsError);
+            expectToThrowExpectedGciLibraryError(signalExpectedErrorExpression => {
+                gciLibrary.executeDiscardingResult(session, signalExpectedErrorExpression);
             });
         })
 
