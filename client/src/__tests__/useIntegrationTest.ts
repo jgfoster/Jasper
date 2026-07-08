@@ -128,7 +128,7 @@ export function useIntegrationTest(callback: UseIntegrationTestCallback) {
         session = gciLibrary.login(
             process.env.VITE_GEMSTONE_STONE_NRS!,
             process.env.VITE_GEMSTONE_GEM_NRS!,
-            options?.user || process.env.VITE_GEMSTONE_USER!,
+            options?.user ?? process.env.VITE_GEMSTONE_USER!,
             process.env.VITE_GEMSTONE_PASSWORD!
         );
 
