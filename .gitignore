@@ -15,6 +15,7 @@ tsconfig.tsbuildinfo
 # Only the curated dirs/files below are un-ignored and shared with the team —
 # opt a new one in by adding a `!` line once the team has agreed to adopt it.
 .claude/*
+!.claude/hooks/
 !.claude/rules/
 !.claude/skills/
 !.claude/commands/
