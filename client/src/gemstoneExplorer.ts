@@ -10,7 +10,7 @@ import { filterMatches } from './explorerFilter';
 import { DoubleClickDetector } from './explorerDoubleClick';
 import { categoryChildNodes, categoryParentPath, categoryMatches } from './explorerCategories';
 import { registerExplorerOpenEditors } from './explorerOpenEditors';
-import { pickBalancedColumn } from './explorerColumnBalance';
+import { SourceEditorPlacement } from './sourceEditorPlacement';
 
 const VIEW_DICTS = 'gemstoneExplorerDicts';
 const VIEW_CATEGORIES = 'gemstoneExplorerCategories';
@@ -22,23 +22,20 @@ const EXPLORER_VIEWS = [VIEW_DICTS, VIEW_CATEGORIES, VIEW_CLASSES, VIEW_METHODS]
 // Open a gemstone:// source document in the editor area. A plain open replaces
 // the active preview tab (keeping focus in the tree for live browsing); an
 // open-to-side pins the editor in a balanced column so several editors spread
-// across a few groups instead of clumping (see pickBalancedColumn).
-async function openGemstoneDocument(doc: vscode.TextDocument, toSide: boolean): Promise<void> {
+// across a few of OUR groups instead of clumping. `placement` scopes the
+// balancing to editors this Explorer opened, so it doesn't invade the System
+// Browser's group (see sourceEditorPlacement.ts).
+async function openGemstoneDocument(
+  doc: vscode.TextDocument, toSide: boolean, placement: SourceEditorPlacement,
+): Promise<void> {
   if (!toSide) {
     await vscode.window.showTextDocument(doc, {
       viewColumn: vscode.ViewColumn.Active, preview: true, preserveFocus: true,
     });
+    placement.remember(doc.uri);
     return;
   }
-  const gemColumns = new Map<number, number>();
-  for (const group of vscode.window.tabGroups.all) {
-    let count = 0;
-    for (const tab of group.tabs) {
-      if (tab.input instanceof vscode.TabInputText && tab.input.uri.scheme === 'gemstone') count++;
-    }
-    if (count > 0) gemColumns.set(group.viewColumn, count);
-  }
-  const target = pickBalancedColumn(gemColumns);
+  const target = placement.balancedColumn();
   if (target === 'new') {
     // Append a fresh group at the far right: focus the last group first so
     // Beside lands to its right. (A numeric column past the end is treated as
@@ -52,6 +49,7 @@ async function openGemstoneDocument(doc: vscode.TextDocument, toSide: boolean): 
       viewColumn: target, preview: false, preserveFocus: false,
     });
   }
+  placement.remember(doc.uri);
 }
 
 // ── GemStone Explorer ───────────────────────────────────────────────────────
@@ -315,6 +313,9 @@ class ExplorerController {
   // URI of an editor we opened ourselves (method/definition click); syncToEditor
   // ignores its own open so a tree click doesn't bounce the selection.
   private selfOpenedUri?: string;
+  // Owns where our source editors land. Balances "open to the side" across only
+  // our own groups, so we neither clump nor invade the System Browser's group.
+  readonly placement = new SourceEditorPlacement();
 
   readonly dictProvider = new DictProvider(this);
   readonly categoryProvider = new CategoryProvider(this);
@@ -573,7 +574,7 @@ class ExplorerController {
     const uri = buildClassDefinitionUri(session.id, dictName, className, dictIndex);
     this.selfOpenedUri = uri.toString();
     const doc = await vscode.workspace.openTextDocument(uri);
-    await openGemstoneDocument(doc, toSide);
+    await openGemstoneDocument(doc, toSide, this.placement);
   }
 
   // Manual double-click detection for the Classes pane: VS Code trees have no
@@ -797,7 +798,7 @@ class ExplorerController {
     // Single-click swaps in place (preview, focus stays in the tree so
     // type-to-filter / arrow-nav keep working); open-to-side pins a real tab in
     // a balanced neighbouring group so methods can be compared.
-    await openGemstoneDocument(doc, toSide);
+    await openGemstoneDocument(doc, toSide, this.placement);
   }
 
   // ── Find Class ────────────────────────────────────────────────────────────
@@ -1116,6 +1117,7 @@ class ExplorerController {
       viewColumn: vscode.ViewColumn.Active,
       preview: true,
     });
+    this.placement.remember(uri);
   }
 
   // ── Drag & drop ─────────────────────────────────────────────────────────────

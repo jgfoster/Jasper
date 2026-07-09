@@ -3,7 +3,9 @@ import { parseUri, listOpenGemstoneTabs } from './gemstoneFileSystemProvider';
 import { classifyGemstoneUri, OpenEditorKind } from './explorerOpenEditorsLabel';
 
 // The Open Editors pane: a live mirror of the currently-open gemstone:// source
-// editors, shown as the LAST pane of the GemStone Explorer container. There is
+// editors, shown as the FIRST (top) pane of the GemStone Explorer container so
+// that Methods stays the last pane and reliably expands to fill the freed space
+// when this pane hides (VS Code only reflows the last pane cleanly). There is
 // no pinning or persistence — a row appears when its editor opens and
 // disappears when it closes. Entries are split into two groups: class
 // definition editors ("Classes") and method source editors ("Methods").
@@ -87,6 +89,36 @@ class OpenEditorsProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
   }
 }
 
+// A gemstone:// URI is "dirty" when any open tab for it has unsaved edits.
+function isDirtyUri(uri: vscode.Uri): boolean {
+  const key = uri.toString();
+  return listOpenGemstoneTabs().some((t) => t.uri.toString() === key && t.tab.isDirty);
+}
+
+// Marks unsaved rows in the Open Editors pane with a small dot, mirroring the
+// unsaved-dot VS Code paints on the editor tab. Uses the same FileDecoration
+// mechanism the git/SCM views use for row badges (each row carries a
+// resourceUri). No color, so it reads as a neutral dot and doesn't tint the
+// label. Scoped to gemstone:// so it never touches other resources.
+export class DirtyDecorationProvider implements vscode.FileDecorationProvider {
+  private readonly _onDidChange = new vscode.EventEmitter<vscode.Uri | vscode.Uri[] | undefined>();
+  readonly onDidChangeFileDecorations = this._onDidChange.event;
+
+  // Dirty state isn't encoded in the URI, so VS Code caches per-URI decorations
+  // until we tell it they may have changed. Fire only the open gemstone source
+  // URIs rather than `undefined` (which would invalidate every decoration in
+  // the workbench, git badges included) on each tab change.
+  refresh(): void {
+    this._onDidChange.fire(listOpenGemstoneTabs().map((t) => t.uri));
+  }
+
+  provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
+    if (uri.scheme !== 'gemstone') return undefined;
+    if (!isDirtyUri(uri)) return undefined;
+    return { badge: '●', tooltip: 'Unsaved changes', propagate: false };
+  }
+}
+
 // True when at least one browsable gemstone:// source tab is open.
 function hasOpenEditors(): boolean {
   for (const { uri } of listOpenGemstoneTabs()) {
@@ -113,6 +145,7 @@ async function closeAllEditors(): Promise<void> {
 export function registerExplorerOpenEditors(context: vscode.ExtensionContext): void {
   const provider = new OpenEditorsProvider();
   const view = vscode.window.createTreeView(VIEW_ID, { treeDataProvider: provider });
+  const decorations = new DirtyDecorationProvider();
 
   const syncContextKey = () =>
     void vscode.commands.executeCommand('setContext', CONTEXT_HAS_OPEN, hasOpenEditors());
@@ -120,11 +153,13 @@ export function registerExplorerOpenEditors(context: vscode.ExtensionContext): v
 
   context.subscriptions.push(
     view,
-    // A tab opening or closing both toggles the pane's visibility and rebuilds
-    // its rows.
+    vscode.window.registerFileDecorationProvider(decorations),
+    // A tab opening, closing, or changing its dirty state toggles the pane's
+    // visibility, rebuilds its rows, and refreshes the unsaved-dot decorations.
     vscode.window.tabGroups.onDidChangeTabs(() => {
       syncContextKey();
       provider.refresh();
+      decorations.refresh();
     }),
     vscode.commands.registerCommand(REVEAL_COMMAND, (uri?: vscode.Uri) => {
       if (uri instanceof vscode.Uri) {

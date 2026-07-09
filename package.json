@@ -319,6 +319,14 @@
     "views": {
       "gemstoneExplorer": [
         {
+          "id": "gemstoneExplorerOpenEditors",
+          "name": "Open Editors",
+          "type": "tree",
+          "icon": "$(go-to-file)",
+          "when": "gemstone.explorerActive && gemstone.explorerHasOpenEditors",
+          "size": 1
+        },
+        {
           "id": "gemstoneExplorerDicts",
           "name": "Dictionaries",
           "type": "tree",
@@ -357,14 +365,6 @@
           "icon": "$(symbol-method)",
           "when": "gemstone.explorerActive",
           "size": 4
-        },
-        {
-          "id": "gemstoneExplorerOpenEditors",
-          "name": "Open Editors",
-          "type": "tree",
-          "icon": "$(go-to-file)",
-          "when": "gemstone.explorerActive && gemstone.explorerHasOpenEditors",
-          "size": 1
         }
       ],
       "gemstone": [

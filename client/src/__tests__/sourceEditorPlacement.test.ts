@@ -1,0 +1,122 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+vi.mock('vscode', () => import('../__mocks__/vscode'));
+import { SourceEditorPlacement } from '../sourceEditorPlacement';
+import { Uri, TabInputText, TabInputTextDiff, window } from '../__mocks__/vscode';
+
+function gemUri(path: string): Uri {
+  return Uri.parse(`gemstone://1/${path}`);
+}
+
+function setGroups(groups: { viewColumn?: number; uris: (Uri | { original: Uri; modified: Uri })[] }[]): void {
+  window.tabGroups.all = groups.map(g => ({
+    viewColumn: g.viewColumn,
+    tabs: g.uris.map(u =>
+      'modified' in u
+        ? { input: new TabInputTextDiff(u.original, u.modified) }
+        : { input: new TabInputText(u) }),
+  }));
+}
+
+describe('SourceEditorPlacement', () => {
+  beforeEach(() => {
+    window.tabGroups.all = [];
+  });
+
+  describe('homeColumn', () => {
+    it('creates a home region the first time, before it has opened anything', async () => {
+      const createHome = vi.fn(async () => 7);
+      const placement = new SourceEditorPlacement(createHome);
+
+      const column = await placement.homeColumn();
+
+      expect(createHome).toHaveBeenCalledOnce();
+      expect(column).toBe(7);
+    });
+
+    it('reuses the group holding an editor it opened instead of creating another', async () => {
+      const createHome = vi.fn(async () => 7);
+      const placement = new SourceEditorPlacement(createHome);
+      const uri = gemUri('Globals/Array/instance/accessing/at%3A');
+      placement.remember(uri);
+      setGroups([{ viewColumn: 2, uris: [uri] }]);
+
+      const column = await placement.homeColumn();
+
+      expect(createHome).not.toHaveBeenCalled();
+      expect(column).toBe(2);
+    });
+
+    it('ignores a gemstone editor it did not open and creates its own region', async () => {
+      const createHome = vi.fn(async () => 7);
+      const placement = new SourceEditorPlacement(createHome);
+      setGroups([{ viewColumn: 2, uris: [gemUri('Globals/Foreign/instance/x/y')] }]);
+
+      const column = await placement.homeColumn();
+
+      expect(createHome).toHaveBeenCalledOnce();
+      expect(column).toBe(7);
+    });
+
+    it('re-finds its group by editor identity even after columns renumber', async () => {
+      const createHome = vi.fn(async () => 7);
+      const placement = new SourceEditorPlacement(createHome);
+      const uri = gemUri('Globals/Array/instance/accessing/at%3A');
+      placement.remember(uri);
+      setGroups([{ viewColumn: 1, uris: [uri] }]);
+
+      expect(await placement.homeColumn()).toBe(1);
+    });
+
+    it('finds its editor even when it lives on the modified side of a diff tab', async () => {
+      const placement = new SourceEditorPlacement(async () => 7);
+      const modified = gemUri('Globals/Array/instance/accessing/at%3A%20(session%20override)');
+      placement.remember(modified);
+      setGroups([{ viewColumn: 3, uris: [{ original: gemUri('base'), modified }] }]);
+
+      expect(await placement.homeColumn()).toBe(3);
+    });
+
+    it('throws if asked for a home region without a create strategy', async () => {
+      const placement = new SourceEditorPlacement();
+
+      await expect(placement.homeColumn()).rejects.toThrow(/createHome/);
+    });
+  });
+
+  describe('balancedColumn', () => {
+    it('asks for a new group while it owns fewer than the cap', () => {
+      const placement = new SourceEditorPlacement();
+      const uri = gemUri('Globals/A/instance/x/one');
+      placement.remember(uri);
+      setGroups([{ viewColumn: 1, uris: [uri] }]);
+
+      expect(placement.balancedColumn(3)).toBe('new');
+    });
+
+    it('reuses its least-full owned column once the cap is reached', () => {
+      const placement = new SourceEditorPlacement();
+      const a = gemUri('A'), b = gemUri('B'), c = gemUri('C'), d = gemUri('D');
+      [a, b, c, d].forEach(u => placement.remember(u));
+      setGroups([
+        { viewColumn: 1, uris: [a, b] },
+        { viewColumn: 2, uris: [c] },
+        { viewColumn: 3, uris: [d] },
+      ]);
+
+      expect(placement.balancedColumn(3)).toBe(2);
+    });
+
+    it('does not count another browser\'s columns toward the balance', () => {
+      const placement = new SourceEditorPlacement();
+      const mine = gemUri('mine');
+      placement.remember(mine);
+      setGroups([
+        { viewColumn: 1, uris: [mine] },
+        { viewColumn: 2, uris: [gemUri('foreign-a')] },
+        { viewColumn: 3, uris: [gemUri('foreign-b')] },
+      ]);
+
+      expect(placement.balancedColumn(3)).toBe('new');
+    });
+  });
+});

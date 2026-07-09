@@ -2298,29 +2298,12 @@ describe('SystemBrowser', () => {
       );
     });
 
-    it('reuses the visible gemstone editor column and skips newGroupBelow', async () => {
-      window.visibleTextEditors = [{
-        document: { uri: { scheme: 'gemstone', authority: String(session.id), fsPath: '' } },
-        viewColumn: ViewColumn.Two,
-      }];
-      vi.mocked(commands.executeCommand).mockClear();
-      vi.mocked(window.showTextDocument).mockClear();
-
-      SystemBrowser.navigateTo(session.id, result);
-      await vi.waitFor(() => expect(window.showTextDocument).toHaveBeenCalled());
-
-      expect(commands.executeCommand).not.toHaveBeenCalledWith('workbench.action.newGroupBelow');
-      expect(window.showTextDocument).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({ viewColumn: ViewColumn.Two }),
-      );
-    });
-
-    it('reuses the group holding a background session tab (definition/method), not just visible editors', async () => {
-      window.visibleTextEditors = [];
+    it('splits its own group below rather than adopting a gemstone editor it did not open', async () => {
+      // A gemstone editor exists (e.g. the GemStone Explorer opened one to the
+      // side), but this browser never opened it — so it must not land there.
       window.tabGroups.all = [{
         viewColumn: ViewColumn.Two,
-        tabs: [{ input: new TabInputText(Uri.parse(`gemstone://${session.id}/Globals/Array/definition`)) }],
+        tabs: [{ input: new TabInputText(Uri.parse(`gemstone://${session.id}/Globals/Other/instance/x/y`)) }],
       }];
       vi.mocked(commands.executeCommand).mockClear();
       vi.mocked(window.showTextDocument).mockClear();
@@ -2328,19 +2311,19 @@ describe('SystemBrowser', () => {
       SystemBrowser.navigateTo(session.id, result);
       await vi.waitFor(() => expect(window.showTextDocument).toHaveBeenCalled());
 
-      expect(commands.executeCommand).not.toHaveBeenCalledWith('workbench.action.newGroupBelow');
+      expect(commands.executeCommand).toHaveBeenCalledWith('workbench.action.newGroupBelow');
       expect(window.showTextDocument).toHaveBeenCalledWith(
         expect.anything(),
-        expect.objectContaining({ viewColumn: ViewColumn.Two }),
+        expect.objectContaining({ viewColumn: ViewColumn.Active }),
       );
       window.tabGroups.all = [];
     });
 
-    it('calls newGroupBelow only on the first navigation, reuses the column on subsequent ones', async () => {
+    it('splits a group below on first navigation, then reuses that same group for later methods', async () => {
       vi.mocked(commands.executeCommand).mockClear();
       vi.mocked(window.showTextDocument).mockClear();
 
-      // First navigation: no gemstone editor visible → newGroupBelow is called
+      // First navigation: this browser has opened nothing yet → new group below.
       SystemBrowser.navigateTo(session.id, result);
       await vi.waitFor(() => expect(window.showTextDocument).toHaveBeenCalled());
       expect(commands.executeCommand).toHaveBeenCalledWith('workbench.action.newGroupBelow');
@@ -2349,16 +2332,17 @@ describe('SystemBrowser', () => {
         expect.objectContaining({ viewColumn: ViewColumn.Active }),
       );
 
-      // Simulate VS Code having opened the source file in a new group (ViewColumn.Two)
-      window.visibleTextEditors = [{
-        document: { uri: { scheme: 'gemstone', authority: String(session.id), fsPath: '' } },
+      // Simulate VS Code having placed THAT editor (the one we just opened) in a
+      // new group at ViewColumn.Two.
+      const openedUri = vi.mocked(workspace.openTextDocument).mock.calls[0][0];
+      window.tabGroups.all = [{
         viewColumn: ViewColumn.Two,
+        tabs: [{ input: new TabInputText(openedUri as never) }],
       }];
       vi.mocked(commands.executeCommand).mockClear();
-      vi.mocked(workspace.openTextDocument).mockClear();
       vi.mocked(window.showTextDocument).mockClear();
 
-      // Second navigation to a different method: should reuse the existing column
+      // Second navigation to a different method reuses our own group, no new split.
       const result2 = { ...result, category: 'Comparing', selector: '=' };
       SystemBrowser.navigateTo(session.id, result2);
       await vi.waitFor(() => expect(window.showTextDocument).toHaveBeenCalled());
@@ -2368,6 +2352,7 @@ describe('SystemBrowser', () => {
         expect.anything(),
         expect.objectContaining({ viewColumn: ViewColumn.Two }),
       );
+      window.tabGroups.all = [];
     });
   });
 

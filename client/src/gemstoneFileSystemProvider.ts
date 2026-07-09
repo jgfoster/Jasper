@@ -246,6 +246,18 @@ export async function closeGemstoneTabsForSession(sessionId: number): Promise<vo
  * source editor). Used by the Open Methods pane; the reaper keeps its own walk
  * because it must also handle diff tabs.
  */
+/**
+ * The primary editable URI a tab points at: the document of a text tab, or the
+ * modified (right-hand, editable) side of a diff tab; undefined for any other
+ * tab kind. Shared so tab→uri extraction isn't hand-rolled per caller.
+ */
+export function tabInputUri(tab: vscode.Tab): vscode.Uri | undefined {
+  const input = tab.input;
+  if (input instanceof vscode.TabInputText) return input.uri;
+  if (input instanceof vscode.TabInputTextDiff) return input.modified;
+  return undefined;
+}
+
 export function listOpenGemstoneTabs(): { tab: vscode.Tab; uri: vscode.Uri }[] {
   const out: { tab: vscode.Tab; uri: vscode.Uri }[] = [];
   for (const group of vscode.window.tabGroups.all) {
@@ -379,19 +391,12 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
       stat.permissions = vscode.FilePermission.Readonly;
       return stat;
     }
-    const session = this.sessionManager.getSession(parsed.sessionId);
-    if (!session) return stat;
-    const dictRef = 'dictIndex' in parsed && parsed.dictIndex !== undefined
-      ? parsed.dictIndex
-      : parsed.dictName;
-    try {
-      if (!queries.canClassBeWritten(session, parsed.className, dictRef)) {
-        stat.permissions = vscode.FilePermission.Readonly;
-      }
-    } catch {
-      // If the query fails (e.g., session busy), allow editing
-    }
-    logInfo(`[FS] stat → ${stat.permissions === vscode.FilePermission.Readonly ? 'readonly' : 'writable'}`);
+    // Class-definition and method-source editors are always writable. We do NOT
+    // pre-lock on canClassBeWritten (segment/user authorization): if the class
+    // truly can't be written, GemStone rejects the save and writeFile surfaces
+    // the error as a diagnostic. Pre-locking mis-flagged authorized classes as
+    // read-only, so let the save path be the source of truth.
+    logInfo(`[FS] stat → writable`);
     return stat;
   }
 
@@ -514,10 +519,20 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
     if (!selector) {
       throw new BrowserQueryError(result);
     }
-    
-    vscode.window.showInformationMessage(
-        `Compiled method ${receiver(parsedMethodUri.className, parsedMethodUri.isMeta)}>>#${selector}`
-    );
+
+    const recv = receiver(parsedMethodUri.className, parsedMethodUri.isMeta);
+    if (this.classIsWritable(session, parsedMethodUri.className, parsedMethodUri.dictIndex ?? parsedMethodUri.dictName)) {
+      vscode.window.showInformationMessage(`Compiled method ${recv}>>#${selector}`);
+    } else {
+      // A non-writable class compiles into the transient (session) method dict,
+      // NOT the persistent one, so GemStone reports success but the change is
+      // never persisted and vanishes when the session ends. Say so, rather than
+      // a misleading "Compiled" toast (see the read-only editor policy).
+      vscode.window.showWarningMessage(
+        `${recv}>>#${selector} compiled as a transient session method — NOT persisted ` +
+        `(the class is not writable). The change will be lost when the session ends.`
+      );
+    }
 
     void this.exportManager?.syncClass(session, parsedMethodUri.dictName, parsedMethodUri.className);
 
@@ -541,10 +556,22 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
   private compileClassDefinition(uri: vscode.Uri, parsed: ParsedNewClassUri | ParsedDefinitionUri, source: string, session: ActiveSession) {
     const className = queries.compileClassDefinition(session, source);
 
-    const message = parsed.kind === 'new-class'
-      ? `Class created: ${className}`
-      : `Class definition updated for ${className}`;
-    vscode.window.showInformationMessage(message);
+    // An existing but non-writable class recompiles transiently (like a session
+    // method) without persisting, yet GemStone reports success — warn instead
+    // of a misleading "updated" toast. A new class that couldn't be written to
+    // its target dictionary would have thrown above, so it's always a success.
+    if (parsed.kind === 'definition'
+        && !this.classIsWritable(session, className, parsed.dictIndex ?? parsed.dictName)) {
+      vscode.window.showWarningMessage(
+        `${className} recompiled transiently — NOT persisted (the class is not writable). ` +
+        `The change will be lost when the session ends.`
+      );
+    } else {
+      const message = parsed.kind === 'new-class'
+        ? `Class created: ${className}`
+        : `Class definition updated for ${className}`;
+      vscode.window.showInformationMessage(message);
+    }
 
     // Use the name GemStone returned, not parsed.className: for a new-class URI the segment is
     // a placeholder, and editing a definition with a different class name creates a new class —
@@ -562,6 +589,19 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
       previousUri: uri,
       previousUriIsTemplate: parsed.kind === 'new-class',
     }));
+  }
+
+  // Whether `className` lives in a writable repository segment. A false result
+  // means a compile lands only in the transient session method dict, so it is
+  // reported as success but never persists. Defaults to true if the check
+  // itself fails, so a transient query error never turns a real save into a
+  // spurious "not persisted" warning.
+  private classIsWritable(session: ActiveSession, className: string, dict?: number | string): boolean {
+    try {
+      return queries.canClassBeWritten(session, className, dict);
+    } catch {
+      return true;
+    }
   }
 
   dispose(): void {
