@@ -74,6 +74,7 @@ export default defineConfig({
           setupFiles: [
             'src/__tests__/vitest.windowSetup.cjs',
             'src/__tests__/vitest.uriSetup.ts',
+             'src/__tests__/vitest.customErrorMatchers.ts',
           ],
           sequence: {
             shuffle: true,
