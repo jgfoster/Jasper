@@ -22,7 +22,7 @@ vi.mock('../browserQueries', () => ({
 }));
 
 import { Uri, FileSystemError, FilePermission, window, languages, TabInputText, TabInputTextDiff } from '../__mocks__/vscode';
-import { GemStoneFileSystemProvider, buildMethodUri, buildNewMethodUri, buildClassDefinitionUri, closeGemstoneTabsForSession } from '../gemstoneFileSystemProvider';
+import { GemStoneFileSystemProvider, buildMethodUri, buildNewMethodUri, buildClassDefinitionUri, closeGemstoneTabsForSession, installStaleGemstoneTabReaper, escapeSelectorSlashes, parseUri, listOpenGemstoneTabs } from '../gemstoneFileSystemProvider';
 import { SessionManager } from '../sessionManager';
 import * as queries from '../browserQueries';
 import { BrowserQueryError } from '../browserQueries';
@@ -56,46 +56,29 @@ describe('GemStoneFileSystemProvider', () => {
       expect(stat.mtime).toBeGreaterThan(0);
     });
 
-    it('calls canClassBeWritten for method URIs', () => {
+    it('does not permission-check method URIs — the save path is the source of truth', () => {
       provider.stat(Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A'));
-      // A method URI carries no ?dict, so the lookup falls back to the dict name.
-      expect(queries.canClassBeWritten).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'Array', 'Globals');
+      expect(queries.canClassBeWritten).not.toHaveBeenCalled();
     });
 
-    it('returns writable when canClassBeWritten returns true', () => {
-      vi.mocked(queries.canClassBeWritten).mockReturnValue(true);
+    it('leaves method-source editors writable', () => {
       const stat = provider.stat(Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A'));
       expect(stat.permissions).toBeUndefined();
     });
 
-    it('returns read-only when canClassBeWritten returns false', () => {
-      vi.mocked(queries.canClassBeWritten).mockReturnValue(false);
-      const stat = provider.stat(Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A'));
-      expect(stat.permissions).toBe(FilePermission.Readonly);
+    it('leaves class-definition editors writable', () => {
+      const stat = provider.stat(Uri.parse('gemstone://1/Globals/Array/definition'));
+      expect(stat.permissions).toBeUndefined();
     });
 
-    it('returns read-only for an override-diff view URI even on a writable class', () => {
-      vi.mocked(queries.canClassBeWritten).mockReturnValue(true);
+    it('leaves class-comment editors writable', () => {
+      const stat = provider.stat(Uri.parse('gemstone://1/Globals/Array/comment'));
+      expect(stat.permissions).toBeUndefined();
+    });
+
+    it('returns read-only for an override-diff view URI', () => {
       const stat = provider.stat(Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A%20(base)?base=1'));
       expect(stat.permissions).toBe(FilePermission.Readonly);
-    });
-
-    it('returns read-only for class definitions when canClassBeWritten returns false', () => {
-      vi.mocked(queries.canClassBeWritten).mockReturnValue(false);
-      const stat = provider.stat(Uri.parse('gemstone://1/Globals/Array/definition'));
-      expect(stat.permissions).toBe(FilePermission.Readonly);
-    });
-
-    it('returns read-only for class comments when canClassBeWritten returns false', () => {
-      vi.mocked(queries.canClassBeWritten).mockReturnValue(false);
-      const stat = provider.stat(Uri.parse('gemstone://1/Globals/Array/comment'));
-      expect(stat.permissions).toBe(FilePermission.Readonly);
-    });
-
-    it('allows editing when canClassBeWritten throws (e.g., session busy)', () => {
-      vi.mocked(queries.canClassBeWritten).mockImplementation(() => { throw new BrowserQueryError('Session busy'); });
-      const stat = provider.stat(Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A'));
-      expect(stat.permissions).toBeUndefined();
     });
 
     it('always returns writable for new-class URIs without calling canClassBeWritten', () => {
@@ -177,6 +160,31 @@ describe('GemStoneFileSystemProvider', () => {
       );
     });
 
+    it('recovers a binary selector containing a slash', () => {
+      const uri = Uri.parse(`gemstone://1/Globals/FileReference/instance/accessing/${encodeURIComponent('/')}`);
+      provider.readFile(uri);
+      expect(queries.getMethodSource).toHaveBeenCalledWith(
+        expect.anything(), 'FileReference', false, '/', 0, 'Globals',
+      );
+    });
+
+    it('recovers a binary selector made only of slashes', () => {
+      const uri = Uri.parse(`gemstone://1/Globals/Number/instance/arithmetic/${encodeURIComponent('//')}`);
+      provider.readFile(uri);
+      expect(queries.getMethodSource).toHaveBeenCalledWith(
+        expect.anything(), 'Number', false, '//', 0, 'Globals',
+      );
+    });
+
+    it('recovers a slash selector escaped with the sentinel (the real open path)', () => {
+      const seg = encodeURIComponent(escapeSelectorSlashes('/'));
+      const uri = Uri.parse(`gemstone://1/Globals/FileReference/class/cross%20platform/${seg}`);
+      provider.readFile(uri);
+      expect(queries.getMethodSource).toHaveBeenCalledWith(
+        expect.anything(), 'FileReference', true, '/', 0, 'Globals',
+      );
+    });
+
     it('reads a class definition, scoped to the dictionary (name fallback when no ?dict)', () => {
       const uri = Uri.parse('gemstone://1/Globals/Array/definition');
       const content = new TextDecoder().decode(provider.readFile(uri));
@@ -239,12 +247,40 @@ describe('GemStoneFileSystemProvider', () => {
       );
     });
 
+    it('confirms a method compile when the class is writable', () => {
+      const uri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A');
+
+      provider.writeFile(uri, encode('at: index\n  ^self basicAt: index'), { create: false, overwrite: true });
+
+      expect(window.showInformationMessage).toHaveBeenCalledWith(expect.stringContaining('Compiled method'));
+    });
+
+    it('warns that the save did not persist when a method compiles into a non-writable class', () => {
+      vi.mocked(queries.canClassBeWritten).mockReturnValueOnce(false);
+      const uri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A');
+
+      provider.writeFile(uri, encode('at: index\n  ^self basicAt: index'), { create: false, overwrite: true });
+
+      expect(window.showWarningMessage).toHaveBeenCalledWith(expect.stringContaining('NOT persisted'));
+      expect(window.showInformationMessage).not.toHaveBeenCalled();
+    });
+
     it('compiles a class definition on save', () => {
       const uri = Uri.parse('gemstone://1/Globals/Array/definition');
       const source = "Object subclass: 'Array'\n  instVarNames: #()";
       vi.mocked(queries.compileClassDefinition).mockReturnValueOnce('Array');
       provider.writeFile(uri, encode(source), { create: false, overwrite: true });
       expect(queries.compileClassDefinition).toHaveBeenCalledWith(expect.anything(), source);
+    });
+
+    it('warns that the save did not persist when an existing class definition recompiles transiently', () => {
+      vi.mocked(queries.canClassBeWritten).mockReturnValueOnce(false);
+      vi.mocked(queries.compileClassDefinition).mockReturnValueOnce('Array');
+      const uri = Uri.parse('gemstone://1/Globals/Array/definition');
+
+      provider.writeFile(uri, encode("Object subclass: 'Array'\n  instVarNames: #()"), { create: false, overwrite: true });
+
+      expect(window.showWarningMessage).toHaveBeenCalledWith(expect.stringContaining('NOT persisted'));
     });
 
     it('sets class comment on save, scoped to the dictionary', () => {
@@ -285,7 +321,7 @@ describe('GemStoneFileSystemProvider', () => {
       expect(listener).toHaveBeenCalledTimes(1);
       const event = listener.mock.calls[0][0];
       expect(event.previousUri.toString()).toBe(newClassUri.toString());
-      expect(event.uri.toString()).toBe('gemstone://1/UserGlobals/MyClass/definition');
+      expect(event.uri.toString()).toBe('gemstone://1/UserGlobals/MyClass/definition/MyClass');
       expect(event.previousUriIsTemplate).toBe(true);
     });
 
@@ -349,7 +385,8 @@ describe('GemStoneFileSystemProvider', () => {
       expect(listener).toHaveBeenCalledTimes(1);
       const event = listener.mock.calls[0][0];
       expect(event.previousUriIsTemplate).toBe(false);
-      expect(event.uri.toString()).toBe(uri.toString());
+      // The reopened definition URI repeats the class name so the tab shows it.
+      expect(event.uri.toString()).toBe('gemstone://1/Globals/Array/definition/Array');
       expect(event.previousUri.toString()).toBe(uri.toString());
     });
 
@@ -366,7 +403,7 @@ describe('GemStoneFileSystemProvider', () => {
       const event = listener.mock.calls[0][0];
       expect(event.previousUriIsTemplate).toBe(false);
       expect(event.previousUri.toString()).toBe(previousUri.toString());
-      expect(event.uri.toString()).toBe('gemstone://1/Globals/RenamedArray/definition');
+      expect(event.uri.toString()).toBe('gemstone://1/Globals/RenamedArray/definition/RenamedArray');
     });
 
     it('does not fire onClassDefinitionCompiled and sets a diagnostic when an existing class definition save throws', async () => {
@@ -957,6 +994,193 @@ describe('closeGemstoneTabsForSession', () => {
     await closeGemstoneTabsForSession(1);
 
     expect(window.tabGroups.close).not.toHaveBeenCalled();
+    window.tabGroups.all = [];
+  });
+});
+
+describe('installStaleGemstoneTabReaper', () => {
+  it('closes gemstone tabs whose session is not live and leaves the rest', () => {
+    vi.mocked(window.tabGroups.close).mockClear();
+    const noSessions = { getSession: vi.fn(() => undefined) } as unknown as SessionManager;
+    const staleMethod = { input: new TabInputText(Uri.parse('gemstone://7/Globals/Array/instance/accessing/at%3A')) };
+    const plainFile = { input: new TabInputText(Uri.parse('file:///tmp/Array.gs')) };
+    window.tabGroups.all = [{ tabs: [staleMethod, plainFile] }];
+
+    installStaleGemstoneTabReaper(noSessions);
+
+    expect(window.tabGroups.close).toHaveBeenCalledWith([staleMethod]);
+    window.tabGroups.all = [];
+  });
+
+  it('leaves gemstone tabs whose session is live', () => {
+    vi.mocked(window.tabGroups.close).mockClear();
+    const session = makeSession(3);
+    const mgr = { getSession: vi.fn((id: number) => id === 3 ? session : undefined) } as unknown as SessionManager;
+    const liveTab = { input: new TabInputText(Uri.parse('gemstone://3/Globals/Array/definition')) };
+    window.tabGroups.all = [{ tabs: [liveTab] }];
+
+    installStaleGemstoneTabReaper(mgr);
+
+    expect(window.tabGroups.close).not.toHaveBeenCalled();
+    window.tabGroups.all = [];
+  });
+
+  it('does not throw with a stale tab present when no session manager is available', () => {
+    vi.mocked(window.tabGroups.close).mockClear();
+    const staleTab = { input: new TabInputText(Uri.parse('gemstone://7/Globals/Array/definition')) };
+    window.tabGroups.all = [{ tabs: [staleTab] }];
+
+    expect(() => installStaleGemstoneTabReaper(undefined as unknown as SessionManager)).not.toThrow();
+
+    expect(window.tabGroups.close).toHaveBeenCalledWith([staleTab]);
+    window.tabGroups.all = [];
+  });
+
+  it('watches for tabs appearing after activation (wins the restore race)', () => {
+    vi.mocked(window.tabGroups.onDidChangeTabs).mockClear();
+    const noSessions = { getSession: vi.fn(() => undefined) } as unknown as SessionManager;
+    window.tabGroups.all = [];
+
+    installStaleGemstoneTabReaper(noSessions);
+
+    expect(window.tabGroups.onDidChangeTabs).toHaveBeenCalled();
+  });
+
+  it('reaps stale tabs on a tab change and when the session selection changes', () => {
+    vi.mocked(window.tabGroups.close).mockClear();
+    vi.mocked(window.tabGroups.onDidChangeTabs).mockClear();
+    let sessionCb: () => void = () => {};
+    const noSessions = {
+      getSession: vi.fn(() => undefined),
+      onDidChangeSelection: vi.fn((cb: () => void) => { sessionCb = cb; return { dispose() {} }; }),
+    } as unknown as SessionManager;
+    window.tabGroups.all = [];
+
+    installStaleGemstoneTabReaper(noSessions);
+
+    const tabCb = (vi.mocked(window.tabGroups.onDidChangeTabs).mock.calls[0] as unknown[])[0] as
+      () => void;
+    const stale = { input: new TabInputText(Uri.parse('gemstone://7/Globals/Array/definition')) };
+    window.tabGroups.all = [{ tabs: [stale] }];
+
+    tabCb();
+    expect(window.tabGroups.close).toHaveBeenCalledWith([stale]);
+
+    vi.mocked(window.tabGroups.close).mockClear();
+    sessionCb();
+    expect(window.tabGroups.close).toHaveBeenCalledWith([stale]);
+    window.tabGroups.all = [];
+  });
+});
+
+describe('parseUri', () => {
+  const method = { kind: 'method' as const, sessionId: 1, dictName: 'Globals', className: 'Array' };
+
+  it('round-trips an instance method built by buildMethodUri', () => {
+    const uri = buildMethodUri({ ...method, isMeta: false, category: 'accessing', selector: 'at:', environmentId: 0 });
+
+    expect(parseUri(uri)).toMatchObject({
+      kind: 'method', className: 'Array', isMeta: false, category: 'accessing', selector: 'at:', environmentId: 0,
+    });
+  });
+
+  it('marks the class side when the method is meta', () => {
+    const uri = buildMethodUri({ ...method, isMeta: true, category: 'instance creation', selector: 'new', environmentId: 0 });
+
+    expect(parseUri(uri)).toMatchObject({ kind: 'method', isMeta: true, selector: 'new' });
+  });
+
+  it('preserves a non-default environment id', () => {
+    const uri = buildMethodUri({ ...method, isMeta: false, category: 'accessing', selector: 'at:', environmentId: 2 });
+
+    expect(parseUri(uri)).toMatchObject({ environmentId: 2 });
+  });
+
+  it('preserves the dictionary index that scopes the class lookup', () => {
+    const uri = buildMethodUri({ ...method, isMeta: false, category: 'accessing', selector: 'at:', environmentId: 0, dictIndex: 7 });
+
+    expect(parseUri(uri)).toMatchObject({ dictIndex: 7 });
+  });
+
+  it('preserves the base-source flag used by the override diff', () => {
+    const uri = buildMethodUri({ ...method, isMeta: false, category: 'accessing', selector: 'at:', environmentId: 0, base: true });
+
+    expect(parseUri(uri)).toMatchObject({ base: true });
+  });
+
+  it('recovers a selector that contains a slash', () => {
+    const uri = buildMethodUri({ ...method, isMeta: false, category: 'arithmetic', selector: escapeSelectorSlashes('//'), environmentId: 0 });
+
+    expect(parseUri(uri)).toMatchObject({ selector: '//' });
+  });
+
+  it('round-trips a class definition built by buildClassDefinitionUri', () => {
+    const uri = buildClassDefinitionUri(1, 'Globals', 'Array', 5);
+
+    expect(parseUri(uri)).toMatchObject({ kind: 'definition', dictName: 'Globals', className: 'Array', dictIndex: 5 });
+  });
+
+  it('round-trips a new-method template built by buildNewMethodUri', () => {
+    const uri = buildNewMethodUri(1, 'Globals', 'Array', true, 'accessing', 0);
+
+    expect(parseUri(uri)).toMatchObject({ kind: 'new-method', className: 'Array', isMeta: true, category: 'accessing' });
+  });
+
+  it('accepts the legacy four-segment class-definition form', () => {
+    const parsed = parseUri(Uri.parse('gemstone://1/Globals/Array/definition'));
+
+    expect(parsed).toMatchObject({ kind: 'definition', className: 'Array' });
+  });
+
+  it('recognizes a class-comment editor', () => {
+    const parsed = parseUri(Uri.parse('gemstone://1/Globals/Array/comment'));
+
+    expect(parsed).toMatchObject({ kind: 'comment', className: 'Array' });
+  });
+
+  it('recognizes the new-class template and its category', () => {
+    const parsed = parseUri(Uri.parse('gemstone://1/UserGlobals/new-class?category=Widgets'));
+
+    expect(parsed).toMatchObject({ kind: 'new-class', dictName: 'UserGlobals', category: 'Widgets' });
+  });
+
+  it('treats a decorated override-diff selector as a read-only diff view', () => {
+    const parsed = parseUri(Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A%20(base)?base=1'));
+
+    expect(parsed).toMatchObject({ kind: 'method', selector: 'at:', diffView: true, base: true });
+  });
+
+  it('throws FileNotFound for a path that matches no known shape', () => {
+    expect(() => parseUri(Uri.parse('gemstone://1/Globals'))).toThrow();
+  });
+});
+
+describe('listOpenGemstoneTabs', () => {
+  it('returns each open gemstone source tab with its uri', () => {
+    const uri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A');
+    const tab = { input: new TabInputText(uri) };
+    window.tabGroups.all = [{ tabs: [tab] }];
+
+    expect(listOpenGemstoneTabs()).toEqual([{ tab, uri }]);
+
+    window.tabGroups.all = [];
+  });
+
+  it('ignores editors that are not gemstone documents', () => {
+    window.tabGroups.all = [{ tabs: [{ input: new TabInputText(Uri.parse('file:///tmp/x.st')) }] }];
+
+    expect(listOpenGemstoneTabs()).toEqual([]);
+
+    window.tabGroups.all = [];
+  });
+
+  it('excludes the override-diff comparison, which is a diff tab not a source editor', () => {
+    const baseUri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A%20(base)');
+    const overUri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A');
+    window.tabGroups.all = [{ tabs: [{ input: new TabInputTextDiff(baseUri, overUri) }] }];
+
+    expect(listOpenGemstoneTabs()).toEqual([]);
+
     window.tabGroups.all = [];
   });
 });

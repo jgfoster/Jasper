@@ -208,6 +208,7 @@ export const window = {
   showInformationMessage: vi.fn(),
   showWarningMessage: vi.fn(),
   createTreeView: vi.fn(() => ({ dispose: () => {} })),
+  registerFileDecorationProvider: vi.fn(() => ({ dispose: () => {} })),
   createOutputChannel: vi.fn(() => ({ append: vi.fn(), appendLine: vi.fn(), show: vi.fn(), dispose: vi.fn() })),
   createTextEditorDecorationType: vi.fn(() => ({ dispose: vi.fn() })),
   visibleTextEditors: [] as unknown[],
@@ -228,8 +229,9 @@ export const window = {
   showOpenDialog: vi.fn(),
   showSaveDialog: vi.fn(),
   tabGroups: {
-    all: [] as { viewColumn?: number; tabs: { input: unknown }[] }[],
+    all: [] as { viewColumn?: number; tabs: { input: unknown; isDirty?: boolean }[] }[],
     close: vi.fn(),
+    onDidChangeTabs: vi.fn(() => ({ dispose: vi.fn() })),
   },
   withProgress: vi.fn(async (_opts: unknown, task: (progress: unknown, token: unknown) => Promise<unknown>) => {
     const progress = { report: vi.fn() };

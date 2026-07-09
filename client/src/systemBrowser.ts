@@ -9,7 +9,8 @@ import * as queries from './browserQueries';
 import {GlobalsBrowser} from './globalsBrowser';
 import {ClassBrowser} from './classBrowser';
 import {CommentBrowser} from './commentBrowser';
-import {buildNewMethodUri, buildMethodUri, closeGemstoneTabsForSession} from './gemstoneFileSystemProvider';
+import {buildNewMethodUri, buildMethodUri, closeGemstoneTabsForSession, escapeSelectorSlashes} from './gemstoneFileSystemProvider';
+import {SourceEditorPlacement} from './sourceEditorPlacement';
 
 /**
  * The webview HTML is a large template literal in getHtml(). Embedding JS directly
@@ -241,6 +242,16 @@ export class SystemBrowser {
   // Dimming
   private dimDecorationType: vscode.TextEditorDecorationType;
   private dimmedEditorUri: string | undefined;
+
+  // Owns where this browser's source editors land: reuses the group holding its
+  // own editors, else splits a fresh group below the webview. Tracks only the
+  // editors it opened so it never lands in another browser's (e.g. the GemStone
+  // Explorer's) editor column. See sourceEditorPlacement.ts.
+  private readonly placement = new SourceEditorPlacement(async () => {
+    this.panel.reveal(undefined, false);
+    await vscode.commands.executeCommand('workbench.action.newGroupBelow');
+    return vscode.ViewColumn.Active;
+  });
 
   /**
    * Refresh the browser for a given session (e.g. after abort or commit).
@@ -977,6 +988,7 @@ export class SystemBrowser {
       const viewColumn = await this.getBrowserViewColumn();
       const title = `${className}${isMeta ? ' class' : ''}>>${selector} - base vs session override`;
       this.comparisonDiffBaseUri = baseUri.toString();
+      this.placement.remember(overrideUri);
       await vscode.commands.executeCommand('vscode.diff', baseUri, overrideUri, title, { viewColumn, preview: true });
     } finally {
       this.comparisonBusy = false;
@@ -1632,6 +1644,7 @@ export class SystemBrowser {
       ? this.state.selectedMethodCategory : 'as yet unclassified';
     const uri = buildNewMethodUri(this.session.id, dictName, className, this.state.isMeta, category, this.state.selectedEnvId, dictIndex);
     const viewColumn = await this.getBrowserViewColumn();
+    this.placement.remember(uri);
     const doc = await vscode.workspace.openTextDocument(uri);
     vscode.window.showTextDocument(doc, { viewColumn, preview: true });
   }
@@ -2015,7 +2028,6 @@ export class SystemBrowser {
     if (!dictIndex) return;
 
     const dictName = this.state.dictionaries[dictIndex - 1];
-    const viewColumn = await this.getBrowserViewColumn();
 
     if (!selector) {
       // Open the read-only .gs file for class-level navigation
@@ -2024,6 +2036,11 @@ export class SystemBrowser {
       const filePath = path.join(sessionRoot, `${dictIndex}-${dictName}`, `${className}.gs`);
       if (!fs.existsSync(filePath)) return;
       this.clearDimming();
+      // Resolve the column only once we're committed to opening — homeColumn may
+      // split a fresh group, and doing that before the guards above would leave
+      // an orphaned empty group when there's nothing to open.
+      const viewColumn = await this.getBrowserViewColumn();
+      this.placement.remember(vscode.Uri.file(filePath));
       vscode.window.showTextDocument(vscode.Uri.file(filePath), { viewColumn, preview: false });
       return;
     }
@@ -2038,45 +2055,22 @@ export class SystemBrowser {
     const uri = vscode.Uri.parse(
       `gemstone://${this.session.id}/${encodeURIComponent(dictName)}/` +
       `${encodeURIComponent(className)}/${side}/` +
-      `${encodeURIComponent(category)}/${encodeURIComponent(selector)}?${params.join('&')}`
+      `${encodeURIComponent(category)}/${encodeURIComponent(escapeSelectorSlashes(selector))}?${params.join('&')}`
     );
+    const viewColumn = await this.getBrowserViewColumn();
+    this.placement.remember(uri);
     const doc = await vscode.workspace.openTextDocument(uri);
     vscode.window.showTextDocument(doc, { viewColumn, preview: true });
   }
 
-  private async getBrowserViewColumn(): Promise<vscode.ViewColumn> {
-    const sessionId = String(this.session.id);
-    const sessionRoot = this.exportManager.getSessionRoot(this.session);
-    const matches = (uri: vscode.Uri | undefined): boolean =>
-      !!uri && (
-        (uri.scheme === 'gemstone' && uri.authority === sessionId) ||
-        (!!sessionRoot && uri.scheme === 'file' && uri.fsPath.startsWith(sessionRoot))
-      );
-
-    // Prefer the group that already hosts a session editor — even a BACKGROUND
-    // tab (the class definition, another method, or the override diff), which
-    // `visibleTextEditors` can't see. This keeps method source and diffs as
-    // peers in that group instead of spawning a new group that squeezes it.
-    for (const group of vscode.window.tabGroups.all) {
-      for (const tab of group.tabs) {
-        const input = tab.input;
-        const uri = input instanceof vscode.TabInputText ? input.uri
-          : input instanceof vscode.TabInputTextDiff ? input.modified
-          : undefined;
-        if (matches(uri) && group.viewColumn) return group.viewColumn;
-      }
-    }
-    // Fallback: any currently-visible session editor.
-    for (const editor of vscode.window.visibleTextEditors) {
-      if (matches(editor.document.uri)) return editor.viewColumn ?? vscode.ViewColumn.Beside;
-    }
-    // Nothing open yet — split the browser's column vertically so the source
-    // appears below the browser, not beside the inspector in a separate column.
-    // Focus the browser first so newGroupBelow targets column 1, then the new
-    // (now-active) group below is where we open the file.
-    this.panel.reveal(undefined, false);
-    await vscode.commands.executeCommand('workbench.action.newGroupBelow');
-    return vscode.ViewColumn.Active;
+  // The column this browser opens source into: the group already holding its
+  // own definition/method/diff editors (kept together as peers), or a fresh
+  // group split below the webview. Only this browser's editors are considered,
+  // so the source never jumps into the GemStone Explorer's balanced columns.
+  // Callers must `this.placement.remember(uri)` after opening so the group can
+  // be re-found on the next click.
+  private getBrowserViewColumn(): Promise<vscode.ViewColumn> {
+    return this.placement.homeColumn();
   }
 
   private applyDimming(

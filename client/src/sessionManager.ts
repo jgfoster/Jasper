@@ -54,6 +54,13 @@ export class SessionManager {
   private _onDidChangeSelection = new vscode.EventEmitter<number | null>();
   readonly onDidChangeSelection = this._onDidChangeSelection.event;
 
+  // Fires with a session id whenever a session leaves the manager (logout or
+  // shutdown), regardless of whether it was the selected one. Unlike
+  // onDidChangeSelection (which only fires for the selected session), this lets
+  // listeners — e.g. the stale-tab reaper — react to *any* session going away.
+  private _onDidRemoveSession = new vscode.EventEmitter<number>();
+  readonly onDidRemoveSession = this._onDidRemoveSession.event;
+
   get selectedId(): number | null {
     return this._selectedId;
   }
@@ -201,6 +208,10 @@ export class SessionManager {
       // Session may already be dead — remove it regardless
     }
     this.sessions.delete(id);
+    // Signal removal unconditionally so listeners reap even when a *background*
+    // (non-selected) session is logged out — onDidChangeSelection below only
+    // fires for the selected session.
+    this._onDidRemoveSession.fire(id);
 
     if (this._selectedId === id) {
       this._selectedId = null;
@@ -252,5 +263,6 @@ export class SessionManager {
     }
     this.gciInstances.clear();
     this._onDidChangeSelection.dispose();
+    this._onDidRemoveSession.dispose();
   }
 }
