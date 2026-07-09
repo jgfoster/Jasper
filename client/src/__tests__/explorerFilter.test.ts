@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { filterMatches } from '../stageBrowserFilter';
+import { filterMatches } from '../explorerFilter';
 
-describe('Stage browser pane filtering', () => {
+describe('GemStone Explorer pane filtering', () => {
   it('matches everything when the pattern is empty', () => {
     expect(filterMatches('anything', '')).toBe(true);
     expect(filterMatches('anything', undefined)).toBe(true);

@@ -1,0 +1,141 @@
+import * as vscode from 'vscode';
+import { parseUri, listOpenGemstoneTabs } from './gemstoneFileSystemProvider';
+import { classifyGemstoneUri, OpenEditorKind } from './explorerOpenEditorsLabel';
+
+// The Open Editors pane: a live mirror of the currently-open gemstone:// source
+// editors, shown as the LAST pane of the GemStone Explorer container. There is
+// no pinning or persistence — a row appears when its editor opens and
+// disappears when it closes. Entries are split into two groups: class
+// definition editors ("Classes") and method source editors ("Methods").
+// Clicking a row focuses that editor. The whole pane is hidden (via the
+// `gemstone.explorerHasOpenEditors` context key) when nothing qualifies.
+
+const VIEW_ID = 'gemstoneExplorerOpenEditors';
+const CONTEXT_HAS_OPEN = 'gemstone.explorerHasOpenEditors';
+const REVEAL_COMMAND = 'gemstone.explorer.revealOpenEditor';
+const CLOSE_COMMAND = 'gemstone.explorer.closeOpenEditor';
+const CLOSE_ALL_COMMAND = 'gemstone.explorer.closeAllOpenEditors';
+const ITEM_CONTEXT = 'explorerOpenEditorItem';
+
+// Group headers, in display order. Only non-empty groups are shown.
+const GROUPS: { kind: OpenEditorKind; label: string; icon: string }[] = [
+  { kind: 'class', label: 'Classes', icon: 'symbol-class' },
+  { kind: 'method', label: 'Methods', icon: 'symbol-method' },
+];
+
+class GroupItem extends vscode.TreeItem {
+  constructor(readonly kind: OpenEditorKind, label: string) {
+    super(label, vscode.TreeItemCollapsibleState.Expanded);
+    this.id = `group:${kind}`;
+    this.contextValue = 'explorerOpenEditorGroup';
+  }
+}
+
+class EditorItem extends vscode.TreeItem {
+  constructor(label: string, readonly uri: vscode.Uri, icon: string) {
+    super(label, vscode.TreeItemCollapsibleState.None);
+    this.id = uri.toString();
+    this.resourceUri = uri;
+    this.iconPath = new vscode.ThemeIcon(icon);
+    this.tooltip = uri.toString();
+    this.contextValue = ITEM_CONTEXT;
+    this.command = { command: REVEAL_COMMAND, title: 'Reveal Open Editor', arguments: [uri] };
+  }
+}
+
+interface Entry { kind: OpenEditorKind; label: string; uri: vscode.Uri; }
+
+// Every open gemstone:// source tab, classified and de-duplicated by URI (the
+// same document split across editor groups yields one row).
+function openEntries(): Entry[] {
+  const seen = new Set<string>();
+  const out: Entry[] = [];
+  for (const { uri } of listOpenGemstoneTabs()) {
+    const key = uri.toString();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    let entry: { kind: OpenEditorKind; label: string } | undefined;
+    try { entry = classifyGemstoneUri(parseUri(uri)); }
+    catch { entry = undefined; }   // unrecognized URI shape → skip
+    if (entry) out.push({ ...entry, uri });
+  }
+  return out;
+}
+
+class OpenEditorsProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<void>();
+  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+  refresh(): void { this._onDidChangeTreeData.fire(); }
+  getTreeItem(element: vscode.TreeItem): vscode.TreeItem { return element; }
+
+  getChildren(element?: vscode.TreeItem): vscode.TreeItem[] {
+    const entries = openEntries();
+    if (!element) {
+      // Top level: one header per non-empty group (Classes, then Methods).
+      return GROUPS
+        .filter((g) => entries.some((e) => e.kind === g.kind))
+        .map((g) => new GroupItem(g.kind, g.label));
+    }
+    if (element instanceof GroupItem) {
+      const icon = GROUPS.find((g) => g.kind === element.kind)!.icon;
+      return entries
+        .filter((e) => e.kind === element.kind)
+        .sort((a, b) => a.label.localeCompare(b.label))
+        .map((e) => new EditorItem(e.label, e.uri, icon));
+    }
+    return [];
+  }
+}
+
+// True when at least one browsable gemstone:// source tab is open.
+function hasOpenEditors(): boolean {
+  for (const { uri } of listOpenGemstoneTabs()) {
+    try { if (classifyGemstoneUri(parseUri(uri))) return true; }
+    catch { /* skip unrecognized */ }
+  }
+  return false;
+}
+
+// Close the open editor tab(s) for one URI (the same document may be split
+// across editor groups).
+async function closeEditor(uri: vscode.Uri): Promise<void> {
+  const key = uri.toString();
+  const tabs = listOpenGemstoneTabs().filter((t) => t.uri.toString() === key).map((t) => t.tab);
+  if (tabs.length) await vscode.window.tabGroups.close(tabs);
+}
+
+// Close every open gemstone:// source editor at once.
+async function closeAllEditors(): Promise<void> {
+  const tabs = listOpenGemstoneTabs().map((t) => t.tab);
+  if (tabs.length) await vscode.window.tabGroups.close(tabs);
+}
+
+export function registerExplorerOpenEditors(context: vscode.ExtensionContext): void {
+  const provider = new OpenEditorsProvider();
+  const view = vscode.window.createTreeView(VIEW_ID, { treeDataProvider: provider });
+
+  const syncContextKey = () =>
+    void vscode.commands.executeCommand('setContext', CONTEXT_HAS_OPEN, hasOpenEditors());
+  syncContextKey();
+
+  context.subscriptions.push(
+    view,
+    // A tab opening or closing both toggles the pane's visibility and rebuilds
+    // its rows.
+    vscode.window.tabGroups.onDidChangeTabs(() => {
+      syncContextKey();
+      provider.refresh();
+    }),
+    vscode.commands.registerCommand(REVEAL_COMMAND, (uri?: vscode.Uri) => {
+      if (uri instanceof vscode.Uri) {
+        void vscode.window.showTextDocument(uri, { preview: false, preserveFocus: false });
+      }
+    }),
+    // Row inline close button — the argument is the clicked EditorItem.
+    vscode.commands.registerCommand(CLOSE_COMMAND, (item?: { uri?: vscode.Uri }) => {
+      if (item?.uri instanceof vscode.Uri) void closeEditor(item.uri);
+    }),
+    // View-title "Close All Editors".
+    vscode.commands.registerCommand(CLOSE_ALL_COMMAND, () => void closeAllEditors()),
+  );
+}

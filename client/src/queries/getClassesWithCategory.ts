@@ -7,7 +7,7 @@ export interface ClassCategoryEntry {
 }
 
 // Lists every class in a dictionary paired with its class-category, so the
-// Stage browser can build a distinct-categories pane and a classes-in-category
+// GemStone Explorer can build a distinct-categories pane and a classes-in-category
 // pane from a single fetch. Accepts a dictionary by 1-based index (canonical
 // for Jasper) or by name (convenient for callers that skip enumeration).
 // Classes whose category is nil/empty are reported under 'as yet unclassified'.

@@ -6,31 +6,68 @@ import {
   escapeSelectorSlashes, unescapeSelectorSlashes, buildClassDefinitionUri, buildNewMethodUri,
   buildMethodUri,
 } from './gemstoneFileSystemProvider';
-import { filterMatches } from './stageBrowserFilter';
+import { filterMatches } from './explorerFilter';
+import { DoubleClickDetector } from './explorerDoubleClick';
+import { categoryChildNodes, categoryParentPath, categoryMatches } from './explorerCategories';
+import { registerExplorerOpenEditors } from './explorerOpenEditors';
+import { pickBalancedColumn } from './explorerColumnBalance';
 
-const VIEW_DICTS = 'gemstoneStageDicts';
-const VIEW_CATEGORIES = 'gemstoneStageCategories';
-const VIEW_CLASSES = 'gemstoneStageClasses';
-const VIEW_HIERARCHY = 'gemstoneStageHierarchy';
-const VIEW_METHODS = 'gemstoneStageMethods';
+const VIEW_DICTS = 'gemstoneExplorerDicts';
+const VIEW_CATEGORIES = 'gemstoneExplorerCategories';
+const VIEW_CLASSES = 'gemstoneExplorerClasses';
+const VIEW_METHODS = 'gemstoneExplorerMethods';
 // Panes that support the live filter (the Hierarchy pane doesn't).
-const STAGE_VIEWS = [VIEW_DICTS, VIEW_CATEGORIES, VIEW_CLASSES, VIEW_METHODS];
+const EXPLORER_VIEWS = [VIEW_DICTS, VIEW_CATEGORIES, VIEW_CLASSES, VIEW_METHODS];
 
-// ── Stage Browser (Stage 1) ────────────────────────────────────────────────
+// Open a gemstone:// source document in the editor area. A plain open replaces
+// the active preview tab (keeping focus in the tree for live browsing); an
+// open-to-side pins the editor in a balanced column so several editors spread
+// across a few groups instead of clumping (see pickBalancedColumn).
+async function openGemstoneDocument(doc: vscode.TextDocument, toSide: boolean): Promise<void> {
+  if (!toSide) {
+    await vscode.window.showTextDocument(doc, {
+      viewColumn: vscode.ViewColumn.Active, preview: true, preserveFocus: true,
+    });
+    return;
+  }
+  const gemColumns = new Map<number, number>();
+  for (const group of vscode.window.tabGroups.all) {
+    let count = 0;
+    for (const tab of group.tabs) {
+      if (tab.input instanceof vscode.TabInputText && tab.input.uri.scheme === 'gemstone') count++;
+    }
+    if (count > 0) gemColumns.set(group.viewColumn, count);
+  }
+  const target = pickBalancedColumn(gemColumns);
+  if (target === 'new') {
+    // Append a fresh group at the far right: focus the last group first so
+    // Beside lands to its right. (A numeric column past the end is treated as
+    // "beside the active group", which isn't reliably the rightmost.)
+    await vscode.commands.executeCommand('workbench.action.focusLastEditorGroup');
+    await vscode.window.showTextDocument(doc, {
+      viewColumn: vscode.ViewColumn.Beside, preview: false, preserveFocus: false,
+    });
+  } else {
+    await vscode.window.showTextDocument(doc, {
+      viewColumn: target, preview: false, preserveFocus: false,
+    });
+  }
+}
+
+// ── GemStone Explorer ───────────────────────────────────────────────────────
 //
 // A set of interconnected navigation panes that cascade left-to-right:
 //   Dictionaries → Class Categories → Classes → Methods (side ▸ category ▸ sel)
 // Selecting a method opens its source in an editor; the ↗ inline action (or
-// right-click ▸ Open to the Side) opens it in a second editor group. Later
-// Stages add the working-set "stage" pane; this Stage is navigation through to
-// open source panes.
+// right-click ▸ Open to the Side) opens it in a balanced editor group. The
+// Open Editors pane mirrors the currently-open source editors.
 //
-// The panes live in their own `gemstoneStage` sidebar container. All four share
+// The panes live in their own `gemstoneExplorer` sidebar container. All four share
 // one controller that holds the cascade state, the current dictionary's
 // class→category listing, and the selected class's per-method metadata
 // (categories, override arrows, session-method flags).
 
-interface StageState {
+interface ExplorerState {
   dictName?: string;
   dictIndex?: number;             // 1-based symbolList position
   classCategory?: string;         // undefined = show all classes in dict
@@ -75,7 +112,7 @@ class ClassCategoryItem extends vscode.TreeItem {
       ? vscode.TreeItemCollapsibleState.Collapsed
       : vscode.TreeItemCollapsibleState.None);
     this.id = `c:${fullPath}`;
-    this.contextValue = 'stageCategory';
+    this.contextValue = 'explorerCategory';
     this.iconPath = new vscode.ThemeIcon('symbol-folder');
     if (fullPath !== segment) this.tooltip = fullPath;
   }
@@ -85,12 +122,12 @@ class ClassItem extends vscode.TreeItem {
   constructor(public readonly className: string) {
     super(className, vscode.TreeItemCollapsibleState.None);
     this.id = `k:${className}`;
-    this.contextValue = 'stageClass';
+    this.contextValue = 'explorerClass';
     this.iconPath = new vscode.ThemeIcon('symbol-class');
     // Fires on every click (selection still drives navigation separately); the
     // controller uses the timing to detect a double-click → open definition.
     this.command = {
-      command: 'gemstone.stageBrowser.classClicked',
+      command: 'gemstone.explorer.classClicked',
       title: '',
       arguments: [className],
     };
@@ -109,7 +146,9 @@ class MethodSideItem extends vscode.TreeItem {
         : vscode.TreeItemCollapsibleState.Expanded,
     );
     this.id = `mside:${isMeta}`;
-    this.iconPath = new vscode.ThemeIcon(isMeta ? 'symbol-constructor' : 'symbol-method');
+    // Both instance/class side headers use the class icon — distinct from the
+    // per-method rows (symbol-method) so a header doesn't read as a method.
+    this.iconPath = new vscode.ThemeIcon('symbol-class');
   }
 }
 
@@ -146,8 +185,8 @@ class MethodItem extends vscode.TreeItem {
     // The context value carries the indicator state so the right-click menu can
     // offer superclass/subclass-implementation browsing only where an override
     // arrow is actually present (▲ overrides super, ▼ overridden below). Base
-    // Senders/Implementors are always offered on the plain `stageMethod` token.
-    this.contextValue = 'stageMethod'
+    // Senders/Implementors are always offered on the plain `explorerMethod` token.
+    this.contextValue = 'explorerMethod'
       + (info.overrideBits & 1 ? '.up' : '')
       + (info.overrideBits & 2 ? '.down' : '')
       + (info.sessionBit ? '.session' : '');
@@ -165,7 +204,7 @@ class MethodItem extends vscode.TreeItem {
     // below are *clickable* (a guaranteed-working path to the browse actions,
     // independent of whether the inline row buttons render).
     const arg = encodeURIComponent(JSON.stringify([{ selector: info.selector, isMeta }]));
-    const cmd = (id: string) => `command:gemstone.stageBrowser.${id}?${arg}`;
+    const cmd = (id: string) => `command:gemstone.explorer.${id}?${arg}`;
 
     const lines = ['Click to open · $(split-horizontal) opens to the side'];
     lines.push(`[Implementors](${cmd('implementorsOf')}) · [Senders](${cmd('sendersOf')})`);
@@ -211,7 +250,7 @@ class HierarchyItem extends vscode.TreeItem {
       ? vscode.TreeItemCollapsibleState.Expanded
       : vscode.TreeItemCollapsibleState.None);
     this.id = `h:${role}:${chainIndex}:${className}`;
-    this.contextValue = 'stageHierClass';
+    this.contextValue = 'explorerHierClass';
     // The current class is shown by keeping it *selected* in this pane (synced
     // with the Classes pane), so no extra "current" label is needed; up/down
     // arrows distinguish superclasses from subclasses.
@@ -234,7 +273,7 @@ interface MethodDragPayload {
   dictName: string;
   dictIndex: number;
 }
-const METHOD_MIME = 'application/vnd.gemstone.stagemethod';
+const METHOD_MIME = 'application/vnd.gemstone.explorermethod';
 
 type MethodCommandArg = MethodItem | { selector: string; isMeta: boolean } | undefined;
 function methodArg(arg: MethodCommandArg): { selector: string; isMeta: boolean } | undefined {
@@ -245,7 +284,7 @@ function methodArg(arg: MethodCommandArg): { selector: string; isMeta: boolean }
 
 // Views the controller updates with the current selection (shown as the greyed
 // description beside each pane title).
-interface StageViews {
+interface ExplorerViews {
   dict: vscode.TreeView<DictItem>;
   category: vscode.TreeView<ClassCategoryItem>;
   klass: vscode.TreeView<ClassItem>;
@@ -255,13 +294,13 @@ interface StageViews {
 
 // ── Controller ───────────────────────────────────────────────────────────────
 
-class StageBrowserController {
-  readonly state: StageState = {};
+class ExplorerController {
+  readonly state: ExplorerState = {};
   // className → category for the current dictionary; fetched once per dict.
   private classCategoryEntries: queries.ClassCategoryEntry[] = [];
   // Per-method metadata for the selected class; fetched once per class.
   private envLines: queries.EnvCategoryLine[] = [];
-  private views?: StageViews;
+  private views?: ExplorerViews;
   // Active filter pattern per pane (view id → pattern); empty/absent = no filter.
   private readonly filters = new Map<string, string>();
   // The pane whose filter input is currently open (so its header shows the
@@ -293,7 +332,7 @@ class StageBrowserController {
     return this.sessionManager.getSelectedSession();
   }
 
-  setViews(views: StageViews): void {
+  setViews(views: ExplorerViews): void {
     this.views = views;
     this.syncTitles();
   }
@@ -349,13 +388,13 @@ class StageBrowserController {
   }
 
   // Set (or clear, with an empty pattern) a pane's filter: updates the map, the
-  // `gemstone.stageFiltered.<viewId>` context key that shows/hides its Clear
+  // `gemstone.explorerFiltered.<viewId>` context key that shows/hides its Clear
   // button, then refreshes the pane and titles.
   private setFilterState(viewId: string, pattern: string | undefined): void {
     if (pattern) this.filters.set(viewId, pattern);
     else this.filters.delete(viewId);
     void vscode.commands.executeCommand(
-      'setContext', `gemstone.stageFiltered.${viewId}`, !!pattern,
+      'setContext', `gemstone.explorerFiltered.${viewId}`, !!pattern,
     );
     this.providerFor(viewId).refresh();
     this.syncTitles();
@@ -409,7 +448,7 @@ class StageBrowserController {
     this.newClassCategories.clear();
     this.newMethodCategories.instance.clear();
     this.newMethodCategories.meta.clear();
-    this.clearFilters(...STAGE_VIEWS);
+    this.clearFilters(...EXPLORER_VIEWS);
     this.dictProvider.refresh();
     this.categoryProvider.refresh();
     this.classProvider.refresh();
@@ -483,7 +522,7 @@ class StageBrowserController {
     this.syncTitles();
     // NOTE: a plain class click no longer auto-opens the definition editor —
     // that cluttered the editor area with a definition tab per class browsed.
-    // Use the inline "Open Definition" button (gemstone.stageBrowser.openDefinition).
+    // Use the inline "Open Definition" button (gemstone.explorer.openDefinition).
   }
 
   // Resolve a class's dictionary (name + 1-based index). Prefers the given dict
@@ -534,24 +573,16 @@ class StageBrowserController {
     const uri = buildClassDefinitionUri(session.id, dictName, className, dictIndex);
     this.selfOpenedUri = uri.toString();
     const doc = await vscode.workspace.openTextDocument(uri);
-    await vscode.window.showTextDocument(doc, {
-      viewColumn: toSide ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active,
-      preview: !toSide,
-      preserveFocus: !toSide,
-    });
+    await openGemstoneDocument(doc, toSide);
   }
 
   // Manual double-click detection for the Classes pane: VS Code trees have no
   // double-click event, so a class row's `command` (fired on each click) records
   // the click; two on the same class within the threshold open its definition.
-  private lastClassClick = { className: '', time: 0 };
+  private readonly classClicks = new DoubleClickDetector(500);
   handleClassClick(className: string): void {
-    const now = Date.now();
-    if (className === this.lastClassClick.className && now - this.lastClassClick.time < 500) {
-      this.lastClassClick = { className: '', time: 0 };
+    if (this.classClicks.register(className)) {
       void this.openClassDefinition(new ClassItem(className));
-    } else {
-      this.lastClassClick = { className, time: now };
     }
   }
 
@@ -660,31 +691,16 @@ class StageBrowserController {
   }
 
   // Direct child category-nodes under `parentPath` (undefined = top level),
-  // built from the '-' segments of every category path.
+  // built from the '-' segments of every category path (see explorerCategories).
   categoryChildren(parentPath?: string): { segment: string; fullPath: string; hasChildren: boolean }[] {
-    const depth = parentPath ? parentPath.split('-').length : 0;
-    const prefix = parentPath ? `${parentPath}-` : '';
-    const nodes = new Map<string, { segment: string; fullPath: string; hasChildren: boolean }>();
-    for (const cat of this.allCategoryPaths()) {
-      if (parentPath && !cat.startsWith(prefix)) continue;
-      const parts = cat.split('-');
-      if (parts.length <= depth) continue;
-      const fullPath = parts.slice(0, depth + 1).join('-');
-      const node = nodes.get(fullPath);
-      const childDeeper = parts.length > depth + 1;
-      if (node) { node.hasChildren = node.hasChildren || childDeeper; }
-      else nodes.set(fullPath, { segment: parts[depth], fullPath, hasChildren: childDeeper });
-    }
-    return [...nodes.values()].sort((a, b) => a.segment.localeCompare(b.segment));
+    return categoryChildNodes(this.allCategoryPaths(), parentPath);
   }
 
   // The parent node of a category path (for TreeView.reveal / getParent), or
   // undefined when it's a top-level segment.
   categoryParent(fullPath: string): ClassCategoryItem | undefined {
-    const parts = fullPath.split('-');
-    if (parts.length <= 1) return undefined;
-    const parentPath = parts.slice(0, -1).join('-');
-    return new ClassCategoryItem(parts[parts.length - 2], parentPath, true);
+    const parent = categoryParentPath(fullPath);
+    return parent ? new ClassCategoryItem(parent.segment, parent.fullPath, true) : undefined;
   }
 
   // Class names in the selected dictionary. When a category node is selected,
@@ -693,9 +709,7 @@ class StageBrowserController {
   classNames(): string[] {
     const { classCategory } = this.state;
     const names = this.classCategoryEntries
-      .filter((e) => classCategory === undefined
-        || e.category === classCategory
-        || e.category.startsWith(`${classCategory}-`))
+      .filter((e) => categoryMatches(e.category, classCategory))
       .map((e) => e.className);
     return this.applyFilter(
       [...new Set(names)].sort((a, b) => a.localeCompare(b)), VIEW_CLASSES,
@@ -780,16 +794,10 @@ class StageBrowserController {
     // from the category the user actually clicked.
     this.selfOpenedUri = uri.toString();
     const doc = await vscode.workspace.openTextDocument(uri);
-    await vscode.window.showTextDocument(doc, {
-      // Single-click swaps in place (preview); "open to the side" pins a real
-      // tab in the neighbouring group so methods can be compared.
-      viewColumn: toSide ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active,
-      preview: !toSide,
-      // Keep keyboard focus in the tree on a plain click so type-to-filter,
-      // Ctrl+F, and arrow-key navigation keep working (the editor still updates
-      // live). An explicit open-to-side takes you into the new editor.
-      preserveFocus: !toSide,
-    });
+    // Single-click swaps in place (preview, focus stays in the tree so
+    // type-to-filter / arrow-nav keep working); open-to-side pins a real tab in
+    // a balanced neighbouring group so methods can be compared.
+    await openGemstoneDocument(doc, toSide);
   }
 
   // ── Find Class ────────────────────────────────────────────────────────────
@@ -1263,7 +1271,7 @@ abstract class RefreshableProvider<T> implements vscode.TreeDataProvider<T> {
 }
 
 class DictProvider extends RefreshableProvider<DictItem> {
-  constructor(private readonly ctl: StageBrowserController) {
+  constructor(private readonly ctl: ExplorerController) {
     super();
   }
   // Flat list — every row is a root. getParent is required for TreeView.reveal.
@@ -1282,7 +1290,7 @@ class DictProvider extends RefreshableProvider<DictItem> {
 }
 
 class CategoryProvider extends RefreshableProvider<ClassCategoryItem> {
-  constructor(private readonly ctl: StageBrowserController) {
+  constructor(private readonly ctl: ExplorerController) {
     super();
   }
   getParent(element: ClassCategoryItem): ClassCategoryItem | undefined {
@@ -1301,7 +1309,7 @@ class CategoryProvider extends RefreshableProvider<ClassCategoryItem> {
 }
 
 class ClassProvider extends RefreshableProvider<ClassItem> {
-  constructor(private readonly ctl: StageBrowserController) {
+  constructor(private readonly ctl: ExplorerController) {
     super();
   }
   getParent(): ClassItem | undefined {
@@ -1314,7 +1322,7 @@ class ClassProvider extends RefreshableProvider<ClassItem> {
 }
 
 class HierarchyProvider extends RefreshableProvider<HierarchyItem> {
-  constructor(private readonly ctl: StageBrowserController) {
+  constructor(private readonly ctl: ExplorerController) {
     super();
   }
   getParent(element: HierarchyItem): HierarchyItem | undefined {
@@ -1326,7 +1334,7 @@ class HierarchyProvider extends RefreshableProvider<HierarchyItem> {
 }
 
 class MethodProvider extends RefreshableProvider<MethodNode> {
-  constructor(private readonly ctl: StageBrowserController) {
+  constructor(private readonly ctl: ExplorerController) {
     super();
   }
   // Walk up the side ▸ category ▸ selector tree so TreeView.reveal can locate a
@@ -1375,7 +1383,7 @@ class MethodProvider extends RefreshableProvider<MethodNode> {
 class MethodDragAndDrop implements vscode.TreeDragAndDropController<MethodNode> {
   readonly dragMimeTypes = [METHOD_MIME];
   readonly dropMimeTypes = [METHOD_MIME];
-  constructor(private readonly ctl: StageBrowserController) {}
+  constructor(private readonly ctl: ExplorerController) {}
 
   handleDrag(source: readonly MethodNode[], dataTransfer: vscode.DataTransfer): void {
     const item = source.find((n) => n instanceof MethodItem) as MethodItem | undefined;
@@ -1400,7 +1408,7 @@ class MethodDragAndDrop implements vscode.TreeDragAndDropController<MethodNode> 
 class ClassDropController implements vscode.TreeDragAndDropController<ClassItem> {
   readonly dragMimeTypes: readonly string[] = [];
   readonly dropMimeTypes = [METHOD_MIME];
-  constructor(private readonly ctl: StageBrowserController) {}
+  constructor(private readonly ctl: ExplorerController) {}
 
   handleDrag(): void { /* classes aren't draggable */ }
 
@@ -1416,42 +1424,46 @@ class ClassDropController implements vscode.TreeDragAndDropController<ClassItem>
 
 // Handle returned to the extension so it can forward file-system compile events
 // (method / class Save) to the controller for a live panel refresh.
-export interface StageBrowserHandle {
+export interface ExplorerHandle {
   onMethodCompiled(sessionId: number, className: string): void;
   onClassCompiled(sessionId: number, className: string): void;
 }
 
-export function registerStageBrowser(
+export function registerGemStoneExplorer(
   context: vscode.ExtensionContext,
   sessionManager: SessionManager,
-): StageBrowserHandle {
-  const ctl = new StageBrowserController(sessionManager);
+): ExplorerHandle {
+  const ctl = new ExplorerController(sessionManager);
+
+  // The Open Editors pane (last in the container) mirrors the open gemstone://
+  // source editors; it is session-independent, so it registers on its own.
+  registerExplorerOpenEditors(context);
 
   // Gate the downstream panes (and swap the Dictionaries welcome) on whether a
   // session is available to browse.
   const syncActiveContext = () => {
     void vscode.commands.executeCommand(
       'setContext',
-      'gemstone.stageBrowserActive',
+      'gemstone.explorerActive',
       sessionManager.getSelectedSession() !== undefined,
     );
   };
   syncActiveContext();
 
-  const dictView = vscode.window.createTreeView('gemstoneStageDicts', {
+  const dictView = vscode.window.createTreeView('gemstoneExplorerDicts', {
     treeDataProvider: ctl.dictProvider,
   });
-  const categoryView = vscode.window.createTreeView('gemstoneStageCategories', {
+  const categoryView = vscode.window.createTreeView('gemstoneExplorerCategories', {
     treeDataProvider: ctl.categoryProvider,
   });
-  const classView = vscode.window.createTreeView('gemstoneStageClasses', {
+  const classView = vscode.window.createTreeView('gemstoneExplorerClasses', {
     treeDataProvider: ctl.classProvider,
     dragAndDropController: new ClassDropController(ctl),
   });
-  const hierarchyView = vscode.window.createTreeView('gemstoneStageHierarchy', {
+  const hierarchyView = vscode.window.createTreeView('gemstoneExplorerHierarchy', {
     treeDataProvider: ctl.hierarchyProvider,
   });
-  const methodView = vscode.window.createTreeView('gemstoneStageMethods', {
+  const methodView = vscode.window.createTreeView('gemstoneExplorerMethods', {
     treeDataProvider: ctl.methodProvider,
     showCollapseAll: true,
     dragAndDropController: new MethodDragAndDrop(ctl),
@@ -1496,74 +1508,84 @@ export function registerStageBrowser(
       syncActiveContext();
       ctl.reset();
     }),
-    vscode.commands.registerCommand('gemstone.stageBrowser.refresh', () => ctl.reset()),
+    vscode.commands.registerCommand('gemstone.explorer.refresh', () => ctl.reset()),
     // Per-pane filter buttons: open a live filter input (prefix match, '*'
     // wildcard) that filters the pane in place — works regardless of where
     // focus currently sits (e.g. the editor).
-    ...STAGE_VIEWS.map((viewId) =>
+    ...EXPLORER_VIEWS.map((viewId) =>
       vscode.commands.registerCommand(`${viewId}.filter`, () => ctl.beginFilter(viewId)),
     ),
-    // Clear buttons: shown (via the gemstone.stageFiltered.<viewId> context key)
+    // Clear buttons: shown (via the gemstone.explorerFiltered.<viewId> context key)
     // only when that pane has an active filter.
-    ...STAGE_VIEWS.map((viewId) =>
+    ...EXPLORER_VIEWS.map((viewId) =>
       vscode.commands.registerCommand(`${viewId}.clearFilter`, () => ctl.clearFilter(viewId)),
     ),
     vscode.commands.registerCommand(
-      'gemstone.stageBrowser.openMethodToSide',
+      'gemstone.explorer.openMethodToSide',
       (node: MethodItem) => {
+        if (node instanceof MethodItem) void ctl.openMethod(node, true);
+      },
+    ),
+    // Ctrl/Cmd+Enter in the Methods pane: open the selected method in a new
+    // source editor to the side (same as the row's ↗ button). Keybindings don't
+    // pass the tree selection, so read it from the view here.
+    vscode.commands.registerCommand(
+      'gemstone.explorer.openSelectedMethodToSide',
+      () => {
+        const node = methodView.selection[0];
         if (node instanceof MethodItem) void ctl.openMethod(node, true);
       },
     ),
     // Find Class: cascade the panes to a class by name (from the Classes pane
     // title button or the command palette).
     vscode.commands.registerCommand(
-      'gemstone.stageBrowser.findClass',
+      'gemstone.explorer.findClass',
       (name?: string) => ctl.findClass(typeof name === 'string' ? name : undefined),
     ),
     // Open a class's definition editor (inline button / menu on the class row —
     // a plain class click no longer auto-opens it; a double-click does).
     vscode.commands.registerCommand(
-      'gemstone.stageBrowser.openDefinition',
+      'gemstone.explorer.openDefinition',
       (item?: ClassItem) => void ctl.openClassDefinition(item instanceof ClassItem ? item : undefined),
     ),
     vscode.commands.registerCommand(
-      'gemstone.stageBrowser.openDefinitionToSide',
+      'gemstone.explorer.openDefinitionToSide',
       (item?: ClassItem) => void ctl.openClassDefinition(item instanceof ClassItem ? item : undefined, true),
     ),
     // Same button on a Hierarchy node — opens that class's definition to the side
     // (resolving its own dictionary), without navigating the panels.
     vscode.commands.registerCommand(
-      'gemstone.stageBrowser.openHierarchyDefinition',
+      'gemstone.explorer.openHierarchyDefinition',
       (item?: HierarchyItem) => { if (item instanceof HierarchyItem) void ctl.openHierarchyDefinition(item); },
     ),
     // Per-click hook powering double-click-to-open-definition.
     vscode.commands.registerCommand(
-      'gemstone.stageBrowser.classClicked',
+      'gemstone.explorer.classClicked',
       (className?: string) => { if (typeof className === 'string') ctl.handleClassClick(className); },
     ),
     // New (+) actions, one per pane.
-    vscode.commands.registerCommand('gemstone.stageBrowser.newDictionary', () => ctl.newDictionary()),
-    vscode.commands.registerCommand('gemstone.stageBrowser.newClassCategory', () => ctl.newClassCategory()),
-    vscode.commands.registerCommand('gemstone.stageBrowser.newClass', () => ctl.newClass()),
-    vscode.commands.registerCommand('gemstone.stageBrowser.newMethodCategory', () => ctl.newMethodCategory()),
-    vscode.commands.registerCommand('gemstone.stageBrowser.newMethod', () => ctl.newMethod()),
+    vscode.commands.registerCommand('gemstone.explorer.newDictionary', () => ctl.newDictionary()),
+    vscode.commands.registerCommand('gemstone.explorer.newClassCategory', () => ctl.newClassCategory()),
+    vscode.commands.registerCommand('gemstone.explorer.newClass', () => ctl.newClass()),
+    vscode.commands.registerCommand('gemstone.explorer.newMethodCategory', () => ctl.newMethodCategory()),
+    vscode.commands.registerCommand('gemstone.explorer.newMethod', () => ctl.newMethod()),
     // Indicator / method actions: browse implementors, senders, and the
     // superclass (▲) / subclass (▼) implementations behind the override arrows.
     // Each accepts either the tree item (inline button / right-click) or a
     // {selector, isMeta} payload (tooltip command link).
-    vscode.commands.registerCommand('gemstone.stageBrowser.implementorsOf', (arg: MethodCommandArg) => {
+    vscode.commands.registerCommand('gemstone.explorer.implementorsOf', (arg: MethodCommandArg) => {
       const sel = methodArg(arg);
       if (sel) ctl.implementorsOf(sel.selector);
     }),
-    vscode.commands.registerCommand('gemstone.stageBrowser.sendersOf', (arg: MethodCommandArg) => {
+    vscode.commands.registerCommand('gemstone.explorer.sendersOf', (arg: MethodCommandArg) => {
       const sel = methodArg(arg);
       if (sel) ctl.sendersOf(sel.selector);
     }),
-    vscode.commands.registerCommand('gemstone.stageBrowser.superImplementors', (arg: MethodCommandArg) => {
+    vscode.commands.registerCommand('gemstone.explorer.superImplementors', (arg: MethodCommandArg) => {
       const sel = methodArg(arg);
       if (sel) ctl.superImplementors(sel.selector, sel.isMeta);
     }),
-    vscode.commands.registerCommand('gemstone.stageBrowser.subOverrides', (arg: MethodCommandArg) => {
+    vscode.commands.registerCommand('gemstone.explorer.subOverrides', (arg: MethodCommandArg) => {
       const sel = methodArg(arg);
       if (sel) ctl.subOverrides(sel.selector, sel.isMeta);
     }),

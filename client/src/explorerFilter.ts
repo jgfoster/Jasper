@@ -1,4 +1,4 @@
-// Filter matching for the Stage browser pane Filter boxes: anchored at the
+// Filter matching for the GemStone Explorer pane Filter boxes: anchored at the
 // start (prefix match, the common case for selectors/names) with '*' as a
 // wildcard for any run of characters. Case-insensitive. An empty pattern
 // matches everything. Kept vscode-free so it can be unit-tested directly.

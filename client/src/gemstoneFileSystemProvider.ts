@@ -84,9 +84,9 @@ interface ParsedNewMethodUri {
   dictIndex?: number;
 }
 
-type ParsedUri = ParsedMethodUri | ParsedDefinitionUri | ParsedCommentUri | ParsedNewClassUri | ParsedNewMethodUri;
+export type ParsedUri = ParsedMethodUri | ParsedDefinitionUri | ParsedCommentUri | ParsedNewClassUri | ParsedNewMethodUri;
 
-function parseUri(uri: vscode.Uri): ParsedUri {
+export function parseUri(uri: vscode.Uri): ParsedUri {
   const sessionId = parseInt(uri.authority, 10);
   const parts = uri.path.split('/').map(decodeURIComponent);
   // parts[0] is '' (leading /)
@@ -240,6 +240,26 @@ export async function closeGemstoneTabsForSession(sessionId: number): Promise<vo
 }
 
 /**
+ * Every open editor tab backed by a single gemstone:// source document. Only
+ * `TabInputText` tabs are returned — the override-diff comparison is a
+ * `TabInputTextDiff` and is deliberately excluded (it is a read-only view, not a
+ * source editor). Used by the Open Methods pane; the reaper keeps its own walk
+ * because it must also handle diff tabs.
+ */
+export function listOpenGemstoneTabs(): { tab: vscode.Tab; uri: vscode.Uri }[] {
+  const out: { tab: vscode.Tab; uri: vscode.Uri }[] = [];
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      const input = tab.input;
+      if (input instanceof vscode.TabInputText && input.uri.scheme === 'gemstone') {
+        out.push({ tab, uri: input.uri });
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Reap stale gemstone:// editor tabs — those whose session isn't live.
  *
  * VS Code persists open tabs across window reloads, but GemStone sessions do
@@ -278,6 +298,13 @@ export function installStaleGemstoneTabReaper(sessionManager: SessionManager): v
 
   reap();
 
+  // VS Code restores tabs asynchronously, and the "tabs added" events for a
+  // restore can fire before this reaper subscribes — so the reap() above may run
+  // with the restored tabs not yet present, and onDidChangeTabs may never fire
+  // for them. Re-scan a couple of times shortly after activation to catch that
+  // restore race (background restored tabs otherwise linger until focused).
+  const restoreSweeps = [setTimeout(() => reap(), 500), setTimeout(() => reap(), 2000)];
+
   const subscriptions: vscode.Disposable[] = [
     // Any tab change: catches the restore-after-reload race and sweeps away any
     // dead tab the moment the user touches the tab bar.
@@ -286,11 +313,16 @@ export function installStaleGemstoneTabReaper(sessionManager: SessionManager): v
   // Session lifecycle: a logout — or the session dying (e.g. the host going
   // unresponsive) — fires NO tab event, so without this a now-dead session's
   // gemstone:// tabs would linger unservable. Reaping here removes them as soon
-  // as the session leaves the manager.
+  // as the session leaves the manager. onDidRemoveSession catches *any* session
+  // leaving (including a non-selected one, which onDidChangeSelection misses).
   if (sessionManager?.onDidChangeSelection) {
     subscriptions.push(sessionManager.onDidChangeSelection(() => reap()));
   }
+  if (sessionManager?.onDidRemoveSession) {
+    subscriptions.push(sessionManager.onDidRemoveSession(() => reap()));
+  }
   return new vscode.Disposable(() => {
+    for (const t of restoreSweeps) clearTimeout(t);
     for (const sub of subscriptions) sub.dispose();
   });
 }
@@ -554,6 +586,13 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
     const sessions = this.sessionManager.getSessions();
     const session = sessions.find(s => s.id === sessionId);
     if (!session) {
+      // The tab is backed by a session that no longer exists — most commonly a
+      // gemstone:// tab VS Code restored across a window/host reload, which
+      // otherwise renders a broken "could not be opened" editor forever. Close
+      // every stale tab for this dead session id instead. Deferred so we don't
+      // mutate the tab model while VS Code is mid-open (and so the throw below
+      // still surfaces if the close is somehow blocked).
+      setImmediate(() => void closeGemstoneTabsForSession(sessionId));
       throw vscode.FileSystemError.Unavailable(
         `GemStone session ${sessionId} is no longer active`
       );

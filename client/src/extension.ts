@@ -52,7 +52,7 @@ import { openWorkspace } from './workspace';
 import { openTutorialNotebook } from './tutorialNotebook';
 import { GemStoneDebugSession } from './gemstoneDebugSession';
 import { InspectorTreeProvider, InspectorNode } from './inspectorTreeProvider';
-import { registerStageBrowser } from './stageBrowser';
+import { registerGemStoneExplorer } from './gemstoneExplorer';
 import { GemStoneWorkspaceSymbolProvider } from './gemstoneSymbolProvider';
 import { GemStoneDefinitionProvider } from './gemstoneDefinitionProvider';
 import { GemStoneHoverProvider } from './gemstoneHoverProvider';
@@ -537,8 +537,8 @@ export function activate(context: vscode.ExtensionContext) {
   inspectorProvider.setView(inspectorView);
   context.subscriptions.push(inspectorView, inspectorProvider);
 
-  // ── Stage Browser (cascading navigation panes) ───────────
-  const stageBrowser = registerStageBrowser(context, sessionManager);
+  // ── GemStone Explorer (cascading navigation panes) ───────────
+  const explorer = registerGemStoneExplorer(context, sessionManager);
 
   // ── GemStone FileSystem Provider ─────────────────────────
   const gemstoneFs = new GemStoneFileSystemProvider(sessionManager, exportManager);
@@ -629,11 +629,11 @@ export function activate(context: vscode.ExtensionContext) {
               const sessionId = parseInt(uri.authority, 10);
               const className = parts[2];
               SystemBrowser.methodCompiled(sessionId, className);
-              // Keep the Stage Browser's method list in sync too (new-class URIs
+              // Keep the GemStone Explorer's method list in sync too (new-class URIs
               // carry no real class name, so skip those — the class-definition
               // event below handles class creation).
               if (className !== 'new-class') {
-                stageBrowser.onMethodCompiled(sessionId, className);
+                explorer.onMethodCompiled(sessionId, className);
               }
             }
           }
@@ -645,13 +645,13 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     gemstoneFs.onMethodCompiled(handleMethodCompiled),
     gemstoneFs.onClassDefinitionCompiled(handleClassDefinitionCompiled),
-    // Refresh the Stage Browser's class list when a class is created/redefined
+    // Refresh the GemStone Explorer's class list when a class is created/redefined
     // (the definition event carries the real class name; the new-class URI
     // doesn't). parts: ['', dictName, className, 'definition'].
     gemstoneFs.onClassDefinitionCompiled((e) => {
       const parts = e.uri.path.split('/').map(decodeURIComponent);
       if (parts.length >= 3) {
-        stageBrowser.onClassCompiled(parseInt(e.uri.authority, 10), parts[2]);
+        explorer.onClassCompiled(parseInt(e.uri.authority, 10), parts[2]);
       }
     }),
   );
