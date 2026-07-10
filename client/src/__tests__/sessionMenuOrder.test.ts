@@ -42,6 +42,7 @@ describe('session row inline button order', () => {
       'gemstone.sessionCommit',
       'gemstone.sessionAbort',
       'gemstone.sessionPing',
+      'gemstone.fullLogicalBackup',
       'gemstone.sessionLogout',
     ]);
   });

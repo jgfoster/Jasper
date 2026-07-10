@@ -74,6 +74,7 @@ import { VersionManager } from './versionManager';
 import { VersionTreeProvider, VersionItem } from './versionTreeProvider';
 import { DatabaseManager } from './databaseManager';
 import { DatabaseTreeProvider, DatabaseNode } from './databaseTreeProvider';
+import { runLogicalBackup } from './backupManager';
 import { ProcessManager } from './processManager';
 import { openMcpInspector } from './openMcpInspector';
 import { McpSocketServer, writeClaudeDesktopMcpConfig } from './mcpSocketServer';
@@ -2891,6 +2892,33 @@ export function activate(context: vscode.ExtensionContext) {
       if (replaced) {
         refreshAdminViews();
       }
+    }),
+
+    vscode.commands.registerCommand('gemstone.fullLogicalBackup', async (item?: GemStoneSessionItem) => {
+      // A full backup runs over GCI against the connected stone, so it operates
+      // on a specific session: the one clicked in the Sessions tree, or the
+      // selected session when invoked from the palette.
+      const session = item ? item.activeSession : sessionManager.getSelectedSession();
+      if (!session) {
+        vscode.window.showInformationMessage(
+          'No GemStone session to back up. Connect a session first.',
+        );
+        return;
+      }
+      // Default the destination next to the extents when this session's stone is
+      // one we manage locally; otherwise the picker opens without a default dir.
+      const db = sysadminStorage.getDatabases()
+        .find(d => d.config.stoneName === session.login.stone);
+      const backedUp = await runLogicalBackup({
+        execute: (label, code) => queries.executeFetchString(session, label, code),
+        runBackup: (code) =>
+          queries.executeFetchStringNb(session, 'gemstone.fullLogicalBackup', code, undefined, true),
+        stoneName: session.login.stone,
+        dbPath: db?.path,
+      });
+      // Re-read the Databases tree so the new backup (and the Backups node, if
+      // this was the first one) shows up without a manual refresh.
+      if (backedUp) refreshAdminViews();
     }),
   );
 }

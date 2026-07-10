@@ -188,6 +188,7 @@ export function executeFetchString(session: ActiveSession, label: string, code: 
 // executeFetchString.
 export async function executeFetchStringNb(
   session: ActiveSession, label: string, code: string, progressTitle?: string,
+  suppressNotification = false,
 ): Promise<string> {
   logQuery(session.id, label, code);
 
@@ -220,7 +221,7 @@ export async function executeFetchStringNb(
       }
       return fetched.data;
     },
-    { title: progressTitle ?? `GemStone: ${label}…` },
+    { title: progressTitle ?? `GemStone: ${label}…`, suppressNotification },
   );
 
   logResult(session.id, data);
