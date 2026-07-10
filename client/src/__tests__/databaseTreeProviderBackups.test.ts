@@ -80,6 +80,7 @@ describe('DatabaseTreeProvider backups node', () => {
     const item = makeProvider().getTreeItem({
       kind: 'backupFile',
       filePath: '/root/db-1/backups/gs64stone_2026-03-01.dbf',
+      db,
     });
 
     expect(item.contextValue).toBe('gemstoneDbBackupFile');

@@ -13,7 +13,7 @@ export type DatabaseNode =
   | { kind: 'config'; db: GemStoneDatabase }
   | { kind: 'backups'; db: GemStoneDatabase }
   | { kind: 'file'; filePath: string }
-  | { kind: 'backupFile'; filePath: string };
+  | { kind: 'backupFile'; filePath: string; db: GemStoneDatabase };
 
 export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseNode> {
   private _onDidChangeTreeData = new vscode.EventEmitter<DatabaseNode | undefined>();
@@ -156,7 +156,7 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseNod
     }
     if (node.kind === 'backups') {
       return this.backupFiles(node.db)
-        .map(f => ({ kind: 'backupFile' as const, filePath: f }));
+        .map(f => ({ kind: 'backupFile' as const, filePath: f, db: node.db }));
     }
     return [];
   }

@@ -42,9 +42,14 @@ function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-// A filesystem-safe, sortable timestamp (YYYY-MM-DD_HH-MM-SS) for default names.
+// A filesystem-safe, sortable timestamp in LOCAL time (YYYY-MM-DD_HH-MM-SS) for
+// default names, so they match what the user sees in their file manager (UTC
+// from toISOString() looked "off" by the local offset).
 function timestamp(): string {
-  return new Date().toISOString().replace('T', '_').replace(/[:.]/g, '-').slice(0, 19);
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+    + `_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
 }
 
 // Returns true if the backup completed, false if it was cancelled or failed
