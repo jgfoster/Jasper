@@ -65,32 +65,45 @@ describe('GCI session-free OOP functions', () => {
   });
 
   describe('GciI32ToOop / GciTsI32ToOop', () => {
-    it('encodes 0 as OOP_Zero', () => {
+    // These are optional symbols (absent in libraries older than the one under
+    // test); skip the round-trip assertions when the loaded library omits them.
+    const hasI32ToOop = gci.isAvailable('GciI32ToOop') && gci.isAvailable('GciTsI32ToOop');
+    const itIfPresent = hasI32ToOop ? it : it.skip;
+
+    itIfPresent('encodes 0 as OOP_Zero', () => {
       expect(gci.GciI32ToOop(0)).toBe(OOP_Zero);
     });
 
-    it('encodes 1 as OOP_One', () => {
+    itIfPresent('encodes 1 as OOP_One', () => {
       expect(gci.GciI32ToOop(1)).toBe(OOP_One);
     });
 
-    it('encodes 2 as OOP_Two', () => {
+    itIfPresent('encodes 2 as OOP_Two', () => {
       expect(gci.GciI32ToOop(2)).toBe(OOP_Two);
     });
 
-    it('encodes 3 as OOP_Three', () => {
+    itIfPresent('encodes 3 as OOP_Three', () => {
       expect(gci.GciI32ToOop(3)).toBe(OOP_Three);
     });
 
-    it('GciI32ToOop and GciTsI32ToOop return the same result', () => {
+    itIfPresent('GciI32ToOop and GciTsI32ToOop return the same result', () => {
       for (const n of [0, 1, -1, 42, -100, 2147483647, -2147483648]) {
         expect(gci.GciI32ToOop(n)).toBe(gci.GciTsI32ToOop(n));
       }
     });
 
-    it('result is always a SmallInteger special', () => {
+    itIfPresent('result is always a SmallInteger special', () => {
       for (const n of [0, 1, -1, 42, 1000]) {
         expect(gci.GciTsOopIsSpecial(gci.GciI32ToOop(n))).toBe(true);
         expect(gci.GciTsFetchSpecialClass(gci.GciI32ToOop(n))).toBe(OOP_CLASS_SMALL_INTEGER);
+      }
+    });
+
+    it('encodes when the library exports it, otherwise throws a descriptive error', () => {
+      if (gci.isAvailable('GciTsI32ToOop')) {
+        expect(gci.GciTsI32ToOop(1)).toBe(OOP_One);
+      } else {
+        expect(() => gci.GciTsI32ToOop(1)).toThrow(/not available in this GCI library/);
       }
     });
   });

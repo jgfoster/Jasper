@@ -340,8 +340,11 @@ export class GciLibrary {
     this._GciTsOopToChar = this.lib.func(`int GciTsOopToChar(${OopType} oop)`);
     this._GciTsCharToOop = this.lib.func(`${OopType} GciTsCharToOop(unsigned int ch)`);
     this._GciTsDoubleToSmallDouble = this.lib.func(`${OopType} GciTsDoubleToSmallDouble(double aFloat)`);
-    this._GciI32ToOop = this.lib.func(`${OopType} GciI32ToOop(int arg)`);
-    this._GciTsI32ToOop = this.lib.func(`${OopType} GciTsI32ToOop(int arg)`);
+    // Optional: not exported by older libraries (e.g. 3.4.5). No production
+    // code path calls these; they are bound optionally so loading an older
+    // library never fails at construction over a function we never use.
+    this._GciI32ToOop = this.optionalFunc('GciI32ToOop', `${OopType} GciI32ToOop(int arg)`);
+    this._GciTsI32ToOop = this.optionalFunc('GciTsI32ToOop', `${OopType} GciTsI32ToOop(int arg)`);
     this._GciUtf8To8bit = this.lib.func(`int GciUtf8To8bit(const char *src, _Out_ char *dest, intptr destSize)`);
     this._GciNextUtf8Character = this.lib.func(`intptr GciNextUtf8Character(const char *src, size_t len, _Out_ unsigned int *chOut)`);
     this._GciShutdown = this.lib.func(`void GciShutdown()`);
@@ -633,10 +636,20 @@ export class GciLibrary {
     return toBigInt(this._GciTsDoubleToSmallDouble(value));
   }
 
+  /**
+   * Encode a 32-bit integer as a SmallInteger OOP. Optional: absent in older
+   * libraries (e.g. 3.4.5); guard with `isAvailable('GciI32ToOop')`.
+   * @throws {Error} if the loaded library does not export GciI32ToOop.
+   */
   GciI32ToOop(arg: number): bigint {
     return toBigInt(this._GciI32ToOop(arg));
   }
 
+  /**
+   * Encode a 32-bit integer as a SmallInteger OOP. Optional: absent in older
+   * libraries (e.g. 3.4.5); guard with `isAvailable('GciTsI32ToOop')`.
+   * @throws {Error} if the loaded library does not export GciTsI32ToOop.
+   */
   GciTsI32ToOop(arg: number): bigint {
     return toBigInt(this._GciTsI32ToOop(arg));
   }
