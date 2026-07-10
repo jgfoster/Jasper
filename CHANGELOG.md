@@ -4,6 +4,17 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-07-10
+
+### Added
+
+- **GemStone Explorer (experimental).** A new code browser on its own activity-bar container: four cascading panes (Dictionaries → Class Categories → Classes → Methods) that open real, editable `gemstone://` editors with full LSP. It adds a Class Hierarchy pane, per-pane type-to-filter, **Find Class** (cascades the panes to a class), **New** actions for dictionaries/categories/classes/methods, right-click Implementors/Senders/override navigation, drag-to-move a method between categories (drag-to-copy onto a class), an **Open Editors** pane mirroring open GemStone editors (with an unsaved-changes dot), and editor↔navigator selection sync. Offered alongside the existing System Browser for early feedback. ([#147](https://github.com/jgfoster/Jasper/pull/147))
+
+### Fixed
+
+- **The extension now activates on startup, so `gemstone://` editors keep working after a window reload.** Its only activation event was opening a Jupyter notebook, so on a normal launch the extension never activated — the `gemstone://` virtual filesystem was never registered and stale editor tabs restored from a previous session lingered unservable. Activation now also fires on startup and on any `gemstone://` file access, and orphaned tabs left by a reload or a logged-out session are reaped.
+- **Binary selectors containing `/` (e.g. `/`, `//`) now open correctly from the browser.** VS Code path-normalization collapsed the slashes in the editor URI; they are now escaped and restored on the way back, so these methods open (fixes the System Browser too).
+
 ## [1.8.0] - 2026-07-08
 
 ### Added
