@@ -4,6 +4,12 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.8.2] - 2026-07-10
+
+### Fixed
+
+- **GemStone Explorer: "No view is registered with id: gemstoneExplorerOpenEditors" on login.** The Open Editors pane was gated on a context key that only becomes true once a `gemstone://` editor is open, but VS Code registers a contributed view only when its `when` clause is satisfied — so creating the pane at activation failed on every login (it never has an open editor yet). The pane is now gated on an active session, matching the other Explorer panes. As a result it no longer auto-hides when no editors are open.
+
 ## [1.8.1] - 2026-07-10
 
 ### Added

@@ -2,7 +2,7 @@
   "name": "gemstone-ide",
   "displayName": "Jasper: A GemStone Smalltalk IDE",
   "description": "GemStone/S IDE for Visual Studio Code",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "publisher": "gemtalksystems",
   "license": "MIT",
   "author": "James Foster",
@@ -323,7 +323,7 @@
           "name": "Open Editors",
           "type": "tree",
           "icon": "$(go-to-file)",
-          "when": "gemstone.explorerActive && gemstone.explorerHasOpenEditors",
+          "when": "gemstone.explorerActive",
           "size": 1
         },
         {

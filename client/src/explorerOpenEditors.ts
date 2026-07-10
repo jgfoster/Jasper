@@ -3,17 +3,20 @@ import { parseUri, listOpenGemstoneTabs } from './gemstoneFileSystemProvider';
 import { classifyGemstoneUri, OpenEditorKind } from './explorerOpenEditorsLabel';
 
 // The Open Editors pane: a live mirror of the currently-open gemstone:// source
-// editors, shown as the FIRST (top) pane of the GemStone Explorer container so
-// that Methods stays the last pane and reliably expands to fill the freed space
-// when this pane hides (VS Code only reflows the last pane cleanly). There is
-// no pinning or persistence — a row appears when its editor opens and
-// disappears when it closes. Entries are split into two groups: class
-// definition editors ("Classes") and method source editors ("Methods").
-// Clicking a row focuses that editor. The whole pane is hidden (via the
-// `gemstone.explorerHasOpenEditors` context key) when nothing qualifies.
+// editors, shown as the FIRST (top) pane of the GemStone Explorer container.
+// There is no pinning or persistence — a row appears when its editor opens and
+// disappears when it closes. Entries are split into two groups: class definition
+// editors ("Classes") and method source editors ("Methods"). Clicking a row
+// focuses that editor. When no gemstone editors are open the pane shows no rows.
+//
+// The view is gated only on `gemstone.explorerActive`, NOT on whether any
+// editors are open. A contributed view is registered only once its `when` is
+// satisfied, and `createTreeView` throws "No view is registered with id: …" for
+// a view whose `when` is still false. A content-derived key like "has open
+// editors" is false at login (nothing is open yet), so gating on it made
+// createTreeView throw on every login.
 
 const VIEW_ID = 'gemstoneExplorerOpenEditors';
-const CONTEXT_HAS_OPEN = 'gemstone.explorerHasOpenEditors';
 const REVEAL_COMMAND = 'gemstone.explorer.revealOpenEditor';
 const CLOSE_COMMAND = 'gemstone.explorer.closeOpenEditor';
 const CLOSE_ALL_COMMAND = 'gemstone.explorer.closeAllOpenEditors';
@@ -119,15 +122,6 @@ export class DirtyDecorationProvider implements vscode.FileDecorationProvider {
   }
 }
 
-// True when at least one browsable gemstone:// source tab is open.
-function hasOpenEditors(): boolean {
-  for (const { uri } of listOpenGemstoneTabs()) {
-    try { if (classifyGemstoneUri(parseUri(uri))) return true; }
-    catch { /* skip unrecognized */ }
-  }
-  return false;
-}
-
 // Close the open editor tab(s) for one URI (the same document may be split
 // across editor groups).
 async function closeEditor(uri: vscode.Uri): Promise<void> {
@@ -147,17 +141,12 @@ export function registerExplorerOpenEditors(context: vscode.ExtensionContext): v
   const view = vscode.window.createTreeView(VIEW_ID, { treeDataProvider: provider });
   const decorations = new DirtyDecorationProvider();
 
-  const syncContextKey = () =>
-    void vscode.commands.executeCommand('setContext', CONTEXT_HAS_OPEN, hasOpenEditors());
-  syncContextKey();
-
   context.subscriptions.push(
     view,
     vscode.window.registerFileDecorationProvider(decorations),
-    // A tab opening, closing, or changing its dirty state toggles the pane's
-    // visibility, rebuilds its rows, and refreshes the unsaved-dot decorations.
+    // A tab opening, closing, or changing its dirty state rebuilds the pane's
+    // rows and refreshes the unsaved-dot decorations.
     vscode.window.tabGroups.onDidChangeTabs(() => {
-      syncContextKey();
       provider.refresh();
       decorations.refresh();
     }),
