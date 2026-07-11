@@ -58,6 +58,9 @@ import {
 import { isRowanProjectRoot } from './rowanProject';
 import { RowanProjectTreeProvider } from './rowanProjectView';
 import { createRowanProject } from './rowanCreate';
+import { mergeCatalog, RowanCatalogEntry } from './rowanCatalog';
+import { metacelloLoadExpression } from './rowanMetacello';
+import { addPreloadDependency } from './rowanDependency';
 import { RowanDecorationProvider } from './rowanDecorations';
 import { findMethodInClass } from './commands/findMethodInClass';
 import { loadClassPickItems } from './commands/classPicker';
@@ -2563,6 +2566,36 @@ export function activate(context: vscode.ExtensionContext) {
       : undefined;
     await vscode.window.showTextDocument(doc, selection ? { selection } : {});
   };
+  // Prompt for a custom Metacello baseline to add to the (Jasper-owned) catalogue.
+  const promptCustomCatalogEntry = async (): Promise<RowanCatalogEntry | undefined> => {
+    const name = (
+      await vscode.window.showInputBox({ prompt: 'Project name', ignoreFocusOut: true })
+    )?.trim();
+    if (!name) return undefined;
+    const baseline = (
+      await vscode.window.showInputBox({
+        prompt: `Metacello baseline for "${name}" (e.g. Seaside3)`,
+        ignoreFocusOut: true,
+      })
+    )?.trim();
+    if (!baseline) return undefined;
+    const repository = (
+      await vscode.window.showInputBox({
+        prompt: 'Metacello repository URL',
+        placeHolder: 'github://owner/repo:tag/repository',
+        ignoreFocusOut: true,
+      })
+    )?.trim();
+    if (!repository) return undefined;
+    const loadsRaw = (
+      await vscode.window.showInputBox({
+        prompt: 'Load groups (space-separated; blank = default)',
+        ignoreFocusOut: true,
+      })
+    )?.trim();
+    const loads = loadsRaw ? loadsRaw.split(/\s+/) : ['default'];
+    return { name, description: '', projectUrl: '', baseline, repository, loads };
+  };
   // Recognize when the open workspace root is itself a Rowan project — gates the
   // Explorer section's visibility. Passive: no effect when it isn't one.
   const refreshRowanWorkspaceContext = () => {
@@ -2593,6 +2626,95 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('gemstone.rowanRefreshView', () => {
       rowanProvider.refresh();
+    }),
+
+    vscode.commands.registerCommand('gemstone.rowanAddPackage', async () => {
+      const CATALOG_USER_KEY = 'gemstone.rowanCatalogUserEntries';
+      const userEntries = context.globalState.get<RowanCatalogEntry[]>(CATALOG_USER_KEY, []);
+      const ADD_CUSTOM = '$(add) Add a custom Metacello baseline…';
+      type Item = vscode.QuickPickItem & { entry?: RowanCatalogEntry };
+      const items: Item[] = [
+        { label: ADD_CUSTOM, alwaysShow: true },
+        { label: 'Catalogue', kind: vscode.QuickPickItemKind.Separator },
+        ...mergeCatalog(userEntries).map((e): Item => ({
+          label: e.name,
+          description: e.baseline,
+          detail: e.description || e.repository,
+          entry: e,
+        })),
+      ];
+      const picked = await vscode.window.showQuickPick(items, {
+        title: 'Add Package — install a Metacello baseline',
+        placeHolder: 'Pick a project to install, or add your own baseline',
+        matchOnDescription: true,
+        matchOnDetail: true,
+      });
+      if (!picked) return;
+
+      let entry = picked.entry;
+      if (!entry) {
+        entry = await promptCustomCatalogEntry();
+        if (!entry) return;
+        await context.globalState.update(CATALOG_USER_KEY, [
+          ...userEntries.filter((e) => e.name !== entry!.name),
+          entry,
+        ]);
+      }
+
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const how = await vscode.window.showQuickPick(
+        [
+          {
+            label: '$(zap) Pre-load doit',
+            how: 'preload' as const,
+            detail:
+              "Write the Metacello load into this project's Core component as a pre-load doit (disk only). It loads with your project.",
+          },
+          {
+            label: '$(cloud-download) Load + adopt to a Rowan project',
+            how: 'adopt' as const,
+            detail:
+              'Load into the connected stone and adopt into a real Rowan project (coming soon — shows the load for now).',
+          },
+        ],
+        { title: `Add ${entry.name} as a dependency`, placeHolder: 'How should it be added?' },
+      );
+      if (!how) return;
+
+      if (how.how === 'preload') {
+        if (!root || !isRowanProjectRoot(root)) {
+          vscode.window.showErrorMessage(
+            'Open a Rowan project first — the pre-load doit is written into its Core component.',
+          );
+          return;
+        }
+        const result = addPreloadDependency(root, entry);
+        if (!result.success) {
+          vscode.window.showErrorMessage(`Could not add ${entry.name}: ${result.error}`);
+          return;
+        }
+        rowanProvider.refresh();
+        refreshRowanProjectView();
+        const choice = await vscode.window.showInformationMessage(
+          result.alreadyPresent
+            ? `${entry.name} is already a pre-load dependency.`
+            : `Added ${entry.name} as a pre-load dependency.`,
+          'Open Doit',
+        );
+        if (choice === 'Open Doit' && result.doitFile) {
+          await vscode.window.showTextDocument(
+            await vscode.workspace.openTextDocument(vscode.Uri.file(result.doitFile)),
+          );
+        }
+        return;
+      }
+
+      // adopt → Rowan project: deferred. Show the idiomatic load incantation.
+      const doc = await vscode.workspace.openTextDocument({
+        language: 'gemstone-smalltalk',
+        content: metacelloLoadExpression(entry),
+      });
+      await vscode.window.showTextDocument(doc);
     }),
 
     vscode.commands.registerCommand('gemstone.rowanNewProject', async () => {

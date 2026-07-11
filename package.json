@@ -840,6 +840,12 @@
         "category": "GemStone"
       },
       {
+        "command": "gemstone.rowanAddPackage",
+        "title": "Add Package…",
+        "category": "GemStone",
+        "icon": "$(add)"
+      },
+      {
         "command": "gemstone.rowanFindClassPackage",
         "title": "Find Class's Rowan Package",
         "category": "GemStone"
@@ -1485,6 +1491,11 @@
         {
           "command": "gemstone.rowanNewProject",
           "when": "view == gemstoneRowan",
+          "group": "navigation@0"
+        },
+        {
+          "command": "gemstone.rowanAddPackage",
+          "when": "view == gemstoneRowanProject",
           "group": "navigation@0"
         },
         {
