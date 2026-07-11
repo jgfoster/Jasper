@@ -69,11 +69,15 @@ import { getGciLog } from './gciLog';
 import { GemStoneCodeLensProvider } from './gemstoneCodeLensProvider';
 import * as queries from './browserQueries';
 import { SysadminStorage } from './sysadminStorage';
+import { GemStoneDatabase } from './sysadminTypes';
 import { appendSysadmin, getSysadminChannel } from './sysadminChannel';
 import { VersionManager } from './versionManager';
 import { VersionTreeProvider, VersionItem } from './versionTreeProvider';
 import { DatabaseManager } from './databaseManager';
 import { DatabaseTreeProvider, DatabaseNode } from './databaseTreeProvider';
+import { runLogicalBackup } from './backupManager';
+import { runLogicalRestore, RestoreSession } from './restoreManager';
+import { hasFileControlPrivilege } from './queries/backup';
 import { ProcessManager } from './processManager';
 import { openMcpInspector } from './openMcpInspector';
 import { McpSocketServer, writeClaudeDesktopMcpConfig } from './mcpSocketServer';
@@ -96,7 +100,10 @@ import {
   getWslNetworkInfoCached,
   refreshWslNetworkInfo,
 } from './wslBridge';
-import { wslExistsSync, wslSymlinkSync } from './wslFs';
+import {
+  wslExistsSync, wslSymlinkSync, wslMkdirSync, wslImportFileSync,
+  wslReaddirSync, wslUnlinkSync, wslChmodSync,
+} from './wslFs';
 import type {OutputChannel} from "vscode";
 import {initializeExtensionFolder} from "./extensionPath";
 import {initializeBundledGci, bundledWindowsClientGciPath, bundledGciArchSupported} from "./bundledGci";
@@ -2892,6 +2899,171 @@ export function activate(context: vscode.ExtensionContext) {
         refreshAdminViews();
       }
     }),
+
+    vscode.commands.registerCommand('gemstone.fullLogicalBackup', async (item?: GemStoneSessionItem) => {
+      // A full backup runs over GCI against the connected stone, so it operates
+      // on a specific session: the one clicked in the Sessions tree, or the
+      // selected session when invoked from the palette.
+      const session = item ? item.activeSession : sessionManager.getSelectedSession();
+      if (!session) {
+        vscode.window.showInformationMessage(
+          'No GemStone session to back up. Connect a session first.',
+        );
+        return;
+      }
+      // Default the destination next to the extents when this session's stone is
+      // one we manage locally; otherwise the picker opens without a default dir.
+      const db = sysadminStorage.getDatabases()
+        .find(d => d.config.stoneName === session.login.stone);
+      const backedUp = await runLogicalBackup({
+        execute: (label, code) => queries.executeFetchString(session, label, code),
+        runBackup: (code) =>
+          queries.executeFetchStringNb(session, 'gemstone.fullLogicalBackup', code, undefined, true),
+        stoneName: session.login.stone,
+        dbPath: db?.path,
+      });
+      // Re-read the Databases tree so the new backup (and the Backups node, if
+      // this was the first one) shows up without a manual refresh.
+      if (backedUp) refreshAdminViews();
+    }),
+
+    vscode.commands.registerCommand('gemstone.fullLogicalRestore',
+      async (item?: GemStoneSessionItem | DatabaseNode) => {
+        // Two entry points: the Sessions view button (a GemStoneSessionItem) and
+        // a right-click on a backup-file node in the Databases tree. Either way we
+        // need a LIVE session (for credentials to re-login through the restore's
+        // stop/start cycle) and a locally-managed database (the restore must run
+        // on the stone's own host).
+        let session: ActiveSession | undefined;
+        let backupFile: string | undefined;
+        let db: GemStoneDatabase | undefined;
+
+        if (item instanceof GemStoneSessionItem) {
+          session = item.activeSession;
+        } else if (item && 'kind' in item && item.kind === 'backupFile') {
+          backupFile = item.filePath;
+          db = item.db;
+          session = sessionManager.getSessions()
+            .find(s => s.login.stone === db!.config.stoneName);
+          if (!session) {
+            vscode.window.showWarningMessage(
+              `A full logical restore runs over a live session (it needs your login to reconnect `
+              + `through the stone restart). Log in to "${db.config.stoneName}" first, then try again.`,
+              { modal: true },
+            );
+            return;
+          }
+        } else {
+          session = sessionManager.getSelectedSession();
+        }
+        if (!session) {
+          vscode.window.showInformationMessage(
+            'No GemStone session to restore. Connect a session to the stone you want to restore first.',
+          );
+          return;
+        }
+
+        db = db ?? sysadminStorage.getDatabases()
+          .find(d => d.config.stoneName === session!.login.stone);
+        if (!db) {
+          vscode.window.showErrorMessage(
+            `Full logical restore currently requires a database created through Jasper's Databases `
+            + `panel — it needs to stop/start the stone and locate its extent, which Jasper only `
+            + `knows how to do for databases it manages. "${session.login.stone}" is not one of them `
+            + '(it was created outside Jasper), so it cannot be restored this way yet.',
+            { modal: true },
+          );
+          return;
+        }
+
+        // Capture what we need before the session is torn down. The GciLibrary
+        // outlives its session's logout, so the transient restore logins reuse it.
+        const harvested = session.login;
+        const gci = session.gci;
+        const sessionId = session.id;
+        const managed = db;
+        const dataDir = path.join(managed.path, 'data');
+        const gsPath = sysadminStorage.getGemstonePath(managed.config.version);
+
+        const toRestoreSession = (
+          t: { session: ActiveSession; logout: () => void },
+        ): RestoreSession => ({
+          run: (label, code) => queries.executeFetchStringNb(t.session, label, code, undefined, true),
+          logout: t.logout,
+        });
+
+        const restored = await runLogicalRestore({
+          stoneName: managed.config.stoneName,
+          dbPath: managed.path,
+          backupFile,
+          hasFileControl: () =>
+            hasFileControlPrivilege((label, code) => queries.executeFetchString(session!, label, code)),
+          closeCurrentSession: async () => { sessionManager.logout(sessionId); },
+          stopStone: async () => {
+            // GciTsLogout returns before the stone finishes deregistering our gem,
+            // so stopstone (which logs in itself to request shutdown) can still see
+            // our just-closed session and refuse with "Other users logged in" (exit
+            // 13). Retry briefly to ride out that deregistration lag; a genuine
+            // other-user situation simply fails after the retries with that message.
+            let lastErr: unknown;
+            for (let attempt = 0; attempt < 6; attempt++) {
+              try {
+                await processManager.stopStone(managed);
+                return;
+              } catch (e) {
+                lastErr = e;
+                await new Promise((resolve) => setTimeout(resolve, 1500));
+              }
+            }
+            throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+          },
+          startStone: async () => { await processManager.startStone(managed); },
+          copyCurrentExtentAside: async (destPath) => {
+            wslMkdirSync(path.dirname(destPath), { recursive: true });
+            wslImportFileSync(path.join(dataDir, 'extent0.dbf'), destPath);
+          },
+          swapInFreshExtent: async () => {
+            if (!gsPath) {
+              throw new Error(
+                `GemStone ${managed.config.version} installation not found; cannot obtain a fresh extent.`,
+              );
+            }
+            const pristine = path.join(gsPath, 'bin', 'extent0.dbf');
+            if (!wslExistsSync(pristine)) {
+              throw new Error(`Fresh extent not found at ${pristine}.`);
+            }
+            for (const entry of wslReaddirSync(dataDir)) {
+              if (entry.toLowerCase().endsWith('.dbf')) {
+                wslUnlinkSync(path.join(dataDir, entry));
+              }
+            }
+            const dest = path.join(dataDir, 'extent0.dbf');
+            wslImportFileSync(pristine, dest);
+            wslChmodSync(dest, 0o644);
+          },
+          loginAsDefaultAdmin: async () => toRestoreSession(
+            sessionManager.loginTransient(
+              { ...harvested, gs_user: 'DataCurator', gs_password: 'swordfish' }, gci,
+            ),
+          ),
+          loginAsSessionUser: async () =>
+            toRestoreSession(sessionManager.loginTransient(harvested, gci)),
+        });
+
+        if (restored) {
+          // Best-effort: re-establish the user's normal interactive session (the
+          // restored repo carries the real accounts again). If it fails, the
+          // success toast already told the user to reconnect manually.
+          const libraryPath = storage.getGciLibraryPath(harvested.version);
+          if (libraryPath) {
+            try {
+              const s = sessionManager.login(harvested, libraryPath);
+              refreshEnhancedInspectorAvailable(s);
+            } catch { /* user reconnects manually */ }
+          }
+          refreshAdminViews();
+        }
+      }),
   );
 }
 

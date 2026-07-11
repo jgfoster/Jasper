@@ -33,7 +33,7 @@ function inlineOrderFor(viewItemClause: string): string[] {
 }
 
 describe('session row inline button order', () => {
-  it('leads with the most-used safe actions and trails with the session-ending Logout', () => {
+  it('leads with the most-used safe actions, groups the backup/restore pair, and trails with Logout', () => {
     const order = inlineOrderFor('viewItem == gemstoneSession');
 
     expect(order).toEqual([
@@ -42,6 +42,8 @@ describe('session row inline button order', () => {
       'gemstone.sessionCommit',
       'gemstone.sessionAbort',
       'gemstone.sessionPing',
+      'gemstone.fullLogicalBackup',
+      'gemstone.fullLogicalRestore',
       'gemstone.sessionLogout',
     ]);
   });

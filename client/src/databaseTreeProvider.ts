@@ -11,7 +11,9 @@ export type DatabaseNode =
   | { kind: 'netldi'; db: GemStoneDatabase; running: boolean }
   | { kind: 'logs'; db: GemStoneDatabase }
   | { kind: 'config'; db: GemStoneDatabase }
-  | { kind: 'file'; filePath: string };
+  | { kind: 'backups'; db: GemStoneDatabase }
+  | { kind: 'file'; filePath: string }
+  | { kind: 'backupFile'; filePath: string; db: GemStoneDatabase };
 
 export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseNode> {
   private _onDidChangeTreeData = new vscode.EventEmitter<DatabaseNode | undefined>();
@@ -79,6 +81,16 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseNod
         item.iconPath = new vscode.ThemeIcon('settings-gear');
         return item;
       }
+      case 'backups': {
+        const item = new vscode.TreeItem('Backups', vscode.TreeItemCollapsibleState.Collapsed);
+        item.contextValue = 'gemstoneDbBackups';
+        item.iconPath = new vscode.ThemeIcon('archive');
+        item.tooltip =
+          "Full logical backups in this database's backups/ folder.\n"
+          + 'Backups written here by any Jasper session appear in this list; '
+          + 'backups taken outside this folder are not tracked.';
+        return item;
+      }
       case 'file': {
         const fileName = path.basename(node.filePath);
         const item = new vscode.TreeItem(fileName, vscode.TreeItemCollapsibleState.None);
@@ -88,6 +100,21 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseNod
         item.command = {
           command: 'vscode.open',
           title: 'Open File',
+          arguments: [vscode.Uri.file(node.filePath)],
+        };
+        return item;
+      }
+      case 'backupFile': {
+        const fileName = path.basename(node.filePath);
+        const item = new vscode.TreeItem(fileName, vscode.TreeItemCollapsibleState.None);
+        item.contextValue = 'gemstoneDbBackupFile';
+        item.iconPath = new vscode.ThemeIcon('archive');
+        item.tooltip = node.filePath;
+        // A backup is a binary .dbf — reveal it in the OS file manager rather
+        // than opening it in an editor.
+        item.command = {
+          command: 'revealFileInOS',
+          title: 'Reveal in File Explorer',
           arguments: [vscode.Uri.file(node.filePath)],
         };
         return item;
@@ -108,18 +135,28 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseNod
         node.db.config.ldiName,
         node.db.config.version,
       );
-      return [
+      const children: DatabaseNode[] = [
         { kind: 'stone', db: node.db, running: stoneRunning },
         { kind: 'netldi', db: node.db, running: netldiRunning },
         { kind: 'logs', db: node.db },
         { kind: 'config', db: node.db },
       ];
+      // Only surface Backups when there's something to show — the backup itself
+      // is created from the Sessions view, so this node is browse-only.
+      if (this.backupFiles(node.db).length > 0) {
+        children.push({ kind: 'backups', db: node.db });
+      }
+      return children;
     }
     if (node.kind === 'logs') {
       return this.listFiles(path.join(node.db.path, 'log'));
     }
     if (node.kind === 'config') {
       return this.listFiles(path.join(node.db.path, 'conf'));
+    }
+    if (node.kind === 'backups') {
+      return this.backupFiles(node.db)
+        .map(f => ({ kind: 'backupFile' as const, filePath: f, db: node.db }));
     }
     return [];
   }
@@ -130,5 +167,17 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseNod
       .sort()
       .filter(e => wslIsFile(path.join(dirPath, e)))
       .map(e => ({ kind: 'file' as const, filePath: path.join(dirPath, e) }));
+  }
+
+  // Absolute paths of the .dbf backup files in <db>/backups, newest first (names
+  // carry a sortable timestamp). Empty when the folder is absent or has none.
+  private backupFiles(db: GemStoneDatabase): string[] {
+    const dir = path.join(db.path, 'backups');
+    if (!wslExistsSync(dir)) return [];
+    return wslReaddirSync(dir)
+      .filter(e => e.toLowerCase().endsWith('.dbf') && wslIsFile(path.join(dir, e)))
+      .sort()
+      .reverse()
+      .map(e => path.join(dir, e));
   }
 }

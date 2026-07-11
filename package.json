@@ -1237,6 +1237,18 @@
         "icon": "$(replace-all)"
       },
       {
+        "command": "gemstone.fullLogicalBackup",
+        "title": "Full Logical Backup",
+        "category": "GemStone Admin",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "gemstone.fullLogicalRestore",
+        "title": "Full Logical Restore",
+        "category": "GemStone Admin",
+        "icon": "$(history)"
+      },
+      {
         "command": "gemstone.openMcpInspector",
         "title": "Open MCP Inspector",
         "category": "GemStone",
@@ -1608,9 +1620,19 @@
           "group": "inline@5"
         },
         {
-          "command": "gemstone.sessionLogout",
+          "command": "gemstone.fullLogicalBackup",
           "when": "view == gemstoneLogins && viewItem == gemstoneSession",
           "group": "inline@6"
+        },
+        {
+          "command": "gemstone.fullLogicalRestore",
+          "when": "view == gemstoneLogins && viewItem == gemstoneSession",
+          "group": "inline@7"
+        },
+        {
+          "command": "gemstone.sessionLogout",
+          "when": "view == gemstoneLogins && viewItem == gemstoneSession",
+          "group": "inline@8"
         },
         {
           "command": "gemstone.exportClasses",
@@ -1684,6 +1706,11 @@
         {
           "command": "gemstone.replaceExtent",
           "when": "view == gemstoneDatabases && viewItem == gemstoneDbStoneStopped",
+          "group": "inline@1"
+        },
+        {
+          "command": "gemstone.fullLogicalRestore",
+          "when": "view == gemstoneDatabases && viewItem == gemstoneDbBackupFile",
           "group": "inline@1"
         },
         {
