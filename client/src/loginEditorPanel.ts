@@ -48,12 +48,22 @@ export class LoginEditorPanel {
     return versions;
   }
 
+  /** Panel title for a login: "New…", or "View:/Edit: <label>" per readOnly. */
+  private static titleFor(existingLogin: GemStoneLogin | undefined, readOnly: boolean): string {
+    if (!existingLogin) return 'New GemStone Login';
+    return `${readOnly ? 'View' : 'Edit'}: ${loginLabel(existingLogin)}`;
+  }
+
   static async show(
     storage: LoginStorage,
     secrets: vscode.SecretStorage,
     treeProvider: LoginTreeProvider,
     existingLogin?: GemStoneLogin,
     sysadminStorage?: SysadminStorage,
+    // Open the editor as a read-only viewer (e.g. while the login has an active
+    // session). The config is only consumed at login, so it is safe to view;
+    // editing is disabled so the live session's row isn't disturbed.
+    readOnly = false,
   ): Promise<void> {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
     const versions = sysadminStorage
@@ -77,13 +87,15 @@ export class LoginEditorPanel {
     if (LoginEditorPanel.currentPanel) {
       LoginEditorPanel.currentPanel.panel.reveal(column);
       LoginEditorPanel.currentPanel.versions = versions;
+      LoginEditorPanel.currentPanel.readOnly = readOnly;
+      LoginEditorPanel.currentPanel.panel.title = LoginEditorPanel.titleFor(existingLogin, readOnly);
       LoginEditorPanel.currentPanel.update(login);
       return;
     }
 
     const panel = vscode.window.createWebviewPanel(
       'gemstoneLoginEditor',
-      existingLogin ? `Edit: ${loginLabel(existingLogin)}` : 'New GemStone Login',
+      LoginEditorPanel.titleFor(existingLogin, readOnly),
       column,
       {
         enableScripts: true,
@@ -93,7 +105,7 @@ export class LoginEditorPanel {
     );
 
     LoginEditorPanel.currentPanel = new LoginEditorPanel(
-      panel, storage, secrets, treeProvider, login, versions,
+      panel, storage, secrets, treeProvider, login, versions, readOnly,
     );
   }
 
@@ -104,6 +116,7 @@ export class LoginEditorPanel {
     private treeProvider: LoginTreeProvider,
     private login: GemStoneLogin,
     private versions: string[],
+    private readOnly: boolean,
   ) {
     this.panel = panel;
     this.update(login);
@@ -121,6 +134,7 @@ export class LoginEditorPanel {
               command: 'loadData',
               data: this.login,
               versions: this.versions,
+              readOnly: this.readOnly,
             });
             break;
         }
@@ -131,6 +145,11 @@ export class LoginEditorPanel {
   }
 
   private async handleSave(data: GemStoneLogin, originalLabel?: string): Promise<void> {
+    // Safety net: the webview hides Save and disables fields while read-only,
+    // so a save should never arrive — but ignore it if one does, rather than
+    // persisting an edit that the read-only view was meant to prevent.
+    if (this.readOnly) return;
+
     data.label = loginLabel(data);
 
     if (data.password_in_keychain) {
@@ -158,7 +177,9 @@ export class LoginEditorPanel {
   private update(login: GemStoneLogin): void {
     this.login = login;
     this.panel.webview.html = this.getHtml();
-    this.panel.webview.postMessage({ command: 'loadData', data: login, versions: this.versions });
+    this.panel.webview.postMessage({
+      command: 'loadData', data: login, versions: this.versions, readOnly: this.readOnly,
+    });
   }
 
   private dispose(): void {
@@ -261,10 +282,22 @@ export class LoginEditorPanel {
       opacity: 0.7;
       margin-top: 4px;
     }
+    .banner {
+      display: none;
+      padding: 8px 12px;
+      margin-bottom: 12px;
+      border-radius: 2px;
+      background: var(--vscode-inputValidation-infoBackground, var(--vscode-editorWidget-background));
+      border: 1px solid var(--vscode-inputValidation-infoBorder, var(--vscode-focusBorder));
+    }
   </style>
 </head>
 <body>
   <h2>GemStone Login Parameters</h2>
+
+  <div id="readOnlyBanner" class="banner">
+    This login has an active session, so its configuration is read-only. Log out to edit it.
+  </div>
 
   <div class="field-group">
     <label for="version">GemStone Version</label>
@@ -352,6 +385,15 @@ export class LoginEditorPanel {
         // Default on when unset, so existing logins keep syncing.
         document.getElementById('sync_classes').checked =
           msg.data.sync_classes !== false;
+
+        // Read-only view (login has an active session): show fields but disable
+        // every control, hide the Save/Cancel row, and surface the banner.
+        const readOnly = Boolean(msg.readOnly);
+        for (const el of document.querySelectorAll('input, select')) {
+          el.disabled = readOnly;
+        }
+        document.getElementById('readOnlyBanner').style.display = readOnly ? 'block' : 'none';
+        document.querySelector('.button-row').style.display = readOnly ? 'none' : 'flex';
       }
     });
 

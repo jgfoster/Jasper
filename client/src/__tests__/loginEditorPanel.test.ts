@@ -136,6 +136,7 @@ describe('LoginEditorPanel', () => {
         command: 'loadData',
         data: expect.objectContaining({ label: '' }),
         versions: [],
+        readOnly: false,
       });
     });
 
@@ -147,6 +148,7 @@ describe('LoginEditorPanel', () => {
         command: 'loadData',
         data: expect.objectContaining({ label: 'Server', gem_host: 'myhost' }),
         versions: [],
+        readOnly: false,
       });
     });
   });
@@ -319,6 +321,64 @@ describe('LoginEditorPanel', () => {
       const html = panel.webview.html;
       expect(html).toContain('id="sync_classes"');
       expect(html).toContain('Sync classes to local files');
+    });
+  });
+
+  describe('read-only view', () => {
+    it('renders the read-only banner element in the HTML', () => {
+      LoginEditorPanel.show(storage, secrets as any, treeProvider);
+      const panel = (window.createWebviewPanel as any).mock.results[0].value;
+      expect(panel.webview.html).toContain('id="readOnlyBanner"');
+    });
+
+    it('marks the load data read-only when opened read-only', async () => {
+      await LoginEditorPanel.show(storage, secrets as any, treeProvider, makeLogin(), undefined, true);
+      const panel = (window.createWebviewPanel as any).mock.results[0].value;
+      expect(panel.webview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'loadData', readOnly: true }),
+      );
+    });
+
+    it('is not read-only by default', async () => {
+      await LoginEditorPanel.show(storage, secrets as any, treeProvider, makeLogin());
+      const panel = (window.createWebviewPanel as any).mock.results[0].value;
+      expect(panel.webview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'loadData', readOnly: false }),
+      );
+    });
+
+    it('titles the panel "View:" when read-only', async () => {
+      const login = makeLogin({ gs_user: 'Admin', stone: 'prod', gem_host: 'db' });
+      await LoginEditorPanel.show(storage, secrets as any, treeProvider, login, undefined, true);
+      expect(window.createWebviewPanel).toHaveBeenCalledWith(
+        'gemstoneLoginEditor',
+        'View: Admin on prod (db)',
+        expect.any(Number),
+        expect.any(Object),
+      );
+    });
+
+    it('switches an open panel to read-only when reused for a connected login', async () => {
+      await LoginEditorPanel.show(storage, secrets as any, treeProvider, makeLogin({ label: 'A' }));
+      const panel = (window.createWebviewPanel as any).mock.results[0].value;
+      (panel.webview.postMessage as any).mockClear();
+
+      await LoginEditorPanel.show(storage, secrets as any, treeProvider, makeLogin({ label: 'A' }), undefined, true);
+
+      expect(panel.webview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'loadData', readOnly: true }),
+      );
+    });
+
+    it('ignores a save message while read-only', async () => {
+      const saveSpy = vi.spyOn(storage, 'saveLogin').mockResolvedValue();
+      await LoginEditorPanel.show(storage, secrets as any, treeProvider, makeLogin(), undefined, true);
+      const panel = (window.createWebviewPanel as any).mock.results[0].value;
+      const handler = (panel.webview.onDidReceiveMessage as any).mock.calls[0][0];
+
+      await handler({ command: 'save', data: makeLogin({ stone: 'edited' }), originalLabel: 'Test' });
+
+      expect(saveSpy).not.toHaveBeenCalled();
     });
   });
 

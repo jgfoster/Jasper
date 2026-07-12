@@ -147,11 +147,15 @@ describe('GemStoneLoginItem', () => {
     });
   });
 
-  it('is a connected, non-clickable, expanded row when it has sessions', () => {
+  it('is a connected, expanded row that opens a read-only view when it has sessions', () => {
     const item = new GemStoneLoginItem(makeLogin(), 0, true);
     expect(item.contextValue).toBe('gemstoneLoginConnected');
     expect(item.collapsibleState).toBe(TreeItemCollapsibleState.Expanded);
-    expect(item.command).toBeUndefined();
+    expect(item.command).toEqual({
+      command: 'gemstone.editLogin',
+      title: 'View Login',
+      arguments: [item],
+    });
   });
 
   it('exposes its position via index', () => {

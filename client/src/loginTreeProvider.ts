@@ -24,11 +24,14 @@ export class GemStoneLoginItem extends vscode.TreeItem {
     // session VS Code sees a "new" node and honors the Expanded state above,
     // rather than preserving the row's previous collapsed/leaf state.
     this.id = `login-${index}-${hasSessions ? 'open' : 'closed'}`;
-    // Clicking an idle login opens the editor; a connected login can't be
-    // edited (log out first), so clicking it just expands/selects the row.
-    this.command = hasSessions
-      ? undefined
-      : { command: 'gemstone.editLogin', title: 'Edit Login', arguments: [this] };
+    // Clicking a login opens its editor. A connected login opens read-only
+    // (its config is viewable but editing requires logging out); an idle one
+    // opens for editing. The editLogin command picks the mode from session state.
+    this.command = {
+      command: 'gemstone.editLogin',
+      title: hasSessions ? 'View Login' : 'Edit Login',
+      arguments: [this],
+    };
   }
 }
 

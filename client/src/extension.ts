@@ -935,13 +935,13 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand('gemstone.editLogin', (item: GemStoneLoginItem) => {
-      if (loginHasActiveSession(item.login)) {
-        vscode.window.showWarningMessage(
-          `"${loginLabel(item.login)}" has an active session. Log out before editing it.`,
-        );
-        return;
-      }
-      LoginEditorPanel.show(storage, context.secrets, treeProvider, item.login, sysadminStorage);
+      // A connected login opens read-only so its config can still be viewed;
+      // the settings are only consumed at login, so editing a live one is
+      // disabled (log out first) to avoid disturbing the session's tree row.
+      LoginEditorPanel.show(
+        storage, context.secrets, treeProvider, item.login, sysadminStorage,
+        loginHasActiveSession(item.login),
+      );
     }),
 
     vscode.commands.registerCommand('gemstone.deleteLogin', async (item: GemStoneLoginItem) => {
