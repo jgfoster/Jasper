@@ -321,6 +321,16 @@ export class GciLibrary {
     return !this._missing.has(name);
   }
 
+  /**
+   * Whether this library supports the non-blocking login path
+   * (GciTsNbLogin + GciTsNbLoginFinished). False on Windows client
+   * distributions (the symbols are not exported there) and on libraries that
+   * predate them, so callers can fall back to the blocking GciTsLogin.
+   */
+  supportsNonBlockingLogin(): boolean {
+    return this._GciTsNbLogin !== null && this._GciTsNbLoginFinished !== null;
+  }
+
   constructor(libraryPath: string) {
     if (process.platform === 'linux') {
       // libgcits has an undefined reference to HostCreateThread, which is

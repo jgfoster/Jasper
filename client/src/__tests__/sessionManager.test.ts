@@ -24,15 +24,32 @@ const executeFetchBytes = vi.fn((..._args: unknown[]) => ({ data: 'installed', e
 // login() aborts once after setup to drop the session-method-policy's spurious
 // write; capture those calls so tests can assert on them.
 const gciTsAbort = vi.fn((..._args: unknown[]) => ({ success: true, err: { number: 0, message: '' } }));
+const gciTsLogin = vi.fn((..._args: unknown[]) => ({ session: {}, err: { number: 0, message: '' } }));
+
+// Non-blocking login controls (loginAsync). `supportsNb` picks the nb vs
+// blocking path; `nbLoginStarts` simulates GciTsNbLogin failing to start; the
+// GciTsNbLoginFinished sequence is consumed one per poll (0 pending, 1 done,
+// -1 failed), defaulting to done once exhausted.
+let supportsNb = false;
+let nbLoginStarts = true;
+let nbFinishedSequence: Array<{ result: number; err?: { number: number; message: string } }> = [];
+const gciTsNbLogin = vi.fn((..._args: unknown[]) => ({ session: nbLoginStarts ? {} : null, loginPollSocket: 3 }));
+const gciTsNbLoginFinished = vi.fn(() => {
+  const next = nbFinishedSequence.shift() ?? { result: 1 };
+  return { result: next.result, executedSessionInit: false, err: next.err ?? { number: 0, message: '' } };
+});
 
 vi.mock('../gciLibrary', () => ({
   GciLibrary: class {
-    GciTsLogin() { return { session: {}, err: { number: 0, message: '' } }; }
+    GciTsLogin(...args: unknown[]) { return gciTsLogin(...(args as [])); }
     GciTsVersion() { return { version: '3.7.2' }; }
     GciTsFetchSize() { return { result: pingErrNumber ? -1n : 0n, err: { number: pingErrNumber, message: pingErrNumber ? 'boom' : '' } }; }
     GciTsExecuteFetchBytes(...args: unknown[]) { return executeFetchBytes(...(args as [])); }
     GciTsAbort(...args: unknown[]) { return gciTsAbort(...(args as [])); }
     GciTsLogout() {}
+    supportsNonBlockingLogin() { return supportsNb; }
+    GciTsNbLogin(...args: unknown[]) { return gciTsNbLogin(...(args as [])); }
+    GciTsNbLoginFinished(...args: unknown[]) { return gciTsNbLoginFinished(...(args as [])); }
     close() {}
   },
 }));
@@ -77,6 +94,9 @@ describe('SessionManager', () => {
     vi.clearAllMocks();
     for (const k of Object.keys(configValues)) delete configValues[k];
     pingErrNumber = 0;
+    supportsNb = false;
+    nbLoginStarts = true;
+    nbFinishedSequence = [];
     manager = new SessionManager();
   });
 
@@ -179,6 +199,68 @@ describe('SessionManager', () => {
 
     it('throws for an unknown session id', () => {
       expect(() => manager.ping(999)).toThrow('Session not found');
+    });
+  });
+
+  describe('loginAsync', () => {
+    const testLogin = () => ({ ...DEFAULT_LOGIN, label: 'Test' });
+
+    it('logs in over the non-blocking path when the library supports it', async () => {
+      supportsNb = true;
+      nbFinishedSequence = [{ result: 0 }, { result: 0 }];
+
+      const session = await manager.loginAsync(testLogin(), '/mock/lib');
+
+      expect(session.id).toBe(1);
+      expect(session.stoneVersion).toBe('3.7.2');
+      expect(gciTsNbLogin).toHaveBeenCalledOnce();
+      expect(gciTsNbLoginFinished.mock.calls.length).toBeGreaterThanOrEqual(3);
+      expect(gciTsLogin).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the blocking login when non-blocking is unsupported', async () => {
+      supportsNb = false;
+
+      const session = await manager.loginAsync(testLogin(), '/mock/lib');
+
+      expect(session.id).toBe(1);
+      expect(gciTsLogin).toHaveBeenCalledOnce();
+      expect(gciTsNbLogin).not.toHaveBeenCalled();
+    });
+
+    it('rejects with the gem error message when a non-blocking login fails', async () => {
+      supportsNb = true;
+      nbFinishedSequence = [{ result: 0 }, { result: -1, err: { number: 4051, message: 'invalid password' } }];
+
+      await expect(manager.loginAsync(testLogin(), '/mock/lib')).rejects.toThrow(/invalid password/);
+    });
+
+    it('rejects when a non-blocking login cannot be started', async () => {
+      supportsNb = true;
+      nbLoginStarts = false;
+
+      await expect(manager.loginAsync(testLogin(), '/mock/lib')).rejects.toThrow(/could not start/);
+    });
+
+    it('counts an in-flight async login against the single-session cap', async () => {
+      supportsNb = true;
+
+      const pending = manager.loginAsync(testLogin(), '/mock/lib');
+
+      expect(() => manager.login(testLogin(), '/mock/lib')).toThrow(/Only one GemStone session/);
+
+      await pending;
+    });
+
+    it('frees the pending slot after a failed async login so a retry is allowed', async () => {
+      supportsNb = true;
+      nbLoginStarts = false;
+
+      await expect(manager.loginAsync(testLogin(), '/mock/lib')).rejects.toThrow();
+
+      supportsNb = false;
+      const session = await manager.loginAsync(testLogin(), '/mock/lib');
+      expect(session.id).toBe(1);
     });
   });
 });

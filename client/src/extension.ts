@@ -10,7 +10,8 @@ import {
 import { LoginStorage } from './loginStorage';
 import { getLoginPassword, deleteLoginPassword } from './loginCredentials';
 import { LoginTreeProvider, GemStoneLoginItem, GemStoneSessionItem } from './loginTreeProvider';
-import { GemStoneLogin, loginLabel, sameLoginTarget } from './loginTypes';
+import { GemStoneLogin, loginLabel, loginTargetKey, sameLoginTarget } from './loginTypes';
+import { InFlightGuard } from './inFlightGuard';
 import { LoginEditorPanel } from './loginEditorPanel';
 import { SessionManager, ActiveSession } from './sessionManager';
 import {
@@ -251,6 +252,23 @@ export async function openWorkspaceForSession(
 const GETTING_STARTED_SEEN_KEY = 'gemstone.hasSeenGettingStarted';
 const GETTING_STARTED_WALKTHROUGH_ID = 'gemtalksystems.gemstone-ide#gemstoneGettingStarted';
 
+// How long a connect target stays reserved after a login attempt settles, so
+// clicks queued behind a slow (blocking) login are dropped when they replay.
+// Long enough to outlast the replay, short enough to be imperceptible on retry.
+const LOGIN_GUARD_COOLDOWN_MS = 1000;
+
+// Wrap a connect command handler so re-clicks for the same login target, while a
+// connection attempt for it is in flight (or cooling down), are dropped instead
+// of starting another login. See InFlightGuard. Exported for testing.
+export function withLoginGuard(
+  guard: InFlightGuard,
+  handler: (item: GemStoneLoginItem) => Promise<void>,
+): (item: GemStoneLoginItem) => Promise<void> {
+  return async (item) => {
+    await guard.run(loginTargetKey(item.login), () => handler(item));
+  };
+}
+
 // Where a tracked Rowan repository is checked out: a folder named `name` in the
 // open workspace, so the source is visible and editable in the Explorer.
 // Returns undefined (and warns) when no folder is open.
@@ -476,6 +494,12 @@ export function activate(context: vscode.ExtensionContext) {
   // SessionManager is created early so the Logins panel can mark the connected
   // login row (and swap its inline Login action for Logout) in single-session mode.
   sessionManager = new SessionManager();
+
+  // De-duplicates connect clicks: the blocking GciTsLogin freezes the extension
+  // host while it runs, so extra clicks during a slow login queue up and replay
+  // once it returns. The cooldown keeps the target reserved briefly past the
+  // call's return so those late replays are dropped too. See InFlightGuard.
+  const loginGuard = new InFlightGuard(LOGIN_GUARD_COOLDOWN_MS);
 
   // Sessions don't survive a window reload, so any gemstone:// method/class tab
   // VS Code restored from the previous window is unservable and shows a broken
@@ -986,7 +1010,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
 
-    vscode.commands.registerCommand('gemstone.login', async (item: GemStoneLoginItem) => {
+    vscode.commands.registerCommand('gemstone.login', withLoginGuard(loginGuard, async (item: GemStoneLoginItem) => {
       if (!vscode.workspace.workspaceFolders?.length) {
         vscode.window.showErrorMessage(
           'Please open a folder in the workspace before logging in to GemStone.',
@@ -1152,7 +1176,18 @@ export function activate(context: vscode.ExtensionContext) {
 
       let session;
       try {
-        session = sessionManager.login(login, gciPath);
+        session = await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Connecting to ${login.stone} on ${login.gem_host} as ${login.gs_user}…`,
+            cancellable: false,
+          },
+          // loginAsync uses the non-blocking GciTsNbLogin path (yielding between
+          // polls) so the notification animates and the window stays responsive
+          // during a slow connect; it falls back to the blocking login on
+          // Windows / older libraries.
+          () => sessionManager.loginAsync(login, gciPath),
+        );
         refreshEnhancedInspectorAvailable(session);
         treeProvider.refresh();
         vscode.window.showInformationMessage(
@@ -1185,7 +1220,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (!session.enhancedInspectorAvailable) {
         void maybeOfferEnhancedInspectorInstall(session, sessionManager, context.extensionPath);
       }
-    }),
+    })),
 
     vscode.commands.registerCommand('gemstone.serveSeaside', async () => {
       const session = sessionManager.getSelectedSession();

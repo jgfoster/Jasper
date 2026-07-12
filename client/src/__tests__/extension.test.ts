@@ -30,8 +30,10 @@ import * as vscode from 'vscode';
 import * as extension from '../extension';
 import { GemStoneFileSystemProvider } from '../gemstoneFileSystemProvider';
 import type { SessionManager } from '../sessionManager';
-import type { GemStoneSessionItem } from '../loginTreeProvider';
+import type { GemStoneSessionItem, GemStoneLoginItem } from '../loginTreeProvider';
 import * as queries from '../browserQueries';
+import { InFlightGuard } from '../inFlightGuard';
+import { DEFAULT_LOGIN } from '../loginTypes';
 
 describe('openTextEditorOn', () => {
   const uri = vscode.Uri.parse('gemstone://1/SymbolDictionary/Array/instance/accessing/at:');
@@ -458,6 +460,54 @@ describe('openWorkspaceForSession', () => {
 
     expect(selectSession).not.toHaveBeenCalled();
     expect(vscode.workspace.openTextDocument).toHaveBeenCalled();
+  });
+});
+
+describe('withLoginGuard', () => {
+  const item = { login: DEFAULT_LOGIN } as unknown as GemStoneLoginItem;
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((res) => {
+      resolve = res;
+    });
+    return { promise, resolve };
+  }
+
+  it('ignores a repeat connect for the same target while one is in flight', async () => {
+    const guard = new InFlightGuard();
+    const inFlight = deferred<void>();
+    const handler = vi.fn(() => inFlight.promise);
+    const guarded = extension.withLoginGuard(guard, handler);
+
+    const firstRun = guarded(item);
+    await guarded(item);
+    inFlight.resolve();
+    await firstRun;
+
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('connects again for a fresh click once the previous attempt settles', async () => {
+    const guard = new InFlightGuard();
+    const handler = vi.fn(async () => {});
+    const guarded = extension.withLoginGuard(guard, handler);
+
+    await guarded(item);
+    await guarded(item);
+
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it('connects concurrently to two different targets', async () => {
+    const guard = new InFlightGuard();
+    const handler = vi.fn(async () => {});
+    const guarded = extension.withLoginGuard(guard, handler);
+    const otherStone = { login: { ...DEFAULT_LOGIN, stone: 'otherstone' } } as unknown as GemStoneLoginItem;
+
+    await Promise.all([guarded(item), guarded(otherStone)]);
+
+    expect(handler).toHaveBeenCalledTimes(2);
   });
 });
 

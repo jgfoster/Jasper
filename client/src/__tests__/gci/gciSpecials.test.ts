@@ -139,6 +139,12 @@ describe('GCI session-free OOP functions', () => {
     });
   });
 
+  describe('supportsNonBlockingLogin', () => {
+    it('reports non-blocking login support on every platform except Windows', () => {
+      expect(gci.supportsNonBlockingLogin()).toBe(process.platform !== 'win32');
+    });
+  });
+
   describe('GciTsDoubleToSmallDouble', () => {
     it('encodes 0.0 as a special OOP', () => {
       const oop = gci.GciTsDoubleToSmallDouble(0.0);

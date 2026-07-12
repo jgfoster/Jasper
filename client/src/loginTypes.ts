@@ -50,6 +50,18 @@ export function sameLoginTarget(
 }
 
 /**
+ * A stable string key for a login's target connection (user, stone, host,
+ * NetLDI). Two logins produce the same key exactly when `sameLoginTarget`
+ * considers them the same target, so it can index in-flight connection
+ * attempts (see InFlightGuard / the gemstone.login command).
+ */
+export function loginTargetKey(
+  login: Pick<GemStoneLogin, 'gem_host' | 'stone' | 'gs_user' | 'netldi'>,
+): string {
+  return JSON.stringify([login.gem_host, login.stone, login.gs_user, login.netldi]);
+}
+
+/**
  * The active sessions that belong under the login at position `loginIndex`,
  * using first-match-wins: each session is assigned to the first login in
  * `logins` whose connection target it matches. Keyed on position rather than

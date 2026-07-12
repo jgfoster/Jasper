@@ -3,6 +3,7 @@ import {
   DEFAULT_LOGIN,
   GemStoneLogin,
   loginLabel,
+  loginTargetKey,
   sameLoginTarget,
   sessionsForLogin,
   shouldSyncClasses,
@@ -40,6 +41,33 @@ describe('sameLoginTarget', () => {
       expect(sameLoginTarget(makeLogin(), makeLogin({ [field]: 'different' }))).toBe(false);
     },
   );
+});
+
+describe('loginTargetKey', () => {
+  it('is equal for two logins with the same connection target', () => {
+    const a = makeLogin({ label: 'Dev', gs_password: 'x', version: '3.7.2' });
+    const b = makeLogin({ label: 'Prod', gs_password: 'y', version: '3.6.0' });
+
+    expect(loginTargetKey(a)).toBe(loginTargetKey(b));
+  });
+
+  it.each(['gem_host', 'stone', 'gs_user', 'netldi'] as const)(
+    'differs when %s differs',
+    (field) => {
+      expect(loginTargetKey(makeLogin())).not.toBe(
+        loginTargetKey(makeLogin({ [field]: 'different' })),
+      );
+    },
+  );
+
+  it('agrees with sameLoginTarget on whether two logins share a target', () => {
+    const base = makeLogin();
+    const sameTarget = makeLogin({ label: 'other', gs_password: 'other' });
+    const otherTarget = makeLogin({ stone: 'another' });
+
+    expect(loginTargetKey(base) === loginTargetKey(sameTarget)).toBe(sameLoginTarget(base, sameTarget));
+    expect(loginTargetKey(base) === loginTargetKey(otherTarget)).toBe(sameLoginTarget(base, otherTarget));
+  });
 });
 
 describe('sessionsForLogin', () => {

@@ -6,6 +6,11 @@ import { logInfo } from './gciLog';
 import { wrapWithEnhancedInspectorPerfProxy } from './enhancedInspectorPerfTracker';
 import { installTranscriptSink } from './transcriptSink';
 
+// How often the non-blocking login path polls GciTsNbLoginFinished. Small enough
+// that connect latency is imperceptible, large enough not to busy-spin while the
+// background login thread works.
+const LOGIN_POLL_INTERVAL_MS = 25;
+
 export interface ActiveSession {
   id: number;
   gci: GciLibrary;
@@ -49,6 +54,9 @@ export class SessionManager {
   private sessions = new Map<number, ActiveSession>();
   private gciInstances = new Map<string, GciLibrary>();
   private nextId = 1;
+  // Logins started but not yet registered as sessions (the async window of
+  // loginAsync). Counted alongside sessions for the single-session policy.
+  private pendingLogins = 0;
 
   private _selectedId: number | null = null;
   private _onDidChangeSelection = new vscode.EventEmitter<number | null>();
@@ -120,22 +128,75 @@ export class SessionManager {
     return gci;
   }
 
+  // Blocking login: GciTsLogin holds the calling thread until the handshake
+  // completes, so a slow connect freezes the extension host. Prefer loginAsync
+  // for interactive connects; this stays for the synchronous callers (and is the
+  // fallback loginAsync uses on Windows / older libraries).
   login(login: GemStoneLogin, libraryPath: string): ActiveSession {
+    const { gci, stoneNrs, gemNrs } = this.prepareLogin(login, libraryPath);
+    const handle = this.blockingLoginHandle(gci, stoneNrs, gemNrs, login);
+    return this.finalizeSession(gci, login, handle);
+  }
+
+  /**
+   * Like {@link login}, but uses the non-blocking GciTsNbLogin path when the
+   * library supports it (non-Windows builds since 3.6.2): the handshake runs on
+   * a background thread while this polls GciTsNbLoginFinished, yielding to the
+   * event loop between polls so the extension host — and any progress UI — stay
+   * responsive during a slow connect. Falls back to the blocking GciTsLogin on
+   * Windows / older libraries.
+   */
+  async loginAsync(login: GemStoneLogin, libraryPath: string): Promise<ActiveSession> {
+    const { gci, stoneNrs, gemNrs } = this.prepareLogin(login, libraryPath);
+
+    // Count this attempt while it is in flight so a concurrent login (e.g. to a
+    // different stone) sees it in the single-session policy check — a guarantee
+    // the blocking path got for free by completing atomically.
+    this.pendingLogins++;
+    try {
+      // Yield once so the caller's progress notification paints before we touch
+      // the GCI — and, on the blocking fallback, before GciTsLogin freezes the
+      // extension-host thread.
+      await this.sleep(0);
+
+      const handle = gci.supportsNonBlockingLogin()
+        ? await this.nonBlockingLoginHandle(gci, stoneNrs, gemNrs, login)
+        : this.blockingLoginHandle(gci, stoneNrs, gemNrs, login);
+
+      return this.finalizeSession(gci, login, handle);
+    } finally {
+      this.pendingLogins--;
+    }
+  }
+
+  // Validate the session policy and resolve the shared connect parameters (the
+  // GCI library plus the stone/gem NRS strings). Throws with a user-facing
+  // message when the single-session / export-path policy forbids another login.
+  private prepareLogin(
+    login: GemStoneLogin, libraryPath: string,
+  ): { gci: GciLibrary; stoneNrs: string; gemNrs: string } {
     // Single mode (the default) allows one session at a time; multiple mode still
-    // guards against export-path conflicts. See evaluateLoginPolicy.
+    // guards against export-path conflicts. See evaluateLoginPolicy. Pending
+    // logins count toward the total so the cap holds during loginAsync's window.
     const config = vscode.workspace.getConfiguration('gemstone');
     const mode = config.get<string>('sessionMode', 'single');
     const customPath = config.get<string>('exportPath', '').trim();
-    const policyError = evaluateLoginPolicy(mode, this.sessions.size, customPath);
+    const policyError = evaluateLoginPolicy(mode, this.sessions.size + this.pendingLogins, customPath);
     if (policyError) {
       throw new Error(policyError);
     }
 
     const gci = this.getGciLibrary(libraryPath);
-
     const stoneNrs = `!tcp@${login.gem_host}#server!${login.stone}`;
     const gemNrs = `!tcp@${login.gem_host}#netldi:${login.netldi}#task!gemnetobject`;
+    return { gci, stoneNrs, gemNrs };
+  }
 
+  // Run GciTsLogin (blocking) and return the session handle, or throw with the
+  // GCI error message when no session was created.
+  private blockingLoginHandle(
+    gci: GciLibrary, stoneNrs: string, gemNrs: string, login: GemStoneLogin,
+  ): unknown {
     const result = gci.GciTsLogin(
       stoneNrs,
       login.host_user || null,
@@ -146,17 +207,61 @@ export class SessionManager {
       login.gs_password,
       0, 0,
     );
-
     if (!result.session) {
       throw new Error(result.err.message || `Login failed (error ${result.err.number})`);
     }
+    return result.session;
+  }
 
+  // Start GciTsNbLogin (returns a handle immediately, logs in on a background
+  // thread) and poll GciTsNbLoginFinished — 0 pending, 1 done, -1 failed —
+  // yielding to the event loop between checks. Only GciTsNbLoginFinished may be
+  // called while a login is in progress, so the shared setup waits for "done".
+  private async nonBlockingLoginHandle(
+    gci: GciLibrary, stoneNrs: string, gemNrs: string, login: GemStoneLogin,
+  ): Promise<unknown> {
+    const { session } = gci.GciTsNbLogin(
+      stoneNrs,
+      login.host_user || null,
+      login.host_password || null,
+      false,
+      gemNrs,
+      login.gs_user,
+      login.gs_password,
+      0, 0,
+    );
+    if (!session) {
+      throw new Error('Login failed: could not start a non-blocking login');
+    }
+
+    for (;;) {
+      const { result, err } = gci.GciTsNbLoginFinished(session);
+      if (result === 1) {
+        return session;
+      }
+      if (result === -1) {
+        throw new Error(err.message || `Login failed (error ${err.number})`);
+      }
+      await this.sleep(LOGIN_POLL_INTERVAL_MS);
+    }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // Shared post-login setup for both the blocking and non-blocking paths:
+  // records the session, installs the Transcript sink, drops the fresh session's
+  // spurious uncommitted state, and auto-selects a lone session.
+  private finalizeSession(
+    gci: GciLibrary, login: GemStoneLogin, handle: unknown,
+  ): ActiveSession {
     const { version } = gci.GciTsVersion();
 
     const session: ActiveSession = {
       id: this.nextId++,
       gci,
-      handle: result.session,
+      handle,
       login,
       stoneVersion: version,
       enhancedInspectorAvailable: false,
