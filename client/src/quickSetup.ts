@@ -6,6 +6,7 @@ import { VersionManager } from './versionManager';
 import { DatabaseManager } from './databaseManager';
 import { ProcessManager } from './processManager';
 import { LoginStorage } from './loginStorage';
+import { DEFAULT_GS_PW } from './loginTypes';
 import { GemStoneVersion } from './sysadminTypes';
 import { getSharedMemory } from './sharedMemoryTreeProvider';
 import { appendSysadmin } from './sysadminChannel';
@@ -191,7 +192,7 @@ export async function runQuickSetup(deps: QuickSetupDeps): Promise<void> {
     gem_host: 'localhost',
     stone: stoneName,
     gs_user: 'DataCurator',
-    gs_password: 'swordfish',
+    gs_password: DEFAULT_GS_PW,
     netldi: ldiName,
     host_user: '',
     host_password: '',

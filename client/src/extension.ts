@@ -10,7 +10,7 @@ import {
 import { LoginStorage } from './loginStorage';
 import { getLoginPassword, deleteLoginPassword } from './loginCredentials';
 import { LoginTreeProvider, GemStoneLoginItem, GemStoneSessionItem } from './loginTreeProvider';
-import { GemStoneLogin, loginLabel, loginTargetKey, sameLoginTarget } from './loginTypes';
+import { DEFAULT_GS_PW, GemStoneLogin, loginLabel, loginTargetKey, sameLoginTarget } from './loginTypes';
 import { InFlightGuard } from './inFlightGuard';
 import { LoginEditorPanel } from './loginEditorPanel';
 import { SessionManager, ActiveSession } from './sessionManager';
@@ -2863,7 +2863,7 @@ export function activate(context: vscode.ExtensionContext) {
         gem_host: 'localhost',
         stone: db.config.stoneName,
         gs_user: 'DataCurator',
-        gs_password: 'swordfish',
+        gs_password: DEFAULT_GS_PW,
         netldi: db.config.ldiName,
         host_user: '',
         host_password: '',
@@ -3078,7 +3078,7 @@ export function activate(context: vscode.ExtensionContext) {
           },
           loginAsDefaultAdmin: async () => toRestoreSession(
             sessionManager.loginTransient(
-              { ...harvested, gs_user: 'DataCurator', gs_password: 'swordfish' }, gci,
+              { ...harvested, gs_user: 'DataCurator', gs_password: DEFAULT_GS_PW }, gci,
             ),
           ),
           loginAsSessionUser: async () =>

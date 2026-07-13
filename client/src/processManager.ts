@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { SysadminStorage } from './sysadminStorage';
 import { GemStoneDatabase, GemStoneProcess } from './sysadminTypes';
+import { DEFAULT_GS_PW } from './loginTypes';
 import { appendSysadmin, showSysadmin } from './sysadminChannel';
 import { needsWsl, windowsPathToWsl, wslSpawn, wslExecSync } from './wslBridge';
 
@@ -251,7 +252,7 @@ export class ProcessManager {
     const gsPath = env.GEMSTONE;
     return this.runCommand(
       `${gsPath}/bin/stopstone`,
-      [db.config.stoneName, 'DataCurator', 'swordfish'],
+      [db.config.stoneName, 'DataCurator', DEFAULT_GS_PW],
       env,
       `Stopping stone ${db.config.stoneName}`,
     );

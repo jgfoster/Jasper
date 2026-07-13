@@ -4,6 +4,21 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.8.3] - 2026-07-13
+
+### Added
+
+- **Full Logical Backup and Restore.** Two new Sessions-view actions. **Full Logical Backup** (`Repository>>fullBackupTo:`) backs up the connected stone over the active session to a server-side destination (default `<db>/backups`), with an always-visible status-bar progress item and a **Reveal in File Explorer** action on success; a browse-only **Backups** node appears under a managed database, newest-first. **Full Logical Restore** restores from a backup — closing the session, stopping the stone, saving the current extent aside (optionally starting from a fresh extent), restarting, then restoring and committing — driven from a live session so its credentials carry through the stop/start cycle. Restore is limited to Jasper-managed databases and confirms before the destructive step. ([#148](https://github.com/jgfoster/Jasper/pull/148))
+
+### Changed
+
+- **Logging in now shows progress, stays responsive, and de-duplicates repeat clicks.** Connecting wraps in a "Connecting to <stone>…" progress notification; the login handshake runs non-blocking (`GciTsNbLogin` with a polling loop, falling back to a blocking login on Windows / older libraries) so the window no longer freezes during connect; and repeat clicks on the same login while a connect is in flight are dropped instead of starting extra sessions.
+- **A connected login's configuration can now be viewed.** Clicking a connected login row opens its settings read-only ("View Login") instead of going inert or refusing with "log out first". Editing still requires logging out (identity fields affect how the session's row is grouped), but inspecting a live login carries no such risk.
+
+### Fixed
+
+- **Login no longer fails on GCI libraries that don't export `GciI32ToOop` / `GciTsI32ToOop`** (e.g. GemStone 3.4.5). These session-free encoders were bound eagerly, so a library missing them threw inside the `GciLibrary` constructor and blocked login entirely; they are now bound optionally, like other version-gated GCI symbols. No production code path uses them.
+
 ## [1.8.2] - 2026-07-10
 
 ### Fixed

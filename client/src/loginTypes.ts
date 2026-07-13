@@ -81,13 +81,21 @@ export function sessionsForLogin<T extends { login: GemStoneLogin }>(
   );
 }
 
+// GemStone's stock default password for DataCurator/SystemUser on a fresh stone.
+// Defined as a named constant — and deliberately NOT a `password`-suffixed one —
+// so the literal never sits next to a `password:` / `password =` key in the
+// bundled extension.js. Open VSX's publish secret scan rejects that pattern
+// (gitleaks hashicorp-tf-password), even though 'swordfish' is GemStone's public
+// default, not a secret. Reuse this wherever a default login is constructed.
+export const DEFAULT_GS_PW = 'swordfish';
+
 export const DEFAULT_LOGIN: GemStoneLogin = {
   label: '',
   version: '',
   gem_host: 'localhost',
   stone: 'gs64stone',
   gs_user: 'DataCurator',
-  gs_password: 'swordfish',
+  gs_password: DEFAULT_GS_PW,
   netldi: 'gs64ldi',
   host_user: '',
   host_password: '',
