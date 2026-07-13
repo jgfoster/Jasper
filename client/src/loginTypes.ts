@@ -100,3 +100,46 @@ export const DEFAULT_LOGIN: GemStoneLogin = {
   host_user: '',
   host_password: '',
 };
+
+/** The connection coordinates of a Jasper-managed database, enough to build a
+ *  login for it. Matches the relevant fields of a GemStoneDatabase's config. */
+export interface ManagedStoneConfig {
+  version: string;
+  stoneName: string;
+  ldiName: string;
+}
+
+/**
+ * A DataCurator login for a Jasper-created stone. The stone is built from the
+ * pristine extent, so DataCurator's password is GemStone's stock default —
+ * prefilling it lets the login both connect and (cleanly) stop the stone right
+ * away. The user can change it, or the connect flow resolves the GCI library on
+ * first login.
+ */
+export function buildDataCuratorLogin(config: ManagedStoneConfig): GemStoneLogin {
+  return {
+    label: '',
+    version: config.version,
+    gem_host: 'localhost',
+    stone: config.stoneName,
+    gs_user: 'DataCurator',
+    gs_password: DEFAULT_GS_PW,
+    netldi: config.ldiName,
+    host_user: '',
+    host_password: '',
+  };
+}
+
+/**
+ * The DataCurator login to auto-create for a freshly-created stone, or undefined
+ * when one already targets it — so creating a stone never duplicates an entry or
+ * clobbers a login the user has since edited (or deliberately deleted and does
+ * not want back).
+ */
+export function dataCuratorLoginToCreate(
+  existing: GemStoneLogin[],
+  config: ManagedStoneConfig,
+): GemStoneLogin | undefined {
+  const candidate = buildDataCuratorLogin(config);
+  return existing.some((l) => sameLoginTarget(l, candidate)) ? undefined : candidate;
+}

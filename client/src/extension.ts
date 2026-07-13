@@ -11,7 +11,15 @@ import { LoginStorage } from './loginStorage';
 import { getLoginPassword, deleteLoginPassword } from './loginCredentials';
 import { runStopStone } from './stopStoneManager';
 import { LoginTreeProvider, GemStoneLoginItem, GemStoneSessionItem } from './loginTreeProvider';
-import { DEFAULT_GS_PW, GemStoneLogin, loginLabel, loginTargetKey, sameLoginTarget } from './loginTypes';
+import {
+  DEFAULT_GS_PW,
+  GemStoneLogin,
+  buildDataCuratorLogin,
+  dataCuratorLoginToCreate,
+  loginLabel,
+  loginTargetKey,
+  sameLoginTarget,
+} from './loginTypes';
 import { InFlightGuard } from './inFlightGuard';
 import { LoginEditorPanel } from './loginEditorPanel';
 import { SessionManager, ActiveSession } from './sessionManager';
@@ -2770,6 +2778,13 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('gemstone.createDatabase', async () => {
       const db = await databaseManager.createDatabase();
       if (db) {
+        // Auto-create the stone's DataCurator login (unless one already targets
+        // it) so it can be connected to — and cleanly stopped — right away.
+        const newLogin = dataCuratorLoginToCreate(storage.getLogins(), db.config);
+        if (newLogin) {
+          await storage.saveLogin(newLogin);
+          treeProvider.refresh();
+        }
         refreshAdminViews();
         vscode.window.showInformationMessage(`Database "${db.dirName}" created.`);
       }
@@ -2912,17 +2927,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('gemstone.createLoginFromDb', async (node: DatabaseNode) => {
       if (!node || node.kind !== 'database') return;
       const db = node.db;
-      const login = {
-        label: '',
-        version: db.config.version,
-        gem_host: 'localhost',
-        stone: db.config.stoneName,
-        gs_user: 'DataCurator',
-        gs_password: DEFAULT_GS_PW,
-        netldi: db.config.ldiName,
-        host_user: '',
-        host_password: '',
-      };
+      const login = buildDataCuratorLogin(db.config);
       // Auto-detect GCI library path
       // On Windows, the sysadmin install is Linux (in WSL) and only has .so files.
       // The Windows .dll must be provided separately via the login editor.

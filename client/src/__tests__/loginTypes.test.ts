@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_LOGIN,
   GemStoneLogin,
+  buildDataCuratorLogin,
+  dataCuratorLoginToCreate,
   loginLabel,
   loginTargetKey,
   sameLoginTarget,
@@ -114,5 +116,52 @@ describe('shouldSyncClasses', () => {
 
   it('is false only when explicitly disabled', () => {
     expect(shouldSyncClasses({ sync_classes: false })).toBe(false);
+  });
+});
+
+describe('buildDataCuratorLogin', () => {
+  const config = { version: '3.7.5', stoneName: 'devStone', ldiName: 'devLdi' };
+
+  it('targets the DataCurator account on the given stone and NetLDI', () => {
+    const login = buildDataCuratorLogin(config);
+
+    expect(login.gs_user).toBe('DataCurator');
+    expect(login.stone).toBe('devStone');
+    expect(login.netldi).toBe('devLdi');
+    expect(login.version).toBe('3.7.5');
+    expect(login.gem_host).toBe('localhost');
+  });
+
+  it('prefills the stock DataCurator password for a freshly-created stone', () => {
+    const login = buildDataCuratorLogin(config);
+
+    expect(login.gs_password).toBe('swordfish');
+  });
+});
+
+describe('dataCuratorLoginToCreate', () => {
+  const config = { version: '3.7.5', stoneName: 'devStone', ldiName: 'devLdi' };
+
+  it('proposes a DataCurator login when none targets the new stone', () => {
+    const created = dataCuratorLoginToCreate([], config);
+
+    expect(created?.gs_user).toBe('DataCurator');
+    expect(created?.stone).toBe('devStone');
+  });
+
+  it('proposes nothing when a login already targets the stone', () => {
+    const existing = [buildDataCuratorLogin(config)];
+
+    const created = dataCuratorLoginToCreate(existing, config);
+
+    expect(created).toBeUndefined();
+  });
+
+  it('still proposes one when an existing login is for a different user on the stone', () => {
+    const otherUser: GemStoneLogin = { ...buildDataCuratorLogin(config), gs_user: 'SystemUser' };
+
+    const created = dataCuratorLoginToCreate([otherUser], config);
+
+    expect(created?.gs_user).toBe('DataCurator');
   });
 });
