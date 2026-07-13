@@ -3,32 +3,7 @@ import * as queries from '../browserQueries';
 import { SessionManager } from '../sessionManager';
 import { SystemBrowser } from '../systemBrowser';
 import { buildMethodUri } from '../gemstoneFileSystemProvider';
-
-interface ClassPickItem extends vscode.QuickPickItem {
-  entry: queries.ClassNameEntry;
-}
-
-/**
- * Run `fn` behind a modal progress notification, surfacing any thrown error as
- * an error message. Returns `undefined` when the work failed. `fn` may be
- * synchronous — the notification still shows for the duration of the call.
- */
-async function withLoadingProgress<T>(
-  title: string,
-  failLabel: string,
-  fn: () => T,
-): Promise<T | undefined> {
-  try {
-    return await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title, cancellable: false },
-      () => Promise.resolve(fn()),
-    );
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    vscode.window.showErrorMessage(`${failLabel}: ${msg}`);
-    return undefined;
-  }
-}
+import { ClassPickItem, loadClassPickItems, withLoadingProgress } from './classPicker';
 
 /**
  * Command handler for "Find Method in Class". Always shows a filterable class
@@ -45,18 +20,8 @@ export async function findMethodInClass(sessionManager: SessionManager): Promise
 
   const current = SystemBrowser.getSelectedClassName(session.id);
 
-  const entries = await withLoadingProgress(
-    'Loading class list…',
-    'Failed to load classes',
-    () => queries.getAllClassNames(session),
-  );
-  if (!entries) return;
-
-  const classItems: ClassPickItem[] = entries.map(e => ({
-    label: e.className,
-    description: e.dictName,
-    entry: e,
-  }));
+  const classItems = await loadClassPickItems(session);
+  if (!classItems) return;
 
   // createQuickPick (not showQuickPick) so the selected class can be
   // pre-highlighted via activeItems without also filtering the list.

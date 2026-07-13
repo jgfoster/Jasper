@@ -46,6 +46,7 @@ import { RowanRepoRegistry } from './rowanRepos';
 import { RowanTreeProvider, RowanRepoItem, RowanLoadedProjectItem, RowanChangesProjectItem } from './rowanTreeProvider';
 import { RowanDecorationProvider } from './rowanDecorations';
 import { findMethodInClass } from './commands/findMethodInClass';
+import { loadClassPickItems } from './commands/classPicker';
 import { GlobalsBrowser } from './globalsBrowser';
 import { CommentBrowser } from './commentBrowser';
 import { EnhancedInspector } from './enhancedInspector';
@@ -1938,27 +1939,8 @@ export function activate(context: vscode.ExtensionContext) {
       const session = await sessionManager.resolveSession();
       if (!session) return;
 
-      let entries: queries.ClassNameEntry[];
-      try {
-        entries = await vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: 'Loading class list…',
-            cancellable: false,
-          },
-          () => Promise.resolve(queries.getAllClassNames(session)),
-        );
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        vscode.window.showErrorMessage(`Failed to load classes: ${msg}`);
-        return;
-      }
-
-      const items = entries.map(e => ({
-        label: e.className,
-        description: e.dictName,
-        entry: e,
-      }));
+      const items = await loadClassPickItems(session);
+      if (!items) return;
 
       const picked = await vscode.window.showQuickPick(items, {
         placeHolder: 'Type to find a class…',
