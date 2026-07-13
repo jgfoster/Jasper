@@ -160,8 +160,9 @@ function toBigInt(value: number | bigint): bigint {
  *   symbol, following the struct/pointer patterns already established below.
  * - The remaining methods (grouped into labeled sections further down: Session
  *   lifecycle, Code execution, Symbol resolution & Utf8 caching, Object
- *   lifecycle & PureExportSet, UserGlobals/SessionTemps management, OOP
- *   predicates) are an ergonomic layer on top: they call one or more
+ *   lifecycle & PureExportSet, UserGlobals management, SessionTemps
+ *   management, OOP predicates, Error handling helpers, Session reset) are an
+ *   ergonomic layer on top: they call one or more
  *   `GciTsXxx` methods, throw {@link GciLibraryError} on failure instead of
  *   returning a `{success, err}`/`{result, err}` pair, and give the raw calls
  *   memorable names and typed parameters.
@@ -1963,7 +1964,7 @@ export class GciLibrary {
    */
   public execute(session: unknown, code: string) {
       const { result, err } = this.GciTsExecute(
-          session, code, this.utf8ClassOop(session), OOP_ILLEGAL, OOP_NIL, 0, 0,
+          session, code, this.utf8ClassOop(session), OOP_ILLEGAL, this.nilOop(), 0, 0,
       );
 
       this.throwOnIllegalOop(result, err);
@@ -2038,7 +2039,7 @@ export class GciLibrary {
     const symbolNameOop = this.createString(session, symbolName);
 
     try {
-      const {result, err} = this.GciTsResolveSymbolObj(session, symbolNameOop, OOP_NIL);
+      const {result, err} = this.GciTsResolveSymbolObj(session, symbolNameOop, this.nilOop());
 
       this.throwOnIllegalOop(result, err);
 
@@ -2255,7 +2256,10 @@ export class GciLibrary {
    */
   public isOopIncludedInPureExportSet(session: unknown, oop: bigint) {
     return this.isTrueOop(
-        this.execute(session, `(GsBitmap newForHiddenSet: #PureExportSet) includes: (Object objectForOop: ${oop})`)
+        this.execute(session, `
+          (GsBitmap newForHiddenSet: #PureExportSet) asArray
+            anySatisfy: [ :referencedObject | referencedObject asOop = ${oop} ]
+        `)
     );
   }
 
@@ -2409,9 +2413,14 @@ export class GciLibrary {
     return OOP_ILLEGAL === oop;
   }
 
+  /** Returns the OOP of GemStone's `nil` singleton. */
+  public nilOop() {
+    return OOP_NIL;
+  }
+
   /** Returns whether `oop` is the OOP of GemStone's `nil` singleton. */
   public isNilOop(oop: bigint) {
-    return OOP_NIL === oop;
+    return this.nilOop() === oop;
   }
 
   /** Returns whether `oop` is the OOP of GemStone's `true` singleton. */

@@ -494,6 +494,10 @@ describe('GciLibrary', () => {
             expectPureExportSetToIncludeOop(false, oopToRelease);
         })
 
+        it('does not include an oop that was never stored', () => {
+            expectPureExportSetToIncludeOop(false, gciLibrary.nilOop());
+        })
+
     });
 
     describe('logging in', () => {
