@@ -861,9 +861,13 @@ describe('buildMethodUri', () => {
       .toThrow("Method category name must not contain '/': accessing/stuff");
   });
 
-  it('throws when selector contains a slash', () => {
-    expect(() => buildMethodUri({ kind: 'method', sessionId: 1, dictName: 'Globals', className: 'Array', isMeta: false, category: 'accessing', selector: 'foo/bar', environmentId: 0 }))
-      .toThrow("Selector must not contain '/': foo/bar");
+  it('does not throw for a raw binary selector containing a slash', () => {
+    // '/' and '//' are ordinary Smalltalk binary selectors; buildMethodUri must
+    // escape them into the path rather than reject them.
+    expect(() => buildMethodUri({ kind: 'method', sessionId: 1, dictName: 'Globals', className: 'Number', isMeta: false, category: 'arithmetic', selector: '/', environmentId: 0 }))
+      .not.toThrow();
+    expect(() => buildMethodUri({ kind: 'method', sessionId: 1, dictName: 'Globals', className: 'Integer', isMeta: false, category: 'arithmetic', selector: '//', environmentId: 0 }))
+      .not.toThrow();
   });
 });
 
@@ -1110,6 +1114,18 @@ describe('parseUri', () => {
 
   it('recovers a selector that contains a slash', () => {
     const uri = buildMethodUri({ ...method, isMeta: false, category: 'arithmetic', selector: escapeSelectorSlashes('//'), environmentId: 0 });
+
+    expect(parseUri(uri)).toMatchObject({ selector: '//' });
+  });
+
+  it('round-trips a raw single-slash binary selector', () => {
+    const uri = buildMethodUri({ ...method, isMeta: false, category: 'arithmetic', selector: '/', environmentId: 0 });
+
+    expect(parseUri(uri)).toMatchObject({ selector: '/' });
+  });
+
+  it('round-trips a raw double-slash binary selector', () => {
+    const uri = buildMethodUri({ ...method, isMeta: false, category: 'arithmetic', selector: '//', environmentId: 0 });
 
     expect(parseUri(uri)).toMatchObject({ selector: '//' });
   });
