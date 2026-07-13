@@ -9,6 +9,7 @@ import {
 } from 'vscode-languageclient/node';
 import { LoginStorage } from './loginStorage';
 import { getLoginPassword, deleteLoginPassword } from './loginCredentials';
+import { runStopStone } from './stopStoneManager';
 import { LoginTreeProvider, GemStoneLoginItem, GemStoneSessionItem } from './loginTreeProvider';
 import { DEFAULT_GS_PW, GemStoneLogin, loginLabel, loginTargetKey, sameLoginTarget } from './loginTypes';
 import { InFlightGuard } from './inFlightGuard';
@@ -2800,12 +2801,66 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('gemstone.stopStone', async (node: DatabaseNode) => {
       if (node?.kind !== 'stone') return;
-      try {
-        await processManager.stopStone(node.db);
-        vscode.window.showInformationMessage(`Stone "${node.db.config.stoneName}" stopped.`);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        vscode.window.showErrorMessage(msg);
+      const db = node.db;
+      const stoneName = db.config.stoneName;
+
+      // Only DataCurator is guaranteed to have shutdown permission, and stopstone
+      // needs its password. Prefer the stored DataCurator login for this stone.
+      const target = {
+        gem_host: 'localhost',
+        stone: stoneName,
+        gs_user: 'DataCurator',
+        netldi: db.config.ldiName,
+      };
+      const adminLogin = storage.getLogins().find((l) => sameLoginTarget(l, target));
+
+      const outcome = await runStopStone({
+        stoneName,
+        hasAdminLogin: adminLogin !== undefined,
+        storedPassword: async () => {
+          if (!adminLogin) return undefined;
+          if (adminLogin.gs_password) return adminLogin.gs_password;
+          if (adminLogin.password_in_keychain) {
+            return (await getLoginPassword(context.secrets, adminLogin)) || undefined;
+          }
+          return undefined;
+        },
+        stopStone: async (password) => {
+          try {
+            await processManager.stopStone(db, password);
+            return { ok: true, message: '' };
+          } catch (e) {
+            return { ok: false, message: e instanceof Error ? e.message : String(e) };
+          }
+        },
+        promptPassword: async () =>
+          vscode.window.showInputBox({
+            prompt: `DataCurator password to stop "${stoneName}"`,
+            password: true,
+            ignoreFocusOut: true,
+          }),
+        chooseEscalation: async (reason) => {
+          const pick = await vscode.window.showWarningMessage(
+            `${reason}\n\nEnter the DataCurator password, or force-stop the stone (it will recover from the transaction log on next start).`,
+            { modal: true },
+            'Enter Password',
+            'Force Stop',
+          );
+          return pick === 'Enter Password' ? 'password' : pick === 'Force Stop' ? 'kill' : 'cancel';
+        },
+        forceKill: async () => {
+          const result = await processManager.forceKillStone(db);
+          if (!result.killed) vscode.window.showErrorMessage(result.reason);
+          return result.killed;
+        },
+      });
+
+      if (outcome === 'stopped') {
+        vscode.window.showInformationMessage(`Stone "${stoneName}" stopped.`);
+      } else if (outcome === 'killed') {
+        vscode.window.showWarningMessage(
+          `Stone "${stoneName}" force-stopped; it will recover from its transaction log on next start.`,
+        );
       }
       refreshAdminViews();
     }),

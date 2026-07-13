@@ -19,6 +19,13 @@ export interface StaleLockReport {
   currentPidOwner?: string;
 }
 
+export interface ForceKillResult {
+  /** True when the stone is (now) stopped — killed, or already not running. */
+  killed: boolean;
+  /** One-line explanation suitable for a notification. */
+  reason: string;
+}
+
 /** Classify what `ps -p <pid> -o command=` returned. Exported so the safety
  *  rule can be tested without spawning a shell.
  *
@@ -246,16 +253,83 @@ export class ProcessManager {
     );
   }
 
-  /** Stop a stone */
-  async stopStone(db: GemStoneDatabase): Promise<string> {
+  /** Stop a stone cleanly via `stopstone`, which authenticates as DataCurator.
+   *  `password` defaults to GemStone's stock DataCurator password (correct for a
+   *  freshly-created stone); callers that know the real one pass it explicitly. */
+  async stopStone(db: GemStoneDatabase, password: string = DEFAULT_GS_PW): Promise<string> {
     const env = this.getEnvironment(db);
     const gsPath = env.GEMSTONE;
     return this.runCommand(
       `${gsPath}/bin/stopstone`,
-      [db.config.stoneName, 'DataCurator', DEFAULT_GS_PW],
+      [db.config.stoneName, 'DataCurator', password],
       env,
       `Stopping stone ${db.config.stoneName}`,
     );
+  }
+
+  /** Force-stop a running stone by signalling its process, for when a clean
+   *  `stopstone` isn't possible (e.g. the DataCurator password is unknown).
+   *  Verifies the recorded PID is still THIS GemStone server before signalling
+   *  — so a reused PID is never killed — then SIGTERMs (escalating to SIGKILL
+   *  if it survives) and clears the now-orphaned lock. The stone recovers from
+   *  its transaction log on next start. */
+  async forceKillStone(
+    db: GemStoneDatabase,
+    opts: { graceMs?: number } = {},
+  ): Promise<ForceKillResult> {
+    const proc = this.refreshProcesses().find(
+      (p) => p.type === 'stone' && p.name === db.config.stoneName,
+    );
+    if (!proc) {
+      return { killed: true, reason: `Stone "${db.config.stoneName}" is not running.` };
+    }
+
+    const psFor = (pid: number): string =>
+      wslExecSync(`ps -p ${pid} -o command= 2>/dev/null || echo GONE`).trim();
+
+    let ownership;
+    try {
+      ownership = classifyPidOwnership(psFor(proc.pid), proc.name);
+    } catch {
+      return { killed: false, reason: `Could not verify PID ${proc.pid}; refusing to kill.` };
+    }
+    if (ownership.pidGone) {
+      this.clearLockFor(proc);
+      return { killed: true, reason: `PID ${proc.pid} was already gone.` };
+    }
+    if (!ownership.isGemStoneServer) {
+      return {
+        killed: false,
+        reason: `PID ${proc.pid} is now an unrelated process (${ownership.command}); refusing to kill.`,
+      };
+    }
+
+    try {
+      wslExecSync(`kill ${proc.pid} 2>/dev/null || true`);
+      const graceMs = opts.graceMs ?? 800;
+      if (graceMs > 0) await new Promise((r) => setTimeout(r, graceMs));
+      if (classifyPidOwnership(psFor(proc.pid), proc.name).isGemStoneServer) {
+        wslExecSync(`kill -9 ${proc.pid} 2>/dev/null || true`);
+      }
+    } catch {
+      return { killed: false, reason: `Failed to signal PID ${proc.pid}.` };
+    }
+
+    this.clearLockFor(proc);
+    return {
+      killed: true,
+      reason: `Stone "${db.config.stoneName}" force-stopped (PID ${proc.pid}); it will recover on next start.`,
+    };
+  }
+
+  /** Best-effort removal of a stopped process's lock file (safe checks apply). */
+  private clearLockFor(proc: GemStoneProcess): void {
+    try {
+      const report = this.inspectStaleLock(proc);
+      if (report.safe) this.deleteStaleLock(report.lockPath);
+    } catch {
+      /* best effort — a lingering lock is handled by the Processes view */
+    }
   }
 
   /** Start NetLDI */

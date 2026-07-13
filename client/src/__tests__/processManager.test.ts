@@ -522,6 +522,74 @@ describe('ProcessManager', () => {
     });
   });
 
+  describe('forceKillStone', () => {
+    beforeEach(() => {
+      vi.mocked(wslBridge.wslExecSync).mockReset();
+      vi.mocked(wslBridge.needsWsl).mockReturnValue(false);
+    });
+
+    it('reports success without signalling anything when the stone is not running', async () => {
+      const manager = new ProcessManager(makeStorage() as any);
+      vi.spyOn(manager, 'refreshProcesses').mockReturnValue([]);
+
+      const result = await manager.forceKillStone(makeDatabase(), { graceMs: 0 });
+
+      expect(result.killed).toBe(true);
+      expect(result.reason).toMatch(/not running/);
+      expect(wslBridge.wslExecSync).not.toHaveBeenCalled();
+    });
+
+    it('refuses to kill a PID that now belongs to an unrelated process', async () => {
+      const manager = new ProcessManager(makeStorage() as any);
+      vi.spyOn(manager, 'refreshProcesses').mockReturnValue([staleStone()]);
+      vi.mocked(wslBridge.wslExecSync).mockReturnValueOnce('/usr/bin/ssh-agent');
+
+      const result = await manager.forceKillStone(makeDatabase(), { graceMs: 0 });
+
+      expect(result.killed).toBe(false);
+      expect(result.reason).toMatch(/unrelated process/);
+      const commands = vi.mocked(wslBridge.wslExecSync).mock.calls.map((c) => c[0]);
+      expect(commands.some((c) => /kill/.test(c))).toBe(false);
+    });
+
+    it('SIGTERMs a running stone, clears its lock, and reports recovery', async () => {
+      const manager = new ProcessManager(makeStorage() as any);
+      vi.spyOn(manager, 'refreshProcesses').mockReturnValue([staleStone()]);
+      vi.mocked(wslBridge.wslExecSync)
+        .mockReturnValueOnce('/gs/sys/stoned -l /log gs64stone')
+        .mockReturnValueOnce('')
+        .mockReturnValueOnce('GONE')
+        .mockReturnValueOnce('GONE')
+        .mockReturnValueOnce('');
+
+      const result = await manager.forceKillStone(makeDatabase(), { graceMs: 0 });
+
+      expect(result.killed).toBe(true);
+      const commands = vi.mocked(wslBridge.wslExecSync).mock.calls.map((c) => c[0]);
+      expect(commands.some((c) => /^kill 4106/.test(c))).toBe(true);
+      expect(commands.some((c) => /rm -f/.test(c) && c.includes('gs64stone..LCK'))).toBe(true);
+      expect(result.reason).toMatch(/recover/);
+    });
+
+    it('escalates to SIGKILL when SIGTERM does not stop the stone', async () => {
+      const manager = new ProcessManager(makeStorage() as any);
+      vi.spyOn(manager, 'refreshProcesses').mockReturnValue([staleStone()]);
+      vi.mocked(wslBridge.wslExecSync)
+        .mockReturnValueOnce('/gs/sys/stoned -l /log gs64stone')
+        .mockReturnValueOnce('')
+        .mockReturnValueOnce('/gs/sys/stoned -l /log gs64stone')
+        .mockReturnValueOnce('')
+        .mockReturnValueOnce('GONE')
+        .mockReturnValueOnce('');
+
+      const result = await manager.forceKillStone(makeDatabase(), { graceMs: 0 });
+
+      expect(result.killed).toBe(true);
+      const commands = vi.mocked(wslBridge.wslExecSync).mock.calls.map((c) => c[0]);
+      expect(commands.some((c) => /^kill -9 4106/.test(c))).toBe(true);
+    });
+  });
+
   // ── openVersionTerminal ───────────────────────────────────
 
   describe('openVersionTerminal', () => {
