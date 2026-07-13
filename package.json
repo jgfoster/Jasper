@@ -1052,6 +1052,12 @@
         "category": "GemStone"
       },
       {
+        "command": "gemstone.generateGrailStub",
+        "title": "Generate Grail .py Stub…",
+        "category": "GemStone",
+        "icon": "$(file-code)"
+      },
+      {
         "command": "gemstone.downloadVersion",
         "title": "Download",
         "category": "GemStone Admin",
@@ -1529,6 +1535,16 @@
           "command": "gemstone.explorer.openDefinitionToSide",
           "when": "view == gemstoneExplorerClasses && viewItem == explorerClass",
           "group": "1_open@2"
+        },
+        {
+          "command": "gemstone.generateGrailStub",
+          "when": "view == gemstoneExplorerClasses && viewItem == explorerClass",
+          "group": "2_generate@1"
+        },
+        {
+          "command": "gemstone.generateGrailStub",
+          "when": "view == gemstoneExplorerHierarchy && viewItem == explorerHierClass",
+          "group": "2_generate@1"
         },
         {
           "command": "gemstone.rowanUpdateRepo",

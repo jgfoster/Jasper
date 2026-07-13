@@ -86,6 +86,52 @@ describe('explorer queries (integration)', () => {
     });
   });
 
+  describe('getGrailStubReflection', () => {
+    const GRAILC = 'JasperItGrailTarget';
+    // A throwaway class with two instVars: `balance` has both an accessor and a
+    // mutator, `owner` has neither — plus a plain method, a binary override, and
+    // a class-side method, so the reflection exercises every branch.
+    const defineGrailTarget = (): void => {
+      q.compileClassDefinition(session(),
+        `Object subclass: '${GRAILC}' instVarNames: #('balance' 'owner') classVars: #() `
+        + 'classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals');
+      q.compileMethod(session(), GRAILC, false, 'accessing', 'balance ^balance');
+      q.compileMethod(session(), GRAILC, false, 'accessing', 'balance: aValue balance := aValue');
+      q.compileMethod(session(), GRAILC, false, 'ops', 'deposit: n balance := balance + n');
+      q.compileMethod(session(), GRAILC, false, 'comparing', '= other ^self == other');
+      q.compileMethod(session(), GRAILC, true, 'instance creation', 'make ^self new');
+    };
+
+    it('reports own instance variables in order with the accessors the class understands', () => {
+      defineGrailTarget();
+
+      const refl = q.getGrailStubReflection(session(), GRAILC, userIndex());
+
+      expect(refl.found).toBe(true);
+      expect(refl.instVars).toEqual([
+        { name: 'balance', hasGetter: true, hasSetter: true },
+        { name: 'owner', hasGetter: false, hasSetter: false },
+      ]);
+    });
+
+    it('lists own selectors on both sides and names the immediate superclass', () => {
+      defineGrailTarget();
+
+      const refl = q.getGrailStubReflection(session(), GRAILC, userIndex());
+
+      expect(refl.superclass).toBe('Object');
+      expect(refl.methods).toContainEqual({ side: 'instance', category: 'ops', selector: 'deposit:' });
+      expect(refl.methods).toContainEqual({ side: 'instance', category: 'comparing', selector: '=' });
+      expect(refl.methods).toContainEqual({ side: 'class', category: 'instance creation', selector: 'make' });
+    });
+
+    it('reports an unknown class name as not found', () => {
+      const refl = q.getGrailStubReflection(session(), 'JasperItNoSuchClass', userIndex());
+
+      expect(refl.found).toBe(false);
+    });
+  });
+
   describe('getClassesWithCategory', () => {
     it('pairs a class in the dictionary with its class-category', () => {
       defineClass(WIDGET, 'JasperIt-Alpha');

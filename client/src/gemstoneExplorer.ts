@@ -11,6 +11,7 @@ import { DoubleClickDetector } from './explorerDoubleClick';
 import { categoryChildNodes, categoryParentPath, categoryMatches } from './explorerCategories';
 import { registerExplorerOpenEditors } from './explorerOpenEditors';
 import { SourceEditorPlacement } from './sourceEditorPlacement';
+import { generateAndSaveGrailStub } from './grailStubGenerator';
 
 const VIEW_DICTS = 'gemstoneExplorerDicts';
 const VIEW_CATEGORIES = 'gemstoneExplorerCategories';
@@ -552,6 +553,69 @@ class ExplorerController {
       return;
     }
     await this.openDefinitionFor(className, this.state.dictName, this.state.dictIndex, toSide);
+  }
+
+  // Generate an editable Grail `.py` stub for a class. Invoked from the Classes-
+  // and Hierarchy-pane context menus (with a tree item) or the Command Palette
+  // (no item — falls back to the current selection, then a class picker).
+  async generateGrailStub(item?: ClassItem | HierarchyItem): Promise<void> {
+    const session = this.session();
+    if (!session) {
+      void vscode.window.showWarningMessage('No active GemStone session.');
+      return;
+    }
+
+    let className: string | undefined;
+    let dictName: string | undefined;
+    let dictIndex: number | undefined;
+    if (item instanceof ClassItem) {
+      className = item.className;
+      dictName = this.state.dictName;
+      dictIndex = this.state.dictIndex;
+    } else if (item instanceof HierarchyItem) {
+      className = item.className;
+      const resolved = this.resolveClassDict(item.className, item.dictName);
+      dictName = resolved?.dictName;
+      dictIndex = resolved?.dictIndex;
+    } else if (this.state.className) {
+      className = this.state.className;
+      dictName = this.state.dictName;
+      dictIndex = this.state.dictIndex;
+    }
+
+    if (!className) {
+      const entry = await this.pickClass(session);
+      if (!entry) return;
+      ({ className, dictName, dictIndex } = entry);
+    }
+    if (!dictName || dictIndex === undefined) {
+      const resolved = this.resolveClassDict(className, dictName);
+      if (!resolved) {
+        void vscode.window.showWarningMessage(`Can't locate class ${className}.`);
+        return;
+      }
+      ({ dictName, dictIndex } = resolved);
+    }
+
+    await generateAndSaveGrailStub(session, className, dictName, dictIndex);
+  }
+
+  // Prompt for a class across the whole symbolList (Command Palette entry point).
+  private async pickClass(
+    session: ActiveSession,
+  ): Promise<{ className: string; dictName: string; dictIndex: number } | undefined> {
+    const classes = queries.getAllClassNames(session);
+    if (classes.length === 0) {
+      void vscode.window.showInformationMessage('No classes found in this session.');
+      return undefined;
+    }
+    const picked = await vscode.window.showQuickPick(
+      classes.map(c => ({ label: c.className, description: c.dictName, entry: c })),
+      { placeHolder: 'Select a class to generate a Grail .py stub for', matchOnDescription: true },
+    );
+    return picked
+      ? { className: picked.entry.className, dictName: picked.entry.dictName, dictIndex: picked.entry.dictIndex }
+      : undefined;
   }
 
   // Open the definition of a class shown in the Hierarchy pane (which may live
@@ -1564,6 +1628,14 @@ export function registerGemStoneExplorer(
     vscode.commands.registerCommand(
       'gemstone.explorer.classClicked',
       (className?: string) => { if (typeof className === 'string') ctl.handleClassClick(className); },
+    ),
+    // Generate a Grail (.py) stub for a class — Classes/Hierarchy menus and the
+    // Command Palette all route here.
+    vscode.commands.registerCommand(
+      'gemstone.generateGrailStub',
+      (item?: ClassItem | HierarchyItem) => void ctl.generateGrailStub(
+        item instanceof ClassItem || item instanceof HierarchyItem ? item : undefined,
+      ),
     ),
     // New (+) actions, one per pane.
     vscode.commands.registerCommand('gemstone.explorer.newDictionary', () => ctl.newDictionary()),

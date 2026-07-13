@@ -11,6 +11,7 @@ import {ClassBrowser} from './classBrowser';
 import {CommentBrowser} from './commentBrowser';
 import {buildNewMethodUri, buildMethodUri, closeGemstoneTabsForSession, escapeSelectorSlashes} from './gemstoneFileSystemProvider';
 import {SourceEditorPlacement} from './sourceEditorPlacement';
+import {generateAndSaveGrailStub} from './grailStubGenerator';
 
 /**
  * The webview HTML is a large template literal in getHtml(). Embedding JS directly
@@ -639,6 +640,9 @@ export class SystemBrowser {
           break;
         case 'ctxFileOutClass':
           this.handleFileOutClass().catch(e => this.postError(e));
+          break;
+        case 'ctxGenerateGrailStub':
+          this.handleGenerateGrailStub().catch(e => this.postError(e));
           break;
         case 'ctxFileOutDictionaryMany':
           this.handleFileOutDictionaryMany().catch(e => this.postError(e));
@@ -1536,6 +1540,17 @@ export class SystemBrowser {
     const source = queries.fileOutClass(this.session, className, dictIndex);
     fs.writeFileSync(uri.fsPath, source, 'utf8');
     void vscode.window.showTextDocument(uri);
+  }
+
+  // Generate an editable Grail (.py) stub for the selected class, mirroring the
+  // "File Out Class…" flow but producing a Grail @smalltalk_class module.
+  private async handleGenerateGrailStub(): Promise<void> {
+    const dictIndex = this.state.selectedDictIndex;
+    const className = this.state.selectedClass;
+    const dictName = this.dictNameForIndex(dictIndex);
+    if (!dictIndex || !className || !dictName) return;
+
+    await generateAndSaveGrailStub(this.session, className, dictName, dictIndex);
   }
 
   // File out every class in the selected dictionary as one `.gs` file per class
@@ -2782,6 +2797,7 @@ export class SystemBrowser {
           { label: 'Move to Dictionary\\u2026', action: () => vscode.postMessage({ command: 'ctxMoveClass' }) },
           { separator: true },
           { label: 'File Out Class\\u2026', action: () => vscode.postMessage({ command: 'ctxFileOutClass' }) },
+          { label: 'Generate Grail .py Stub\\u2026', action: () => vscode.postMessage({ command: 'ctxGenerateGrailStub' }) },
           { separator: true },
           { label: 'Browse References', action: () => vscode.postMessage({ command: 'ctxBrowseReferences', name: item.dataset.value }) },
           { label: 'Run SUnit Tests', action: () => vscode.postMessage({ command: 'ctxRunTests' }) },

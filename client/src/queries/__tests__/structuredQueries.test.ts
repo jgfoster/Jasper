@@ -11,6 +11,7 @@ import { getStepPointSelectorRanges } from '../getStepPointSelectorRanges';
 import { runFailingTests, globToPatternArray } from '../runFailingTests';
 import { describeTestFailure } from '../describeTestFailure';
 import { evalPython, evalPythonInScope, resetPythonScope, compilePython } from '../python';
+import { getGrailStubReflection, parseGrailStubReflection } from '../grailStubReflection';
 
 describe('getDictionaryEntries', () => {
   it('parses class (1) and global (0) rows', () => {
@@ -818,5 +819,66 @@ describe('python (Grail) scoped queries — notebook kernel', () => {
     resetPythonScope(exec, "o'brien");
     const code = exec.mock.calls[0][1];
     expect(code).toContain("removeKey: 'o''brien'");
+  });
+});
+
+describe('getGrailStubReflection', () => {
+  it('parses superclass, instance variables with accessor flags, methods, and comment', () => {
+    const raw = 'SUPER\tObject\n'
+      + 'IVAR\tbalance\t1\t1\n'
+      + 'IVAR\towner\t1\t0\n'
+      + 'METHOD\ti\taccessing\tbalance\n'
+      + 'METHOD\tc\tinstance creation\tnew\n'
+      + '===COMMENT===\n'
+      + 'An account.';
+
+    const result = parseGrailStubReflection(raw);
+
+    expect(result).toEqual({
+      found: true,
+      superclass: 'Object',
+      comment: 'An account.',
+      instVars: [
+        { name: 'balance', hasGetter: true, hasSetter: true },
+        { name: 'owner', hasGetter: true, hasSetter: false },
+      ],
+      methods: [
+        { side: 'instance', category: 'accessing', selector: 'balance' },
+        { side: 'class', category: 'instance creation', selector: 'new' },
+      ],
+    });
+  });
+
+  it('preserves a multi-line class comment verbatim', () => {
+    const raw = 'SUPER\tObject\n===COMMENT===\nfirst line\nsecond line';
+
+    const result = parseGrailStubReflection(raw);
+
+    expect(result.comment).toBe('first line\nsecond line');
+  });
+
+  it('reports a class that could not be resolved as not found', () => {
+    const result = parseGrailStubReflection('MISSING');
+
+    expect(result.found).toBe(false);
+    expect(result.instVars).toEqual([]);
+  });
+
+  it('treats an empty comment section as no comment', () => {
+    const raw = 'SUPER\tObject\n===COMMENT===\n';
+
+    const result = parseGrailStubReflection(raw);
+
+    expect(result.comment).toBe('');
+  });
+
+  it('scopes the class lookup to a dictionary index when given', () => {
+    const exec = vi.fn<QueryExecutor>(() => 'MISSING');
+
+    getGrailStubReflection(exec, 'Account', 5);
+
+    const code = exec.mock.calls[0][1];
+    expect(code).toContain('symbolList at: 5');
+    expect(code).toContain('canUnderstand:');
   });
 });
