@@ -234,6 +234,16 @@ export const window = {
   createQuickPick: vi.fn(() => {
     let onAccept: (() => void | Promise<void>) | undefined;
     let onHide: (() => void) | undefined;
+    let visible = false;
+    // Mirror real VS Code: hide()/dispose() only fire onDidHide while the input
+    // is still visible, and at most once — dispose() cascades to a hide if the
+    // input hasn't been hidden yet, so `dispose()` after a still-visible show()
+    // fires onDidHide (which a disposed-then-nothing input does not re-fire).
+    const fireHide = () => {
+      if (!visible) return;
+      visible = false;
+      onHide?.();
+    };
     const qp: Record<string, unknown> = {
       title: '',
       placeholder: '',
@@ -253,13 +263,15 @@ export const window = {
         onHide = h;
         return { dispose: vi.fn() };
       }),
-      show: vi.fn(),
-      hide: vi.fn(() => onHide?.()),
-      dispose: vi.fn(),
+      show: vi.fn(() => {
+        visible = true;
+      }),
+      hide: vi.fn(() => fireHide()),
+      dispose: vi.fn(() => fireHide()),
       __accept: async () => {
         await onAccept?.();
       },
-      __hide: () => onHide?.(),
+      __hide: () => fireHide(),
     };
     return qp;
   }),
