@@ -232,8 +232,8 @@ export const window = {
   // `selectedItems`. Grab the created instance with
   // `vi.mocked(vscode.window.createQuickPick).mock.results.at(-1).value`.
   createQuickPick: vi.fn(() => {
-    const acceptHandlers: Array<() => void | Promise<void>> = [];
-    const hideHandlers: Array<() => void> = [];
+    let onAccept: (() => void | Promise<void>) | undefined;
+    let onHide: (() => void) | undefined;
     const qp: Record<string, unknown> = {
       title: '',
       placeholder: '',
@@ -246,20 +246,20 @@ export const window = {
       matchOnDescription: false,
       matchOnDetail: false,
       onDidAccept: vi.fn((h: () => void | Promise<void>) => {
-        acceptHandlers.push(h);
+        onAccept = h;
         return { dispose: vi.fn() };
       }),
       onDidHide: vi.fn((h: () => void) => {
-        hideHandlers.push(h);
+        onHide = h;
         return { dispose: vi.fn() };
       }),
       show: vi.fn(),
-      hide: vi.fn(() => hideHandlers.forEach((h) => h())),
+      hide: vi.fn(() => onHide?.()),
       dispose: vi.fn(),
       __accept: async () => {
-        for (const h of acceptHandlers) await h();
+        await onAccept?.();
       },
-      __hide: () => hideHandlers.forEach((h) => h()),
+      __hide: () => onHide?.(),
     };
     return qp;
   }),
