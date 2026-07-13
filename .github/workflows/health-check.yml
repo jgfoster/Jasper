@@ -61,8 +61,9 @@ jobs:
           persist-credentials: false
       - name: Run actionlint
         # actionlint/shellcheck(SC2046): quote $(pwd) to prevent word
-        # splitting/globbing
-        run: docker run --rm -v "$(pwd)":/repo --workdir /repo rhysd/actionlint:1.7.12 -color
+        # splitting/globbing. Pinned to a digest, not a mutable tag, for the
+        # same supply-chain reason as the zizmor(unpinned-uses) actions above.
+        run: docker run --rm -v "$(pwd)":/repo --workdir /repo rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 -color # 1.7.12
       - name: Run zizmor
         uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa # v0.5.7
         with:
