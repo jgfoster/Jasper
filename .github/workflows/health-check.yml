@@ -3,30 +3,36 @@ name: Health Check
 on: push
 
 jobs:
-  load-gemstone-integration-versions:
+  prepare:
     timeout-minutes: 1
     runs-on: ubuntu-latest
     outputs:
-      versions: ${{ steps.read.outputs.versions }}
+      versions: ${{ steps.read-gemstone-integration-versions.outputs.versions }}
     steps:
       - uses: actions/checkout@v6
         with:
           sparse-checkout: |
+            .github/workflows
+            /package.json
+            scripts/lint-workflow-timeouts.sh
             client/.gemstone-integration-releases.json
             client/bin/gemstone-integration-versions.js
             client/src/gemStoneVersion.js
           sparse-checkout-cone-mode: false
-      - id: read
+      - name: Lint workflow timeouts
+        run: npm run lint:github:workflows
+      - name: Read GemStone integration versions
+        id: read-gemstone-integration-versions
         run: echo "versions=$(node client/bin/gemstone-integration-versions.js)" >> $GITHUB_OUTPUT
 
   health-check:
     timeout-minutes: 5
     name: GemStone S/64 ${{ matrix.gemstone-version }}
-    needs: load-gemstone-integration-versions
+    needs: prepare
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        gemstone-version: ${{ fromJson(needs.load-gemstone-integration-versions.outputs.versions) }}
+        gemstone-version: ${{ fromJson(needs.prepare.outputs.versions) }}
 
     steps:
       - name: Checkout code
