@@ -4,6 +4,10 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+### Changed
+
+- **"Find Method…" renamed to "Find Method in Class…" and now always shows a filterable class picker.** The command searches within a single class, so the title now says so. With no class selected in the System Browser it previously prompted with a plain text box and then failed to select or open the picked method; it now offers the same filterable class list as **Find Class**, and when a class *is* selected in the browser that class is pre-highlighted as the default (one Enter reproduces the old scoped behavior, but the list is right there to pick another). Picking a method navigates to and opens it. The command id changed from `gemstone.findMethod` to `gemstone.findMethodInClass` — **breaking for any custom keybinding referencing the old id** (the built-in `Ctrl/Cmd+K M` chord is unaffected).
+
 ## [1.8.3] - 2026-07-13
 
 ### Added

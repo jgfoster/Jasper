@@ -53,7 +53,7 @@ describe('keybindings', () => {
       i: 'gemstone.inspectIt',
       b: 'gemstone.openBrowser',
       c: 'gemstone.findClass',
-      m: 'gemstone.findMethod',
+      m: 'gemstone.findMethodInClass',
     };
 
     for (const kb of chordBindings) {

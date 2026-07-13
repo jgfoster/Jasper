@@ -45,6 +45,8 @@ import { NbCancelledError } from './nbRunner';
 import { RowanRepoRegistry } from './rowanRepos';
 import { RowanTreeProvider, RowanRepoItem, RowanLoadedProjectItem, RowanChangesProjectItem } from './rowanTreeProvider';
 import { RowanDecorationProvider } from './rowanDecorations';
+import { findMethodInClass } from './commands/findMethodInClass';
+import { loadClassPickItems } from './commands/classPicker';
 import { GlobalsBrowser } from './globalsBrowser';
 import { CommentBrowser } from './commentBrowser';
 import { EnhancedInspector } from './enhancedInspector';
@@ -57,7 +59,7 @@ import { refreshEnhancedInspectorAvailable } from './enhancedInspectorAvailabili
 import { supportsEnhancedInspector } from './enhancedInspectorInstall';
 import { DebuggerPanel } from './debuggerPanel';
 import { InlineValuesCodeLensProvider } from './inlineValuesCodeLens';
-import { GemStoneFileSystemProvider, MethodCompiledEvent, ClassDefinitionCompiledEvent, closeGemstoneTabsForSession, installStaleGemstoneTabReaper } from './gemstoneFileSystemProvider';
+import { GemStoneFileSystemProvider, MethodCompiledEvent, ClassDefinitionCompiledEvent, closeGemstoneTabsForSession, installStaleGemstoneTabReaper, buildMethodUri } from './gemstoneFileSystemProvider';
 import { openWorkspace } from './workspace';
 import { openTutorialNotebook } from './tutorialNotebook';
 import { GemStoneDebugSession } from './gemstoneDebugSession';
@@ -920,15 +922,7 @@ export function activate(context: vscode.ExtensionContext) {
     // method (updates all 5 columns) and open the method editor from there.
     // Otherwise fall back to opening the document directly.
     if (!SystemBrowser.navigateTo(session.id, r)) {
-      const side = r.isMeta ? 'class' : 'instance';
-      const uri = vscode.Uri.parse(
-        `gemstone://${session.id}` +
-        `/${encodeURIComponent(r.dictName)}` +
-        `/${encodeURIComponent(r.className)}` +
-        `/${side}` +
-        `/${encodeURIComponent(r.category)}` +
-        `/${encodeURIComponent(r.selector)}`
-      );
+      const uri = buildMethodUri({ kind: 'method', sessionId: session.id, ...r, environmentId: 0 });
       vscode.commands.executeCommand('gemstone.openDocument', uri);
     }
   }
@@ -1945,27 +1939,8 @@ export function activate(context: vscode.ExtensionContext) {
       const session = await sessionManager.resolveSession();
       if (!session) return;
 
-      let entries: queries.ClassNameEntry[];
-      try {
-        entries = await vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: 'Loading class list…',
-            cancellable: false,
-          },
-          () => Promise.resolve(queries.getAllClassNames(session)),
-        );
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        vscode.window.showErrorMessage(`Failed to load classes: ${msg}`);
-        return;
-      }
-
-      const items = entries.map(e => ({
-        label: e.className,
-        description: e.dictName,
-        entry: e,
-      }));
+      const items = await loadClassPickItems(session);
+      if (!items) return;
 
       const picked = await vscode.window.showQuickPick(items, {
         placeHolder: 'Type to find a class…',
@@ -1989,79 +1964,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
 
-    vscode.commands.registerCommand('gemstone.findMethod', async () => {
-      const session = await sessionManager.resolveSession();
-      if (!session) return;
-
-      let className: string | undefined;
-      let dictName: string | undefined;
-
-      const current = SystemBrowser.getSelectedClassName(session.id);
-      if (current) {
-        className = current.className;
-        dictName = current.dictName;
-      } else {
-        className = await vscode.window.showInputBox({
-          prompt: 'Enter class name',
-          placeHolder: 'e.g. Array',
-        });
-        if (!className) return;
-      }
-
-      let methods: queries.MethodEntry[];
-      try {
-        methods = await vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: `Loading methods for ${className}…`,
-            cancellable: false,
-          },
-          () => Promise.resolve(queries.getMethodList(session, className!)),
-        );
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        vscode.window.showErrorMessage(`Failed to load methods: ${msg}`);
-        return;
-      }
-
-      if (methods.length === 0) {
-        vscode.window.showInformationMessage(`No methods found for ${className}.`);
-        return;
-      }
-
-      const items = methods.map(m => ({
-        label: `${m.isMeta ? '(class) ' : ''}${m.selector}`,
-        description: m.category,
-        method: m,
-      }));
-
-      const picked = await vscode.window.showQuickPick(items, {
-        placeHolder: `Type to find a method in ${className}…`,
-        matchOnDescription: true,
-      });
-      if (!picked) return;
-
-      const result: queries.MethodSearchResult = {
-        dictName: dictName || '',
-        className: className!,
-        isMeta: picked.method.isMeta,
-        selector: picked.method.selector,
-        category: picked.method.category,
-      };
-
-      if (!SystemBrowser.navigateTo(session.id, result)) {
-        const side = result.isMeta ? 'class' : 'instance';
-        const uri = vscode.Uri.parse(
-          `gemstone://${session.id}` +
-          `/${encodeURIComponent(result.dictName)}` +
-          `/${encodeURIComponent(result.className)}` +
-          `/${side}` +
-          `/${encodeURIComponent(result.category)}` +
-          `/${encodeURIComponent(result.selector)}`
-        );
-        vscode.commands.executeCommand('gemstone.openDocument', uri);
-      }
-    }),
+    vscode.commands.registerCommand('gemstone.findMethodInClass', () => findMethodInClass(sessionManager)),
   );
 
   // ── SysAdmin ──────────────────────────────────────────────
