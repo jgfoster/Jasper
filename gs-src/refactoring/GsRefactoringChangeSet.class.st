@@ -1,0 +1,106 @@
+"
+A non-committing set of individually-addressable changes that a refactoring
+computes and a client previews before applying. Staging a change records it
+only: the change set NEVER compiles a method or commits the transaction. The
+client fetches jsonString for a per-change before/after preview, lets the user
+select which changes to keep, and a later stage recompiles only the selected
+ones (still without committing -- the user commits explicitly).
+"
+Class {
+	#name : 'GsRefactoringChangeSet',
+	#superclass : 'Object',
+	#instVars : [
+		'changes',
+		'nextId'
+	],
+	#category : 'Refactoring-Core'
+}
+
+{ #category : 'instance creation' }
+GsRefactoringChangeSet class >> new [
+	^self basicNew initialize
+]
+
+{ #category : 'building' }
+GsRefactoringChangeSet >> addClassDefinitionEditInDictionary: dn className: cn oldSource: os newSource: ns [
+	"Stage a class-definition edit. Records the change only; NEVER compiles or
+	 commits. Returns the new GsRefactoringChange."
+	| change |
+	change := GsRefactoringChange
+		classDefinitionEditId: self nextIdString dictName: dn className: cn
+		oldSource: os newSource: ns.
+	changes add: change.
+	^change
+]
+
+{ #category : 'building' }
+GsRefactoringChangeSet >> addMethodRecompileInDictionary: dn className: cn isMeta: aBool selector: sel oldSource: os newSource: ns [
+	"Stage a method recompile. Records the change only; NEVER compiles or
+	 commits. Returns the new GsRefactoringChange."
+	| change |
+	change := GsRefactoringChange
+		methodRecompileId: self nextIdString dictName: dn className: cn
+		isMeta: aBool selector: sel oldSource: os newSource: ns.
+	changes add: change.
+	^change
+]
+
+{ #category : 'accessing' }
+GsRefactoringChangeSet >> changeWithId: anId [
+	^changes detect: [:c | c id = anId] ifNone: [nil]
+]
+
+{ #category : 'accessing' }
+GsRefactoringChangeSet >> changes [
+	^changes
+]
+
+{ #category : 'initialization' }
+GsRefactoringChangeSet >> initialize [
+	changes := OrderedCollection new.
+	nextId := 1
+]
+
+{ #category : 'testing' }
+GsRefactoringChangeSet >> isEmpty [
+	^changes isEmpty
+]
+
+{ #category : 'serializing' }
+GsRefactoringChangeSet >> jsonOn: aStream [
+	aStream nextPut: $[.
+	changes keysAndValuesDo: [:i :change |
+		i = 1 ifFalse: [aStream nextPut: $,].
+		change jsonOn: aStream].
+	aStream nextPut: $]
+]
+
+{ #category : 'serializing' }
+GsRefactoringChangeSet >> jsonString [
+	| ws |
+	ws := WriteStream on: String new.
+	self jsonOn: ws.
+	^ws contents
+]
+
+{ #category : 'private' }
+GsRefactoringChangeSet >> nextIdString [
+	| s |
+	s := nextId printString.
+	nextId := nextId + 1.
+	^s
+]
+
+{ #category : 'accessing' }
+GsRefactoringChangeSet >> selectedChanges: aCollectionOfIds [
+	"The subset of changes whose ids are in aCollectionOfIds, preserving order.
+	 Backs Stage 4's per-change selective apply."
+	| ids |
+	ids := aCollectionOfIds asArray.
+	^changes select: [:c | ids includes: c id]
+]
+
+{ #category : 'accessing' }
+GsRefactoringChangeSet >> size [
+	^changes size
+]

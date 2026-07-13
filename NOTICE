@@ -1,0 +1,12 @@
+Jasper (gemstone-ide)
+Copyright (c) 2026 GemTalk Systems
+Licensed under the MIT License (see LICENSE).
+
+This product includes vendored third-party software:
+
+- Pharo AST-Core (the Refactoring Browser AST/rewriter), originally by
+  John Brant and Don Roberts, obtained via GemStone RowanV3 3.7.5. MIT License.
+  Location: gs-src/refactoring/vendor/rowanv3-ast/.
+
+See THIRD-PARTY.md for full attribution, license texts, and the list of
+modifications.
