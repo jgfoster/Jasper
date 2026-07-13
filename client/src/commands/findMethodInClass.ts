@@ -67,7 +67,7 @@ export async function findMethodInClass(sessionManager: SessionManager): Promise
     qp.placeholder = 'Type to find a class…';
     if (current) {
       const preselected = classItems.find(
-        i => i.entry.className === current.className && i.entry.dictName === current.dictName,
+        i => i.entry.className === current.className && i.entry.dictIndex === current.dictIndex,
       );
       if (preselected) qp.activeItems = [preselected];
     }

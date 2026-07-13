@@ -108,7 +108,7 @@ describe('findMethodInClass', () => {
 
   describe('when a class is selected in the System Browser', () => {
     beforeEach(() => {
-      vi.spyOn(SystemBrowser, 'getSelectedClassName').mockReturnValue({ dictName: 'UserGlobals', className: 'Array' });
+      vi.spyOn(SystemBrowser, 'getSelectedClassName').mockReturnValue({ dictName: 'UserGlobals', className: 'Array', dictIndex: 1 });
     });
 
     it('still shows the class picker, with the selected class pre-highlighted', async () => {
