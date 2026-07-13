@@ -1255,6 +1255,12 @@
         "icon": "$(history)"
       },
       {
+        "command": "gemstone.onlineExtentBackup",
+        "title": "Online Extent Backup",
+        "category": "GemStone Admin",
+        "icon": "$(save-all)"
+      },
+      {
         "command": "gemstone.openMcpInspector",
         "title": "Open MCP Inspector",
         "category": "GemStone",

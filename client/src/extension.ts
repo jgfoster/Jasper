@@ -86,6 +86,7 @@ import { VersionTreeProvider, VersionItem } from './versionTreeProvider';
 import { DatabaseManager } from './databaseManager';
 import { DatabaseTreeProvider, DatabaseNode } from './databaseTreeProvider';
 import { runLogicalBackup } from './backupManager';
+import { runOnlineExtentBackup } from './extentBackupManager';
 import { runLogicalRestore, RestoreSession } from './restoreManager';
 import { hasFileControlPrivilege } from './queries/backup';
 import { ProcessManager } from './processManager';
@@ -3019,6 +3020,40 @@ export function activate(context: vscode.ExtensionContext) {
       });
       // Re-read the Databases tree so the new backup (and the Backups node, if
       // this was the first one) shows up without a manual refresh.
+      if (backedUp) refreshAdminViews();
+    }),
+
+    vscode.commands.registerCommand('gemstone.onlineExtentBackup', async (item?: GemStoneSessionItem) => {
+      // Like the logical backup, this runs against one session — the clicked or
+      // selected one. Unlike it, copying live extents needs host-filesystem
+      // access to them, so it only works for a Jasper-managed local stone.
+      const session = item ? item.activeSession : sessionManager.getSelectedSession();
+      if (!session) {
+        vscode.window.showInformationMessage(
+          'No GemStone session to back up. Connect a session first.',
+        );
+        return;
+      }
+      const db = sysadminStorage.getDatabases()
+        .find(d => d.config.stoneName === session.login.stone);
+      if (!db) {
+        vscode.window.showErrorMessage(
+          `Online extent backup needs a Jasper-managed local stone (to reach its extent files). `
+          + `Stone "${session.login.stone}" isn't managed here — use Full Logical Backup instead.`,
+          { modal: true },
+        );
+        return;
+      }
+      const backedUp = await runOnlineExtentBackup({
+        execute: (label, code) => queries.executeFetchString(session, label, code),
+        stoneName: session.login.stone,
+        dbPath: db.path,
+        dataDir: path.join(db.path, 'data'),
+        listDataFiles: (dir) => wslReaddirSync(dir),
+        ensureDir: (dir) => wslMkdirSync(dir, { recursive: true }),
+        copyFile: (src, dst) => wslImportFileSync(src, dst),
+        fileExists: wslExistsSync,
+      });
       if (backedUp) refreshAdminViews();
     }),
 
