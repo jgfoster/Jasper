@@ -4,7 +4,14 @@ vi.mock('vscode', () => import('../__mocks__/vscode'));
 
 import * as vscode from 'vscode';
 import { QueryExecutor } from '../queries/types';
-import { runOnlineExtentBackup, ExtentBackupDeps } from '../extentBackupManager';
+import {
+  runOnlineExtentBackup,
+  resolveExtentBackupSession,
+  ExtentBackupDeps,
+} from '../extentBackupManager';
+import type { ActiveSession } from '../sessionManager';
+import type { GemStoneSessionItem } from '../loginTreeProvider';
+import type { DatabaseNode } from '../databaseTreeProvider';
 
 // A fake GCI executor that answers each bracketing call by matching the emitted
 // Smalltalk. Override any response to drive a failure path.
@@ -145,5 +152,62 @@ describe('runOnlineExtentBackup', () => {
     const copied = (deps.copyFile as unknown as { mock: { calls: [string, string][] } })
       .mock.calls.map(([src]) => src);
     expect(copied).toEqual(['/db/data/extent0.dbf', '/db/data/extent1.dbf']);
+  });
+});
+
+// The command reaches the backup from two tree rows and the Command Palette;
+// the resolver decides which live session each invocation targets. It only reads
+// `login.stone` off a session and `db.config.stoneName` off a stone node, so
+// minimal stand-ins are enough.
+function fakeSession(stone: string): ActiveSession {
+  return { login: { stone } } as unknown as ActiveSession;
+}
+function sessionRow(session: ActiveSession): GemStoneSessionItem {
+  return { activeSession: session } as unknown as GemStoneSessionItem;
+}
+function runningStoneRow(stoneName: string): DatabaseNode {
+  return { kind: 'stone', db: { config: { stoneName } }, running: true } as unknown as DatabaseNode;
+}
+
+describe('resolveExtentBackupSession', () => {
+  it('uses the session carried by the Sessions view row', () => {
+    const session = fakeSession('gs64stone');
+
+    const result = resolveExtentBackupSession(sessionRow(session), [], undefined);
+
+    expect(result).toEqual({ session });
+  });
+
+  it('binds to a live session on the clicked stone, ignoring the selected one', () => {
+    const target = fakeSession('gs64stone');
+    const elsewhere = fakeSession('otherstone');
+
+    const result = resolveExtentBackupSession(
+      runningStoneRow('gs64stone'), [elsewhere, target], elsewhere,
+    );
+
+    expect(result).toEqual({ session: target });
+  });
+
+  it('asks the user to log in when the clicked stone has no live session', () => {
+    const result = resolveExtentBackupSession(
+      runningStoneRow('gs64stone'), [fakeSession('otherstone')], undefined,
+    );
+
+    expect(result).toEqual({ needLogin: 'gs64stone' });
+  });
+
+  it('falls back to the active session when invoked from the Command Palette', () => {
+    const selected = fakeSession('gs64stone');
+
+    const result = resolveExtentBackupSession(undefined, [selected], selected);
+
+    expect(result).toEqual({ session: selected });
+  });
+
+  it('reports no session when the palette is used with nothing connected', () => {
+    const result = resolveExtentBackupSession(undefined, [], undefined);
+
+    expect(result).toEqual({ noSession: true });
   });
 });

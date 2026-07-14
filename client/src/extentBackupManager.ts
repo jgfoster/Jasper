@@ -15,6 +15,9 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { QueryExecutor } from './queries/types';
 import * as extentBackup from './queries/extentBackup';
+import type { ActiveSession } from './sessionManager';
+import type { GemStoneSessionItem } from './loginTreeProvider';
+import type { DatabaseNode } from './databaseTreeProvider';
 
 export interface ExtentBackupDeps {
   // Fast, synchronous executor for the bracketing GCI calls.
@@ -32,6 +35,36 @@ export interface ExtentBackupDeps {
   ensureDir: (dir: string) => void;
   copyFile: (src: string, dst: string) => void;
   fileExists: (p: string) => boolean;
+}
+
+// Which live session an online extent backup should run against, decided by how
+// the command was invoked. Pure (no vscode, no SessionManager) so the dispatch
+// is unit-testable; the command handler feeds it the current sessions and turns
+// the result into UI.
+export type ExtentBackupSessionResult =
+  | { session: ActiveSession }
+  | { needLogin: string } // a Stone node was clicked, but nothing is logged into it
+  | { noSession: true }; // Sessions view / Command Palette with no session at all
+
+export function resolveExtentBackupSession(
+  item: GemStoneSessionItem | DatabaseNode | undefined,
+  sessions: readonly ActiveSession[],
+  selectedSession: ActiveSession | undefined,
+): ExtentBackupSessionResult {
+  // Sessions view button: the row carries its own session.
+  if (item && 'activeSession' in item) {
+    return { session: item.activeSession };
+  }
+  // Running-Stone node in the Databases view: back up the stone that was
+  // clicked, so bind to a live session on THAT stone — not the selected one,
+  // which may be pointed at a different stone.
+  if (item && 'kind' in item && item.kind === 'stone') {
+    const stoneName = item.db.config.stoneName;
+    const session = sessions.find((s) => s.login.stone === stoneName);
+    return session ? { session } : { needLogin: stoneName };
+  }
+  // Command Palette (no item): fall back to the active session.
+  return selectedSession ? { session: selectedSession } : { noSession: true };
 }
 
 // How long the green success message lingers in the status bar (ms).

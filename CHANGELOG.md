@@ -4,6 +4,10 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+### Changed
+
+- **Backup actions regrouped to de-crowd the Sessions row.** **Online Extent Backup** is now an inline button on the running **Stone** row in the Databases view — its natural home, since it snapshots a local stone's extent files on the stone's own host — rather than being Command-Palette-only; run from there it binds to a live session on that stone. **Full Logical Backup** and **Full Logical Restore** moved off the session's inline button row into its right-click menu, so the everyday Commit/Abort/Logout actions are no longer crowded against (or one mis-click away from) the rarely-used backup pair.
+
 ## [1.8.4] - 2026-07-14
 
 ### Added

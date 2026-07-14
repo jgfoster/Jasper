@@ -88,7 +88,7 @@ import { VersionTreeProvider, VersionItem } from './versionTreeProvider';
 import { DatabaseManager } from './databaseManager';
 import { DatabaseTreeProvider, DatabaseNode } from './databaseTreeProvider';
 import { runLogicalBackup } from './backupManager';
-import { runOnlineExtentBackup } from './extentBackupManager';
+import { runOnlineExtentBackup, resolveExtentBackupSession } from './extentBackupManager';
 import { runLogicalRestore, RestoreSession } from './restoreManager';
 import { hasFileControlPrivilege } from './queries/backup';
 import { ProcessManager } from './processManager';
@@ -2926,39 +2926,53 @@ export function activate(context: vscode.ExtensionContext) {
       if (backedUp) refreshAdminViews();
     }),
 
-    vscode.commands.registerCommand('gemstone.onlineExtentBackup', async (item?: GemStoneSessionItem) => {
-      // Like the logical backup, this runs against one session — the clicked or
-      // selected one. Unlike it, copying live extents needs host-filesystem
-      // access to them, so it only works for a Jasper-managed local stone.
-      const session = item ? item.activeSession : sessionManager.getSelectedSession();
-      if (!session) {
-        vscode.window.showInformationMessage(
-          'No GemStone session to back up. Connect a session first.',
+    vscode.commands.registerCommand('gemstone.onlineExtentBackup',
+      async (item?: GemStoneSessionItem | DatabaseNode) => {
+        // Two entry points: the Sessions view (a GemStoneSessionItem) and the
+        // running Stone node in the Databases view (a 'stone' DatabaseNode).
+        // Either way this runs against one live session — copying live extents
+        // needs host-filesystem access to them, so it only works for a
+        // Jasper-managed local stone.
+        const resolved = resolveExtentBackupSession(
+          item, sessionManager.getSessions(), sessionManager.getSelectedSession(),
         );
-        return;
-      }
-      const db = sysadminStorage.getDatabases()
-        .find(d => d.config.stoneName === session.login.stone);
-      if (!db) {
-        vscode.window.showErrorMessage(
-          `Online extent backup needs a Jasper-managed local stone (to reach its extent files). `
-          + `Stone "${session.login.stone}" isn't managed here — use Full Logical Backup instead.`,
-          { modal: true },
-        );
-        return;
-      }
-      const backedUp = await runOnlineExtentBackup({
-        execute: (label, code) => queries.executeFetchString(session, label, code),
-        stoneName: session.login.stone,
-        dbPath: db.path,
-        dataDir: path.join(db.path, 'data'),
-        listDataFiles: (dir) => wslReaddirSync(dir),
-        ensureDir: (dir) => wslMkdirSync(dir, { recursive: true }),
-        copyFile: (src, dst) => wslImportFileSync(src, dst),
-        fileExists: wslExistsSync,
-      });
-      if (backedUp) refreshAdminViews();
-    }),
+        if ('needLogin' in resolved) {
+          vscode.window.showWarningMessage(
+            'An online extent backup runs over a live session on the stone. '
+            + `Log in to "${resolved.needLogin}" first, then try again.`,
+            { modal: true },
+          );
+          return;
+        }
+        if ('noSession' in resolved) {
+          vscode.window.showInformationMessage(
+            'No GemStone session to back up. Connect a session first.',
+          );
+          return;
+        }
+        const session = resolved.session;
+        const db = sysadminStorage.getDatabases()
+          .find(d => d.config.stoneName === session.login.stone);
+        if (!db) {
+          vscode.window.showErrorMessage(
+            `Online extent backup needs a Jasper-managed local stone (to reach its extent files). `
+            + `Stone "${session.login.stone}" isn't managed here — use Full Logical Backup instead.`,
+            { modal: true },
+          );
+          return;
+        }
+        const backedUp = await runOnlineExtentBackup({
+          execute: (label, code) => queries.executeFetchString(session, label, code),
+          stoneName: session.login.stone,
+          dbPath: db.path,
+          dataDir: path.join(db.path, 'data'),
+          listDataFiles: (dir) => wslReaddirSync(dir),
+          ensureDir: (dir) => wslMkdirSync(dir, { recursive: true }),
+          copyFile: (src, dst) => wslImportFileSync(src, dst),
+          fileExists: wslExistsSync,
+        });
+        if (backedUp) refreshAdminViews();
+      }),
 
     vscode.commands.registerCommand('gemstone.fullLogicalRestore',
       async (item?: GemStoneSessionItem | DatabaseNode) => {

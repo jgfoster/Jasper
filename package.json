@@ -1642,19 +1642,19 @@
           "group": "inline@5"
         },
         {
-          "command": "gemstone.fullLogicalBackup",
+          "command": "gemstone.sessionLogout",
           "when": "view == gemstoneLogins && viewItem == gemstoneSession",
           "group": "inline@6"
         },
         {
-          "command": "gemstone.fullLogicalRestore",
+          "command": "gemstone.fullLogicalBackup",
           "when": "view == gemstoneLogins && viewItem == gemstoneSession",
-          "group": "inline@7"
+          "group": "3_backup@1"
         },
         {
-          "command": "gemstone.sessionLogout",
+          "command": "gemstone.fullLogicalRestore",
           "when": "view == gemstoneLogins && viewItem == gemstoneSession",
-          "group": "inline@8"
+          "group": "3_backup@2"
         },
         {
           "command": "gemstone.exportClasses",
@@ -1741,9 +1741,14 @@
           "group": "inline@2"
         },
         {
-          "command": "gemstone.stopStone",
+          "command": "gemstone.onlineExtentBackup",
           "when": "view == gemstoneDatabases && viewItem == gemstoneDbStoneRunning",
           "group": "inline@1"
+        },
+        {
+          "command": "gemstone.stopStone",
+          "when": "view == gemstoneDatabases && viewItem == gemstoneDbStoneRunning",
+          "group": "inline@2"
         },
         {
           "command": "gemstone.startNetldi",
