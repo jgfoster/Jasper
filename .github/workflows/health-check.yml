@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       versions: ${{ steps.read-gemstone-integration-versions.outputs.versions }}
+      oldest-version: ${{ steps.read-gemstone-integration-versions.outputs.oldest-version }}
     steps:
       # zizmor(unpinned-uses): actions must be pinned to a commit SHA, not
       # a mutable tag like @v6
@@ -42,7 +43,9 @@ jobs:
         id: read-gemstone-integration-versions
         # actionlint/shellcheck(SC2086): quote $GITHUB_OUTPUT to prevent
         # word splitting/globbing
-        run: echo "versions=$(node client/bin/gemstone-integration-versions.js)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "versions=$(node client/bin/gemstone-integration-versions.js)" >> "$GITHUB_OUTPUT"
+          echo "oldest-version=$(node client/bin/gemstone-integration-versions.js --oldest)" >> "$GITHUB_OUTPUT"
 
   lint-workflows:
     name: Lint GitHub Actions workflows
@@ -71,12 +74,22 @@ jobs:
 
   health-check:
     timeout-minutes: 5
-    name: GemStone S/64 ${{ matrix.gemstone-version }}
+    name: GemStone S/64 ${{ matrix.gemstone-version }}${{ matrix.node-version && format(' (Node {0})', matrix.node-version) || '' }}
     needs: prepare
     runs-on: ubuntu-latest
     strategy:
       matrix:
         gemstone-version: ${{ fromJson(needs.prepare.outputs.versions) }}
+        node-version: ['']            # empty ⇒ dev jobs resolve Node from .nvmrc (node-version-file); floor include overrides
+        # node-version's declared axis value is only '' (which falls back to
+        # the .nvmrc Node version); '22.15.1' isn't one of the declared
+        # values, so GitHub can't merge this into an existing combination —
+        # it adds an additional job pinned to the oldest GemStone version
+        # and the Node floor, as a smoke test to verify tests run on the
+        # Node floor too. This is to support older VS Code versions.
+        include:
+          - gemstone-version: ${{ needs.prepare.outputs.oldest-version }}
+            node-version: '22.15.1'   # pin the floor for the smoke-test
 
     steps:
       - name: Checkout code
@@ -92,6 +105,9 @@ jobs:
         # not a mutable tag like @v6
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
+          # Dev jobs leave node-version empty → Node resolved from .nvmrc.
+          # The floor include job sets node-version, which takes precedence.
+          node-version: ${{ matrix.node-version }}
           node-version-file: '.nvmrc'
       - name: Install dependencies
         run: npm ci

@@ -8,6 +8,7 @@ await esbuild.build({
   format: 'cjs',
   external: ['vscode'],
   sourcemap: true,
+  target: 'node22.15.1',
 });
 
 await esbuild.build({
@@ -18,6 +19,7 @@ await esbuild.build({
   format: 'cjs',
   external: ['vscode', 'koffi'],
   sourcemap: true,
+  target: 'node22.15.1',
 });
 
 await esbuild.build({
