@@ -8,7 +8,7 @@ vi.mock('../browserQueries', () => ({
   getClassComment: vi.fn(() => ''),
 }));
 
-import { Position, Range, Hover, MarkdownString, __setConfig, __resetConfig } from '../__mocks__/vscode';
+import { Position, Range, MarkdownString, __setConfig, __resetConfig } from '../__mocks__/vscode';
 import type * as vscode from 'vscode';
 import { GemStoneHoverProvider } from '../gemstoneHoverProvider';
 import { SelectorResolver } from '../gemstoneDefinitionProvider';

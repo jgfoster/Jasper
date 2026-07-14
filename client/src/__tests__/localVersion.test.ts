@@ -18,9 +18,8 @@ vi.mock('../wslBridge', () => ({
 
 import { __setConfig, __resetConfig } from '../__mocks__/vscode';
 import { SysadminStorage } from '../sysadminStorage';
-import { LoginStorage } from '../loginStorage';
 import { VersionManager } from '../versionManager';
-import { VersionTreeProvider, VersionItem } from '../versionTreeProvider';
+import { VersionItem } from '../versionTreeProvider';
 import { GemStoneVersion } from '../sysadminTypes';
 
 // ── Helpers ────────────────────────────────────────────────

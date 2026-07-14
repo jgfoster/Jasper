@@ -51,9 +51,7 @@ describe('ScopeAnalyzer', () => {
 
   it('allVisibleVariables includes parent scope vars', () => {
     const { root, analyzer } = analyzeMethod('foo | x | [:a | a + x]');
-    const blockScope = root.children[0];
     const pos = createPosition(0, 0, 20);
-    const innerScope = analyzer.findScopeAt(root, pos);
     const allVars = analyzer.allVisibleVariables(root, pos);
     const names = allVars.map((v) => v.name);
     expect(names).toContain('x');

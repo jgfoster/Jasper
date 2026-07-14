@@ -10,7 +10,7 @@ vi.mock('../browserQueries', () => ({
   clearAllBreaks: vi.fn(),
 }));
 
-import { Uri, debug } from '../__mocks__/vscode';
+import { Uri } from '../__mocks__/vscode';
 import {
   BreakpointManager,
   buildLineOffsets,
@@ -171,13 +171,6 @@ describe('BreakpointManager', () => {
   });
 
   describe('setBreakpointsForSource', () => {
-    it('returns unverified when no session', () => {
-      const manager = new BreakpointManager(makeSessionManager(false));
-      const session = makeSessionManager(false).getSelectedSession()!;
-      // Can't call without a session — the method requires one
-      // This tests the URI parsing path returning unverified for non-gemstone URIs
-    });
-
     it('returns unverified for non-gemstone URI', () => {
       const manager = new BreakpointManager(makeSessionManager(true));
       const session = makeSessionManager(true).getSelectedSession()!;

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { findRowanLoadSpecs, deriveRepoName, normalizeGitUrl, updateGitRepo, cloneGitRepo } from '../rowanLoad';
+import { findRowanLoadSpecs, deriveRepoName, normalizeGitUrl, updateGitRepo } from '../rowanLoad';
 
 const LOAD_SPEC = (name: string) => `RwLoadSpecificationV2 {
 \t#specName : '${name}',

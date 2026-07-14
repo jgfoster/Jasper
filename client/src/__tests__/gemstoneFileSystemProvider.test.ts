@@ -21,7 +21,7 @@ vi.mock('../browserQueries', () => ({
   canClassBeWritten: vi.fn(() => true),
 }));
 
-import { Uri, FileSystemError, FilePermission, window, languages, TabInputText, TabInputTextDiff } from '../__mocks__/vscode';
+import { Uri, FilePermission, window, languages, TabInputText, TabInputTextDiff } from '../__mocks__/vscode';
 import { GemStoneFileSystemProvider, buildMethodUri, buildNewMethodUri, buildClassDefinitionUri, closeGemstoneTabsForSession, installStaleGemstoneTabReaper, escapeSelectorSlashes, parseUri, listOpenGemstoneTabs } from '../gemstoneFileSystemProvider';
 import { SessionManager } from '../sessionManager';
 import * as queries from '../browserQueries';
@@ -754,7 +754,7 @@ describe('GemStoneFileSystemProvider', () => {
   describe('URI parsing', () => {
     it('parses method URI with special characters', () => {
       const uri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3Aput%3A');
-      const content = provider.readFile(uri);
+      provider.readFile(uri);
       expect(queries.getMethodSource).toHaveBeenCalledWith(
         expect.anything(), 'Array', false, 'at:put:', 0, 'Globals',
       );
