@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * Tonel -> GemStone topaz-chunk (.gs) converter for the refactoring engine's
- * vendored AST substrate (grail #62, Stage 2).
+ * vendored AST substrate.
  *
  * The 3.6.2 test stone has no runtime Tonel reader, so the shipped payload must
  * be plain topaz chunk format that `GsFileIn fromPath:on:#serverUtf8File`

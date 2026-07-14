@@ -6,7 +6,10 @@ This product includes vendored third-party software:
 
 - Pharo AST-Core (the Refactoring Browser AST/rewriter), originally by
   John Brant and Don Roberts, obtained via GemStone RowanV3 3.7.5. MIT License.
-  Location: gs-src/refactoring/vendor/rowanv3-ast/.
+  Copyright (c) 2008-2019 The Pharo Project, and Contributors.
+  Upstream: https://github.com/pharo-project/pharo/tree/v12.0.0/src/AST-Core
+  License: https://github.com/pharo-project/pharo/blob/v12.0.0/LICENSE
+  Location in this repo: gs-src/refactoring/vendor/rowanv3-ast/.
 
 See THIRD-PARTY.md for full attribution, license texts, and the list of
 modifications.

@@ -9,15 +9,24 @@ refactoring tools build on. It is vendored, not authored here.
   and rewriter (`RBParser`, `RBParseTreeRewriter`, `RBParseTreeSearcher`,
   `RB*Node`/`RB*Token`, `RBScanner`, `RBSmallDictionary`, `RBConfigurableFormatter`).
   Originally authored by **John Brant and Don Roberts** (the Refactoring
-  Browser), maintained by the Pharo project.
-- **Intermediary / exact source:** GemStone **RowanV3**, released **3.7.5**
-  (Build `cf61017e`), from
+  Browser), maintained by the Pharo project. Canonical public home (lineage
+  reference, not the exact bytes we copied):
+  <https://github.com/pharo-project/pharo/tree/v12.0.0/src/AST-Core>.
+- **Intermediary / exact source (what we actually copied):** GemStone **RowanV3**,
+  released **3.7.5** (Build `cf61017e`), from
   `<product>/projects/RowanV3/rowan/src/`, packages:
   - `AST-Core/` — 56 classes
   - `AST-Kernel-Core/` — 10 kernel-class extensions (`*.extension.st`)
-  - `AST-Tests-Core/` — 4 test classes (the layer-(a) test seed)
-- **License:** MIT. Full text and attribution: repo-root `THIRD-PARTY.md` and
-  `NOTICE`.
+  - `AST-Tests-Core/` — 4 test classes (the vendored AST's own tests)
+- **License:** MIT — see the Pharo `LICENSE`
+  (<https://github.com/pharo-project/pharo/blob/v12.0.0/LICENSE>). Full text and
+  attribution: repo-root `THIRD-PARTY.md` and `NOTICE`.
+- **No embedded notices:** every file here was scanned — the vendored Tonel
+  carries **no per-file copyright, license, or author header** (nor does upstream
+  `AST-Core`). Attribution therefore rests on the package-level Pharo `LICENSE`
+  linked above, which is why we cite it. The Apple / Viewpoints Research /
+  Inria copyright lines in that `LICENSE` cover Squeak-descended parts of the
+  *whole Pharo image*, not the Refactoring Browser AST vendored here.
 
 ## Verbatim vs. adapted
 
@@ -26,7 +35,7 @@ be diffed against upstream on re-vendor. **No file here is hand-edited.**
 
 The one behaviour-preserving adaptation the engine needs to load on a bare,
 non-Rowan stone is applied at *build* time by
-`docs/refactoringSupport/build-ast-payload.sh` (never to these files):
+`gs-src/refactoring/build/build-ast-payload.sh` (never to these files):
 
 | Site | Change | Reason |
 |------|--------|--------|

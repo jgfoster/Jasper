@@ -1,8 +1,9 @@
 "
-The first shippable refactoring: rename an instance variable across a class and
-all of its subclasses, over ALL symbol-list dictionaries, without committing.
+Rename an instance variable across a class and all of its subclasses, over ALL
+symbol-list dictionaries, without committing. This is the first refactoring the
+engine ships.
 
-It combines the Stage-1 pieces with the vendored AST substrate:
+It combines the environment and change-set with the vendored AST substrate:
 
   - GsRefactoringEnvironment finds the affected methods reflectively
     (GsNMethod>>instVarsAccessed), so the candidate set is exactly the methods
@@ -22,8 +23,8 @@ It combines the Stage-1 pieces with the vendored AST substrate:
 
 Everything is staged into a GsRefactoringChangeSet: nothing here compiles a
 method or commits the transaction. The client previews the change set (per-change
-before/after), the user selects which changes to keep, and a later stage
-recompiles only those -- still without committing.
+before/after), the user selects which changes to keep, and the client recompiles
+only those -- still without committing.
 "
 Class {
 	#name : 'GsRenameInstanceVariableRefactoring',

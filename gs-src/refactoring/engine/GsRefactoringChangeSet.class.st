@@ -3,7 +3,7 @@ A non-committing set of individually-addressable changes that a refactoring
 computes and a client previews before applying. Staging a change records it
 only: the change set NEVER compiles a method or commits the transaction. The
 client fetches jsonString for a per-change before/after preview, lets the user
-select which changes to keep, and a later stage recompiles only the selected
+select which changes to keep, and the client recompiles only the selected
 ones (still without committing -- the user commits explicitly).
 "
 Class {
@@ -94,7 +94,7 @@ GsRefactoringChangeSet >> nextIdString [
 { #category : 'accessing' }
 GsRefactoringChangeSet >> selectedChanges: aCollectionOfIds [
 	"The subset of changes whose ids are in aCollectionOfIds, preserving order.
-	 Backs Stage 4's per-change selective apply."
+	 Backs the client's per-change selective apply."
 	| ids |
 	ids := aCollectionOfIds asArray.
 	^changes select: [:c | ids includes: c id]

@@ -1,24 +1,27 @@
 #!/bin/bash
 #
-# Build the vendored AST substrate .gs payload for the refactoring engine
-# (grail #62, Stage 2) from the verbatim Tonel under
-# gs-src/refactoring/vendor/rowanv3-ast/.
+# Build the vendored AST substrate .gs payload the refactoring engine loads.
 #
-# Pipeline: stage the verbatim Tonel to a temp dir, apply the documented
-# adaptations (auditable, and FAILS if the expected count drifts -- so a
-# re-vendor that introduces a new Rowan dependency is caught, not silently
-# shipped), then run tonel-to-gs.js. The verbatim vendored Tonel is never
-# edited; adaptations live here so they are reproducible and reviewable.
+# Turns the verbatim Tonel under gs-src/refactoring/vendor/rowanv3-ast/ into the
+# single topaz-chunk file resources/refactoring/ast-core.gs that a stone files
+# in. Run this whenever the vendored source changes; commit the regenerated
+# ast-core.gs alongside it.
 #
-# Adaptations (verbatim -> adapted):
+# Pipeline: copy the verbatim Tonel to a temp dir, apply the one documented
+# adaptation there (never to the vendored files), then run tonel-to-gs.js. The
+# adaptation is audited -- the build FAILS if the expected number of sites
+# drifts, so a re-vendor that introduces a new Rowan dependency is caught here
+# rather than silently shipped.
+#
+# The one adaptation (applied verbatim -> adapted):
 #   `Rowan globalNamed: X` -> `System myUserProfile symbolList objectNamed: X`
-#   Reason: the vendored engine must load on a bare, non-Rowan stone; `Rowan`
-#   is undefined there. Resolving the global via the session symbol list is
-#   behaviour-preserving. Occurs once in AST-Core (RBProgramNode class>>
-#   formatterClass, a dead branch) and twice in AST-Tests-Core (RBFormatterTests).
+#   Reason: the AST loads on a bare, non-Rowan stone where `Rowan` is undefined;
+#   resolving the global via the session symbol list is behaviour-preserving.
+#   Occurs once in AST-Core (RBProgramNode class>>formatterClass, a dead branch)
+#   and twice in AST-Tests-Core (RBFormatterTests).
 #
-# Usage:
-#   docs/refactoringSupport/build-ast-payload.sh [--dict DICT] [--tests-out PATH]
+# Usage (from anywhere -- paths resolve relative to this script):
+#   gs-src/refactoring/build/build-ast-payload.sh [--dict DICT] [--tests-out PATH]
 #
 # Outputs:
 #   resources/refactoring/ast-core.gs        (engine substrate; ships in VSIX)
@@ -26,10 +29,11 @@
 #                                             not shipped)
 set -euo pipefail
 
-REPO="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+REPO="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+BUILD="$REPO/gs-src/refactoring/build"
 VENDOR="$REPO/gs-src/refactoring/vendor/rowanv3-ast"
-CONVERTER="$REPO/docs/refactoringSupport/tonel-to-gs.js"
-HEADER="$REPO/docs/refactoringSupport/ast-provenance-header.gs"
+CONVERTER="$BUILD/tonel-to-gs.js"
+HEADER="$BUILD/ast-provenance-header.gs"
 OUT="$REPO/resources/refactoring"
 DICT="UserGlobals"
 TESTS_OUT=""
