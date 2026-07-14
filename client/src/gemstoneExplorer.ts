@@ -118,8 +118,13 @@ class ClassCategoryItem extends vscode.TreeItem {
 }
 
 class ClassItem extends vscode.TreeItem {
-  constructor(public readonly className: string) {
-    super(className, vscode.TreeItemCollapsibleState.None);
+  // `hasIvars` drives the expansion caret: a class with locally-defined instance
+  // variables opens to reveal its ivar sub-tree; one without stays flat. It never
+  // affects the stable `id`, so TreeView.reveal still matches regardless.
+  constructor(public readonly className: string, hasIvars = false) {
+    super(className, hasIvars
+      ? vscode.TreeItemCollapsibleState.Collapsed
+      : vscode.TreeItemCollapsibleState.None);
     this.id = `k:${className}`;
     this.contextValue = 'explorerClass';
     this.iconPath = new vscode.ThemeIcon('symbol-class');
@@ -132,6 +137,20 @@ class ClassItem extends vscode.TreeItem {
     };
   }
 }
+
+// A locally-defined instance variable, shown as a child of its ClassItem. The
+// pencil (inline) action renames it; selecting the row does not navigate.
+class IvarItem extends vscode.TreeItem {
+  constructor(public readonly className: string, public readonly ivarName: string) {
+    super(ivarName, vscode.TreeItemCollapsibleState.None);
+    this.id = `k:${className}/iv:${ivarName}`;
+    this.contextValue = 'explorerIvar';
+    this.iconPath = new vscode.ThemeIcon('symbol-field');
+    this.tooltip = `Instance variable defined in ${className}`;
+  }
+}
+
+type ClassNode = ClassItem | IvarItem;
 
 // Method pane is a 3-level tree: side ▸ method-category ▸ selector.
 class MethodSideItem extends vscode.TreeItem {
@@ -286,7 +305,7 @@ function methodArg(arg: MethodCommandArg): { selector: string; isMeta: boolean }
 interface ExplorerViews {
   dict: vscode.TreeView<DictItem>;
   category: vscode.TreeView<ClassCategoryItem>;
-  klass: vscode.TreeView<ClassItem>;
+  klass: vscode.TreeView<ClassNode>;
   hierarchy: vscode.TreeView<HierarchyItem>;
   method: vscode.TreeView<MethodNode>;
 }
@@ -297,6 +316,11 @@ class ExplorerController {
   readonly state: ExplorerState = {};
   // className → category for the current dictionary; fetched once per dict.
   private classCategoryEntries: queries.ClassCategoryEntry[] = [];
+  // className → count of locally-defined instance variables, for the current
+  // dictionary; fetched once per dict so class rows know whether to show an
+  // expansion caret. Names are fetched lazily on expand and memoized here.
+  private definedIvarCounts = new Map<string, number>();
+  private readonly definedIvarNamesCache = new Map<string, string[]>();
   // Per-method metadata for the selected class; fetched once per class.
   private envLines: queries.EnvCategoryLine[] = [];
   private views?: ExplorerViews;
@@ -444,6 +468,8 @@ class ExplorerController {
     this.state.selectedIsMeta = undefined;
     this.state.selectedMethodCategory = undefined;
     this.classCategoryEntries = [];
+    this.definedIvarCounts = new Map();
+    this.definedIvarNamesCache.clear();
     this.envLines = [];
     this.hierChain = [];
     this.hierSubs = [];
@@ -478,6 +504,7 @@ class ExplorerController {
     this.classCategoryEntries = session
       ? queries.getClassesWithCategory(session, item.dictIndex)
       : [];
+    this.loadDefinedIvarCounts();
     this.categoryProvider.refresh();
     this.classProvider.refresh();
     this.hierarchyProvider.refresh();
@@ -781,6 +808,68 @@ class ExplorerController {
     );
   }
 
+  // ── Instance-variable sub-tree (Classes pane) ────────────────────────────────
+
+  // Reload the per-class defined-ivar counts for the current dictionary (one
+  // round trip) and drop any memoized name lists. Called wherever the class
+  // listing itself is (re)loaded. A failed probe leaves the counts empty rather
+  // than breaking navigation — classes just render flat.
+  private loadDefinedIvarCounts(): void {
+    const session = this.session();
+    this.definedIvarNamesCache.clear();
+    if (!session || this.state.dictIndex === undefined) {
+      this.definedIvarCounts = new Map();
+      return;
+    }
+    try {
+      this.definedIvarCounts = queries.getDefinedInstVarCounts(session, this.state.dictIndex);
+    } catch {
+      this.definedIvarCounts = new Map();
+    }
+  }
+
+  // Whether a class has locally-defined instance variables (drives the caret).
+  classHasDefinedIvars(className: string): boolean {
+    return (this.definedIvarCounts.get(className) ?? 0) > 0;
+  }
+
+  // Locally-defined instance variable names for a class, memoized per dict load.
+  definedIvarNames(className: string): string[] {
+    const cached = this.definedIvarNamesCache.get(className);
+    if (cached) return cached;
+    const session = this.session();
+    let names: string[] = [];
+    if (session) {
+      try {
+        names = queries.getDefinedInstVarNames(session, className);
+      } catch { /* leave empty — the row simply shows no children */ }
+    }
+    this.definedIvarNamesCache.set(className, names);
+    return names;
+  }
+
+  // Stage A stub: prove the pencil fires with the right (class, ivar), but the
+  // rename itself isn't wired yet — the server-side refactoring engine lands with
+  // the refactoring branch. The dialog is shown (and made explicit that nothing
+  // happens on accept) so the UX flow can be exercised end to end.
+  async renameInstVar(item: IvarItem): Promise<void> {
+    const entered = await vscode.window.showInputBox({
+      title: 'Rename Instance Variable — not available yet',
+      prompt: `'${item.ivarName}' in ${item.className}. `
+        + 'Renaming is not implemented yet; accepting will not change anything.',
+      value: item.ivarName,
+      valueSelection: [0, item.ivarName.length],
+    });
+    // Only stay silent if the user dismissed the box (Esc). Accepting it — whether
+    // they changed the name or just pressed Enter — surfaces the not-yet message.
+    if (entered === undefined) return;
+    void vscode.window.showInformationMessage(
+      `Renaming instance variables isn't available yet — '${item.ivarName}' in `
+      + `${item.className} was left unchanged. The refactoring engine wiring lands `
+      + 'in the next stage.',
+    );
+  }
+
   // Method categories for one side, with the computed ALL/SESSION rows on top,
   // plus any just-created (still empty) categories from the + button.
   methodCategories(isMeta: boolean): MethodCategoryItem[] {
@@ -943,6 +1032,7 @@ class ExplorerController {
     this.state.dictName = dictName;
     this.state.dictIndex = dictIndex;
     this.classCategoryEntries = entries;
+    this.loadDefinedIvarCounts();
     const catEntry = this.classCategoryEntries.find((e) => e.className === className);
     // Only pin the category pane when the class has a non-empty one; otherwise
     // leave it on "all classes" so the target row is guaranteed visible.
@@ -1309,6 +1399,7 @@ class ExplorerController {
     const session = this.session();
     if (!session || session.id !== sessionId || this.state.dictIndex === undefined) return;
     this.classCategoryEntries = queries.getClassesWithCategory(session, this.state.dictIndex);
+    this.loadDefinedIvarCounts();
     this.categoryProvider.refresh();
     this.classProvider.refresh();
     // If the compiled class lives in the current dictionary, select it so the
@@ -1374,16 +1465,26 @@ class CategoryProvider extends RefreshableProvider<ClassCategoryItem> {
   }
 }
 
-class ClassProvider extends RefreshableProvider<ClassItem> {
+class ClassProvider extends RefreshableProvider<ClassNode> {
   constructor(private readonly ctl: ExplorerController) {
     super();
   }
-  getParent(): ClassItem | undefined {
-    return undefined;
+  getParent(element: ClassNode): ClassNode | undefined {
+    return element instanceof IvarItem ? new ClassItem(element.className) : undefined;
   }
-  getChildren(element?: ClassItem): ClassItem[] {
-    if (element || this.ctl.state.dictName === undefined) return [];
-    return this.ctl.classNames().map((n) => new ClassItem(n));
+  getChildren(element?: ClassNode): ClassNode[] {
+    if (this.ctl.state.dictName === undefined) return [];
+    if (!element) {
+      return this.ctl.classNames().map(
+        (n) => new ClassItem(n, this.ctl.classHasDefinedIvars(n)),
+      );
+    }
+    // Expand a class to its locally-defined instance variables; ivar rows are leaves.
+    if (element instanceof ClassItem) {
+      return this.ctl.definedIvarNames(element.className)
+        .map((iv) => new IvarItem(element.className, iv));
+    }
+    return [];
   }
 }
 
@@ -1471,14 +1572,14 @@ class MethodDragAndDrop implements vscode.TreeDragAndDropController<MethodNode> 
 }
 
 // Classes pane: accept a dragged method and COPY it into the dropped-on class.
-class ClassDropController implements vscode.TreeDragAndDropController<ClassItem> {
+class ClassDropController implements vscode.TreeDragAndDropController<ClassNode> {
   readonly dragMimeTypes: readonly string[] = [];
   readonly dropMimeTypes = [METHOD_MIME];
   constructor(private readonly ctl: ExplorerController) {}
 
   handleDrag(): void { /* classes aren't draggable */ }
 
-  async handleDrop(target: ClassItem | undefined, dataTransfer: vscode.DataTransfer): Promise<void> {
+  async handleDrop(target: ClassNode | undefined, dataTransfer: vscode.DataTransfer): Promise<void> {
     if (!(target instanceof ClassItem)) return;
     const raw = dataTransfer.get(METHOD_MIME);
     if (!raw) return;
@@ -1546,7 +1647,10 @@ export function registerGemStoneExplorer(
     if (e.selection[0]) ctl.selectClassCategory(e.selection[0]);
   });
   classView.onDidChangeSelection((e) => {
-    if (e.selection[0]) ctl.selectClass(e.selection[0]);
+    // Only a class row navigates; selecting an ivar child is inert (it's acted on
+    // via its inline pencil, not selection).
+    const node = e.selection[0];
+    if (node instanceof ClassItem) ctl.selectClass(node);
   });
   hierarchyView.onDidChangeSelection((e) => {
     if (e.selection[0]) ctl.selectHierarchyNode(e.selection[0]);
@@ -1636,6 +1740,11 @@ export function registerGemStoneExplorer(
       (item?: ClassItem | HierarchyItem) => void ctl.generateGrailStub(
         item instanceof ClassItem || item instanceof HierarchyItem ? item : undefined,
       ),
+    ),
+    // Rename a locally-defined instance variable (pencil on the ivar row).
+    vscode.commands.registerCommand(
+      'gemstone.explorer.renameIvar',
+      (item?: IvarItem) => { if (item instanceof IvarItem) void ctl.renameInstVar(item); },
     ),
     // New (+) actions, one per pane.
     vscode.commands.registerCommand('gemstone.explorer.newDictionary', () => ctl.newDictionary()),

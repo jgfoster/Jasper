@@ -1219,9 +1219,10 @@ export class DebuggerPanel {
       DebuggerPanel.panels.set(session.id, new Set());
     }
     DebuggerPanel.panels.get(session.id)!.add(debugger_);
-    // Disable native code for this session so the debugger can single-step
-    // (GemStone can't step native code — error 6014). Released on dispose.
-    debug.acquireStepping(session);
+    // Single-stepping needs no session-wide setup here: the debugged process
+    // started interpreted (GCI_PERFORM_FLAG_INTERPRETED at execution start —
+    // GemStone can't step native code, error 6014) and every step/continue
+    // perform carries the same flag (STEP_FLAGS in debugQueries).
   }
 
   static disposeForSession(sessionId: number): void {
@@ -3994,9 +3995,6 @@ export class DebuggerPanel {
     // Release any pinned revert originals so closing the debugger never leaks the
     // session's export set.
     this.clearUndoState();
-    // Restore native code once the last debugger for this session closes
-    // (paired with acquireStepping in create).
-    debug.releaseStepping(this.session);
     // Drop the step-point highlight from the companion editor (which outlives
     // the panel) so a stale highlight doesn't linger after the debugger closes.
     this.decoratedEditor?.setDecorations(DebuggerPanel.stepPointDecoration, []);

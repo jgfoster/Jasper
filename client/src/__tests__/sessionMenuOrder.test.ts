@@ -33,7 +33,7 @@ function inlineOrderFor(viewItemClause: string): string[] {
 }
 
 describe('session row inline button order', () => {
-  it('leads with the most-used safe actions, groups the backup/restore pair, and trails with Logout', () => {
+  it('leads with the most-used safe actions and trails with Logout, without the rare backup actions', () => {
     const order = inlineOrderFor('viewItem == gemstoneSession');
 
     expect(order).toEqual([
@@ -42,10 +42,20 @@ describe('session row inline button order', () => {
       'gemstone.sessionCommit',
       'gemstone.sessionAbort',
       'gemstone.sessionPing',
-      'gemstone.fullLogicalBackup',
-      'gemstone.fullLogicalRestore',
       'gemstone.sessionLogout',
     ]);
+  });
+
+  it('keeps the rare backup and restore actions off the inline row, paired in a context-menu group', () => {
+    const sessionItems = itemContext.filter(
+      (m) => (m.when ?? '').includes('viewItem == gemstoneSession'),
+    );
+
+    const backup = sessionItems.find((m) => m.command === 'gemstone.fullLogicalBackup');
+    const restore = sessionItems.find((m) => m.command === 'gemstone.fullLogicalRestore');
+
+    expect(backup?.group).toBe('3_backup@1');
+    expect(restore?.group).toBe('3_backup@2');
   });
 });
 

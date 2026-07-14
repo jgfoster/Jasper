@@ -191,8 +191,10 @@ export function buildMethodUri(parsedUri: ParsedMethodUri): vscode.Uri {
   assertIsValidUriPath('Dictionary name', parsedUri.dictName);
   assertIsValidUriPath('Class name', parsedUri.className);
   assertIsValidUriPath('Method category name', parsedUri.category);
-  assertIsValidUriPath('Selector', parsedUri.selector);
-  
+  // The selector is NOT asserted slash-free: '/' and '//' are ordinary binary
+  // selectors. Escape any slashes to the sentinel so they survive the path
+  // (parseUri reverses it). Idempotent, so callers that pre-escape stay correct.
+
   const side = parsedUri.isMeta ? 'class' : 'instance';
   const params: string[] = [];
   if (parsedUri.dictIndex !== undefined) params.push(`dict=${parsedUri.dictIndex}`);
@@ -201,7 +203,7 @@ export function buildMethodUri(parsedUri: ParsedMethodUri): vscode.Uri {
   return vscode.Uri.from({
     scheme: 'gemstone',
     authority: String(parsedUri.sessionId),
-    path: `/${parsedUri.dictName}/${parsedUri.className}/${side}/${parsedUri.category}/${parsedUri.selector}`,
+    path: `/${parsedUri.dictName}/${parsedUri.className}/${side}/${parsedUri.category}/${escapeSelectorSlashes(parsedUri.selector)}`,
     query: params.join('&'),
   });
 }

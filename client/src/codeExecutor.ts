@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
 import { SessionManager, ActiveSession } from './sessionManager';
-import { OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG, GCI_PERFORM_FLAG_SINGLE_STEP } from './gciConstants';
+import { OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG, GCI_PERFORM_FLAG_SINGLE_STEP, GCI_PERFORM_FLAG_INTERPRETED } from './gciConstants';
 import { logQuery, logResult, logError, logInfo } from './gciLog';
 import { InspectorTreeProvider } from './inspectorTreeProvider';
 import { routeInspect } from './inspectRouter';
 import { DebuggerPanel } from './debuggerPanel';
-import { clearStack, getObjectPrintString, acquireStepping, releaseStepping } from './debugQueries';
+import { clearStack, getObjectPrintString } from './debugQueries';
 import { appendTranscript, appendTranscriptOutput, showTranscript } from './transcriptChannel';
 import { setTranscriptLive, drainTranscript, settleNbResult } from './transcriptSink';
 import { pollNbToCompletion, NbCancelledError } from './nbRunner';
@@ -165,12 +165,10 @@ export class CodeExecutor {
     this.setExecuting(session.id, true);
     // Run interpreted (native code off) so a halt/error is steppable in the
     // debugger — GemStone can't step native code (error 6014), and the process
-    // must START interpreted. Released in finally; if it halts, the debugger
-    // panel holds its own ref to keep native off while it's open.
-    acquireStepping(session);
-    // Debug It adds the single-step flag so the server breaks on the first
-    // statement of the compiled code and we open the debugger sitting there.
-    const execFlags = GCI_PERFORM_FLAG_ENABLE_DEBUG
+    // must START interpreted. Debug It adds the single-step flag so the server
+    // breaks on the first statement of the compiled code and we open the
+    // debugger sitting there.
+    const execFlags = GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED
       | (mode === 'debug' ? GCI_PERFORM_FLAG_SINGLE_STEP : 0);
     // Transcript writes stream live to the output channel while this execute
     // runs (see transcriptSink). Any residue buffered since the last drain is
@@ -254,7 +252,6 @@ export class CodeExecutor {
       // a hard-break cancel the gem may still be settling — the switch then
       // fails quietly and the next execute's switch-on drains the residue.)
       appendTranscriptOutput(setTranscriptLive(session, false));
-      releaseStepping(session);
       this.setExecuting(session.id, false);
     }
   }
@@ -750,17 +747,13 @@ export class CodeExecutor {
     }
 
     this.setExecuting(session.id, true);
-    // Run interpreted (native code off) so a halt/error is steppable in the
-    // debugger — GemStone can't step native code (error 6014), and the process
-    // must START interpreted. Released in finally; if it halts, the debugger
-    // panel holds its own ref to keep native off while it's open.
-    acquireStepping(session);
     // Live transcript for the duration; see execute() above.
     appendTranscriptOutput(setTranscriptLive(session, true));
     try {
+      // Interpreted so a halt/error is steppable in the debugger; see execute().
       const { success, err: startErr } = session.gci.GciTsNbExecute(
         session.handle, code, oopClassString,
-        OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG, 0,
+        OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED, 0,
       );
       if (!success) {
         const msg = `Execution failed to start: ${startErr.message || `error ${startErr.number}`}`;
@@ -793,7 +786,6 @@ export class CodeExecutor {
         editor.setDecorations(executingDecorationType, []);
       }
       appendTranscriptOutput(setTranscriptLive(session, false));
-      releaseStepping(session);
       this.setExecuting(session.id, false);
     }
   }

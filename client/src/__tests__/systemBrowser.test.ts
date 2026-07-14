@@ -2564,7 +2564,7 @@ describe('SystemBrowser', () => {
       messageHandler({ command: 'selectClass', name: 'Array' });
 
       const result = SystemBrowser.getSelectedClassName(session.id);
-      expect(result).toEqual({ dictName: 'UserGlobals', className: 'Array' });
+      expect(result).toEqual({ dictName: 'UserGlobals', className: 'Array', dictIndex: 1 });
     });
   });
 

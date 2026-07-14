@@ -2,35 +2,95 @@ name: Health Check
 
 on: push
 
+# zizmor(excessive-permissions): an explicit permissions block is required
+# instead of relying on the default GITHUB_TOKEN scope
+permissions:
+  contents: read
+
 jobs:
-  load-gemstone-integration-versions:
+  prepare:
+    timeout-minutes: 1
     runs-on: ubuntu-latest
     outputs:
-      versions: ${{ steps.read.outputs.versions }}
+      versions: ${{ steps.read-gemstone-integration-versions.outputs.versions }}
     steps:
-      - uses: actions/checkout@v6
+      # zizmor(unpinned-uses): actions must be pinned to a commit SHA, not
+      # a mutable tag like @v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           sparse-checkout: |
+            .github/workflows
+            /package.json
+            scripts/lint-workflow-timeouts.sh
             client/.gemstone-integration-releases.json
             client/bin/gemstone-integration-versions.js
             client/src/gemStoneVersion.js
           sparse-checkout-cone-mode: false
-      - id: read
-        run: echo "versions=$(node client/bin/gemstone-integration-versions.js)" >> $GITHUB_OUTPUT
+          # zizmor(artipacked): checkout must not persist the token past
+          # this job
+          persist-credentials: false
+      # Fails if any job lacks timeout-minutes, since a job without one
+      # silently inherits GitHub's 360-minute default instead of failing
+      # fast on a hang. Kept here rather than in lint-workflows: it's a
+      # cheap bash+yq script with no Docker pull, so it adds negligible
+      # latency to the matrix gate. Only the slower actionlint/zizmor
+      # checks were split into their own job, to avoid blocking the matrix
+      # on their Docker image pulls.
+      - name: Lint workflow timeouts
+        run: npm run lint:github:workflows
+      - name: Read GemStone integration versions
+        id: read-gemstone-integration-versions
+        # actionlint/shellcheck(SC2086): quote $GITHUB_OUTPUT to prevent
+        # word splitting/globbing
+        run: echo "versions=$(node client/bin/gemstone-integration-versions.js)" >> "$GITHUB_OUTPUT"
+
+  lint-workflows:
+    name: Lint GitHub Actions workflows
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      # zizmor(unpinned-uses): actions must be pinned to a commit SHA, not
+      # a mutable tag like @v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            .github/workflows
+          sparse-checkout-cone-mode: false
+          # zizmor(artipacked): checkout must not persist the token past
+          # this job
+          persist-credentials: false
+      - name: Run actionlint
+        # actionlint/shellcheck(SC2046): quote $(pwd) to prevent word
+        # splitting/globbing. Pinned to a digest, not a mutable tag, for the
+        # same supply-chain reason as the zizmor(unpinned-uses) actions above.
+        run: docker run --rm -v "$(pwd)":/repo --workdir /repo rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 -color # 1.7.12
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa # v0.5.7
+        with:
+          advanced-security: false
 
   health-check:
+    timeout-minutes: 5
     name: GemStone S/64 ${{ matrix.gemstone-version }}
-    needs: load-gemstone-integration-versions
+    needs: prepare
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        gemstone-version: ${{ fromJson(needs.load-gemstone-integration-versions.outputs.versions) }}
+        gemstone-version: ${{ fromJson(needs.prepare.outputs.versions) }}
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        # zizmor(unpinned-uses): actions must be pinned to a commit SHA,
+        # not a mutable tag like @v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # zizmor(artipacked): checkout must not persist the token past
+          # this job
+          persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        # zizmor(unpinned-uses): actions must be pinned to a commit SHA,
+        # not a mutable tag like @v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: '.nvmrc'
       - name: Install dependencies
@@ -38,11 +98,17 @@ jobs:
       - name: Compile
         run: npm run compile
       - name: Cache GemStone installation
-        uses: actions/cache@v6
+        # zizmor(unpinned-uses): actions must be pinned to a commit SHA,
+        # not a mutable tag like @v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: client/tmp/downloads
           key: gemstone-download-${{ runner.os }}-${{ matrix.gemstone-version }}
       - name: Setup test environment
-        run: npm run test:server:start -- ${{ matrix.gemstone-version }}
+        # zizmor(template-injection): bind the untrusted matrix value to an
+        # env var instead of interpolating ${{ }} directly into the script
+        env:
+          GEMSTONE_VERSION: ${{ matrix.gemstone-version }}
+        run: npm run test:server:start -- "$GEMSTONE_VERSION"
       - name: Run tests
         run: npm test

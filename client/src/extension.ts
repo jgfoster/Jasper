@@ -45,6 +45,8 @@ import { NbCancelledError } from './nbRunner';
 import { RowanRepoRegistry } from './rowanRepos';
 import { RowanTreeProvider, RowanRepoItem, RowanLoadedProjectItem, RowanChangesProjectItem } from './rowanTreeProvider';
 import { RowanDecorationProvider } from './rowanDecorations';
+import { findMethodInClass } from './commands/findMethodInClass';
+import { loadClassPickItems } from './commands/classPicker';
 import { GlobalsBrowser } from './globalsBrowser';
 import { CommentBrowser } from './commentBrowser';
 import { EnhancedInspector } from './enhancedInspector';
@@ -57,7 +59,7 @@ import { refreshEnhancedInspectorAvailable } from './enhancedInspectorAvailabili
 import { supportsEnhancedInspector } from './enhancedInspectorInstall';
 import { DebuggerPanel } from './debuggerPanel';
 import { InlineValuesCodeLensProvider } from './inlineValuesCodeLens';
-import { GemStoneFileSystemProvider, MethodCompiledEvent, ClassDefinitionCompiledEvent, closeGemstoneTabsForSession, installStaleGemstoneTabReaper } from './gemstoneFileSystemProvider';
+import { GemStoneFileSystemProvider, MethodCompiledEvent, ClassDefinitionCompiledEvent, closeGemstoneTabsForSession, installStaleGemstoneTabReaper, buildMethodUri } from './gemstoneFileSystemProvider';
 import { openWorkspace } from './workspace';
 import { openTutorialNotebook } from './tutorialNotebook';
 import { GemStoneDebugSession } from './gemstoneDebugSession';
@@ -86,7 +88,7 @@ import { VersionTreeProvider, VersionItem } from './versionTreeProvider';
 import { DatabaseManager } from './databaseManager';
 import { DatabaseTreeProvider, DatabaseNode } from './databaseTreeProvider';
 import { runLogicalBackup } from './backupManager';
-import { runOnlineExtentBackup } from './extentBackupManager';
+import { runOnlineExtentBackup, resolveExtentBackupSession } from './extentBackupManager';
 import { runLogicalRestore, RestoreSession } from './restoreManager';
 import { hasFileControlPrivilege } from './queries/backup';
 import { ProcessManager } from './processManager';
@@ -920,15 +922,7 @@ export function activate(context: vscode.ExtensionContext) {
     // method (updates all 5 columns) and open the method editor from there.
     // Otherwise fall back to opening the document directly.
     if (!SystemBrowser.navigateTo(session.id, r)) {
-      const side = r.isMeta ? 'class' : 'instance';
-      const uri = vscode.Uri.parse(
-        `gemstone://${session.id}` +
-        `/${encodeURIComponent(r.dictName)}` +
-        `/${encodeURIComponent(r.className)}` +
-        `/${side}` +
-        `/${encodeURIComponent(r.category)}` +
-        `/${encodeURIComponent(r.selector)}`
-      );
+      const uri = buildMethodUri({ kind: 'method', sessionId: session.id, ...r, environmentId: 0 });
       vscode.commands.executeCommand('gemstone.openDocument', uri);
     }
   }
@@ -1945,27 +1939,8 @@ export function activate(context: vscode.ExtensionContext) {
       const session = await sessionManager.resolveSession();
       if (!session) return;
 
-      let entries: queries.ClassNameEntry[];
-      try {
-        entries = await vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: 'Loading class list…',
-            cancellable: false,
-          },
-          () => Promise.resolve(queries.getAllClassNames(session)),
-        );
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        vscode.window.showErrorMessage(`Failed to load classes: ${msg}`);
-        return;
-      }
-
-      const items = entries.map(e => ({
-        label: e.className,
-        description: e.dictName,
-        entry: e,
-      }));
+      const items = await loadClassPickItems(session);
+      if (!items) return;
 
       const picked = await vscode.window.showQuickPick(items, {
         placeHolder: 'Type to find a class…',
@@ -1989,79 +1964,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
 
-    vscode.commands.registerCommand('gemstone.findMethod', async () => {
-      const session = await sessionManager.resolveSession();
-      if (!session) return;
-
-      let className: string | undefined;
-      let dictName: string | undefined;
-
-      const current = SystemBrowser.getSelectedClassName(session.id);
-      if (current) {
-        className = current.className;
-        dictName = current.dictName;
-      } else {
-        className = await vscode.window.showInputBox({
-          prompt: 'Enter class name',
-          placeHolder: 'e.g. Array',
-        });
-        if (!className) return;
-      }
-
-      let methods: queries.MethodEntry[];
-      try {
-        methods = await vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: `Loading methods for ${className}…`,
-            cancellable: false,
-          },
-          () => Promise.resolve(queries.getMethodList(session, className!)),
-        );
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        vscode.window.showErrorMessage(`Failed to load methods: ${msg}`);
-        return;
-      }
-
-      if (methods.length === 0) {
-        vscode.window.showInformationMessage(`No methods found for ${className}.`);
-        return;
-      }
-
-      const items = methods.map(m => ({
-        label: `${m.isMeta ? '(class) ' : ''}${m.selector}`,
-        description: m.category,
-        method: m,
-      }));
-
-      const picked = await vscode.window.showQuickPick(items, {
-        placeHolder: `Type to find a method in ${className}…`,
-        matchOnDescription: true,
-      });
-      if (!picked) return;
-
-      const result: queries.MethodSearchResult = {
-        dictName: dictName || '',
-        className: className!,
-        isMeta: picked.method.isMeta,
-        selector: picked.method.selector,
-        category: picked.method.category,
-      };
-
-      if (!SystemBrowser.navigateTo(session.id, result)) {
-        const side = result.isMeta ? 'class' : 'instance';
-        const uri = vscode.Uri.parse(
-          `gemstone://${session.id}` +
-          `/${encodeURIComponent(result.dictName)}` +
-          `/${encodeURIComponent(result.className)}` +
-          `/${side}` +
-          `/${encodeURIComponent(result.category)}` +
-          `/${encodeURIComponent(result.selector)}`
-        );
-        vscode.commands.executeCommand('gemstone.openDocument', uri);
-      }
-    }),
+    vscode.commands.registerCommand('gemstone.findMethodInClass', () => findMethodInClass(sessionManager)),
   );
 
   // ── SysAdmin ──────────────────────────────────────────────
@@ -3023,39 +2926,53 @@ export function activate(context: vscode.ExtensionContext) {
       if (backedUp) refreshAdminViews();
     }),
 
-    vscode.commands.registerCommand('gemstone.onlineExtentBackup', async (item?: GemStoneSessionItem) => {
-      // Like the logical backup, this runs against one session — the clicked or
-      // selected one. Unlike it, copying live extents needs host-filesystem
-      // access to them, so it only works for a Jasper-managed local stone.
-      const session = item ? item.activeSession : sessionManager.getSelectedSession();
-      if (!session) {
-        vscode.window.showInformationMessage(
-          'No GemStone session to back up. Connect a session first.',
+    vscode.commands.registerCommand('gemstone.onlineExtentBackup',
+      async (item?: GemStoneSessionItem | DatabaseNode) => {
+        // Two entry points: the Sessions view (a GemStoneSessionItem) and the
+        // running Stone node in the Databases view (a 'stone' DatabaseNode).
+        // Either way this runs against one live session — copying live extents
+        // needs host-filesystem access to them, so it only works for a
+        // Jasper-managed local stone.
+        const resolved = resolveExtentBackupSession(
+          item, sessionManager.getSessions(), sessionManager.getSelectedSession(),
         );
-        return;
-      }
-      const db = sysadminStorage.getDatabases()
-        .find(d => d.config.stoneName === session.login.stone);
-      if (!db) {
-        vscode.window.showErrorMessage(
-          `Online extent backup needs a Jasper-managed local stone (to reach its extent files). `
-          + `Stone "${session.login.stone}" isn't managed here — use Full Logical Backup instead.`,
-          { modal: true },
-        );
-        return;
-      }
-      const backedUp = await runOnlineExtentBackup({
-        execute: (label, code) => queries.executeFetchString(session, label, code),
-        stoneName: session.login.stone,
-        dbPath: db.path,
-        dataDir: path.join(db.path, 'data'),
-        listDataFiles: (dir) => wslReaddirSync(dir),
-        ensureDir: (dir) => wslMkdirSync(dir, { recursive: true }),
-        copyFile: (src, dst) => wslImportFileSync(src, dst),
-        fileExists: wslExistsSync,
-      });
-      if (backedUp) refreshAdminViews();
-    }),
+        if ('needLogin' in resolved) {
+          vscode.window.showWarningMessage(
+            'An online extent backup runs over a live session on the stone. '
+            + `Log in to "${resolved.needLogin}" first, then try again.`,
+            { modal: true },
+          );
+          return;
+        }
+        if ('noSession' in resolved) {
+          vscode.window.showInformationMessage(
+            'No GemStone session to back up. Connect a session first.',
+          );
+          return;
+        }
+        const session = resolved.session;
+        const db = sysadminStorage.getDatabases()
+          .find(d => d.config.stoneName === session.login.stone);
+        if (!db) {
+          vscode.window.showErrorMessage(
+            `Online extent backup needs a Jasper-managed local stone (to reach its extent files). `
+            + `Stone "${session.login.stone}" isn't managed here — use Full Logical Backup instead.`,
+            { modal: true },
+          );
+          return;
+        }
+        const backedUp = await runOnlineExtentBackup({
+          execute: (label, code) => queries.executeFetchString(session, label, code),
+          stoneName: session.login.stone,
+          dbPath: db.path,
+          dataDir: path.join(db.path, 'data'),
+          listDataFiles: (dir) => wslReaddirSync(dir),
+          ensureDir: (dir) => wslMkdirSync(dir, { recursive: true }),
+          copyFile: (src, dst) => wslImportFileSync(src, dst),
+          fileExists: wslExistsSync,
+        });
+        if (backedUp) refreshAdminViews();
+      }),
 
     vscode.commands.registerCommand('gemstone.fullLogicalRestore',
       async (item?: GemStoneSessionItem | DatabaseNode) => {

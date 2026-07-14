@@ -913,70 +913,48 @@ describe('debugQueries', () => {
     });
   });
 
-  // Native-code toggle: a benign breakpoint flips the gem to interpreted so the
-  // debugger can single-step (GemStone can't step native code, error 6014).
-  // Ref-counted per session: set on the first acquire, cleared on the last
-  // release. Each test uses a distinct session id to avoid sharing the
-  // module-level ref counter.
-  describe('stepping native-code toggle (acquire/releaseStepping)', () => {
-    let nextId = 1000;
-    function makeSession(): { session: ActiveSession; exec: ReturnType<typeof vi.fn> } {
-      const exec = vi.fn(() => ({ result: 0n, err: { ...noErr } }));
+  // Stepping runs interpreted via GCI_PERFORM_FLAG_INTERPRETED on the perform
+  // itself (GemStone can't step native code, error 6014) — there is no
+  // session-global toggle to manage. Assert every step/continue variant
+  // carries the flag.
+  describe('stepping interpreted-mode flag', () => {
+    const FLAG_INTERPRETED = 0x20;
+
+    function makeSession(): { session: ActiveSession; perform: ReturnType<typeof vi.fn> } {
+      const perform = vi.fn(() => ({ result: 0n, err: { ...noErr } }));
       const gci = {
-        GciTsResolveSymbol: vi.fn(() => ({ result: 99n, err: { ...noErr } })),
-        GciTsExecute: exec,
+        GciTsPerform: perform,
+        GciTsContinueWith: perform,
+        GciTsI64ToOop: vi.fn(() => ({ result: 10n, err: { ...noErr } })),
       };
       const session = {
-        id: nextId++, gci: gci as unknown as ActiveSession['gci'],
+        id: 1, gci: gci as unknown as ActiveSession['gci'],
         handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
       } as ActiveSession;
-      return { session, exec };
+      return { session, perform };
     }
-    const codeOf = (exec: ReturnType<typeof vi.fn>, callIndex: number): string =>
-      exec.mock.calls[callIndex][1] as string;
 
-    it('first acquire sets the breakpoint (disables native code)', () => {
-      const { session, exec } = makeSession();
-      debug.acquireStepping(session);
-      expect(exec).toHaveBeenCalledTimes(1);
-      expect(codeOf(exec, 0)).toContain('setBreakAtStepPoint:');
-      debug.releaseStepping(session); // cleanup
+    it('sends every step message with native code disabled', () => {
+      const { session, perform } = makeSession();
+
+      debug.stepOver(session, 0xAAn, 1);
+      debug.stepInto(session, 0xAAn, 1);
+      debug.stepOut(session, 0xAAn, 1);
+
+      for (const call of perform.mock.calls) {
+        const flags = call[5] as number;
+        expect(flags & FLAG_INTERPRETED).toBe(FLAG_INTERPRETED);
+      }
+      expect(perform.mock.calls.length).toBe(3);
     });
 
-    it('last release clears the breakpoint (restores native code)', () => {
-      const { session, exec } = makeSession();
-      debug.acquireStepping(session);
-      debug.releaseStepping(session);
-      expect(exec).toHaveBeenCalledTimes(2);
-      expect(codeOf(exec, 1)).toContain('clearBreakAtStepPoint:');
-    });
+    it('continues a suspended process with native code disabled', () => {
+      const { session, perform } = makeSession();
 
-    it('is ref-counted: nested acquires set/clear the break only once (at the edges)', () => {
-      const { session, exec } = makeSession();
-      debug.acquireStepping(session); // 0→1: set
-      debug.acquireStepping(session); // 1→2: no-op
-      debug.releaseStepping(session); // 2→1: no-op
-      expect(exec).toHaveBeenCalledTimes(1); // only the initial set so far
-      debug.releaseStepping(session); // 1→0: clear
-      expect(exec).toHaveBeenCalledTimes(2);
-      expect(codeOf(exec, 0)).toContain('setBreakAtStepPoint:');
-      expect(codeOf(exec, 1)).toContain('clearBreakAtStepPoint:');
-    });
+      debug.continueExecution(session, 0xAAn);
 
-    it('tracks sessions independently', () => {
-      const a = makeSession();
-      const b = makeSession();
-      debug.acquireStepping(a.session);
-      expect(a.exec).toHaveBeenCalledTimes(1);
-      expect(b.exec).not.toHaveBeenCalled(); // b untouched
-      debug.releaseStepping(a.session);
-    });
-
-    it('swallows a toggle failure (logs, does not throw)', () => {
-      const { session, exec } = makeSession();
-      exec.mockReturnValue({ result: 0n, err: { ...noErr, number: 2106, message: 'boom' } });
-      expect(() => debug.acquireStepping(session)).not.toThrow();
-      debug.releaseStepping(session);
+      const flags = perform.mock.calls[0][4] as number;
+      expect(flags & FLAG_INTERPRETED).toBe(FLAG_INTERPRETED);
     });
   });
 });

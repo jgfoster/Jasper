@@ -1,5 +1,5 @@
 import { ActiveSession } from './sessionManager';
-import { OOP_NIL, OOP_TRUE, OOP_ILLEGAL, GCI_PERFORM_FLAG_ENABLE_DEBUG } from './gciConstants';
+import { OOP_NIL, OOP_TRUE, OOP_ILLEGAL, GCI_PERFORM_FLAG_ENABLE_DEBUG, GCI_PERFORM_FLAG_INTERPRETED } from './gciConstants';
 import { logInfo, logError } from './gciLog';
 import { runNbCall, NbRunOptions } from './nbRunner';
 
@@ -974,68 +974,19 @@ export interface StepResult {
   errorNumber?: number;
 }
 
-// ── Native-code toggle for stepping ─────────────────────────────────────────
+// ── Interpreted execution for stepping ───────────────────────────────────────
 //
 // GemStone cannot single-step or set breakpoints in NATIVE code (error 6014):
 // a `halt`/error parks execution in native signal machinery that can't be
-// stepped while the gem runs native code (GemNativeCodeEnabled, on by default).
-// Setting ANY breakpoint flips the gem to interpreted execution, which makes
-// stepping work — this is how topaz steps. So we toggle a breakpoint in a
-// benign kernel method as the switch, and clear it once the last debugger for a
-// session closes, restoring native-code performance for normal execution.
-//
-// Ref-counted per session: concurrent debuggers share one toggle — the break is
-// set on the first acquire and cleared on the last release. Best-effort:
-// failures are logged, not thrown (the debugger still opens; stepping degrades).
+// stepped while the gem runs native code (GemNativeCodeEnabled, on by default
+// where supported). A process must START interpreted to be steppable, so every
+// execution that may end up in the debugger passes GCI_PERFORM_FLAG_INTERPRETED
+// (see codeExecutor), and the step/continue performs below carry it too so
+// resumed execution stays interpreted. This replaces the previous scheme of
+// toggling a breakpoint on a benign kernel method (topaz-style), which relied
+// on session-global state and on that method existing in every stone version.
 
-/** Benign kernel method whose breakpoint we toggle to disable/enable native code. */
-const NATIVE_CODE_TOGGLE = 'GsSshSocket class>>exampleUserId';
-const steppingRefs = new Map<number, number>();
-
-function setNativeCodeBreak(session: ActiveSession, on: boolean): void {
-  const selector = on ? 'setBreakAtStepPoint:' : 'clearBreakAtStepPoint:';
-  const code = `(GsSshSocket class compiledMethodAt: #exampleUserId) ${selector} 1`;
-  // sourceOop is the class of the source string (String); contextObject is
-  // OOP_ILLEGAL — matching the working GciTsExecute calling convention.
-  const { result: strClass, err: resErr } = session.gci.GciTsResolveSymbol(
-    session.handle, 'String', OOP_NIL,
-  );
-  if (resErr.number !== 0) {
-    logError(session.id, `[Jasper Debugger] could not resolve String for native-code toggle: ${resErr.message || resErr.number}`);
-    return;
-  }
-  const { err } = session.gci.GciTsExecute(
-    session.handle, code, strClass, OOP_ILLEGAL, OOP_NIL, 0, 0,
-  );
-  if (err.number !== 0) {
-    logError(session.id, `[Jasper Debugger] could not ${on ? 'set' : 'clear'} native-code toggle (${NATIVE_CODE_TOGGLE}): ${err.message || err.number}`);
-  }
-}
-
-/**
- * Disable native code for the session so the debugger can single-step. Sets the
- * benign toggle breakpoint on the first hold for the session. Ref-counted —
- * pair every call with releaseStepping.
- */
-export function acquireStepping(session: ActiveSession): void {
-  const n = steppingRefs.get(session.id) ?? 0;
-  if (n === 0) setNativeCodeBreak(session, true);
-  steppingRefs.set(session.id, n + 1);
-}
-
-/**
- * Release one stepping hold; restores native code (clears the toggle) once the
- * last debugger for the session closes.
- */
-export function releaseStepping(session: ActiveSession): void {
-  const n = steppingRefs.get(session.id) ?? 0;
-  if (n <= 1) {
-    steppingRefs.delete(session.id);
-    if (n === 1) setNativeCodeBreak(session, false);
-  } else {
-    steppingRefs.set(session.id, n - 1);
-  }
-}
+const STEP_FLAGS = GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED;
 
 /**
  * Sends a step message (e.g. gciStepOverFromLevel:) to the GsProcess
@@ -1048,7 +999,7 @@ function performStep(
 ): StepResult {
   const { result, err } = session.gci.GciTsPerform(
     session.handle, gsProcess, OOP_ILLEGAL, selector, args,
-    GCI_PERFORM_FLAG_ENABLE_DEBUG, 0,
+    STEP_FLAGS, 0,
   );
   if (err.number !== 0) {
     return {
@@ -1105,7 +1056,7 @@ function performStepNb(
   return runNbCall(
     session,
     () => session.gci.GciTsNbPerform(
-      session.handle, gsProcess, OOP_ILLEGAL, selector, args, GCI_PERFORM_FLAG_ENABLE_DEBUG, 0,
+      session.handle, gsProcess, OOP_ILLEGAL, selector, args, STEP_FLAGS, 0,
     ),
     () => {
       const { result, err } = session.gci.GciTsNbResult(session.handle);
@@ -1171,7 +1122,7 @@ export function continueExecution(
   // its TOS with nil corrupts the frame, so continuing it never returns (the gem
   // hangs). OOP_ILLEGAL handles both cases correctly.
   const { result, err } = session.gci.GciTsContinueWith(
-    session.handle, gsProcess, OOP_ILLEGAL, null, GCI_PERFORM_FLAG_ENABLE_DEBUG,
+    session.handle, gsProcess, OOP_ILLEGAL, null, STEP_FLAGS,
   );
   if (err.number !== 0) {
     return {

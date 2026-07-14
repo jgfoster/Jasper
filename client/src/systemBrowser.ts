@@ -353,7 +353,7 @@ export class SystemBrowser {
    * Return the currently selected class in the first browser for this session,
    * or null if no browser is open or no class is selected.
    */
-  static getSelectedClassName(sessionId: number): { dictName: string; className: string } | null {
+  static getSelectedClassName(sessionId: number): { dictName: string; className: string; dictIndex: number } | null {
     const browsers = SystemBrowser.panels.get(sessionId);
     if (!browsers) return null;
     for (const browser of browsers) {
@@ -363,6 +363,7 @@ export class SystemBrowser {
         return {
           dictName: browser.state.dictionaries[idx - 1],
           className: cls,
+          dictIndex: idx,
         };
       }
     }

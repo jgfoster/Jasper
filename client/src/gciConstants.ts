@@ -24,6 +24,11 @@ export const GCI_PERFORM_FLAG_ENABLE_DEBUG = 1;
 // it, so execution halts on the first statement (Pharo-style "Debug It").
 // Implies GCI_PERFORM_FLAG_INTERPRETED (native code off, required for stepping).
 export const GCI_PERFORM_FLAG_SINGLE_STEP = 4;
+// Run the execution interpreted (native code off). GemStone cannot single-step
+// native code (error 6014) and a process must START interpreted to be
+// steppable, so every execution that may end up in the debugger passes this.
+// No effect where native code is unavailable anyway (e.g. Darwin/ARM builds).
+export const GCI_PERFORM_FLAG_INTERPRETED = 0x20;
 
 // Class OOPs (from gcioop.ht)
 export const OOP_CLASS_STRING = 74753n;

@@ -70,8 +70,6 @@ vi.mock('../debugQueries', () => ({
   trimStackToLevel: vi.fn(),
   trimStackToLevelNb: vi.fn(async () => {}),
   clearStack: vi.fn(),
-  acquireStepping: vi.fn(),
-  releaseStepping: vi.fn(),
   // Create-method-from-DNU detection — defaults to "not a DNU" (no Create button).
   getDoesNotUnderstandInfo: vi.fn(() => undefined),
   // Implement-in-receiver (override): the receiver's inheritance chain (default
@@ -1638,16 +1636,6 @@ describe('DebuggerPanel', () => {
     expect(debug.clearStack).not.toHaveBeenCalled();
     closePanel(panel);
     expect(debug.clearStack).toHaveBeenCalledWith(session, GS_PROCESS);
-  });
-
-  it('holds native code off for the session: acquires on open, releases on close', () => {
-    DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
-    const panel = lastPanel();
-
-    expect(debug.acquireStepping).toHaveBeenCalledWith(session);
-    expect(debug.releaseStepping).not.toHaveBeenCalled();
-    closePanel(panel);
-    expect(debug.releaseStepping).toHaveBeenCalledWith(session);
   });
 
   describe('variables / eval / toolbar', () => {

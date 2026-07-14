@@ -226,6 +226,55 @@ export const window = {
   })),
   showInputBox: vi.fn(),
   showQuickPick: vi.fn(),
+  // Controllable low-level QuickPick. Each call returns a fresh instance whose
+  // registered handlers can be fired from a test via `__accept()` / `__hide()`
+  // (or `hide()`), after inspecting/setting `items`, `activeItems`, and
+  // `selectedItems`. Grab the created instance with
+  // `vi.mocked(vscode.window.createQuickPick).mock.results.at(-1).value`.
+  createQuickPick: vi.fn(() => {
+    let onAccept: (() => void | Promise<void>) | undefined;
+    let onHide: (() => void) | undefined;
+    let visible = false;
+    // Mirror real VS Code: hide()/dispose() only fire onDidHide while the input
+    // is still visible, and at most once — dispose() cascades to a hide if the
+    // input hasn't been hidden yet, so `dispose()` after a still-visible show()
+    // fires onDidHide (which a disposed-then-nothing input does not re-fire).
+    const fireHide = () => {
+      if (!visible) return;
+      visible = false;
+      onHide?.();
+    };
+    const qp: Record<string, unknown> = {
+      title: '',
+      placeholder: '',
+      value: '',
+      items: [] as unknown[],
+      selectedItems: [] as unknown[],
+      activeItems: [] as unknown[],
+      enabled: true,
+      busy: false,
+      matchOnDescription: false,
+      matchOnDetail: false,
+      onDidAccept: vi.fn((h: () => void | Promise<void>) => {
+        onAccept = h;
+        return { dispose: vi.fn() };
+      }),
+      onDidHide: vi.fn((h: () => void) => {
+        onHide = h;
+        return { dispose: vi.fn() };
+      }),
+      show: vi.fn(() => {
+        visible = true;
+      }),
+      hide: vi.fn(() => fireHide()),
+      dispose: vi.fn(() => fireHide()),
+      __accept: async () => {
+        await onAccept?.();
+      },
+      __hide: () => fireHide(),
+    };
+    return qp;
+  }),
   showOpenDialog: vi.fn(),
   showSaveDialog: vi.fn(),
   tabGroups: {
