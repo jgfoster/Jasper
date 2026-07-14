@@ -1938,6 +1938,7 @@
     "watch": "tsc -b -w client/tsconfig.json server/tsconfig.json",
     "dev:fresh": "bash scripts/dev-fresh.sh",
     "serve:seaside": "bash scripts/serve-seaside.sh",
+    "lint:github:workflows": "bash scripts/lint-workflow-timeouts.sh",
     "test": "npm run test --workspaces",
     "test:server:start": "npm run test:server:start --workspace client",
     "test:server:stop": "npm run test:server:stop --workspace client",
