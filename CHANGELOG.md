@@ -4,9 +4,22 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.8.4] - 2026-07-14
+
+### Added
+
+- **Generate a Grail (.py) stub from a Smalltalk class.** Reflects an existing Smalltalk class into an editable Grail `@smalltalk_class` module — `__slots__` from the class's own instance variables (in declaration order, as Grail validates), `@smalltalk` forwarders for the accessors it understands, and `@smalltalk` wrappers for the methods you pick (class-side as `@classmethod`); binary selectors are listed as commented candidates. Available via **GemStone: Generate Grail .py Stub…** from the GemStone Explorer class/hierarchy context menus, the System Browser class menu, and the Command Palette.
+- **Online extent (snapshot) backup.** A new **GemStone Admin: Online Extent Backup** command takes a live file-system snapshot of a stone's extents, bracketed by checkpoint suspension (suspend → copy the frozen extents → always resume and verify the result), following `$GEMSTONE/examples/admin/onlinebackup.sh`. Scoped to extents only — the completion notice reminds you a restore also needs the stone's transaction logs — and limited to Jasper-managed local stones with full logging enabled.
+- **Auto-create the DataCurator login when creating a database.** Creating a database now saves a DataCurator login for the new stone (unless one already targets it), so it can be connected to — and cleanly stopped — right away. Quick Setup already did this; this closes the gap for the plain Create Database command.
+
 ### Changed
 
 - **"Find Method…" renamed to "Find Method in Class…" and now always shows a filterable class picker.** The command searches within a single class, so the title now says so. With no class selected in the System Browser it previously prompted with a plain text box and then failed to select or open the picked method; it now offers the same filterable class list as **Find Class**, and when a class *is* selected in the browser that class is pre-highlighted as the default (one Enter reproduces the old scoped behavior, but the list is right there to pick another). Picking a method navigates to and opens it. The command id changed from `gemstone.findMethod` to `gemstone.findMethodInClass` — **breaking for any custom keybinding referencing the old id** (the built-in `Ctrl/Cmd+K M` chord is unaffected).
+- **Stopping a stone now resolves its DataCurator password from the stone's login, with a prompt/force-kill fallback.** `stopstone` needs a DataCurator password for a clean shutdown; it now uses the stored (or keychain) password of the stone's DataCurator login instead of assuming the stock default. When there is no usable credential — no login, or a password `stopstone` rejects — Jasper offers to enter one or to **force-stop** the stone (a hard stop it recovers from via its transaction log on next start), and never signals a PID that has been reused by an unrelated process.
+
+### Fixed
+
+- **Enhanced Debugger single-stepping no longer degrades silently across GemStone versions.** Stepping past a halt now starts execution interpreted via a GCI perform flag (`GCI_PERFORM_FLAG_INTERPRETED`) rather than toggling a kernel breakpoint on a method that didn't exist on every release — so single-stepping works on 3.6.x (where the old toggle method was absent) and no longer depends on ref-counted session state. Integration tests assert stepping across the CI version matrix.
 
 ## [1.8.3] - 2026-07-13
 
