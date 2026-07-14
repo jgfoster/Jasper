@@ -1332,6 +1332,7 @@ export function activate(context: vscode.ExtensionContext) {
           );
           await exportManager.refreshSession(item.activeSession);
           SystemBrowser.refresh(item.activeSession.id);
+          explorer.onSessionAborted(item.activeSession.id);
         } else {
           vscode.window.showErrorMessage(
             `Session ${item.activeSession.id}: Abort failed — ${err.message || `error ${err.number}`}`

@@ -485,6 +485,102 @@ class ExplorerController {
     this.syncTitles();
   }
 
+  // Re-fetch everything for the CURRENT selection WITHOUT clearing it — the
+  // manual Refresh button and a session abort both use this so a stale tree
+  // reloads in place (new/removed classes, recompiled methods) while the user
+  // stays where they were. Unlike reset(), state and filters are preserved.
+  async refreshRetainingSelection(): Promise<void> {
+    const session = this.session();
+    const { dictName, dictIndex, className } = this.state;
+    // Remember the method row currently selected so it can be re-revealed.
+    const selectedMethod = this.views?.method.selection
+      .find((n) => n instanceof MethodItem) as MethodItem | undefined;
+    const revealMethod = selectedMethod
+      ? { selector: selectedMethod.info.selector, isMeta: selectedMethod.isMeta }
+      : undefined;
+
+    if (!session || dictName === undefined || dictIndex === undefined) {
+      // Nothing meaningful selected — just reload the dictionary list.
+      this.dictProvider.refresh();
+      this.syncTitles();
+      return;
+    }
+
+    // Reload the dictionary's class listing (+ ivar counts) and, when a class is
+    // selected, its method environment and hierarchy. Keep stale data on a failed
+    // fetch rather than blanking the tree out from under the user.
+    try {
+      this.classCategoryEntries = queries.getClassesWithCategory(session, dictIndex);
+    } catch { /* keep stale on failure */ }
+    this.loadDefinedIvarCounts();
+    if (className !== undefined) {
+      try {
+        this.envLines = queries.getClassEnvironments(session, dictIndex, className, this.maxEnv());
+      } catch { /* keep stale on failure */ }
+      this.loadHierarchy();
+    }
+
+    this.dictProvider.refresh();
+    this.categoryProvider.refresh();
+    this.classProvider.refresh();
+    this.hierarchyProvider.refresh();
+    this.methodProvider.refresh();
+
+    await this.revealRetainedSelection(revealMethod);
+    this.syncTitles();
+  }
+
+  // Re-highlight the retained dict/category/class/method rows after a refresh.
+  // reveal() rejects when a row isn't in the (rebuilt) tree; treat each as a
+  // best-effort highlight, exactly like revealClass does.
+  private async revealRetainedSelection(
+    revealMethod?: { selector: string; isMeta: boolean },
+  ): Promise<void> {
+    const { dictName, dictIndex, classCategory, className } = this.state;
+    if (dictName !== undefined && dictIndex !== undefined) {
+      try {
+        await this.views?.dict.reveal(new DictItem(dictName, dictIndex), { select: true });
+      } catch { /* ignore */ }
+    }
+    if (classCategory) {
+      const segment = classCategory.split('-').pop() ?? classCategory;
+      try {
+        await this.views?.category.reveal(
+          new ClassCategoryItem(segment, classCategory, false), { select: true, expand: true },
+        );
+      } catch { /* ignore */ }
+    }
+    if (className !== undefined) {
+      try {
+        await this.views?.klass.reveal(
+          new ClassItem(className, this.classHasDefinedIvars(className)), { select: true },
+        );
+      } catch { /* ignore */ }
+    }
+    void this.revealHierarchySelf();
+    if (revealMethod) {
+      const info = this.selectorsFor(revealMethod.isMeta, ALL_METHODS_CATEGORY)
+        .find((i) => i.selector === revealMethod.selector);
+      if (info) {
+        try {
+          await this.views?.method.reveal(
+            new MethodItem(revealMethod.isMeta, info, ALL_METHODS_CATEGORY),
+            { select: true, focus: false, expand: true },
+          );
+        } catch { /* ignore */ }
+      }
+    }
+  }
+
+  // A session abort discards uncommitted changes and refreshes the session's
+  // view of the repository, so the Explorer's cached listing can be stale.
+  // Reload in place (keeping the selection) when it's OUR current session.
+  onSessionAborted(sessionId: number): void {
+    const session = this.session();
+    if (!session || session.id !== sessionId) return;
+    void this.refreshRetainingSelection();
+  }
+
   selectDict(item: DictItem): void {
     this.state.dictName = item.dictName;
     this.state.dictIndex = item.dictIndex;
@@ -1590,10 +1686,12 @@ class ClassDropController implements vscode.TreeDragAndDropController<ClassNode>
 // ── Registration ──────────────────────────────────────────────────────────────
 
 // Handle returned to the extension so it can forward file-system compile events
-// (method / class Save) to the controller for a live panel refresh.
+// (method / class Save) and session lifecycle events (abort) to the controller
+// for a live panel refresh.
 export interface ExplorerHandle {
   onMethodCompiled(sessionId: number, className: string): void;
   onClassCompiled(sessionId: number, className: string): void;
+  onSessionAborted(sessionId: number): void;
 }
 
 export function registerGemStoneExplorer(
@@ -1678,7 +1776,9 @@ export function registerGemStoneExplorer(
       syncActiveContext();
       ctl.reset();
     }),
-    vscode.commands.registerCommand('gemstone.explorer.refresh', () => ctl.reset()),
+    // The manual Refresh button reloads in place, keeping the user's selection
+    // (a full reset only happens on a session switch, below).
+    vscode.commands.registerCommand('gemstone.explorer.refresh', () => void ctl.refreshRetainingSelection()),
     // Per-pane filter buttons: open a live filter input (prefix match, '*'
     // wildcard) that filters the pane in place — works regardless of where
     // focus currently sits (e.g. the editor).
@@ -1782,5 +1882,6 @@ export function registerGemStoneExplorer(
   return {
     onMethodCompiled: (sessionId, className) => ctl.onExternalMethodCompiled(sessionId, className),
     onClassCompiled: (sessionId, className) => ctl.onExternalClassCompiled(sessionId, className),
+    onSessionAborted: (sessionId) => ctl.onSessionAborted(sessionId),
   };
 }
