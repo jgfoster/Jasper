@@ -149,7 +149,36 @@ describe('GciLibrary', () => {
     function expectPureExportSetToIncludeOop(shouldBeIncluded: boolean, oop: bigint) {
         expect(gciLibrary.isOopIncludedInPureExportSet(session, oop)).toBe(shouldBeIncluded);
     }
-    
+
+    /**
+     * Forces the next `releaseObject` call to throw for the duration of
+     * `callback`, then restores it.
+     *
+     * @param callback - The operation to run while `releaseObject` is rigged to fail.
+     */
+    function simulateReleaseObjectFailure(callback: () => void) {
+        const spy = vi.spyOn(gciLibrary, 'releaseObject').mockImplementationOnce(() => {
+            throw GciLibraryError.withMessage('Simulated releaseObject failure');
+        });
+
+        try {
+            callback();
+        } finally {
+            spy.mockRestore();
+        }
+    }
+
+    /**
+     * Asserts that evaluating `codeToEvaluate` and fetching its result as a
+     * string yields `expectedResult`.
+     *
+     * @param codeToEvaluate - Smalltalk source to evaluate.
+     * @param expectedResult - The string the evaluated result is expected to decode to.
+     */
+    function expectEvaluatedStringToBe(codeToEvaluate: string, expectedResult: string) {
+        expect(gciLibrary.executeAndFetchString(session, codeToEvaluate)).toBe(expectedResult);
+    }
+
     describe('evaluating expressions', () => {
 
         it('returns the result of evaluating an expression', () => {
@@ -212,6 +241,80 @@ describe('GciLibrary', () => {
 
     });
 
+    describe('evaluating an expression and releasing its result automatically', () => {
+
+        it('passes the resulting oop to the callback', () => {
+            gciLibrary.executeAndRelease(session, 'true', resultOop => {
+                expectOopToBeTrue(resultOop);
+            });
+        });
+
+        it('returns the result of evaluating the callback', () => {
+            const expectedResult = 'callback result';
+            
+            const result = gciLibrary.executeAndRelease(session, 'true', () => expectedResult);
+
+            expect(result).toBe(expectedResult);
+        });
+
+        it('releases the resulting oop after the callback returns', () => {
+            let oopToRelease: bigint;
+
+            gciLibrary.executeAndRelease(session, 'Object new', resultOop => { oopToRelease = resultOop; });
+
+            expectPureExportSetToIncludeOop(false, oopToRelease!);
+        });
+
+        it('releases the resulting oop even when the callback throws', () => {
+            let oopToRelease: bigint;
+            const captureResultOopAndFail = (resultOop: bigint) => {
+                oopToRelease = resultOop;
+                throw new Error();
+            };
+            
+            expect(() => gciLibrary.executeAndRelease(session, 'Object new', captureResultOopAndFail)).toThrow();
+            
+            expectPureExportSetToIncludeOop(false, oopToRelease!);
+        });
+
+        it("re-throws the callback's error unchanged", () => {
+            expectToThrowExpectedError(throwExpectedError => {
+                gciLibrary.executeAndRelease(session, 'true', () => throwExpectedError());
+            });
+        });
+
+        it('throws when the evaluated code signals an error', () => {
+            expectToThrowExpectedGciLibraryError(signalExpectedErrorExpression => {
+                gciLibrary.executeAndRelease(session, signalExpectedErrorExpression, () => {});
+            });
+        });
+
+        it('does not evaluate the callback when the evaluated code signals an error', () => {
+            let callbackEvaluated = false;
+
+            expect(() => gciLibrary.executeAndRelease(session, `self error: 'oops'`, () => { callbackEvaluated = true; })).toThrow();
+
+            expect(callbackEvaluated).toBe(false);
+        });
+
+        it("still returns the callback's result when releasing the oop fails", () => {
+            simulateReleaseObjectFailure(() => {
+                const result = gciLibrary.executeAndRelease(session, 'true', () => 'callback result');
+
+                expect(result).toBe('callback result');
+            });
+        });
+
+        it('still throws the original error when the callback and its cleanup both fail', () => {
+            simulateReleaseObjectFailure(() => {
+                expectToThrowExpectedError(throwExpectedError => {
+                    gciLibrary.executeAndRelease(session, 'true', () => throwExpectedError());
+                });
+            });
+        });
+
+    });
+    
     describe('creating strings', () => {
 
         it('creates a String object from the given contents', () => {
@@ -313,7 +416,100 @@ describe('GciLibrary', () => {
         })
         
     });
-    
+
+    describe('evaluating expressions and fetching the result as a string', () => {
+
+        it('returns the result of code that evaluates to an empty string', () => {
+            expectEvaluatedStringToBe(`''`, '');
+        });
+
+        it('returns the result of code that evaluates to a string', () => {
+            expectEvaluatedStringToBe(`'a'`, 'a');
+        });
+
+        it('returns the result of code that evaluates to an UTF-16 string', () => {
+            expectEvaluatedStringToBe(`'a' encodeAsUTF16`, 'a');
+        });
+
+        it('returns the result of code that evaluates to a multi-byte Unicode string', () => {
+            expectEvaluatedStringToBe(`'—'`, '—');
+        });
+
+        it('returns the result of code with variables that evaluates to a string', () => {
+            expectEvaluatedStringToBe(`|a| a:= 'a'. a`, 'a');
+        });
+
+        it('returns the result of code that evaluates to a string that does not fill a fetch page', () => {
+            const expectedResult = 'a'.repeat(GciLibrary.FETCH_STRING_PAGE_SIZE_BYTES - 1);
+
+            expectEvaluatedStringToBe(`'${expectedResult}'`, expectedResult);
+        });
+
+        it('returns the result of code that evaluates to a string that fills exactly one fetch page', () => {
+            const expectedResult = 'a'.repeat(GciLibrary.FETCH_STRING_PAGE_SIZE_BYTES);
+
+            expectEvaluatedStringToBe(`'${expectedResult}'`, expectedResult);
+        });
+
+        it('returns the result of code that evaluates to a string that fills exactly more than one fetch page', () => {
+            const expectedResult = 'a'.repeat(GciLibrary.FETCH_STRING_PAGE_SIZE_BYTES * 2);
+
+            expectEvaluatedStringToBe(`'${expectedResult}'`, expectedResult);
+        });
+
+        it('returns the result of code that evaluates to a string that slightly exceeds a fetch page', () => {
+            const expectedResult = 'a'.repeat(GciLibrary.FETCH_STRING_PAGE_SIZE_BYTES + 1);
+
+            expectEvaluatedStringToBe(`'${expectedResult}'`, expectedResult);
+        });
+
+        it('returns the result of code that evaluates to a string that splits a multi-byte character across a fetch page boundary', () => {
+            const asciiPrefixLength = GciLibrary.FETCH_STRING_PAGE_SIZE_BYTES - 1;
+            const expectedResult = 'a'.repeat(asciiPrefixLength) + '—';
+
+            // Built via Smalltalk concatenation, not embedded as one giant
+            // source literal -- a source literal this size hits an unrelated
+            // limit in how execute() transmits multi-byte source code.
+            expectEvaluatedStringToBe(
+                `((String new: ${asciiPrefixLength}) atAllPut: $a; yourself) , '—'`,
+                expectedResult);
+        });
+
+        function expectToThrowNonByteStringError() {
+            expectToThrowGciLibraryError(
+                () => gciLibrary.executeAndFetchString(session, `
+                    "executeAndFetchString sends #encodeAsUTF8 to the evaluated result, then
+                    fetches bytes from whatever comes back, assuming it's a byte object. This
+                    class's encodeAsUTF8 lies about that -- it answers self, not a byte
+                    object -- to exercise what happens when the contract is broken."
+
+                    | encodeAsUTF8LiarClass |
+                    encodeAsUTF8LiarClass := Object subclass: #EncodeAsUTF8Liar instVarNames: {} inDictionary: UserGlobals.
+                    encodeAsUTF8LiarClass compileMethod: 'encodeAsUTF8 ^ self'.
+                    encodeAsUTF8LiarClass new
+                `),
+                'a ArgumentTypeError occurred (error 2103), The object anEncodeAsUTF8Liar is not implemented as a byte object.'
+            );
+    }
+
+        it('fails when trying to fetch a string from a non-string oop', () => {
+            expectToThrowNonByteStringError();
+        });
+
+        it('still throws the original error when the callback and its cleanup both fail', () => {
+            simulateReleaseObjectFailure(() => {
+                expectToThrowNonByteStringError();
+            });
+        });
+
+        it('does not modify PureExportSet', () => {
+            expectPureExportSetToStayUnchanged(() =>{
+                gciLibrary.executeAndFetchString(session, `'a'`);
+            });
+        });
+
+    })
+
     describe('UserGlobals management', () => {
 
         it ('retrieves the stored value under the returned key', () => {
