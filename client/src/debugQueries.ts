@@ -988,13 +988,17 @@ export interface StepResult {
 // set on the first acquire and cleared on the last release. Best-effort:
 // failures are logged, not thrown (the debugger still opens; stepping degrades).
 
-/** Benign kernel method whose breakpoint we toggle to disable/enable native code. */
-const NATIVE_CODE_TOGGLE = 'GsSshSocket class>>exampleUserId';
+// Benign kernel method whose breakpoint we toggle to disable/enable native
+// code. Must exist on every supported stone version: ClampSpecification's
+// example methods do, back through 3.6.2 (GsSshSocket, the previous choice,
+// only appeared in 3.7), and nothing calls them at runtime, so the breakpoint
+// can never actually be hit.
+const NATIVE_CODE_TOGGLE = 'ClampSpecification class>>example1';
 const steppingRefs = new Map<number, number>();
 
 function setNativeCodeBreak(session: ActiveSession, on: boolean): void {
   const selector = on ? 'setBreakAtStepPoint:' : 'clearBreakAtStepPoint:';
-  const code = `(GsSshSocket class compiledMethodAt: #exampleUserId) ${selector} 1`;
+  const code = `(ClampSpecification class compiledMethodAt: #example1) ${selector} 1`;
   // sourceOop is the class of the source string (String); contextObject is
   // OOP_ILLEGAL — matching the working GciTsExecute calling convention.
   const { result: strClass, err: resErr } = session.gci.GciTsResolveSymbol(
