@@ -5,48 +5,87 @@ vi.mock('vscode', () => import('../__mocks__/vscode'));
 
 import { useIntegrationTest } from './useIntegrationTest';
 import { GciLibrary } from '../gciLibrary';
-import * as q from '../browserQueries';
 import type { ActiveSession } from '../sessionManager';
-import { acquireStepping, releaseStepping } from '../debugQueries';
+import {
+  OOP_NIL, OOP_ILLEGAL,
+  GCI_PERFORM_FLAG_ENABLE_DEBUG, GCI_PERFORM_FLAG_INTERPRETED,
+} from '../gciConstants';
+import { stepOver, continueExecution, clearStack } from '../debugQueries';
+
+const GCI_ERR_HALT = 2709;
+const GCI_ERR_STEP_POINT = 6002; // "Single-step breakpoint encountered" — a successful step
+const OOP_FORTY_TWO = 338n; // SmallInteger 42: (42 << 3) | 2
 
 /**
- * Automatic GCI integration tests for the debugger's native-code toggle: a
- * breakpoint on a benign kernel method that flips the gem to interpreted
- * execution so single-stepping works. Running against the live stone proves
- * the toggle method exists on every supported GemStone version (the previous
- * choice, GsSshSocket, silently didn't on 3.6.x) — setNativeCodeBreak only
- * logs on failure, so the breakpoint's presence is what must be asserted.
+ * Automatic GCI integration tests for debugger single-stepping. Executions are
+ * started with GCI_PERFORM_FLAG_INTERPRETED (GemStone cannot step native code —
+ * error 6014 — and a process must START interpreted to be steppable); the
+ * step/continue performs carry the same flag. The halt is raised inside real
+ * compiled methods, not a doit frame, so on stones where native code is enabled
+ * (x86 — Darwin/ARM builds don't support it) these tests prove the flag keeps
+ * the process steppable. Errors 6014 here mean the flag scheme regressed.
  */
-describe('debugger native-code toggle (integration)', () => {
+describe('debugger single-stepping (integration)', () => {
   let gci: GciLibrary;
   let handle: unknown;
   useIntegrationTest((testContext) => { gci = testContext.gciLibrary; handle = testContext.session; });
 
   const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
 
-  const sessionHasBreakpoints = (): boolean =>
-    q.executeFetchString(session(), 'breakpoint check', 'GsNMethod _hasBreakpoints printString').trim() === 'true';
+  const exec = (code: string, flags: number) => {
+    const { result: strClass } = gci.GciTsResolveSymbol(handle, 'String', OOP_NIL);
+    return gci.GciTsExecute(handle, code, strClass, OOP_ILLEGAL, OOP_NIL, flags, 0);
+  };
 
-  it('sets the toggle breakpoint while a debugger holds stepping and clears it on release', () => {
-    acquireStepping(session());
+  // Compiles a throwaway class (session-local; the harness's per-test abort
+  // discards it) whose `outer` calls `inner`, which halts — then runs it and
+  // returns the halted GsProcess. The halt sits inside compiled methods so the
+  // parked frames are ordinary methods, which native code (where supported)
+  // would otherwise compile.
+  function haltedProcess(): bigint {
+    const compiled = exec(`| cls |
+cls := Object subclass: 'ZzSteppingProbe' instVarNames: #() classVars: #() classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals options: #().
+cls compileMethod: 'inner ^ self halt' dictionaries: System myUserProfile symbolList category: #probe.
+cls compileMethod: 'outer | x | x := self inner. ^ 42' dictionaries: System myUserProfile symbolList category: #probe.
+'compiled'`, 0);
+    expect(compiled.err.number).toBe(0);
 
-    expect(sessionHasBreakpoints()).toBe(true);
+    const { err } = exec(
+      'ZzSteppingProbe new outer',
+      GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED,
+    );
 
-    releaseStepping(session());
+    expect(err.number).toBe(GCI_ERR_HALT);
+    expect(err.context).not.toBe(0n);
+    return err.context;
+  }
 
-    expect(sessionHasBreakpoints()).toBe(false);
+  it('single-steps a process halted inside a compiled method', () => {
+    let gsProcess = haltedProcess();
+    let ranToCompletion = false;
+
+    try {
+      for (let i = 0; i < 3 && !ranToCompletion; i++) {
+        const step = stepOver(session(), gsProcess, 1);
+
+        if (step.completed) {
+          ranToCompletion = true;
+        } else {
+          expect(step.errorNumber).toBe(GCI_ERR_STEP_POINT);
+          gsProcess = step.errorContext!;
+        }
+      }
+    } finally {
+      if (!ranToCompletion) clearStack(session(), gsProcess);
+    }
   });
 
-  it('keeps the toggle breakpoint until the last of several concurrent debuggers releases it', () => {
-    acquireStepping(session());
-    acquireStepping(session());
+  it('continues a halted process to normal completion with its result', () => {
+    const gsProcess = haltedProcess();
 
-    releaseStepping(session());
+    const result = continueExecution(session(), gsProcess);
 
-    expect(sessionHasBreakpoints()).toBe(true);
-
-    releaseStepping(session());
-
-    expect(sessionHasBreakpoints()).toBe(false);
+    expect(result.completed).toBe(true);
+    expect(result.resultOop).toBe(OOP_FORTY_TWO);
   });
 });

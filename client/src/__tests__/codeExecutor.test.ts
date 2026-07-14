@@ -35,7 +35,7 @@ import * as vscode from 'vscode';
 import { __resetConfig } from '../__mocks__/vscode';
 import { appendTranscript, appendTranscriptOutput, showTranscript } from '../transcriptChannel';
 import { pollReadable } from '../socketPoll';
-import { GCI_PERFORM_FLAG_ENABLE_DEBUG, GCI_PERFORM_FLAG_SINGLE_STEP } from '../gciConstants';
+import { GCI_PERFORM_FLAG_ENABLE_DEBUG, GCI_PERFORM_FLAG_SINGLE_STEP, GCI_PERFORM_FLAG_INTERPRETED } from '../gciConstants';
 
 /** Set the gemstone.displayItMode setting for the current test. */
 function setDisplayItMode(mode: 'overlay' | 'insert'): void {
@@ -59,7 +59,7 @@ function makeGci(overrides: Record<string, unknown> = {}) {
     GciTsClearStack: vi.fn(),
     GciTsObjExists: vi.fn(() => false),
     GciTsFetchClass: vi.fn(() => ({ result: 0n, err: { number: 0 } })),
-    // Used by the native-code stepping toggle (acquire/releaseStepping).
+
     GciTsExecute: vi.fn(() => ({ result: 0n, err: { number: 0 } })),
     ...overrides,
   };
@@ -448,16 +448,14 @@ describe('CodeExecutor', () => {
       expect(wrappedCode).toContain("'hello' reversed");
     });
 
-    it('runs interpreted (toggles native code off, then back on) so a halt would be steppable', async () => {
+    it('runs interpreted (native code off) so a halt would be steppable', async () => {
       const editor = makeEditor("'hello' reversed");
       setActiveEditor(editor);
 
       await executor.displayIt();
 
-      // acquireStepping/releaseStepping drive GciTsExecute on the benign toggle method.
-      const toggleCalls = (gci.GciTsExecute as Mock).mock.calls.map((c) => c[1] as string);
-      expect(toggleCalls.some((c) => c.includes('setBreakAtStepPoint:'))).toBe(true);
-      expect(toggleCalls.some((c) => c.includes('clearBreakAtStepPoint:'))).toBe(true);
+      const flags = (gci.GciTsNbExecute as Mock).mock.calls[0][5] as number;
+      expect(flags & GCI_PERFORM_FLAG_INTERPRETED).toBe(GCI_PERFORM_FLAG_INTERPRETED);
     });
   });
 
@@ -488,19 +486,21 @@ describe('CodeExecutor', () => {
 
       await executor.debugIt();
 
-      expect(lastExecFlags()).toBe(GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_SINGLE_STEP);
+      expect(lastExecFlags()).toBe(
+        GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED | GCI_PERFORM_FLAG_SINGLE_STEP,
+      );
     });
 
     it('does NOT set the single-step flag for Execute It or Display It', async () => {
       setActiveEditor(makeEditor('Array new add: 1; add: 2'));
       await executor.executeIt();
-      expect(lastExecFlags()).toBe(GCI_PERFORM_FLAG_ENABLE_DEBUG);
+      expect(lastExecFlags()).toBe(GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED);
       expect(lastExecFlags() & GCI_PERFORM_FLAG_SINGLE_STEP).toBe(0);
 
       (gci.GciTsNbExecute as Mock).mockClear();
       setActiveEditor(makeEditor('3 + 4'));
       await executor.displayIt();
-      expect(lastExecFlags()).toBe(GCI_PERFORM_FLAG_ENABLE_DEBUG);
+      expect(lastExecFlags()).toBe(GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED);
       expect(lastExecFlags() & GCI_PERFORM_FLAG_SINGLE_STEP).toBe(0);
     });
 
