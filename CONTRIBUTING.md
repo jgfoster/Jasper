@@ -41,6 +41,12 @@ Follow these steps in order after cloning the repo:
 
    > **Destructive:** re-running `test:server:start` stops any running stone, resets the database to a pristine state, and overwrites `.env.test`.
 
+## Supported VS Code & Node versions
+
+**Current floor:** VS Code `1.101.0` → bundled Node `22.15.1`.
+
+See [docs/how-to/raising-the-version-floor.md](docs/how-to/raising-the-version-floor.md) for the policy behind this floor and the steps to raise it.
+
 ## Build and test
 
 - Build: `npm run compile`
@@ -67,7 +73,7 @@ All variables must be prefixed with `VITE_` to be accessible in test code (e.g. 
 
 ## Continuous integration
 
-CI runs on **GitHub Actions**. The [Health Check workflow](.github/workflows/health-check.yml) runs on every push, on the Node version pinned by `.nvmrc`. It compiles the project and runs the full test suite — including the GCI integration tests — as a matrix job, once per GemStone version listed in `client/.gemstone-integration-releases.json`. To add a version to the matrix, add an entry to that file; the `reasons` array is human-readable documentation and is not parsed by any script.
+CI runs on **GitHub Actions**. The [Health Check workflow](.github/workflows/health-check.yml) runs on every push, as a matrix job once per GemStone version listed in `client/.gemstone-integration-releases.json`. Most jobs run on the Node version pinned by `.nvmrc` (the common recent-VS-Code case); one additional job pins the supported-floor Node (see [Supported VS Code & Node versions](#supported-vs-code--node-versions)) against the oldest GemStone version, as a retrocompatibility smoke test. To add a GemStone version to the matrix, add an entry to `client/.gemstone-integration-releases.json`; the `reasons` array is human-readable documentation and is not parsed by any script.
 
 ## Publishing a release
 

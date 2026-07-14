@@ -4,6 +4,11 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+### Fixed
+
+- **Minimum supported VS Code version is now 1.101.0** (bundled Node 22.15.1), up from 1.85.0. `@types/node`, `@types/vscode`, `tsconfig.base.json`'s `lib`, and `esbuild.mjs`'s bundle target are aligned to this floor so a passing type-check once again implies the extension runs on the oldest VS Code it declares support for; CI adds a floor smoke-test job (Node 22.15.1 against the oldest supported GemStone version) alongside its existing `.nvmrc`-Node matrix. See CONTRIBUTING.md's "Supported VS Code & Node versions" section for the policy and the full list of coordinated knobs.
+- **`typescript` devDependency floor raised to `^5.7.2`**, the minimum version that recognizes the new `ES2024` lib entry declared above.
+
 ### Changed
 
 - **Backup actions regrouped to de-crowd the Sessions row.** **Online Extent Backup** is now an inline button on the running **Stone** row in the Databases view — its natural home, since it snapshots a local stone's extent files on the stone's own host — rather than being Command-Palette-only; run from there it binds to a live session on that stone. **Full Logical Backup** and **Full Logical Restore** moved off the session's inline button row into its right-click menu, so the everyday Commit/Abort/Logout actions are no longer crowded against (or one mis-click away from) the rarely-used backup pair.
