@@ -125,10 +125,12 @@ class ClassItem extends vscode.TreeItem {
   // `hasIvars` drives the expansion caret: a class with locally-defined instance
   // variables opens to reveal its ivar sub-tree; one without stays flat. It never
   // affects the stable `id`, so TreeView.reveal still matches regardless.
-  constructor(public readonly className: string, hasIvars = false) {
-    super(className, hasIvars
+  constructor(public readonly className: string, hasIvars = false, version?: number) {
+    super(version === undefined ? className : `${className}[${version}]`, hasIvars
       ? vscode.TreeItemCollapsibleState.Collapsed
       : vscode.TreeItemCollapsibleState.None);
+    // The displayed label may carry a `[n]` version tag, but the node's identity
+    // (id, click argument, ivar sub-tree) always uses the raw class name.
     this.id = `k:${className}`;
     this.contextValue = 'explorerClass';
     this.iconPath = new vscode.ThemeIcon('symbol-class');
@@ -325,6 +327,10 @@ class ExplorerController {
   // expansion caret. Names are fetched lazily on expand and memoized here.
   private definedIvarCounts = new Map<string, number>();
   private readonly definedIvarNamesCache = new Map<string, string[]>();
+  // className → version number, for classes with more than one version in the
+  // current dictionary; fetched once per dict so a reshaped class row can render
+  // `Foo[2]`. Single-version classes are absent (they render with no version tag).
+  private classVersions = new Map<string, number>();
   // Per-method metadata for the selected class; fetched once per class.
   private envLines: queries.EnvCategoryLine[] = [];
   private views?: ExplorerViews;
@@ -473,6 +479,7 @@ class ExplorerController {
     this.state.selectedMethodCategory = undefined;
     this.classCategoryEntries = [];
     this.definedIvarCounts = new Map();
+    this.classVersions = new Map();
     this.definedIvarNamesCache.clear();
     this.envLines = [];
     this.hierChain = [];
@@ -919,15 +926,17 @@ class ExplorerController {
 
   // ── Instance-variable sub-tree (Classes pane) ────────────────────────────────
 
-  // Reload the per-class defined-ivar counts for the current dictionary (one
-  // round trip) and drop any memoized name lists. Called wherever the class
-  // listing itself is (re)loaded. A failed probe leaves the counts empty rather
-  // than breaking navigation — classes just render flat.
+  // Reload the per-class Classes-pane row metadata for the current dictionary
+  // (defined-ivar counts and version numbers, one round trip each) and drop any
+  // memoized name lists. Called wherever the class listing itself is (re)loaded.
+  // A failed probe leaves the maps empty rather than breaking navigation —
+  // classes just render flat and untagged.
   private loadDefinedIvarCounts(): void {
     const session = this.session();
     this.definedIvarNamesCache.clear();
     if (!session || this.state.dictIndex === undefined) {
       this.definedIvarCounts = new Map();
+      this.classVersions = new Map();
       return;
     }
     try {
@@ -935,11 +944,23 @@ class ExplorerController {
     } catch {
       this.definedIvarCounts = new Map();
     }
+    try {
+      this.classVersions = queries.getClassVersions(session, this.state.dictIndex);
+    } catch {
+      this.classVersions = new Map();
+    }
   }
 
   // Whether a class has locally-defined instance variables (drives the caret).
   classHasDefinedIvars(className: string): boolean {
     return (this.definedIvarCounts.get(className) ?? 0) > 0;
+  }
+
+  // The class's version number when it has more than one version in the current
+  // dictionary (so the row renders `Foo[n]`), or undefined for a single-version
+  // class (rendered as a plain `Foo`).
+  classVersion(className: string): number | undefined {
+    return this.classVersions.get(className);
   }
 
   // Locally-defined instance variable names for a class, memoized per dict load.
@@ -1710,7 +1731,7 @@ class ClassProvider extends RefreshableProvider<ClassNode> {
     if (this.ctl.state.dictName === undefined) return [];
     if (!element) {
       return this.ctl.classNames().map(
-        (n) => new ClassItem(n, this.ctl.classHasDefinedIvars(n)),
+        (n) => new ClassItem(n, this.ctl.classHasDefinedIvars(n), this.ctl.classVersion(n)),
       );
     }
     // Expand a class to its locally-defined instance variables; ivar rows are leaves.

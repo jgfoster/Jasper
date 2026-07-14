@@ -226,8 +226,8 @@ GsRenameInstanceVariableRefactoring >> stageMethodRecompilesInto: aChangeSet [
 				oldSrc := m sourceString.
 				newSrc := self renameInSource: oldSrc.
 				newSrc ifNotNil: [
-					cat := (cls categoryOfSelector: sel environmentId: 0)
-						ifNil: ['as yet unclassified'].
+					cat := ((cls categoryOfSelector: sel environmentId: 0)
+						ifNil: ['as yet unclassified']) asString.
 					aChangeSet
 						addMethodRecompileInDictionary: dn
 						className: cls name
