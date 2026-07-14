@@ -489,7 +489,14 @@ class ExplorerController {
   // manual Refresh button and a session abort both use this so a stale tree
   // reloads in place (new/removed classes, recompiled methods) while the user
   // stays where they were. Unlike reset(), state and filters are preserved.
-  async refreshRetainingSelection(): Promise<void> {
+  //
+  // `reveal` re-highlights (and scrolls to) the retained rows, which also forces
+  // the Explorer view visible/forward. That's wanted for the in-Explorer Refresh
+  // button, but NOT for an abort fired from another view (e.g. the Sessions
+  // tree) — there it would yank focus over to the Explorer. The tree keeps the
+  // selection highlighted across a data refresh on its own (stable row ids), so
+  // skipping reveal loses nothing but the unwanted jump.
+  async refreshRetainingSelection({ reveal = true }: { reveal?: boolean } = {}): Promise<void> {
     const session = this.session();
     const { dictName, dictIndex, className } = this.state;
     // Remember the method row currently selected so it can be re-revealed.
@@ -526,7 +533,7 @@ class ExplorerController {
     this.hierarchyProvider.refresh();
     this.methodProvider.refresh();
 
-    await this.revealRetainedSelection(revealMethod);
+    if (reveal) await this.revealRetainedSelection(revealMethod);
     this.syncTitles();
   }
 
@@ -578,7 +585,9 @@ class ExplorerController {
   onSessionAborted(sessionId: number): void {
     const session = this.session();
     if (!session || session.id !== sessionId) return;
-    void this.refreshRetainingSelection();
+    // Reload in place but DON'T reveal — the abort was pressed from another view,
+    // so the Explorer must not jump to the foreground.
+    void this.refreshRetainingSelection({ reveal: false });
   }
 
   selectDict(item: DictItem): void {
