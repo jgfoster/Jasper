@@ -85,7 +85,7 @@ describe('contributor tooling is excluded from the .vsix', () => {
     .map((line) => line.trim())
     .filter((line) => line && !line.startsWith('#') && !line.startsWith('!'));
 
-  it.each(['acceptance/**', 'scripts/**', '.dockerignore', 'CLAUDE.md', '**/CLAUDE.md'])(
+  it.each(['.github/**', 'acceptance/**', 'scripts/**', '.dockerignore', 'CLAUDE.md', '**/CLAUDE.md'])(
     'excludes %s',
     (pattern) => {
       expect(ignores).toContain(pattern);

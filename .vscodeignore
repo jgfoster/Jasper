@@ -12,6 +12,7 @@ TODO.md
 client/tmp/**
 
 # Contributor tooling and docs — not part of the shipped extension.
+.github/**
 acceptance/**
 scripts/**
 .dockerignore
