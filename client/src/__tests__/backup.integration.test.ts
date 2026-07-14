@@ -39,14 +39,18 @@ describe('full logical backup (integration)', () => {
     expect(sessionNeedsCommit(exec)).toBe(false);
   });
 
-  it('writes a real backup file that then appears in the Backups tree node', () => {
+  // fullBackupTo:'s startup blocks until the stone's checkpoint machinery is
+  // quiescent — ~5s when a checkpoint is still settling (e.g. from a backup in
+  // a recent test run), which straddles vitest's 5s default timeout. The wait
+  // is legitimate stone behavior, so give the backup an explicit budget.
+  it('writes a real backup file that then appears in the Backups tree node', { timeout: 30000 }, () => {
     const dbDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jasper-it-db-'));
     const dest = path.join(dbDir, 'backups', 'itbackup.dbf');
     fs.mkdirSync(path.dirname(dest));
     const db: GemStoneDatabase = {
       dirName: path.basename(dbDir),
       path: dbDir,
-      config: { version: '3.7.5', stoneName: 'itstone', ldiName: 'itldi', baseExtent: 'extent0.dbf' },
+      config: { version: '0.0.0', stoneName: 'itstone', ldiName: 'itldi', baseExtent: 'extent0.dbf' },
     };
 
     try {
