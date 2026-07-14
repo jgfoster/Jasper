@@ -33,6 +33,7 @@ import { loadClassInfo as sharedLoadClassInfo } from './queries/loadClassInfo';
 import { getInstVarNames as sharedGetInstVarNames } from './queries/getInstVarNames';
 import { getDefinedInstVarNames as sharedGetDefinedInstVarNames } from './queries/getDefinedInstVarNames';
 import { getDefinedInstVarCounts as sharedGetDefinedInstVarCounts } from './queries/getDefinedInstVarCounts';
+import { previewRenameInstVar as sharedPreviewRenameInstVar } from './queries/previewRenameInstVar';
 import {
   getGrailStubReflection as sharedGetGrailStubReflection,
   GrailStubReflection,
@@ -289,6 +290,24 @@ export function checkEnhancedInspectorAvailable(session: ActiveSession): boolean
   }
 }
 
+/** Whether the server-side refactoring engine is loaded in this session's stone.
+ *  Probes for the rename-instance-variable refactoring class, the entry point the
+ *  Explorer's rename command drives. Resolving the name via the symbol list avoids
+ *  a compile-time reference to a class that may be absent (the engine ships as an
+ *  optional, separately-installed payload — see the loader stage). */
+export function checkRefactoringSupportAvailable(session: ActiveSession): boolean {
+  try {
+    const result = executeFetchString(
+      session,
+      'checkRefactoringSupportAvailable',
+      "[(System myUserProfile symbolList objectNamed: #GsRenameInstanceVariableRefactoring) notNil printString] on: Error do: [:e | 'false']",
+    );
+    return result.trim() === 'true';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Tri-state probe of whether the session's transaction holds uncommitted changes
  * that an abort or logout would discard: `true` = pending work, `false` = clean,
@@ -505,6 +524,13 @@ export function getDefinedInstVarCounts(
   session: ActiveSession, dict: number | string,
 ): Map<string, number> {
   return sharedGetDefinedInstVarCounts(bind(session), dict);
+}
+
+export function previewRenameInstVar(
+  session: ActiveSession,
+  className: string, oldName: string, newName: string, dict?: number | string,
+): string {
+  return sharedPreviewRenameInstVar(bind(session), className, oldName, newName, dict);
 }
 
 export function getGrailStubReflection(

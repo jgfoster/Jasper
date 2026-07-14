@@ -56,6 +56,7 @@ import {
   maybeOfferEnhancedInspectorInstall,
 } from './enhancedInspectorCommand';
 import { refreshEnhancedInspectorAvailable } from './enhancedInspectorAvailability';
+import { refreshRefactoringSupportAvailable } from './refactoringAvailability';
 import { supportsEnhancedInspector } from './enhancedInspectorInstall';
 import { DebuggerPanel } from './debuggerPanel';
 import { InlineValuesCodeLensProvider } from './inlineValuesCodeLens';
@@ -786,6 +787,24 @@ export function activate(context: vscode.ExtensionContext) {
   );
   updateEnhancedInspectorSupportedContext();
 
+  // Drive the `gemstone.rbSupportAvailable` context key off the selected
+  // session's latched refactoring-engine probe, so refactoring commands (e.g.
+  // the Explorer's rename-instance-variable pencil) can gate on it. Recomputed
+  // on selection change and refreshed after login (and any future engine
+  // install). Unlike the Enhanced Inspector, this is not version-gated.
+  function updateRefactoringSupportContext(): void {
+    const selected = sessionManager.getSelectedSession();
+    vscode.commands.executeCommand(
+      'setContext',
+      'gemstone.rbSupportAvailable',
+      !!selected && selected.rbSupportAvailable === true,
+    );
+  }
+  context.subscriptions.push(
+    sessionManager.onDidChangeSelection(() => updateRefactoringSupportContext()),
+  );
+  updateRefactoringSupportContext();
+
   // ── Enhanced Inspector Perf Tracking ───────────────────────────────────
   const enhancedInspectorPerfChannel = vscode.window.createOutputChannel('GemStone Enhanced Inspector Perf');
   context.subscriptions.push(enhancedInspectorPerfChannel);
@@ -1193,6 +1212,8 @@ export function activate(context: vscode.ExtensionContext) {
           () => sessionManager.loginAsync(login, gciPath),
         );
         refreshEnhancedInspectorAvailable(session);
+        refreshRefactoringSupportAvailable(session);
+        updateRefactoringSupportContext();
         treeProvider.refresh();
         vscode.window.showInformationMessage(
           `Connected to ${login.stone} (${session.stoneVersion}) on ${login.gem_host} as ${login.gs_user}`

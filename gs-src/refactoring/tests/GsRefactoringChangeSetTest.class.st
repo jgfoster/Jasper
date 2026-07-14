@@ -14,7 +14,7 @@ Class {
 GsRefactoringChangeSetTest >> testChangeWithIdFindsStagedChangeOrNil [
 	| cs staged |
 	cs := GsRefactoringChangeSet new.
-	staged := cs addMethodRecompileInDictionary: 'UserGlobals' className: 'Foo' isMeta: false selector: #a oldSource: 'a' newSource: 'a2'.
+	staged := cs addMethodRecompileInDictionary: 'UserGlobals' className: 'Foo' isMeta: false selector: #a category: 'accessing' oldSource: 'a' newSource: 'a2'.
 
 	self assert: (cs changeWithId: '1') == staged.
 	self assert: (cs changeWithId: '99') isNil
@@ -30,6 +30,7 @@ GsRefactoringChangeSetTest >> testClassDefinitionEditSerializesWithNullSelector 
 
 	self assert: (json includesString: '"kind":"classDefinitionEdit"').
 	self assert: (json includesString: '"selector":null').
+	self assert: (json includesString: '"category":null').
 	self assert: (json includesString: '"isMeta":false')
 ]
 
@@ -48,7 +49,7 @@ GsRefactoringChangeSetTest >> testJsonEscapesQuotesBackslashesAndControlCharacte
 	| cs json src |
 	src := 'q"b\' , (String with: Character tab) , (String with: Character lf).
 	cs := GsRefactoringChangeSet new.
-	cs addMethodRecompileInDictionary: 'UserGlobals' className: 'Foo' isMeta: false selector: #a oldSource: 'a' newSource: src.
+	cs addMethodRecompileInDictionary: 'UserGlobals' className: 'Foo' isMeta: false selector: #a category: 'accessing' oldSource: 'a' newSource: src.
 
 	json := cs jsonString.
 
@@ -59,9 +60,9 @@ GsRefactoringChangeSetTest >> testJsonEscapesQuotesBackslashesAndControlCharacte
 GsRefactoringChangeSetTest >> testSelectedChangesReturnsOnlyRequestedIds [
 	| cs selected ids |
 	cs := GsRefactoringChangeSet new.
-	cs addMethodRecompileInDictionary: 'UserGlobals' className: 'Foo' isMeta: false selector: #a oldSource: 'a' newSource: 'a2'.
-	cs addMethodRecompileInDictionary: 'UserGlobals' className: 'Foo' isMeta: false selector: #b oldSource: 'b' newSource: 'b2'.
-	cs addMethodRecompileInDictionary: 'UserGlobals' className: 'Foo' isMeta: false selector: #c oldSource: 'c' newSource: 'c2'.
+	cs addMethodRecompileInDictionary: 'UserGlobals' className: 'Foo' isMeta: false selector: #a category: 'accessing' oldSource: 'a' newSource: 'a2'.
+	cs addMethodRecompileInDictionary: 'UserGlobals' className: 'Foo' isMeta: false selector: #b category: 'accessing' oldSource: 'b' newSource: 'b2'.
+	cs addMethodRecompileInDictionary: 'UserGlobals' className: 'Foo' isMeta: false selector: #c category: 'accessing' oldSource: 'c' newSource: 'c2'.
 
 	selected := cs selectedChanges: #('1' '3').
 	ids := selected collect: [:c | c id].
@@ -76,7 +77,7 @@ GsRefactoringChangeSetTest >> testSelectedChangesReturnsOnlyRequestedIds [
 GsRefactoringChangeSetTest >> testSerializesAStagedMethodRecompile [
 	| cs json |
 	cs := GsRefactoringChangeSet new.
-	cs addMethodRecompileInDictionary: 'UserGlobals' className: 'Foo' isMeta: true selector: #bar oldSource: 'bar ^1' newSource: 'bar ^2'.
+	cs addMethodRecompileInDictionary: 'UserGlobals' className: 'Foo' isMeta: true selector: #bar category: 'accessing' oldSource: 'bar ^1' newSource: 'bar ^2'.
 
 	json := cs jsonString.
 
@@ -84,6 +85,7 @@ GsRefactoringChangeSetTest >> testSerializesAStagedMethodRecompile [
 	self assert: (json includesString: '"className":"Foo"').
 	self assert: (json includesString: '"isMeta":true').
 	self assert: (json includesString: '"selector":"bar"').
+	self assert: (json includesString: '"category":"accessing"').
 	self assert: (json includesString: '"newSource":"bar ^2"')
 ]
 
@@ -92,8 +94,8 @@ GsRefactoringChangeSetTest >> testStagedChangesReceiveSequentialStringIds [
 	| cs first second |
 	cs := GsRefactoringChangeSet new.
 
-	first := cs addMethodRecompileInDictionary: 'UserGlobals' className: 'Foo' isMeta: false selector: #a oldSource: 'a' newSource: 'b'.
-	second := cs addMethodRecompileInDictionary: 'UserGlobals' className: 'Foo' isMeta: false selector: #c oldSource: 'c' newSource: 'd'.
+	first := cs addMethodRecompileInDictionary: 'UserGlobals' className: 'Foo' isMeta: false selector: #a category: 'accessing' oldSource: 'a' newSource: 'b'.
+	second := cs addMethodRecompileInDictionary: 'UserGlobals' className: 'Foo' isMeta: false selector: #c category: 'accessing' oldSource: 'c' newSource: 'd'.
 
 	self assert: first id equals: '1'.
 	self assert: second id equals: '2'.
@@ -105,7 +107,7 @@ GsRefactoringChangeSetTest >> testStagingChangesNeverRequiresACommit [
 	| before cs |
 	before := System needsCommit.
 	cs := GsRefactoringChangeSet new.
-	cs addMethodRecompileInDictionary: 'UserGlobals' className: 'Foo' isMeta: false selector: #a oldSource: 'a' newSource: 'a2'.
+	cs addMethodRecompileInDictionary: 'UserGlobals' className: 'Foo' isMeta: false selector: #a category: 'accessing' oldSource: 'a' newSource: 'a2'.
 	cs addClassDefinitionEditInDictionary: 'UserGlobals' className: 'Foo' oldSource: 'old' newSource: 'new'.
 	cs jsonString.
 

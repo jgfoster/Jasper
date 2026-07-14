@@ -186,7 +186,9 @@ GsRenameInstanceVariableRefactoringTest >> testRenamesAssignmentInDefiningClass 
 	change := self methodChangeFor: #increment in: (self renameCountTo: 'tally').
 
 	self assert: change newSource includesSubstring: 'tally := tally + 1'.
-	self deny: change newSource includesSubstring: 'count'
+	self deny: change newSource includesSubstring: 'count'.
+	"The method's category travels with the change so the client can address it."
+	self assert: change category equals: 'fixture'
 ]
 
 { #category : 'tests' }

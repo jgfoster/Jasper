@@ -34,13 +34,15 @@ GsRefactoringChangeSet >> addClassDefinitionEditInDictionary: dn className: cn o
 ]
 
 { #category : 'building' }
-GsRefactoringChangeSet >> addMethodRecompileInDictionary: dn className: cn isMeta: aBool selector: sel oldSource: os newSource: ns [
+GsRefactoringChangeSet >> addMethodRecompileInDictionary: dn className: cn isMeta: aBool selector: sel category: cat oldSource: os newSource: ns [
 	"Stage a method recompile. Records the change only; NEVER compiles or
-	 commits. Returns the new GsRefactoringChange."
+	 commits. The category travels with the change so a client can address the
+	 method (e.g. build its editor URI) and recompile it under its own category.
+	 Returns the new GsRefactoringChange."
 	| change |
 	change := GsRefactoringChange
 		methodRecompileId: self nextIdString dictName: dn className: cn
-		isMeta: aBool selector: sel oldSource: os newSource: ns.
+		isMeta: aBool selector: sel category: cat oldSource: os newSource: ns.
 	changes add: change.
 	^change
 ]

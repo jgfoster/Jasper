@@ -12,6 +12,10 @@ import { categoryChildNodes, categoryParentPath, categoryMatches } from './explo
 import { registerExplorerOpenEditors } from './explorerOpenEditors';
 import { SourceEditorPlacement } from './sourceEditorPlacement';
 import { generateAndSaveGrailStub } from './grailStubGenerator';
+import {
+  RenameChange, parseRenameChanges, orderChangesClassDefFirst, planRenameApply, validateNewIvarName,
+} from './renameInstVarPreview';
+import { showRenameInstVarPanel } from './renameInstVarPanel';
 
 const VIEW_DICTS = 'gemstoneExplorerDicts';
 const VIEW_CATEGORIES = 'gemstoneExplorerCategories';
@@ -848,25 +852,150 @@ class ExplorerController {
     return names;
   }
 
-  // Stage A stub: prove the pencil fires with the right (class, ivar), but the
-  // rename itself isn't wired yet — the server-side refactoring engine lands with
-  // the refactoring branch. The dialog is shown (and made explicit that nothing
-  // happens on accept) so the UX flow can be exercised end to end.
+  // Rename this instance variable across its defining class and every subclass,
+  // over all symbol-list dictionaries, via the server-side refactoring engine.
+  // The engine stages a non-committing change set (a recompile per affected
+  // method plus the class-definition edit); we show VS Code's native refactor
+  // preview so the user can uncheck any change and see per-change diffs, then
+  // apply — which recompiles the kept changes in the stone (class definition
+  // first) WITHOUT committing. The user commits explicitly, as everywhere else.
   async renameInstVar(item: IvarItem): Promise<void> {
+    const session = this.session();
+    if (!session) return;
+
+    // The engine ships as an optional, separately-installed payload. When it
+    // isn't loaded, offer to install it — a stub until the loader stage lands.
+    if (!session.rbSupportAvailable) {
+      const LOAD = 'Load Refactoring Support…';
+      const choice = await vscode.window.showInformationMessage(
+        "Renaming instance variables needs the GemStone refactoring engine, which "
+        + "isn't loaded in this stone yet.",
+        LOAD,
+      );
+      if (choice === LOAD) {
+        void vscode.window.showInformationMessage(
+          'Installing the refactoring engine will arrive in an upcoming release.',
+        );
+      }
+      return;
+    }
+
+    const oldName = item.ivarName;
     const entered = await vscode.window.showInputBox({
-      title: 'Rename Instance Variable — not available yet',
-      prompt: `'${item.ivarName}' in ${item.className}. `
-        + 'Renaming is not implemented yet; accepting will not change anything.',
-      value: item.ivarName,
-      valueSelection: [0, item.ivarName.length],
+      title: 'Rename Instance Variable',
+      prompt: `Rename '${oldName}' in ${item.className} (and its subclasses).`,
+      value: oldName,
+      valueSelection: [0, oldName.length],
+      validateInput: (v) => validateNewIvarName(v, oldName),
     });
-    // Only stay silent if the user dismissed the box (Esc). Accepting it — whether
-    // they changed the name or just pressed Enter — surfaces the not-yet message.
     if (entered === undefined) return;
+    const newName = entered.trim();
+    if (newName === oldName) return;
+
+    let json: string;
+    try {
+      json = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `Previewing rename of '${oldName}'…`,
+          cancellable: false,
+        },
+        () => Promise.resolve(
+          queries.previewRenameInstVar(session, item.className, oldName, newName, this.state.dictIndex),
+        ),
+      );
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      void vscode.window.showErrorMessage(`Rename preview failed: ${msg}`);
+      return;
+    }
+
+    let changes: RenameChange[];
+    try {
+      changes = parseRenameChanges(json);
+    } catch {
+      const detail = json.length > 200 ? `${json.slice(0, 200)}…` : json;
+      void vscode.window.showErrorMessage(`Rename preview failed: ${detail}`);
+      return;
+    }
+
+    if (changes.length === 0) {
+      void vscode.window.showInformationMessage(
+        `No references to '${oldName}' were found in ${item.className} or its `
+        + 'subclasses; nothing to rename.',
+      );
+      return;
+    }
+
+    // Preview in the custom panel (all changes pre-checked, before/after diffs);
+    // the user unchecks any they don't want and hits Apply.
+    const ordered = orderChangesClassDefFirst(changes);
+    const selectedIds = await showRenameInstVarPanel(oldName, newName, ordered);
+    if (!selectedIds || selectedIds.length === 0) return;
+
+    await this.applyRename(session, ordered, selectedIds, oldName, newName);
+  }
+
+  // Recompile the selected changes in the stone: the class-definition edit first
+  // (so methods recompile against the new class shape), then each method under
+  // its own category. Everything compiles in the stone but NOTHING is committed —
+  // the user commits explicitly, as everywhere else in Jasper.
+  private async applyRename(
+    session: ActiveSession, ordered: RenameChange[], selectedIds: string[],
+    oldName: string, newName: string,
+  ): Promise<void> {
+    // Ordering (class definition first), dictionary-index resolution, and the
+    // category default are computed as a pure plan so those rules are unit-tested
+    // directly; here we just execute each step with no commit.
+    const steps = planRenameApply(
+      ordered, selectedIds, queries.getDictionaryNames(session), this.state.dictName,
+    );
+    const failures: string[] = [];
+    let applied = 0;
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Applying rename '${oldName}' → '${newName}'…`,
+        cancellable: false,
+      },
+      async () => {
+        for (const step of steps) {
+          try {
+            if (step.kind === 'classDefinitionEdit') {
+              queries.compileClassDefinition(session, step.newSource);
+            } else {
+              queries.compileMethod(
+                session, step.className, step.isMeta, step.category,
+                step.newSource, 0, step.dictIndex,
+              );
+            }
+            applied += 1;
+          } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e);
+            failures.push(`${step.label}: ${msg}`);
+          }
+        }
+      },
+    );
+
+    // The class was just reshaped/recompiled — reload the defined-ivar data
+    // (dropping the memoized names) and refresh so the ivar sub-tree and method
+    // list reflect the new name.
+    this.loadDefinedIvarCounts();
+    this.classProvider.refresh();
+    this.methodProvider.refresh();
+
+    if (failures.length > 0) {
+      void vscode.window.showErrorMessage(
+        `Rename applied ${applied} of ${steps.length} change(s); `
+        + `${failures.length} failed: ${failures[0]}`
+        + (failures.length > 1 ? ` (+${failures.length - 1} more)` : ''),
+      );
+      return;
+    }
     void vscode.window.showInformationMessage(
-      `Renaming instance variables isn't available yet — '${item.ivarName}' in `
-      + `${item.className} was left unchanged. The refactoring engine wiring lands `
-      + 'in the next stage.',
+      `Renamed '${oldName}' → '${newName}' (${applied} change${applied === 1 ? '' : 's'}). `
+      + 'Compiled but NOT committed — commit when ready.',
     );
   }
 

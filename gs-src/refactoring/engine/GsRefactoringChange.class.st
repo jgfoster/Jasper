@@ -14,6 +14,7 @@ Class {
 		'className',
 		'isMeta',
 		'selector',
+		'category',
 		'oldSource',
 		'newSource'
 	],
@@ -24,14 +25,14 @@ Class {
 GsRefactoringChange class >> classDefinitionEditId: anId dictName: dn className: cn oldSource: os newSource: ns [
 	^self new
 		setId: anId kind: #classDefinitionEdit dictName: dn className: cn
-		isMeta: false selector: nil oldSource: os newSource: ns
+		isMeta: false selector: nil category: nil oldSource: os newSource: ns
 ]
 
 { #category : 'instance creation' }
-GsRefactoringChange class >> methodRecompileId: anId dictName: dn className: cn isMeta: aBool selector: sel oldSource: os newSource: ns [
+GsRefactoringChange class >> methodRecompileId: anId dictName: dn className: cn isMeta: aBool selector: sel category: cat oldSource: os newSource: ns [
 	^self new
 		setId: anId kind: #methodRecompile dictName: dn className: cn
-		isMeta: aBool selector: sel oldSource: os newSource: ns
+		isMeta: aBool selector: sel category: cat oldSource: os newSource: ns
 ]
 
 { #category : 'accessing' }
@@ -56,6 +57,11 @@ GsRefactoringChange >> hex2: anInteger [
 { #category : 'accessing' }
 GsRefactoringChange >> id [
 	^id
+]
+
+{ #category : 'accessing' }
+GsRefactoringChange >> category [
+	^category
 ]
 
 { #category : 'accessing' }
@@ -93,6 +99,8 @@ GsRefactoringChange >> jsonOn: aStream [
 	aStream nextPutAll: (isMeta == true ifTrue: ['true'] ifFalse: ['false']).
 	aStream nextPutAll: ',"selector":'.
 	self jsonValue: selector on: aStream.
+	aStream nextPutAll: ',"category":'.
+	self jsonValue: category on: aStream.
 	aStream nextPutAll: ',"oldSource":'.
 	self jsonValue: oldSource on: aStream.
 	aStream nextPutAll: ',"newSource":'.
@@ -131,13 +139,14 @@ GsRefactoringChange >> selector [
 ]
 
 { #category : 'private' }
-GsRefactoringChange >> setId: anId kind: aKind dictName: dn className: cn isMeta: aBool selector: sel oldSource: os newSource: ns [
+GsRefactoringChange >> setId: anId kind: aKind dictName: dn className: cn isMeta: aBool selector: sel category: cat oldSource: os newSource: ns [
 	id := anId.
 	kind := aKind.
 	dictName := dn.
 	className := cn.
 	isMeta := aBool.
 	selector := sel.
+	category := cat.
 	oldSource := os.
 	newSource := ns
 ]

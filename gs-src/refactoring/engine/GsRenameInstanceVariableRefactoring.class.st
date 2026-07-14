@@ -220,17 +220,20 @@ GsRenameInstanceVariableRefactoring >> stageMethodRecompilesInto: aChangeSet [
 	affected do: [:assoc | | cls dn |
 		cls := assoc key.
 		dn := self dictNameForClass: cls.
-		assoc value do: [:sel | | m oldSrc newSrc |
+		assoc value do: [:sel | | m oldSrc newSrc cat |
 			m := cls compiledMethodAt: sel environmentId: 0 otherwise: nil.
 			m ifNotNil: [
 				oldSrc := m sourceString.
 				newSrc := self renameInSource: oldSrc.
 				newSrc ifNotNil: [
+					cat := (cls categoryOfSelector: sel environmentId: 0)
+						ifNil: ['as yet unclassified'].
 					aChangeSet
 						addMethodRecompileInDictionary: dn
 						className: cls name
 						isMeta: false
 						selector: sel
+						category: cat
 						oldSource: oldSrc
 						newSource: newSrc]]]]
 ]
