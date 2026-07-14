@@ -1,5 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { OOP_ILLEGAL, OOP_NIL } from '../gciConstants';
+import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('vscode', () => ({
   window: {

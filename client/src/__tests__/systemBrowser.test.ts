@@ -62,7 +62,7 @@ vi.mock('fs', async () => {
 import * as fs from 'fs';
 
 import * as path from 'path';
-import { window, workspace, ViewColumn, TextEditorRevealType, Range, Selection, Position, commands, Uri, TabInputText, TabInputTextDiff, __setConfig, __resetConfig } from '../__mocks__/vscode';
+import { window, workspace, ViewColumn, commands, Uri, TabInputText, TabInputTextDiff, __setConfig, __resetConfig } from '../__mocks__/vscode';
 import { SystemBrowser, extractSelector, planDictionaryFileOut, isComputedMethodCategory, ALL_CLASSES_CATEGORY, ALL_METHODS_CATEGORY, SESSION_METHODS_CATEGORY } from '../systemBrowser';
 import * as queries from '../browserQueries';
 import { GlobalsBrowser } from '../globalsBrowser';

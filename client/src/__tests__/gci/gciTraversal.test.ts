@@ -92,7 +92,7 @@ describe('GCI Traversal Functions', () => {
       expect(strOop.result).not.toBe(OOP_ILLEGAL);
 
       // Use minimum legal buffer size (2048 bytes)
-      const { status, travBuf, err } = gci.GciTsFetchTraversal(
+      const { status, err } = gci.GciTsFetchTraversal(
         session, [strOop.result], 1, 0, OOP_NIL, 2048,
       );
       console.log('FetchTraversal(small buf) - status:', status,

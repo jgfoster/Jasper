@@ -9,8 +9,6 @@ describe('GCI Export Set and Free OOPs', () => {
   const gci = new GciLibrary(GCI_LIBRARY_PATH);
   let session: unknown;
 
-  let OOP_CLASS_STRING: bigint;
-
   beforeAll(() => {
     const login = gci.GciTsLogin(
       STONE_NRS, null, null, false,
@@ -18,8 +16,6 @@ describe('GCI Export Set and Free OOPs', () => {
     );
     expect(login.session).not.toBeNull();
     session = login.session;
-
-    OOP_CLASS_STRING = gci.GciTsResolveSymbol(session, 'String', OOP_NIL).result;
   });
 
   afterAll(() => {

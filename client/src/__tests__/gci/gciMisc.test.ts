@@ -11,7 +11,6 @@ describe('GCI Priority 5: NSC, PerformFetchOops, FetchGbjInfo, NewStringFromUtf1
 
   let OOP_CLASS_STRING: bigint;
   let OOP_CLASS_ARRAY: bigint;
-  let OOP_CLASS_IDENTITY_BAG: bigint;
 
   beforeAll(() => {
     const login = gci.GciTsLogin(
@@ -23,7 +22,6 @@ describe('GCI Priority 5: NSC, PerformFetchOops, FetchGbjInfo, NewStringFromUtf1
 
     OOP_CLASS_STRING = gci.GciTsResolveSymbol(session, 'String', OOP_NIL).result;
     OOP_CLASS_ARRAY = gci.GciTsResolveSymbol(session, 'Array', OOP_NIL).result;
-    OOP_CLASS_IDENTITY_BAG = gci.GciTsResolveSymbol(session, 'IdentityBag', OOP_NIL).result;
   });
 
   afterAll(() => {

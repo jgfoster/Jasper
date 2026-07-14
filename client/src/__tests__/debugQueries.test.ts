@@ -27,7 +27,7 @@ const RECEIVER_OOP = 7000n;
 function createMockSession(): ActiveSession {
   const mockGci = {
     GciTsPerform: vi.fn(
-      (handle: unknown, receiver: bigint, selectorOop: bigint, selectorStr: string | null, args: bigint[]) => {
+      (handle: unknown, receiver: bigint, selectorOop: bigint, selectorStr: string | null, _args: bigint[]) => {
         if (selectorStr && selectorStr.includes(' ')) {
           return {
             result: 0n,
@@ -47,7 +47,7 @@ function createMockSession(): ActiveSession {
       },
     ),
     GciTsPerformFetchBytes: vi.fn(
-      (handle: unknown, receiver: bigint, selector: string, args: bigint[], maxBytes: number) => {
+      (handle: unknown, receiver: bigint, selector: string, _args: bigint[], _maxBytes: number) => {
         if (selector.includes(' ')) {
           return {
             data: '',

@@ -32,7 +32,7 @@ describe('GciTsDoubleToOop / GciTsOopToDouble / GciTsI64ToOop / GciTsOopToI64', 
       console.log('DoubleToOop(1.5) - oop:', oop.toString(16), 'err:', JSON.stringify(err, bigIntReplacer, 2));
       expect(err.number).toBe(0);
 
-      const { success, value, err: err2 } = gci.GciTsOopToDouble(session, oop);
+      const { success, value } = gci.GciTsOopToDouble(session, oop);
       console.log('OopToDouble - success:', success, 'value:', value);
       expect(success).toBe(true);
       expect(value).toBe(1.5);

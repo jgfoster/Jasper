@@ -104,7 +104,7 @@ describe('GciTsExecute / GciTsPerform', () => {
 
     it('executes a numeric-to-string conversion', () => {
       const source = '(3 + 4) printString';
-      const { bytesReturned, data, err } = gci.GciTsExecuteFetchBytes(
+      const { data, err } = gci.GciTsExecuteFetchBytes(
         session, source, -1, OOP_CLASS_STRING,
         OOP_ILLEGAL, OOP_NIL, 1024,
       );
@@ -179,7 +179,7 @@ describe('GciTsExecute / GciTsPerform', () => {
       const intOop = gci.GciTsI64ToOop(session, 42n);
       expect(intOop.err.number).toBe(0);
 
-      const { bytesReturned, data, err } = gci.GciTsPerformFetchBytes(
+      const { data, err } = gci.GciTsPerformFetchBytes(
         session, intOop.result, 'printString', [], 1024,
       );
       console.log('PerformFetchBytes(42 printString) - data:', data);
@@ -191,7 +191,7 @@ describe('GciTsExecute / GciTsPerform', () => {
       const strOop = gci.GciTsNewString(session, 'GemStone');
       expect(strOop.result).not.toBe(OOP_ILLEGAL);
 
-      const { bytesReturned, data, err } = gci.GciTsPerformFetchBytes(
+      const { data, err } = gci.GciTsPerformFetchBytes(
         session, strOop.result, 'reversed', [], 1024,
       );
       expect(err.number).toBe(0);

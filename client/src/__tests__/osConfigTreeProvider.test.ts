@@ -29,10 +29,8 @@ const LINUX_SHMALL_4GB = 1048576;
 const LINUX_SYSCTL_4GB = `kernel.shmmax = ${LINUX_SHMMAX_4GB}\nkernel.shmall = ${LINUX_SHMALL_4GB}\n`;
 const LINUX_SYSCTL_UNLIMITED = 'kernel.shmmax = 18446744073692774399\nkernel.shmall = 18446744073692774399\n';
 const LINUX_SYSCTL_1GB = 'kernel.shmmax = 1073741824\nkernel.shmall = 262144\n';
-const LINUX_SYSCTL_SMALL = 'kernel.shmmax = 4194304\nkernel.shmall = 1024\n'; // 4 MB / 4 MB
 
 const MACOS_SYSCTL_4GB = `kern.sysv.shmmax: ${LINUX_SHMMAX_4GB}\nkern.sysv.shmall: ${LINUX_SHMALL_4GB}\n`;
-const MACOS_SYSCTL_1GB = 'kern.sysv.shmmax: 1073741824\nkern.sysv.shmall: 262144\n';
 const MACOS_SYSCTL_SMALL = 'kern.sysv.shmmax: 4194304\nkern.sysv.shmall: 1024\n'; // 4 MB / 4 MB
 
 function setPlatform(platform: string) {

@@ -166,7 +166,7 @@ describe('GemStoneDebugSession', () => {
     });
 
     it('fails when session not found', () => {
-      const { session, sent } = createTestSession();
+      const { session } = createTestSession();
       const response = makeResponse('attach');
       callRequest(session, 'attachRequest', response, {
         sessionId: 999,

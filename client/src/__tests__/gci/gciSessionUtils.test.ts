@@ -2,14 +2,9 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { GciLibrary } from '../../gciLibrary';
 import { GCI_LIBRARY_PATH, STONE_NRS, GEM_NRS, GS_USER, GS_PASSWORD } from './gciTestConfig';
 
-const OOP_ILLEGAL = 0x01n;
-const OOP_NIL = 0x14n;
-
 describe('GCI Priority 7: Session Utilities', () => {
   const gci = new GciLibrary(GCI_LIBRARY_PATH);
   let session: unknown;
-
-  let OOP_CLASS_STRING: bigint;
 
   beforeAll(() => {
     const login = gci.GciTsLogin(
@@ -18,8 +13,6 @@ describe('GCI Priority 7: Session Utilities', () => {
     );
     expect(login.session).not.toBeNull();
     session = login.session;
-
-    OOP_CLASS_STRING = gci.GciTsResolveSymbol(session, 'String', OOP_NIL).result;
   });
 
   afterAll(() => {
