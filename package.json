@@ -1959,6 +1959,8 @@
     "dev:fresh": "bash scripts/dev-fresh.sh",
     "serve:seaside": "bash scripts/serve-seaside.sh",
     "lint:github:workflows": "bash scripts/lint-workflow-timeouts.sh",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "test": "npm run test --workspaces",
     "test:server:start": "npm run test:server:start --workspace client",
     "test:server:stop": "npm run test:server:stop --workspace client",
@@ -1980,13 +1982,17 @@
     "publish:ovsx": "ovsx publish"
   },
   "devDependencies": {
+    "@eslint/js": "^9.19.0",
     "@playwright/test": "^1.61.1",
     "@types/node": "^22.15",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.7.1",
     "esbuild": "^0.28.1",
+    "eslint": "^10.0.0",
+    "globals": "^16.0.0",
     "ovsx": "^0.10.5",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.20.0"
   },
   "dependencies": {
     "@vscode/debugadapter": "^1.68.0",
