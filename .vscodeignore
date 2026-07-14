@@ -53,6 +53,7 @@ client/src/**
 !client/src/debuggerView.js
 !client/src/enhancedInspectorColumns.js
 !client/src/browserColumnResize.js
+!client/src/renameInstVarPanelView.js
 server/src/**
 mcp-server/src/**
 
