@@ -31,6 +31,8 @@ import { fileOutClass as sharedFileOutClass } from './queries/fileOutClass';
 import { describeClass as sharedDescribeClass } from './queries/describeClass';
 import { loadClassInfo as sharedLoadClassInfo } from './queries/loadClassInfo';
 import { getInstVarNames as sharedGetInstVarNames } from './queries/getInstVarNames';
+import { getDefinedInstVarNames as sharedGetDefinedInstVarNames } from './queries/getDefinedInstVarNames';
+import { getDefinedInstVarCounts as sharedGetDefinedInstVarCounts } from './queries/getDefinedInstVarCounts';
 import {
   getGrailStubReflection as sharedGetGrailStubReflection,
   GrailStubReflection,
@@ -493,6 +495,16 @@ export function describeClass(
 
 export function getInstVarNames(session: ActiveSession, className: string): string[] {
   return sharedGetInstVarNames(bind(session), className);
+}
+
+export function getDefinedInstVarNames(session: ActiveSession, className: string): string[] {
+  return sharedGetDefinedInstVarNames(bind(session), className);
+}
+
+export function getDefinedInstVarCounts(
+  session: ActiveSession, dict: number | string,
+): Map<string, number> {
+  return sharedGetDefinedInstVarCounts(bind(session), dict);
 }
 
 export function getGrailStubReflection(
