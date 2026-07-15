@@ -9,7 +9,6 @@ import * as path from 'path';
 beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
   const source = fs.readFileSync(path.resolve(__dirname, '../listFilter.js'), 'utf8');
-  // eslint-disable-next-line no-new-func
   new Function(source)();
 });
 
