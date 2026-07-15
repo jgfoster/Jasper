@@ -26,8 +26,9 @@ docs/**
 
 # Server-side Smalltalk source (the refactoring engine, its vendored AST, tests,
 # and build tooling). This is source-of-truth, not runtime: the extension files
-# the *generated* payload resources/refactoring/ast-core.gs into a stone and never
-# reads gs-src/ itself. Mirrors how client/src, server/src, etc. are excluded.
+# the *generated* payloads under resources/refactoring/ (ast-core.gs, compat.gs,
+# engine.gs, manifest.gs, refactoring-loader.gs) into a stone and never reads
+# gs-src/ itself. Mirrors how client/src, server/src, etc. are excluded.
 gs-src/**
 
 node_modules/**

@@ -26,7 +26,7 @@ cls := Object subclass: 'RBProgramNode'
   classVars: #('FormatterClass')
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBProgramNode is an abstract class that represents an abstract syntax tree node in a Smalltalk program.
@@ -66,7 +66,7 @@ cls := RBProgramNode subclass: 'RBValueNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBValueNode is an abstract class that represents a node that returns some value.
@@ -96,7 +96,7 @@ cls := RBValueNode subclass: 'RBArrayNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 A RBArrayNode is an AST node for runtime arrays.
@@ -120,7 +120,7 @@ cls := RBValueNode subclass: 'RBAssignmentNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBAssignmentNode is an AST node for assignment statements
@@ -145,7 +145,7 @@ cls := Object subclass: 'RBToken'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBToken is the abstract superclass of all of the RB tokens. These tokens (unlike the standard parser''s) remember where they came from in the original source code.
@@ -171,7 +171,7 @@ cls := RBToken subclass: 'RBAssignmentToken'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBAssignmentToken is the first-class representation of the assignment token '':=''
@@ -190,7 +190,7 @@ cls := RBToken subclass: 'RBValueToken'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBValueToken is the abstract superclass of all tokens that have additional information attached. For example, the BinarySelector token holds onto the actual character (e.g. $+).
@@ -213,7 +213,7 @@ cls := RBValueToken subclass: 'RBBinarySelectorToken'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBBinarySelectorToken is the first-class representation of a binary selector (e.g. +)
@@ -232,7 +232,7 @@ cls := RBValueNode subclass: 'RBBlockNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBBlockNode is an AST node that represents a block "[...]".
@@ -260,7 +260,7 @@ cls := Object subclass: 'RBParseTreeRule'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBParseTreeRule is the abstract superclass of all of the parse tree searching rules. A parse tree rule is the first class representation of a particular rule to search for. The owner of a rule is the algorithm that actually executes the search. This arrangement allows multiple searches to be conducted by a single Searcher.
@@ -284,7 +284,7 @@ cls := RBParseTreeRule subclass: 'RBReplaceRule'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBReplaceRule is the abstract superclass of all of the transforming rules. The rules change the source code by replacing the node that matches the rule. Subclasses implement different strategies for this replacement.
@@ -311,7 +311,7 @@ cls := RBReplaceRule subclass: 'RBBlockReplaceRule'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBBlockReplaceRule replaces the matching node by the result of evaluating replaceBlock. This allows arbitrary computation to come up with a replacement.
@@ -333,7 +333,7 @@ cls := RBValueNode subclass: 'RBCascadeNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBCascadeNode is an AST node for cascaded messages (e.g., "self print1 ; print2").
@@ -357,7 +357,7 @@ cls := Object subclass: 'RBProgramNodeVisitor'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBProgramNodeVisitor is an abstract visitor for the RBProgramNodes.
@@ -377,7 +377,7 @@ cls := RBProgramNodeVisitor subclass: 'RBConfigurableFormatter'
   classVars: #('CascadedMessageInsideParentheses' 'FormatCommentWithStatements' 'IndentsForKeywords' 'IndentString' 'InQueryBlock' 'KeepBlockInMessage' 'LineUpBlockBrackets' 'MaxLineLength' 'MethodSignatureOnMultipleLines' 'MinimumNewLinesBetweenStatements' 'MultiLineMessages' 'NewLineAfterCascade' 'NewLineBeforeFirstCascade' 'NewLineBeforeFirstKeyword' 'NewLinesAfterMethodComment' 'NewLinesAfterMethodPattern' 'NewLinesAfterTemporaries' 'NumberOfArgumentsForMultiLine' 'OneLineMessages' 'PeriodsAtEndOfBlock' 'PeriodsAtEndOfMethod' 'RetainBlankLinesBetweenStatements' 'StringFollowingReturn' 'StringInsideBlocks' 'StringInsideParentheses' 'TraditionalBinaryPrecedence' 'UseTraditionalBinaryPrecedenceForParentheses')
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBConfigurableFormatter formats the Refactoring Browser''s parse trees. It has many more formatting options than the default formatter used by the RB. To change the RB to use this formatter, execute "RBProgramNode formatterClass: RBConfigurableFormatter". For some refactorings the RB must reformat the code after the change, so it is good to have a formatter configured to your tastes.
@@ -404,7 +404,7 @@ cls := RBProgramNodeVisitor subclass: 'RBFormatter'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBFormatter formats a parse tree. It is an example of a Visitor. This is rarely called directly. Sending ''formattedCode'' to a parse tree uses this algorithm to return a pretty-printed version.
@@ -430,7 +430,7 @@ cls := RBValueToken subclass: 'RBIdentifierToken'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBIdentifierToken is the first class representation of an identifier token (e.g. Class)
@@ -449,7 +449,7 @@ cls := RBValueToken subclass: 'RBKeywordToken'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBKeywordToken is the first-class representation of a keyword token (e.g. add:)
@@ -467,7 +467,7 @@ cls := RBValueNode subclass: 'RBLiteralNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBLiteralNode is an AST node that represents literals.
@@ -485,7 +485,7 @@ cls := RBLiteralNode subclass: 'RBLiteralArrayNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 A RBLiteralArrayNode is an AST node that represents literal arrays and literal byte arrays.
@@ -509,7 +509,7 @@ cls := RBValueToken subclass: 'RBLiteralArrayToken'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 "no comment"
 true.
@@ -525,7 +525,7 @@ cls := RBValueToken subclass: 'RBLiteralToken'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBLiteralToken is the first-class representation of a literal token (entire literals, even literal arrays, are a single token in the ST80 grammar.).
@@ -548,7 +548,7 @@ cls := RBLiteralNode subclass: 'RBLiteralValueNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBLiteralNode is an AST node that represents literal values (e.g., #foo, true, 1, etc.), but not literal arrays.
@@ -569,7 +569,7 @@ cls := RBValueNode subclass: 'RBMessageNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBMessageNode is an AST node that represents a message send.
@@ -595,7 +595,7 @@ cls := RBProgramNode subclass: 'RBMethodNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBMethodNode is the AST that represents a Smalltalk method.
@@ -625,7 +625,7 @@ cls := RBLiteralToken subclass: 'RBMultiKeywordLiteralToken'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 "no comment"
 true.
@@ -641,7 +641,7 @@ cls := RBLiteralToken subclass: 'RBNumberLiteralToken'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 "no comment"
 true.
@@ -657,7 +657,7 @@ cls := RBProgramNodeVisitor subclass: 'RBParseTreeSearcher'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 ParseTreeSearcher walks over a normal source code parse tree using the visitor pattern, and then matches these nodes against the meta-nodes using the match:inContext: methods defined for the meta-nodes.
@@ -682,7 +682,7 @@ cls := RBParseTreeSearcher subclass: 'RBParseTreeRewriter'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 ParseTreeRewriter walks over and transforms its RBProgramNode (tree). If the tree is modified, then answer is set to true, and the modified tree can be retrieved by the #tree method.
@@ -703,7 +703,7 @@ cls := Object subclass: 'RBParser'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBParser takes a source code string and generates an AST for it. This is a hand-written, recursive descent parser and has been optimized for speed. The simplest way to call this is either ''RBParser parseExpression: aString'' if you want the AST for an expression, or ''RBParser parseMethod: aString'' if you want to parse an entire method.
@@ -733,7 +733,7 @@ cls := RBIdentifierToken subclass: 'RBPathToken'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 "no comment"
 true.
@@ -749,7 +749,7 @@ cls := RBBlockNode subclass: 'RBPatternBlockNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBPatternBlockNode is the node in matching parse trees (it never occurs in normal Smalltalk code) that executes a block to determine if a match occurs. valueBlock takes two arguments, the first is the actual node that we are trying to match against, and second node is the dictionary that contains all the metavariable bindings that the matcher has made thus far.
@@ -772,7 +772,7 @@ cls := RBValueToken subclass: 'RBPatternBlockToken'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBPatternBlockToken is the first-class representation of the pattern block token.
@@ -792,7 +792,7 @@ cls := RBMessageNode subclass: 'RBPatternMessageNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBPatternMessageNode is a RBMessageNode that will match other message nodes without their selectors being equal. 
@@ -814,7 +814,7 @@ cls := RBMethodNode subclass: 'RBPatternMethodNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBPatternMethodNode is a RBMethodNode that will match other method nodes without their selectors being equal. 
@@ -837,7 +837,7 @@ cls := RBParser subclass: 'RBPatternParser'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBPatternParser is a subclass of RBParser that allows the extended syntax that creates matching trees. These trees can be used by the ParseTreeMatcher to search and transform source code.
@@ -856,7 +856,7 @@ cls := RBProgramNode subclass: 'RBPragmaNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBPragmaNode is an AST node that represents a method pragma.
@@ -881,7 +881,7 @@ cls := RBPragmaNode subclass: 'RBPatternPragmaNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 "no comment"
 true.
@@ -897,7 +897,7 @@ cls := Object subclass: 'RBScanner'
   classVars: #('PatternVariableCharacter')
   classInstVars: #('classificationTable')
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBScanner is a stream that returns a sequence of token from the string that it is created on. The tokens know where they came from in the source code and which comments were attached to them.
@@ -935,7 +935,7 @@ cls := RBScanner subclass: 'RBPatternScanner'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBPatternScanner is a subclass of RBScanner that allows the extended syntax of pattern matching trees.
@@ -954,7 +954,7 @@ cls := RBValueNode subclass: 'RBVariableNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBVariableNode is an AST node that represent a variable (global, inst var, temp, etc.).
@@ -977,7 +977,7 @@ cls := RBVariableNode subclass: 'RBPatternVariableNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBPatternVariableNode is an AST node that is used to match several other types of nodes (literals, variables, value nodes, statement nodes, and sequences of statement nodes).
@@ -1010,7 +1010,7 @@ cls := RBPatternBlockNode subclass: 'RBPatternWrapperBlockNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBPatternWrapperBlockNode allows further matching using a block after a node has been matched by a pattern node.
@@ -1031,7 +1031,7 @@ cls := RBBlockNode subclass: 'RBQueryBlockNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 "no comment"
 true.
@@ -1047,7 +1047,7 @@ cls := RBProgramNodeVisitor subclass: 'RBReadBeforeWrittenTester'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBReadBeforeWrittenTester is a visitor that identifies variables that may have been read before they are initialized.
@@ -1072,7 +1072,7 @@ cls := RBProgramNode subclass: 'RBReturnNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBReturnNode is an AST node that represents a return expression.
@@ -1096,7 +1096,7 @@ cls := RBParseTreeRule subclass: 'RBSearchRule'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBSearchRule is a parse tree rule that simply searches for matches to the rule. Every time a match is found, answerBlock is evaluated with the node that matches and the cureent answer. This two-argument approach allows a collection to be formed from all of the matches (Think inject:into:).
@@ -1119,7 +1119,7 @@ cls := RBProgramNode subclass: 'RBSequenceNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBSequenceNode is an AST node that represents a sequence of statements. Both RBBlockNodes and RBMethodNodes contain these.
@@ -1146,7 +1146,7 @@ cls := RBAssignmentToken subclass: 'RBShortAssignmentToken'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 "no comment"
 true.
@@ -1162,7 +1162,7 @@ cls := Object subclass: 'RBSmallDictionary'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBSmallDictionary is a special dictionary optimized for small collections. In addition to the normal dictionary protocol, it also supports an #empty message which "empties" the collection but may hang on to the original elements (so it could collect garbage). Without #empty we would either need to create a new dictionary or explicitly remove everything from the dictionary. Both of these take more time and #empty.
@@ -1186,7 +1186,7 @@ cls := RBValueToken subclass: 'RBSpecialCharacterToken'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBSpecialCharacterToken is the first class representation of special characters.
@@ -1206,7 +1206,7 @@ cls := RBReplaceRule subclass: 'RBStringReplaceRule'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBStringReplaceRule replaces a matched tree with another tree (which may include metavariable from the matching tree). This is a very succint syntax for specifying most rewrites.
@@ -1229,7 +1229,7 @@ cls := Object subclass: 'RBStringReplacement'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 cls comment: '
 RBStringReplacement represents replacing source in the original method with a different string. These are used when reformatting code after a parse tree change has been made. Depending on the change, it may be possible to minimally change the parse tree without needing to format it.
@@ -1254,7 +1254,7 @@ cls := RBParser subclass: 'RBTonelParser'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 "no comment"
 true.
@@ -1270,7 +1270,7 @@ cls := RBScanner subclass: 'RBTonelScanner'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 "no comment"
 true.
@@ -1286,7 +1286,7 @@ cls := RBProgramNode subclass: 'RBWorkspaceNode'
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
-  inDictionary: Published.
+  inDictionary: GsRefactoring.
 cls category: 'AST-Core'.
 "no comment"
 true.
