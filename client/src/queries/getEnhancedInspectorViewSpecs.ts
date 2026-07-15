@@ -1,7 +1,7 @@
 import { QueryExecutor } from './types';
 import { escapeString } from './util';
 
-const VALID_SELECTOR = /^[a-zA-Z_][a-zA-Z0-9_]*:?$|^([a-zA-Z_][a-zA-Z0-9_]*:)+$|^[+\-*\/<>=~&|@%?,]{1,2}$/;
+const VALID_SELECTOR = /^[a-zA-Z_][a-zA-Z0-9_]*:?$|^([a-zA-Z_][a-zA-Z0-9_]*:)+$|^[+\-*/<>=~&|@%?,]{1,2}$/;
 
 export function isValidSelector(selector: string): boolean {
   return VALID_SELECTOR.test(selector);
@@ -105,7 +105,7 @@ STONJSON toString: textData`;
   const result = enhancedInspectorExecute(execute, 'fetchEnhancedInspectorPrintTabData', code);
   let truncated = false;
   if (result) {
-    try { truncated = JSON.parse(result).truncated === true; } catch {}
+    try { truncated = JSON.parse(result).truncated === true; } catch { /* non-JSON result: leave truncated = false */ }
   }
   return { data: result, truncated };
 }

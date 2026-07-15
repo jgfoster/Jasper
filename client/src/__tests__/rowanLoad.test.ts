@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -139,7 +140,6 @@ describe('deriveRepoName', () => {
 });
 
 describe('updateGitRepo', () => {
-  const { execFileSync } = require('child_process') as typeof import('child_process');
   const g = (args: string[], cwd: string) => execFileSync('git', args, { cwd, stdio: 'pipe' });
 
   // A bare remote, plus a clone of it. Advancing the remote is done through a

@@ -978,7 +978,7 @@ export class EnhancedInspector {
     // A1: JSON syntax highlighting
     function highlightJson(str) {
       return esc(str).replace(
-        /(&quot;(\\\\u[a-fA-F0-9]{4}|\\\\[^u]|[^\\\\&])*&quot;(\s*:)?|\b(true|false|null)\b|-?\\d+(?:\\.\\d*)?(?:[eE][+\\-]?\\d+)?)/g,
+        /(&quot;(\\\\u[a-fA-F0-9]{4}|\\\\[^u]|[^\\\\&])*&quot;(s*:)?|\b(true|false|null)\b|-?\\d+(?:\\.\\d*)?(?:[eE][+\\-]?\\d+)?)/g,
         m => {
           let col = 'color:#b5cea8';
           if (m.startsWith('&quot;')) col = m.endsWith(':') ? 'color:#9cdcfe' : 'color:#ce9178';

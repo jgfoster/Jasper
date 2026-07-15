@@ -208,7 +208,7 @@ export function wslRmSync(p: string, options?: { recursive?: boolean; force?: bo
  */
 export function toWslPath(p: string): string {
   if (isWslUncPath(p)) return windowsPathToWsl(p);
-  const drive = p.match(/^([A-Za-z]):[\\\/](.*)$/);
+  const drive = p.match(/^([A-Za-z]):[\\/](.*)$/);
   if (drive) return `/mnt/${drive[1].toLowerCase()}/${drive[2].replace(/\\/g, '/')}`;
   return p;
 }

@@ -42,7 +42,7 @@ export function classifyPidOwnership(
   // basename (matched at a word boundary so unrelated apps like
   // "ssh-agent" or "iTunesHelper" do not get a false positive).
   const lowered = command.toLowerCase();
-  const looksLikeServer = /(?:^|[\/\s])(?:stoned|netldid)(?:\s|$)/.test(lowered);
+  const looksLikeServer = /(?:^|[/\s])(?:stoned|netldid)(?:\s|$)/.test(lowered);
   return { pidGone: false, isGemStoneServer: looksLikeServer, command };
 }
 
