@@ -105,7 +105,7 @@ STONJSON toString: textData`;
   const result = enhancedInspectorExecute(execute, 'fetchEnhancedInspectorPrintTabData', code);
   let truncated = false;
   if (result) {
-    try { truncated = JSON.parse(result).truncated === true; } catch {}
+    try { truncated = JSON.parse(result).truncated === true; } catch { /* non-JSON result: leave truncated = false */ }
   }
   return { data: result, truncated };
 }
