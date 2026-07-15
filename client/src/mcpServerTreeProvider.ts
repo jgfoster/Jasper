@@ -97,7 +97,7 @@ function renderThisWindow(
   socket.tooltip = 'Local stdio socket consumed by the Claude Code proxy. Click to copy the path.';
   socket.contextValue = 'mcpSocket';
   socket.command = {
-    command: 'gemstone.copyMcpSocketPath',
+    command: 'jasper.copyMcpSocketPath',
     title: 'Copy MCP Socket Path',
     arguments: [ownership.socketPath],
   };
@@ -111,7 +111,7 @@ function renderThisWindow(
       'HTTPS/SSE endpoint for Claude Desktop "Add custom connector" and the MCP Inspector.';
     https.contextValue = 'mcpHttps';
     https.command = {
-      command: 'gemstone.copyMcpUrl',
+      command: 'jasper.copyMcpUrl',
       title: 'Copy MCP Server URL',
     };
     nodes.push(https);
@@ -124,7 +124,7 @@ function renderThisWindow(
       '(several seconds). The inspector\'s own browser tab opens automatically with the server URL pre-filled.';
     inspector.contextValue = 'mcpInspector';
     inspector.command = {
-      command: 'gemstone.openMcpInspector',
+      command: 'jasper.openMcpInspector',
       title: 'Open MCP Inspector',
     };
     nodes.push(inspector);
@@ -172,7 +172,7 @@ function renderOtherWindow(info: McpOwnerInfo): McpNode[] {
   socket.tooltip = 'Local stdio socket consumed by the Claude Code proxy. Click to copy the path.';
   socket.contextValue = 'mcpSocket';
   socket.command = {
-    command: 'gemstone.copyMcpSocketPath',
+    command: 'jasper.copyMcpSocketPath',
     title: 'Copy MCP Socket Path',
     arguments: [info.socketPath],
   };
@@ -213,7 +213,7 @@ function renderNoOwner(): McpNode[] {
     'calls will then be answered by whichever GemStone session you select here.';
   claim.contextValue = 'mcpClaim';
   claim.command = {
-    command: 'gemstone.claimMcpServer',
+    command: 'jasper.claimMcpServer',
     title: 'Claim MCP Server',
   };
 

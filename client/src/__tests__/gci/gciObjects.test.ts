@@ -17,7 +17,6 @@ describe('GCI Object Creation and Inquiry', () => {
   let OOP_CLASS_STRING: bigint;
   let OOP_CLASS_SYMBOL: bigint;
   let OOP_CLASS_BYTE_ARRAY: bigint;
-  let OOP_CLASS_ARRAY: bigint;
 
   beforeAll(() => {
     const login = gci.GciTsLogin(
@@ -213,7 +212,7 @@ describe('GCI Object Creation and Inquiry', () => {
       const { result: oop } = gci.GciTsNewString(session, text);
       expect(oop).not.toBe(OOP_ILLEGAL);
 
-      const { result, info, err } = gci.GciTsFetchObjInfo(session, oop, false, 1024);
+      const { result, info } = gci.GciTsFetchObjInfo(session, oop, false, 1024);
       console.log('FetchObjInfo - result:', result, 'info:', JSON.stringify(info, bigIntReplacer, 2));
       expect(result).toBeGreaterThanOrEqual(0n);
       expect(info.objId).toBe(oop);

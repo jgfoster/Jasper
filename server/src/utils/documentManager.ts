@@ -4,7 +4,7 @@ import { Parser } from '../parser/parser';
 import { ParseError } from '../parser/errors';
 import { MethodNode } from '../parser/ast';
 import { StatementNode } from '../parser/ast';
-import { parseTopazDocument, TopazRegion, RegionKind, findRegionAtLine, toRegionPosition } from '../topaz/topazParser';
+import { parseTopazDocument, TopazRegion, RegionKind } from '../topaz/topazParser';
 import { parseTonelDocument } from '../tonel/tonelParser';
 
 export type DocumentFormat = 'topaz' | 'tonel' | 'smalltalk';

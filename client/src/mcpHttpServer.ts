@@ -5,6 +5,7 @@ import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { ActiveSession } from './sessionManager';
 import { registerMcpTools } from './mcpTools';
 import { appendSysadmin } from './sysadminChannel';
+import { MCP_SERVER_NAME } from './mcpSocketServer';
 
 export const DEFAULT_MCP_HTTP_PORT = 27101;
 
@@ -28,7 +29,7 @@ export interface McpHttpServerOptions {
  *
  * Multi-workspace note: the port is a single integer, so the first workspace
  * to activate wins. Later activations get `EADDRINUSE` from {@link start} and
- * should log it; `gemstone.mcp.httpPort` can be overridden per-workspace in
+ * should log it; `jasper.mcp.httpPort` can be overridden per-workspace in
  * `.vscode/settings.json` to run more than one window simultaneously.
  */
 export class McpHttpServer {
@@ -61,7 +62,7 @@ export class McpHttpServer {
       try {
         const transport = new SSEServerTransport('/messages', res);
         transports.set(transport.sessionId, transport);
-        const mcpServer = new McpServer({ name: 'gemstone', version: '1.0.0' });
+        const mcpServer = new McpServer({ name: MCP_SERVER_NAME, version: '1.0.0' });
         registerMcpTools(mcpServer, this.options.getSession);
         res.on('close', () => {
           transports.delete(transport.sessionId);

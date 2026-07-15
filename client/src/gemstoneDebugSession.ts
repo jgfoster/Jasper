@@ -306,7 +306,7 @@ export class GemStoneDebugSession extends DebugSession {
             new Source(frameName, sourcePath, sourceRef),
             line,
           ));
-        } catch (e) {
+        } catch {
           // getFrameInfo itself failed — no source reference possible
           frames.push(new StackFrame(level, `<frame ${level}>`));
         }
@@ -593,7 +593,7 @@ export class GemStoneDebugSession extends DebugSession {
 
   protected continueRequest(
     response: DebugProtocol.ContinueResponse,
-    args: DebugProtocol.ContinueArguments,
+    _args: DebugProtocol.ContinueArguments,
   ): void {
     if (!this.session) {
       this.sendResponse(response);

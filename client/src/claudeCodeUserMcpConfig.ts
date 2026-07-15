@@ -1,20 +1,26 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { MCP_SERVER_NAME, proxyScriptPath } from './mcpSocketServer';
+import {
+  MCP_SERVER_NAME,
+  LEGACY_MCP_SERVER_NAME,
+  isJasperProxyEntry,
+  proxyScriptPath,
+} from './mcpSocketServer';
 
 /**
  * Claude Code reads its MCP server list from `~/.claude.json`. Entries under
  * the top-level `mcpServers` key are user-scope and visible from every
  * directory; entries under `projects.<cwd>.mcpServers` are project-scope
  * (which is what `claude mcp add` writes). Jasper now writes only the
- * user-scope entry so the gemstone tools are available everywhere — same
+ * user-scope entry so the jasper tools are available everywhere — same
  * model as Anthropic's hosted Gmail/Drive/Calendar connectors.
  *
- * On every activation we also strip any project-scope `gemstone` entries
- * left over from earlier Jasper versions that shelled out to `claude mcp
- * add`; those entries point at workspace-hashed sockets that no longer
- * exist.
+ * On every activation we also clean up leftovers from earlier Jasper
+ * versions: project-scope entries with our own name, and the pre-rename
+ * `gemstone` entry (top-level and project-scope) that older versions wrote —
+ * but only when it's still Jasper's own proxy, so we never touch a foreign
+ * `gemstone` entry such as the GemStone-native MCP server's.
  */
 
 export function claudeCodeUserConfigPath(): string {
@@ -48,9 +54,11 @@ function writeUserConfig(configPath: string, settings: ClaudeCodeUserConfig): vo
 }
 
 /**
- * Idempotently write the user-scope `gemstone` MCP entry to `~/.claude.json`
- * and remove any stale project-scope entries with the same name. Returns the
- * config path plus whether the file was actually updated.
+ * Idempotently write the user-scope `jasper` MCP entry to `~/.claude.json`,
+ * remove any stale project-scope entries with the same name, and remove the
+ * pre-rename `gemstone` entry (top-level and project-scope) when it is still
+ * Jasper's own proxy. Returns the config path plus whether the file was
+ * actually updated.
  *
  * Skips the write entirely if `~/.claude.json` is missing or unreadable —
  * we don't create that file ourselves; Claude Code owns its lifecycle.
@@ -81,12 +89,32 @@ export function writeClaudeCodeUserMcpConfig(
     mcpServers[MCP_SERVER_NAME] = desired;
     dirty = true;
   }
+  // Remove the pre-rename top-level `gemstone` entry, but only if it's still
+  // our own proxy entry — never a foreign `gemstone` (e.g. the native server).
+  if (isJasperProxyEntry(mcpServers[LEGACY_MCP_SERVER_NAME])) {
+    delete mcpServers[LEGACY_MCP_SERVER_NAME];
+    dirty = true;
+  }
 
   if (settings.projects) {
     for (const proj of Object.values(settings.projects)) {
       const projMcp = proj?.mcpServers as Record<string, unknown> | undefined;
-      if (projMcp && MCP_SERVER_NAME in projMcp) {
+      if (!projMcp) {
+        continue;
+      }
+      // Our own name at project scope is always stale — user-scope is now the
+      // single source of truth.
+      if (MCP_SERVER_NAME in projMcp) {
         delete projMcp[MCP_SERVER_NAME];
+        dirty = true;
+      }
+      // Pre-rename `gemstone` project entries (from older `claude mcp add`
+      // shell-outs), but only our own proxy entries — never a foreign one.
+      if (
+        LEGACY_MCP_SERVER_NAME in projMcp &&
+        isJasperProxyEntry(projMcp[LEGACY_MCP_SERVER_NAME])
+      ) {
+        delete projMcp[LEGACY_MCP_SERVER_NAME];
         dirty = true;
       }
     }

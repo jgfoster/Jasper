@@ -19,10 +19,21 @@ import {extensionPathFrom} from "./extensionPath";
 
 /**
  * Single, user-scoped server name. Every MCP client (Claude Code, Claude
- * Desktop, etc.) sees the same `gemstone` entry; whichever Jasper window owns
- * the socket at any moment answers the tool calls.
+ * Desktop, etc.) sees the same `jasper` entry; whichever Jasper window owns
+ * the socket at any moment answers the tool calls. Named `jasper` (not
+ * `gemstone`) so the name `gemstone` stays free for the separate,
+ * GemStone-native MCP server.
  */
-export const MCP_SERVER_NAME = 'gemstone';
+export const MCP_SERVER_NAME = 'jasper';
+
+/**
+ * The previous server name. Jasper wrote `mcpServers.gemstone` into clients'
+ * config files before the rename to `jasper`; on activation we remove that
+ * stale entry (see the config writers below) — but only when it still points
+ * at Jasper's own proxy, so we never clobber the native `gemstone` server's
+ * entry.
+ */
+export const LEGACY_MCP_SERVER_NAME = 'gemstone';
 
 /**
  * Fixed socket / named-pipe path. Stable across reboots and shared across
@@ -195,7 +206,7 @@ export class McpSocketServer {
 
   private handleConnection(socket: net.Socket): void {
     appendSysadmin('MCP client connected');
-    const mcpServer = new McpServer({ name: 'gemstone', version: '1.0.0' });
+    const mcpServer = new McpServer({ name: MCP_SERVER_NAME, version: '1.0.0' });
     registerMcpTools(mcpServer, this.options.getSession);
 
     const transport = new StdioServerTransport(socket, socket);
@@ -312,10 +323,32 @@ function writeDesktopSettings(configPath: string, settings: ClaudeDesktopSetting
 const LEGACY_PER_WORKSPACE_KEY = /^gemstone-[a-f0-9]{10}$/;
 
 /**
- * Write the single global `gemstone` entry into Claude Desktop's config and
- * clean up any legacy per-workspace `gemstone-<hash>` entries left over from
- * older Jasper versions. Idempotent — only writes the file when something
- * actually changes.
+ * True when an `mcpServers.<key>` value is Jasper's own stdio proxy entry —
+ * `node <…>/mcp-server/out/index.js --proxy-socket <path>`. Used to safely
+ * remove the pre-rename `gemstone` entry without ever touching a foreign
+ * `gemstone` entry (such as the GemStone-native MCP server's).
+ */
+export function isJasperProxyEntry(entry: unknown): boolean {
+  if (!entry || typeof entry !== 'object') {
+    return false;
+  }
+  const args = (entry as { args?: unknown }).args;
+  if (!Array.isArray(args)) {
+    return false;
+  }
+  const strArgs = args.filter((a): a is string => typeof a === 'string');
+  return (
+    strArgs.includes('--proxy-socket') &&
+    strArgs.some((a) => a.replace(/\\/g, '/').endsWith('mcp-server/out/index.js'))
+  );
+}
+
+/**
+ * Write the single global `jasper` entry into Claude Desktop's config and
+ * clean up leftovers from older Jasper versions: legacy per-workspace
+ * `gemstone-<hash>` entries, and the pre-rename top-level `gemstone` entry
+ * (only when it's still Jasper's own proxy — never a foreign `gemstone`).
+ * Idempotent — only writes the file when something actually changes.
  */
 export function writeClaudeDesktopMcpConfig(
   extensionPath: string,
@@ -333,6 +366,12 @@ export function writeClaudeDesktopMcpConfig(
   let dirty = false;
   if (JSON.stringify(mcpServers[MCP_SERVER_NAME]) !== JSON.stringify(desired)) {
     mcpServers[MCP_SERVER_NAME] = desired;
+    dirty = true;
+  }
+  // Remove the pre-rename `gemstone` entry, but only if it's still our own
+  // proxy entry — never a foreign `gemstone` (e.g. the native MCP server).
+  if (isJasperProxyEntry(mcpServers[LEGACY_MCP_SERVER_NAME])) {
+    delete mcpServers[LEGACY_MCP_SERVER_NAME];
     dirty = true;
   }
   for (const key of Object.keys(mcpServers)) {

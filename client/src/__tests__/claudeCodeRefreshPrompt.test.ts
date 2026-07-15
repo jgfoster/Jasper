@@ -4,9 +4,33 @@ vi.mock('vscode', () => import('../__mocks__/vscode'));
 
 import {
   promptClaudeCodeRefresh,
+  buildRefreshPromptDeps,
   RefreshPromptDeps,
   __test,
 } from '../claudeCodeRefreshPrompt';
+
+type FakeContext = Parameters<typeof buildRefreshPromptDeps>[0];
+
+// Minimal ExtensionContext stand-in backed by a plain key/value store, enough
+// for buildRefreshPromptDeps' globalState get/update calls.
+function makeContext(initial: Record<string, unknown> = {}): {
+  context: FakeContext;
+  store: Record<string, unknown>;
+} {
+  const store: Record<string, unknown> = { ...initial };
+  const context = {
+    globalState: {
+      get: (key: string, def?: unknown) => (key in store ? store[key] : def),
+      update: async (key: string, value: unknown) => {
+        store[key] = value;
+      },
+    },
+  } as unknown as FakeContext;
+  return { context, store };
+}
+
+const NEW_SUPPRESS_KEY = 'jasper.mcp.claudeCodeRefreshPrompt.suppressed';
+const LEGACY_SUPPRESS_KEY = 'gemstone.mcp.claudeCodeRefreshPrompt.suppressed';
 
 function makeDeps(
   overrides: {
@@ -51,7 +75,7 @@ describe('promptClaudeCodeRefresh', () => {
     expect(deps.showInformationMessage).toHaveBeenCalledTimes(1);
     const [message, ...actions] = deps.showInformationMessage.mock.calls[0];
     expect(message).toBe(__test.PROMPT_MESSAGE);
-    expect(message).toMatch(/registered the gemstone MCP server/);
+    expect(message).toMatch(/registered the jasper MCP server/);
     expect(message).toMatch(/Reload the window/);
     expect(message).toMatch(/future launches/);
     expect(actions).toEqual([__test.RELOAD_WINDOW, __test.DONT_SHOW_AGAIN]);
@@ -86,5 +110,31 @@ describe('promptClaudeCodeRefresh', () => {
     await promptClaudeCodeRefresh(deps);
     await promptClaudeCodeRefresh(deps);
     expect(deps.showInformationMessage).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('buildRefreshPromptDeps', () => {
+  it('treats a suppression flag set before the rename as suppressed', () => {
+    const { context } = makeContext({ [LEGACY_SUPPRESS_KEY]: true });
+
+    const deps = buildRefreshPromptDeps(context);
+
+    expect(deps.getSuppressed()).toBe(true);
+  });
+
+  it('is not suppressed when neither the new nor the legacy flag is set', () => {
+    const { context } = makeContext();
+
+    const deps = buildRefreshPromptDeps(context);
+
+    expect(deps.getSuppressed()).toBe(false);
+  });
+
+  it('persists new suppressions under the jasper key', async () => {
+    const { context, store } = makeContext();
+
+    await buildRefreshPromptDeps(context).setSuppressed(true);
+
+    expect(store[NEW_SUPPRESS_KEY]).toBe(true);
   });
 });

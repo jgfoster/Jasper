@@ -169,7 +169,9 @@ async function main() {
   process.stderr.write(`MCP server: logged in as ${args.gsUser}\n`);
 
   const mcpServer = new McpServer({
-    name: 'gemstone',
+    // Must match MCP_SERVER_NAME in client/src/mcpSocketServer.ts. Named
+    // `jasper` so `gemstone` stays free for the GemStone-native MCP server.
+    name: 'jasper',
     version: '1.0.0',
   });
   registerTools(mcpServer, session);

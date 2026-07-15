@@ -264,7 +264,7 @@ To use the HTTPS/SSE surface from Claude Desktop's "Add custom connector" dialog
 
 For the full architecture (ownership model, multi-window behavior, tool catalogue, limitations, how to wire up other MCP clients), see **[docs/mcp-server.md](docs/mcp-server.md)**.
 
-Disable Claude Desktop registration with `gemstone.mcp.registerWithClaudeDesktop: false`. Override the HTTPS port per-workspace with `gemstone.mcp.httpPort` to run multiple MCP-serving windows simultaneously.
+The server registers under the name `jasper` (so the name `gemstone` stays free for the separate GemStone-native MCP server); its tools appear to clients as `mcp__jasper__*`. Disable Claude Desktop registration with `jasper.mcp.registerWithClaudeDesktop: false`. Override the HTTPS port per-workspace with `jasper.mcp.httpPort` to run multiple MCP-serving windows simultaneously.
 
 ## Language Support
 
@@ -297,8 +297,8 @@ The Smalltalk formatter has eleven knobs under `gemstoneSmalltalk.formatter.*` (
 | `gemstone.exportPath` | `""` | Root path for class file export (supports `{workspaceRoot}`) |
 | `gemstone.maxEnvironment` | 0 | Method environments to display in browser |
 | `gemstone.sessionMode` | `single` | Concurrent sessions allowed: `single` (default) or `multiple` (beta — reveals the Sessions panel) |
-| `gemstone.mcp.httpPort` | 27101 | Port on 127.0.0.1 where Jasper serves the MCP HTTPS/SSE surface |
-| `gemstone.mcp.registerWithClaudeDesktop` | true | Auto-register the gemstone MCP server in Claude Desktop's global config |
+| `jasper.mcp.httpPort` | 27101 | Port on 127.0.0.1 where Jasper serves the MCP HTTPS/SSE surface |
+| `jasper.mcp.registerWithClaudeDesktop` | true | Auto-register the jasper MCP server in Claude Desktop's global config |
 
 > **Tip:** VS Code's Quick Open file search (Cmd+P / Ctrl+P) and the title bar search respect `.gitignore` by default, so exported `.gs` files in gitignored directories won't appear in search results. To include them, set `"search.useIgnoreFiles": false` in your VS Code settings. If there are some ignored things you want to continue to exclude, you can tell VS Code to exclude certain paths with the `files.exclude` setting.
 

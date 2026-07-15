@@ -102,13 +102,13 @@ import {
 } from './claudeCodeRefreshPrompt';
 import { McpServerTreeProvider } from './mcpServerTreeProvider';
 import { DEFAULT_MCP_HTTP_PORT, McpHttpServer } from './mcpHttpServer';
+import { readMcpSetting } from './mcpSettings';
 import { ensureSelfSignedCert, trustCertCommand } from './tlsCert';
 import { ProcessTreeProvider, ProcessItem } from './processTreeProvider';
 import { OsConfigTreeProvider } from './sharedMemoryTreeProvider';
 import { runQuickSetup } from './quickSetup';
 import {
   isWindows,
-  getWslInfo,
   getWslInfoAsync,
   invalidateWslCache,
   getWslNetworkInfoCached,
@@ -463,7 +463,7 @@ export function activate(context: vscode.ExtensionContext) {
   }
   
   // Populated by the async cert-generation step below; read by the
-  // `gemstone.openMcpInspector` command so Node trusts our self-signed cert
+  // `jasper.openMcpInspector` command so Node trusts our self-signed cert
   // (macOS keychain trust doesn't extend to Node's TLS stack).
   let certPathForTrust: string | undefined;
 
@@ -2071,8 +2071,8 @@ export function activate(context: vscode.ExtensionContext) {
   // across logout/login cycles — tools just return "no session selected"
   // during the gap and resume working when the user logs back in.
   //
-  // Claude Code:    user-scope `mcpServers.gemstone` in `~/.claude.json`.
-  // Claude Desktop: `mcpServers.gemstone` in `claude_desktop_config.json`.
+  // Claude Code:    user-scope `mcpServers.jasper` in `~/.claude.json`.
+  // Claude Desktop: `mcpServers.jasper` in `claude_desktop_config.json`.
   const workspaceRoots = vscode.workspace.workspaceFolders;
   if (workspaceRoots && workspaceRoots.length > 0) {
     const workspacePath = workspaceRoots[0].uri.fsPath;
@@ -2084,8 +2084,7 @@ export function activate(context: vscode.ExtensionContext) {
       },
       workspacePath,
     });
-    const registerDesktop = vscode.workspace.getConfiguration('gemstone')
-      .get<boolean>('mcp.registerWithClaudeDesktop', true);
+    const registerDesktop = readMcpSetting<boolean>('registerWithClaudeDesktop', true);
 
     // Write the well-known configs unconditionally — they point at the fixed
     // socket path, which is correct regardless of which window owns it.
@@ -2123,9 +2122,8 @@ export function activate(context: vscode.ExtensionContext) {
     // Claude Desktop's "Add custom connector" dialog, which rejects http URLs).
     // Tied to socket ownership: the same window owns both, so MCP behavior is
     // consistent across stdio and SSE clients. Override the port per-workspace
-    // via `gemstone.mcp.httpPort` to run multiple Jasper windows simultaneously.
-    const httpPort = vscode.workspace.getConfiguration('gemstone')
-      .get<number>('mcp.httpPort', DEFAULT_MCP_HTTP_PORT);
+    // via `jasper.mcp.httpPort` to run multiple Jasper windows simultaneously.
+    const httpPort = readMcpSetting<number>('httpPort', DEFAULT_MCP_HTTP_PORT);
     let httpServer: McpHttpServer | undefined;
     let httpStarted = false;
 
@@ -2139,7 +2137,7 @@ export function activate(context: vscode.ExtensionContext) {
       getSession: () => sessionManager.getSelectedSession(),
       sidecarPath: mcpSocketServer.sidecarPath,
     });
-    const mcpTreeView = vscode.window.createTreeView('gemstoneMcpServer', {
+    const mcpTreeView = vscode.window.createTreeView('jasperMcpServer', {
       treeDataProvider: mcpTreeProvider,
       showCollapseAll: false,
     });
@@ -2198,7 +2196,7 @@ export function activate(context: vscode.ExtensionContext) {
         } catch (err) {
           const e = err as NodeJS.ErrnoException;
           if (e.code === 'EADDRINUSE') {
-            appendSysadmin(`MCP HTTPS port ${httpPort} in use; skipping (another Jasper window may own it). Override gemstone.mcp.httpPort per-workspace to run two windows simultaneously.`);
+            appendSysadmin(`MCP HTTPS port ${httpPort} in use; skipping (another Jasper window may own it). Override jasper.mcp.httpPort per-workspace to run two windows simultaneously.`);
           } else {
             appendSysadmin(`MCP HTTPS server failed to start: ${e.message}`);
           }
@@ -2227,7 +2225,7 @@ export function activate(context: vscode.ExtensionContext) {
     void tryClaimMcpOwnership();
 
     context.subscriptions.push(
-      vscode.commands.registerCommand('gemstone.claimMcpServer', async () => {
+      vscode.commands.registerCommand('jasper.claimMcpServer', async () => {
         if (mcpSocketServer.isOwner) {
           vscode.window.showInformationMessage('This window already owns the MCP server.');
           return;
@@ -2240,7 +2238,7 @@ export function activate(context: vscode.ExtensionContext) {
           );
         }
       }),
-      vscode.commands.registerCommand('gemstone.copyMcpUrl', async () => {
+      vscode.commands.registerCommand('jasper.copyMcpUrl', async () => {
         if (!httpStarted || !httpServer) {
           vscode.window.showWarningMessage(`Jasper MCP HTTPS surface is not running on port ${httpPort}. Check the GemStone Admin output channel for the reason.`);
           return;
@@ -2248,7 +2246,7 @@ export function activate(context: vscode.ExtensionContext) {
         await vscode.env.clipboard.writeText(httpServer.url);
         vscode.window.showInformationMessage(`Copied MCP URL: ${httpServer.url}`);
       }),
-      vscode.commands.registerCommand('gemstone.copyMcpSocketPath', async (socketPath?: string) => {
+      vscode.commands.registerCommand('jasper.copyMcpSocketPath', async (socketPath?: string) => {
         if (!socketPath) {
           vscode.window.showWarningMessage('No MCP socket path available.');
           return;
@@ -2256,7 +2254,7 @@ export function activate(context: vscode.ExtensionContext) {
         await vscode.env.clipboard.writeText(socketPath);
         vscode.window.showInformationMessage(`Copied MCP socket path: ${socketPath}`);
       }),
-      vscode.commands.registerCommand('gemstone.installMcpTlsCertificate', async () => {
+      vscode.commands.registerCommand('jasper.installMcpTlsCertificate', async () => {
         if (!certPathForTrust) {
           vscode.window.showWarningMessage('MCP TLS certificate has not been generated yet. Wait for extension activation to complete and try again.');
           return;
@@ -2830,9 +2828,8 @@ export function activate(context: vscode.ExtensionContext) {
       refreshAdminViews();
     }),
 
-    vscode.commands.registerCommand('gemstone.openMcpInspector', () => {
-      const port = vscode.workspace.getConfiguration('gemstone')
-        .get<number>('mcp.httpPort', DEFAULT_MCP_HTTP_PORT);
+    vscode.commands.registerCommand('jasper.openMcpInspector', () => {
+      const port = readMcpSetting<number>('httpPort', DEFAULT_MCP_HTTP_PORT);
       openMcpInspector(
         `https://127.0.0.1:${port}/sse`,
         inspectorTerminal,

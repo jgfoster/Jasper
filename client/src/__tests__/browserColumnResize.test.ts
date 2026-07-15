@@ -7,7 +7,6 @@ import * as path from 'path';
 // BrowserColumnResize, exactly as the webview does when it injects the file.
 beforeAll(() => {
   const source = fs.readFileSync(path.resolve(__dirname, '../browserColumnResize.js'), 'utf8');
-  // eslint-disable-next-line no-new-func
   new Function(source)();
 });
 

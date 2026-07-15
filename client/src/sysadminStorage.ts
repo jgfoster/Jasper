@@ -3,13 +3,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { DatabaseYaml, GemStoneDatabase } from './sysadminTypes';
-import { needsWsl, getWslInfo, wslPathToWindows, windowsPathToWsl, wslExecSync } from './wslBridge';
+import { needsWsl, getWslInfo, wslPathToWindows, wslExecSync } from './wslBridge';
 import {
   wslExistsSync,
   wslIsDirectory,
-  wslIsFile,
   wslIsSymlink,
-  wslFileSize,
   wslReaddirSync,
   wslReadFileSync,
 } from './wslFs';

@@ -7,7 +7,6 @@ vi.mock('vscode', () => ({
 }));
 
 import { ActiveSession } from '../sessionManager';
-import { GemStoneLogin } from '../loginTypes';
 import { BrowserQueryError } from '../browserQueries';
 import { parseTopazDocument, fileInClass, parseFileStructure, fileInChangedRegions } from '../topazFileIn';
 import * as queries from '../browserQueries';

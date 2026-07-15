@@ -2,7 +2,7 @@
   "name": "gemstone-ide",
   "displayName": "Jasper: A GemStone Smalltalk IDE",
   "description": "GemStone/S IDE for Visual Studio Code",
-  "version": "1.8.4",
+  "version": "1.8.5",
   "publisher": "gemtalksystems",
   "license": "MIT",
   "author": "James Foster",
@@ -143,12 +143,12 @@
             "default": "~/Documents/GemStone",
             "description": "Root directory for GemStone installations and databases. Supports ~ for home directory."
           },
-          "gemstone.mcp.registerWithClaudeDesktop": {
+          "jasper.mcp.registerWithClaudeDesktop": {
             "type": "boolean",
             "default": true,
-            "description": "Automatically register the gemstone MCP server with Claude Desktop. When enabled, Jasper writes a single user-scope `gemstone` entry into Claude Desktop's global `claude_desktop_config.json` on activation (macOS: ~/Library/Application Support/Claude/, Windows: %APPDATA%\\Claude\\, Linux: ~/.config/Claude/). The entry stays put across VS Code restarts. Claude Code registration writes to `~/.claude.json` and is always on."
+            "description": "Automatically register the jasper MCP server with Claude Desktop. When enabled, Jasper writes a single user-scope `jasper` entry into Claude Desktop's global `claude_desktop_config.json` on activation (macOS: ~/Library/Application Support/Claude/, Windows: %APPDATA%\\Claude\\, Linux: ~/.config/Claude/). The entry stays put across VS Code restarts. Claude Code registration writes to `~/.claude.json` and is always on."
           },
-          "gemstone.mcp.httpPort": {
+          "jasper.mcp.httpPort": {
             "type": "integer",
             "default": 27101,
             "minimum": 1024,
@@ -407,7 +407,7 @@
           "icon": "$(package)"
         },
         {
-          "id": "gemstoneMcpServer",
+          "id": "jasperMcpServer",
           "name": "MCP Server",
           "type": "tree",
           "icon": "$(remote-explorer)",
@@ -564,22 +564,22 @@
         "category": "GemStone"
       },
       {
-        "command": "gemstone.claimMcpServer",
+        "command": "jasper.claimMcpServer",
         "title": "Claim MCP Server",
         "category": "GemStone"
       },
       {
-        "command": "gemstone.copyMcpUrl",
+        "command": "jasper.copyMcpUrl",
         "title": "Copy MCP Server URL",
         "category": "GemStone"
       },
       {
-        "command": "gemstone.copyMcpSocketPath",
+        "command": "jasper.copyMcpSocketPath",
         "title": "Copy MCP Socket Path",
         "category": "GemStone"
       },
       {
-        "command": "gemstone.installMcpTlsCertificate",
+        "command": "jasper.installMcpTlsCertificate",
         "title": "Install MCP TLS Certificate",
         "category": "GemStone"
       },
@@ -1267,7 +1267,7 @@
         "icon": "$(save-all)"
       },
       {
-        "command": "gemstone.openMcpInspector",
+        "command": "jasper.openMcpInspector",
         "title": "Open MCP Inspector",
         "category": "GemStone",
         "icon": "$(open-preview)"
