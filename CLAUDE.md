@@ -19,7 +19,7 @@ nvm use                  # activate pinned Node version
 npm install              # install all workspace dependencies
 npm run compile          # TypeScript compile (all workspaces)
 npm run watch            # incremental watch build (client + server)
-npm test                 # run all tests (server → client → mcp-server); needs a running test stone (see done-gate below)
+npm test                 # run all tests (server → client → mcp-server); needs a live stone — usually already running
 npm run test:server      # server workspace tests only
 npm run test:client      # client workspace tests only
 npm run test:mcp         # mcp-server workspace tests only
@@ -40,6 +40,6 @@ npm run test:acceptance:seaside # the Seaside Hello World e2e (install → serve
 npm run test:acceptance:report  # open the HTML report / flip through per-step screenshots
 ```
 
-Before considering something done: `npm run compile && npm test` must pass. `npm test` bundles an automatic integration test that logs into a live stone, so run `npm run test:server:start` once first — without a running test stone `npm test` **hard-fails** (it does not skip).
+Before considering something done, run `npm run compile && npm test` — **attempt them directly; a test stone is usually already running.** `npm test` includes an integration test that logs into a live stone; if none is reachable it **fails with a connection error rather than skipping** — that failure is the signal (not a reason to avoid running). Only then start one with `npm run test:server:start` and re-run. `npm run test:server:list` confirms whether a stone is already up.
 
 <!-- Maintainer note (stripped from agent context): Be careful with the edits to this file, anything included here will be auto-loaded in the context for ALL conversations. Keep only the most relevant and non-obvious details that are needed on all conversations. And only details that agents won't typically auto-discover by browsing the code -->
