@@ -35,7 +35,7 @@ export interface ForceKillResult {
  *               (it appears as the last arg of the stoned/netldid command line). */
 export function classifyPidOwnership(
   psOutput: string,
-  stoneName: string,
+  _stoneName: string,
 ): { pidGone: boolean; isGemStoneServer: boolean; command: string } {
   const command = psOutput.trim();
   if (command === '' || command === 'GONE') {

@@ -5,7 +5,7 @@ import * as vscode from 'vscode';
 import { execSync, spawnSync } from 'child_process';
 import { SysadminStorage } from './sysadminStorage';
 import { GemStoneVersion } from './sysadminTypes';
-import { appendSysadmin, showSysadmin } from './sysadminChannel';
+import { appendSysadmin } from './sysadminChannel';
 import { needsWsl, wslSpawn, wslExecSync } from './wslBridge';
 import { wslExistsSync } from './wslFs';
 import { bundledWindowsClientVersions, bundledGciArchSupported } from './bundledGci';

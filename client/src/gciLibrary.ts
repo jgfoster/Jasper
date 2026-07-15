@@ -10,7 +10,7 @@ const OopType = 'uint64';
 const GCI_ERR_STR_SIZE = 1024;
 const GCI_MAX_ERR_ARGS = 10;
 
-const GciErrSType = koffi.struct('GciErrSType', {
+koffi.struct('GciErrSType', {
   category:     OopType,
   context:      OopType,
   exceptionObj: OopType,
@@ -24,10 +24,10 @@ const GciErrSType = koffi.struct('GciErrSType', {
 
 // GciSession is typedef void* in gcits.hf
 const GciSessionOpaque = koffi.opaque('GciSession');
-const GciSessionPtr = koffi.pointer('GciSessionPtr', GciSessionOpaque);
+koffi.pointer('GciSessionPtr', GciSessionOpaque);
 
 // GciTsObjInfo struct (from gcits.ht)
-const GciTsObjInfoStruct = koffi.struct('GciTsObjInfo', {
+koffi.struct('GciTsObjInfo', {
   objId:                  OopType,
   objClass:               OopType,
   objSize:                'int64',
@@ -38,7 +38,7 @@ const GciTsObjInfoStruct = koffi.struct('GciTsObjInfo', {
 });
 
 // GciTsGbjInfo struct — extends GciTsObjInfo with extraBits and bytesReturned
-const GciTsGbjInfoStruct = koffi.struct('GciTsGbjInfo', {
+koffi.struct('GciTsGbjInfo', {
   objId:                  OopType,
   objClass:               OopType,
   objSize:                'int64',
@@ -66,7 +66,7 @@ export interface GciGbjInfo extends GciObjInfo {
 }
 
 // GciClampedTravArgsSType — travBuff is an opaque pointer to a raw Buffer
-const GciClampedTravArgsStruct = koffi.struct('GciClampedTravArgsSType', {
+koffi.struct('GciClampedTravArgsSType', {
   clampSpec:      OopType,
   resultOop:      OopType,
   travBuff:       'void *',
@@ -107,7 +107,7 @@ const StoreTravDoUnion = koffi.union('StoreTravDoUnion', {
   continueArgs: StoreTravContinueArgs,
 });
 
-const GciStoreTravDoArgsSType = koffi.struct('GciStoreTravDoArgsSType', {
+koffi.struct('GciStoreTravDoArgsSType', {
   doPerform:        'int',
   doFlags:          'int',
   alteredNumOops:   'int',
