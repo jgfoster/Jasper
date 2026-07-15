@@ -38,7 +38,6 @@ export function parseTonelDocument(text: string): TopazRegion[] {
   if (i < lines.length) {
     const trimmed = lines[i].trimStart();
     if (trimmed.startsWith('"')) {
-      const commentStart = i;
       // Check if the comment closes on the same line
       const afterQuote = trimmed.slice(1);
       if (afterQuote.includes('"')) {
@@ -64,7 +63,6 @@ export function parseTonelDocument(text: string): TopazRegion[] {
 
   if (headerMatch) {
     const headerStartLine = i;
-    const headerType = headerMatch[1] as 'Class' | 'Extension' | 'Package';
 
     // Find closing } — it could be on the same line or on a later line
     let headerEndLine = i;
