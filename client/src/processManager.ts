@@ -29,13 +29,10 @@ export interface ForceKillResult {
 /** Classify what `ps -p <pid> -o command=` returned. Exported so the safety
  *  rule can be tested without spawning a shell.
  *
- *  Inputs:
- *   - psOutput: trimmed stdout from `ps -p <pid> -o command= 2>/dev/null || echo GONE`
- *   - stoneName: process name from gslist; used as a corroborating signal
- *               (it appears as the last arg of the stoned/netldid command line). */
+ *  `psOutput` is the trimmed stdout from
+ *  `ps -p <pid> -o command= 2>/dev/null || echo GONE`. */
 export function classifyPidOwnership(
   psOutput: string,
-  _stoneName: string,
 ): { pidGone: boolean; isGemStoneServer: boolean; command: string } {
   const command = psOutput.trim();
   if (command === '' || command === 'GONE') {
@@ -159,7 +156,7 @@ export class ProcessManager {
         reason: `Could not check PID ${proc.pid} (ps unavailable). Refusing to delete the lock.`,
       };
     }
-    const ownership = classifyPidOwnership(psOutput, proc.name);
+    const ownership = classifyPidOwnership(psOutput);
     if (ownership.pidGone) {
       return {
         lockPath,
@@ -289,7 +286,7 @@ export class ProcessManager {
 
     let ownership;
     try {
-      ownership = classifyPidOwnership(psFor(proc.pid), proc.name);
+      ownership = classifyPidOwnership(psFor(proc.pid));
     } catch {
       return { killed: false, reason: `Could not verify PID ${proc.pid}; refusing to kill.` };
     }
@@ -308,7 +305,7 @@ export class ProcessManager {
       wslExecSync(`kill ${proc.pid} 2>/dev/null || true`);
       const graceMs = opts.graceMs ?? 800;
       if (graceMs > 0) await new Promise((r) => setTimeout(r, graceMs));
-      if (classifyPidOwnership(psFor(proc.pid), proc.name).isGemStoneServer) {
+      if (classifyPidOwnership(psFor(proc.pid)).isGemStoneServer) {
         wslExecSync(`kill -9 ${proc.pid} 2>/dev/null || true`);
       }
     } catch {

@@ -403,39 +403,40 @@ describe('ProcessManager', () => {
 
   describe('classifyPidOwnership', () => {
     it('reports the PID gone when ps fell back to the "GONE" sentinel', () => {
-      const r = classifyPidOwnership('GONE', 'gs64stone');
+      const r = classifyPidOwnership('GONE');
       expect(r.pidGone).toBe(true);
       expect(r.isGemStoneServer).toBe(false);
     });
 
     it('reports the PID gone when ps produced nothing', () => {
-      const r = classifyPidOwnership('', 'gs64stone');
+      const r = classifyPidOwnership('');
       expect(r.pidGone).toBe(true);
     });
 
     it('recognizes a real stoned command line as a GemStone server', () => {
       const cmd = '/Users/jfoster/Documents/GemStone/GemStone64Bit3.7.5/sys/stoned -l /log/x.log -e /conf/x.conf -z /conf/system.conf gs64stone';
-      const r = classifyPidOwnership(cmd, 'gs64stone');
+      const r = classifyPidOwnership(cmd);
       expect(r.pidGone).toBe(false);
       expect(r.isGemStoneServer).toBe(true);
+      expect(r.command).toBe(cmd);
     });
 
     it('recognizes a real netldid command line as a GemStone server', () => {
-      const r = classifyPidOwnership('/gs/sys/netldid gs64ldi', 'gs64ldi');
+      const r = classifyPidOwnership('/gs/sys/netldid gs64ldi');
       expect(r.isGemStoneServer).toBe(true);
     });
 
     it('does NOT mistake a recycled-PID unrelated process for a GemStone server', () => {
-      const r = classifyPidOwnership('/usr/bin/ssh-agent', 'gs64stone');
+      const r = classifyPidOwnership('/usr/bin/ssh-agent');
       expect(r.pidGone).toBe(false);
       expect(r.isGemStoneServer).toBe(false);
     });
 
     it('does NOT match substrings like "stoned-arm" or "netldid_helper" that share a prefix only', () => {
-      // Regression: word-boundary anchors prevent a substring like
-      // "/opt/stoned-arm/binary" from falsely triggering the server check.
-      const r = classifyPidOwnership('/opt/stoned-arm/binary', 'gs64stone');
-      expect(r.isGemStoneServer).toBe(false);
+      // Regression: word-boundary anchors prevent a substring that merely
+      // starts with the token from falsely triggering the server check.
+      expect(classifyPidOwnership('/opt/stoned-arm/binary').isGemStoneServer).toBe(false);
+      expect(classifyPidOwnership('/opt/netldid_helper/x').isGemStoneServer).toBe(false);
     });
   });
 
