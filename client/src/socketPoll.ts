@@ -29,7 +29,7 @@ function initPoll(): void {
     if (process.platform === 'win32') {
       const ws2 = koffi.load('ws2_32.dll');
       // WSAPOLLFD { ULONG_PTR fd; SHORT events; SHORT revents; }
-      const WSAPOLLFD = koffi.struct('JasperWsaPollFd', {
+      koffi.struct('JasperWsaPollFd', {
         fd: 'uint64',
         events: 'int16',
         revents: 'int16',
@@ -47,7 +47,7 @@ function initPoll(): void {
     } else {
       const libc = koffi.load(process.platform === 'darwin' ? 'libSystem.dylib' : 'libc.so.6');
       // struct pollfd { int fd; short events; short revents; }
-      const POLLFD = koffi.struct('JasperPollFd', {
+      koffi.struct('JasperPollFd', {
         fd: 'int',
         events: 'int16',
         revents: 'int16',

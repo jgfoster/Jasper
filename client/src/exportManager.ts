@@ -13,7 +13,7 @@ import {
 } from './sync/syncProtocol';
 import { parseManifest, parseContent, ClassSource } from './sync/syncFraming';
 import {
-  diffManifest, stateFromManifest, emptyState, entryKey, splitKey, chunkRefs,
+  diffManifest, emptyState, entryKey, splitKey, chunkRefs,
   MirrorState,
 } from './sync/manifestDiff';
 

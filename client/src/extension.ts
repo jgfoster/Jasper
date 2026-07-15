@@ -108,7 +108,6 @@ import { OsConfigTreeProvider } from './sharedMemoryTreeProvider';
 import { runQuickSetup } from './quickSetup';
 import {
   isWindows,
-  getWslInfo,
   getWslInfoAsync,
   invalidateWslCache,
   getWslNetworkInfoCached,

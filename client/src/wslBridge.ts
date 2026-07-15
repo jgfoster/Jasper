@@ -295,14 +295,13 @@ export function updateWslConfigMirrored(content: string): string {
   const eol = content.includes('\r\n') ? '\r\n' : '\n';
 
   let wsl2Start = -1;
-  let wsl2End = lines.length;
   let existingIdx = -1;
 
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
     const section = trimmed.match(/^\[([^\]]+)\]$/);
     if (section) {
-      if (wsl2Start !== -1) { wsl2End = i; break; }
+      if (wsl2Start !== -1) { break; }
       if (section[1].trim().toLowerCase() === 'wsl2') wsl2Start = i;
       continue;
     }
