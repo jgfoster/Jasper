@@ -1,5 +1,10 @@
 import {expect} from 'vitest';
 
+// Constructor of an `Error` subclass. `NewableFunction` (not `new (...) => Error`)
+// so it also accepts classes with non-public constructors, and still exposes
+// `.name` / works with `instanceof`.
+type ErrorClass = NewableFunction & { prototype: Error };
+
 expect.extend({
     /**
      * Used to test that a function throws exactly the given error instance,
@@ -40,7 +45,7 @@ expect.extend({
      * @param ExpectedClass - The `Error` subclass `callback` must throw an instance of.
      * @param expectedMessage - The exact `message` the thrown error must have.
      */
-    toThrowInstanceOf(callback: () => unknown, ExpectedClass: Function & { prototype: Error }, expectedMessage: string) {
+    toThrowInstanceOf(callback: () => unknown, ExpectedClass: ErrorClass, expectedMessage: string) {
         try {
             callback();
             return {
@@ -89,6 +94,6 @@ declare module 'vitest' {
          * @param ExpectedClass - The `Error` subclass the received function must throw an instance of.
          * @param expectedMessage - The exact `message` the thrown error must have.
          */
-        toThrowInstanceOf(ExpectedClass: Function & { prototype: Error }, expectedMessage: string): void;
+        toThrowInstanceOf(ExpectedClass: ErrorClass, expectedMessage: string): void;
     }
 }

@@ -122,7 +122,7 @@ export function wrapWithEnhancedInspectorPerfProxy(gci: GciLibrary): GciLibrary 
           return (val as (...a: unknown[]) => unknown).apply(target, args);
         };
       }
-      return typeof val === 'function' ? (val as Function).bind(target) : val;
+      return typeof val === 'function' ? (val as (...args: unknown[]) => unknown).bind(target) : val;
     },
   }) as GciLibrary;
 }
