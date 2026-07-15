@@ -1,4 +1,4 @@
-import { TextEdit, Range } from 'vscode-languageserver';
+import { TextEdit } from 'vscode-languageserver';
 import { Token, TokenType } from '../lexer/tokens';
 import { ParsedDocument, ParsedRegion } from '../utils/documentManager';
 import {
@@ -7,7 +7,7 @@ import {
   MessageNode, UnaryMessageNode, BinaryMessageNode, KeywordMessageNode,
   PrimaryNode, BlockNode, SelectionBlockNode, ParenExpressionNode,
   CurlyArrayBuilderNode, ArrayLiteralNode, ArrayItemNode, ByteArrayLiteralNode,
-  PragmaNode, PathNode,
+  PragmaNode,
 } from '../parser/ast';
 import { FormatterSettings, DEFAULT_SETTINGS } from './formatterSettings';
 

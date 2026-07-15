@@ -11,7 +11,7 @@ import {
   CharacterLiteralNode, ArrayLiteralNode, ByteArrayLiteralNode, SpecialLiteralNode,
   ArrayItemNode,
   PragmaNode, UnaryPragmaNode, KeywordPragmaNode, PragmaPairNode,
-  PrimitiveNode, ASTNode,
+  PrimitiveNode,
 } from './ast';
 
 export class Parser {

@@ -7,7 +7,6 @@ import * as path from 'path';
 // exactly as the webview does when it injects the file as a <script> tag.
 beforeAll(() => {
   const source = fs.readFileSync(path.resolve(__dirname, '../methodListView.js'), 'utf8');
-  // eslint-disable-next-line no-new-func
   new Function(source)();
 });
 

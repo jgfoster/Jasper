@@ -67,7 +67,6 @@ function loadCellHtml(): (raw: unknown) => string {
     extractFunction(CLIENT_SRC, 'cellHtml'),
     'return cellHtml;',
   ];
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const factory = new Function(parts.join('\n')) as () => (raw: unknown) => string;
   return factory();
 }

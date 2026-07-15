@@ -12,7 +12,6 @@ import * as path from 'path';
 // takes it as injected callbacks — so we stub them minimally.
 beforeAll(() => {
   const source = fs.readFileSync(path.resolve(__dirname, '../enhancedInspectorColumns.js'), 'utf8');
-  // eslint-disable-next-line no-new-func
   new Function(source)();
 });
 

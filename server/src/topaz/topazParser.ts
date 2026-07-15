@@ -31,17 +31,21 @@ export interface TopazRegion {
   selectorColumnOffset?: number;
 }
 
-/** Known Topaz commands that do NOT start Smalltalk blocks */
-const TOPAZ_COMMANDS = [
-  'abort', 'begin', 'category', 'classmethod', 'commit', 'display',
-  'doit', 'edit', 'errorcount', 'exec', 'exit', 'expecterror',
-  'expectvalue', 'fileout', 'filein', 'iferr', 'iferror', 'input',
-  'level', 'limit', 'list', 'login', 'logout', 'lookup',
-  'method', 'obj', 'object', 'omit', 'output', 'pausealiasing',
-  'print', 'printit', 'protect', 'quit', 'releaseall', 'removeallclassmethods', 'removeallmethods',
-  'run', 'send', 'set', 'shell', 'spawn', 'stack', 'stk',
-  'time', 'topaz', 'where',
-];
+// NOTE: `TOPAZ_COMMANDS` is not currently referenced by any code. It's left
+// here (commented out) as potentially useful context: the full set of Topaz
+// commands that do NOT start Smalltalk blocks. Commented rather than deleted so
+// it stays discoverable for future parsing work, and so the linter doesn't flag
+// it as an unused variable. Uncomment and wire it up if it becomes needed.
+// const TOPAZ_COMMANDS = [
+//   'abort', 'begin', 'category', 'classmethod', 'commit', 'display',
+//   'doit', 'edit', 'errorcount', 'exec', 'exit', 'expecterror',
+//   'expectvalue', 'fileout', 'filein', 'iferr', 'iferror', 'input',
+//   'level', 'limit', 'list', 'login', 'logout', 'lookup',
+//   'method', 'obj', 'object', 'omit', 'output', 'pausealiasing',
+//   'print', 'printit', 'protect', 'quit', 'releaseall', 'removeallclassmethods', 'removeallmethods',
+//   'run', 'send', 'set', 'shell', 'spawn', 'stack', 'stk',
+//   'time', 'topaz', 'where',
+// ];
 
 /** Commands that start a Smalltalk expression block (code) */
 const CODE_COMMANDS = ['run', 'doit', 'print', 'printit'];
@@ -105,7 +109,6 @@ export function parseTopazDocument(text: string): TopazRegion[] {
     // Check for code-starting commands: run, doit, print
     const codeMatch = matchCommand(line, CODE_COMMANDS);
     if (codeMatch) {
-      const commandLine = i;
       i++;
       const startLine = i;
       const codeLines: string[] = [];
@@ -136,7 +139,6 @@ export function parseTopazDocument(text: string): TopazRegion[] {
     // Check for method-starting commands: method, classmethod
     const methodMatch = matchCommand(line, METHOD_COMMANDS);
     if (methodMatch) {
-      const commandLine = i;
       // Extract class name if present: "method: ClassName" or "method ClassName"
       let className: string | undefined;
       const restTrimmed = methodMatch.rest.replace(/^:\s*/, '').trim();
