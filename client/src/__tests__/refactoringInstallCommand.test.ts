@@ -6,11 +6,16 @@ const mocks = vi.hoisted(() => ({
   showWarningMessage: vi.fn(() => Promise.resolve(undefined)),
   showErrorMessage: vi.fn(() => Promise.resolve(undefined)),
   executeCommand: vi.fn(() => Promise.resolve(undefined)),
+  appendLine: vi.fn(),
+  channelShow: vi.fn(),
   installSupport: vi.fn(() =>
-    Promise.resolve({ success: true, committed: true, verified: true, filedIn: [], message: 'ok' }),
+    Promise.resolve({ success: true, report: 'SUCCESS -- all checks passed.', message: 'ok' }),
   ),
   sessionNeedsCommit: vi.fn<() => boolean | undefined>(() => false),
-  checkEnhancedInspectorAvailable: vi.fn(() => true),
+  refreshAvailable: vi.fn((s: { rbSupportAvailable?: boolean }) => {
+    s.rbSupportAvailable = true;
+    return true;
+  }),
   existsSync: vi.fn(() => true),
 }));
 
@@ -20,6 +25,7 @@ vi.mock('vscode', () => ({
     showInputBox: mocks.showInputBox,
     showWarningMessage: mocks.showWarningMessage,
     showErrorMessage: mocks.showErrorMessage,
+    createOutputChannel: () => ({ appendLine: mocks.appendLine, show: mocks.channelShow }),
     withProgress: (_opts: unknown, task: (p: { report: () => void }) => unknown) =>
       task({ report: () => {} }),
   },
@@ -29,24 +35,24 @@ vi.mock('vscode', () => ({
 
 vi.mock('fs', () => ({ existsSync: mocks.existsSync }));
 
-vi.mock('../browserQueries', () => ({
-  sessionNeedsCommit: mocks.sessionNeedsCommit,
-  checkEnhancedInspectorAvailable: mocks.checkEnhancedInspectorAvailable,
+vi.mock('../browserQueries', () => ({ sessionNeedsCommit: mocks.sessionNeedsCommit }));
+
+vi.mock('../refactoringAvailability', () => ({
+  refreshRefactoringSupportAvailable: mocks.refreshAvailable,
 }));
 
-// Partial mock: stub the GCI-touching install pipeline, keep everything else.
-vi.mock('../enhancedInspectorInstall', async (importActual) => {
-  const actual = await importActual<typeof import('../enhancedInspectorInstall')>();
+vi.mock('../refactoringInstall', async (importActual) => {
+  const actual = await importActual<typeof import('../refactoringInstall')>();
   return {
     ...actual,
-    installEnhancedInspectorSupport: mocks.installSupport,
-    isEnhancedInspectorInstalled: vi.fn(() => false),
-    ENHANCED_INSPECTOR_FILES: ['Announcements.gs'],
+    installRefactoringSupport: mocks.installSupport,
+    isRefactoringSupportInstalled: vi.fn(() => false),
+    REFACTORING_PAYLOAD_FILES: ['refactoring-loader.gs'],
   };
 });
 
 import { ActiveSession, SessionManager } from '../sessionManager';
-import { installEnhancedInspectorFeature } from '../enhancedInspectorCommand';
+import { installRefactoringFeature } from '../refactoringInstallCommand';
 
 const EXTENSION_PATH = '/ext';
 
@@ -63,7 +69,7 @@ function createBaseSession(systemUserLoginSucceeds = true): ActiveSession {
       GciTsLogout: vi.fn(),
     },
     stoneVersion: '3.7.5',
-    enhancedInspectorAvailable: false,
+    rbSupportAvailable: false,
   } as unknown as ActiveSession;
 }
 
@@ -71,7 +77,7 @@ const abortMock = vi.fn(() => ({ success: true, err: { number: 0 } }));
 const sessionManager = { abort: abortMock } as unknown as SessionManager;
 
 const install = (base: ActiveSession, interactive: boolean) =>
-  installEnhancedInspectorFeature(base, sessionManager, EXTENSION_PATH, interactive);
+  installRefactoringFeature(base, sessionManager, EXTENSION_PATH, interactive);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -80,12 +86,15 @@ beforeEach(() => {
   mocks.showInputBox.mockResolvedValue(undefined);
   mocks.sessionNeedsCommit.mockReturnValue(false);
   mocks.installSupport.mockResolvedValue({
-    success: true, committed: true, verified: true, filedIn: [], message: 'ok',
+    success: true, report: 'SUCCESS -- all checks passed.', message: 'ok',
   });
-  mocks.checkEnhancedInspectorAvailable.mockReturnValue(true);
+  mocks.refreshAvailable.mockImplementation((s: { rbSupportAvailable?: boolean }) => {
+    s.rbSupportAvailable = true;
+    return true;
+  });
 });
 
-describe('installEnhancedInspectorFeature', () => {
+describe('installRefactoringFeature', () => {
   it('installs over a SystemUser session when the default password works', async () => {
     const base = createBaseSession();
 
@@ -133,24 +142,26 @@ describe('installEnhancedInspectorFeature', () => {
     expect(ok).toBe(false);
   });
 
-  it('reports failure when the install pipeline fails', async () => {
+  it('surfaces the report and reports failure when the loader install is incomplete', async () => {
     mocks.installSupport.mockResolvedValueOnce({
-      success: false, committed: false, verified: false, filedIn: [], message: 'boom',
+      success: false, report: 'INCOMPLETE -- missing RBParser', message: 'did not install completely',
     });
     const base = createBaseSession();
 
     const ok = await install(base, true);
 
+    expect(mocks.channelShow).toHaveBeenCalled();
     expect(mocks.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining('install failed'));
     expect(ok).toBe(false);
   });
 
-  it('refreshes the working session and relatches availability on success', async () => {
+  it('refreshes the working session, relatches availability, and sets the context key on success', async () => {
     const base = createBaseSession();
 
     await install(base, true);
 
     expect(abortMock).toHaveBeenCalledWith(base.id);
-    expect(base.enhancedInspectorAvailable).toBe(true);
+    expect(base.rbSupportAvailable).toBe(true);
+    expect(mocks.executeCommand).toHaveBeenCalledWith('setContext', 'gemstone.rbSupportAvailable', true);
   });
 });

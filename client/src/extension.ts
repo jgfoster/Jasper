@@ -50,11 +50,7 @@ import { loadClassPickItems } from './commands/classPicker';
 import { GlobalsBrowser } from './globalsBrowser';
 import { CommentBrowser } from './commentBrowser';
 import { EnhancedInspector } from './enhancedInspector';
-import {
-  runInstallEnhancedInspector,
-  configureEnhancedInspectorAutoInstall,
-  maybeOfferEnhancedInspectorInstall,
-} from './enhancedInspectorCommand';
+import { maybeOfferServerSupport, runInstallServerSupport } from './optionalSupportOffer';
 import { refreshEnhancedInspectorAvailable } from './enhancedInspectorAvailability';
 import { refreshRefactoringSupportAvailable } from './refactoringAvailability';
 import { supportsEnhancedInspector } from './enhancedInspectorInstall';
@@ -1009,12 +1005,8 @@ export function activate(context: vscode.ExtensionContext) {
       await openTutorialNotebook();
     }),
 
-    vscode.commands.registerCommand('gemstone.installEnhancedInspector', async () => {
-      await runInstallEnhancedInspector(sessionManager, context.extensionPath);
-    }),
-
-    vscode.commands.registerCommand('gemstone.configureEnhancedInspectorAutoInstall', async () => {
-      await configureEnhancedInspectorAutoInstall();
+    vscode.commands.registerCommand('gemstone.installServerSupport', async () => {
+      await runInstallServerSupport(sessionManager, context.extensionPath);
     }),
 
     vscode.commands.registerCommand('gemstone.resetGettingStarted', async () => {
@@ -1239,12 +1231,12 @@ export function activate(context: vscode.ExtensionContext) {
         );
       }
 
-      // If this stone lacks Enhanced Inspector support, offer (or auto-run) the
-      // install per the gemstone.enhancedInspector.autoInstall setting. Fire and
-      // forget so the connect flow completes; the offer surfaces its own UI.
-      if (!session.enhancedInspectorAvailable) {
-        void maybeOfferEnhancedInspectorInstall(session, sessionManager, context.extensionPath);
-      }
+      // Offer the optional server-side supports this stone lacks (Enhanced
+      // Inspector + refactoring engine) as one bundle, per
+      // gemstone.serverSupport.autoInstall: `always` installs silently, `ask`
+      // shows one Install/Always/Never modal, `never` does nothing.
+      // Fire-and-forget; no-ops when the stone already has everything applicable.
+      void maybeOfferServerSupport(session, sessionManager, context.extensionPath);
     })),
 
     vscode.commands.registerCommand('gemstone.serveSeaside', async () => {

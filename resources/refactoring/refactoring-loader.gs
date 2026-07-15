@@ -22,6 +22,9 @@ What it does, in order:
      dictionary and put it at the END of the installing user''s symbol list, so it
      never shadows a base/kernel or later Rowan class. The engine resolves its
      classes through the whole symbol list, so the dict is purely for isolation.
+     The SAME dictionary object is then shared into every user''s symbol list (the
+     Published/Globals mechanism) so the engine is visible to whoever uses the
+     client -- not just the installing SystemUser.
   2. file in the payloads in dependency order:
         ast-core.gs  -- vendored AST substrate (RB* parser/rewriter/nodes)
         compat.gs    -- kernel-method backports, each installed ONLY if the
@@ -92,7 +95,9 @@ ensureDictionary
 	"Find or create the dedicated GsRefactoring dictionary. Position it at the END
 	 of the symbol list so it never shadows base/kernel or Rowan classes, and bind
 	 its own name inside it so the bareword `GsRefactoring` (used by the payload's
-	 class declarations) resolves. Idempotent."
+	 class declarations) resolves. Then share the same dictionary object into every
+	 user's symbol list so the engine is visible beyond the installing SystemUser.
+	 Idempotent."
 
 	| sym prof list dict |
 	sym := self class dictionaryName.
@@ -103,7 +108,27 @@ ensureDictionary
 		dict := SymbolDictionary new name: sym; yourself.
 		dict at: sym put: dict.
 		prof insertDictionary: dict at: list size + 1 ].
+	self shareDictionary: dict.
 	^dict
+%
+
+category: 'loading'
+method: GsRefactoringLoader
+shareDictionary: aDict
+	"Insert the SAME dictionary object into every user's symbol list that does not
+	 already have a dictionary of that name, at the end (non-shadowing). This is the
+	 Published/Globals sharing mechanism -- one dictionary object referenced from
+	 many symbol lists -- so the engine resolves for whoever uses the client (e.g.
+	 DataCurator), not only the installing SystemUser. Skips a user that already has
+	 a same-named dictionary, so it is idempotent and never clobbers or duplicates.
+	 Requires SystemUser (modifies other users' profiles); that is already required
+	 for the kernel-class compat backports."
+
+	| sym |
+	sym := self class dictionaryName.
+	AllUsers do: [:profile |
+		(profile symbolList detect: [:d | d name == sym] ifNone: [nil]) isNil
+			ifTrue: [ profile insertDictionary: aDict at: profile symbolList size + 1 ] ]
 %
 
 category: 'loading'

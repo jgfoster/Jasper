@@ -1,51 +1,60 @@
 /**
- * Server-side install driver for Enhanced Inspector support.
+ * Server-side install driver for the Jasper refactoring engine.
  *
- * The payload installs persistent classes (into Published) plus extension
- * methods on kernel classes, which requires write access to those kernel
- * classes — i.e. SystemUser. The user is normally logged in as DataCurator, so
- * this opens a short-lived, unregistered SystemUser session on the same
- * connection, runs the install over it, commits, logs it out, and then offers to
- * refresh the working session so the new code becomes visible.
+ * The engine installs classes into a dedicated `GsRefactoring` dictionary plus a
+ * few feature-detected extension methods on kernel classes, which requires write
+ * access to those kernel classes — i.e. SystemUser. The user is normally logged
+ * in as DataCurator, so this opens a short-lived, unregistered SystemUser session
+ * on the same connection, runs the install over it, logs it out, and then offers
+ * to refresh the working session so the new code becomes visible.
  *
- * The entry point is `installEnhancedInspectorFeature`, called by the unified
+ * The heavy lifting is server-side (`GsRefactoringLoader`, driven by
+ * refactoringInstall.ts). This module is the VS Code plumbing: obtain a
+ * SystemUser session, show progress, surface the loader's completeness report,
+ * and relatch `rbSupportAvailable`.
+ *
+ * The entry point is `installRefactoringFeature`, called by the unified
  * optional-support offer (optionalSupportOffer.ts) as one leg of the bundle
- * install. The Enhanced Inspector feature itself (views, availability latch,
- * payload) lives elsewhere and is unaffected.
+ * install. The SystemUser-session helpers mirror enhancedInspectorCommand.ts;
+ * they are duplicated rather than shared to keep the two install paths
+ * independent (a later cleanup could extract them).
  */
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { ActiveSession, SessionManager } from './sessionManager';
 import { sessionNeedsCommit } from './browserQueries';
-import { refreshEnhancedInspectorAvailable } from './enhancedInspectorAvailability';
+import { refreshRefactoringSupportAvailable } from './refactoringAvailability';
 import {
-  installEnhancedInspectorSupport,
-  isEnhancedInspectorInstalled,
-  ENHANCED_INSPECTOR_FILES,
+  installRefactoringSupport,
+  isRefactoringSupportInstalled,
+  REFACTORING_PAYLOAD_FILES,
   messageOf,
-} from './enhancedInspectorInstall';
+} from './refactoringInstall';
 
-// GemStone's default SystemUser password ('swordfish'). Tried first so a stock
-// stone installs in one step; on failure we prompt.
-//
-// NOTE: do not rename this to `...PASSWORD` or write it as `password = '...'`.
-// esbuild normalizes the bundled literal to double quotes, and Open VSX's
-// server-side secret scan rejects any `password = "<7-20 chars>"` (gitleaks
-// rule hashicorp-tf-password), even though 'swordfish' is GemStone's public
-// default — that block silently fails only the ovsx publish step.
+// GemStone's default SystemUser password. Tried first so a stock stone installs
+// in one step; on failure we prompt. See the note in enhancedInspectorCommand.ts
+// about why this is not written as `password = '...'` (secret-scan false hit).
 const DEFAULT_SYSTEMUSER_PW = 'swordfish';
 
 // Payload location relative to the extension root. `resources/` ships in the
-// packaged VSIX (unlike `docs/`, which is .vscodeignore'd), so the same path
+// packaged VSIX (unlike `gs-src/`, which is .vscodeignore'd), so the same path
 // resolves in both the F5 dev host and an installed extension.
-const PAYLOAD_SUBDIR = path.join('resources', 'enhancedInspector');
+const PAYLOAD_SUBDIR = path.join('resources', 'refactoring');
+
+/** Lazily-created output channel for the loader's completeness report. */
+let reportChannel: vscode.OutputChannel | undefined;
+function getReportChannel(): vscode.OutputChannel {
+  if (!reportChannel) {
+    reportChannel = vscode.window.createOutputChannel('GemStone Refactoring');
+  }
+  return reportChannel;
+}
 
 /**
- * Open a transient SystemUser session on the SAME GciLibrary as `base`,
- * reusing its connection coordinates and overriding only the GemStone user.
- * Deliberately NOT registered with the SessionManager: it bypasses the
- * single-session policy and never shows in the session UI. Caller logs it out.
+ * Open a transient SystemUser session on the SAME GciLibrary as `base`, reusing
+ * its connection coordinates and overriding only the GemStone user. Deliberately
+ * NOT registered with the SessionManager. Caller logs it out.
  */
 function loginAsSystemUser(base: ActiveSession, password: string): ActiveSession {
   const { login } = base;
@@ -90,7 +99,7 @@ async function obtainSystemUserSession(
   }
   if (!interactive) return undefined;
   const password = await vscode.window.showInputBox({
-    prompt: `SystemUser password for "${base.login.stone}" (required to install enhanced inspector support)`,
+    prompt: `SystemUser password for "${base.login.stone}" (required to install the refactoring engine)`,
     password: true,
     ignoreFocusOut: true,
   });
@@ -105,26 +114,23 @@ async function obtainSystemUserSession(
 
 /**
  * The working session won't see the newly-committed classes until its view is
- * refreshed (an abort). When the session has no uncommitted work — always the
- * case right after a login, which is when the offer fires — there is nothing to
- * lose, so refresh silently. Only when there ARE uncommitted changes do we ask
- * first, since the abort would discard them.
+ * refreshed (an abort). When it has no uncommitted work — always the case right
+ * after a login — refresh silently. Only when there ARE uncommitted changes do
+ * we ask first, since the abort would discard them.
  */
 async function refreshWorkingSessionAfterInstall(
   base: ActiveSession,
   sessionManager: SessionManager,
 ): Promise<boolean> {
   const needsCommit = sessionNeedsCommit(base);
-
   if (needsCommit === false) {
     return safeAbortWorkingSession(base, sessionManager);
   }
-
   const detail = needsCommit
     ? 'This discards this session’s uncommitted changes.'
     : 'Any uncommitted changes in this session will be discarded.';
   const choice = await vscode.window.showInformationMessage(
-    `Enhanced inspector installed. Refresh this session to load it? ${detail}`,
+    `Refactoring engine installed. Refresh this session to load it? ${detail}`,
     'Refresh',
     'Later',
   );
@@ -134,49 +140,47 @@ async function refreshWorkingSessionAfterInstall(
   return false;
 }
 
-/**
- * Abort (refresh) the working session, tolerating a session that was logged out
- * while the install ran (the progress notification is non-modal). Returns true
- * only when the view was actually refreshed, so the caller relatches
- * `enhancedInspectorAvailable` only on a real refresh.
- */
+/** Abort (refresh) the working session, tolerating a session that was logged out
+ *  while the install ran. Returns true only when the view was actually refreshed. */
 function safeAbortWorkingSession(base: ActiveSession, sessionManager: SessionManager): boolean {
   try {
     return sessionManager.abort(base.id).success;
   } catch {
-    // The session is gone (sessionManager.abort throws for an unknown id) — there
-    // is nothing to refresh, and nothing to fail over.
     return false;
   }
 }
 
 /**
- * Install (or reinstall) Enhanced Inspector support into the stone reached by
- * `base`, over a transient SystemUser session on the same connection. Always
- * re-files-in — presence is not a gate.
+ * Install (or reinstall) the refactoring engine into the stone reached by `base`,
+ * over a transient SystemUser session on the same connection. Always re-files-in
+ * — presence is not a gate — and the server-side loader is idempotent and commits
+ * on success / aborts on failure entirely on the server, so this never commits.
  *
  * When `interactive` is false (the auto-install path), a missing SystemUser
  * default password is reported as a non-blocking notification rather than a
  * password prompt.
+ *
+ * Returns true when the engine is present and available afterward, so callers
+ * (e.g. the Explorer's rename pencil) can continue on success.
  */
 async function performInstall(
   base: ActiveSession,
   sessionManager: SessionManager,
   extensionPath: string,
   interactive: boolean,
-): Promise<void> {
+): Promise<boolean> {
   const payloadDir = path.join(extensionPath, PAYLOAD_SUBDIR);
-  const missing = ENHANCED_INSPECTOR_FILES.filter(
+  const missing = REFACTORING_PAYLOAD_FILES.filter(
     (f) => !fs.existsSync(path.join(payloadDir, f)),
   );
   if (missing.length > 0) {
     vscode.window.showErrorMessage(
-      `Enhanced inspector payload not found in ${payloadDir} (missing: ${missing.join(', ')}).`,
+      `Refactoring engine payload not found in ${payloadDir} (missing: ${missing.join(', ')}).`,
     );
-    return;
+    return false;
   }
 
-  const reinstall = isEnhancedInspectorInstalled(base);
+  const reinstall = isRefactoringSupportInstalled(base);
 
   const sys = await obtainSystemUserSession(base, interactive);
   if (!sys) {
@@ -185,11 +189,11 @@ async function performInstall(
     // manually rather than failing silently.
     if (!interactive) {
       vscode.window.showWarningMessage(
-        'Enhanced inspector support was not auto-installed: the SystemUser default password was '
+        'The refactoring engine was not auto-installed: the SystemUser default password was '
           + 'not accepted. Run "GemStone: Install Server Support" to install it.',
       );
     }
-    return;
+    return false;
   }
 
   let result;
@@ -198,12 +202,12 @@ async function performInstall(
       {
         location: vscode.ProgressLocation.Notification,
         title: reinstall
-          ? 'Reinstalling enhanced inspector support…'
-          : 'Installing enhanced inspector support…',
+          ? 'Reinstalling the refactoring engine…'
+          : 'Installing the refactoring engine…',
         cancellable: false,
       },
       async (progress) =>
-        installEnhancedInspectorSupport(sys, payloadDir, (message, increment) =>
+        installRefactoringSupport(sys, payloadDir, (message, increment) =>
           progress.report({ message, increment }),
         ),
     );
@@ -215,27 +219,43 @@ async function performInstall(
     }
   }
 
+  // Always surface the loader's completeness report — it is the authoritative
+  // account of what did and didn't load.
+  if (result.report) {
+    const channel = getReportChannel();
+    channel.appendLine(result.report);
+    if (!result.success) channel.show(true);
+  }
+
   if (!result.success) {
-    vscode.window.showErrorMessage(`Enhanced inspector install failed: ${result.message}`);
-    return;
+    vscode.window.showErrorMessage(`Refactoring engine install failed: ${result.message}`);
+    return false;
   }
 
   const refreshed = await refreshWorkingSessionAfterInstall(base, sessionManager);
-  if (refreshed) refreshEnhancedInspectorAvailable(base);
+  if (refreshed) {
+    refreshRefactoringSupportAvailable(base);
+    void vscode.commands.executeCommand(
+      'setContext',
+      'gemstone.rbSupportAvailable',
+      base.rbSupportAvailable === true,
+    );
+  }
+  vscode.window.showInformationMessage('Refactoring engine installed and verified.');
+  return base.rbSupportAvailable === true;
 }
 
 /**
- * Install (or reinstall) Enhanced Inspector support once. `interactive` = may
- * prompt for the SystemUser password if the default is rejected; non-interactive
- * = silent, warning if the default is unavailable. Returns whether the support is
+ * Install (or reinstall) the refactoring engine once. `interactive` = may prompt
+ * for the SystemUser password if the default is rejected; non-interactive =
+ * silent, warning if the default is unavailable. Returns whether the engine is
  * available afterward. Called by the unified optional-support bundle offer.
  */
-export async function installEnhancedInspectorFeature(
+export function installRefactoringFeature(
   base: ActiveSession,
   sessionManager: SessionManager,
   extensionPath: string,
   interactive: boolean,
 ): Promise<boolean> {
-  await performInstall(base, sessionManager, extensionPath, interactive);
-  return base.enhancedInspectorAvailable === true;
+  return performInstall(base, sessionManager, extensionPath, interactive);
 }

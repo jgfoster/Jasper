@@ -989,21 +989,20 @@ class ExplorerController {
     const session = this.session();
     if (!session) return;
 
-    // The engine ships as an optional, separately-installed payload. When it
-    // isn't loaded, offer to install it — a stub until the loader stage lands.
+    // The engine ships as an optional, separately-installed payload (bundled with
+    // the Enhanced Inspector). When it isn't loaded, offer to install the optional
+    // GemStone support; the install relatches the probe, so re-read it and only
+    // continue if the engine is now present.
     if (!session.rbSupportAvailable) {
-      const LOAD = 'Load Refactoring Support…';
+      const LOAD = 'Install GemStone Support…';
       const choice = await vscode.window.showInformationMessage(
         "Renaming instance variables needs the GemStone refactoring engine, which "
         + "isn't loaded in this stone yet.",
         LOAD,
       );
-      if (choice === LOAD) {
-        void vscode.window.showInformationMessage(
-          'Installing the refactoring engine will arrive in an upcoming release.',
-        );
-      }
-      return;
+      if (choice !== LOAD) return;
+      await vscode.commands.executeCommand('gemstone.installServerSupport');
+      if (!this.session()?.rbSupportAvailable) return;
     }
 
     const oldName = item.ivarName;

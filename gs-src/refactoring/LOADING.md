@@ -67,9 +67,13 @@ else and guarantees it never shadows a base/kernel class or a Rowan `RB*` class.
 The engine resolves its own classes through the whole symbol list, so nothing
 else needs to know where they live.
 
-To share one install across users, insert the *same* `GsRefactoring` dictionary
-object into each user's symbol list (the mechanism `Published`/`Globals` use); for
-a private install, leave it only in the installing user's list. A world-writable
+The loader then shares that **same** `GsRefactoring` dictionary object into every
+user's symbol list (the mechanism `Published`/`Globals` use), so the engine is
+visible to whoever uses the stone — not just the installing SystemUser. This
+matters for the client: it installs over a transient SystemUser session but you
+*use* Jasper as your normal user (e.g. DataCurator), which must resolve the engine
+for the rename command to light up. Sharing is idempotent — a user that already
+has a `GsRefactoring` dictionary is left untouched. A world-writable
 `GsRefactoring` is also what lets a non-SystemUser *apply* a refactoring later
 (the class-version bump rewrites the dictionary binding).
 
