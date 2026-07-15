@@ -16,6 +16,20 @@ function getConfiguration(section: string) {
       const val = configStore[section][key];
       return (val !== undefined ? val : defaultValue) as T;
     },
+    inspect<T>(key: string): {
+      key: string;
+      globalValue?: T;
+      workspaceValue?: T;
+      workspaceFolderValue?: T;
+    } {
+      const val = configStore[section][key];
+      // A seeded value stands in for an explicitly-set (global-scope) value;
+      // otherwise all scope fields are absent, matching the real API's shape
+      // for a key the user never set.
+      return val !== undefined
+        ? { key: `${section}.${key}`, globalValue: val as T }
+        : { key: `${section}.${key}` };
+    },
     update: vi.fn(async (key: string, value: unknown, _target?: number) => {
       configStore[section][key] = value;
     }),

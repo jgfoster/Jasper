@@ -16,6 +16,17 @@ import {
 } from '../mcpSocketServer';
 import {extensionPathFrom} from "../extensionPath";
 
+// A pre-rename `gemstone` entry that Jasper itself wrote — same proxy script,
+// possibly a different (older) socket.
+const legacyJasperEntry = (extPath: string, sockPath: string) => ({
+  command: 'node',
+  args: [proxyScriptPath(extPath), '--proxy-socket', sockPath],
+});
+
+// A `gemstone` entry owned by something else (e.g. the GemStone-native MCP
+// server). Must never be removed by Jasper's migration cleanup.
+const foreignGemstoneEntry = { command: 'gemstone-mcp', args: ['--serve'] };
+
 function withPlatform(platform: string, fn: () => void) {
   const orig = process.platform;
   Object.defineProperty(process, 'platform', { value: platform, configurable: true });
@@ -99,7 +110,7 @@ describe('writeClaudeDesktopMcpConfig', () => {
     vi.mocked(fs.mkdirSync).mockClear();
   });
 
-  it('writes a single global gemstone entry', () => {
+  it('writes a single global jasper entry', () => {
     writeClaudeDesktopMcpConfig('/ext', '/tmp/socket.sock');
 
     const writeCall = vi.mocked(fs.writeFileSync).mock.calls[0];
@@ -131,7 +142,7 @@ describe('writeClaudeDesktopMcpConfig', () => {
     const written = JSON.parse(writeCall![1] as string);
     expect(written.mcpServers.filesystem).toEqual({ command: 'mcp-fs' });
     expect(written.mcpServers.notion).toEqual({ command: 'mcp-notion' });
-    expect(written.mcpServers.gemstone).toBeDefined();
+    expect(written.mcpServers[MCP_SERVER_NAME]).toBeDefined();
   });
 
   it('preserves top-level siblings of mcpServers', () => {
@@ -150,7 +161,7 @@ describe('writeClaudeDesktopMcpConfig', () => {
   it('does not rewrite when the entry is already correct', () => {
     vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
       mcpServers: {
-        gemstone: {
+        jasper: {
           command: 'node',
           args: [proxyScriptPath('/ext'), '--proxy-socket', '/tmp/socket.sock'],
         },
@@ -165,7 +176,7 @@ describe('writeClaudeDesktopMcpConfig', () => {
   it('rewrites when the socket path has changed', () => {
     vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
       mcpServers: {
-        gemstone: {
+        jasper: {
           command: 'node',
           args: [proxyScriptPath('/ext'), '--proxy-socket', '/tmp/OLD.sock'],
         },
@@ -177,7 +188,33 @@ describe('writeClaudeDesktopMcpConfig', () => {
     const writeCall = vi.mocked(fs.writeFileSync).mock.calls[0];
     expect(writeCall).toBeDefined();
     const written = JSON.parse(writeCall![1] as string);
-    expect(written.mcpServers.gemstone.args).toContain('/tmp/NEW.sock');
+    expect(written.mcpServers[MCP_SERVER_NAME].args).toContain('/tmp/NEW.sock');
+  });
+
+  it('removes the pre-rename gemstone entry when it is Jasper\'s own proxy', () => {
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      mcpServers: { gemstone: legacyJasperEntry('/ext', '/tmp/OLD.sock') },
+    }));
+
+    writeClaudeDesktopMcpConfig('/ext', '/tmp/socket.sock');
+
+    const writeCall = vi.mocked(fs.writeFileSync).mock.calls[0];
+    const written = JSON.parse(writeCall![1] as string);
+    expect(written.mcpServers.gemstone).toBeUndefined();
+    expect(written.mcpServers[MCP_SERVER_NAME]).toBeDefined();
+  });
+
+  it('keeps a foreign gemstone entry (e.g. the native GemStone MCP server)', () => {
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      mcpServers: { gemstone: foreignGemstoneEntry },
+    }));
+
+    writeClaudeDesktopMcpConfig('/ext', '/tmp/socket.sock');
+
+    const writeCall = vi.mocked(fs.writeFileSync).mock.calls[0];
+    const written = JSON.parse(writeCall![1] as string);
+    expect(written.mcpServers.gemstone).toEqual(foreignGemstoneEntry);
+    expect(written.mcpServers[MCP_SERVER_NAME]).toBeDefined();
   });
 
   it('migrates legacy gemstone-<hash> entries into the single global entry', () => {
@@ -195,14 +232,14 @@ describe('writeClaudeDesktopMcpConfig', () => {
     const written = JSON.parse(writeCall![1] as string);
     expect(written.mcpServers['gemstone-abcdef0123']).toBeUndefined();
     expect(written.mcpServers['gemstone-fedcba9876']).toBeUndefined();
-    expect(written.mcpServers.gemstone).toBeDefined();
+    expect(written.mcpServers[MCP_SERVER_NAME]).toBeDefined();
     expect(written.mcpServers.filesystem).toEqual({ command: 'mcp-fs' });
   });
 
   it('rewrites when only the legacy cleanup applies, even if the new entry is current', () => {
     vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
       mcpServers: {
-        gemstone: {
+        jasper: {
           command: 'node',
           args: [proxyScriptPath('/ext'), '--proxy-socket', '/tmp/socket.sock'],
         },
@@ -236,7 +273,6 @@ describe('writeClaudeDesktopMcpConfig', () => {
 
     const writeCall = vi.mocked(fs.writeFileSync).mock.calls[0];
     const written = JSON.parse(writeCall![1] as string);
-    expect(written.mcpServers.gemstone).toBeDefined();
+    expect(written.mcpServers[MCP_SERVER_NAME]).toBeDefined();
   });
 });
-

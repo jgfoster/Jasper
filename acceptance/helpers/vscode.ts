@@ -64,7 +64,7 @@ export const test = base.extend<{
     fs.mkdirSync(gemstoneRoot, { recursive: true });
     const settings = {
       'gemstone.rootPath': gemstoneRoot,
-      'gemstone.mcp.registerWithClaudeDesktop': false,
+      'jasper.mcp.registerWithClaudeDesktop': false,
       ...workspaceSettings,
     };
     const dotVscode = path.join(workspace, '.vscode');

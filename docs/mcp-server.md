@@ -61,7 +61,7 @@ All three speak the same MCP wire protocol; the difference is just whether the t
 The socket and HTTPS port are global resources, so only one Jasper window can serve MCP at a time. Ownership is decided lazily:
 
 - **On activation**, every Jasper window writes the well-known
-  `mcpServers.gemstone` entry into `~/.claude.json` and into Claude Desktop's
+  `mcpServers.jasper` entry into `~/.claude.json` and into Claude Desktop's
   global config. Both entries point at the **fixed** socket path, so they're
   correct no matter which window ends up owning it. No ownership claim is made
   here — a window that opens but never logs in stays passive.
@@ -91,11 +91,11 @@ ownership state, active session, socket path, HTTPS URL.
 
 ## Client registration
 
-Three clients are wired up out of the box. Each gets the same `gemstone` entry pointing at the proxy script + socket path.
+Three clients are wired up out of the box. Each gets the same `jasper` entry pointing at the proxy script + socket path. (The server is named `jasper`, not `gemstone`, so the name `gemstone` stays free for the separate GemStone-native MCP server.)
 
 ### Claude Code
 
-- **Config file:** `~/.claude.json` (top-level `mcpServers.gemstone`, user-scope)
+- **Config file:** `~/.claude.json` (top-level `mcpServers.jasper`, user-scope)
 - **Written by:** [`client/src/claudeCodeUserMcpConfig.ts`](../client/src/claudeCodeUserMcpConfig.ts)
 - **Always on.** The Claude Code CLI is the same on all platforms, so one path covers macOS/Linux/Windows.
 - Claude Code snapshots its MCP server list when each session starts. The
@@ -103,8 +103,11 @@ Three clients are wired up out of the box. Each gets the same `gemstone` entry p
   in that VS Code window won't see it via `/mcp` until it re-activates — Jasper
   detects this case and pops a one-time **"Reload Window"** prompt. Every
   subsequent VS Code launch is silent.
-- Stale project-scope `gemstone` entries from earlier Jasper versions (which
-  shelled out to `claude mcp add`) are stripped on each activation.
+- Leftovers from earlier Jasper versions are stripped on each activation: the
+  pre-rename top-level `gemstone` entry, and any project-scope `gemstone`
+  entries left by older `claude mcp add` shell-outs. Only Jasper's own entries
+  are removed — a `gemstone` entry belonging to something else (e.g. the
+  GemStone-native MCP server) is left untouched.
 
 ### Claude Desktop
 
@@ -112,7 +115,7 @@ Three clients are wired up out of the box. Each gets the same `gemstone` entry p
 - **Config file (Windows):** `%APPDATA%\Claude\claude_desktop_config.json`
 - **Config file (Linux):** `~/.config/Claude/claude_desktop_config.json`
 - **Written by:** [`client/src/mcpSocketServer.ts`](../client/src/mcpSocketServer.ts)`#writeClaudeDesktopMcpConfig`
-- **Controlled by:** `gemstone.mcp.registerWithClaudeDesktop` (default `true`).
+- **Controlled by:** `jasper.mcp.registerWithClaudeDesktop` (default `true`).
   Set to `false` if you do not want Jasper touching this file.
 - The Linux path is the conventional XDG location; an official Claude Desktop
   Linux build does not exist at the time of writing, but the path is the right
@@ -132,7 +135,7 @@ Anything that can run an `command + args` stdio MCP server can use Jasper:
 ```jsonc
 {
   "mcpServers": {
-    "gemstone": {
+    "jasper": {
       "command": "node",
       "args": [
         "/absolute/path/to/extension/mcp-server/out/index.js",
@@ -173,7 +176,7 @@ time. The passive windows show **"Owned by /path/to/that/workspace"** in their
 MCP Server view. To run two MCP-serving windows simultaneously:
 
 - The stdio surface is one-per-machine (fixed socket path).
-- Override `gemstone.mcp.httpPort` in the second workspace's
+- Override `jasper.mcp.httpPort` in the second workspace's
   `.vscode/settings.json` to give it its own HTTPS port. The two windows can
   then both serve HTTPS, but only one serves stdio.
 

@@ -159,7 +159,7 @@ describe('renderOwnership', () => {
     const inspector = nodes.find((n) => String(n.label) === 'Open MCP Inspector');
     expect(inspector).toBeDefined();
     expect(inspector!.command).toMatchObject({
-      command: 'gemstone.openMcpInspector',
+      command: 'jasper.openMcpInspector',
     });
     expect(inspector!.contextValue).toBe('mcpInspector');
   });
@@ -240,7 +240,7 @@ describe('renderOwnership', () => {
     const claim = nodes.find((n) => String(n.label) === 'Claim MCP Server');
     expect(claim).toBeDefined();
     expect(claim!.command).toMatchObject({
-      command: 'gemstone.claimMcpServer',
+      command: 'jasper.claimMcpServer',
     });
     expect(claim!.contextValue).toBe('mcpClaim');
   });
@@ -254,7 +254,7 @@ describe('renderOwnership', () => {
     });
     const socket = nodes.find((n) => String(n.label).startsWith('Socket:'))!;
     expect(socket.command).toMatchObject({
-      command: 'gemstone.copyMcpSocketPath',
+      command: 'jasper.copyMcpSocketPath',
       arguments: ['/tmp/sock'],
     });
   });
@@ -271,7 +271,7 @@ describe('renderOwnership', () => {
     });
     const socket = nodes.find((n) => String(n.label).startsWith('Socket:'))!;
     expect(socket.command).toMatchObject({
-      command: 'gemstone.copyMcpSocketPath',
+      command: 'jasper.copyMcpSocketPath',
       arguments: ['/tmp/sock'],
     });
   });
