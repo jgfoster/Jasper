@@ -35,7 +35,11 @@ VENDOR="$REPO/gs-src/refactoring/vendor/rowanv3-ast"
 CONVERTER="$BUILD/tonel-to-gs.js"
 HEADER="$BUILD/ast-provenance-header.gs"
 OUT="$REPO/resources/refactoring"
-DICT="UserGlobals"
+# Published is a shared symbol dictionary present in every user's symbol list
+# (the same object for SystemUser and DataCurator), so classes filed here are
+# visible to any login -- the same placement the Enhanced Inspector installer
+# uses. UserGlobals is per-user, so it would hide the engine from other logins.
+DICT="Published"
 TESTS_OUT=""
 
 while [ $# -gt 0 ]; do
