@@ -239,6 +239,13 @@ describe('GciLibrary', () => {
             });
         })
 
+        it('fails when code contains a non-local return', () => {
+            expectToThrowGciLibraryError(
+                () => gciLibrary.executeDiscardingResult(session, `^ 'a'`),
+                GciLibrary.NON_LOCAL_RETURN_NOT_ALLOWED_MESSAGE
+            )
+        });
+
     });
 
     describe('evaluating an expression and releasing its result automatically', () => {

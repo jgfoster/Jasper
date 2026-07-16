@@ -1984,11 +1984,19 @@ export class GciLibrary {
    * instead of retaining `code`'s own result there indefinitely.
    *
    * @param session - The GemStone session to operate in.
-   * @param code - Smalltalk source to evaluate.
-   * @throws {GciLibraryError} If the evaluated code signals an error, or if
-   *   the underlying GCI call fails.
+   * @param code - Smalltalk source to evaluate. Must not contain a non-local
+   *   return (`^`).
+   * @throws {GciLibraryError} If `code` contains a non-local return (`^`), if
+   *   the evaluated code signals an error, or if the underlying GCI call
+   *   fails.
    */
   public executeDiscardingResult(session: unknown, code: string) {
+    // A non-local return here would return before the trailing `. nil`
+    // statement below ever runs, so `code`'s own result oop would come back
+    // instead of nil -- and, since callers of this method don't expect a
+    // result to release, that oop would leak into the PureExportSet forever.
+    this.denyIncludesANonLocalReturn(code);
+
     this.execute(session, `[ ${code} ] value. nil`);
   }
 
