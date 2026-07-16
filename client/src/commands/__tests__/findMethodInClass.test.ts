@@ -3,12 +3,21 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('vscode', () => import('../../__mocks__/vscode'));
 
 import * as vscode from 'vscode';
-import { ActiveSession } from '../../sessionManager';
+import { ActiveSession, SessionManager } from '../../sessionManager';
 import { GemStoneLogin } from '../../loginTypes';
+import { GciError } from '../../gciLibrary';
+import { ClassPickItem } from '../classPicker';
 import { SystemBrowser } from '../../systemBrowser';
 import { findMethodInClass } from '../findMethodInClass';
 
-const noErr = { number: 0, message: '', context: 0n, category: 0, fatal: false, argCount: 0, exceptionObj: 0n, args: [] };
+const noErr: GciError = { number: 0, message: '', reason: '', context: 0n, category: 0n, exceptionObj: 0n, args: [], argCount: 0, fatal: 0 };
+
+// The class picker the command drives is a `createQuickPick` instance; the mock
+// adds `__accept`/`__hide` (see `__mocks__/vscode.ts`) to fire its handlers.
+type QuickPickHandle = vscode.QuickPick<ClassPickItem> & {
+  __accept(): Promise<void>;
+  __hide(): void;
+};
 
 const classListPayload = '1\tUserGlobals\tArray\n2\tGlobals\tString\n';
 const methodListPayload = '0\tprinting\tfoo\n1\taccessing\tbar\n';
@@ -41,14 +50,14 @@ function createMockSession(): ActiveSession {
 function createSequencedSession(methodPayload = methodListPayload): ActiveSession {
   const session = createMockSession();
   vi.mocked(session.gci.GciTsExecuteFetchBytes)
-    .mockReturnValueOnce({ data: classListPayload, err: { ...noErr } } as any)
-    .mockReturnValueOnce({ data: methodPayload, err: { ...noErr } } as any);
+    .mockReturnValueOnce({ bytesReturned: classListPayload.length, data: classListPayload, err: { ...noErr } })
+    .mockReturnValueOnce({ bytesReturned: methodPayload.length, data: methodPayload, err: { ...noErr } });
   return session;
 }
 
-function lastQuickPick(): any {
+function lastQuickPick(): QuickPickHandle {
   const results = vi.mocked(vscode.window.createQuickPick).mock.results;
-  return results[results.length - 1].value;
+  return results[results.length - 1].value as unknown as QuickPickHandle;
 }
 
 // Kicks off the command, waits for the class picker to appear, and hands back
@@ -62,7 +71,7 @@ function lastQuickPick(): any {
 // the picker and finally awaits `done`.
 async function openClassPicker(methodPayload = methodListPayload) {
   const session = createSequencedSession(methodPayload);
-  const sessionManager = { resolveSession: vi.fn().mockResolvedValue(session) } as any;
+  const sessionManager = { resolveSession: vi.fn().mockResolvedValue(session) } as unknown as SessionManager;
   const done = findMethodInClass(sessionManager);
   await vi.waitFor(() => expect(vscode.window.createQuickPick).toHaveBeenCalled());
   return { session, qp: lastQuickPick(), done };
@@ -71,16 +80,16 @@ async function openClassPicker(methodPayload = methodListPayload) {
 // Resolves the class picker by accepting a class, then lets the command finish.
 // With no className, accepts whatever is pre-highlighted (the default); with
 // one, selects that class from the list instead.
-async function acceptClass(qp: any, done: Promise<void>, className?: string): Promise<void> {
+async function acceptClass(qp: QuickPickHandle, done: Promise<void>, className?: string): Promise<void> {
   qp.selectedItems = className
-    ? [qp.items.find((i: any) => i.entry.className === className)]
+    ? qp.items.filter(i => i.entry.className === className)
     : qp.activeItems;
   await qp.__accept();
   await done;
 }
 
 // Dismisses the class picker (Escape/cancel), then lets the command finish.
-async function dismissPicker(qp: any, done: Promise<void>): Promise<void> {
+async function dismissPicker(qp: QuickPickHandle, done: Promise<void>): Promise<void> {
   qp.__hide();
   await done;
 }
@@ -103,7 +112,7 @@ describe('findMethodInClass', () => {
       label: 'foo',
       description: 'printing',
       method: { isMeta: false, category: 'printing', selector: 'foo' },
-    } as any);
+    } as unknown as vscode.QuickPickItem);
   });
 
   describe('when a class is selected in the System Browser', () => {

@@ -49,7 +49,7 @@ function makeDocument(text: string) {
       if (start === end) return undefined;
       return new Range(new Position(p.line, start), new Position(p.line, end));
     },
-  } as any;
+  } as unknown as vscode.TextDocument;
 }
 
 describe('GemStoneHoverProvider', () => {

@@ -224,11 +224,16 @@ function posted(panel: ReturnType<typeof lastPanel>, command: string) {
     .map((c: unknown[]) => c[0] as { command: string })
     .filter((m: { command: string }) => m.command === command);
 }
-/** The most recent payload posted with the given command (or undefined). */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function lastPosted(panel: ReturnType<typeof lastPanel>, command: string): any {
-  const all = posted(panel, command);
-  return all[all.length - 1];
+/**
+ * The most recent payload posted with the given command (or undefined).
+ * Sourced from `mock.calls` (like `initPayload`) so the element type stays
+ * inferred rather than narrowed to `{ command: string }` — webview payloads
+ * are an untyped IPC union that assertions index into ad-hoc.
+ */
+function lastPosted(panel: ReturnType<typeof lastPanel>, command: string) {
+  const all = panel.webview.postMessage.mock.calls
+    .filter((c: unknown[]) => (c[0] as { command: string }).command === command);
+  return all[all.length - 1]?.[0];
 }
 
 /**

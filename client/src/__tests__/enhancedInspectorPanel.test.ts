@@ -52,13 +52,13 @@ import { GemStoneLogin } from '../loginTypes';
 function makeMockPanel() {
   const postMessage = vi.fn();
   let title = '';
-  let messageHandler: ((msg: any) => void) | undefined;
+  let messageHandler: ((msg: unknown) => void) | undefined;
 
   const panel = {
     webview: {
       set html(_: string) {},
       postMessage,
-      onDidReceiveMessage(cb: (msg: any) => void) {
+      onDidReceiveMessage(cb: (msg: unknown) => void) {
         messageHandler = cb;
         return { dispose: vi.fn() };
       },
@@ -73,7 +73,7 @@ function makeMockPanel() {
     panel,
     get postMessage() { return postMessage; },
     get title() { return title; },
-    sendMessage(msg: any) { messageHandler!(msg); },
+    sendMessage(msg: unknown) { messageHandler!(msg); },
   };
 }
 
@@ -101,7 +101,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   session = createMockSession();
   mock = makeMockPanel();
-  vi.mocked(vscode.window.createWebviewPanel).mockReturnValue(mock.panel as any);
+  vi.mocked(vscode.window.createWebviewPanel).mockReturnValue(mock.panel as unknown as vscode.WebviewPanel);
   vi.mocked(debug.fetchPrintString).mockReturnValue({ value: 'an Object', truncated: false });
   vi.mocked(debug.getObjectClassName).mockReturnValue('Object');
   vi.mocked(queries.getEnhancedInspectorViewSpecs).mockReturnValue([]);
@@ -131,8 +131,8 @@ describe('EnhancedInspector', () => {
       expect.assertions(2);
       const mock2 = makeMockPanel();
       vi.mocked(vscode.window.createWebviewPanel)
-        .mockReturnValueOnce(mock.panel as any)
-        .mockReturnValueOnce(mock2.panel as any);
+        .mockReturnValueOnce(mock.panel as unknown as vscode.WebviewPanel)
+        .mockReturnValueOnce(mock2.panel as unknown as vscode.WebviewPanel);
       EnhancedInspector.create(session, 1000n, 'first');
       EnhancedInspector.create(session, 2000n, 'second');
       EnhancedInspector.disposeForSession(session.id);

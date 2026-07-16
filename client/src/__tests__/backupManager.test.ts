@@ -26,11 +26,11 @@ describe('runLogicalBackup', () => {
     vi.clearAllMocks();
     vi.mocked(wslExistsSync).mockReturnValue(true);
     vi.mocked(vscode.window.showSaveDialog).mockResolvedValue(
-      vscode.Uri.file('/root/db-1/backups/gs64stone.dbf') as any,
+      vscode.Uri.file('/root/db-1/backups/gs64stone.dbf'),
     );
     // Default: user dismisses the success toast without clicking an action.
     // (clearAllMocks resets call history but not mockResolvedValue, so set it here.)
-    vi.mocked(vscode.window.showInformationMessage).mockResolvedValue(undefined as any);
+    vi.mocked(vscode.window.showInformationMessage).mockResolvedValue(undefined);
   });
 
   it('backs up to the chosen destination and reports success', async () => {
@@ -57,7 +57,7 @@ describe('runLogicalBackup', () => {
 
   it('offers to reveal a locally-managed backup and opens the file manager on request', async () => {
     const deps = makeDeps();
-    vi.mocked(vscode.window.showInformationMessage).mockResolvedValue('Reveal in File Explorer' as any);
+    vi.mocked(vscode.window.showInformationMessage).mockResolvedValue('Reveal in File Explorer' as unknown as vscode.MessageItem);
 
     await runLogicalBackup(deps);
 
@@ -105,7 +105,7 @@ describe('runLogicalBackup', () => {
       throw new Error('abort failed');
     });
     const deps = makeDeps({ execute });
-    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Discard changes and back up' as any);
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Discard changes and back up' as unknown as vscode.MessageItem);
 
     const ok = await runLogicalBackup(deps);
 
@@ -130,7 +130,7 @@ describe('runLogicalBackup', () => {
     const deps = makeDeps({
       execute: vi.fn((_l: string, code: string) => (code.includes('needsCommit') ? 'true' : 'true')),
     });
-    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as any);
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined);
 
     const ok = await runLogicalBackup(deps);
 
@@ -146,7 +146,7 @@ describe('runLogicalBackup', () => {
     });
     const deps = makeDeps({ execute });
     vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(
-      'Discard changes and back up' as any,
+      'Discard changes and back up' as unknown as vscode.MessageItem,
     );
 
     const ok = await runLogicalBackup(deps);

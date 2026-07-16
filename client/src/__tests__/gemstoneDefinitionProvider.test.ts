@@ -48,7 +48,7 @@ function makeDocument(text: string, uri = 'gemstone://1/Globals/Array/instance/a
       if (start === end) return undefined;
       return new Range(new Position(pos.line, start), new Position(pos.line, end));
     },
-  } as any;
+  } as unknown as vscode.TextDocument;
 }
 
 describe('GemStoneDefinitionProvider', () => {
