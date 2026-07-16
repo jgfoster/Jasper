@@ -19,7 +19,7 @@ function shQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
-type OsConfigNode =
+export type OsConfigNode =
   | { kind: 'loading' }
   | { kind: 'sharedMemoryStatus'; configured: boolean; gbLabel: string }
   | { kind: 'removeIpcStatus'; configured: boolean }

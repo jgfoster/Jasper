@@ -19,7 +19,7 @@ vi.mock('../wslBridge', () => ({
 import { exec } from 'child_process';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
-import { OsConfigTreeProvider } from '../sharedMemoryTreeProvider';
+import { OsConfigTreeProvider, type OsConfigNode } from '../sharedMemoryTreeProvider';
 import * as wslBridge from '../wslBridge';
 
 // ── Helpers ────────────────────────────────────────────────
@@ -66,7 +66,7 @@ function mockExecError(): void {
 }
 
 /** Call getChildren(), wait for async load to complete, then return cached nodes. */
-async function getRootNodes(provider: OsConfigTreeProvider): Promise<any[]> {
+async function getRootNodes(provider: OsConfigTreeProvider): Promise<OsConfigNode[]> {
   const initial = provider.getChildren();
   if (Array.isArray(initial) && initial.length === 1 && initial[0].kind === 'loading') {
     // Wait for the async _loadConfig to fire onDidChangeTreeData
@@ -76,9 +76,22 @@ async function getRootNodes(provider: OsConfigTreeProvider): Promise<any[]> {
         resolve();
       });
     });
-    return provider.getChildren() as any[];
+    return provider.getChildren();
   }
-  return (Array.isArray(initial) ? initial : await initial) as any[];
+  return Array.isArray(initial) ? initial : await initial;
+}
+
+/** Find the (at most one) node of a given kind, narrowed to that variant. */
+function findByKind<K extends OsConfigNode['kind']>(
+  nodes: OsConfigNode[],
+  kind: K,
+): Extract<OsConfigNode, { kind: K }> | undefined {
+  return nodes.find((n): n is Extract<OsConfigNode, { kind: K }> => n.kind === kind);
+}
+
+/** The `command` id of each action node, in order (non-action nodes → undefined). */
+function actionCommands(nodes: OsConfigNode[]): (string | undefined)[] {
+  return nodes.map((n) => (n.kind === 'action' ? n.command : undefined));
 }
 
 // ── Suite ──────────────────────────────────────────────────
@@ -129,7 +142,7 @@ describe('OsConfigTreeProvider', () => {
       mockExec(MACOS_SYSCTL_SMALL);
       provider.refresh();
       const nodes = await getRootNodes(provider);
-      expect((nodes[0] as any).configured).toBe(false);
+      expect(findByKind(nodes, 'sharedMemoryStatus')?.configured).toBe(false);
     });
   });
 
@@ -139,7 +152,7 @@ describe('OsConfigTreeProvider', () => {
     it('returns a loading node before async data is ready', () => {
       setPlatform('darwin');
       mockExec(MACOS_SYSCTL_4GB);
-      const nodes = provider.getChildren() as any[];
+      const nodes = provider.getChildren() as OsConfigNode[];
       expect(nodes).toHaveLength(1);
       expect(nodes[0].kind).toBe('loading');
     });
@@ -185,15 +198,15 @@ describe('OsConfigTreeProvider', () => {
     it('labels large Linux default shmmax as "≥ 1"', async () => {
       setPlatform('linux');
       mockExec(LINUX_SYSCTL_UNLIMITED);
-      const [node] = await getRootNodes(provider);
-      expect(node.gbLabel).toBe('≥ 1');
+      const nodes = await getRootNodes(provider);
+      expect(findByKind(nodes, 'sharedMemoryStatus')?.gbLabel).toBe('≥ 1');
     });
 
     it('labels exact 1 GB shmmax as "1"', async () => {
       setPlatform('linux');
       mockExec(LINUX_SYSCTL_1GB);
-      const [node] = await getRootNodes(provider);
-      expect(node.gbLabel).toBe('1');
+      const nodes = await getRootNodes(provider);
+      expect(findByKind(nodes, 'sharedMemoryStatus')?.gbLabel).toBe('1');
     });
 
     it('removeIpcStatus configured=false when no logind.conf', async () => {
@@ -201,8 +214,8 @@ describe('OsConfigTreeProvider', () => {
       mockExec(LINUX_SYSCTL_4GB);
       vi.mocked(fs.readFileSync).mockImplementation(() => { throw new Error('ENOENT'); });
       const nodes = await getRootNodes(provider);
-      const removeIpc = nodes.find((n: any) => n.kind === 'removeIpcStatus') as any;
-      expect(removeIpc.configured).toBe(false);
+      const removeIpc = findByKind(nodes, 'removeIpcStatus');
+      expect(removeIpc?.configured).toBe(false);
     });
 
     it('removeIpcStatus configured=true when logind.conf has RemoveIPC=no', async () => {
@@ -210,8 +223,8 @@ describe('OsConfigTreeProvider', () => {
       mockExec(LINUX_SYSCTL_4GB);
       vi.mocked(fs.readFileSync).mockReturnValue('[Login]\nRemoveIPC=no\n' as any);
       const nodes = await getRootNodes(provider);
-      const removeIpc = nodes.find((n: any) => n.kind === 'removeIpcStatus') as any;
-      expect(removeIpc.configured).toBe(true);
+      const removeIpc = findByKind(nodes, 'removeIpcStatus');
+      expect(removeIpc?.configured).toBe(true);
     });
 
     it('removeIpcStatus configured=false when logind.conf has RemoveIPC=yes', async () => {
@@ -219,8 +232,8 @@ describe('OsConfigTreeProvider', () => {
       mockExec(LINUX_SYSCTL_4GB);
       vi.mocked(fs.readFileSync).mockReturnValue('[Login]\nRemoveIPC=yes\n' as any);
       const nodes = await getRootNodes(provider);
-      const removeIpc = nodes.find((n: any) => n.kind === 'removeIpcStatus') as any;
-      expect(removeIpc.configured).toBe(false);
+      const removeIpc = findByKind(nodes, 'removeIpcStatus');
+      expect(removeIpc?.configured).toBe(false);
     });
 
     it('ignores commented-out RemoveIPC lines', async () => {
@@ -228,8 +241,8 @@ describe('OsConfigTreeProvider', () => {
       mockExec(LINUX_SYSCTL_4GB);
       vi.mocked(fs.readFileSync).mockReturnValue('# RemoveIPC=no\n' as any);
       const nodes = await getRootNodes(provider);
-      const removeIpc = nodes.find((n: any) => n.kind === 'removeIpcStatus') as any;
-      expect(removeIpc.configured).toBe(false);
+      const removeIpc = findByKind(nodes, 'removeIpcStatus');
+      expect(removeIpc?.configured).toBe(false);
     });
 
     it('drop-in file overrides main logind.conf (last wins)', async () => {
@@ -244,8 +257,8 @@ describe('OsConfigTreeProvider', () => {
         return '[Login]\nRemoveIPC=no\n' as any; // drop-in overrides to no
       });
       const nodes = await getRootNodes(provider);
-      const removeIpc = nodes.find((n: any) => n.kind === 'removeIpcStatus') as any;
-      expect(removeIpc.configured).toBe(true);
+      const removeIpc = findByKind(nodes, 'removeIpcStatus');
+      expect(removeIpc?.configured).toBe(true);
     });
 
     it('main logind.conf wins when drop-in sets it back to yes', async () => {
@@ -260,8 +273,8 @@ describe('OsConfigTreeProvider', () => {
         return 'RemoveIPC=no\n' as any;
       });
       const nodes = await getRootNodes(provider);
-      const removeIpc = nodes.find((n: any) => n.kind === 'removeIpcStatus') as any;
-      expect(removeIpc.configured).toBe(false);
+      const removeIpc = findByKind(nodes, 'removeIpcStatus');
+      expect(removeIpc?.configured).toBe(false);
     });
 
     it('returns cached nodes on second call without re-running exec', async () => {
@@ -269,8 +282,8 @@ describe('OsConfigTreeProvider', () => {
       mockExec(MACOS_SYSCTL_4GB);
       await getRootNodes(provider);
       mockExec(''); // change mock — cache should prevent this from being used
-      const nodes = provider.getChildren() as any[];
-      expect((nodes[0] as any).configured).toBe(true);
+      const nodes = provider.getChildren() as OsConfigNode[];
+      expect(findByKind(nodes, 'sharedMemoryStatus')?.configured).toBe(true);
     });
   });
 
@@ -572,8 +585,8 @@ describe('OsConfigTreeProvider', () => {
       mockExec(LINUX_SYSCTL_1GB);
       const nodes = await getRootNodes(provider);
       expect(vi.mocked(exec).mock.calls[0][0]).toBe('wsl.exe -e sysctl kernel.shmmax kernel.shmall');
-      const shm = nodes.find((n: any) => n.kind === 'sharedMemoryStatus') as any;
-      expect(shm.configured).toBe(true);
+      const shm = findByKind(nodes, 'sharedMemoryStatus');
+      expect(shm?.configured).toBe(true);
     });
 
     it('removeIpc on WSL: routes logind.conf reads through wslExecSync', async () => {
@@ -587,8 +600,8 @@ describe('OsConfigTreeProvider', () => {
         return '';
       });
       const nodes = await getRootNodes(provider);
-      const removeIpc = nodes.find((n: any) => n.kind === 'removeIpcStatus') as any;
-      expect(removeIpc.configured).toBe(true);
+      const removeIpc = findByKind(nodes, 'removeIpcStatus');
+      expect(removeIpc?.configured).toBe(true);
       // fs was NOT consulted for logind config on the WSL path (other
       // unrelated reads — e.g. Windows services file — are allowed).
       const logindReads = vi.mocked(fs.readFileSync).mock.calls
@@ -608,8 +621,8 @@ describe('OsConfigTreeProvider', () => {
         return '';
       });
       const nodes = await getRootNodes(provider);
-      const removeIpc = nodes.find((n: any) => n.kind === 'removeIpcStatus') as any;
-      expect(removeIpc.configured).toBe(true);
+      const removeIpc = findByKind(nodes, 'removeIpcStatus');
+      expect(removeIpc?.configured).toBe(true);
     });
 
     it('not-configured shared memory on WSL offers the Linux setup script', async () => {
@@ -777,7 +790,7 @@ describe('OsConfigTreeProvider', () => {
       const children = await provider.getChildren({
         kind: 'wslNetworkingStatus', info: natCapableInfo as any,
       });
-      expect(children.map((c: any) => c.command)).toEqual([
+      expect(actionCommands(children)).toEqual([
         'gemstone.enableMirroredNetworking',
         'gemstone.writeWslHostsEntry',
       ]);
@@ -787,7 +800,7 @@ describe('OsConfigTreeProvider', () => {
       const children = await provider.getChildren({
         kind: 'wslNetworkingStatus', info: natLegacyInfo as any,
       });
-      expect(children.map((c: any) => c.command)).toEqual([
+      expect(actionCommands(children)).toEqual([
         'gemstone.updateWslCore',
         'gemstone.writeWslHostsEntry',
       ]);
@@ -819,9 +832,9 @@ describe('OsConfigTreeProvider', () => {
     it('_loadConfig pushes a wslNetworkingStatus node with the refreshed info', async () => {
       vi.mocked(wslBridge.refreshWslNetworkInfo).mockResolvedValue(natCapableInfo as any);
       const nodes = await getRootNodes(provider);
-      const netNode = nodes.find((n: any) => n.kind === 'wslNetworkingStatus') as any;
+      const netNode = findByKind(nodes, 'wslNetworkingStatus');
       expect(netNode).toBeDefined();
-      expect(netNode.info).toEqual(natCapableInfo);
+      expect(netNode?.info).toEqual(natCapableInfo);
     });
 
     it('registers enableMirroredNetworking and updateWslCore commands', () => {
@@ -925,7 +938,7 @@ describe('OsConfigTreeProvider', () => {
           wslCoreVersion: '2.0.9.0', supportsMirrored: true,
         } as any,
       });
-      expect(children.map((c: any) => c.command)).toEqual([
+      expect(actionCommands(children)).toEqual([
         'gemstone.enableMirroredNetworking',
         'gemstone.writeWslHostsEntry',
       ]);
@@ -939,7 +952,7 @@ describe('OsConfigTreeProvider', () => {
           wslCoreVersion: '1.2.5.0', supportsMirrored: false,
         } as any,
       });
-      expect(children.map((c: any) => c.command)).toEqual([
+      expect(actionCommands(children)).toEqual([
         'gemstone.updateWslCore',
         'gemstone.writeWslHostsEntry',
       ]);
