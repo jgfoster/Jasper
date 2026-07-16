@@ -59,6 +59,17 @@ Tests run in a random order on every run. The seed is printed at the top of the 
 
 Before pushing changes, ensure `npm run lint && npm run compile && npm test` passes locally.
 
+### Optional local pre-commit hook
+
+If you'd like `eslint` to run on staged files automatically before each commit, install the [lefthook](https://github.com/evilmartians/lefthook) git hook:
+
+```sh
+npm run hooks:install    # opt in
+npm run hooks:uninstall  # opt out
+```
+
+This is entirely optional and not run by `npm install` — CI's `lint` job is the real gate regardless.
+
 ## Running integration tests against a custom GemStone instance
 
 If you want to run the integration tests against your own GemStone instance instead of the one provisioned by `test:server:start`, you can override the connection details via environment files. Vite loads these automatically when running tests; later files take precedence over earlier ones:
