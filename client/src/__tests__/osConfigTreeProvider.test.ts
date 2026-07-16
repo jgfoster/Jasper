@@ -266,7 +266,7 @@ describe('OsConfigTreeProvider', () => {
       setPlatform('linux');
       mockExec(LINUX_SYSCTL_4GB);
       vi.mocked(fs.existsSync).mockReturnValue(true);
-      vi.mocked(fs.readdirSync).mockReturnValue(['gemstone.conf'] as any);
+      vi.mocked(fs.readdirSync).mockReturnValue(['gemstone.conf'] as unknown as ReturnType<typeof fs.readdirSync>);
       vi.mocked(fs.readFileSync).mockImplementation((filepath: fs.PathOrFileDescriptor) => {
         if (String(filepath).endsWith('logind.conf') && !String(filepath).includes('.d/')) {
           return 'RemoveIPC=yes\n'; // main file says yes
@@ -282,7 +282,7 @@ describe('OsConfigTreeProvider', () => {
       setPlatform('linux');
       mockExec(LINUX_SYSCTL_4GB);
       vi.mocked(fs.existsSync).mockReturnValue(true);
-      vi.mocked(fs.readdirSync).mockReturnValue(['zz-override.conf'] as any);
+      vi.mocked(fs.readdirSync).mockReturnValue(['zz-override.conf'] as unknown as ReturnType<typeof fs.readdirSync>);
       vi.mocked(fs.readFileSync).mockImplementation((filepath: fs.PathOrFileDescriptor) => {
         if (String(filepath).includes('logind.conf.d')) {
           return 'RemoveIPC=yes\n';
@@ -1045,7 +1045,7 @@ describe('OsConfigTreeProvider', () => {
       vi.mocked(wslBridge.updateWslConfigMirrored).mockImplementation(
         () => '[wsl2]\nnetworkingMode=mirrored\n',
       );
-      vi.mocked(vscode.window.showInformationMessage).mockResolvedValue('Restart WSL now' as any);
+      vi.mocked(vscode.window.showInformationMessage).mockResolvedValue('Restart WSL now' as unknown as vscode.MessageItem);
       const mockTerminal = fakeTerminal();
       vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
 

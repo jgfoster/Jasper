@@ -9,6 +9,7 @@ vi.mock('../wslBridge', () => ({
 }));
 
 import { ProcessItem, ProcessTreeProvider } from '../processTreeProvider';
+import { ProcessManager } from '../processManager';
 import { GemStoneProcess } from '../sysadminTypes';
 import * as wslBridge from '../wslBridge';
 
@@ -118,7 +119,7 @@ describe('ProcessTreeProvider.getChildren', () => {
     return {
       getProcesses: vi.fn(() => processes),
       refreshProcesses: vi.fn(),
-    } as any;
+    } as unknown as ProcessManager;
   }
 
   beforeEach(() => {
@@ -151,16 +152,19 @@ describe('ProcessTreeProvider.getChildren', () => {
   it('on Windows+WSL with cold cache, kicks off a refresh and fires re-render when it lands', async () => {
     vi.mocked(wslBridge.needsWsl).mockReturnValue(true);
     vi.mocked(wslBridge.getWslNetworkInfoCached).mockReturnValue(undefined);
-    let resolveRefresh!: (v: any) => void;
+    let resolveRefresh!: (v: wslBridge.WslNetworkInfo) => void;
     vi.mocked(wslBridge.refreshWslNetworkInfo).mockReturnValue(
-      new Promise((r) => { resolveRefresh = r; }) as any,
+      new Promise<wslBridge.WslNetworkInfo>((r) => { resolveRefresh = r; }),
     );
     const provider = new ProcessTreeProvider(makeManager([netldiProcess()]));
     const listener = vi.fn();
     provider.onDidChangeTreeData(listener);
     provider.getChildren();
     expect(wslBridge.refreshWslNetworkInfo).toHaveBeenCalledOnce();
-    resolveRefresh({ mirrored: true, ip: undefined, netldiHost: 'localhost' });
+    resolveRefresh({
+      mirrored: true, ip: undefined, netldiHost: 'localhost',
+      wslCoreVersion: '2.0.9.0', supportsMirrored: true,
+    });
     // Flush the microtask chain: refresh → finally → then → event fire
     await new Promise((r) => setTimeout(r, 0));
     expect(listener).toHaveBeenCalled();
@@ -183,7 +187,7 @@ describe('ProcessTreeProvider.getChildren', () => {
   it('does not kick off a second refresh while one is in flight', () => {
     vi.mocked(wslBridge.needsWsl).mockReturnValue(true);
     vi.mocked(wslBridge.getWslNetworkInfoCached).mockReturnValue(undefined);
-    vi.mocked(wslBridge.refreshWslNetworkInfo).mockReturnValue(new Promise(() => { /* never resolves */ }) as any);
+    vi.mocked(wslBridge.refreshWslNetworkInfo).mockReturnValue(new Promise<wslBridge.WslNetworkInfo>(() => { /* never resolves */ }));
     const provider = new ProcessTreeProvider(makeManager([netldiProcess()]));
     provider.getChildren();
     provider.getChildren();

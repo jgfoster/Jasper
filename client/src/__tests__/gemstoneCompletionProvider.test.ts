@@ -9,6 +9,7 @@ vi.mock('../browserQueries', () => ({
 }));
 
 import { Uri, CompletionItemKind } from '../__mocks__/vscode';
+import type * as vscode from 'vscode';
 import { GemStoneCompletionProvider } from '../gemstoneCompletionProvider';
 import { SessionManager } from '../sessionManager';
 import { getAllClassNames, getInstVarNames, getAllSelectors } from '../browserQueries';
@@ -33,7 +34,7 @@ function makeDocument(uri: string) {
     uri: Uri.parse(uri),
     getText: vi.fn(() => ''),
     getWordRangeAtPosition: vi.fn(() => undefined),
-  } as any;
+  } as unknown as vscode.TextDocument;
 }
 
 describe('GemStoneCompletionProvider', () => {

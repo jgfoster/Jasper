@@ -1,10 +1,16 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 
 vi.mock('vscode', () => import('../__mocks__/vscode'));
 
 import * as vscode from 'vscode';
 import { runLogicalRestore, LogicalRestoreDeps, RestoreSession } from '../restoreManager';
 import { RESTORE_NO_LOGOUT_MARKER } from '../queries/restore';
+
+// `showQuickPick` is overloaded; production passes a `string[]`, but `vi.mocked`
+// types the mock via the (last) `QuickPickItem` overload. Narrow to the string
+// overload once so impls/return values type-check without `any`.
+const mockShowQuickPick = vi.mocked(vscode.window.showQuickPick) as unknown as
+  Mock<(items: readonly string[]) => Promise<string | undefined>>;
 
 // A fake restore session. By default the restoreFromBackup: call raises the 4046
 // auto-logout (the full-logging success path); commitRestore answers 'OK'.
@@ -46,12 +52,12 @@ describe('runLogicalRestore', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Default: user picks the fresh-extent option, confirms the destructive modal.
-    vi.mocked(vscode.window.showQuickPick).mockImplementation(async (items: any) => items[0]);
-    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Restore' as any);
+    mockShowQuickPick.mockImplementation(async (items) => items[0]);
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Restore' as unknown as vscode.MessageItem);
     vi.mocked(vscode.window.showOpenDialog).mockResolvedValue([
       vscode.Uri.file('/root/db-1/backups/backup.dbf'),
-    ] as any);
-    vi.mocked(vscode.window.showInformationMessage).mockResolvedValue(undefined as any);
+    ]);
+    vi.mocked(vscode.window.showInformationMessage).mockResolvedValue(undefined);
   });
 
   it('runs the stop, safety-copy, swap, start, restore, and commit steps in order for a fresh extent', async () => {
@@ -93,7 +99,7 @@ describe('runLogicalRestore', () => {
 
   it('restores onto the current extent without a fresh extent when that option is chosen', async () => {
     const { deps } = makeDeps();
-    vi.mocked(vscode.window.showQuickPick).mockImplementation(async (items: any) => items[1]);
+    mockShowQuickPick.mockImplementation(async (items) => items[1]);
 
     const ok = await runLogicalRestore(deps);
 
@@ -164,7 +170,7 @@ describe('runLogicalRestore', () => {
 
   it('is cancelled without teardown when the fresh-extent choice is dismissed', async () => {
     const { deps } = makeDeps();
-    vi.mocked(vscode.window.showQuickPick).mockResolvedValue(undefined as any);
+    mockShowQuickPick.mockResolvedValue(undefined);
 
     const ok = await runLogicalRestore(deps);
 
@@ -174,7 +180,7 @@ describe('runLogicalRestore', () => {
 
   it('does not touch the stone when the destructive confirmation is declined', async () => {
     const { deps } = makeDeps();
-    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as any);
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined);
 
     const ok = await runLogicalRestore(deps);
 
