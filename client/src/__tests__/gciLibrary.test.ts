@@ -485,7 +485,7 @@ describe('GciLibrary', () => {
 
                     | encodeAsUTF8LiarClass |
                     encodeAsUTF8LiarClass := Object subclass: #EncodeAsUTF8Liar instVarNames: {} inDictionary: UserGlobals.
-                    encodeAsUTF8LiarClass compileMethod: 'encodeAsUTF8 ^ self'.
+                    encodeAsUTF8LiarClass compileMethod: 'encodeAsUTF8 "returns self by default"'.
                     encodeAsUTF8LiarClass new
                 `),
                 'a ArgumentTypeError occurred (error 2103), The object anEncodeAsUTF8Liar is not implemented as a byte object.'
@@ -506,6 +506,13 @@ describe('GciLibrary', () => {
             expectPureExportSetToStayUnchanged(() =>{
                 gciLibrary.executeAndFetchString(session, `'a'`);
             });
+        });
+
+        it('fails when code contains a non-local return', () => {
+            expectToThrowGciLibraryError(
+                () => gciLibrary.executeAndFetchString(session, `^ 'a'`),
+                GciLibrary.NON_LOCAL_RETURN_NOT_ALLOWED_MESSAGE
+            )
         });
 
     })

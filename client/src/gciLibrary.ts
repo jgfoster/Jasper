@@ -2534,6 +2534,9 @@ export class GciLibrary {
   // Paged string fetching
   // ---------------------------------------------------------------------
 
+  /** The error {@link executeAndFetchString} throws when `code` contains a non-local return (`^`). */
+  public static readonly NON_LOCAL_RETURN_NOT_ALLOWED_MESSAGE = `Code with non-local returns ('^') is not allowed. Use a plain expression instead, no '^' needed.`;
+
   /**
    * Evaluates `code` and returns its result as a JS string, decoded as UTF-8.
    *
@@ -2550,13 +2553,19 @@ export class GciLibrary {
    * `GciTsFetchUtf8Bytes` itself isn't used for the fetch either.
    *
    * @param session - The GemStone session to operate in.
-   * @param code - Smalltalk source to evaluate.
+   * @param code - Smalltalk source to evaluate. Must not contain a non-local
+   *   return (`^`).
    * @returns The evaluated result, decoded as a UTF-8 JS string.
-   * @throws {GciLibraryError} If the evaluated code signals an error, if the
-   *   result cannot be sent `encodeAsUTF8`, or if the underlying GCI calls
-   *   fail.
+   * @throws {GciLibraryError} If `code` contains a non-local return (`^`), if
+   *   the evaluated code signals an error, if the result cannot be sent
+   *   `encodeAsUTF8`, or if the underlying GCI calls fail.
    */
   public executeAndFetchString(session: unknown, code: string) : string {
+    // A non-local return here would return before the `encodeAsUTF8` send
+    // below ever runs, silently skipping the encoding step `fetchUtf8String`
+    // relies on to receive a `Utf8` byte object.
+    this.denyIncludesANonLocalReturn(code);
+    
     return this.executeAndRelease(
         session,
         `[ ${code} ] value encodeAsUTF8`,
@@ -2608,6 +2617,13 @@ export class GciLibrary {
     }
 
     return Buffer.concat(chunks).toString('utf8');
+  }
+  
+  /** Throws {@link GciLibraryError} if `codeToAnalyze` contains a non-local return (`^`). */
+  private denyIncludesANonLocalReturn(codeToAnalyze: string) {
+    if (codeToAnalyze.includes('^')) {
+      throw GciLibraryError.withMessage(GciLibrary.NON_LOCAL_RETURN_NOT_ALLOWED_MESSAGE);
+    }
   }
 
 }
