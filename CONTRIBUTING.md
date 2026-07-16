@@ -49,6 +49,7 @@ See [docs/how-to/raising-the-version-floor.md](docs/how-to/raising-the-version-f
 
 ## Build and test
 
+- Lint: `npm run lint`
 - Build: `npm run compile`
 - Watch: `npm run watch`
 - Test: `npm test`
@@ -56,7 +57,7 @@ See [docs/how-to/raising-the-version-floor.md](docs/how-to/raising-the-version-f
 
 Tests run in a random order on every run. The seed is printed at the top of the output — to reproduce a specific run, pass `--sequence.seed=<seed>` to that workspace's vitest directly (e.g. `cd client && npx vitest run --sequence.seed=<seed>`).
 
-Before pushing changes, ensure `npm run compile && npm test` passes locally.
+Before pushing changes, ensure `npm run lint && npm run compile && npm test` passes locally.
 
 ## Running integration tests against a custom GemStone instance
 
