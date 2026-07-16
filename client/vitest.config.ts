@@ -50,9 +50,10 @@ class SeededSequencer extends BaseSequencer {
 // double-count):
 //   - 'default' : the default suite (unit tests + the automatic GCI test that
 //              uses useIntegrationTest). This is what `npm test` runs.
-//   - 'gci'  : the on-demand GCI suite (src/__tests__/gci/**). It shows up in the
-//              panel and can be run interactively, but is deliberately kept OUT
-//              of `npm test` (the "test" script pins --project default). Run it with
+//   - 'gci'  : the on-demand GCI suite (src/__tests__/gci/** and
+//              src/__tests__/repro/**). It shows up in the panel and can be
+//              run interactively, but is deliberately kept OUT of `npm test`
+//              (the "test" script pins --project default). Run it with
 //              `npm run test:gci` (which pins --project gci).
 export default defineConfig({
   test: {
@@ -70,7 +71,7 @@ export default defineConfig({
         test: {
           name: 'default',
           include: ['src/**/__tests__/**/*.test.ts'],
-          exclude: ['src/__tests__/gci/**'],
+          exclude: ['src/__tests__/gci/**', 'src/__tests__/repro/**'],
           setupFiles: [
             'src/__tests__/vitest.windowSetup.cjs',
             'src/__tests__/vitest.uriSetup.ts',
@@ -85,7 +86,7 @@ export default defineConfig({
       {
         test: {
           name: 'gci',
-          include: ['src/__tests__/gci/**/*.test.ts'],
+          include: ['src/__tests__/gci/**/*.test.ts', 'src/__tests__/repro/**/*.test.ts'],
           maxConcurrency: 5,
           fileParallelism: false,
           sequence: {
