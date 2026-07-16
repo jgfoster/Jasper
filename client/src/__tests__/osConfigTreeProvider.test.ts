@@ -21,6 +21,7 @@ import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { OsConfigTreeProvider, type OsConfigNode } from '../sharedMemoryTreeProvider';
 import * as wslBridge from '../wslBridge';
+import { type WslNetworkInfo } from '../wslBridge';
 
 // ── Helpers ────────────────────────────────────────────────
 
@@ -33,7 +34,7 @@ const LINUX_SYSCTL_1GB = 'kernel.shmmax = 1073741824\nkernel.shmall = 262144\n';
 const MACOS_SYSCTL_4GB = `kern.sysv.shmmax: ${LINUX_SHMMAX_4GB}\nkern.sysv.shmall: ${LINUX_SHMALL_4GB}\n`;
 const MACOS_SYSCTL_SMALL = 'kern.sysv.shmmax: 4194304\nkern.sysv.shmall: 1024\n'; // 4 MB / 4 MB
 
-function setPlatform(platform: string) {
+function setPlatform(platform: NodeJS.Platform) {
   Object.defineProperty(process, 'platform', { value: platform, configurable: true });
 }
 
@@ -45,10 +46,10 @@ function makeContext() {
 }
 
 /** Retrieve the callback registered for a command by name. */
-function getCommand(commandId: string): (() => void) | undefined {
+function getCommand(commandId: string): (() => unknown) | undefined {
   const calls = vi.mocked(vscode.commands.registerCommand).mock.calls;
   const call = calls.find(([id]) => id === commandId);
-  return call?.[1] as (() => void) | undefined;
+  return call?.[1] as (() => unknown) | undefined;
 }
 
 /** Make exec call its callback immediately with the given stdout output. */
@@ -94,11 +95,20 @@ function actionCommands(nodes: OsConfigNode[]): (string | undefined)[] {
   return nodes.map((n) => (n.kind === 'action' ? n.command : undefined));
 }
 
+/** The codicon id of a tree item's icon — every node in this provider uses a ThemeIcon. */
+function themeIconId(item: vscode.TreeItem): string {
+  const icon = item.iconPath;
+  if (!(icon instanceof vscode.ThemeIcon)) {
+    throw new Error(`expected a ThemeIcon, got ${String(icon)}`);
+  }
+  return icon.id;
+}
+
 // ── Suite ──────────────────────────────────────────────────
 
 describe('OsConfigTreeProvider', () => {
   let provider: OsConfigTreeProvider;
-  let originalPlatform: string;
+  let originalPlatform: NodeJS.Platform;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -332,7 +342,7 @@ describe('OsConfigTreeProvider', () => {
       it('shows a spinning loading icon', () => {
         const item = provider.getTreeItem({ kind: 'loading' });
         expect(item.label).toContain('Checking');
-        expect((item.iconPath as any).id).toBe('loading~spin');
+        expect(themeIconId(item)).toBe('loading~spin');
         expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.None);
       });
     });
@@ -343,14 +353,14 @@ describe('OsConfigTreeProvider', () => {
         expect(item.label).toContain('4');
         expect(item.label).toContain('configured');
         expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.None);
-        expect((item.iconPath as any).id).toBe('check');
+        expect(themeIconId(item)).toBe('check');
       });
 
       it('not configured: warning icon, Expanded state, tooltip set', () => {
         const item = provider.getTreeItem({ kind: 'sharedMemoryStatus', configured: false, gbLabel: '1' });
         expect(item.label).toContain('not configured');
         expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Expanded);
-        expect((item.iconPath as any).id).toBe('warning');
+        expect(themeIconId(item)).toBe('warning');
         expect(item.tooltip).toBeTruthy();
       });
 
@@ -365,14 +375,14 @@ describe('OsConfigTreeProvider', () => {
         const item = provider.getTreeItem({ kind: 'removeIpcStatus', configured: true });
         expect(item.label).toContain('configured');
         expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.None);
-        expect((item.iconPath as any).id).toBe('check');
+        expect(themeIconId(item)).toBe('check');
         expect(item.tooltip).toBeUndefined();
       });
 
       it('not configured: warning icon, Expanded state, tooltip explains risk', () => {
         const item = provider.getTreeItem({ kind: 'removeIpcStatus', configured: false });
         expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Expanded);
-        expect((item.iconPath as any).id).toBe('warning');
+        expect(themeIconId(item)).toBe('warning');
         expect(String(item.tooltip)).toMatch(/shared memory|IPC/i);
       });
     });
@@ -380,34 +390,34 @@ describe('OsConfigTreeProvider', () => {
     describe('action nodes', () => {
       it('runSetSharedMemory: terminal icon', () => {
         const item = provider.getTreeItem({ kind: 'action', text: 'Run', command: 'gemstone.runSetSharedMemory' });
-        expect((item.iconPath as any).id).toBe('terminal');
+        expect(themeIconId(item)).toBe('terminal');
       });
 
       it('runSetSharedMemoryLinux: terminal icon, mentions no restart in tooltip', () => {
         const item = provider.getTreeItem({ kind: 'action', text: 'Run', command: 'gemstone.runSetSharedMemoryLinux' });
-        expect((item.iconPath as any).id).toBe('terminal');
+        expect(themeIconId(item)).toBe('terminal');
         expect(String(item.tooltip)).toMatch(/no restart/i);
       });
 
       it('runSetSharedMemory: terminal icon, mentions no restart in tooltip', () => {
         const item = provider.getTreeItem({ kind: 'action', text: 'Run', command: 'gemstone.runSetSharedMemory' });
-        expect((item.iconPath as any).id).toBe('terminal');
+        expect(themeIconId(item)).toBe('terminal');
         expect(String(item.tooltip)).toMatch(/no restart/i);
       });
 
       it('runSetRemoveIPC: terminal icon', () => {
         const item = provider.getTreeItem({ kind: 'action', text: 'Run', command: 'gemstone.runSetRemoveIPC' });
-        expect((item.iconPath as any).id).toBe('terminal');
+        expect(themeIconId(item)).toBe('terminal');
       });
 
       it('sharedMemoryInfo: info icon', () => {
         const item = provider.getTreeItem({ kind: 'action', text: 'Info', command: 'gemstone.sharedMemoryInfo' });
-        expect((item.iconPath as any).id).toBe('info');
+        expect(themeIconId(item)).toBe('info');
       });
 
       it('removeIpcInfo: info icon, tooltip mentions systemd-logind', () => {
         const item = provider.getTreeItem({ kind: 'action', text: 'Info', command: 'gemstone.removeIpcInfo' });
-        expect((item.iconPath as any).id).toBe('info');
+        expect(themeIconId(item)).toBe('info');
         expect(String(item.tooltip)).toMatch(/systemd-logind/);
       });
 
@@ -605,7 +615,7 @@ describe('OsConfigTreeProvider', () => {
       // fs was NOT consulted for logind config on the WSL path (other
       // unrelated reads — e.g. Windows services file — are allowed).
       const logindReads = vi.mocked(fs.readFileSync).mock.calls
-        .filter((c: any[]) => /logind\.conf/.test(String(c[0])));
+        .filter((c) => /logind\.conf/.test(String(c[0])));
       expect(logindReads).toHaveLength(0);
     });
 
@@ -638,7 +648,7 @@ describe('OsConfigTreeProvider', () => {
 
       getCommand('gemstone.runSetSharedMemoryLinux')?.();
 
-      const createArgs = vi.mocked(vscode.window.createTerminal).mock.calls[0][0] as any;
+      const createArgs = vi.mocked(vscode.window.createTerminal).mock.calls[0][0] as vscode.TerminalOptions;
       expect(createArgs.shellPath).toBe('wsl.exe');
       expect(mockTerminal.sendText).toHaveBeenCalledWith(
         expect.stringContaining('/mnt/c/ext/resources/setSharedMemoryLinux.sh'),
@@ -652,7 +662,7 @@ describe('OsConfigTreeProvider', () => {
 
       getCommand('gemstone.runSetRemoveIPC')?.();
 
-      const createArgs = vi.mocked(vscode.window.createTerminal).mock.calls[0][0] as any;
+      const createArgs = vi.mocked(vscode.window.createTerminal).mock.calls[0][0] as vscode.TerminalOptions;
       expect(createArgs.shellPath).toBe('wsl.exe');
       expect(mockTerminal.sendText).toHaveBeenCalledWith(
         expect.stringContaining('/mnt/c/ext/resources/setRemoveIPC.sh'),
@@ -663,7 +673,7 @@ describe('OsConfigTreeProvider', () => {
       const item = provider.getTreeItem({ kind: 'wslStatus', distro: 'Ubuntu', wslVersion: 2 });
       expect(item.label).toContain('WSL 2');
       expect(item.label).toContain('Ubuntu');
-      expect((item.iconPath as any).id).toBe('check');
+      expect(themeIconId(item)).toBe('check');
       expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.None);
       expect(item.tooltip).toBeUndefined();
     });
@@ -672,14 +682,14 @@ describe('OsConfigTreeProvider', () => {
       const item = provider.getTreeItem({ kind: 'wslStatus', distro: 'Ubuntu', wslVersion: 1 });
       expect(item.label).toContain('WSL 1');
       expect(item.label).toContain('upgrade required');
-      expect((item.iconPath as any).id).toBe('warning');
+      expect(themeIconId(item)).toBe('warning');
       expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Expanded);
       expect(String(item.tooltip)).toContain('wsl --set-version');
     });
 
     it('wslStatus unknown version: warning icon', () => {
       const item = provider.getTreeItem({ kind: 'wslStatus', distro: 'Debian', wslVersion: undefined });
-      expect((item.iconPath as any).id).toBe('warning');
+      expect(themeIconId(item)).toBe('warning');
       expect(String(item.tooltip)).toContain('Debian');
     });
 
@@ -697,7 +707,7 @@ describe('OsConfigTreeProvider', () => {
 
     it('upgradeWsl2 action: terminal icon', () => {
       const item = provider.getTreeItem({ kind: 'action', text: 'Upgrade', command: 'gemstone.upgradeWsl2' });
-      expect((item.iconPath as any).id).toBe('terminal');
+      expect(themeIconId(item)).toBe('terminal');
     });
 
     it('registers gemstone.upgradeWsl2 command', () => {
@@ -740,15 +750,15 @@ describe('OsConfigTreeProvider', () => {
   // ── wslNetworkingStatus ───────────────────────────────────
 
   describe('wslNetworkingStatus', () => {
-    const mirroredInfo = {
+    const mirroredInfo: WslNetworkInfo = {
       mirrored: true, ip: undefined, netldiHost: 'localhost',
       wslCoreVersion: '2.0.9.0', supportsMirrored: true,
     };
-    const natCapableInfo = {
+    const natCapableInfo: WslNetworkInfo = {
       mirrored: false, ip: '172.29.240.2', netldiHost: '172.29.240.2',
       wslCoreVersion: '2.0.9.0', supportsMirrored: true,
     };
-    const natLegacyInfo = {
+    const natLegacyInfo: WslNetworkInfo = {
       mirrored: false, ip: '10.0.0.5', netldiHost: '10.0.0.5',
       wslCoreVersion: '1.2.5.0', supportsMirrored: false,
     };
@@ -763,32 +773,32 @@ describe('OsConfigTreeProvider', () => {
     });
 
     it('mirrored → check icon, None collapsible state, informative tooltip', () => {
-      const item = provider.getTreeItem({ kind: 'wslNetworkingStatus', info: mirroredInfo as any });
+      const item = provider.getTreeItem({ kind: 'wslNetworkingStatus', info: mirroredInfo });
       expect(String(item.label)).toContain('mirrored');
       expect(String(item.label)).toContain('localhost');
-      expect((item.iconPath as any).id).toBe('check');
+      expect(themeIconId(item)).toBe('check');
       expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.None);
       expect(String(item.tooltip)).toMatch(/localhost/);
     });
 
     it('NAT on WSL 2.0+ → warning icon, Expanded, tooltip mentions the IP', () => {
-      const item = provider.getTreeItem({ kind: 'wslNetworkingStatus', info: natCapableInfo as any });
+      const item = provider.getTreeItem({ kind: 'wslNetworkingStatus', info: natCapableInfo });
       expect(String(item.label)).toContain('NAT');
-      expect((item.iconPath as any).id).toBe('warning');
+      expect(themeIconId(item)).toBe('warning');
       expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Expanded);
       expect(String(item.tooltip)).toContain('172.29.240.2');
     });
 
     it('NAT on legacy WSL → warning icon, tooltip mentions wsl --update', () => {
-      const item = provider.getTreeItem({ kind: 'wslNetworkingStatus', info: natLegacyInfo as any });
+      const item = provider.getTreeItem({ kind: 'wslNetworkingStatus', info: natLegacyInfo });
       expect(String(item.label)).toContain('WSL 2.0+');
-      expect((item.iconPath as any).id).toBe('warning');
+      expect(themeIconId(item)).toBe('warning');
       expect(String(item.tooltip)).toMatch(/wsl --update/);
     });
 
     it('NAT on WSL 2.0+ offers Enable-Mirrored (first) plus the hosts-file fallback', async () => {
       const children = await provider.getChildren({
-        kind: 'wslNetworkingStatus', info: natCapableInfo as any,
+        kind: 'wslNetworkingStatus', info: natCapableInfo,
       });
       expect(actionCommands(children)).toEqual([
         'gemstone.enableMirroredNetworking',
@@ -798,7 +808,7 @@ describe('OsConfigTreeProvider', () => {
 
     it('NAT on legacy WSL offers wsl --update (first) plus the hosts-file fallback', async () => {
       const children = await provider.getChildren({
-        kind: 'wslNetworkingStatus', info: natLegacyInfo as any,
+        kind: 'wslNetworkingStatus', info: natLegacyInfo,
       });
       expect(actionCommands(children)).toEqual([
         'gemstone.updateWslCore',
@@ -808,7 +818,7 @@ describe('OsConfigTreeProvider', () => {
 
     it('mirrored state has no children', async () => {
       const children = await provider.getChildren({
-        kind: 'wslNetworkingStatus', info: mirroredInfo as any,
+        kind: 'wslNetworkingStatus', info: mirroredInfo,
       });
       expect(children).toHaveLength(0);
     });
@@ -817,7 +827,7 @@ describe('OsConfigTreeProvider', () => {
       const item = provider.getTreeItem({
         kind: 'action', text: 'Enable', command: 'gemstone.enableMirroredNetworking',
       });
-      expect((item.iconPath as any).id).toBe('edit');
+      expect(themeIconId(item)).toBe('edit');
       expect(String(item.tooltip)).toMatch(/\.wslconfig/);
     });
 
@@ -825,12 +835,12 @@ describe('OsConfigTreeProvider', () => {
       const item = provider.getTreeItem({
         kind: 'action', text: 'Update', command: 'gemstone.updateWslCore',
       });
-      expect((item.iconPath as any).id).toBe('terminal');
+      expect(themeIconId(item)).toBe('terminal');
       expect(String(item.tooltip)).toMatch(/wsl --update/);
     });
 
     it('_loadConfig pushes a wslNetworkingStatus node with the refreshed info', async () => {
-      vi.mocked(wslBridge.refreshWslNetworkInfo).mockResolvedValue(natCapableInfo as any);
+      vi.mocked(wslBridge.refreshWslNetworkInfo).mockResolvedValue(natCapableInfo);
       const nodes = await getRootNodes(provider);
       const netNode = findByKind(nodes, 'wslNetworkingStatus');
       expect(netNode).toBeDefined();
@@ -863,7 +873,7 @@ describe('OsConfigTreeProvider', () => {
       });
       expect(String(item.label)).toMatch(/configured/);
       expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.None);
-      expect((item.iconPath as any).id).toBe('check');
+      expect(themeIconId(item)).toBe('check');
     });
 
     it('neither side configured → warning icon, Expanded state', () => {
@@ -871,7 +881,7 @@ describe('OsConfigTreeProvider', () => {
         kind: 'wslServicesStatus', windowsHas: false, wslHas: false,
       });
       expect(String(item.label)).toMatch(/Windows and WSL/);
-      expect((item.iconPath as any).id).toBe('warning');
+      expect(themeIconId(item)).toBe('warning');
       expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Expanded);
     });
 
@@ -924,8 +934,8 @@ describe('OsConfigTreeProvider', () => {
       const wslItem = provider.getTreeItem({
         kind: 'action', text: 'WSL', command: 'gemstone.writeServicesWsl',
       });
-      expect((winItem.iconPath as any).id).toBe('terminal');
-      expect((wslItem.iconPath as any).id).toBe('terminal');
+      expect(themeIconId(winItem)).toBe('terminal');
+      expect(themeIconId(wslItem)).toBe('terminal');
       expect(String(winItem.tooltip)).toMatch(/gs64ldi/);
       expect(String(wslItem.tooltip)).toMatch(/\/etc\/services/);
     });
@@ -936,7 +946,7 @@ describe('OsConfigTreeProvider', () => {
         info: {
           mirrored: false, ip: '172.29.240.2', netldiHost: '172.29.240.2',
           wslCoreVersion: '2.0.9.0', supportsMirrored: true,
-        } as any,
+        },
       });
       expect(actionCommands(children)).toEqual([
         'gemstone.enableMirroredNetworking',
@@ -950,7 +960,7 @@ describe('OsConfigTreeProvider', () => {
         info: {
           mirrored: false, ip: '10.0.0.5', netldiHost: '10.0.0.5',
           wslCoreVersion: '1.2.5.0', supportsMirrored: false,
-        } as any,
+        },
       });
       expect(actionCommands(children)).toEqual([
         'gemstone.updateWslCore',
@@ -973,7 +983,7 @@ describe('OsConfigTreeProvider', () => {
 
       getCommand('gemstone.writeWslHostsEntry')?.();
 
-      const args = vi.mocked(vscode.window.createTerminal).mock.calls[0][0] as any;
+      const args = vi.mocked(vscode.window.createTerminal).mock.calls[0][0] as vscode.TerminalOptions;
       expect(args.shellPath).toBe('powershell.exe');
       expect(mockTerminal.sendText).toHaveBeenCalledWith(
         expect.stringContaining('setWslHostsEntry.ps1'),
@@ -987,7 +997,7 @@ describe('OsConfigTreeProvider', () => {
 
       getCommand('gemstone.writeServicesWsl')?.();
 
-      const args = vi.mocked(vscode.window.createTerminal).mock.calls[0][0] as any;
+      const args = vi.mocked(vscode.window.createTerminal).mock.calls[0][0] as vscode.TerminalOptions;
       expect(args.shellPath).toBe('wsl.exe');
       expect(mockTerminal.sendText).toHaveBeenCalledWith(
         expect.stringContaining('/mnt/c/ext/resources/setServicesLinux.sh'),
