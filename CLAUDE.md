@@ -44,4 +44,6 @@ npm run test:acceptance:report  # open the HTML report / flip through per-step s
 
 Before considering something done, run `npm run lint && npm run compile && npm test` — **attempt them directly; a test stone is usually already running.** `npm test` includes an integration test that logs into a live stone; if none is reachable it **fails with a connection error rather than skipping** — that failure is the signal (not a reason to avoid running). Only then start one with `npm run test:server:start` and re-run. `npm run test:server:list` confirms whether a stone is already up.
 
+Never add `eslint-disable` or change a rule's severity to silence a lint error — fix the underlying code. If a rule genuinely can't be satisfied, add a scoped disable (single line, not file-wide) with a comment explaining why, and flag it to the user before committing. `eslint-comments/require-description` enforces that every disable comment carries a `-- reason`, so an undocumented one fails `npm run lint` outright.
+
 <!-- Maintainer note (stripped from agent context): Be careful with the edits to this file, anything included here will be auto-loaded in the context for ALL conversations. Keep only the most relevant and non-obvious details that are needed on all conversations. And only details that agents won't typically auto-discover by browsing the code -->

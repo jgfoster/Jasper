@@ -1,6 +1,7 @@
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import globals from 'globals';
+import eslintComments from '@eslint-community/eslint-plugin-eslint-comments';
 
 export default tseslint.config(
   {
@@ -14,6 +15,18 @@ export default tseslint.config(
   { files: ['**/*.{ts,mts,cts,js,mjs,cjs}'] },
   js.configs.recommended,
   ...tseslint.configs.recommended, // non-type-checked only — no `projectService`/type-aware rules for now
+  {
+    // Catches stale `eslint-disable` comments that no longer suppress anything.
+    linterOptions: { reportUnusedDisableDirectives: 'error' },
+  },
+  {
+    plugins: { 'eslint-comments': eslintComments },
+    rules: {
+      // Require a `-- reason` on every eslint-disable comment, so suppressions
+      // must be justified inline instead of silently added.
+      'eslint-comments/require-description': 'error',
+    },
+  },
   {
     rules: {
       // Real dead-code signal, so this stays an error. The `^_` patterns let

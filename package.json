@@ -1985,6 +1985,7 @@
     "publish:ovsx": "ovsx publish"
   },
   "devDependencies": {
+    "@eslint-community/eslint-plugin-eslint-comments": "^4.7.2",
     "@eslint/js": "^9.19.0",
     "@playwright/test": "^1.61.1",
     "@types/node": "^22.15",
