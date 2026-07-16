@@ -38,11 +38,16 @@ function setPlatform(platform: NodeJS.Platform) {
   Object.defineProperty(process, 'platform', { value: platform, configurable: true });
 }
 
-function makeContext() {
+function makeContext(extensionPath = '/ext') {
   return {
-    extensionPath: '/ext',
+    extensionPath,
     subscriptions: { push: vi.fn() },
   } as unknown as vscode.ExtensionContext;
+}
+
+/** A vscode.Terminal test double — only `show`/`sendText` are spied on; the rest of the interface is stubbed. */
+function fakeTerminal(): vscode.Terminal {
+  return { show: vi.fn(), sendText: vi.fn(), dispose: vi.fn() } as unknown as vscode.Terminal;
 }
 
 /** Retrieve the callback registered for a command by name. */
@@ -54,15 +59,17 @@ function getCommand(commandId: string): (() => unknown) | undefined {
 
 /** Make exec call its callback immediately with the given stdout output. */
 function mockExec(output: string): void {
-  vi.mocked(exec as any).mockImplementation((_cmd: any, _opts: any, cb: any) => {
-    cb(null, output, '');
+  vi.mocked(exec).mockImplementation((_cmd, _opts, cb) => {
+    cb?.(null, output, '');
+    return {} as ReturnType<typeof exec>;
   });
 }
 
 /** Make exec call its callback with an error (simulates sysctl not found). */
 function mockExecError(): void {
-  vi.mocked(exec as any).mockImplementation((_cmd: any, _opts: any, cb: any) => {
-    cb(new Error('command not found'), '', '');
+  vi.mocked(exec).mockImplementation((_cmd, _opts, cb) => {
+    cb?.(new Error('command not found'), '', '');
+    return {} as ReturnType<typeof exec>;
   });
 }
 
@@ -124,7 +131,7 @@ describe('OsConfigTreeProvider', () => {
     vi.mocked(fs.readdirSync).mockReturnValue([]);
     vi.mocked(fs.readFileSync).mockImplementation(() => { throw new Error('ENOENT'); });
     vi.mocked(vscode.commands.registerCommand).mockClear();
-    vi.mocked(vscode.window.createTerminal).mockReturnValue({ show: vi.fn(), sendText: vi.fn() } as any);
+    vi.mocked(vscode.window.createTerminal).mockReturnValue(fakeTerminal());
     vi.mocked(vscode.window.showInformationMessage).mockClear();
     vi.mocked(vscode.window.onDidCloseTerminal).mockClear();
   });
@@ -231,7 +238,7 @@ describe('OsConfigTreeProvider', () => {
     it('removeIpcStatus configured=true when logind.conf has RemoveIPC=no', async () => {
       setPlatform('linux');
       mockExec(LINUX_SYSCTL_4GB);
-      vi.mocked(fs.readFileSync).mockReturnValue('[Login]\nRemoveIPC=no\n' as any);
+      vi.mocked(fs.readFileSync).mockReturnValue('[Login]\nRemoveIPC=no\n');
       const nodes = await getRootNodes(provider);
       const removeIpc = findByKind(nodes, 'removeIpcStatus');
       expect(removeIpc?.configured).toBe(true);
@@ -240,7 +247,7 @@ describe('OsConfigTreeProvider', () => {
     it('removeIpcStatus configured=false when logind.conf has RemoveIPC=yes', async () => {
       setPlatform('linux');
       mockExec(LINUX_SYSCTL_4GB);
-      vi.mocked(fs.readFileSync).mockReturnValue('[Login]\nRemoveIPC=yes\n' as any);
+      vi.mocked(fs.readFileSync).mockReturnValue('[Login]\nRemoveIPC=yes\n');
       const nodes = await getRootNodes(provider);
       const removeIpc = findByKind(nodes, 'removeIpcStatus');
       expect(removeIpc?.configured).toBe(false);
@@ -249,7 +256,7 @@ describe('OsConfigTreeProvider', () => {
     it('ignores commented-out RemoveIPC lines', async () => {
       setPlatform('linux');
       mockExec(LINUX_SYSCTL_4GB);
-      vi.mocked(fs.readFileSync).mockReturnValue('# RemoveIPC=no\n' as any);
+      vi.mocked(fs.readFileSync).mockReturnValue('# RemoveIPC=no\n');
       const nodes = await getRootNodes(provider);
       const removeIpc = findByKind(nodes, 'removeIpcStatus');
       expect(removeIpc?.configured).toBe(false);
@@ -260,11 +267,11 @@ describe('OsConfigTreeProvider', () => {
       mockExec(LINUX_SYSCTL_4GB);
       vi.mocked(fs.existsSync).mockReturnValue(true);
       vi.mocked(fs.readdirSync).mockReturnValue(['gemstone.conf'] as any);
-      vi.mocked(fs.readFileSync).mockImplementation((filepath: any) => {
+      vi.mocked(fs.readFileSync).mockImplementation((filepath: fs.PathOrFileDescriptor) => {
         if (String(filepath).endsWith('logind.conf') && !String(filepath).includes('.d/')) {
-          return 'RemoveIPC=yes\n' as any; // main file says yes
+          return 'RemoveIPC=yes\n'; // main file says yes
         }
-        return '[Login]\nRemoveIPC=no\n' as any; // drop-in overrides to no
+        return '[Login]\nRemoveIPC=no\n'; // drop-in overrides to no
       });
       const nodes = await getRootNodes(provider);
       const removeIpc = findByKind(nodes, 'removeIpcStatus');
@@ -276,11 +283,11 @@ describe('OsConfigTreeProvider', () => {
       mockExec(LINUX_SYSCTL_4GB);
       vi.mocked(fs.existsSync).mockReturnValue(true);
       vi.mocked(fs.readdirSync).mockReturnValue(['zz-override.conf'] as any);
-      vi.mocked(fs.readFileSync).mockImplementation((filepath: any) => {
+      vi.mocked(fs.readFileSync).mockImplementation((filepath: fs.PathOrFileDescriptor) => {
         if (String(filepath).includes('logind.conf.d')) {
-          return 'RemoveIPC=yes\n' as any;
+          return 'RemoveIPC=yes\n';
         }
-        return 'RemoveIPC=no\n' as any;
+        return 'RemoveIPC=no\n';
       });
       const nodes = await getRootNodes(provider);
       const removeIpc = findByKind(nodes, 'removeIpcStatus');
@@ -443,8 +450,8 @@ describe('OsConfigTreeProvider', () => {
 
     it('runSetSharedMemory opens a terminal and sends the macOS script path', () => {
       provider.registerCommands(makeContext());
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
 
       getCommand('gemstone.runSetSharedMemory')?.();
 
@@ -456,8 +463,8 @@ describe('OsConfigTreeProvider', () => {
 
     it('runSetSharedMemoryLinux opens a terminal and sends the Linux script path', () => {
       provider.registerCommands(makeContext());
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
 
       getCommand('gemstone.runSetSharedMemoryLinux')?.();
 
@@ -466,8 +473,8 @@ describe('OsConfigTreeProvider', () => {
 
     it('runSetRemoveIPC opens a terminal and sends the RemoveIPC script path', () => {
       provider.registerCommands(makeContext());
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
 
       getCommand('gemstone.runSetRemoveIPC')?.();
 
@@ -490,8 +497,8 @@ describe('OsConfigTreeProvider', () => {
 
     it('runSetSharedMemory refreshes the panel when the terminal closes', () => {
       provider.registerCommands(makeContext());
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
       const refreshSpy = vi.spyOn(provider, 'refresh');
 
       getCommand('gemstone.runSetSharedMemory')?.();
@@ -503,8 +510,8 @@ describe('OsConfigTreeProvider', () => {
 
     it('runSetSharedMemoryLinux refreshes the panel when the terminal closes', () => {
       provider.registerCommands(makeContext());
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
       const refreshSpy = vi.spyOn(provider, 'refresh');
 
       getCommand('gemstone.runSetSharedMemoryLinux')?.();
@@ -516,8 +523,8 @@ describe('OsConfigTreeProvider', () => {
 
     it('runSetRemoveIPC refreshes the panel when the terminal closes', () => {
       provider.registerCommands(makeContext());
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
       const refreshSpy = vi.spyOn(provider, 'refresh');
 
       getCommand('gemstone.runSetRemoveIPC')?.();
@@ -529,8 +536,8 @@ describe('OsConfigTreeProvider', () => {
 
     it('does not refresh when a different terminal closes', () => {
       provider.registerCommands(makeContext());
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
       const refreshSpy = vi.spyOn(provider, 'refresh');
 
       getCommand('gemstone.runSetSharedMemory')?.();
@@ -542,16 +549,16 @@ describe('OsConfigTreeProvider', () => {
 
     it('runSetSharedMemoryLinux script path does not match macOS script', () => {
       provider.registerCommands(makeContext());
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
 
       getCommand('gemstone.runSetSharedMemoryLinux')?.();
-      const [linuxCmd] = mockTerminal.sendText.mock.calls[0];
+      const [linuxCmd] = vi.mocked(mockTerminal.sendText).mock.calls[0];
 
-      mockTerminal.sendText.mockClear();
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      vi.mocked(mockTerminal.sendText).mockClear();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
       getCommand('gemstone.runSetSharedMemory')?.();
-      const [macCmd] = mockTerminal.sendText.mock.calls[0];
+      const [macCmd] = vi.mocked(mockTerminal.sendText).mock.calls[0];
 
       expect(linuxCmd).not.toBe(macCmd);
     });
@@ -642,9 +649,9 @@ describe('OsConfigTreeProvider', () => {
     });
 
     it('runSetSharedMemoryLinux on Windows opens a WSL shell with /mnt/<drive> script path', () => {
-      provider.registerCommands({ extensionPath: 'C:\\ext', subscriptions: { push: vi.fn() } } as any);
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      provider.registerCommands(makeContext('C:\\ext'));
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
 
       getCommand('gemstone.runSetSharedMemoryLinux')?.();
 
@@ -656,9 +663,9 @@ describe('OsConfigTreeProvider', () => {
     });
 
     it('runSetRemoveIPC on Windows opens a WSL shell with /mnt/<drive> script path', () => {
-      provider.registerCommands({ extensionPath: 'C:\\ext', subscriptions: { push: vi.fn() } } as any);
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      provider.registerCommands(makeContext('C:\\ext'));
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
 
       getCommand('gemstone.runSetRemoveIPC')?.();
 
@@ -721,8 +728,8 @@ describe('OsConfigTreeProvider', () => {
         available: true, defaultDistro: 'Ubuntu', homeDir: '/home/user', arch: 'x86_64', wslVersion: 1,
       });
       provider.registerCommands(makeContext());
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
 
       getCommand('gemstone.upgradeWsl2')?.();
 
@@ -734,8 +741,8 @@ describe('OsConfigTreeProvider', () => {
         available: true, defaultDistro: 'Ubuntu', homeDir: '/home/user', arch: 'x86_64', wslVersion: 1,
       });
       provider.registerCommands(makeContext());
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
       const refreshSpy = vi.spyOn(provider, 'refresh');
 
       getCommand('gemstone.upgradeWsl2')?.();
@@ -977,9 +984,9 @@ describe('OsConfigTreeProvider', () => {
     });
 
     it('writeWslHostsEntry opens a PowerShell terminal with the script path', () => {
-      provider.registerCommands({ extensionPath: 'C:\\ext', subscriptions: { push: vi.fn() } } as any);
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      provider.registerCommands(makeContext('C:\\ext'));
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
 
       getCommand('gemstone.writeWslHostsEntry')?.();
 
@@ -991,9 +998,9 @@ describe('OsConfigTreeProvider', () => {
     });
 
     it('writeServicesWsl opens a WSL shell and runs the bash script via sudo', () => {
-      provider.registerCommands({ extensionPath: 'C:\\ext', subscriptions: { push: vi.fn() } } as any);
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      provider.registerCommands(makeContext('C:\\ext'));
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
 
       getCommand('gemstone.writeServicesWsl')?.();
 
@@ -1014,12 +1021,12 @@ describe('OsConfigTreeProvider', () => {
     });
 
     it('writes the merged .wslconfig and prompts for a restart', async () => {
-      vi.mocked(fs.readFileSync).mockReturnValue('[wsl2]\nmemory=8GB\n' as any);
+      vi.mocked(fs.readFileSync).mockReturnValue('[wsl2]\nmemory=8GB\n');
       vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
       vi.mocked(wslBridge.updateWslConfigMirrored).mockImplementation(
         () => '[wsl2]\nnetworkingMode=mirrored\nmemory=8GB\n',
       );
-      vi.mocked(vscode.window.showInformationMessage).mockResolvedValue(undefined as any);
+      vi.mocked(vscode.window.showInformationMessage).mockResolvedValue(undefined);
 
       provider.registerCommands(makeContext());
       await getCommand('gemstone.enableMirroredNetworking')?.();
@@ -1039,8 +1046,8 @@ describe('OsConfigTreeProvider', () => {
         () => '[wsl2]\nnetworkingMode=mirrored\n',
       );
       vi.mocked(vscode.window.showInformationMessage).mockResolvedValue('Restart WSL now' as any);
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
 
       provider.registerCommands(makeContext());
       await getCommand('gemstone.enableMirroredNetworking')?.();
@@ -1050,10 +1057,10 @@ describe('OsConfigTreeProvider', () => {
 
     it('does nothing destructive when .wslconfig already had mirrored (no write, still prompts)', async () => {
       const already = '[wsl2]\nnetworkingMode=mirrored\n';
-      vi.mocked(fs.readFileSync).mockReturnValue(already as any);
+      vi.mocked(fs.readFileSync).mockReturnValue(already);
       vi.mocked(wslBridge.updateWslConfigMirrored).mockReturnValue(already);
       vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
-      vi.mocked(vscode.window.showInformationMessage).mockResolvedValue(undefined as any);
+      vi.mocked(vscode.window.showInformationMessage).mockResolvedValue(undefined);
 
       provider.registerCommands(makeContext());
       await getCommand('gemstone.enableMirroredNetworking')?.();
