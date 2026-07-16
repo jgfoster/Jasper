@@ -225,7 +225,6 @@ function posted(panel: ReturnType<typeof lastPanel>, command: string) {
     .filter((m: { command: string }) => m.command === command);
 }
 /** The most recent payload posted with the given command (or undefined). */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function lastPosted(panel: ReturnType<typeof lastPanel>, command: string): any {
   const all = posted(panel, command);
   return all[all.length - 1];
