@@ -237,6 +237,22 @@
             "default": "ask",
             "description": "What to do on connecting to a stone that does not have enhanced inspector support installed. Only applies to GemStone 3.7.5 and later, which the enhanced inspector requires; older stones are never offered it. The buttons on the install prompt update this setting."
           },
+          "gemstone.rowan.loadAfterAddingDependency": {
+            "type": "string",
+            "enum": [
+              "ask",
+              "always",
+              "never"
+            ],
+            "enumDescriptions": [
+              "After adding a dependency while connected, offer to load the project so the database has its code.",
+              "Load the project automatically after adding a dependency.",
+              "Never offer to load after adding a dependency."
+            ],
+            "default": "ask",
+            "description": "What to do after adding a dependency to the open Rowan project while a database is connected. Adding a dependency only writes files on disk; the database does not have the code until the project is loaded. Only applies while connected. The buttons on the prompt update this setting.",
+            "scope": "window"
+          },
           "gemstone.displayItMode": {
             "type": "string",
             "enum": [
@@ -459,7 +475,7 @@
       {
         "view": "gemstoneRowan",
         "contents": "This folder isn't a Rowan project.\n[Create Rowan Project](command:gemstone.rowanInitHere)",
-        "when": "!gemstone.workspaceIsRowanProject && workspaceFolderCount != 0"
+        "when": "gemstone.rowanProjectChecked && !gemstone.workspaceIsRowanProject && workspaceFolderCount != 0"
       },
       {
         "view": "gemstoneRowan",
@@ -864,6 +880,12 @@
         "command": "gemstone.rowanInitHere",
         "title": "Create Rowan Project",
         "category": "GemStone"
+      },
+      {
+        "command": "gemstone.rowanAddDependency",
+        "title": "Add Dependency…",
+        "category": "GemStone",
+        "icon": "$(add)"
       },
       {
         "command": "gemstone.rowanFindClassPackage",
@@ -1511,6 +1533,11 @@
         {
           "command": "gemstone.rowanNewProject",
           "when": "view == gemstoneRowan",
+          "group": "navigation@0"
+        },
+        {
+          "command": "gemstone.rowanAddDependency",
+          "when": "view == gemstoneRowanProject",
           "group": "navigation@0"
         },
         {
