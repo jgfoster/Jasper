@@ -18,9 +18,7 @@ export function loginCredentialAccount(
   return `${login.gs_user}@${login.gem_host}/${login.stone}`;
 }
 
-function loginSecretKey(
-  login: Pick<GemStoneLogin, 'gs_user' | 'gem_host' | 'stone'>,
-): string {
+function loginSecretKey(login: Pick<GemStoneLogin, 'gs_user' | 'gem_host' | 'stone'>): string {
   return `${KEYCHAIN_SERVICE}:${loginCredentialAccount(login)}`;
 }
 

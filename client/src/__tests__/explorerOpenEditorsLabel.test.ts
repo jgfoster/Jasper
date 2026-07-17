@@ -38,13 +38,23 @@ describe('classifyGemstoneUri', () => {
   });
 
   it('labels a class definition by its class name under the class group', () => {
-    const parsed = { kind: 'definition', sessionId: 1, dictName: 'Globals', className: 'Array' } as ParsedUri;
+    const parsed = {
+      kind: 'definition',
+      sessionId: 1,
+      dictName: 'Globals',
+      className: 'Array',
+    } as ParsedUri;
 
     expect(classifyGemstoneUri(parsed)).toEqual({ kind: 'class', label: 'Array' });
   });
 
   it('omits a class comment editor', () => {
-    const parsed = { kind: 'comment', sessionId: 1, dictName: 'Globals', className: 'Array' } as ParsedUri;
+    const parsed = {
+      kind: 'comment',
+      sessionId: 1,
+      dictName: 'Globals',
+      className: 'Array',
+    } as ParsedUri;
 
     expect(classifyGemstoneUri(parsed)).toBeUndefined();
   });

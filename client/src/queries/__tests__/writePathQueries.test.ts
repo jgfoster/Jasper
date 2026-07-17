@@ -62,7 +62,7 @@ describe('compileMethod', () => {
     const execute = vi.fn<QueryExecutor>(() => '');
     compileMethod(execute, "Foo'", true, "cat's", "foo\n  ^ 'hi'");
     const code = execute.mock.calls[0][1];
-    expect(code).toContain("#'Foo'''");        // className in Smalltalk symbol
+    expect(code).toContain("#'Foo'''"); // className in Smalltalk symbol
     expect(code).toContain("category: 'cat''s'");
     expect(code).toContain("'foo\n  ^ ''hi'''");
   });

@@ -101,8 +101,14 @@ describe('planRenameApply', () => {
 
   it('keeps only the selected changes, in the given (class-def-first) order', () => {
     const steps = planRenameApply(
-      [classDefChange({ id: '3' }), methodChange({ id: '1' }), methodChange({ id: '2', selector: 'baz' })],
-      ['1', '3'], dictNames, 'UserGlobals',
+      [
+        classDefChange({ id: '3' }),
+        methodChange({ id: '1' }),
+        methodChange({ id: '2', selector: 'baz' }),
+      ],
+      ['1', '3'],
+      dictNames,
+      'UserGlobals',
     );
 
     expect(steps.map((s) => s.id)).toEqual(['3', '1']);
@@ -110,7 +116,10 @@ describe('planRenameApply', () => {
 
   it('resolves each change dictionary to its 1-based symbol-list index', () => {
     const steps = planRenameApply(
-      [methodChange({ id: '1', dictName: 'Globals' })], ['1'], dictNames, 'UserGlobals',
+      [methodChange({ id: '1', dictName: 'Globals' })],
+      ['1'],
+      dictNames,
+      'UserGlobals',
     );
 
     expect(steps[0].dictIndex).toBe(2);
@@ -118,7 +127,10 @@ describe('planRenameApply', () => {
 
   it('falls back to the current dictionary when the change names none', () => {
     const steps = planRenameApply(
-      [methodChange({ id: '1', dictName: null })], ['1'], dictNames, 'Published',
+      [methodChange({ id: '1', dictName: null })],
+      ['1'],
+      dictNames,
+      'Published',
     );
 
     expect(steps[0].dictIndex).toBe(3);
@@ -126,7 +138,10 @@ describe('planRenameApply', () => {
 
   it('leaves the dict index undefined when neither dictionary is known', () => {
     const steps = planRenameApply(
-      [methodChange({ id: '1', dictName: 'Mystery' })], ['1'], dictNames, undefined,
+      [methodChange({ id: '1', dictName: 'Mystery' })],
+      ['1'],
+      dictNames,
+      undefined,
     );
 
     expect(steps[0].dictIndex).toBeUndefined();
@@ -134,7 +149,10 @@ describe('planRenameApply', () => {
 
   it('defaults a missing method category to "as yet unclassified"', () => {
     const steps = planRenameApply(
-      [methodChange({ id: '1', category: null })], ['1'], dictNames, 'UserGlobals',
+      [methodChange({ id: '1', category: null })],
+      ['1'],
+      dictNames,
+      'UserGlobals',
     );
 
     expect(steps[0].category).toBe('as yet unclassified');
@@ -142,7 +160,10 @@ describe('planRenameApply', () => {
 
   it('carries a label for reporting a per-change failure', () => {
     const steps = planRenameApply(
-      [methodChange({ id: '1', selector: 'total' })], ['1'], dictNames, 'UserGlobals',
+      [methodChange({ id: '1', selector: 'total' })],
+      ['1'],
+      dictNames,
+      'UserGlobals',
     );
 
     expect(steps[0].label).toBe('Foo>>total');

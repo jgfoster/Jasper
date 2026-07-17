@@ -132,10 +132,10 @@ export async function maybeOfferServerSupport(
     {
       modal: true,
       detail:
-        `Adds ${names} to this stone.\n\n`
-        + 'Installing requires a SystemUser login and commits the supporting classes to the '
-        + 'database.\n'
-        + 'Choose "Always" or "Never" to remember your choice for stones without it.',
+        `Adds ${names} to this stone.\n\n` +
+        'Installing requires a SystemUser login and commits the supporting classes to the ' +
+        'database.\n' +
+        'Choose "Always" or "Never" to remember your choice for stones without it.',
     },
     INSTALL,
     ALWAYS,

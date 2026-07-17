@@ -12,7 +12,11 @@
 // the server (build) vs the network (wall − server).
 
 import {
-  prepareCode, fetchCode, releaseCode, SYNC_CHUNK_CHARS, SYNC_MAX_RESULT_BYTES,
+  prepareCode,
+  fetchCode,
+  releaseCode,
+  SYNC_CHUNK_CHARS,
+  SYNC_MAX_RESULT_BYTES,
 } from './syncProtocol';
 
 export type LimitExecutor = (label: string, code: string, maxBytes: number) => string;
@@ -68,13 +72,17 @@ export function fetchBlob(
       stats.serverMs += serverMs;
       stats.wallMs += wallMs;
     }
-    if (onRequest) onRequest({ label: lbl, serverMs, wallMs, bytes: Buffer.byteLength(resp, 'utf8') });
+    if (onRequest)
+      onRequest({ label: lbl, serverMs, wallMs, bytes: Buffer.byteLength(resp, 'utf8') });
   };
 
   // prepare → `serverMs \t total \n <firstChunk>`
   const prepLabel = `${label}:prepare`;
-  const { resp: prep, wallMs: prepWall } =
-    timedExec(prepLabel, prepareCode(buildExpr, chunkChars), maxBytes);
+  const { resp: prep, wallMs: prepWall } = timedExec(
+    prepLabel,
+    prepareCode(buildExpr, chunkChars),
+    maxBytes,
+  );
   let buildMs = 0;
   let total = 0;
   let payload = '';

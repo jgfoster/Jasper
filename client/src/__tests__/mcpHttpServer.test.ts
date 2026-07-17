@@ -35,15 +35,27 @@ vi.mock('../browserQueries', () => ({
   removeDictionary: vi.fn(() => ''),
   BrowserQueryError: class BrowserQueryError extends Error {
     gciErrorNumber: number;
-    constructor(msg: string, num = 0) { super(msg); this.gciErrorNumber = num; }
+    constructor(msg: string, num = 0) {
+      super(msg);
+      this.gciErrorNumber = num;
+    }
   },
 }));
 vi.mock('../sunitQueries', () => ({
-  runTestMethod: vi.fn(() => ({ className: '', selector: '', status: 'passed', message: '', durationMs: 0 })),
+  runTestMethod: vi.fn(() => ({
+    className: '',
+    selector: '',
+    status: 'passed',
+    message: '',
+    durationMs: 0,
+  })),
   runTestClass: vi.fn(() => []),
   SunitQueryError: class SunitQueryError extends Error {
     gciErrorNumber: number;
-    constructor(msg: string, num = 0) { super(msg); this.gciErrorNumber = num; }
+    constructor(msg: string, num = 0) {
+      super(msg);
+      this.gciErrorNumber = num;
+    }
   },
 }));
 
@@ -68,7 +80,9 @@ function fetchHeaders(url: string): Promise<{ status: number; headers: http.Inco
       req.destroy();
     });
     req.on('error', reject);
-    req.setTimeout(2000, () => { req.destroy(new Error('timeout')); });
+    req.setTimeout(2000, () => {
+      req.destroy(new Error('timeout'));
+    });
   });
 }
 

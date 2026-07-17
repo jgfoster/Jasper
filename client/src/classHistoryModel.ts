@@ -54,8 +54,12 @@ function parseMethodChange(raw: unknown): MethodChange | null {
  *  or a malformed payload — callers surface that as an error. */
 export function parseClassHistory(json: string): ClassVersion[] {
   const parsed: unknown = JSON.parse(json);
-  if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
-    && typeof (parsed as Record<string, unknown>).error === 'string') {
+  if (
+    typeof parsed === 'object' &&
+    parsed !== null &&
+    !Array.isArray(parsed) &&
+    typeof (parsed as Record<string, unknown>).error === 'string'
+  ) {
     throw new Error((parsed as Record<string, unknown>).error as string);
   }
   if (!Array.isArray(parsed)) {
@@ -107,8 +111,10 @@ export function parseRevertResult(json: string): RevertResult {
     throw new Error('Restore did not return a result envelope.');
   }
   const env = parsed as Record<string, unknown>;
-  const apply = (typeof env.apply === 'object' && env.apply !== null)
-    ? env.apply as Record<string, unknown> : undefined;
+  const apply =
+    typeof env.apply === 'object' && env.apply !== null
+      ? (env.apply as Record<string, unknown>)
+      : undefined;
   const failed = apply && Array.isArray(apply.failed) ? apply.failed.length : undefined;
   return {
     reverted: env.reverted === true,

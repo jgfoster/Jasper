@@ -36,8 +36,12 @@
           const cb = li.querySelector('.sel');
           return cb && !cb.checked;
         })
-        .map(function (li) { return li.getAttribute('data-id'); })
-        .filter(function (id) { return id !== null; });
+        .map(function (li) {
+          return li.getAttribute('data-id');
+        })
+        .filter(function (id) {
+          return id !== null;
+        });
     };
 
     const setExpanded = function (li, expanded) {
@@ -75,8 +79,8 @@
         const head = li.querySelector('.change-head');
         if (head) {
           head.addEventListener('click', function (event) {
-            if (event.target && event.target.classList
-              && event.target.classList.contains('sel')) return;
+            if (event.target && event.target.classList && event.target.classList.contains('sel'))
+              return;
             setExpanded(li, !isExpanded(li));
             syncToggleAll();
           });
@@ -94,7 +98,9 @@
     if (toggleAllBtn) {
       toggleAllBtn.addEventListener('click', function () {
         const expand = !cards().every(isExpanded);
-        cards().forEach(function (li) { setExpanded(li, expand); });
+        cards().forEach(function (li) {
+          setExpanded(li, expand);
+        });
         syncToggleAll();
       });
     }
@@ -158,7 +164,9 @@
       else if (msg.command === 'busyDone') setBusy(false);
     };
     if (typeof doc.defaultView !== 'undefined' && doc.defaultView) {
-      doc.defaultView.addEventListener('message', function (e) { handleMessage(e.data); });
+      doc.defaultView.addEventListener('message', function (e) {
+        handleMessage(e.data);
+      });
     }
 
     wireCards();

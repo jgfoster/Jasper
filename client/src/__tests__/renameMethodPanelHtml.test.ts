@@ -3,14 +3,29 @@ import { renderMethodPanelHtml } from '../renameMethodPanelHtml';
 import { MethodRenameChange } from '../renameMethodPreview';
 
 const rename = (over: Partial<MethodRenameChange> = {}): MethodRenameChange => ({
-  id: '1', kind: 'methodRename', dictName: 'UserGlobals', className: 'RmDemoRect', isMeta: false,
-  selector: 'area', newSelector: 'computeArea', category: 'accessing',
-  oldSource: 'area\n\t^w * h', newSource: 'computeArea\n\t^w * h', ...over,
+  id: '1',
+  kind: 'methodRename',
+  dictName: 'UserGlobals',
+  className: 'RmDemoRect',
+  isMeta: false,
+  selector: 'area',
+  newSelector: 'computeArea',
+  category: 'accessing',
+  oldSource: 'area\n\t^w * h',
+  newSource: 'computeArea\n\t^w * h',
+  ...over,
 });
 const sender: MethodRenameChange = {
-  id: '2', kind: 'methodRecompile', dictName: 'UserGlobals', className: 'RmDemoShape', isMeta: false,
-  selector: 'describe', newSelector: null, category: 'printing',
-  oldSource: '^self area', newSource: '^self computeArea',
+  id: '2',
+  kind: 'methodRecompile',
+  dictName: 'UserGlobals',
+  className: 'RmDemoShape',
+  isMeta: false,
+  selector: 'describe',
+  newSelector: null,
+  category: 'printing',
+  oldSource: '^self area',
+  newSource: '^self computeArea',
 };
 
 function html(
@@ -20,10 +35,15 @@ function html(
   opts: { total?: number; done?: boolean } = {},
 ): string {
   return renderMethodPanelHtml({
-    oldSelector: 'area', newSelector: 'computeArea',
+    oldSelector: 'area',
+    newSelector: 'computeArea',
     total: opts.total ?? changes.length,
-    changes, done: opts.done ?? true,
-    outOfScope: oos, skippedMethods, nonce: 'test', script: '',
+    changes,
+    done: opts.done ?? true,
+    outOfScope: oos,
+    skippedMethods,
+    nonce: 'test',
+    script: '',
   });
 }
 
@@ -51,14 +71,16 @@ describe('rename-method preview panel', () => {
   });
 
   it('shows an out-of-scope warning only when there is something out of scope', () => {
-    expect(html([rename()], { implementors: 2, senders: 3, skipped: 0 }))
-      .toMatch(/2 implementors and 3 senders outside the chosen scope/);
+    expect(html([rename()], { implementors: 2, senders: 3, skipped: 0 })).toMatch(
+      /2 implementors and 3 senders outside the chosen scope/,
+    );
     expect(html([rename()])).not.toContain('outside the chosen scope');
   });
 
   it('warns about methods that could not be rewritten', () => {
-    expect(html([rename()], { implementors: 0, senders: 0, skipped: 3 }))
-      .toMatch(/3 methods could not be rewritten and were skipped/);
+    expect(html([rename()], { implementors: 0, senders: 0, skipped: 3 })).toMatch(
+      /3 methods could not be rewritten and were skipped/,
+    );
   });
 
   it('lists the skipped methods behind a Show link', () => {

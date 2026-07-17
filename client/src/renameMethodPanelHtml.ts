@@ -13,7 +13,10 @@
  * renderMethodCards so newly-fetched pages render identically.
  */
 import {
-  MethodRenameChange, methodChangeLabel, OutOfScopeCounts, SkippedMethod,
+  MethodRenameChange,
+  methodChangeLabel,
+  OutOfScopeCounts,
+  SkippedMethod,
 } from './renameMethodPreview';
 import { lineDiff, DiffLine } from './lineDiff';
 
@@ -34,21 +37,21 @@ function renderDiff(diff: DiffLine[]): string {
 
 function renderCard(change: MethodRenameChange): string {
   const label = escapeHtml(methodChangeLabel(change));
-  const badge = change.category
-    ? `<span class="badge">${escapeHtml(change.category)}</span>`
-    : '';
+  const badge = change.category ? `<span class="badge">${escapeHtml(change.category)}</span>` : '';
   const diff = renderDiff(lineDiff(change.oldSource, change.newSource));
   // A methodRename REMOVES the old-selector method and ADDS the new-selector one;
   // show both in the collapsed header. A pure argument reorder (same selector,
   // recompiled in place) and a sender render as a plain label.
-  const isRename = change.kind === 'methodRename'
-    && !!change.newSelector && change.newSelector !== change.selector;
+  const isRename =
+    change.kind === 'methodRename' &&
+    !!change.newSelector &&
+    change.newSelector !== change.selector;
   const side = change.isMeta ? ' class' : '';
   const labelHtml = isRename
-    ? `${escapeHtml(change.className)}${side}&gt;&gt;`
-      + `<span class="sel-removed" title="removed">${escapeHtml(change.selector ?? '?')}</span>`
-      + '<span class="ren-arrow"> → </span>'
-      + `<span class="sel-added" title="added">${escapeHtml(change.newSelector as string)}</span>`
+    ? `${escapeHtml(change.className)}${side}&gt;&gt;` +
+      `<span class="sel-removed" title="removed">${escapeHtml(change.selector ?? '?')}</span>` +
+      '<span class="ren-arrow"> → </span>' +
+      `<span class="sel-added" title="added">${escapeHtml(change.newSelector as string)}</span>`
     : label;
   return `<li class="change" data-id="${escapeHtml(change.id)}">
   <div class="change-head">
@@ -72,20 +75,24 @@ function renderOutOfScope(oos: OutOfScopeCounts, skippedMethods: SkippedMethod[]
   const scoped = oos.implementors + oos.senders;
   if (scoped > 0) {
     const bits: string[] = [];
-    if (oos.implementors > 0) bits.push(`${oos.implementors} implementor${oos.implementors === 1 ? '' : 's'}`);
+    if (oos.implementors > 0)
+      bits.push(`${oos.implementors} implementor${oos.implementors === 1 ? '' : 's'}`);
     if (oos.senders > 0) bits.push(`${oos.senders} sender${oos.senders === 1 ? '' : 's'}`);
     lines.push(`${bits.join(' and ')} outside the chosen scope will NOT be changed.`);
   }
   let skippedList = '';
   if (oos.skipped > 0) {
-    lines.push(`${oos.skipped} method${oos.skipped === 1 ? '' : 's'} could not be rewritten and `
-      + `${oos.skipped === 1 ? 'was' : 'were'} skipped. `
-      + '<button class="linkish" id="showSkipped" aria-expanded="false">Show</button>');
-    skippedList = '<ul class="skipped-list hidden" id="skippedList">'
-      + skippedMethods
+    lines.push(
+      `${oos.skipped} method${oos.skipped === 1 ? '' : 's'} could not be rewritten and ` +
+        `${oos.skipped === 1 ? 'was' : 'were'} skipped. ` +
+        '<button class="linkish" id="showSkipped" aria-expanded="false">Show</button>',
+    );
+    skippedList =
+      '<ul class="skipped-list hidden" id="skippedList">' +
+      skippedMethods
         .map((m) => `<li>${escapeHtml(m.className)}&gt;&gt;${escapeHtml(m.selector)}</li>`)
-        .join('')
-      + '</ul>';
+        .join('') +
+      '</ul>';
   }
   if (lines.length === 0) return '';
   return `<div class="oos">⚠ ${lines.join('<br>')}${skippedList}</div>`;
@@ -109,7 +116,15 @@ export interface MethodPanelHtmlOptions {
 /** Build the panel's HTML. Pure (no vscode) so it unit-tests directly. */
 export function renderMethodPanelHtml(opts: MethodPanelHtmlOptions): string {
   const {
-    oldSelector, newSelector, total, changes, done, outOfScope, skippedMethods, nonce, script,
+    oldSelector,
+    newSelector,
+    total,
+    changes,
+    done,
+    outOfScope,
+    skippedMethods,
+    nonce,
+    script,
   } = opts;
   const cards = renderMethodCards(changes);
   const pagerHidden = done ? ' hidden' : '';

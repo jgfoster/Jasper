@@ -37,13 +37,16 @@ export class GemStoneDebugSession extends DebugSession {
   private varRefMap = new Map<number, VarRefKind>();
   private nextVarRef = 1;
 
-  private sourceRefMap = new Map<number, bigint>();  // sourceRef → methodOop
+  private sourceRefMap = new Map<number, bigint>(); // sourceRef → methodOop
   private methodToSourceRef = new Map<string, number>(); // methodOop.toString() → sourceRef
   private nextSourceRef = 1;
 
   private breakpointManager?: BreakpointManager;
 
-  constructor(private sessionManager: SessionManager, breakpointManager?: BreakpointManager) {
+  constructor(
+    private sessionManager: SessionManager,
+    breakpointManager?: BreakpointManager,
+  ) {
     super();
     this.breakpointManager = breakpointManager;
   }
@@ -98,7 +101,7 @@ export class GemStoneDebugSession extends DebugSession {
     },
   ): void {
     const sessions = this.sessionManager.getSessions();
-    this.session = sessions.find(s => s.id === args.sessionId);
+    this.session = sessions.find((s) => s.id === args.sessionId);
     if (!this.session) {
       response.success = false;
       response.message = `Session ${args.sessionId} not found`;
@@ -152,7 +155,7 @@ export class GemStoneDebugSession extends DebugSession {
       return;
     }
 
-    const requestedLines = args.breakpoints.map(bp => bp.line);
+    const requestedLines = args.breakpoints.map((bp) => bp.line);
 
     // Try to resolve from source path (gemstone:// URI) if available
     if (args.source.path && this.breakpointManager) {
@@ -172,7 +175,9 @@ export class GemStoneDebugSession extends DebugSession {
             toString: () => args.source.path!,
           } as unknown as vscode.Uri;
           const results = this.breakpointManager.setBreakpointsForSource(
-            this.session, actualUri, requestedLines,
+            this.session,
+            actualUri,
+            requestedLines,
           );
           for (let i = 0; i < results.length; i++) {
             breakpoints.push({
@@ -206,20 +211,29 @@ export class GemStoneDebugSession extends DebugSession {
             : methodInfo.className;
 
           const sourceOffsets = queries.getSourceOffsets(
-            this.session, className, isMeta, methodInfo.selector,
+            this.session,
+            className,
+            isMeta,
+            methodInfo.selector,
           );
 
           // Clear existing breakpoints on this method
           try {
             queries.clearAllBreaks(this.session, className, isMeta, methodInfo.selector);
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
 
           for (let i = 0; i < requestedLines.length; i++) {
             const result = mapLineToStepPoint(requestedLines[i], lineOffsets, sourceOffsets);
             if (result) {
               try {
                 queries.setBreakAtStepPoint(
-                  this.session, className, isMeta, methodInfo.selector, result.stepPoint,
+                  this.session,
+                  className,
+                  isMeta,
+                  methodInfo.selector,
+                  result.stepPoint,
                 );
                 breakpoints.push({ verified: true, line: result.actualLine, id: i + 1 });
               } catch {
@@ -283,12 +297,13 @@ export class GemStoneDebugSession extends DebugSession {
               const baseClass = uriInfo.className;
               const side = uriInfo.isMeta ? 'class' : 'instance';
               frameName = `${baseClass}${uriInfo.isMeta ? ' class' : ''}>>#${uriInfo.selector}`;
-              sourcePath = `gemstone://${this.session!.id}`
-                + `/${encodeURIComponent(uriInfo.dictName)}`
-                + `/${encodeURIComponent(baseClass)}`
-                + `/${side}`
-                + `/${encodeURIComponent(uriInfo.category)}`
-                + `/${encodeURIComponent(uriInfo.selector)}`;
+              sourcePath =
+                `gemstone://${this.session!.id}` +
+                `/${encodeURIComponent(uriInfo.dictName)}` +
+                `/${encodeURIComponent(baseClass)}` +
+                `/${side}` +
+                `/${encodeURIComponent(uriInfo.category)}` +
+                `/${encodeURIComponent(uriInfo.selector)}`;
             } else {
               const methodInfo = debug.getMethodInfo(this.session, info.methodOop);
               frameName = `${methodInfo.className}>>#${methodInfo.selector}`;
@@ -304,12 +319,9 @@ export class GemStoneDebugSession extends DebugSession {
             // Keep line at 0
           }
 
-          frames.push(new StackFrame(
-            level,
-            frameName,
-            new Source(frameName, sourcePath, sourceRef),
-            line,
-          ));
+          frames.push(
+            new StackFrame(level, frameName, new Source(frameName, sourcePath, sourceRef), line),
+          );
         } catch {
           // getFrameInfo itself failed — no source reference possible
           frames.push(new StackFrame(level, `<frame ${level}>`));
@@ -420,8 +432,10 @@ export class GemStoneDebugSession extends DebugSession {
         case 'indexed':
           response.body = {
             variables: this.getIndexedVariables(
-              varRef.oop, varRef.totalSize,
-              args.start, args.count,
+              varRef.oop,
+              varRef.totalSize,
+              args.start,
+              args.count,
             ),
           };
           break;
@@ -482,8 +496,10 @@ export class GemStoneDebugSession extends DebugSession {
   }
 
   private getIndexedVariables(
-    oop: bigint, totalSize: number,
-    start?: number, count?: number,
+    oop: bigint,
+    totalSize: number,
+    start?: number,
+    count?: number,
   ): Variable[] {
     if (!this.session) return [];
     const s = (start ?? 0) + 1; // Convert to 1-based
@@ -518,7 +534,9 @@ export class GemStoneDebugSession extends DebugSession {
       if (namedCount > 0 || indexedCount > 0) {
         if (indexedCount > 0) {
           variablesReference = this.allocVarRef({
-            kind: 'indexed', oop, totalSize: indexedCount,
+            kind: 'indexed',
+            oop,
+            totalSize: indexedCount,
           });
           indexedVariables = indexedCount;
         }
@@ -633,9 +651,7 @@ export class GemStoneDebugSession extends DebugSession {
 
     const level = args.frameId || 1;
     try {
-      const result = debug.evaluateInFrame(
-        this.session, this.gsProcess, args.expression, level,
-      );
+      const result = debug.evaluateInFrame(this.session, this.gsProcess, args.expression, level);
       response.body = { result, variablesReference: 0 };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

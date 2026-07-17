@@ -11,7 +11,9 @@ function openTab(uriString: string, isDirty: boolean): void {
 }
 
 describe('DirtyDecorationProvider', () => {
-  afterEach(() => { window.tabGroups.all = []; });
+  afterEach(() => {
+    window.tabGroups.all = [];
+  });
 
   it('marks a gemstone editor with unsaved changes with an unsaved-changes dot', () => {
     openTab(SOURCE, true);
@@ -33,7 +35,9 @@ describe('DirtyDecorationProvider', () => {
   it('never decorates a non-gemstone resource', () => {
     openTab(SOURCE, true);
 
-    const decoration = new DirtyDecorationProvider().provideFileDecoration(Uri.parse('file:///tmp/x.st'));
+    const decoration = new DirtyDecorationProvider().provideFileDecoration(
+      Uri.parse('file:///tmp/x.st'),
+    );
 
     expect(decoration).toBeUndefined();
   });

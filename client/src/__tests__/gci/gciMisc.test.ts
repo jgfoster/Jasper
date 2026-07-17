@@ -13,10 +13,7 @@ describe('GCI Priority 5: NSC, PerformFetchOops, FetchGbjInfo, NewStringFromUtf1
   let OOP_CLASS_ARRAY: bigint;
 
   beforeAll(() => {
-    const login = gci.GciTsLogin(
-      STONE_NRS, null, null, false,
-      GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
-    );
+    const login = gci.GciTsLogin(STONE_NRS, null, null, false, GEM_NRS, GS_USER, GS_PASSWORD, 0, 0);
     expect(login.session).not.toBeNull();
     session = login.session;
 
@@ -36,8 +33,13 @@ describe('GCI Priority 5: NSC, PerformFetchOops, FetchGbjInfo, NewStringFromUtf1
     it('adds OOPs to an IdentityBag and removes them', () => {
       // Create an IdentityBag
       const { result: bagOop, err: bagErr } = gci.GciTsExecute(
-        session, 'IdentityBag new', OOP_CLASS_STRING,
-        OOP_ILLEGAL, OOP_NIL, 0, 0,
+        session,
+        'IdentityBag new',
+        OOP_CLASS_STRING,
+        OOP_ILLEGAL,
+        OOP_NIL,
+        0,
+        0,
       );
       expect(bagErr.number).toBe(0);
       expect(bagOop).not.toBe(OOP_ILLEGAL);
@@ -49,44 +51,45 @@ describe('GCI Priority 5: NSC, PerformFetchOops, FetchGbjInfo, NewStringFromUtf1
       expect(str2.result).not.toBe(OOP_ILLEGAL);
 
       // Add to NSC
-      const { success: addOk, err: addErr } = gci.GciTsAddOopsToNsc(
-        session, bagOop, [str1.result, str2.result],
-      );
+      const { success: addOk, err: addErr } = gci.GciTsAddOopsToNsc(session, bagOop, [
+        str1.result,
+        str2.result,
+      ]);
       console.log('AddOopsToNsc - success:', addOk, 'err.number:', addErr.number);
       expect(addErr.number).toBe(0);
       expect(addOk).toBe(true);
 
       // Verify size is 2
-      const { result: sizeOop } = gci.GciTsPerform(
-        session, bagOop, OOP_ILLEGAL, 'size', [], 0, 0,
-      );
+      const { result: sizeOop } = gci.GciTsPerform(session, bagOop, OOP_ILLEGAL, 'size', [], 0, 0);
       expect(gci.GciTsOopToI64(session, sizeOop).value).toBe(2n);
 
       // Remove from NSC
-      const { result: removeResult, err: removeErr } = gci.GciTsRemoveOopsFromNsc(
-        session, bagOop, [str1.result, str2.result],
-      );
+      const { result: removeResult, err: removeErr } = gci.GciTsRemoveOopsFromNsc(session, bagOop, [
+        str1.result,
+        str2.result,
+      ]);
       console.log('RemoveOopsFromNsc - result:', removeResult, 'err.number:', removeErr.number);
       expect(removeErr.number).toBe(0);
       expect(removeResult).toBe(1); // 1 = all elements were present
 
       // Verify size is 0
-      const { result: sizeOop2 } = gci.GciTsPerform(
-        session, bagOop, OOP_ILLEGAL, 'size', [], 0, 0,
-      );
+      const { result: sizeOop2 } = gci.GciTsPerform(session, bagOop, OOP_ILLEGAL, 'size', [], 0, 0);
       expect(gci.GciTsOopToI64(session, sizeOop2).value).toBe(0n);
     });
 
     it('returns 0 when removing OOPs not present in the NSC', () => {
       const { result: bagOop } = gci.GciTsExecute(
-        session, 'IdentityBag new', OOP_CLASS_STRING,
-        OOP_ILLEGAL, OOP_NIL, 0, 0,
+        session,
+        'IdentityBag new',
+        OOP_CLASS_STRING,
+        OOP_ILLEGAL,
+        OOP_NIL,
+        0,
+        0,
       );
       const str = gci.GciTsNewString(session, 'not-in-bag');
 
-      const { result, err } = gci.GciTsRemoveOopsFromNsc(
-        session, bagOop, [str.result],
-      );
+      const { result, err } = gci.GciTsRemoveOopsFromNsc(session, bagOop, [str.result]);
       console.log('RemoveOopsFromNsc(not present) - result:', result, 'err.number:', err.number);
       expect(err.number).toBe(0);
       expect(result).toBe(0); // 0 = not all elements were present
@@ -102,16 +105,23 @@ describe('GCI Priority 5: NSC, PerformFetchOops, FetchGbjInfo, NewStringFromUtf1
 
       // Use PerformFetchOops to send with:with:with: and get the elements back
       const { result, oops, err } = gci.GciTsPerformFetchOops(
-        session, OOP_CLASS_ARRAY, 'with:with:with:',
-        [oop10, oop20, oop30], 10,
+        session,
+        OOP_CLASS_ARRAY,
+        'with:with:with:',
+        [oop10, oop20, oop30],
+        10,
       );
-      console.log('PerformFetchOops - result:', result,
-        'oops:', oops.map(o => o.toString(16)));
+      console.log(
+        'PerformFetchOops - result:',
+        result,
+        'oops:',
+        oops.map((o) => o.toString(16)),
+      );
       expect(err.number).toBe(0);
       expect(result).toBe(3);
       expect(oops).toHaveLength(3);
 
-      const vals = oops.map(o => gci.GciTsOopToI64(session, o).value);
+      const vals = oops.map((o) => gci.GciTsOopToI64(session, o).value);
       expect(vals).toEqual([10n, 20n, 30n]);
     });
 
@@ -122,11 +132,18 @@ describe('GCI Priority 5: NSC, PerformFetchOops, FetchGbjInfo, NewStringFromUtf1
 
       // Only request 2 OOPs max
       const { result, oops, err } = gci.GciTsPerformFetchOops(
-        session, OOP_CLASS_ARRAY, 'with:with:with:',
-        [oop1, oop2, oop3], 2,
+        session,
+        OOP_CLASS_ARRAY,
+        'with:with:with:',
+        [oop1, oop2, oop3],
+        2,
       );
-      console.log('PerformFetchOops(limited) - result:', result,
-        'oops:', oops.map(o => o.toString(16)));
+      console.log(
+        'PerformFetchOops(limited) - result:',
+        result,
+        'oops:',
+        oops.map((o) => o.toString(16)),
+      );
       expect(err.number).toBe(0);
       expect(result).toBe(2);
       expect(oops).toHaveLength(2);
@@ -139,13 +156,23 @@ describe('GCI Priority 5: NSC, PerformFetchOops, FetchGbjInfo, NewStringFromUtf1
       expect(strOop.result).not.toBe(OOP_ILLEGAL);
 
       const { result, info, data, err } = gci.GciTsFetchGbjInfo(
-        session, strOop.result, false, 1024,
+        session,
+        strOop.result,
+        false,
+        1024,
       );
-      console.log('FetchGbjInfo(String) - result:', result.toString(),
-        'info.objClass:', info.objClass.toString(16),
-        'info.objSize:', info.objSize.toString(),
-        'info.extraBits:', info.extraBits.toString(16),
-        'info.bytesReturned:', info.bytesReturned.toString());
+      console.log(
+        'FetchGbjInfo(String) - result:',
+        result.toString(),
+        'info.objClass:',
+        info.objClass.toString(16),
+        'info.objSize:',
+        info.objSize.toString(),
+        'info.extraBits:',
+        info.extraBits.toString(16),
+        'info.bytesReturned:',
+        info.bytesReturned.toString(),
+      );
       expect(err.number).toBe(0);
       expect(result).toBeGreaterThanOrEqual(0n);
       expect(info.objClass).toBe(OOP_CLASS_STRING);
@@ -159,18 +186,27 @@ describe('GCI Priority 5: NSC, PerformFetchOops, FetchGbjInfo, NewStringFromUtf1
 
     it('fetches info for an Array object', () => {
       const { result: arrOop } = gci.GciTsExecute(
-        session, 'Array new: 5', OOP_CLASS_STRING,
-        OOP_ILLEGAL, OOP_NIL, 0, 0,
+        session,
+        'Array new: 5',
+        OOP_CLASS_STRING,
+        OOP_ILLEGAL,
+        OOP_NIL,
+        0,
+        0,
       );
       expect(arrOop).not.toBe(OOP_ILLEGAL);
 
-      const { result, info, err } = gci.GciTsFetchGbjInfo(
-        session, arrOop, false, 1024,
+      const { result, info, err } = gci.GciTsFetchGbjInfo(session, arrOop, false, 1024);
+      console.log(
+        'FetchGbjInfo(Array) - result:',
+        result.toString(),
+        'info.objClass:',
+        info.objClass.toString(16),
+        'info.objSize:',
+        info.objSize.toString(),
+        'info._bits:',
+        info._bits.toString(2),
       );
-      console.log('FetchGbjInfo(Array) - result:', result.toString(),
-        'info.objClass:', info.objClass.toString(16),
-        'info.objSize:', info.objSize.toString(),
-        'info._bits:', info._bits.toString(2));
       expect(err.number).toBe(0);
       expect(result).toBeGreaterThanOrEqual(0n);
       expect(info.objClass).toBe(OOP_CLASS_ARRAY);
@@ -178,12 +214,9 @@ describe('GCI Priority 5: NSC, PerformFetchOops, FetchGbjInfo, NewStringFromUtf1
     });
 
     it('returns -2 for a non-existent object', () => {
-      const bogusOop = 0xFFFFFFFFn;
-      const { result, err } = gci.GciTsFetchGbjInfo(
-        session, bogusOop, false, 64,
-      );
-      console.log('FetchGbjInfo(bogus) - result:', result.toString(),
-        'err.number:', err.number);
+      const bogusOop = 0xffffffffn;
+      const { result, err } = gci.GciTsFetchGbjInfo(session, bogusOop, false, 64);
+      console.log('FetchGbjInfo(bogus) - result:', result.toString(), 'err.number:', err.number);
       // result should be -2 (object does not exist) or -1 (error)
       expect(result).toBeLessThan(0n);
     });
@@ -192,10 +225,14 @@ describe('GCI Priority 5: NSC, PerformFetchOops, FetchGbjInfo, NewStringFromUtf1
   describe('GciTsNewStringFromUtf16', () => {
     it('creates a String from UTF-16 code units (ASCII text)', () => {
       // 'Hello' as UTF-16 code units
-      const utf16 = [0x48, 0x65, 0x6C, 0x6C, 0x6F]; // H e l l o
+      const utf16 = [0x48, 0x65, 0x6c, 0x6c, 0x6f]; // H e l l o
       const { result, err } = gci.GciTsNewStringFromUtf16(session, utf16, 0);
-      console.log('NewStringFromUtf16(Hello) - result:', result.toString(16),
-        'err.number:', err.number);
+      console.log(
+        'NewStringFromUtf16(Hello) - result:',
+        result.toString(16),
+        'err.number:',
+        err.number,
+      );
       expect(err.number).toBe(0);
       expect(result).not.toBe(OOP_ILLEGAL);
 
@@ -206,10 +243,14 @@ describe('GCI Priority 5: NSC, PerformFetchOops, FetchGbjInfo, NewStringFromUtf1
 
     it('creates a String from UTF-16 with non-ASCII characters', () => {
       // 'café' as UTF-16: c=0x63, a=0x61, f=0x66, é=0xE9
-      const utf16 = [0x63, 0x61, 0x66, 0xE9];
+      const utf16 = [0x63, 0x61, 0x66, 0xe9];
       const { result, err } = gci.GciTsNewStringFromUtf16(session, utf16, 0);
-      console.log('NewStringFromUtf16(café) - result:', result.toString(16),
-        'err.number:', err.number);
+      console.log(
+        'NewStringFromUtf16(café) - result:',
+        result.toString(16),
+        'err.number:',
+        err.number,
+      );
       expect(err.number).toBe(0);
       expect(result).not.toBe(OOP_ILLEGAL);
 
@@ -218,10 +259,14 @@ describe('GCI Priority 5: NSC, PerformFetchOops, FetchGbjInfo, NewStringFromUtf1
     });
 
     it('creates a Unicode string with unicodeKind=1', () => {
-      const utf16 = [0x48, 0x65, 0x6C, 0x6C, 0x6F];
+      const utf16 = [0x48, 0x65, 0x6c, 0x6c, 0x6f];
       const { result, err } = gci.GciTsNewStringFromUtf16(session, utf16, 1);
-      console.log('NewStringFromUtf16(unicode) - result:', result.toString(16),
-        'err.number:', err.number);
+      console.log(
+        'NewStringFromUtf16(unicode) - result:',
+        result.toString(16),
+        'err.number:',
+        err.number,
+      );
       expect(err.number).toBe(0);
       expect(result).not.toBe(OOP_ILLEGAL);
 

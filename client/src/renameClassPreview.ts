@@ -87,8 +87,12 @@ function parseChange(raw: unknown, i: number): ClassRenameChange {
   if (kind !== 'classRename' && kind !== 'classReparent' && kind !== 'methodRecompile') {
     throw new Error(`Rename preview change ${i} has an unknown kind: ${String(kind)}`);
   }
-  if (typeof c.id !== 'string' || typeof c.className !== 'string'
-    || typeof c.newSource !== 'string' || typeof c.oldSource !== 'string') {
+  if (
+    typeof c.id !== 'string' ||
+    typeof c.className !== 'string' ||
+    typeof c.newSource !== 'string' ||
+    typeof c.oldSource !== 'string'
+  ) {
     throw new Error(`Rename preview change ${i} is missing required fields.`);
   }
   return {
@@ -108,11 +112,11 @@ function parseChange(raw: unknown, i: number): ClassRenameChange {
 function parseSkipped(v: unknown): SkippedMethod[] {
   return Array.isArray(v)
     ? v
-      .filter((m): m is Record<string, unknown> => typeof m === 'object' && m !== null)
-      .map((m) => ({
-        className: typeof m.class === 'string' ? m.class : '?',
-        selector: typeof m.selector === 'string' ? m.selector : '?',
-      }))
+        .filter((m): m is Record<string, unknown> => typeof m === 'object' && m !== null)
+        .map((m) => ({
+          className: typeof m.class === 'string' ? m.class : '?',
+          selector: typeof m.selector === 'string' ? m.selector : '?',
+        }))
     : [];
 }
 
@@ -140,11 +144,14 @@ export function parseStartPreview(json: string): StartClassPreview {
   if (typeof env.token !== 'string') {
     throw new Error('Rename preview did not return a session token.');
   }
-  const oos = (typeof env.outOfScope === 'object' && env.outOfScope !== null)
-    ? env.outOfScope as Record<string, unknown> : {};
-  const page = (typeof env.page === 'object' && env.page !== null)
-    ? parsePageObject(env.page as Record<string, unknown>)
-    : { changes: [], nextOffset: 0, done: true };
+  const oos =
+    typeof env.outOfScope === 'object' && env.outOfScope !== null
+      ? (env.outOfScope as Record<string, unknown>)
+      : {};
+  const page =
+    typeof env.page === 'object' && env.page !== null
+      ? parsePageObject(env.page as Record<string, unknown>)
+      : { changes: [], nextOffset: 0, done: true };
   return {
     token: env.token,
     total: asCount(env.total),
@@ -177,12 +184,12 @@ export function parseApplyResult(json: string): ApplyResult {
   const env = parsed as Record<string, unknown>;
   const failed = Array.isArray(env.failed)
     ? env.failed
-      .filter((f): f is Record<string, unknown> => typeof f === 'object' && f !== null)
-      .map((f) => ({
-        id: typeof f.id === 'string' ? f.id : '?',
-        label: typeof f.label === 'string' ? f.label : '?',
-        error: typeof f.error === 'string' ? f.error : 'unknown error',
-      }))
+        .filter((f): f is Record<string, unknown> => typeof f === 'object' && f !== null)
+        .map((f) => ({
+          id: typeof f.id === 'string' ? f.id : '?',
+          label: typeof f.label === 'string' ? f.label : '?',
+          error: typeof f.error === 'string' ? f.error : 'unknown error',
+        }))
     : [];
   return {
     applied: asCount(env.applied),

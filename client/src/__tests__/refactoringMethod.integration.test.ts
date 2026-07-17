@@ -7,7 +7,10 @@ import { GciLibrary } from '../gciLibrary';
 import * as q from '../browserQueries';
 import { escapeString } from '../queries/util';
 import {
-  startRenameMethodPreview, pageRenameMethodPreview, applyRenameMethod, PREVIEW_PAGE_BYTES,
+  startRenameMethodPreview,
+  pageRenameMethodPreview,
+  applyRenameMethod,
+  PREVIEW_PAGE_BYTES,
 } from '../queries/previewRenameMethod';
 import { parseStartPreview, parsePage, parseApplyResult } from '../renameMethodPreview';
 import type { ActiveSession } from '../sessionManager';
@@ -33,7 +36,10 @@ import type { ActiveSession } from '../sessionManager';
 describe('rename method (integration)', () => {
   let gci: GciLibrary;
   let handle: unknown;
-  useIntegrationTest((testContext) => { gci = testContext.gciLibrary; handle = testContext.session; });
+  useIntegrationTest((testContext) => {
+    gci = testContext.gciLibrary;
+    handle = testContext.session;
+  });
 
   const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
   const exec = (code: string): string => q.executeFetchString(session(), 'rename-method-it', code);
@@ -42,8 +48,9 @@ describe('rename method (integration)', () => {
   const asyncExec = (_label: string, code: string): Promise<string> => Promise.resolve(exec(code));
 
   const enginePresent = (): boolean =>
-    exec('(System myUserProfile symbolList objectNamed: #GsRenameMethodRefactoring) notNil printString')
-      .trim() === 'true';
+    exec(
+      '(System myUserProfile symbolList objectNamed: #GsRenameMethodRefactoring) notNil printString',
+    ).trim() === 'true';
 
   const engineTestsPayload = (): string =>
     path.resolve(__dirname, '../../../resources/refactoring/engine-tests.gs');
@@ -90,10 +97,18 @@ r runCount printString, ' ', (r failures size + r errors size) printString`;
 
   const BASE = 'RMItBase';
   const defineFixture = (): void => {
-    q.compileClassDefinition(session(),
-      `Object subclass: '${BASE}' instVarNames: #() classVars: #() `
-      + 'classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals');
-    q.compileMethod(session(), BASE, false, 'moving', 'movePointX: x y: y\n\t^Array with: x with: y');
+    q.compileClassDefinition(
+      session(),
+      `Object subclass: '${BASE}' instVarNames: #() classVars: #() ` +
+        'classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals',
+    );
+    q.compileMethod(
+      session(),
+      BASE,
+      false,
+      'moving',
+      'movePointX: x y: y\n\t^Array with: x with: y',
+    );
     q.compileMethod(session(), BASE, false, 'moving', 'caller\n\t^self movePointX: 1 y: 2');
   };
 
@@ -103,27 +118,43 @@ r runCount printString, ' ', (r failures size + r errors size) printString`;
     defineFixture();
     const token = `rmit-${BASE}`;
 
-    const start = parseStartPreview(await startRenameMethodPreview(
-      asyncExec, BASE, 'movePointX:y:', ['moveY:', 'x:'], [2, 1], { kind: 'wholeSystem' },
-      token, PREVIEW_PAGE_BYTES,
-    ));
+    const start = parseStartPreview(
+      await startRenameMethodPreview(
+        asyncExec,
+        BASE,
+        'movePointX:y:',
+        ['moveY:', 'x:'],
+        [2, 1],
+        { kind: 'wholeSystem' },
+        token,
+        PREVIEW_PAGE_BYTES,
+      ),
+    );
 
     expect(start.token).toBe(token);
     expect(start.total).toBeGreaterThanOrEqual(2);
     const impl = start.page.changes.find((c) => c.kind === 'methodRename' && c.className === BASE);
     expect(impl?.newSelector).toBe('moveY:x:');
     expect(impl?.newSource).toContain('moveY: y x: x');
-    const sender = start.page.changes.find((c) => c.kind === 'methodRecompile' && c.selector === 'caller');
+    const sender = start.page.changes.find(
+      (c) => c.kind === 'methodRecompile' && c.selector === 'caller',
+    );
     expect(sender?.newSource).toContain('self moveY: 2 x: 1');
 
     const result = parseApplyResult(await applyRenameMethod(asyncExec, token, []));
 
     expect(result.failed).toEqual([]);
     expect(result.applied).toBeGreaterThanOrEqual(2);
-    expect(exec(`(${BASE} compiledMethodAt: #'moveY:x:' environmentId: 0 otherwise: nil) notNil printString`).trim())
-      .toBe('true');
-    expect(exec(`(${BASE} compiledMethodAt: #'movePointX:y:' environmentId: 0 otherwise: nil) isNil printString`).trim())
-      .toBe('true');
+    expect(
+      exec(
+        `(${BASE} compiledMethodAt: #'moveY:x:' environmentId: 0 otherwise: nil) notNil printString`,
+      ).trim(),
+    ).toBe('true');
+    expect(
+      exec(
+        `(${BASE} compiledMethodAt: #'movePointX:y:' environmentId: 0 otherwise: nil) isNil printString`,
+      ).trim(),
+    ).toBe('true');
   });
 
   it('pages a preview and honours a deselected change on apply', async () => {
@@ -132,25 +163,42 @@ r runCount printString, ' ', (r failures size + r errors size) printString`;
     defineFixture();
     const token = `rmit-page-${BASE}`;
 
-    const start = parseStartPreview(await startRenameMethodPreview(
-      asyncExec, BASE, 'movePointX:y:', ['moveY:', 'x:'], [2, 1], { kind: 'wholeSystem' },
-      token, 1, // tiny page so a second page is needed
-    ));
+    const start = parseStartPreview(
+      await startRenameMethodPreview(
+        asyncExec,
+        BASE,
+        'movePointX:y:',
+        ['moveY:', 'x:'],
+        [2, 1],
+        { kind: 'wholeSystem' },
+        token,
+        1, // tiny page so a second page is needed
+      ),
+    );
     expect(start.page.done).toBe(false);
     expect(start.page.changes.length).toBe(1);
 
-    const page2 = parsePage(await pageRenameMethodPreview(asyncExec, token, start.page.nextOffset, PREVIEW_PAGE_BYTES));
+    const page2 = parsePage(
+      await pageRenameMethodPreview(asyncExec, token, start.page.nextOffset, PREVIEW_PAGE_BYTES),
+    );
     expect(page2.changes.length).toBeGreaterThanOrEqual(1);
 
     // Deselect the sender: apply should rename the implementor but leave the caller.
-    const senderId = [...start.page.changes, ...page2.changes]
-      .find((c) => c.kind === 'methodRecompile' && c.selector === 'caller')?.id;
-    const result = parseApplyResult(await applyRenameMethod(asyncExec, token, senderId ? [senderId] : []));
+    const senderId = [...start.page.changes, ...page2.changes].find(
+      (c) => c.kind === 'methodRecompile' && c.selector === 'caller',
+    )?.id;
+    const result = parseApplyResult(
+      await applyRenameMethod(asyncExec, token, senderId ? [senderId] : []),
+    );
 
     expect(result.failed).toEqual([]);
-    expect(exec(`(${BASE} compiledMethodAt: #'moveY:x:' environmentId: 0 otherwise: nil) notNil printString`).trim())
-      .toBe('true');
-    expect(exec(`(${BASE} compiledMethodAt: #caller environmentId: 0 otherwise: nil) sourceString`))
-      .toContain('movePointX: 1 y: 2');
+    expect(
+      exec(
+        `(${BASE} compiledMethodAt: #'moveY:x:' environmentId: 0 otherwise: nil) notNil printString`,
+      ).trim(),
+    ).toBe('true');
+    expect(
+      exec(`(${BASE} compiledMethodAt: #caller environmentId: 0 otherwise: nil) sourceString`),
+    ).toContain('movePointX: 1 y: 2');
   });
 });

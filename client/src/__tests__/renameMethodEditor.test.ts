@@ -12,7 +12,10 @@ beforeAll(() => {
 });
 
 interface EditorApi {
-  wire(doc: Document, vscode: { postMessage: (m: unknown) => void }): {
+  wire(
+    doc: Document,
+    vscode: { postMessage: (m: unknown) => void },
+  ): {
     parts: () => string[];
     originalIndices: () => number[];
     updatePreview: () => void;
@@ -26,10 +29,17 @@ function api(): EditorApi {
 
 function mount(oldSelector: string, argNames: string[], dictName?: string) {
   const html = renderMethodEditorHtml({
-    className: 'Foo', oldSelector, isMeta: false, argNames, dictName, nonce: 'test',
+    className: 'Foo',
+    oldSelector,
+    isMeta: false,
+    argNames,
+    dictName,
+    nonce: 'test',
     script: '',
   });
-  document.documentElement.innerHTML = html.replace(/^[\s\S]*?<body>/, '').replace(/<\/body>[\s\S]*$/, '');
+  document.documentElement.innerHTML = html
+    .replace(/^[\s\S]*?<body>/, '')
+    .replace(/<\/body>[\s\S]*$/, '');
   const vscode = { postMessage: vi.fn() };
   const handle = api().wire(document, vscode);
   return { handle, vscode };

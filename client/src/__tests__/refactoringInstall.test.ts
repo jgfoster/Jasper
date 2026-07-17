@@ -21,9 +21,9 @@ const checkAvailableMock = checkRefactoringSupportAvailable as ReturnType<typeof
 const PAYLOAD_DIR = '/payload/refactoring';
 
 const OK_REPORT =
-  '[GsRefactoring] --- install report ---\n'
-  + '[GsRefactoring]   [ ok ] Classes present -- 60 classes\n'
-  + '[GsRefactoring] SUCCESS -- all completeness checks passed.\n';
+  '[GsRefactoring] --- install report ---\n' +
+  '[GsRefactoring]   [ ok ] Classes present -- 60 classes\n' +
+  '[GsRefactoring] SUCCESS -- all completeness checks passed.\n';
 
 // Default: gem can read everything, the loader file-in succeeds, the loader run
 // reports success ("OK" verdict line + a report).
@@ -181,8 +181,8 @@ describe('installRefactoringSupport', () => {
   it('reports an incomplete install and keeps the report when the loader verdict is FAIL', async () => {
     const { session, abort } = createMockSession();
     const failReport =
-      '[GsRefactoring]   [FAIL] Classes present -- missing: RBParser\n'
-      + '[GsRefactoring] INCOMPLETE -- one or more checks failed (see above).\n';
+      '[GsRefactoring]   [FAIL] Classes present -- missing: RBParser\n' +
+      '[GsRefactoring] INCOMPLETE -- one or more checks failed (see above).\n';
     executeFetchStringMock.mockImplementation((s, label, code: string) => {
       if (code.includes('loadFromServerDir')) return `FAIL\n${failReport}`;
       return happyPath(s, label, code);

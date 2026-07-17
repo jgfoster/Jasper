@@ -52,12 +52,14 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseNod
         return item;
       }
       case 'netldi': {
-        const proc = this.processManager.getProcesses().find(
-          p =>
-            p.type === 'netldi' &&
-            p.name === node.db.config.ldiName &&
-            versionsMatch(p.version, node.db.config.version),
-        );
+        const proc = this.processManager
+          .getProcesses()
+          .find(
+            (p) =>
+              p.type === 'netldi' &&
+              p.name === node.db.config.ldiName &&
+              versionsMatch(p.version, node.db.config.version),
+          );
         const item = new vscode.TreeItem(`NetLDI: ${node.db.config.ldiName}`);
         item.description = node.running
           ? `Running${proc?.port ? ` (port ${proc.port})` : ''}`
@@ -86,9 +88,9 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseNod
         item.contextValue = 'gemstoneDbBackups';
         item.iconPath = new vscode.ThemeIcon('archive');
         item.tooltip =
-          "Full logical backups in this database's backups/ folder.\n"
-          + 'Backups written here by any Jasper session appear in this list; '
-          + 'backups taken outside this folder are not tracked.';
+          "Full logical backups in this database's backups/ folder.\n" +
+          'Backups written here by any Jasper session appear in this list; ' +
+          'backups taken outside this folder are not tracked.';
         return item;
       }
       case 'file': {
@@ -124,7 +126,7 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseNod
 
   getChildren(node?: DatabaseNode): DatabaseNode[] {
     if (!node) {
-      return this.storage.getDatabases().map(db => ({ kind: 'database' as const, db }));
+      return this.storage.getDatabases().map((db) => ({ kind: 'database' as const, db }));
     }
     if (node.kind === 'database') {
       const stoneRunning = this.processManager.isStoneRunning(
@@ -155,8 +157,11 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseNod
       return this.listFiles(path.join(node.db.path, 'conf'));
     }
     if (node.kind === 'backups') {
-      return this.backupFiles(node.db)
-        .map(f => ({ kind: 'backupFile' as const, filePath: f, db: node.db }));
+      return this.backupFiles(node.db).map((f) => ({
+        kind: 'backupFile' as const,
+        filePath: f,
+        db: node.db,
+      }));
     }
     return [];
   }
@@ -165,8 +170,8 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseNod
     if (!wslExistsSync(dirPath)) return [];
     return wslReaddirSync(dirPath)
       .sort()
-      .filter(e => wslIsFile(path.join(dirPath, e)))
-      .map(e => ({ kind: 'file' as const, filePath: path.join(dirPath, e) }));
+      .filter((e) => wslIsFile(path.join(dirPath, e)))
+      .map((e) => ({ kind: 'file' as const, filePath: path.join(dirPath, e) }));
   }
 
   // Absolute paths of the .dbf backup files in <db>/backups, newest first (names
@@ -175,9 +180,9 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseNod
     const dir = path.join(db.path, 'backups');
     if (!wslExistsSync(dir)) return [];
     return wslReaddirSync(dir)
-      .filter(e => e.toLowerCase().endsWith('.dbf') && wslIsFile(path.join(dir, e)))
+      .filter((e) => e.toLowerCase().endsWith('.dbf') && wslIsFile(path.join(dir, e)))
       .sort()
       .reverse()
-      .map(e => path.join(dir, e));
+      .map((e) => path.join(dir, e));
   }
 }

@@ -2,10 +2,19 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { GciLibrary } from '../../gciLibrary';
 import { GCI_LIBRARY_PATH } from './gciTestConfig';
 import {
-  OOP_ILLEGAL, OOP_NIL, OOP_FALSE, OOP_TRUE, OOP_ASCII_NUL,
-  OOP_Zero, OOP_One, OOP_Two, OOP_Three,
-  OOP_CLASS_BOOLEAN, OOP_CLASS_CHARACTER,
-  OOP_CLASS_SMALL_INTEGER, OOP_CLASS_UNDEFINED_OBJECT,
+  OOP_ILLEGAL,
+  OOP_NIL,
+  OOP_FALSE,
+  OOP_TRUE,
+  OOP_ASCII_NUL,
+  OOP_Zero,
+  OOP_One,
+  OOP_Two,
+  OOP_Three,
+  OOP_CLASS_BOOLEAN,
+  OOP_CLASS_CHARACTER,
+  OOP_CLASS_SMALL_INTEGER,
+  OOP_CLASS_UNDEFINED_OBJECT,
   OOP_CLASS_SMALL_DOUBLE,
 } from '../../gciConstants';
 
@@ -117,7 +126,7 @@ describe('GCI session-free OOP functions', () => {
     });
 
     it('round-trips Unicode code points', () => {
-      for (const ch of [0x00E9, 0x4E16, 0x1F600, 0x10FFFF]) {
+      for (const ch of [0x00e9, 0x4e16, 0x1f600, 0x10ffff]) {
         const oop = gci.GciTsCharToOop(ch);
         expect(gci.GciTsOopToChar(oop)).toBe(ch);
       }

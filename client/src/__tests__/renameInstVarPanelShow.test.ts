@@ -52,7 +52,7 @@ function lastPanel(): { __emit: (m: unknown) => void; dispose: () => void } {
 }
 
 describe('showRenameInstVarPanel', () => {
-  it('resolves with the applied ids in the changes\' order, not the reported order', async () => {
+  it("resolves with the applied ids in the changes' order, not the reported order", async () => {
     const changes = [change('1', 'a'), change('2', 'b'), change('9', 'c')];
 
     const result = showRenameInstVarPanel('count', 'tally', changes);

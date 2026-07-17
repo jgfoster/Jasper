@@ -42,8 +42,9 @@ describe('executeFetchStringNb', () => {
       GciTsCallInProgress: vi.fn(() => ({ result: 1, err: { number: 0 } })),
     });
 
-    await expect(executeFetchStringNb(session, 'test', 'code'))
-      .rejects.toThrow(/busy with another operation/);
+    await expect(executeFetchStringNb(session, 'test', 'code')).rejects.toThrow(
+      /busy with another operation/,
+    );
   });
 
   it('rejects when the execution cannot start', async () => {
@@ -59,15 +60,18 @@ describe('executeFetchStringNb', () => {
       GciTsNbResult: vi.fn(() => ({ result: 0n, err: { number: 2318, message: 'boom' } })),
     });
 
-    await expect(executeFetchStringNb(session, 'test', 'code'))
-      .rejects.toThrow(BrowserQueryError);
+    await expect(executeFetchStringNb(session, 'test', 'code')).rejects.toThrow(BrowserQueryError);
   });
 });
 
 describe('loadRowanProjectNb', () => {
   it('runs the standard load Smalltalk and parses the OK result', async () => {
     const session = fakeSession({
-      GciTsFetchChars: vi.fn(() => ({ bytesReturned: 11n, data: 'OK\tSeaside3', err: { number: 0 } })),
+      GciTsFetchChars: vi.fn(() => ({
+        bytesReturned: 11n,
+        data: 'OK\tSeaside3',
+        err: { number: 0 },
+      })),
     });
 
     const result = await loadRowanProjectNb(session, '/r/spec.ston', '/r', 'Loading…');

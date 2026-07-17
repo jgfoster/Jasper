@@ -141,8 +141,13 @@ sink == nil ifTrue: [''] ifFalse: [(sink jasperLive: ${live}) encodeAsUTF8]`;
 export function installTranscriptSink(session: ActiveSession): boolean {
   try {
     const { data, err } = session.gci.GciTsExecuteFetchBytes(
-      session.handle, TRANSCRIPT_SINK_INSTALL_CODE, -1,
-      OOP_CLASS_STRING, OOP_ILLEGAL, OOP_NIL, 256,
+      session.handle,
+      TRANSCRIPT_SINK_INSTALL_CODE,
+      -1,
+      OOP_CLASS_STRING,
+      OOP_ILLEGAL,
+      OOP_NIL,
+      256,
     );
     if (err.number !== 0) {
       logError(session.id, `Transcript sink install failed: ${err.message || err.number}`);
@@ -151,7 +156,10 @@ export function installTranscriptSink(session: ActiveSession): boolean {
     logInfo(`[Session ${session.id}] Transcript sink ${data}`);
     return true;
   } catch (e) {
-    logError(session.id, `Transcript sink install failed: ${e instanceof Error ? e.message : String(e)}`);
+    logError(
+      session.id,
+      `Transcript sink install failed: ${e instanceof Error ? e.message : String(e)}`,
+    );
     return false;
   }
 }
@@ -173,7 +181,13 @@ export function drainTranscript(session: ActiveSession): string {
 function runFetchString(session: ActiveSession, code: string): string {
   try {
     const { data, err } = session.gci.GciTsExecuteFetchBytes(
-      session.handle, code, -1, OOP_CLASS_STRING, OOP_ILLEGAL, OOP_NIL, MAX_TRANSCRIPT_FETCH,
+      session.handle,
+      code,
+      -1,
+      OOP_CLASS_STRING,
+      OOP_ILLEGAL,
+      OOP_NIL,
+      MAX_TRANSCRIPT_FETCH,
     );
     if (err.number !== 0) {
       logError(session.id, `Transcript sink call failed: ${err.message || err.number}`);
@@ -181,7 +195,10 @@ function runFetchString(session: ActiveSession, code: string): string {
     }
     return data || '';
   } catch (e) {
-    logError(session.id, `Transcript sink call failed: ${e instanceof Error ? e.message : String(e)}`);
+    logError(
+      session.id,
+      `Transcript sink call failed: ${e instanceof Error ? e.message : String(e)}`,
+    );
     return '';
   }
 }
@@ -207,7 +224,8 @@ function toBigInt(value: number | bigint): bigint {
  *   args[3] = the argument Array
  */
 export function decodeTranscriptForwarderSend(
-  session: ActiveSession, err: GciError,
+  session: ActiveSession,
+  err: GciError,
 ): string | null {
   try {
     if (!isForwarderSendError(err) || err.argCount < 4) return null;
@@ -250,7 +268,11 @@ export async function settleNbResult(
     const text = decodeTranscriptForwarderSend(session, err);
     if (text !== null && text.length > 0) onTranscript(text);
     ({ result, err } = await session.gci.GciTsContinueWithAsync(
-      session.handle, toBigInt(err.context), OOP_ILLEGAL, null, 0,
+      session.handle,
+      toBigInt(err.context),
+      OOP_ILLEGAL,
+      null,
+      0,
     ));
   }
   return { result, err };

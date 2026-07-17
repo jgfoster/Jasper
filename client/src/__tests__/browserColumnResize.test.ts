@@ -12,10 +12,19 @@ beforeAll(() => {
 
 type ResizeApi = {
   nextVisibleColumn(column: Element): Element | null;
-  clampResize(startA: number, startB: number, delta: number, minWidth: number): { a: number; b: number };
+  clampResize(
+    startA: number,
+    startB: number,
+    delta: number,
+    minWidth: number,
+  ): { a: number; b: number };
   applyPairWidths(colA: HTMLElement, colB: HTMLElement, wA: number, wB: number): void;
   addHandles(container: Element, doc: Document): void;
-  setupColumnResize(options: { container: Element | null; document?: Document; minWidth?: number }): void;
+  setupColumnResize(options: {
+    container: Element | null;
+    document?: Document;
+    minWidth?: number;
+  }): void;
 };
 
 function api(): ResizeApi {

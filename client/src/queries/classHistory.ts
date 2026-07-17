@@ -18,7 +18,9 @@ export function getClassHistory(execute: QueryExecutor, className: string): stri
 // class's current name (a redo). Does NOT rename the class back and does NOT
 // commit. Returns the raw JSON result ({"reverted":bool,...} or {"error":..}).
 export function revertClassToVersion(
-  execute: QueryExecutor, className: string, index: number,
+  execute: QueryExecutor,
+  className: string,
+  index: number,
 ): string {
   return execute(
     `revertClassToVersion(${className} -> [${index}])`,
@@ -30,7 +32,9 @@ export function revertClassToVersion(
 // appears). The current version cannot be removed. Does NOT commit (the user
 // commits). Returns the raw JSON result ({"removed":bool,...} or {"error":..}).
 export function removeClassVersion(
-  execute: QueryExecutor, className: string, index: number,
+  execute: QueryExecutor,
+  className: string,
+  index: number,
 ): string {
   return execute(
     `removeClassVersion(${className} -> [${index}])`,

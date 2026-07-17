@@ -18,17 +18,13 @@ const chordBindings = keybindings.filter((kb) => kb.key?.startsWith('ctrl+k'));
 describe('keybindings', () => {
   it('should all use the ctrl+k chord prefix (Windows/Linux)', () => {
     for (const kb of chordBindings) {
-      expect(kb.key, `${kb.command} has unexpected key: "${kb.key}"`).toMatch(
-        /^ctrl\+k [a-z]$/,
-      );
+      expect(kb.key, `${kb.command} has unexpected key: "${kb.key}"`).toMatch(/^ctrl\+k [a-z]$/);
     }
   });
 
   it('should all use the cmd+k chord prefix (macOS)', () => {
     for (const kb of chordBindings) {
-      expect(kb.mac, `${kb.command} has unexpected mac key: "${kb.mac}"`).toMatch(
-        /^cmd\+k [a-z]$/,
-      );
+      expect(kb.mac, `${kb.command} has unexpected mac key: "${kb.mac}"`).toMatch(/^cmd\+k [a-z]$/);
     }
   });
 
@@ -69,9 +65,7 @@ describe('keybindings', () => {
   });
 
   it('dismiss-overlay bindings use single keys gated on the overlay context', () => {
-    const dismiss = keybindings.filter(
-      (kb) => kb.command === 'gemstone.dismissDisplayResult',
-    );
+    const dismiss = keybindings.filter((kb) => kb.command === 'gemstone.dismissDisplayResult');
     // Backspace, Ctrl+Z (undo), and Escape
     expect(dismiss.map((kb) => kb.key).sort()).toEqual(['backspace', 'ctrl+z', 'escape']);
     for (const kb of dismiss) {
@@ -84,9 +78,7 @@ describe('keybindings', () => {
   });
 
   it('expand-in-place binds Enter, gated on the overlay context and not stealing IntelliSense', () => {
-    const expand = keybindings.filter(
-      (kb) => kb.command === 'gemstone.expandDisplayResultInPlace',
-    );
+    const expand = keybindings.filter((kb) => kb.command === 'gemstone.expandDisplayResultInPlace');
     expect(expand.length).toBe(1);
     expect(expand[0].key).toBe('enter');
     expect(expand[0].when).toContain('gemstone.displayResultVisible');
@@ -96,7 +88,12 @@ describe('keybindings', () => {
   });
 
   it('should gate editor commands on editorTextFocus and !executing', () => {
-    const editorCommands = ['gemstone.displayIt', 'gemstone.executeIt', 'gemstone.debugIt', 'gemstone.inspectIt'];
+    const editorCommands = [
+      'gemstone.displayIt',
+      'gemstone.executeIt',
+      'gemstone.debugIt',
+      'gemstone.inspectIt',
+    ];
     for (const kb of keybindings) {
       if (editorCommands.includes(kb.command)) {
         expect(kb.when).toContain('editorTextFocus');

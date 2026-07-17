@@ -111,7 +111,7 @@ export class SessionManager {
       return sessions[0];
     }
 
-    const items = sessions.map(s => ({
+    const items = sessions.map((s) => ({
       label: loginLabel(s.login),
       description: `Session ${s.id}`,
       session: s,
@@ -178,7 +178,8 @@ export class SessionManager {
   // GCI library plus the stone/gem NRS strings). Throws with a user-facing
   // message when the single-session / export-path policy forbids another login.
   private prepareLogin(
-    login: GemStoneLogin, libraryPath: string,
+    login: GemStoneLogin,
+    libraryPath: string,
   ): { gci: GciLibrary; stoneNrs: string; gemNrs: string } {
     // Single mode (the default) allows one session at a time; multiple mode still
     // guards against export-path conflicts. See evaluateLoginPolicy. Pending
@@ -186,7 +187,11 @@ export class SessionManager {
     const config = vscode.workspace.getConfiguration('gemstone');
     const mode = config.get<string>('sessionMode', 'single');
     const customPath = config.get<string>('exportPath', '').trim();
-    const policyError = evaluateLoginPolicy(mode, this.sessions.size + this.pendingLogins, customPath);
+    const policyError = evaluateLoginPolicy(
+      mode,
+      this.sessions.size + this.pendingLogins,
+      customPath,
+    );
     if (policyError) {
       throw new Error(policyError);
     }
@@ -200,7 +205,10 @@ export class SessionManager {
   // Run GciTsLogin (blocking) and return the session handle, or throw with the
   // GCI error message when no session was created.
   private blockingLoginHandle(
-    gci: GciLibrary, stoneNrs: string, gemNrs: string, login: GemStoneLogin,
+    gci: GciLibrary,
+    stoneNrs: string,
+    gemNrs: string,
+    login: GemStoneLogin,
   ): unknown {
     const result = gci.GciTsLogin(
       stoneNrs,
@@ -210,7 +218,8 @@ export class SessionManager {
       gemNrs,
       login.gs_user,
       login.gs_password,
-      0, 0,
+      0,
+      0,
     );
     if (!result.session) {
       throw new Error(result.err.message || `Login failed (error ${result.err.number})`);
@@ -223,7 +232,10 @@ export class SessionManager {
   // yielding to the event loop between checks. Only GciTsNbLoginFinished may be
   // called while a login is in progress, so the shared setup waits for "done".
   private async nonBlockingLoginHandle(
-    gci: GciLibrary, stoneNrs: string, gemNrs: string, login: GemStoneLogin,
+    gci: GciLibrary,
+    stoneNrs: string,
+    gemNrs: string,
+    login: GemStoneLogin,
   ): Promise<unknown> {
     const { session } = gci.GciTsNbLogin(
       stoneNrs,
@@ -233,7 +245,8 @@ export class SessionManager {
       gemNrs,
       login.gs_user,
       login.gs_password,
-      0, 0,
+      0,
+      0,
     );
     if (!session) {
       throw new Error('Login failed: could not start a non-blocking login');
@@ -258,9 +271,7 @@ export class SessionManager {
   // Shared post-login setup for both the blocking and non-blocking paths:
   // records the session, installs the Transcript sink, drops the fresh session's
   // spurious uncommitted state, and auto-selects a lone session.
-  private finalizeSession(
-    gci: GciLibrary, login: GemStoneLogin, handle: unknown,
-  ): ActiveSession {
+  private finalizeSession(gci: GciLibrary, login: GemStoneLogin, handle: unknown): ActiveSession {
     const { version } = gci.GciTsVersion();
 
     const session: ActiveSession = {
@@ -274,7 +285,9 @@ export class SessionManager {
     };
 
     this.sessions.set(session.id, session);
-    logInfo(`[Session ${session.id}] Logged in: ${login.gs_user}@${login.gem_host}/${login.stone} (${version})`);
+    logInfo(
+      `[Session ${session.id}] Logged in: ${login.gs_user}@${login.gem_host}/${login.stone} (${version})`,
+    );
 
     // Jade-style server-side Transcript sink: compiled into the session at
     // login, kept alive via SessionTemps, never committed. Non-fatal on
@@ -295,10 +308,14 @@ export class SessionManager {
     try {
       const { success, err } = session.gci.GciTsAbort(session.handle);
       if (!success) {
-        logInfo(`[Session ${session.id}] Post-login abort failed (error ${err.number}); leaving spurious uncommitted state`);
+        logInfo(
+          `[Session ${session.id}] Post-login abort failed (error ${err.number}); leaving spurious uncommitted state`,
+        );
       }
     } catch (e: unknown) {
-      logInfo(`[Session ${session.id}] Post-login abort threw: ${e instanceof Error ? e.message : String(e)}`);
+      logInfo(
+        `[Session ${session.id}] Post-login abort threw: ${e instanceof Error ? e.message : String(e)}`,
+      );
     }
 
     // Auto-select when this is the only session
@@ -317,7 +334,8 @@ export class SessionManager {
   // initiating session's, which survives that session's logout). The caller MUST
   // log out via the returned `logout`.
   loginTransient(
-    login: GemStoneLogin, gci: GciLibrary,
+    login: GemStoneLogin,
+    gci: GciLibrary,
   ): { session: ActiveSession; logout: () => void } {
     const stoneNrs = `!tcp@${login.gem_host}#server!${login.stone}`;
     const gemNrs = `!tcp@${login.gem_host}#netldi:${login.netldi}#task!gemnetobject`;
@@ -330,7 +348,8 @@ export class SessionManager {
       gemNrs,
       login.gs_user,
       login.gs_password,
-      0, 0,
+      0,
+      0,
     );
 
     if (!result.session) {
@@ -349,7 +368,13 @@ export class SessionManager {
     };
     return {
       session,
-      logout: () => { try { gci.GciTsLogout(result.session); } catch { /* already gone */ } },
+      logout: () => {
+        try {
+          gci.GciTsLogout(result.session);
+        } catch {
+          /* already gone */
+        }
+      },
     };
   }
 
@@ -375,7 +400,11 @@ export class SessionManager {
         this.selectSession(remaining.id);
       } else {
         this._onDidChangeSelection.fire(null);
-        vscode.commands.executeCommand('setContext', 'gemstone.hasActiveSession', this.sessions.size > 0);
+        vscode.commands.executeCommand(
+          'setContext',
+          'gemstone.hasActiveSession',
+          this.sessions.size > 0,
+        );
       }
     }
   }
@@ -410,11 +439,19 @@ export class SessionManager {
 
   dispose(): void {
     for (const s of this.sessions.values()) {
-      try { s.gci.GciTsLogout(s.handle); } catch { /* ignore */ }
+      try {
+        s.gci.GciTsLogout(s.handle);
+      } catch {
+        /* ignore */
+      }
     }
     this.sessions.clear();
     for (const gci of this.gciInstances.values()) {
-      try { gci.close(); } catch { /* ignore */ }
+      try {
+        gci.close();
+      } catch {
+        /* ignore */
+      }
     }
     this.gciInstances.clear();
     this._onDidChangeSelection.dispose();

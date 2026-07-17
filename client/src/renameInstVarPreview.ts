@@ -44,8 +44,12 @@ export function parseRenameChanges(json: string): RenameChange[] {
     if (kind !== 'methodRecompile' && kind !== 'classDefinitionEdit') {
       throw new Error(`Rename preview change ${i} has an unknown kind: ${String(kind)}`);
     }
-    if (typeof c.id !== 'string' || typeof c.className !== 'string'
-      || typeof c.newSource !== 'string' || typeof c.oldSource !== 'string') {
+    if (
+      typeof c.id !== 'string' ||
+      typeof c.className !== 'string' ||
+      typeof c.newSource !== 'string' ||
+      typeof c.oldSource !== 'string'
+    ) {
       throw new Error(`Rename preview change ${i} is missing required fields.`);
     }
     return {

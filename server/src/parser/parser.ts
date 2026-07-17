@@ -1,16 +1,48 @@
-import { Token, TokenType, SourceRange, createRange, createPosition, SourcePosition } from '../lexer/tokens';
+import {
+  Token,
+  TokenType,
+  SourceRange,
+  createRange,
+  createPosition,
+  SourcePosition,
+} from '../lexer/tokens';
 import { ParseError, ParseErrorCollector } from './errors';
 import {
-  MethodNode, MethodBodyNode, MessagePatternNode,
-  UnaryPatternNode, BinaryPatternNode, KeywordPatternNode,
-  StatementNode, ReturnNode, AssignmentNode, ExpressionNode,
-  PrimaryNode, VariableNode, PathNode, BlockNode, SelectionBlockNode,
-  ParenExpressionNode, CurlyArrayBuilderNode,
-  MessageNode, UnaryMessageNode, BinaryMessageNode, KeywordMessageNode, KeywordPartNode,
-  LiteralNode, NumberLiteralNode, StringLiteralNode, SymbolLiteralNode,
-  CharacterLiteralNode, ArrayLiteralNode, ByteArrayLiteralNode, SpecialLiteralNode,
+  MethodNode,
+  MethodBodyNode,
+  MessagePatternNode,
+  UnaryPatternNode,
+  BinaryPatternNode,
+  KeywordPatternNode,
+  StatementNode,
+  ReturnNode,
+  AssignmentNode,
+  ExpressionNode,
+  PrimaryNode,
+  VariableNode,
+  PathNode,
+  BlockNode,
+  SelectionBlockNode,
+  ParenExpressionNode,
+  CurlyArrayBuilderNode,
+  MessageNode,
+  UnaryMessageNode,
+  BinaryMessageNode,
+  KeywordMessageNode,
+  KeywordPartNode,
+  LiteralNode,
+  NumberLiteralNode,
+  StringLiteralNode,
+  SymbolLiteralNode,
+  CharacterLiteralNode,
+  ArrayLiteralNode,
+  ByteArrayLiteralNode,
+  SpecialLiteralNode,
   ArrayItemNode,
-  PragmaNode, UnaryPragmaNode, KeywordPragmaNode, PragmaPairNode,
+  PragmaNode,
+  UnaryPragmaNode,
+  KeywordPragmaNode,
+  PragmaPairNode,
   PrimitiveNode,
 } from './ast';
 
@@ -22,7 +54,7 @@ export class Parser {
   constructor(allTokens: Token[]) {
     // Filter out whitespace and comments for parsing
     this.tokens = allTokens.filter(
-      (t) => t.type !== TokenType.Whitespace && t.type !== TokenType.Comment
+      (t) => t.type !== TokenType.Whitespace && t.type !== TokenType.Comment,
     );
     this.pos = 0;
     this.errors = new ParseErrorCollector();
@@ -64,9 +96,13 @@ export class Parser {
       return this.parseKeywordPattern(start);
     }
 
-    if (this.check(TokenType.BinarySelector) || this.check(TokenType.Minus) ||
-        this.check(TokenType.LessThan) || this.check(TokenType.GreaterThan) ||
-        this.check(TokenType.Pipe)) {
+    if (
+      this.check(TokenType.BinarySelector) ||
+      this.check(TokenType.Minus) ||
+      this.check(TokenType.LessThan) ||
+      this.check(TokenType.GreaterThan) ||
+      this.check(TokenType.Pipe)
+    ) {
       return this.parseBinaryPattern(start);
     }
 
@@ -284,13 +320,18 @@ export class Parser {
   private parseStatements(): StatementNode[] {
     const statements: StatementNode[] = [];
 
-    while (!this.atEnd() && !this.check(TokenType.RightBracket) && !this.check(TokenType.RightBrace)) {
+    while (
+      !this.atEnd() &&
+      !this.check(TokenType.RightBracket) &&
+      !this.check(TokenType.RightBrace)
+    ) {
       // Handle inline pragmas
       while (this.check(TokenType.LessThan)) {
         this.parsePragma(); // consume but we don't track inline pragmas in statements
       }
 
-      if (this.atEnd() || this.check(TokenType.RightBracket) || this.check(TokenType.RightBrace)) break;
+      if (this.atEnd() || this.check(TokenType.RightBracket) || this.check(TokenType.RightBrace))
+        break;
 
       // Return statement
       if (this.check(TokenType.Caret)) {
@@ -520,7 +561,11 @@ export class Parser {
       const start = this.currentRange().start;
       this.advance();
       this.addError("Unexpected '#'");
-      return { kind: 'SymbolLiteral', value: '#', range: this.rangeFrom(start) } as SymbolLiteralNode;
+      return {
+        kind: 'SymbolLiteral',
+        value: '#',
+        range: this.rangeFrom(start),
+      } as SymbolLiteralNode;
     }
 
     // Block: [...]
@@ -541,7 +586,12 @@ export class Parser {
     // Negative number: - Number
     if (this.check(TokenType.Minus)) {
       const next = this.pos + 1 < this.tokens.length ? this.tokens[this.pos + 1] : null;
-      if (next && (next.type === TokenType.Integer || next.type === TokenType.Float || next.type === TokenType.ScaledDecimal)) {
+      if (
+        next &&
+        (next.type === TokenType.Integer ||
+          next.type === TokenType.Float ||
+          next.type === TokenType.ScaledDecimal)
+      ) {
         const start = this.currentRange().start;
         this.advance(); // skip -
         const num = this.advance();
@@ -584,16 +634,24 @@ export class Parser {
     if (this.check(TokenType.Period) && this.pos + 1 < this.tokens.length) {
       const dot = this.tokens[this.pos];
       const nextAfterDot = this.tokens[this.pos + 1];
-      const dotAdjacent = id.range.end.offset === dot.range.start.offset &&
+      const dotAdjacent =
+        id.range.end.offset === dot.range.start.offset &&
         dot.range.end.offset === nextAfterDot.range.start.offset;
-      if (dotAdjacent && (nextAfterDot.type === TokenType.Identifier || nextAfterDot.type === TokenType.BinarySelector)) {
+      if (
+        dotAdjacent &&
+        (nextAfterDot.type === TokenType.Identifier ||
+          nextAfterDot.type === TokenType.BinarySelector)
+      ) {
         const segments = [id.text];
         while (this.check(TokenType.Period) && this.pos + 1 < this.tokens.length) {
           const thisDot = this.tokens[this.pos];
           const afterDot = this.tokens[this.pos + 1];
           const adjacent = thisDot.range.end.offset === afterDot.range.start.offset;
-          if (adjacent && (afterDot.type === TokenType.Identifier ||
-              (afterDot.type === TokenType.BinarySelector && afterDot.text === '*'))) {
+          if (
+            adjacent &&
+            (afterDot.type === TokenType.Identifier ||
+              (afterDot.type === TokenType.BinarySelector && afterDot.text === '*'))
+          ) {
             this.advance(); // skip .
             segments.push(this.advance().text);
           } else {
@@ -894,7 +952,13 @@ export class Parser {
       return next !== null && next.type === TokenType.Identifier;
     }
     if (token.type !== TokenType.Identifier) return false;
-    if (token.text === 'true' || token.text === 'false' || token.text === 'nil' || token.text === '_remoteNil') return false;
+    if (
+      token.text === 'true' ||
+      token.text === 'false' ||
+      token.text === 'nil' ||
+      token.text === '_remoteNil'
+    )
+      return false;
     return true;
   }
 
@@ -903,13 +967,22 @@ export class Parser {
     const token = this.peek();
     if (token.type === TokenType.EnvSpecifier) {
       const next = this.pos + 1 < this.tokens.length ? this.tokens[this.pos + 1] : null;
-      return next !== null && (next.type === TokenType.BinarySelector || next.type === TokenType.Minus ||
-        next.type === TokenType.LessThan || next.type === TokenType.GreaterThan ||
-        next.type === TokenType.Pipe);
+      return (
+        next !== null &&
+        (next.type === TokenType.BinarySelector ||
+          next.type === TokenType.Minus ||
+          next.type === TokenType.LessThan ||
+          next.type === TokenType.GreaterThan ||
+          next.type === TokenType.Pipe)
+      );
     }
-    return token.type === TokenType.BinarySelector || token.type === TokenType.Minus ||
-      token.type === TokenType.LessThan || token.type === TokenType.GreaterThan ||
-      token.type === TokenType.Pipe;
+    return (
+      token.type === TokenType.BinarySelector ||
+      token.type === TokenType.Minus ||
+      token.type === TokenType.LessThan ||
+      token.type === TokenType.GreaterThan ||
+      token.type === TokenType.Pipe
+    );
   }
 
   private isKeywordMessage(): boolean {
@@ -938,7 +1011,11 @@ export class Parser {
     );
   }
 
-  private wrapWithMessages(primary: PrimaryNode, messages: MessageNode[], start: SourcePosition): ExpressionNode {
+  private wrapWithMessages(
+    primary: PrimaryNode,
+    messages: MessageNode[],
+    start: SourcePosition,
+  ): ExpressionNode {
     return {
       kind: 'Expression',
       receiver: primary,
@@ -960,9 +1037,10 @@ export class Parser {
 
   private peek(): Token {
     if (this.pos >= this.tokens.length) {
-      const lastPos = this.tokens.length > 0
-        ? this.tokens[this.tokens.length - 1].range.end
-        : createPosition(0, 0, 0);
+      const lastPos =
+        this.tokens.length > 0
+          ? this.tokens[this.tokens.length - 1].range.end
+          : createPosition(0, 0, 0);
       return { type: TokenType.EOF, text: '', range: createRange(lastPos, lastPos) };
     }
     return this.tokens[this.pos];

@@ -6,8 +6,10 @@ import { escapeString } from './util';
 // collide with an existing class or other global BEFORE previewing, so the user
 // can pick another name.
 export function globalNameInUse(execute: QueryExecutor, name: string): boolean {
-  return execute(
-    `globalNameInUse(${name})`,
-    `(System myUserProfile symbolList objectNamed: #'${escapeString(name)}') notNil printString`,
-  ).trim() === 'true';
+  return (
+    execute(
+      `globalNameInUse(${name})`,
+      `(System myUserProfile symbolList objectNamed: #'${escapeString(name)}') notNil printString`,
+    ).trim() === 'true'
+  );
 }

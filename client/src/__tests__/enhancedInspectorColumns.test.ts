@@ -48,8 +48,11 @@ const DEFAULT_WIDTH = 340;
 const MIN_WIDTH = 280;
 
 function api(): { createColumnStrip(opts: unknown): ColumnStrip } {
-  return (globalThis as unknown as { EnhancedInspectorColumns: { createColumnStrip(o: unknown): ColumnStrip } })
-    .EnhancedInspectorColumns;
+  return (
+    globalThis as unknown as {
+      EnhancedInspectorColumns: { createColumnStrip(o: unknown): ColumnStrip };
+    }
+  ).EnhancedInspectorColumns;
 }
 
 // Minimal DOM builder + content populate, standing in for the inline webview's
@@ -89,12 +92,21 @@ function rootMsg(id: number, over: Partial<ColMsg> = {}): ColMsg {
 }
 
 function childMsg(id: number, sourceColumnId: number, over: Partial<ColMsg> = {}): ColMsg {
-  return { columnId: id, sourceColumnId, oop: String(id), title: 't' + id, className: 'C' + id, ...over };
+  return {
+    columnId: id,
+    sourceColumnId,
+    oop: String(id),
+    title: 't' + id,
+    className: 'C' + id,
+    ...over,
+  };
 }
 
-const order = (mgr: ColumnStrip) => mgr.columns.map(c => c.id);
+const order = (mgr: ColumnStrip) => mgr.columns.map((c) => c.id);
 const domOrder = (strip: HTMLElement) =>
-  Array.from(strip.querySelectorAll('.column')).map(el => Number((el as HTMLElement).dataset.colId));
+  Array.from(strip.querySelectorAll('.column')).map((el) =>
+    Number((el as HTMLElement).dataset.colId),
+  );
 
 describe('root column', () => {
   it('starts the strip with a single column', () => {
@@ -194,7 +206,7 @@ describe('close — each column is independent', () => {
 
     mgr.close(mgr.get(0)!);
 
-    expect(posted.some(m => m.command === 'closePanel')).toBe(true);
+    expect(posted.some((m) => m.command === 'closePanel')).toBe(true);
   });
 
   it('does not dispose the panel while other columns remain', () => {
@@ -204,7 +216,7 @@ describe('close — each column is independent', () => {
 
     mgr.close(mgr.get(1)!);
 
-    expect(posted.some(m => m.command === 'closePanel')).toBe(false);
+    expect(posted.some((m) => m.command === 'closePanel')).toBe(false);
   });
 
   it('focuses a neighbor after closing the focused column', () => {
@@ -228,7 +240,7 @@ describe('focus tracks the title', () => {
     mgr.focus(root, true);
     mgr.focus(child, true);
 
-    const titles = posted.filter(m => m.command === 'setTitle').map(m => m.title);
+    const titles = posted.filter((m) => m.command === 'setTitle').map((m) => m.title);
     expect(titles).toContain('an Array(3)');
     expect(titles).toContain('a Character');
   });
@@ -241,7 +253,7 @@ describe('focus tracks the title', () => {
 
     mgr.focus(col);
 
-    expect(posted.filter(m => m.command === 'setTitle')).toHaveLength(0);
+    expect(posted.filter((m) => m.command === 'setTitle')).toHaveLength(0);
   });
 
   it('marks the focused column and only that column', () => {

@@ -1,6 +1,4 @@
-import {
-  describe, it, expect, vi, beforeEach,
-} from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // A controllable webview panel so the restore message → handler wiring can be
 // driven, plus a showWarningMessage that returns whatever the test queues.
@@ -40,12 +38,24 @@ import { ClassVersion } from '../classHistoryModel';
 
 const versions: ClassVersion[] = [
   {
-    index: 2, name: 'Bar', oop: 2, timeStamp: 't2', userId: 'u', isCurrent: true,
-    definition: "Object subclass: 'Bar'", changedMethods: [],
+    index: 2,
+    name: 'Bar',
+    oop: 2,
+    timeStamp: 't2',
+    userId: 'u',
+    isCurrent: true,
+    definition: "Object subclass: 'Bar'",
+    changedMethods: [],
   },
   {
-    index: 1, name: 'Foo', oop: 1, timeStamp: 't1', userId: 'u', isCurrent: false,
-    definition: "Object subclass: 'Foo'", changedMethods: [],
+    index: 1,
+    name: 'Foo',
+    oop: 1,
+    timeStamp: 't1',
+    userId: 'u',
+    isCurrent: false,
+    definition: "Object subclass: 'Foo'",
+    changedMethods: [],
   },
 ];
 
@@ -66,7 +76,8 @@ beforeEach(() => {
 });
 
 const noopRemove = vi.fn(async (index: number) => ({
-  result: { removed: true, index, remaining: 1 }, versions,
+  result: { removed: true, index, remaining: 1 },
+  versions,
 }));
 
 describe('showClassHistoryPanel restore wiring', () => {
@@ -81,9 +92,11 @@ describe('showClassHistoryPanel restore wiring', () => {
     lastPanel().__emit({ command: 'restore', index: 1 });
     await vi.waitFor(() => expect(restore).toHaveBeenCalledWith(1));
 
-    await vi.waitFor(() => expect(lastPanel().webview.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ command: 'refresh' }),
-    ));
+    await vi.waitFor(() =>
+      expect(lastPanel().webview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'refresh' }),
+      ),
+    );
   });
 
   it('does not restore when the confirmation is dismissed', async () => {
@@ -92,7 +105,9 @@ describe('showClassHistoryPanel restore wiring', () => {
 
     showClassHistoryPanel('Bar', versions, { restore, remove: noopRemove });
     lastPanel().__emit({ command: 'restore', index: 1 });
-    await new Promise((resolve) => { setTimeout(resolve, 0); });
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
 
     expect(restore).not.toHaveBeenCalled();
   });
@@ -100,7 +115,8 @@ describe('showClassHistoryPanel restore wiring', () => {
   it('confirms and calls the remove handler for a remove message', async () => {
     confirmQueue.push('Remove');
     const remove = vi.fn(async (index: number) => ({
-      result: { removed: true, index, remaining: 1 }, versions,
+      result: { removed: true, index, remaining: 1 },
+      versions,
     }));
 
     showClassHistoryPanel('Bar', versions, { restore: vi.fn(), remove });

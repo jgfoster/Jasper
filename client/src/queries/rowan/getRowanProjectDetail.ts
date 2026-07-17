@@ -26,10 +26,24 @@ const COMMENT_MARKER = '@@COMMENT@@';
 
 function emptyDetail(name: string): RowanProjectDetail {
   return {
-    found: false, name, isDirty: false, isCommitted: false, loadedCommitId: '',
-    commitId: '', useGit: false, branch: '', repositoryRootPath: '', gitUrl: '',
-    remote: '', revision: '', packageConvention: '', defaultSymbolDict: '',
-    conditionalAttributes: [], components: [], packageCount: 0, comment: '',
+    found: false,
+    name,
+    isDirty: false,
+    isCommitted: false,
+    loadedCommitId: '',
+    commitId: '',
+    useGit: false,
+    branch: '',
+    repositoryRootPath: '',
+    gitUrl: '',
+    remote: '',
+    revision: '',
+    packageConvention: '',
+    defaultSymbolDict: '',
+    conditionalAttributes: [],
+    components: [],
+    packageCount: 0,
+    comment: '',
   };
 }
 
@@ -37,7 +51,10 @@ function emptyDetail(name: string): RowanProjectDetail {
 // browser's project context pane. Every field is error-guarded; the multi-line
 // comment trails a @@COMMENT@@ marker. List-valued fields (components,
 // conditional attributes) are comma-joined.
-export function getRowanProjectDetail(execute: QueryExecutor, projectName: string): RowanProjectDetail {
+export function getRowanProjectDetail(
+  execute: QueryExecutor,
+  projectName: string,
+): RowanProjectDetail {
   const esc = escapeString(projectName);
   const code = `| r img proj ws join |
 r := System myUserProfile symbolList objectNamed: #'Rowan'.
@@ -84,7 +101,10 @@ ws contents`;
     map.set(line.slice(0, tab), line.slice(tab + 1));
   }
   const list = (key: string) =>
-    (map.get(key) ?? '').split(',').map(s => s.trim()).filter(s => s.length > 0);
+    (map.get(key) ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
 
   return {
     found: true,

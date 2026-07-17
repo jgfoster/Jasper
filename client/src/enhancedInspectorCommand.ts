@@ -59,7 +59,8 @@ function loginAsSystemUser(base: ActiveSession, password: string): ActiveSession
     gemNrs,
     'SystemUser',
     password,
-    0, 0,
+    0,
+    0,
   );
   if (!result.session) {
     throw new Error(result.err.message || `SystemUser login failed (error ${result.err.number})`);
@@ -166,9 +167,7 @@ async function performInstall(
   interactive: boolean,
 ): Promise<void> {
   const payloadDir = path.join(extensionPath, PAYLOAD_SUBDIR);
-  const missing = ENHANCED_INSPECTOR_FILES.filter(
-    (f) => !fs.existsSync(path.join(payloadDir, f)),
-  );
+  const missing = ENHANCED_INSPECTOR_FILES.filter((f) => !fs.existsSync(path.join(payloadDir, f)));
   if (missing.length > 0) {
     vscode.window.showErrorMessage(
       `Enhanced inspector payload not found in ${payloadDir} (missing: ${missing.join(', ')}).`,
@@ -185,8 +184,8 @@ async function performInstall(
     // manually rather than failing silently.
     if (!interactive) {
       vscode.window.showWarningMessage(
-        'Enhanced inspector support was not auto-installed: the SystemUser default password was '
-          + 'not accepted. Run "GemStone: Install Server Support" to install it.',
+        'Enhanced inspector support was not auto-installed: the SystemUser default password was ' +
+          'not accepted. Run "GemStone: Install Server Support" to install it.',
       );
     }
     return;

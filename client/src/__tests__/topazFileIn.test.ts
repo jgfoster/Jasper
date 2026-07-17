@@ -8,12 +8,20 @@ vi.mock('vscode', () => ({
 
 import { ActiveSession } from '../sessionManager';
 import { BrowserQueryError } from '../browserQueries';
-import { parseTopazDocument, fileInClass, parseFileStructure, fileInChangedRegions } from '../topazFileIn';
+import {
+  parseTopazDocument,
+  fileInClass,
+  parseFileStructure,
+  fileInChangedRegions,
+} from '../topazFileIn';
 import * as queries from '../browserQueries';
 
 vi.mock('../browserQueries', () => ({
   BrowserQueryError: class BrowserQueryError extends Error {
-    constructor(message: string, public readonly gciErrorNumber: number = 0) {
+    constructor(
+      message: string,
+      public readonly gciErrorNumber: number = 0,
+    ) {
       super(message);
     }
   },
@@ -172,7 +180,12 @@ name
     expect(result.success).toBe(true);
     expect(result.compiledMethods).toBe(1);
     expect(queries.compileMethod).toHaveBeenCalledWith(
-      session, 'MyClass', false, 'accessing', expect.stringContaining('name'), 0,
+      session,
+      'MyClass',
+      false,
+      'accessing',
+      expect.stringContaining('name'),
+      0,
     );
   });
 
@@ -188,7 +201,12 @@ new
     expect(result.success).toBe(true);
     expect(result.compiledMethods).toBe(1);
     expect(queries.compileMethod).toHaveBeenCalledWith(
-      session, 'MyClass', true, 'creation', expect.stringContaining('new'), 0,
+      session,
+      'MyClass',
+      true,
+      'creation',
+      expect.stringContaining('new'),
+      0,
     );
   });
 
@@ -223,7 +241,12 @@ foo
     fileInClass(session, text);
 
     expect(queries.compileMethod).toHaveBeenCalledWith(
-      session, 'MyClass', false, 'as yet unclassified', expect.any(String), 0,
+      session,
+      'MyClass',
+      false,
+      'as yet unclassified',
+      expect.any(String),
+      0,
     );
   });
 
@@ -316,7 +339,12 @@ foo
     fileInClass(session, text, 2);
 
     expect(queries.compileMethod).toHaveBeenCalledWith(
-      session, 'MyClass', false, 'as yet unclassified', expect.any(String), 2,
+      session,
+      'MyClass',
+      false,
+      'as yet unclassified',
+      expect.any(String),
+      2,
     );
   });
 
@@ -459,8 +487,12 @@ age
     expect(result.compiledMethods).toBe(1);
     expect(queries.compileMethod).toHaveBeenCalledTimes(1);
     expect(queries.compileMethod).toHaveBeenCalledWith(
-      session, 'MyClass', false, 'accessing',
-      expect.stringContaining('asUppercase'), 0,
+      session,
+      'MyClass',
+      false,
+      'accessing',
+      expect.stringContaining('asUppercase'),
+      0,
     );
   });
 
@@ -481,7 +513,12 @@ name
     expect(result.success).toBe(true);
     expect(result.compiledMethods).toBe(1);
     expect(queries.compileMethod).toHaveBeenCalledWith(
-      session, 'MyClass', false, 'getters', expect.any(String), 0,
+      session,
+      'MyClass',
+      false,
+      'getters',
+      expect.any(String),
+      0,
     );
   });
 

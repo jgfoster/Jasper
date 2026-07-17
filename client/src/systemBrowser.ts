@@ -2,16 +2,21 @@ import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import * as path from 'path';
 import * as fs from 'fs';
-import {ActiveSession} from './sessionManager';
-import {ExportManager} from './exportManager';
-import {parseTopazDocument} from './topazFileIn';
+import { ActiveSession } from './sessionManager';
+import { ExportManager } from './exportManager';
+import { parseTopazDocument } from './topazFileIn';
 import * as queries from './browserQueries';
-import {GlobalsBrowser} from './globalsBrowser';
-import {ClassBrowser} from './classBrowser';
-import {CommentBrowser} from './commentBrowser';
-import {buildNewMethodUri, buildMethodUri, closeGemstoneTabsForSession, escapeSelectorSlashes} from './gemstoneFileSystemProvider';
-import {SourceEditorPlacement} from './sourceEditorPlacement';
-import {generateAndSaveGrailStub} from './grailStubGenerator';
+import { GlobalsBrowser } from './globalsBrowser';
+import { ClassBrowser } from './classBrowser';
+import { CommentBrowser } from './commentBrowser';
+import {
+  buildNewMethodUri,
+  buildMethodUri,
+  closeGemstoneTabsForSession,
+  escapeSelectorSlashes,
+} from './gemstoneFileSystemProvider';
+import { SourceEditorPlacement } from './sourceEditorPlacement';
+import { generateAndSaveGrailStub } from './grailStubGenerator';
 
 /**
  * The webview HTML is a large template literal in getHtml(). Embedding JS directly
@@ -23,17 +28,23 @@ import {generateAndSaveGrailStub} from './grailStubGenerator';
  * Reading the file at runtime is the simplest approach that works in both environments.
  */
 const listFilterJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'listFilter.js'), 'utf8');
-const methodListViewJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'methodListView.js'), 'utf8');
-const browserColumnResizeJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'browserColumnResize.js'), 'utf8');
+const methodListViewJs = fs.readFileSync(
+  path.join(__dirname, '..', 'src', 'methodListView.js'),
+  'utf8',
+);
+const browserColumnResizeJs = fs.readFileSync(
+  path.join(__dirname, '..', 'src', 'browserColumnResize.js'),
+  'utf8',
+);
 
 // ── Types ────────────────────────────────────────────────────
 
 interface BrowserState {
   dictionaries: string[];
-  selectedDictIndex: number | null;       // 1-based
+  selectedDictIndex: number | null; // 1-based
   classCategories: string[];
   selectedCategory: string | null;
-  classes: string[];  
+  classes: string[];
   selectedClass: string | null;
   isMeta: boolean;
   selectedEnvId: number;
@@ -116,7 +127,8 @@ function smalltalkString(s: string): string {
  * matching Jade's fileOutDictionaryMany.
  */
 export function planDictionaryFileOut(
-  dictName: string, orderedClassNames: string[],
+  dictName: string,
+  orderedClassNames: string[],
 ): DictFileOutPlan {
   const used = new Set<string>();
   const files: DictFileOutFile[] = orderedClassNames.map((className) => {
@@ -216,7 +228,9 @@ export class SystemBrowser {
    * displace open inspector panels are suppressed.
    */
   static openAndNavigate(
-    session: ActiveSession, result: queries.MethodSearchResult, viewColumn: vscode.ViewColumn,
+    session: ActiveSession,
+    result: queries.MethodSearchResult,
+    viewColumn: vscode.ViewColumn,
   ): void {
     if (!SystemBrowser.sharedExportManager) return;
     SystemBrowser.pendingNavigation.set(session.id, result);
@@ -283,16 +297,11 @@ export class SystemBrowser {
     exportManager: ExportManager,
     viewColumn: vscode.ViewColumn = vscode.ViewColumn.One,
   ): void {
-    const panel = vscode.window.createWebviewPanel(
-      'gemstoneSystemBrowser',
-      'Browser',
-      viewColumn,
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [],
-      },
-    );
+    const panel = vscode.window.createWebviewPanel('gemstoneSystemBrowser', 'Browser', viewColumn, {
+      enableScripts: true,
+      retainContextWhenHidden: true,
+      localResourceRoots: [],
+    });
 
     const browser = new SystemBrowser(panel, session, exportManager);
     let set = SystemBrowser.panels.get(session.id);
@@ -317,7 +326,12 @@ export class SystemBrowser {
    * was found and navigated (meaning the caller does NOT need to open the file
    * separately), false if no browser is open for this session.
    */
-  static navigateTo(sessionId: number, result: queries.MethodSearchResult, openFile = true, skipClassBrowser = false): boolean {
+  static navigateTo(
+    sessionId: number,
+    result: queries.MethodSearchResult,
+    openFile = true,
+    skipClassBrowser = false,
+  ): boolean {
     const browser = SystemBrowser.activeBrowser(sessionId);
     if (!browser) return false;
     browser.handleNavigateTo(result, openFile, skipClassBrowser);
@@ -329,7 +343,10 @@ export class SystemBrowser {
    * Returns true if a browser was found and navigated.
    */
   static navigateToClass(
-    sessionId: number, dictName: string, className: string, dictIndex?: number,
+    sessionId: number,
+    dictName: string,
+    className: string,
+    dictIndex?: number,
   ): boolean {
     const browser = SystemBrowser.activeBrowser(sessionId);
     if (!browser) return false;
@@ -353,7 +370,9 @@ export class SystemBrowser {
    * Return the currently selected class in the first browser for this session,
    * or null if no browser is open or no class is selected.
    */
-  static getSelectedClassName(sessionId: number): { dictName: string; className: string; dictIndex: number } | null {
+  static getSelectedClassName(
+    sessionId: number,
+  ): { dictName: string; className: string; dictIndex: number } | null {
     const browsers = SystemBrowser.panels.get(sessionId);
     if (!browsers) return null;
     for (const browser of browsers) {
@@ -431,7 +450,7 @@ export class SystemBrowser {
     this.disposables.push(editorSub);
 
     // Sync browser webview when cursor moves in a session file
-    const selSub = vscode.window.onDidChangeTextEditorSelection(e => {
+    const selSub = vscode.window.onDidChangeTextEditorSelection((e) => {
       this.handleCursorSync(e);
     });
     this.disposables.push(selSub);
@@ -465,7 +484,7 @@ export class SystemBrowser {
     const content = e.textEditor.document.getText();
     const regions = parseTopazDocument(content);
     const cursorRegion = regions.find(
-      r => r.kind === 'smalltalk-method' && cursorLine >= r.startLine && cursorLine <= r.endLine,
+      (r) => r.kind === 'smalltalk-method' && cursorLine >= r.startLine && cursorLine <= r.endLine,
     );
 
     const selector = cursorRegion
@@ -474,10 +493,12 @@ export class SystemBrowser {
     const isMeta = cursorRegion ? cursorRegion.command === 'classmethod' : this.state.isMeta;
 
     // Skip if already in sync
-    if (this.state.selectedDictIndex === dictIndex &&
+    if (
+      this.state.selectedDictIndex === dictIndex &&
       this.state.selectedClass === className &&
       this.state.selectedMethod === (selector ?? null) &&
-      this.state.isMeta === isMeta) {
+      this.state.isMeta === isMeta
+    ) {
       return;
     }
 
@@ -510,7 +531,8 @@ export class SystemBrowser {
     if (selector) {
       const envData = this.getCachedEnvData(dictIndex, className);
       const matchingEnv = envData.find(
-        entry => entry.isMeta === this.state.isMeta &&
+        (entry) =>
+          entry.isMeta === this.state.isMeta &&
           entry.envId === this.state.selectedEnvId &&
           entry.selectors.includes(selector),
       );
@@ -600,7 +622,9 @@ export class SystemBrowser {
           this.handleSelectMethod(message.selector as string);
           break;
         case 'compareSessionOverride':
-          this.handleCompareSessionOverride(message.selector as string).catch(e => this.postError(e));
+          this.handleCompareSessionOverride(message.selector as string).catch((e) =>
+            this.postError(e),
+          );
           break;
         case 'refresh':
           this.handleRefresh();
@@ -616,7 +640,7 @@ export class SystemBrowser {
           break;
         // Context menu commands
         case 'ctxAddDictionary':
-          this.handleAddDictionary().catch(e => this.postError(e));
+          this.handleAddDictionary().catch((e) => this.postError(e));
           break;
         case 'ctxMoveDictUp':
           this.handleMoveDictUp();
@@ -625,55 +649,55 @@ export class SystemBrowser {
           this.handleMoveDictDown();
           break;
         case 'ctxRemoveDictionary':
-          this.handleRemoveDictionary().catch(e => this.postError(e));
+          this.handleRemoveDictionary().catch((e) => this.postError(e));
           break;
         case 'ctxNewClassCategory':
-          this.handleNewClassCategory().catch(e => this.postError(e));
+          this.handleNewClassCategory().catch((e) => this.postError(e));
           break;
         case 'ctxNewClass':
           this.handleNewClass();
           break;
         case 'ctxDeleteClass':
-          this.handleDeleteClass().catch(e => this.postError(e));
+          this.handleDeleteClass().catch((e) => this.postError(e));
           break;
         case 'ctxMoveClass':
-          this.handleMoveClass().catch(e => this.postError(e));
+          this.handleMoveClass().catch((e) => this.postError(e));
           break;
         case 'ctxFileOutClass':
-          this.handleFileOutClass().catch(e => this.postError(e));
+          this.handleFileOutClass().catch((e) => this.postError(e));
           break;
         case 'ctxGenerateGrailStub':
-          this.handleGenerateGrailStub().catch(e => this.postError(e));
+          this.handleGenerateGrailStub().catch((e) => this.postError(e));
           break;
         case 'ctxFileOutDictionaryMany':
-          this.handleFileOutDictionaryMany().catch(e => this.postError(e));
+          this.handleFileOutDictionaryMany().catch((e) => this.postError(e));
           break;
         case 'ctxRunTests':
           this.handleRunTests();
           break;
         case 'ctxRunCategoryTests':
-          this.handleRunCategoryTests().catch(e => this.postError(e));
+          this.handleRunCategoryTests().catch((e) => this.postError(e));
           break;
         case 'ctxRunDictionaryTests':
-          this.handleRunDictionaryTests().catch(e => this.postError(e));
+          this.handleRunDictionaryTests().catch((e) => this.postError(e));
           break;
         case 'ctxNewMethod':
-          this.handleNewMethod().catch(e => this.postError(e));
+          this.handleNewMethod().catch((e) => this.postError(e));
           break;
         case 'ctxRenameCategory':
-          this.handleRenameCategory().catch(e => this.postError(e));
+          this.handleRenameCategory().catch((e) => this.postError(e));
           break;
         case 'ctxDeleteMethod':
-          this.handleDeleteMethod().catch(e => this.postError(e));
+          this.handleDeleteMethod().catch((e) => this.postError(e));
           break;
         case 'ctxRunMethodTests':
-          this.handleRunMethodTests().catch(e => this.postError(e));
+          this.handleRunMethodTests().catch((e) => this.postError(e));
           break;
         case 'ctxRunMethodCategoryTests':
-          this.handleRunMethodCategoryTests().catch(e => this.postError(e));
+          this.handleRunMethodCategoryTests().catch((e) => this.postError(e));
           break;
         case 'ctxMoveToCategory':
-          this.handleMoveToCategory().catch(e => this.postError(e));
+          this.handleMoveToCategory().catch((e) => this.postError(e));
           break;
         case 'ctxSendersOf':
           this.handleSendersOf();
@@ -682,13 +706,13 @@ export class SystemBrowser {
           this.handleImplementorsOf();
           break;
         case 'ctxBrowseSendersOfString':
-          this.promptAndBrowse('senders').catch(e => this.postError(e));
+          this.promptAndBrowse('senders').catch((e) => this.postError(e));
           break;
         case 'ctxBrowseImplementorsOfString':
-          this.promptAndBrowse('implementors').catch(e => this.postError(e));
+          this.promptAndBrowse('implementors').catch((e) => this.postError(e));
           break;
         case 'ctxBrowseMethodsContaining':
-          this.promptAndBrowse('source').catch(e => this.postError(e));
+          this.promptAndBrowse('source').catch((e) => this.postError(e));
           break;
         case 'showHierarchyImpls':
           this.handleShowHierarchyImpls(
@@ -700,10 +724,10 @@ export class SystemBrowser {
           this.handleBrowseReferences(message.name as string);
           break;
         case 'ctxMoveClassToCategory':
-          this.handleMoveClassToCategory().catch(e => this.postError(e));
+          this.handleMoveClassToCategory().catch((e) => this.postError(e));
           break;
         case 'ctxCopyMethodToClass':
-          this.handleCopyMethodToClass().catch(e => this.postError(e));
+          this.handleCopyMethodToClass().catch((e) => this.postError(e));
           break;
       }
     } catch (e: unknown) {
@@ -748,7 +772,11 @@ export class SystemBrowser {
    * pseudo-category so the Classes column fills immediately instead of
    * staying blank until the user clicks a category.
    */
-  private async handleSelectDictionary(dictIndex: number, skipPanels = false, autoSelectAllClassesCategory = false): Promise<void> {
+  private async handleSelectDictionary(
+    dictIndex: number,
+    skipPanels = false,
+    autoSelectAllClassesCategory = false,
+  ): Promise<void> {
     this.state.selectedDictIndex = dictIndex;
     this.state.selectedCategory = null;
     this.state.selectedClass = null;
@@ -766,10 +794,7 @@ export class SystemBrowser {
       }
     }
     const sorted = [...categorySet].sort();
-    this.state.classCategories = [
-      ALL_CLASSES_CATEGORY,
-      ...sorted,
-    ];
+    this.state.classCategories = [ALL_CLASSES_CATEGORY, ...sorted];
 
     this.panel.webview.postMessage({
       command: 'loadClassCategories',
@@ -791,9 +816,12 @@ export class SystemBrowser {
     });
     try {
       await GlobalsBrowser.showOrUpdate(this.session, dictName, dictIndex);
-    } catch (e) { this.postError(e); }
-    ClassBrowser.showOrUpdate(this.session, this.state.dictionaries, dictIndex, null)
-      .catch(e => this.postError(e));
+    } catch (e) {
+      this.postError(e);
+    }
+    ClassBrowser.showOrUpdate(this.session, this.state.dictionaries, dictIndex, null).catch((e) =>
+      this.postError(e),
+    );
   }
 
   private handleSelectCategory(category: string): void {
@@ -809,11 +837,11 @@ export class SystemBrowser {
     const entries = this.getCachedDictEntries(dictIndex);
     let names: string[];
     if (category === ALL_CLASSES_CATEGORY) {
-      names = entries.filter(e => e.isClass).map(e => e.name);
+      names = entries.filter((e) => e.isClass).map((e) => e.name);
     } else {
       names = entries
-        .filter(e => e.isClass && (e.category || '') === category)
-        .map(e => e.name);
+        .filter((e) => e.isClass && (e.category || '') === category)
+        .map((e) => e.name);
     }
     this.state.classes = names.sort();
 
@@ -851,7 +879,11 @@ export class SystemBrowser {
    * pseudo-category so the Methods column fills immediately; when false, only
    * the method-category list is loaded with no category pre-selected.
    */
-  private applyClassSelection(className: string, skipClassBrowser = false, autoSelectAllMethodsCategory = false): void {
+  private applyClassSelection(
+    className: string,
+    skipClassBrowser = false,
+    autoSelectAllMethodsCategory = false,
+  ): void {
     void this.closeComparisonDiff();
     this.state.selectedClass = className;
     this.state.selectedMethodCategory = null;
@@ -872,9 +904,17 @@ export class SystemBrowser {
         // ClassBrowser awaits openTextDocument, whereas CommentBrowser creates its
         // webview synchronously — without sequencing, the comment tab lands first.
         ClassBrowser.showOrUpdate(this.session, this.state.dictionaries, dictIndex, className)
-          .catch(e => this.postError(e))
-          .then(() => CommentBrowser.showOrUpdate(this.session, dictName, dictIndex, className, this.exportManager))
-          .catch(e => this.postError(e));
+          .catch((e) => this.postError(e))
+          .then(() =>
+            CommentBrowser.showOrUpdate(
+              this.session,
+              dictName,
+              dictIndex,
+              className,
+              this.exportManager,
+            ),
+          )
+          .catch((e) => this.postError(e));
       }
     }
   }
@@ -915,7 +955,7 @@ export class SystemBrowser {
 
     const envData = this.getCachedEnvData(dictIndex, className);
     const filtered = envData.filter(
-      e => e.isMeta === this.state.isMeta && e.envId === this.state.selectedEnvId,
+      (e) => e.isMeta === this.state.isMeta && e.envId === this.state.selectedEnvId,
     );
 
     let methods: string[];
@@ -928,7 +968,7 @@ export class SystemBrowser {
     } else if (category === SESSION_METHODS_CATEGORY) {
       methods = this.sessionMethodsFor(filtered).sort();
     } else {
-      const entry = filtered.find(e => e.category === category);
+      const entry = filtered.find((e) => e.category === category);
       methods = entry ? [...entry.selectors] : [];
     }
     this.state.methods = methods;
@@ -967,7 +1007,12 @@ export class SystemBrowser {
       const environmentId = this.state.selectedEnvId;
       const common = {
         kind: 'method' as const,
-        sessionId: this.session.id, dictName, className, isMeta, category, environmentId,
+        sessionId: this.session.id,
+        dictName,
+        className,
+        isMeta,
+        category,
+        environmentId,
         dictIndex,
       };
       const baseUri = buildMethodUri({ ...common, selector: `${selector} (base)`, base: true });
@@ -994,7 +1039,10 @@ export class SystemBrowser {
       const title = `${className}${isMeta ? ' class' : ''}>>${selector} - base vs session override`;
       this.comparisonDiffBaseUri = baseUri.toString();
       this.placement.remember(overrideUri);
-      await vscode.commands.executeCommand('vscode.diff', baseUri, overrideUri, title, { viewColumn, preview: true });
+      await vscode.commands.executeCommand('vscode.diff', baseUri, overrideUri, title, {
+        viewColumn,
+        preview: true,
+      });
     } finally {
       this.comparisonBusy = false;
     }
@@ -1005,7 +1053,10 @@ export class SystemBrowser {
     for (const group of vscode.window.tabGroups.all) {
       for (const tab of group.tabs) {
         const input = tab.input;
-        if (input instanceof vscode.TabInputTextDiff && input.original.toString() === baseUriString) {
+        if (
+          input instanceof vscode.TabInputTextDiff &&
+          input.original.toString() === baseUriString
+        ) {
           return tab;
         }
       }
@@ -1023,7 +1074,11 @@ export class SystemBrowser {
     if (tab) await vscode.window.tabGroups.close(tab);
   }
 
-  private handleNavigateTo(result: queries.MethodSearchResult, openFile = true, skipClassBrowser = false): void {
+  private handleNavigateTo(
+    result: queries.MethodSearchResult,
+    openFile = true,
+    skipClassBrowser = false,
+  ): void {
     const { dictName, className, isMeta, category, selector } = result;
 
     // Find 1-based dict index
@@ -1091,10 +1146,14 @@ export class SystemBrowser {
    * Auto-selects "all methods" so the Methods column fills immediately —
    * distinguishing it from `handleNavigateTo`, which navigates to a specific method.
    */
-  private handleNavigateToClass(dictName: string, className: string, explicitDictIndex?: number): void {
+  private handleNavigateToClass(
+    dictName: string,
+    className: string,
+    explicitDictIndex?: number,
+  ): void {
     // Prefer the caller's exact SymbolList index (unambiguous even when two
     // dictionaries share a name); fall back to resolving by name.
-    const dictIndex = explicitDictIndex ?? (this.state.dictionaries.indexOf(dictName) + 1);
+    const dictIndex = explicitDictIndex ?? this.state.dictionaries.indexOf(dictName) + 1;
     if (dictIndex === 0) return;
 
     this.panel.reveal(undefined, true);
@@ -1157,8 +1216,10 @@ export class SystemBrowser {
       index: prev.selectedDictIndex,
     });
 
-    const prevCategory = prev.selectedCategory && this.state.classCategories.includes(prev.selectedCategory)
-      ? prev.selectedCategory : null;
+    const prevCategory =
+      prev.selectedCategory && this.state.classCategories.includes(prev.selectedCategory)
+        ? prev.selectedCategory
+        : null;
     if (prevCategory) {
       this.handleSelectCategory(prevCategory);
     }
@@ -1192,12 +1253,18 @@ export class SystemBrowser {
       const prevDictName = this.state.dictionaries[prevDictIndex - 1];
       const prevClass = prev.selectedClass;
       // Definition before comment (see applyClassSelection for why sequencing matters).
-      ClassBrowser.showOrUpdate(
-        this.session, this.state.dictionaries, prevDictIndex, prevClass,
-      )
-        .catch(e => this.postError(e))
-        .then(() => CommentBrowser.showOrUpdate(this.session, prevDictName, prevDictIndex, prevClass, this.exportManager))
-        .catch(e => this.postError(e));
+      ClassBrowser.showOrUpdate(this.session, this.state.dictionaries, prevDictIndex, prevClass)
+        .catch((e) => this.postError(e))
+        .then(() =>
+          CommentBrowser.showOrUpdate(
+            this.session,
+            prevDictName,
+            prevDictIndex,
+            prevClass,
+            this.exportManager,
+          ),
+        )
+        .catch((e) => this.postError(e));
     } else if (prevCategory) {
       // No class to restore — just highlight the category in the webview
       this.panel.webview.postMessage({
@@ -1251,7 +1318,7 @@ export class SystemBrowser {
   private handleSelectHierarchyClass(className: string): void {
     void this.closeComparisonDiff();
     // Find which dictionary contains this class from the hierarchy entries
-    const entry = this.state.hierarchyEntries.find(e => e.className === className);
+    const entry = this.state.hierarchyEntries.find((e) => e.className === className);
     if (!entry) return;
 
     const dictIndex = this.state.dictionaries.indexOf(entry.dictName) + 1;
@@ -1276,8 +1343,8 @@ export class SystemBrowser {
       const envData = this.getCachedEnvData(dictIndex, this.state.selectedClass);
       const availableInNewEnv = new Set(
         envData
-          .filter(e => e.isMeta === this.state.isMeta && e.envId === envId)
-          .map(e => e.category),
+          .filter((e) => e.isMeta === this.state.isMeta && e.envId === envId)
+          .map((e) => e.category),
       );
       const categoryToSelect =
         previousCategory !== null && availableInNewEnv.has(previousCategory)
@@ -1440,8 +1507,10 @@ export class SystemBrowser {
     }
 
     const dictName = this.state.dictionaries[dictIndex - 1];
-    const category = (this.state.selectedCategory && this.state.selectedCategory !== ALL_CLASSES_CATEGORY)
-      ? this.state.selectedCategory : undefined;
+    const category =
+      this.state.selectedCategory && this.state.selectedCategory !== ALL_CLASSES_CATEGORY
+        ? this.state.selectedCategory
+        : undefined;
     const categoryQuery = category ? `?category=${encodeURIComponent(category)}` : '';
     const uri = vscode.Uri.parse(
       `gemstone://${this.session.id}/${encodeURIComponent(dictName)}/new-class${categoryQuery}`,
@@ -1463,7 +1532,10 @@ export class SystemBrowser {
 
     queries.deleteClass(this.session, dictIndex, className);
     this.exportManager.removeClassFile(
-      this.session, dictIndex, this.state.dictionaries[dictIndex - 1], className,
+      this.session,
+      dictIndex,
+      this.state.dictionaries[dictIndex - 1],
+      className,
     );
     this.dictEntryCache.delete(dictIndex);
     this.envCache.clear();
@@ -1476,11 +1548,11 @@ export class SystemBrowser {
     const category = this.state.selectedCategory;
     let classes: string[];
     if (!category || category === ALL_CLASSES_CATEGORY) {
-      classes = entries.filter(e => e.isClass).map(e => e.name);
+      classes = entries.filter((e) => e.isClass).map((e) => e.name);
     } else {
       classes = entries
-        .filter(e => e.isClass && (e.category || '') === category)
-        .map(e => e.name);
+        .filter((e) => e.isClass && (e.category || '') === category)
+        .map((e) => e.name);
     }
     this.state.classes = classes.sort();
 
@@ -1496,7 +1568,7 @@ export class SystemBrowser {
 
     const items = this.state.dictionaries
       .map((name, i) => ({ label: name, index: i + 1 }))
-      .filter(item => item.index !== srcIndex);
+      .filter((item) => item.index !== srcIndex);
 
     const picked = await vscode.window.showQuickPick(items, {
       placeHolder: `Move ${className} to which dictionary?`,
@@ -1505,7 +1577,10 @@ export class SystemBrowser {
 
     queries.moveClass(this.session, srcIndex, picked.index, className);
     this.exportManager.removeClassFile(
-      this.session, srcIndex, this.state.dictionaries[srcIndex - 1], className,
+      this.session,
+      srcIndex,
+      this.state.dictionaries[srcIndex - 1],
+      className,
     );
     void this.exportManager.syncClass(this.session, picked.label, className);
     this.dictEntryCache.delete(srcIndex);
@@ -1622,7 +1697,7 @@ export class SystemBrowser {
     if (!dictIndex || !dictName) return;
 
     const entries = this.getCachedDictEntries(dictIndex);
-    const classNames = entries.filter(e => e.isClass).map(e => e.name);
+    const classNames = entries.filter((e) => e.isClass).map((e) => e.name);
     if (classNames.length === 0) return;
 
     await vscode.commands.executeCommand('gemstone.runSunitClasses', dictName, classNames);
@@ -1634,7 +1709,9 @@ export class SystemBrowser {
     const dictName = this.dictNameForIndex(this.state.selectedDictIndex);
     if (!className || !selector || !dictName) return;
 
-    await vscode.commands.executeCommand('gemstone.runSunitMethods', dictName, className, [selector]);
+    await vscode.commands.executeCommand('gemstone.runSunitMethods', dictName, className, [
+      selector,
+    ]);
   }
 
   private async handleRunMethodCategoryTests() {
@@ -1643,9 +1720,13 @@ export class SystemBrowser {
     const dictName = this.dictNameForIndex(this.state.selectedDictIndex);
     if (!className || !category || !dictName) return;
 
-    await vscode.commands.executeCommand('gemstone.runSunitMethodCategory', dictName, className, category);
+    await vscode.commands.executeCommand(
+      'gemstone.runSunitMethodCategory',
+      dictName,
+      className,
+      category,
+    );
   }
-
 
   private async handleNewMethod(): Promise<void> {
     const dictIndex = this.state.selectedDictIndex;
@@ -1656,9 +1737,20 @@ export class SystemBrowser {
     }
 
     const dictName = this.state.dictionaries[dictIndex - 1];
-    const category = (this.state.selectedMethodCategory && !isComputedMethodCategory(this.state.selectedMethodCategory))
-      ? this.state.selectedMethodCategory : 'as yet unclassified';
-    const uri = buildNewMethodUri(this.session.id, dictName, className, this.state.isMeta, category, this.state.selectedEnvId, dictIndex);
+    const category =
+      this.state.selectedMethodCategory &&
+      !isComputedMethodCategory(this.state.selectedMethodCategory)
+        ? this.state.selectedMethodCategory
+        : 'as yet unclassified';
+    const uri = buildNewMethodUri(
+      this.session.id,
+      dictName,
+      className,
+      this.state.isMeta,
+      category,
+      this.state.selectedEnvId,
+      dictIndex,
+    );
     const viewColumn = await this.getBrowserViewColumn();
     this.placement.remember(uri);
     const doc = await vscode.workspace.openTextDocument(uri);
@@ -1677,7 +1769,14 @@ export class SystemBrowser {
     });
     if (!newName || newName === oldCategory) return;
 
-    queries.renameCategory(this.session, className, this.state.isMeta, oldCategory, newName, dictIndex);
+    queries.renameCategory(
+      this.session,
+      className,
+      this.state.isMeta,
+      oldCategory,
+      newName,
+      dictIndex,
+    );
     this.syncSelectedClass(className);
     this.envCache.delete(`${dictIndex}/${className}`);
     this.state.selectedMethodCategory = newName;
@@ -1714,13 +1813,25 @@ export class SystemBrowser {
     const dictIndex = this.state.selectedDictIndex;
     if (!className || !selector || !dictIndex) return;
 
-    const categories = queries.getMethodCategories(this.session, className, this.state.isMeta, dictIndex);
+    const categories = queries.getMethodCategories(
+      this.session,
+      className,
+      this.state.isMeta,
+      dictIndex,
+    );
     const picked = await vscode.window.showQuickPick(categories, {
       placeHolder: `Move #${selector} to which category?`,
     });
     if (!picked) return;
 
-    queries.recategorizeMethod(this.session, className, this.state.isMeta, selector, picked, dictIndex);
+    queries.recategorizeMethod(
+      this.session,
+      className,
+      this.state.isMeta,
+      selector,
+      picked,
+      dictIndex,
+    );
     this.syncSelectedClass(className);
     this.envCache.delete(`${dictIndex}/${className}`);
     this.loadMethodCategories();
@@ -1753,17 +1864,27 @@ export class SystemBrowser {
   // don't require a selection. All three reuse the same ClassOrganizer-backed
   // search + results view as the existing commands.
   private async promptAndBrowse(kind: 'senders' | 'implementors' | 'source'): Promise<void> {
-    const input = (await vscode.window.showInputBox(kind === 'source'
-      ? { prompt: 'Browse methods containing string', placeHolder: 'e.g. asString' }
-      : { prompt: `Browse ${kind} of selector`, placeHolder: 'e.g. at:put:' }
-    ))?.trim();
+    const input = (
+      await vscode.window.showInputBox(
+        kind === 'source'
+          ? { prompt: 'Browse methods containing string', placeHolder: 'e.g. asString' }
+          : { prompt: `Browse ${kind} of selector`, placeHolder: 'e.g. at:put:' },
+      )
+    )?.trim();
     if (!input) return;
 
     if (kind === 'source') {
-      await vscode.commands.executeCommand('gemstone.searchMethodsFor', { term: input, sessionId: this.session.id });
+      await vscode.commands.executeCommand('gemstone.searchMethodsFor', {
+        term: input,
+        sessionId: this.session.id,
+      });
     } else {
-      const command = kind === 'senders' ? 'gemstone.sendersOfSelector' : 'gemstone.implementorsOfSelector';
-      await vscode.commands.executeCommand(command, { selector: input, sessionId: this.session.id });
+      const command =
+        kind === 'senders' ? 'gemstone.sendersOfSelector' : 'gemstone.implementorsOfSelector';
+      await vscode.commands.executeCommand(command, {
+        selector: input,
+        sessionId: this.session.id,
+      });
     }
   }
 
@@ -1800,15 +1921,20 @@ export class SystemBrowser {
     // Offer the dictionary's existing (real) class categories, dropping the
     // "all classes" pseudo-entry and the empty "uncategorized" bucket. New
     // categories are created via the categories column's "New Class Category".
-    const categories = this.state.classCategories
-      .filter(c => c !== ALL_CLASSES_CATEGORY && c !== '');
+    const categories = this.state.classCategories.filter(
+      (c) => c !== ALL_CLASSES_CATEGORY && c !== '',
+    );
     const picked = await vscode.window.showQuickPick(categories, {
       placeHolder: `Move ${className} to which category?`,
     });
     if (!picked) return;
 
     queries.recategorizeClass(this.session, className, picked, dictIndex);
-    void this.exportManager.syncClass(this.session, this.state.dictionaries[dictIndex - 1], className);
+    void this.exportManager.syncClass(
+      this.session,
+      this.state.dictionaries[dictIndex - 1],
+      className,
+    );
     // The class may leave its old category — re-read the dictionary and rebuild
     // the categories column and class list.
     this.dictEntryCache.delete(dictIndex);
@@ -1823,8 +1949,9 @@ export class SystemBrowser {
     const dictIndex = this.state.selectedDictIndex;
     if (!sourceClass || !selector || !dictIndex) return;
 
-    const targets = queries.getClassNames(this.session, dictIndex)
-      .filter(name => name !== sourceClass)
+    const targets = queries
+      .getClassNames(this.session, dictIndex)
+      .filter((name) => name !== sourceClass)
       .sort();
     if (targets.length === 0) {
       vscode.window.showInformationMessage('No other classes in this dictionary to copy to.');
@@ -1836,7 +1963,13 @@ export class SystemBrowser {
     if (!picked) return;
 
     queries.copyMethodToClass(
-      this.session, sourceClass, picked, this.state.isMeta, selector, this.state.selectedEnvId, dictIndex,
+      this.session,
+      sourceClass,
+      picked,
+      this.state.isMeta,
+      selector,
+      this.state.selectedEnvId,
+      dictIndex,
     );
     void this.exportManager.syncClass(this.session, this.state.dictionaries[dictIndex - 1], picked);
     this.envCache.delete(`${dictIndex}/${picked}`);
@@ -1885,7 +2018,10 @@ export class SystemBrowser {
     let data = this.envCache.get(key);
     if (!data) {
       data = queries.getClassEnvironments(
-        this.session, dictIndex, className, this.getMaxEnvironment(),
+        this.session,
+        dictIndex,
+        className,
+        this.getMaxEnvironment(),
       );
       this.envCache.set(key, data);
     }
@@ -1972,16 +2108,17 @@ export class SystemBrowser {
 
     const envData = this.getCachedEnvData(dictIndex, className);
     const filtered = envData.filter(
-      e => e.isMeta === this.state.isMeta && e.envId === this.state.selectedEnvId,
+      (e) => e.isMeta === this.state.isMeta && e.envId === this.state.selectedEnvId,
     );
 
-    const categories = filtered.map(e => e.category).sort();
+    const categories = filtered.map((e) => e.category).sort();
     // Surface the computed Session Methods category at the head, right after
     // ALL METHODS, only when this side/env actually has session methods — so it
     // is never buried among the real categories and absent when there are none.
-    const head = this.sessionMethodsFor(filtered).length > 0
-      ? [ALL_METHODS_CATEGORY, SESSION_METHODS_CATEGORY]
-      : [ALL_METHODS_CATEGORY];
+    const head =
+      this.sessionMethodsFor(filtered).length > 0
+        ? [ALL_METHODS_CATEGORY, SESSION_METHODS_CATEGORY]
+        : [ALL_METHODS_CATEGORY];
     this.state.methodCategories = [...head, ...categories];
 
     this.panel.webview.postMessage({
@@ -2000,7 +2137,7 @@ export class SystemBrowser {
     this.state.hierarchyEntries = entries;
     this.state.hierarchyClassName = className;
 
-    const superCount = entries.filter(e => e.kind === 'superclass').length;
+    const superCount = entries.filter((e) => e.kind === 'superclass').length;
     const items = entries.map((e, i) => ({
       className: e.className,
       dictName: e.dictName,
@@ -2027,12 +2164,18 @@ export class SystemBrowser {
   private methodCategoryFor(className: string, isMeta: boolean, selector: string): string {
     const dictIndex = this.state.selectedDictIndex;
     if (dictIndex) {
-      const entry = this.getCachedEnvData(dictIndex, className).find(e =>
-        e.isMeta === isMeta && e.envId === this.state.selectedEnvId && e.selectors.includes(selector));
+      const entry = this.getCachedEnvData(dictIndex, className).find(
+        (e) =>
+          e.isMeta === isMeta &&
+          e.envId === this.state.selectedEnvId &&
+          e.selectors.includes(selector),
+      );
       if (entry) return entry.category;
     }
-    return (this.state.selectedMethodCategory && !isComputedMethodCategory(this.state.selectedMethodCategory))
-      ? this.state.selectedMethodCategory : 'as yet unclassified';
+    return this.state.selectedMethodCategory &&
+      !isComputedMethodCategory(this.state.selectedMethodCategory)
+      ? this.state.selectedMethodCategory
+      : 'as yet unclassified';
   }
 
   private async openClassFile(
@@ -2070,8 +2213,8 @@ export class SystemBrowser {
     if (this.state.selectedEnvId > 0) params.push(`env=${this.state.selectedEnvId}`);
     const uri = vscode.Uri.parse(
       `gemstone://${this.session.id}/${encodeURIComponent(dictName)}/` +
-      `${encodeURIComponent(className)}/${side}/` +
-      `${encodeURIComponent(category)}/${encodeURIComponent(escapeSelectorSlashes(selector))}?${params.join('&')}`
+        `${encodeURIComponent(className)}/${side}/` +
+        `${encodeURIComponent(category)}/${encodeURIComponent(escapeSelectorSlashes(selector))}?${params.join('&')}`,
     );
     const viewColumn = await this.getBrowserViewColumn();
     this.placement.remember(uri);

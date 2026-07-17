@@ -7,8 +7,7 @@ import { classLookupExpr, escapeString } from './util';
 // Re-parenting the descendant subtree and rebinding the name are NOT scoped —
 // scope only governs which OUTSIDE referencing methods are rewritten.
 export type RenameClassScope =
-  | { kind: 'class' | 'hierarchy' | 'wholeSystem' }
-  | { kind: 'dictionary'; dictName: string };
+  { kind: 'class' | 'hierarchy' | 'wholeSystem' } | { kind: 'dictionary'; dictName: string };
 
 function scopeClauseOf(scope: RenameClassScope): string {
   return scope.kind === 'dictionary'
@@ -42,9 +41,13 @@ function stBool(b: boolean): string {
 // `dict` scopes the class lookup (1-based index, canonical for Jasper, or a name).
 export function startRenameClassPreview(
   execute: AsyncQueryExecutor,
-  className: string, newName: string, scope: RenameClassScope,
+  className: string,
+  newName: string,
+  scope: RenameClassScope,
   options: RenameClassOptions,
-  token: string, maxBytes: number, dict?: number | string,
+  token: string,
+  maxBytes: number,
+  dict?: number | string,
 ): Promise<string> {
   const code = `| cls ref |
 cls := ${classLookupExpr(className, dict)}.
@@ -59,18 +62,19 @@ ref
   migrateInstances: ${stBool(options.migrateInstances)}
   removeOldFromHistory: ${stBool(options.removeOldFromHistory)}.
 ref startPreviewToken: '${escapeString(token)}' maxBytes: ${maxBytes}`;
-  return execute(
-    `startRenameClassPreview(${className} -> ${newName} [${scope.kind}])`,
-    code,
-  );
+  return execute(`startRenameClassPreview(${className} -> ${newName} [${scope.kind}])`, code);
 }
 
 // Fetch the next page of a started preview, by token.
 export function pageRenameClassPreview(
-  execute: AsyncQueryExecutor, token: string, offset: number, maxBytes: number,
+  execute: AsyncQueryExecutor,
+  token: string,
+  offset: number,
+  maxBytes: number,
 ): Promise<string> {
-  const code = `GsRenameClassRefactoring pageForToken: '${escapeString(token)}' `
-    + `from: ${offset} maxBytes: ${maxBytes}`;
+  const code =
+    `GsRenameClassRefactoring pageForToken: '${escapeString(token)}' ` +
+    `from: ${offset} maxBytes: ${maxBytes}`;
   return execute(`pageRenameClassPreview(${token} @ ${offset})`, code);
 }
 
@@ -80,11 +84,14 @@ export function pageRenameClassPreview(
 // classReparent are always applied regardless of the deselected set (structural);
 // deselection only skips the optional methodRecompile reference rewrites.
 export function applyRenameClass(
-  execute: AsyncQueryExecutor, token: string, deselectedIds: string[],
+  execute: AsyncQueryExecutor,
+  token: string,
+  deselectedIds: string[],
 ): Promise<string> {
   const idsLiteral = deselectedIds.map((id) => `'${escapeString(id)}'`).join(' ');
-  const code = `GsRenameClassRefactoring applyForToken: '${escapeString(token)}' `
-    + `deselected: #(${idsLiteral})`;
+  const code =
+    `GsRenameClassRefactoring applyForToken: '${escapeString(token)}' ` +
+    `deselected: #(${idsLiteral})`;
   return execute(`applyRenameClass(${token}, -${deselectedIds.length})`, code);
 }
 

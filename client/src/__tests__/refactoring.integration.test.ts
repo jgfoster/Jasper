@@ -30,22 +30,29 @@ import type { ActiveSession } from '../sessionManager';
 describe('rename instance variable (integration)', () => {
   let gci: GciLibrary;
   let handle: unknown;
-  useIntegrationTest((testContext) => { gci = testContext.gciLibrary; handle = testContext.session; });
+  useIntegrationTest((testContext) => {
+    gci = testContext.gciLibrary;
+    handle = testContext.session;
+  });
 
   const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
   const exec = (code: string): string => q.executeFetchString(session(), 'refactoring-it', code);
 
   const engineLoaded = (): boolean => q.checkRefactoringSupportAvailable(session());
   const engineClassPresent = (): boolean =>
-    exec('(System myUserProfile symbolList objectNamed: #GsRenameInstanceVariableRefactoring) notNil printString')
-      .trim() === 'true';
+    exec(
+      '(System myUserProfile symbolList objectNamed: #GsRenameInstanceVariableRefactoring) notNil printString',
+    ).trim() === 'true';
 
   const dictIndexOf = (name: string): number =>
-    parseInt(exec(
-      `| sl d | sl := System myUserProfile symbolList. ` +
-      `d := sl detect: [:x | x name = #'${name}'] ifNone: [nil]. ` +
-      `(d ifNil: [0] ifNotNil: [sl indexOf: d]) printString`,
-    ), 10);
+    parseInt(
+      exec(
+        `| sl d | sl := System myUserProfile symbolList. ` +
+          `d := sl detect: [:x | x name = #'${name}'] ifNone: [nil]. ` +
+          `(d ifNil: [0] ifNotNil: [sl indexOf: d]) printString`,
+      ),
+      10,
+    );
   const userIndex = (): number => dictIndexOf('UserGlobals');
 
   const COUNTER = 'JasperRivCounter';
@@ -55,18 +62,28 @@ describe('rename instance variable (integration)', () => {
   // reads and writes it, plus a subclass whose own method also references it —
   // so the preview must reach across the hierarchy, not just the defining class.
   const defineCounterHierarchy = (): void => {
-    q.compileClassDefinition(session(),
-      `Object subclass: '${COUNTER}' instVarNames: #('count') classVars: #() `
-      + 'classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals');
+    q.compileClassDefinition(
+      session(),
+      `Object subclass: '${COUNTER}' instVarNames: #('count') classVars: #() ` +
+        'classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals',
+    );
     q.compileMethod(session(), COUNTER, false, 'accessing', 'increment count := count + 1');
-    q.compileClassDefinition(session(),
-      `${COUNTER} subclass: '${SUB}' instVarNames: #() classVars: #() `
-      + 'classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals');
+    q.compileClassDefinition(
+      session(),
+      `${COUNTER} subclass: '${SUB}' instVarNames: #() classVars: #() ` +
+        'classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals',
+    );
     q.compileMethod(session(), SUB, false, 'accessing', 'doubleCount ^count * 2');
   };
 
-  const changeFor = (changes: RenameChange[], className: string, selector: string): RenameChange | undefined =>
-    changes.find((c) => c.kind === 'methodRecompile' && c.className === className && c.selector === selector);
+  const changeFor = (
+    changes: RenameChange[],
+    className: string,
+    selector: string,
+  ): RenameChange | undefined =>
+    changes.find(
+      (c) => c.kind === 'methodRecompile' && c.className === className && c.selector === selector,
+    );
 
   it('reports engine availability that matches whether the engine class is present', () => {
     const available = engineLoaded();
@@ -79,7 +96,9 @@ describe('rename instance variable (integration)', () => {
 
     defineCounterHierarchy();
 
-    const changes = parseRenameChanges(previewRenameInstVar(exec, COUNTER, 'count', 'tally', userIndex()));
+    const changes = parseRenameChanges(
+      previewRenameInstVar(exec, COUNTER, 'count', 'tally', userIndex()),
+    );
 
     expect(changeFor(changes, COUNTER, 'increment')?.newSource).toContain('tally := tally + 1');
     expect(changeFor(changes, SUB, 'doubleCount')?.newSource).toContain('tally * 2');
@@ -91,7 +110,9 @@ describe('rename instance variable (integration)', () => {
 
     defineCounterHierarchy();
 
-    const changes = parseRenameChanges(previewRenameInstVar(exec, COUNTER, 'count', 'tally', userIndex()));
+    const changes = parseRenameChanges(
+      previewRenameInstVar(exec, COUNTER, 'count', 'tally', userIndex()),
+    );
 
     const classDef = changes.find((c) => c.kind === 'classDefinitionEdit');
     expect(classDef?.className).toBe(COUNTER);

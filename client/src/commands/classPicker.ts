@@ -36,14 +36,12 @@ export async function withLoadingProgress<T>(
 export async function loadClassPickItems(
   session: ActiveSession,
 ): Promise<ClassPickItem[] | undefined> {
-  const entries = await withLoadingProgress(
-    'Loading class list…',
-    'Failed to load classes',
-    () => queries.getAllClassNames(session),
+  const entries = await withLoadingProgress('Loading class list…', 'Failed to load classes', () =>
+    queries.getAllClassNames(session),
   );
   if (!entries) return undefined;
 
-  return entries.map(e => ({
+  return entries.map((e) => ({
     label: e.className,
     description: e.dictName,
     entry: e,

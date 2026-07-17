@@ -31,9 +31,10 @@
     glyph.className = 'indicator-glyph';
     glyph.textContent = dir === 'up' ? '▲' : '▼';
     span.appendChild(glyph);
-    span.title = dir === 'up'
-      ? 'Overrides a superclass implementation — click to view'
-      : 'Overridden in a subclass — click to view';
+    span.title =
+      dir === 'up'
+        ? 'Overrides a superclass implementation — click to view'
+        : 'Overridden in a subclass — click to view';
     return span;
   }
 
@@ -74,15 +75,20 @@
     div.textContent = '';
     const gutter = document.createElement('span');
     gutter.className = 'method-gutter';
-    gutter.appendChild((methodOverrideBit & 1) ? makeOverrideArrow(selector, 'up') : makeIndicatorSlot('arrow'));
-    gutter.appendChild((methodOverrideBit & 2) ? makeOverrideArrow(selector, 'down') : makeIndicatorSlot('arrow'));
+    gutter.appendChild(
+      methodOverrideBit & 1 ? makeOverrideArrow(selector, 'up') : makeIndicatorSlot('arrow'),
+    );
+    gutter.appendChild(
+      methodOverrideBit & 2 ? makeOverrideArrow(selector, 'down') : makeIndicatorSlot('arrow'),
+    );
     if (sessionBit) {
       div.classList.add(sessionBit === 2 ? 'session-override' : 'session-extension');
       // Row tooltip is descriptive only — the click-to-compare hint lives on the
       // ± glyph itself, so hovering the method name doesn't imply clicking it.
-      div.title = sessionBit === 2
-        ? 'Session method that overrides a persistent base method'
-        : 'Session method that adds new behavior (extension)';
+      div.title =
+        sessionBit === 2
+          ? 'Session method that overrides a persistent base method'
+          : 'Session method that adds new behavior (extension)';
       gutter.appendChild(makeSessionIndicator(selector, sessionBit));
     } else {
       gutter.appendChild(makeIndicatorSlot('session'));
@@ -129,7 +135,10 @@
 
   const root = typeof globalThis !== 'undefined' ? globalThis : window;
   root.MethodListView = {
-    makeOverrideArrow, makeSessionIndicator,
-    applyOverrideArrows, applyMethodIndicators, methodListClickMessage,
+    makeOverrideArrow,
+    makeSessionIndicator,
+    applyOverrideArrows,
+    applyMethodIndicators,
+    methodListClickMessage,
   };
 })();

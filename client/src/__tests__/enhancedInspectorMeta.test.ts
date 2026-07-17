@@ -1,10 +1,15 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fetchObjectMeta, fetchMethodBrowseLocation, fetchMethodSource } from '../queries/getEnhancedInspectorViewSpecs';
+import {
+  fetchObjectMeta,
+  fetchMethodBrowseLocation,
+  fetchMethodSource,
+} from '../queries/getEnhancedInspectorViewSpecs';
 
 describe('fetchObjectMeta', () => {
   it('returns the JSON string on happy path', () => {
     expect.assertions(1);
-    const json = '{"className":"Array","superclassName":"SequenceableCollection","category":"Collections","comment":"","definition":"...","methodSelectors":[],"classMethodSelectors":[]}';
+    const json =
+      '{"className":"Array","superclassName":"SequenceableCollection","category":"Collections","comment":"","definition":"...","methodSelectors":[],"classMethodSelectors":[]}';
     const execute = vi.fn(() => json);
     expect(fetchObjectMeta(execute, 1000n)).toBe(json);
   });
@@ -17,7 +22,9 @@ describe('fetchObjectMeta', () => {
 
   it('returns null when execute throws', () => {
     expect.assertions(1);
-    const execute = vi.fn(() => { throw new Error('connection lost'); });
+    const execute = vi.fn(() => {
+      throw new Error('connection lost');
+    });
     expect(fetchObjectMeta(execute, 1000n)).toBeNull();
   });
 
@@ -49,7 +56,9 @@ describe('fetchMethodBrowseLocation', () => {
 
   it('returns null when execute throws', () => {
     expect.assertions(1);
-    const execute = vi.fn(() => { throw new Error('connection lost'); });
+    const execute = vi.fn(() => {
+      throw new Error('connection lost');
+    });
     expect(fetchMethodBrowseLocation(execute, 1000n, 'size', false)).toBeNull();
   });
 
@@ -102,7 +111,9 @@ describe('fetchMethodSource', () => {
 
   it('returns null when execute throws', () => {
     expect.assertions(1);
-    const execute = vi.fn(() => { throw new Error('connection lost'); });
+    const execute = vi.fn(() => {
+      throw new Error('connection lost');
+    });
     expect(fetchMethodSource(execute, 1000n, 'size', false)).toBeNull();
   });
 

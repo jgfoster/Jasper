@@ -31,13 +31,19 @@
         const head = li.querySelector('.version-head');
         if (head) {
           head.addEventListener('click', function (event) {
-            if (event.target && event.target.classList
-              && (event.target.classList.contains('restore')
-                || event.target.classList.contains('remove'))) return;
+            if (
+              event.target &&
+              event.target.classList &&
+              (event.target.classList.contains('restore') ||
+                event.target.classList.contains('remove'))
+            )
+              return;
             toggle(li);
           });
         }
-        const indexOf = function () { return parseInt(li.getAttribute('data-index') || '0', 10); };
+        const indexOf = function () {
+          return parseInt(li.getAttribute('data-index') || '0', 10);
+        };
         const restoreBtn = li.querySelector('.restore');
         if (restoreBtn) {
           restoreBtn.addEventListener('click', function () {
@@ -63,7 +69,9 @@
       }
     };
     if (typeof doc.defaultView !== 'undefined' && doc.defaultView) {
-      doc.defaultView.addEventListener('message', function (e) { handleMessage(e.data); });
+      doc.defaultView.addEventListener('message', function (e) {
+        handleMessage(e.data);
+      });
     }
 
     wireRows();

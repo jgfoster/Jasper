@@ -9,14 +9,15 @@ import { classLookupExpr, escapeString } from './util';
 // targets that specific dictionary — necessary when walking dicts in order
 // (e.g. exporting every class) because names can be shadowed across dicts.
 export function fileOutClass(
-  execute: QueryExecutor, className: string, dict?: number | string,
+  execute: QueryExecutor,
+  className: string,
+  dict?: number | string,
 ): string {
   const code = `| cls |
 cls := ${classLookupExpr(className, dict)}.
 cls ifNil: [^ 'Class not found: ${escapeString(className)}'].
 cls fileOutClass`;
-  const label = dict === undefined
-    ? `fileOutClass(${className})`
-    : `fileOutClass(${className}, dict: ${dict})`;
+  const label =
+    dict === undefined ? `fileOutClass(${className})` : `fileOutClass(${className}, dict: ${dict})`;
   return execute(label, code);
 }

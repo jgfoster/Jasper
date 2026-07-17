@@ -80,7 +80,11 @@ beforeEach(() => {
   mocks.showInputBox.mockResolvedValue(undefined);
   mocks.sessionNeedsCommit.mockReturnValue(false);
   mocks.installSupport.mockResolvedValue({
-    success: true, committed: true, verified: true, filedIn: [], message: 'ok',
+    success: true,
+    committed: true,
+    verified: true,
+    filedIn: [],
+    message: 'ok',
   });
   mocks.checkEnhancedInspectorAvailable.mockReturnValue(true);
 });
@@ -135,7 +139,11 @@ describe('installEnhancedInspectorFeature', () => {
 
   it('reports failure when the install pipeline fails', async () => {
     mocks.installSupport.mockResolvedValueOnce({
-      success: false, committed: false, verified: false, filedIn: [], message: 'boom',
+      success: false,
+      committed: false,
+      verified: false,
+      filedIn: [],
+      message: 'boom',
     });
     const base = createBaseSession();
 

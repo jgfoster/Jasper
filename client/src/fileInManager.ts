@@ -159,7 +159,9 @@ export class FileInManager {
         SystemBrowser.refresh(session.id);
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
-        vscode.window.showErrorMessage(`Failed to remove class "${className}" from GemStone: ${msg}`);
+        vscode.window.showErrorMessage(
+          `Failed to remove class "${className}" from GemStone: ${msg}`,
+        );
       }
     } else if (parts.length === 1) {
       // Deleting a dictionary directory → remove dictionary from symbol list

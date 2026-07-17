@@ -1,7 +1,5 @@
 // @vitest-environment jsdom
-import {
-  describe, it, expect, beforeAll, vi,
-} from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { renderClassPanelHtml, renderClassCards } from '../renameClassPanelHtml';
@@ -13,7 +11,10 @@ beforeAll(() => {
 });
 
 interface PanelApi {
-  wire(doc: Document, vscode: { postMessage: (m: unknown) => void }): {
+  wire(
+    doc: Document,
+    vscode: { postMessage: (m: unknown) => void },
+  ): {
     deselectedIds: () => string[];
   };
 }
@@ -22,20 +23,40 @@ function api(): PanelApi {
 }
 
 const renameChange: ClassRenameChange = {
-  id: '1', kind: 'classRename', dictName: 'UserGlobals', className: 'Foo', isMeta: false,
-  selector: null, newName: 'Bar', category: null,
+  id: '1',
+  kind: 'classRename',
+  dictName: 'UserGlobals',
+  className: 'Foo',
+  isMeta: false,
+  selector: null,
+  newName: 'Bar',
+  category: null,
   oldSource: "Object subclass: 'Foo'\n  instVarNames: #( x)",
   newSource: "Object subclass: 'Bar'\n  instVarNames: #( x)",
 };
 const reparentChange: ClassRenameChange = {
-  id: '2', kind: 'classReparent', dictName: 'UserGlobals', className: 'Sub', isMeta: false,
-  selector: null, newName: null, category: null,
-  oldSource: "Foo subclass: 'Sub'", newSource: "Bar subclass: 'Sub'",
+  id: '2',
+  kind: 'classReparent',
+  dictName: 'UserGlobals',
+  className: 'Sub',
+  isMeta: false,
+  selector: null,
+  newName: null,
+  category: null,
+  oldSource: "Foo subclass: 'Sub'",
+  newSource: "Bar subclass: 'Sub'",
 };
 const refChange: ClassRenameChange = {
-  id: '3', kind: 'methodRecompile', dictName: 'UserGlobals', className: 'Other', isMeta: false,
-  selector: 'usesFoo', newName: null, category: 'making',
-  oldSource: 'usesFoo "a Foo comment" ^Foo new', newSource: 'usesFoo "a Foo comment" ^Bar new',
+  id: '3',
+  kind: 'methodRecompile',
+  dictName: 'UserGlobals',
+  className: 'Other',
+  isMeta: false,
+  selector: 'usesFoo',
+  newName: null,
+  category: 'making',
+  oldSource: 'usesFoo "a Foo comment" ^Foo new',
+  newSource: 'usesFoo "a Foo comment" ^Bar new',
 };
 
 function mount(over: Partial<Parameters<typeof renderClassPanelHtml>[0]> = {}) {
@@ -87,7 +108,12 @@ describe('rename-class preview panel HTML', () => {
 
   it('warns prominently when the new name collides', () => {
     const { full } = mount({
-      outOfScope: { references: 0, descendants: 0, skipped: 0, collision: 'the name Bar is already in use' },
+      outOfScope: {
+        references: 0,
+        descendants: 0,
+        skipped: 0,
+        collision: 'the name Bar is already in use',
+      },
     });
 
     expect(full).toContain('the name Bar is already in use');

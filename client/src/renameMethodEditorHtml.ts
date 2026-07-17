@@ -33,7 +33,9 @@ export interface MethodEditorHtmlOptions {
 }
 
 function renderRow(
-  part: string, argName: string | undefined, originalArgIndex: number | undefined,
+  part: string,
+  argName: string | undefined,
+  originalArgIndex: number | undefined,
   reorderable: boolean,
 ): string {
   const orig = originalArgIndex === undefined ? '' : ` data-orig="${originalArgIndex}"`;
@@ -169,9 +171,11 @@ export function renderMethodEditorHtml(opts: MethodEditorHtmlOptions): string {
     </div>
   </header>
   <div class="body">
-    <p class="hint">${keyword
-      ? 'Edit each keyword part in place. Use ▲/▼ to reorder — the argument moves with its keyword, so reordering rows reorders the arguments at every call site.'
-      : 'Edit the selector name.'}</p>
+    <p class="hint">${
+      keyword
+        ? 'Edit each keyword part in place. Use ▲/▼ to reorder — the argument moves with its keyword, so reordering rows reorders the arguments at every call site.'
+        : 'Edit the selector name.'
+    }</p>
     <ul class="rows">
 ${rows}
     </ul>

@@ -1,13 +1,30 @@
 import { describe, it, expect, vi } from 'vitest';
-import { getEnhancedInspectorViewSpecs, EnhancedInspectorViewSpec } from '../queries/getEnhancedInspectorViewSpecs';
+import {
+  getEnhancedInspectorViewSpecs,
+  EnhancedInspectorViewSpec,
+} from '../queries/getEnhancedInspectorViewSpecs';
 
 describe('getEnhancedInspectorViewSpecs', () => {
   it('returns specs sorted ascending by priority', () => {
     expect.assertions(4);
-    const execute = vi.fn(() => JSON.stringify([
-      { viewName: 'GtPhlowListViewSpecification', title: 'Items', priority: 20, methodSelector: 'gtItemsFor:', dataTransport: 1 },
-      { viewName: 'GtPhlowTextViewSpecification', title: 'Print', priority: 5, methodSelector: 'gtPrintFor:', dataTransport: 0 },
-    ]));
+    const execute = vi.fn(() =>
+      JSON.stringify([
+        {
+          viewName: 'GtPhlowListViewSpecification',
+          title: 'Items',
+          priority: 20,
+          methodSelector: 'gtItemsFor:',
+          dataTransport: 1,
+        },
+        {
+          viewName: 'GtPhlowTextViewSpecification',
+          title: 'Print',
+          priority: 5,
+          methodSelector: 'gtPrintFor:',
+          dataTransport: 0,
+        },
+      ]),
+    );
     const result = getEnhancedInspectorViewSpecs(execute, 1000n);
     expect(result).not.toBeNull();
     expect(result!).toHaveLength(2);
@@ -50,7 +67,9 @@ describe('getEnhancedInspectorViewSpecs', () => {
 
   it('returns null when execute throws', () => {
     expect.assertions(1);
-    const execute = vi.fn(() => { throw new Error('connection lost'); });
+    const execute = vi.fn(() => {
+      throw new Error('connection lost');
+    });
     expect(getEnhancedInspectorViewSpecs(execute, 1000n)).toBeNull();
   });
 
@@ -67,7 +86,8 @@ describe('getEnhancedInspectorViewSpecs', () => {
       viewName: 'GtPhlowListViewSpecification',
       columnSpecifications: [{ type: 'text', title: 'Item', cellWidth: null, spawnsObjects: true }],
     };
-    const execute = vi.fn()
+    const execute = vi
+      .fn()
       .mockReturnValueOnce(JSON.stringify([forwardSpec]))
       .mockReturnValueOnce(JSON.stringify(resolvedSpec));
     const result = getEnhancedInspectorViewSpecs(execute, 1000n);
@@ -90,7 +110,8 @@ describe('getEnhancedInspectorViewSpecs', () => {
       viewName: 'GtPhlowListViewSpecification',
       columnSpecifications: [],
     };
-    const execute = vi.fn()
+    const execute = vi
+      .fn()
       .mockReturnValueOnce(JSON.stringify([forwardSpec]))
       .mockReturnValueOnce(JSON.stringify(resolvedSpec));
     const result = getEnhancedInspectorViewSpecs(execute, 1000n);

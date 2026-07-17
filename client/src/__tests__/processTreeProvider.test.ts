@@ -5,7 +5,11 @@ vi.mock('vscode', () => import('../__mocks__/vscode'));
 vi.mock('../wslBridge', () => ({
   needsWsl: vi.fn(() => false),
   getWslNetworkInfoCached: vi.fn(() => undefined),
-  refreshWslNetworkInfo: vi.fn(async () => ({ mirrored: false, ip: undefined, netldiHost: undefined })),
+  refreshWslNetworkInfo: vi.fn(async () => ({
+    mirrored: false,
+    ip: undefined,
+    netldiHost: undefined,
+  })),
 }));
 
 import { ProcessItem, ProcessTreeProvider } from '../processTreeProvider';
@@ -47,8 +51,11 @@ describe('ProcessItem tooltip', () => {
 
   it('stone tooltip never includes a Host line, even when WSL info is supplied', () => {
     const item = new ProcessItem(stoneProcess(), {
-      mirrored: true, ip: undefined, netldiHost: 'localhost',
-      wslCoreVersion: '2.0.9.0', supportsMirrored: true,
+      mirrored: true,
+      ip: undefined,
+      netldiHost: 'localhost',
+      wslCoreVersion: '2.0.9.0',
+      supportsMirrored: true,
     });
     expect(String(item.tooltip)).toContain('Stone: gs64stone');
     expect(String(item.tooltip)).not.toContain('Host:');
@@ -63,24 +70,33 @@ describe('ProcessItem tooltip', () => {
 
   it('netldi tooltip shows "Host: localhost" under mirrored WSL networking', () => {
     const item = new ProcessItem(netldiProcess(), {
-      mirrored: true, ip: undefined, netldiHost: 'localhost',
-      wslCoreVersion: '2.0.9.0', supportsMirrored: true,
+      mirrored: true,
+      ip: undefined,
+      netldiHost: 'localhost',
+      wslCoreVersion: '2.0.9.0',
+      supportsMirrored: true,
     });
     expect(String(item.tooltip)).toMatch(/Host: localhost \(WSL mirrored networking\)/);
   });
 
   it('netldi tooltip shows "Host: <ip>" when not mirrored and IP is known', () => {
     const item = new ProcessItem(netldiProcess(), {
-      mirrored: false, ip: '172.29.240.2', netldiHost: '172.29.240.2',
-      wslCoreVersion: '2.0.9.0', supportsMirrored: true,
+      mirrored: false,
+      ip: '172.29.240.2',
+      netldiHost: '172.29.240.2',
+      wslCoreVersion: '2.0.9.0',
+      supportsMirrored: true,
     });
     expect(String(item.tooltip)).toMatch(/Host: 172\.29\.240\.2 \(WSL — may change on reboot\)/);
   });
 
   it('netldi tooltip omits the Host line when neither mirrored nor an IP is known', () => {
     const item = new ProcessItem(netldiProcess(), {
-      mirrored: false, ip: undefined, netldiHost: undefined,
-      wslCoreVersion: undefined, supportsMirrored: false,
+      mirrored: false,
+      ip: undefined,
+      netldiHost: undefined,
+      wslCoreVersion: undefined,
+      supportsMirrored: false,
     });
     expect(String(item.tooltip)).not.toContain('Host:');
   });
@@ -139,8 +155,11 @@ describe('ProcessTreeProvider.getChildren', () => {
   it('on Windows+WSL with cached info, passes that info into items', () => {
     vi.mocked(wslBridge.needsWsl).mockReturnValue(true);
     vi.mocked(wslBridge.getWslNetworkInfoCached).mockReturnValue({
-      mirrored: true, ip: undefined, netldiHost: 'localhost',
-      wslCoreVersion: '2.0.9.0', supportsMirrored: true,
+      mirrored: true,
+      ip: undefined,
+      netldiHost: 'localhost',
+      wslCoreVersion: '2.0.9.0',
+      supportsMirrored: true,
     });
     const provider = new ProcessTreeProvider(makeManager([netldiProcess()]));
     const items = provider.getChildren();
@@ -154,7 +173,9 @@ describe('ProcessTreeProvider.getChildren', () => {
     vi.mocked(wslBridge.getWslNetworkInfoCached).mockReturnValue(undefined);
     let resolveRefresh!: (v: wslBridge.WslNetworkInfo) => void;
     vi.mocked(wslBridge.refreshWslNetworkInfo).mockReturnValue(
-      new Promise<wslBridge.WslNetworkInfo>((r) => { resolveRefresh = r; }),
+      new Promise<wslBridge.WslNetworkInfo>((r) => {
+        resolveRefresh = r;
+      }),
     );
     const provider = new ProcessTreeProvider(makeManager([netldiProcess()]));
     const listener = vi.fn();
@@ -162,8 +183,11 @@ describe('ProcessTreeProvider.getChildren', () => {
     provider.getChildren();
     expect(wslBridge.refreshWslNetworkInfo).toHaveBeenCalledOnce();
     resolveRefresh({
-      mirrored: true, ip: undefined, netldiHost: 'localhost',
-      wslCoreVersion: '2.0.9.0', supportsMirrored: true,
+      mirrored: true,
+      ip: undefined,
+      netldiHost: 'localhost',
+      wslCoreVersion: '2.0.9.0',
+      supportsMirrored: true,
     });
     // Flush the microtask chain: refresh → finally → then → event fire
     await new Promise((r) => setTimeout(r, 0));
@@ -174,8 +198,11 @@ describe('ProcessTreeProvider.getChildren', () => {
     vi.mocked(wslBridge.needsWsl).mockReturnValue(true);
     vi.mocked(wslBridge.getWslNetworkInfoCached).mockReturnValue(undefined);
     vi.mocked(wslBridge.refreshWslNetworkInfo).mockResolvedValue({
-      mirrored: false, ip: '10.0.0.5', netldiHost: '10.0.0.5',
-      wslCoreVersion: '2.0.9.0', supportsMirrored: true,
+      mirrored: false,
+      ip: '10.0.0.5',
+      netldiHost: '10.0.0.5',
+      wslCoreVersion: '2.0.9.0',
+      supportsMirrored: true,
     });
     const manager = makeManager([netldiProcess()]);
     const provider = new ProcessTreeProvider(manager);
@@ -187,7 +214,11 @@ describe('ProcessTreeProvider.getChildren', () => {
   it('does not kick off a second refresh while one is in flight', () => {
     vi.mocked(wslBridge.needsWsl).mockReturnValue(true);
     vi.mocked(wslBridge.getWslNetworkInfoCached).mockReturnValue(undefined);
-    vi.mocked(wslBridge.refreshWslNetworkInfo).mockReturnValue(new Promise<wslBridge.WslNetworkInfo>(() => { /* never resolves */ }));
+    vi.mocked(wslBridge.refreshWslNetworkInfo).mockReturnValue(
+      new Promise<wslBridge.WslNetworkInfo>(() => {
+        /* never resolves */
+      }),
+    );
     const provider = new ProcessTreeProvider(makeManager([netldiProcess()]));
     provider.getChildren();
     provider.getChildren();

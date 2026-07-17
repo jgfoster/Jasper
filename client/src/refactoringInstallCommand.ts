@@ -68,7 +68,8 @@ function loginAsSystemUser(base: ActiveSession, password: string): ActiveSession
     gemNrs,
     'SystemUser',
     password,
-    0, 0,
+    0,
+    0,
   );
   if (!result.session) {
     throw new Error(result.err.message || `SystemUser login failed (error ${result.err.number})`);
@@ -170,9 +171,7 @@ async function performInstall(
   interactive: boolean,
 ): Promise<boolean> {
   const payloadDir = path.join(extensionPath, PAYLOAD_SUBDIR);
-  const missing = REFACTORING_PAYLOAD_FILES.filter(
-    (f) => !fs.existsSync(path.join(payloadDir, f)),
-  );
+  const missing = REFACTORING_PAYLOAD_FILES.filter((f) => !fs.existsSync(path.join(payloadDir, f)));
   if (missing.length > 0) {
     vscode.window.showErrorMessage(
       `Refactoring engine payload not found in ${payloadDir} (missing: ${missing.join(', ')}).`,
@@ -189,8 +188,8 @@ async function performInstall(
     // manually rather than failing silently.
     if (!interactive) {
       vscode.window.showWarningMessage(
-        'The refactoring engine was not auto-installed: the SystemUser default password was '
-          + 'not accepted. Run "GemStone: Install Server Support" to install it.',
+        'The refactoring engine was not auto-installed: the SystemUser default password was ' +
+          'not accepted. Run "GemStone: Install Server Support" to install it.',
       );
     }
     return false;

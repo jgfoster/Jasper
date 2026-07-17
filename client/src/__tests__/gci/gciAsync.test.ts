@@ -12,10 +12,7 @@ describe('GCI Async Execution, Break, and Debugging', () => {
   let OOP_CLASS_STRING: bigint;
 
   beforeAll(() => {
-    const login = gci.GciTsLogin(
-      STONE_NRS, null, null, false,
-      GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
-    );
+    const login = gci.GciTsLogin(STONE_NRS, null, null, false, GEM_NRS, GS_USER, GS_PASSWORD, 0, 0);
     expect(login.session).not.toBeNull();
     session = login.session;
 
@@ -67,12 +64,21 @@ describe('GCI Async Execution, Break, and Debugging', () => {
     it('clears stack of a suspended process from an error', () => {
       // Trigger an error that leaves a suspended process
       const { err: execErr } = gci.GciTsExecute(
-        session, '1 / 0', OOP_CLASS_STRING,
-        OOP_ILLEGAL, OOP_NIL, 0, 0,
+        session,
+        '1 / 0',
+        OOP_CLASS_STRING,
+        OOP_ILLEGAL,
+        OOP_NIL,
+        0,
+        0,
       );
       expect(execErr.number).not.toBe(0);
-      console.log('ClearStack - triggered error:', execErr.number,
-        'context:', execErr.context.toString());
+      console.log(
+        'ClearStack - triggered error:',
+        execErr.number,
+        'context:',
+        execErr.context.toString(),
+      );
 
       // The context field holds the GsProcess OOP of the suspended process
       if (execErr.context !== OOP_NIL && execErr.context !== 0n) {
@@ -115,8 +121,13 @@ describe('GCI Async Execution, Break, and Debugging', () => {
   describe('GciTsNbExecute + GciTsNbResult', () => {
     it('executes "3 + 4" non-blocking and retrieves result', () => {
       const { success, err: startErr } = gci.GciTsNbExecute(
-        session, '3 + 4', OOP_CLASS_STRING,
-        OOP_ILLEGAL, OOP_NIL, 0, 0,
+        session,
+        '3 + 4',
+        OOP_CLASS_STRING,
+        OOP_ILLEGAL,
+        OOP_NIL,
+        0,
+        0,
       );
       console.log('NbExecute - success:', success, 'err.number:', startErr.number);
       expect(startErr.number).toBe(0);
@@ -139,8 +150,13 @@ describe('GCI Async Execution, Break, and Debugging', () => {
 
     it('executes a string expression non-blocking and fetches result', () => {
       const { success } = gci.GciTsNbExecute(
-        session, "'hello' reversed", OOP_CLASS_STRING,
-        OOP_ILLEGAL, OOP_NIL, 0, 0,
+        session,
+        "'hello' reversed",
+        OOP_CLASS_STRING,
+        OOP_ILLEGAL,
+        OOP_NIL,
+        0,
+        0,
       );
       expect(success).toBe(true);
 
@@ -161,7 +177,13 @@ describe('GCI Async Execution, Break, and Debugging', () => {
       expect(strOop.result).not.toBe(OOP_ILLEGAL);
 
       const { success, err: startErr } = gci.GciTsNbPerform(
-        session, strOop.result, OOP_ILLEGAL, 'size', [], 0, 0,
+        session,
+        strOop.result,
+        OOP_ILLEGAL,
+        'size',
+        [],
+        0,
+        0,
       );
       console.log('NbPerform(size) - success:', success, 'err.number:', startErr.number);
       expect(startErr.number).toBe(0);
@@ -183,8 +205,13 @@ describe('GCI Async Execution, Break, and Debugging', () => {
       const OOP_CLASS_ARRAY = gci.GciTsResolveSymbol(session, 'Array', OOP_NIL).result;
 
       const { success } = gci.GciTsNbPerform(
-        session, OOP_CLASS_ARRAY, OOP_ILLEGAL, 'with:with:',
-        [oop10, oop20], 0, 0,
+        session,
+        OOP_CLASS_ARRAY,
+        OOP_ILLEGAL,
+        'with:with:',
+        [oop10, oop20],
+        0,
+        0,
       );
       expect(success).toBe(true);
 
@@ -199,7 +226,7 @@ describe('GCI Async Execution, Break, and Debugging', () => {
       expect(size.result).toBe(2n);
 
       const fetched = gci.GciTsFetchOops(session, result, 1n, 2);
-      const vals = fetched.oops.map(o => gci.GciTsOopToI64(session, o).value);
+      const vals = fetched.oops.map((o) => gci.GciTsOopToI64(session, o).value);
       expect(vals).toEqual([10n, 20n]);
     });
   });

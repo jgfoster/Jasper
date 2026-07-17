@@ -12,13 +12,12 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import {
-  StartPreview, PreviewPage, ApplyResult,
-} from './renameMethodPreview';
+import { StartPreview, PreviewPage, ApplyResult } from './renameMethodPreview';
 import { renderMethodPanelHtml, renderMethodCards } from './renameMethodPanelHtml';
 
 const panelJs = fs.readFileSync(
-  path.join(__dirname, '..', 'src', 'renameMethodPanelView.js'), 'utf8',
+  path.join(__dirname, '..', 'src', 'renameMethodPanelView.js'),
+  'utf8',
 );
 
 export interface RenameMethodPanelHandlers {
@@ -33,8 +32,10 @@ export interface RenameMethodPanelHandlers {
 /** Show the paginated preview; resolve with the apply result, or undefined if the
  *  user cancelled/closed it. */
 export function showRenameMethodPanel(
-  oldSelector: string, newSelector: string,
-  start: StartPreview, handlers: RenameMethodPanelHandlers,
+  oldSelector: string,
+  newSelector: string,
+  start: StartPreview,
+  handlers: RenameMethodPanelHandlers,
 ): Promise<ApplyResult | undefined> {
   const panel = vscode.window.createWebviewPanel(
     'gemstoneRenameMethod',
@@ -89,7 +90,10 @@ export function showRenameMethodPanel(
         try {
           if (message?.command === 'loadMore' || message?.command === 'loadAll') {
             if (loading) return;
-            if (done) { void panel.webview.postMessage({ command: 'busyDone' }); return; }
+            if (done) {
+              void panel.webview.postMessage({ command: 'busyDone' });
+              return;
+            }
             loading = true;
             try {
               if (message.command === 'loadAll') {
@@ -103,7 +107,9 @@ export function showRenameMethodPanel(
               loading = false;
             }
           } else if (message?.command === 'apply') {
-            const deselected: string[] = Array.isArray(message.deselected) ? message.deselected : [];
+            const deselected: string[] = Array.isArray(message.deselected)
+              ? message.deselected
+              : [];
             const result = await handlers.apply(deselected);
             finish(result);
           } else if (message?.command === 'cancel') {

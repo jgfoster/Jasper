@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
-import {
-  describe, it, expect, beforeAll, vi,
-} from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { renderClassHistoryHtml, renderVersionRows, formatLocalTimestamp } from '../classHistoryPanelHtml';
+import {
+  renderClassHistoryHtml,
+  renderVersionRows,
+  formatLocalTimestamp,
+} from '../classHistoryPanelHtml';
 import { ClassVersion } from '../classHistoryModel';
 
 beforeAll(() => {
@@ -13,7 +15,10 @@ beforeAll(() => {
 });
 
 interface PanelApi {
-  wire(doc: Document, vscode: { postMessage: (m: unknown) => void }): {
+  wire(
+    doc: Document,
+    vscode: { postMessage: (m: unknown) => void },
+  ): {
     wireRows: () => void;
     handleMessage: (m: unknown) => void;
   };
@@ -24,20 +29,33 @@ function api(): PanelApi {
 
 const versions: ClassVersion[] = [
   {
-    index: 2, name: 'Bar', oop: 60097537, timeStamp: '2026-07-17T09:56:44', userId: 'SystemUser',
-    isCurrent: true, definition: "Object subclass: 'Bar'",
+    index: 2,
+    name: 'Bar',
+    oop: 60097537,
+    timeStamp: '2026-07-17T09:56:44',
+    userId: 'SystemUser',
+    isCurrent: true,
+    definition: "Object subclass: 'Bar'",
     changedMethods: [{ side: 'instance', selector: 'm2', change: 'added' }],
   },
   {
-    index: 1, name: 'Foo', oop: 60084737, timeStamp: '2026-07-17T09:55:53', userId: 'SystemUser',
-    isCurrent: false, definition: "Object subclass: 'Foo'",
+    index: 1,
+    name: 'Foo',
+    oop: 60084737,
+    timeStamp: '2026-07-17T09:55:53',
+    userId: 'SystemUser',
+    isCurrent: false,
+    definition: "Object subclass: 'Foo'",
     changedMethods: [{ side: 'instance', selector: 'm1', change: 'added' }],
   },
 ];
 
 function mount() {
   const full = renderClassHistoryHtml({
-    className: 'Bar', versions, nonce: 'test', script: '',
+    className: 'Bar',
+    versions,
+    nonce: 'test',
+    script: '',
   });
   const m = full.match(/<body([^>]*)>([\s\S]*)<\/body>/)!;
   document.body.innerHTML = m[2];

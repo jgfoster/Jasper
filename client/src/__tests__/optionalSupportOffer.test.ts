@@ -31,7 +31,9 @@ vi.mock('vscode', () => ({
   ConfigurationTarget: { Global: 1 },
 }));
 
-vi.mock('../enhancedInspectorCommand', () => ({ installEnhancedInspectorFeature: mocks.installEI }));
+vi.mock('../enhancedInspectorCommand', () => ({
+  installEnhancedInspectorFeature: mocks.installEI,
+}));
 vi.mock('../refactoringInstallCommand', () => ({ installRefactoringFeature: mocks.installRB }));
 
 import { ActiveSession, SessionManager } from '../sessionManager';
@@ -178,8 +180,18 @@ describe('runInstallServerSupport', () => {
 
     await runInstallServerSupport(sessionManager, EXTENSION_PATH);
 
-    expect(mocks.installEI).toHaveBeenCalledWith(expect.anything(), sessionManager, EXTENSION_PATH, true);
-    expect(mocks.installRB).toHaveBeenCalledWith(expect.anything(), sessionManager, EXTENSION_PATH, true);
+    expect(mocks.installEI).toHaveBeenCalledWith(
+      expect.anything(),
+      sessionManager,
+      EXTENSION_PATH,
+      true,
+    );
+    expect(mocks.installRB).toHaveBeenCalledWith(
+      expect.anything(),
+      sessionManager,
+      EXTENSION_PATH,
+      true,
+    );
   });
 
   it('installs only the refactoring engine on a pre-3.7.5 stone', async () => {

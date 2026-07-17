@@ -128,8 +128,8 @@ describe('installEnhancedInspectorSupport', () => {
 
     await installEnhancedInspectorSupport(session, PAYLOAD_DIR);
 
-    const fileInCalls = executeFetchStringMock.mock.calls.filter(
-      (c) => String(c[2]).includes('GsFileIn fromPath'),
+    const fileInCalls = executeFetchStringMock.mock.calls.filter((c) =>
+      String(c[2]).includes('GsFileIn fromPath'),
     );
     expect(fileInCalls).toHaveLength(ENHANCED_INSPECTOR_FILES.length);
   });

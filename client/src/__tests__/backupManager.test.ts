@@ -57,11 +57,16 @@ describe('runLogicalBackup', () => {
 
   it('offers to reveal a locally-managed backup and opens the file manager on request', async () => {
     const deps = makeDeps();
-    vi.mocked(vscode.window.showInformationMessage).mockResolvedValue('Reveal in File Explorer' as unknown as vscode.MessageItem);
+    vi.mocked(vscode.window.showInformationMessage).mockResolvedValue(
+      'Reveal in File Explorer' as unknown as vscode.MessageItem,
+    );
 
     await runLogicalBackup(deps);
 
-    expect(vscode.commands.executeCommand).toHaveBeenCalledWith('revealFileInOS', expect.anything());
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+      'revealFileInOS',
+      expect.anything(),
+    );
   });
 
   it('omits the reveal action for a stone that is not locally managed', async () => {
@@ -71,16 +76,25 @@ describe('runLogicalBackup', () => {
 
     const infoArgs = vi.mocked(vscode.window.showInformationMessage).mock.calls[0];
     expect(infoArgs).toHaveLength(1);
-    expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith('revealFileInOS', expect.anything());
+    expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
+      'revealFileInOS',
+      expect.anything(),
+    );
   });
 
   it('reports a pre-flight failure when the privilege check itself errors', async () => {
-    const deps = makeDeps({ execute: vi.fn(() => { throw new Error('gci down'); }) });
+    const deps = makeDeps({
+      execute: vi.fn(() => {
+        throw new Error('gci down');
+      }),
+    });
 
     const ok = await runLogicalBackup(deps);
 
     expect(ok).toBe(false);
-    expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining('privileges'));
+    expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+      expect.stringContaining('privileges'),
+    );
     expect(deps.runBackup).not.toHaveBeenCalled();
   });
 
@@ -94,7 +108,9 @@ describe('runLogicalBackup', () => {
     const ok = await runLogicalBackup(deps);
 
     expect(ok).toBe(false);
-    expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining('session state'));
+    expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+      expect.stringContaining('session state'),
+    );
     expect(deps.runBackup).not.toHaveBeenCalled();
   });
 
@@ -105,7 +121,9 @@ describe('runLogicalBackup', () => {
       throw new Error('abort failed');
     });
     const deps = makeDeps({ execute });
-    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Discard changes and back up' as unknown as vscode.MessageItem);
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(
+      'Discard changes and back up' as unknown as vscode.MessageItem,
+    );
 
     const ok = await runLogicalBackup(deps);
 
@@ -128,7 +146,9 @@ describe('runLogicalBackup', () => {
 
   it('does not back up when the user declines to discard uncommitted changes', async () => {
     const deps = makeDeps({
-      execute: vi.fn((_l: string, code: string) => (code.includes('needsCommit') ? 'true' : 'true')),
+      execute: vi.fn((_l: string, code: string) =>
+        code.includes('needsCommit') ? 'true' : 'true',
+      ),
     });
     vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined);
 
@@ -152,7 +172,9 @@ describe('runLogicalBackup', () => {
     const ok = await runLogicalBackup(deps);
 
     expect(ok).toBe(true);
-    expect(execute.mock.calls.some(([, code]) => code.includes('System abortTransaction'))).toBe(true);
+    expect(execute.mock.calls.some(([, code]) => code.includes('System abortTransaction'))).toBe(
+      true,
+    );
     expect(deps.runBackup).toHaveBeenCalledOnce();
   });
 
@@ -168,7 +190,9 @@ describe('runLogicalBackup', () => {
 
   it('surfaces a GCI failure from the backup as an error', async () => {
     const deps = makeDeps({
-      runBackup: vi.fn(async () => { throw new Error('device full'); }),
+      runBackup: vi.fn(async () => {
+        throw new Error('device full');
+      }),
     });
 
     const ok = await runLogicalBackup(deps);

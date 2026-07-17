@@ -24,7 +24,7 @@ function makeSessionManager(hasSession: boolean) {
     getSelectedSession: vi.fn(() =>
       hasSession
         ? { id: 1, gci: {}, handle: {}, login: { label: 'Test' }, stoneVersion: '3.7.2' }
-        : undefined
+        : undefined,
     ),
     onDidChangeSelection: vi.fn(() => ({ dispose: () => {} })),
   } as unknown as SessionManager;
@@ -45,7 +45,7 @@ describe('GemStoneWorkspaceSymbolProvider', () => {
     it('returns matching classes for query', () => {
       const results = provider.provideWorkspaceSymbols('Array');
       expect(results).toHaveLength(3);
-      const names = results.map(r => r.name);
+      const names = results.map((r) => r.name);
       expect(names).toContain('Array');
       expect(names).toContain('ArrayedCollection');
       expect(names).toContain('MyArray');

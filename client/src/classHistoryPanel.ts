@@ -18,7 +18,8 @@ import { ClassVersion, RevertResult, RemoveResult } from './classHistoryModel';
 import { renderClassHistoryHtml, renderVersionRows } from './classHistoryPanelHtml';
 
 const panelJs = fs.readFileSync(
-  path.join(__dirname, '..', 'src', 'classHistoryPanelView.js'), 'utf8',
+  path.join(__dirname, '..', 'src', 'classHistoryPanelView.js'),
+  'utf8',
 );
 
 export interface ClassHistoryPanelHandlers {
@@ -31,7 +32,9 @@ export interface ClassHistoryPanelHandlers {
 
 /** Open the history viewer for a class. Resolves when the panel is closed. */
 export function showClassHistoryPanel(
-  className: string, versions: ClassVersion[], handlers: ClassHistoryPanelHandlers,
+  className: string,
+  versions: ClassVersion[],
+  handlers: ClassHistoryPanelHandlers,
 ): vscode.WebviewPanel {
   const panel = vscode.window.createWebviewPanel(
     'gemstoneClassHistory',
@@ -47,8 +50,8 @@ export function showClassHistoryPanel(
   const doRestore = async (index: number): Promise<void> => {
     const CONFIRM = 'Restore';
     const choice = await vscode.window.showWarningMessage(
-      `Restore ${className} to version [${index}]? This recompiles that version's shape and `
-      + 'methods as a NEW version (a redo).',
+      `Restore ${className} to version [${index}]? This recompiles that version's shape and ` +
+        'methods as a NEW version (a redo).',
       { modal: true },
       CONFIRM,
     );
@@ -59,19 +62,19 @@ export function showClassHistoryPanel(
       return;
     }
     void panel.webview.postMessage({ command: 'refresh', html: renderVersionRows(refreshed) });
-    const failedNote = result.failed && result.failed > 0
-      ? ` (${result.failed} change(s) failed to compile)` : '';
+    const failedNote =
+      result.failed && result.failed > 0 ? ` (${result.failed} change(s) failed to compile)` : '';
     const asName = result.name && result.name !== className ? ` as ${result.name}` : '';
     void vscode.window.showInformationMessage(
-      `Restored ${className} to version [${index}]${asName} (now version `
-      + `[${result.newIndex ?? '?'}])${failedNote}. Compiled but NOT committed — commit when ready.`,
+      `Restored ${className} to version [${index}]${asName} (now version ` +
+        `[${result.newIndex ?? '?'}])${failedNote}. Compiled but NOT committed — commit when ready.`,
     );
   };
   const doRemove = async (index: number): Promise<void> => {
     const CONFIRM = 'Remove';
     const choice = await vscode.window.showWarningMessage(
-      `Remove version [${index}] of ${className} from its class history? Any instances still on `
-      + 'that version will refer to a version no longer in the history. Not committed — commit when ready.',
+      `Remove version [${index}] of ${className} from its class history? Any instances still on ` +
+        'that version will refer to a version no longer in the history. Not committed — commit when ready.',
       { modal: true },
       CONFIRM,
     );
@@ -83,8 +86,8 @@ export function showClassHistoryPanel(
     }
     void panel.webview.postMessage({ command: 'refresh', html: renderVersionRows(refreshed) });
     void vscode.window.showInformationMessage(
-      `Removed version [${index}] of ${className} (${result.remaining ?? '?'} version(s) remain). `
-      + 'Not committed — commit when ready.',
+      `Removed version [${index}] of ${className} (${result.remaining ?? '?'} version(s) remain). ` +
+        'Not committed — commit when ready.',
     );
   };
   panel.webview.onDidReceiveMessage((message) => {

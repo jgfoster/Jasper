@@ -75,7 +75,13 @@ describe('CommentBrowser', () => {
 
   describe('showOrUpdate (first call)', () => {
     it('opens a webview panel titled Comment: <className> in group 2 without stealing focus', async () => {
-      await CommentBrowser.showOrUpdate(session, 'UserGlobals', 7, 'Account', exportManager as unknown as ExportManager);
+      await CommentBrowser.showOrUpdate(
+        session,
+        'UserGlobals',
+        7,
+        'Account',
+        exportManager as unknown as ExportManager,
+      );
 
       expect(window.createWebviewPanel).toHaveBeenCalledTimes(1);
       expect(window.createWebviewPanel).toHaveBeenCalledWith(
@@ -87,13 +93,25 @@ describe('CommentBrowser', () => {
     });
 
     it('fetches the comment for the selected class', async () => {
-      await CommentBrowser.showOrUpdate(session, 'UserGlobals', 7, 'Account', exportManager as unknown as ExportManager);
+      await CommentBrowser.showOrUpdate(
+        session,
+        'UserGlobals',
+        7,
+        'Account',
+        exportManager as unknown as ExportManager,
+      );
 
       expect(queries.getClassComment).toHaveBeenCalledWith(session, 'Account', 7);
     });
 
     it('sends the comment to the webview once it signals ready', async () => {
-      await CommentBrowser.showOrUpdate(session, 'UserGlobals', 7, 'Account', exportManager as unknown as ExportManager);
+      await CommentBrowser.showOrUpdate(
+        session,
+        'UserGlobals',
+        7,
+        'Account',
+        exportManager as unknown as ExportManager,
+      );
 
       expect(mockPanel.webview.postMessage).not.toHaveBeenCalled();
 
@@ -110,7 +128,13 @@ describe('CommentBrowser', () => {
 
   describe('showOrUpdate (subsequent calls)', () => {
     beforeEach(async () => {
-      await CommentBrowser.showOrUpdate(session, 'UserGlobals', 7, 'Account', exportManager as unknown as ExportManager);
+      await CommentBrowser.showOrUpdate(
+        session,
+        'UserGlobals',
+        7,
+        'Account',
+        exportManager as unknown as ExportManager,
+      );
       hostMessageHandler({ command: 'ready' });
       vi.mocked(mockPanel.webview.postMessage).mockClear();
       vi.mocked(window.createWebviewPanel).mockClear();
@@ -119,7 +143,13 @@ describe('CommentBrowser', () => {
     it('reuses the panel and refills it with the newly selected class comment', async () => {
       vi.mocked(queries.getClassComment).mockReturnValue('another comment');
 
-      await CommentBrowser.showOrUpdate(session, 'UserGlobals', 7, 'Invoice', exportManager as unknown as ExportManager);
+      await CommentBrowser.showOrUpdate(
+        session,
+        'UserGlobals',
+        7,
+        'Invoice',
+        exportManager as unknown as ExportManager,
+      );
 
       expect(window.createWebviewPanel).not.toHaveBeenCalled();
       expect(mockPanel.title).toBe('Comment: Invoice');
@@ -132,7 +162,13 @@ describe('CommentBrowser', () => {
     });
 
     it('does not steal the active tab: updating the panel never reveals it', async () => {
-      await CommentBrowser.showOrUpdate(session, 'UserGlobals', 7, 'Invoice', exportManager as unknown as ExportManager);
+      await CommentBrowser.showOrUpdate(
+        session,
+        'UserGlobals',
+        7,
+        'Invoice',
+        exportManager as unknown as ExportManager,
+      );
 
       expect(mockPanel.reveal).not.toHaveBeenCalled();
     });
@@ -140,7 +176,13 @@ describe('CommentBrowser', () => {
     it('re-selecting the same class is a no-op — no re-fetch, no refill, no reveal', async () => {
       vi.mocked(queries.getClassComment).mockClear();
 
-      await CommentBrowser.showOrUpdate(session, 'UserGlobals', 7, 'Account', exportManager as unknown as ExportManager);
+      await CommentBrowser.showOrUpdate(
+        session,
+        'UserGlobals',
+        7,
+        'Account',
+        exportManager as unknown as ExportManager,
+      );
 
       expect(queries.getClassComment).not.toHaveBeenCalled();
       expect(mockPanel.reveal).not.toHaveBeenCalled();
@@ -152,7 +194,13 @@ describe('CommentBrowser', () => {
     it('tells the webview the comment cannot be edited', async () => {
       vi.mocked(queries.canClassBeWritten).mockReturnValue(false);
 
-      await CommentBrowser.showOrUpdate(session, 'Kernel', 9, 'Object', exportManager as unknown as ExportManager);
+      await CommentBrowser.showOrUpdate(
+        session,
+        'Kernel',
+        9,
+        'Object',
+        exportManager as unknown as ExportManager,
+      );
       hostMessageHandler({ command: 'ready' });
 
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
@@ -161,9 +209,17 @@ describe('CommentBrowser', () => {
     });
 
     it('treats the class as writable when the writability check fails', async () => {
-      vi.mocked(queries.canClassBeWritten).mockImplementation(() => { throw new Error('busy'); });
+      vi.mocked(queries.canClassBeWritten).mockImplementation(() => {
+        throw new Error('busy');
+      });
 
-      await CommentBrowser.showOrUpdate(session, 'UserGlobals', 7, 'Account', exportManager as unknown as ExportManager);
+      await CommentBrowser.showOrUpdate(
+        session,
+        'UserGlobals',
+        7,
+        'Account',
+        exportManager as unknown as ExportManager,
+      );
       hostMessageHandler({ command: 'ready' });
 
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
@@ -174,7 +230,13 @@ describe('CommentBrowser', () => {
 
   describe('dirty guard on class switch', () => {
     beforeEach(async () => {
-      await CommentBrowser.showOrUpdate(session, 'UserGlobals', 7, 'Account', exportManager as unknown as ExportManager);
+      await CommentBrowser.showOrUpdate(
+        session,
+        'UserGlobals',
+        7,
+        'Account',
+        exportManager as unknown as ExportManager,
+      );
       hostMessageHandler({ command: 'ready' });
       // The user edits the comment for Account.
       hostMessageHandler({ command: 'edited', text: 'work in progress' });
@@ -182,7 +244,13 @@ describe('CommentBrowser', () => {
     });
 
     it('prompts before replacing unsaved edits when a different class is selected', async () => {
-      await CommentBrowser.showOrUpdate(session, 'UserGlobals', 7, 'Invoice', exportManager as unknown as ExportManager);
+      await CommentBrowser.showOrUpdate(
+        session,
+        'UserGlobals',
+        7,
+        'Invoice',
+        exportManager as unknown as ExportManager,
+      );
 
       expect(window.showWarningMessage).toHaveBeenCalledWith(
         expect.stringContaining('Account'),
@@ -196,18 +264,35 @@ describe('CommentBrowser', () => {
       vi.mocked(window.showWarningMessage).mockResolvedValue('Save' as never);
       vi.mocked(queries.getClassComment).mockReturnValue('invoice comment');
 
-      await CommentBrowser.showOrUpdate(session, 'UserGlobals', 7, 'Invoice', exportManager as unknown as ExportManager);
+      await CommentBrowser.showOrUpdate(
+        session,
+        'UserGlobals',
+        7,
+        'Invoice',
+        exportManager as unknown as ExportManager,
+      );
 
-      expect(queries.setClassComment).toHaveBeenCalledWith(session, 'Account', 'work in progress', 7);
+      expect(queries.setClassComment).toHaveBeenCalledWith(
+        session,
+        'Account',
+        'work in progress',
+        7,
+      );
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({ command: 'loadComment', className: 'Invoice' }),
       );
     });
 
-    it('discards the edits and loads the new class when the user chooses Don\'t Save', async () => {
+    it("discards the edits and loads the new class when the user chooses Don't Save", async () => {
       vi.mocked(window.showWarningMessage).mockResolvedValue("Don't Save" as never);
 
-      await CommentBrowser.showOrUpdate(session, 'UserGlobals', 7, 'Invoice', exportManager as unknown as ExportManager);
+      await CommentBrowser.showOrUpdate(
+        session,
+        'UserGlobals',
+        7,
+        'Invoice',
+        exportManager as unknown as ExportManager,
+      );
 
       expect(queries.setClassComment).not.toHaveBeenCalled();
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
@@ -218,7 +303,13 @@ describe('CommentBrowser', () => {
     it('keeps the current class and does not refill when the prompt is cancelled', async () => {
       vi.mocked(window.showWarningMessage).mockResolvedValue(undefined as never);
 
-      await CommentBrowser.showOrUpdate(session, 'UserGlobals', 7, 'Invoice', exportManager as unknown as ExportManager);
+      await CommentBrowser.showOrUpdate(
+        session,
+        'UserGlobals',
+        7,
+        'Invoice',
+        exportManager as unknown as ExportManager,
+      );
 
       expect(queries.setClassComment).not.toHaveBeenCalled();
       expect(mockPanel.title).toBe('Comment: Account');
@@ -230,7 +321,13 @@ describe('CommentBrowser', () => {
 
   describe('saving an edited comment', () => {
     beforeEach(async () => {
-      await CommentBrowser.showOrUpdate(session, 'UserGlobals', 7, 'Account', exportManager as unknown as ExportManager);
+      await CommentBrowser.showOrUpdate(
+        session,
+        'UserGlobals',
+        7,
+        'Account',
+        exportManager as unknown as ExportManager,
+      );
       hostMessageHandler({ command: 'ready' });
     });
 
@@ -248,15 +345,28 @@ describe('CommentBrowser', () => {
     });
 
     it('saves against the class currently shown after the panel is refilled', async () => {
-      await CommentBrowser.showOrUpdate(session, 'UserGlobals', 7, 'Invoice', exportManager as unknown as ExportManager);
+      await CommentBrowser.showOrUpdate(
+        session,
+        'UserGlobals',
+        7,
+        'Invoice',
+        exportManager as unknown as ExportManager,
+      );
 
       hostMessageHandler({ command: 'save', text: 'invoice comment' });
 
-      expect(queries.setClassComment).toHaveBeenCalledWith(session, 'Invoice', 'invoice comment', 7);
+      expect(queries.setClassComment).toHaveBeenCalledWith(
+        session,
+        'Invoice',
+        'invoice comment',
+        7,
+      );
     });
 
     it('reports a failed save to the webview and does not confirm it', () => {
-      vi.mocked(queries.setClassComment).mockImplementation(() => { throw new Error('read-only'); });
+      vi.mocked(queries.setClassComment).mockImplementation(() => {
+        throw new Error('read-only');
+      });
 
       hostMessageHandler({ command: 'save', text: 'edited comment' });
 
@@ -268,7 +378,13 @@ describe('CommentBrowser', () => {
 
   describe('disposeForSession', () => {
     it('disposes the panel for the given session', async () => {
-      await CommentBrowser.showOrUpdate(session, 'UserGlobals', 7, 'Account', exportManager as unknown as ExportManager);
+      await CommentBrowser.showOrUpdate(
+        session,
+        'UserGlobals',
+        7,
+        'Account',
+        exportManager as unknown as ExportManager,
+      );
 
       CommentBrowser.disposeForSession(session.id);
 

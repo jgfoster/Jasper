@@ -28,18 +28,30 @@ vi.mock('../browserQueries', () => ({
   removeDictionary: vi.fn(() => ''),
   BrowserQueryError: class BrowserQueryError extends Error {
     gciErrorNumber: number;
-    constructor(msg: string, num = 0) { super(msg); this.gciErrorNumber = num; }
+    constructor(msg: string, num = 0) {
+      super(msg);
+      this.gciErrorNumber = num;
+    }
   },
 }));
 vi.mock('../sunitQueries', () => ({
-  runTestMethod: vi.fn(() => ({ className: '', selector: '', status: 'passed', message: '', durationMs: 0 })),
+  runTestMethod: vi.fn(() => ({
+    className: '',
+    selector: '',
+    status: 'passed',
+    message: '',
+    durationMs: 0,
+  })),
   runTestClass: vi.fn(() => []),
   runFailingTests: vi.fn(() => []),
   discoverTestClasses: vi.fn(() => [] as Array<{ dictName: string; className: string }>),
   describeTestFailure: vi.fn(() => ({ status: 'passed' })),
   SunitQueryError: class SunitQueryError extends Error {
     gciErrorNumber: number;
-    constructor(msg: string, num = 0) { super(msg); this.gciErrorNumber = num; }
+    constructor(msg: string, num = 0) {
+      super(msg);
+      this.gciErrorNumber = num;
+    }
   },
 }));
 vi.mock('../pythonQueries', () => ({
@@ -66,16 +78,18 @@ interface ToolRegistration {
 function createMockServer() {
   const tools: ToolRegistration[] = [];
   return {
-    tool: vi.fn((
-      name: string,
-      description: string,
-      schema: Record<string, unknown>,
-      handler: ToolRegistration['handler'],
-    ) => {
-      tools.push({ name, description, schema, handler });
-    }),
-    getTool: (name: string) => tools.find(t => t.name === name),
-    getToolNames: () => tools.map(t => t.name),
+    tool: vi.fn(
+      (
+        name: string,
+        description: string,
+        schema: Record<string, unknown>,
+        handler: ToolRegistration['handler'],
+      ) => {
+        tools.push({ name, description, schema, handler });
+      },
+    ),
+    getTool: (name: string) => tools.find((t) => t.name === name),
+    getToolNames: () => tools.map((t) => t.name),
   };
 }
 
@@ -96,10 +110,7 @@ describe('registerMcpTools', () => {
   beforeEach(() => {
     server = createMockServer();
     session = makeSession();
-    registerMcpTools(
-      server as unknown as Parameters<typeof registerMcpTools>[0],
-      () => session,
-    );
+    registerMcpTools(server as unknown as Parameters<typeof registerMcpTools>[0], () => session);
     vi.clearAllMocks();
   });
 
@@ -221,7 +232,13 @@ describe('registerMcpTools', () => {
 
     it('find_implementors formats results as tab-separated lines', async () => {
       vi.mocked(queries.implementorsOf).mockReturnValue([
-        { dictName: 'Globals', className: 'Array', isMeta: false, selector: 'size', category: 'accessing' },
+        {
+          dictName: 'Globals',
+          className: 'Array',
+          isMeta: false,
+          selector: 'size',
+          category: 'accessing',
+        },
       ]);
       const result = await server.getTool('find_implementors')!.handler({ selector: 'size' });
 
@@ -245,7 +262,13 @@ describe('registerMcpTools', () => {
 
     it('find_implementors short-circuits when env 0 has results (no env-1 call)', async () => {
       vi.mocked(queries.implementorsOf).mockReturnValueOnce([
-        { dictName: 'Globals', className: 'Array', isMeta: false, selector: 'size', category: 'accessing' },
+        {
+          dictName: 'Globals',
+          className: 'Array',
+          isMeta: false,
+          selector: 'size',
+          category: 'accessing',
+        },
       ]);
       await server.getTool('find_implementors')!.handler({ selector: 'size' });
 
@@ -256,7 +279,8 @@ describe('registerMcpTools', () => {
 
     it('find_implementors gives a plain empty message when an explicit non-zero env is empty', async () => {
       vi.mocked(queries.implementorsOf).mockReturnValue([]);
-      const result = await server.getTool('find_implementors')!
+      const result = await server
+        .getTool('find_implementors')!
         .handler({ selector: 'xyz', environmentId: 1 });
 
       // Explicit env scopes to that env only — no fallback path.
@@ -267,14 +291,18 @@ describe('registerMcpTools', () => {
 
     it('list_classes delegates to getClassNames with the dictionary name', async () => {
       vi.mocked(queries.getClassNames).mockReturnValue(['Array', 'String']);
-      const result = await server.getTool('list_classes')!.handler({ dictionaryName: 'UserGlobals' });
+      const result = await server
+        .getTool('list_classes')!
+        .handler({ dictionaryName: 'UserGlobals' });
 
       expect(queries.getClassNames).toHaveBeenCalledWith(session, 'UserGlobals');
       expect(result.content[0].text).toBe('Array\nString');
     });
 
     it('describe_class passes through the combined text and forwards dictionaryName', async () => {
-      vi.mocked(queries.describeClass).mockReturnValue('=== Definition ===\nObject subclass: #Foo\n');
+      vi.mocked(queries.describeClass).mockReturnValue(
+        '=== Definition ===\nObject subclass: #Foo\n',
+      );
       const result = await server.getTool('describe_class')!.handler({ className: 'Foo' });
 
       expect(queries.describeClass).toHaveBeenCalledWith(session, 'Foo', undefined);
@@ -284,7 +312,8 @@ describe('registerMcpTools', () => {
     it('describe_class scopes to a specific dictionary when provided', async () => {
       vi.mocked(queries.describeClass).mockReturnValue('');
       await server.getTool('describe_class')!.handler({
-        className: 'Customer', dictionaryName: 'UserGlobals',
+        className: 'Customer',
+        dictionaryName: 'UserGlobals',
       });
 
       expect(queries.describeClass).toHaveBeenCalledWith(session, 'Customer', 'UserGlobals');
@@ -301,7 +330,8 @@ describe('registerMcpTools', () => {
     it('export_class_source scopes to a specific dictionary when provided', async () => {
       vi.mocked(queries.fileOutClass).mockReturnValue('');
       await server.getTool('export_class_source')!.handler({
-        className: 'Customer', dictionaryName: 'UserGlobals',
+        className: 'Customer',
+        dictionaryName: 'UserGlobals',
       });
 
       expect(queries.fileOutClass).toHaveBeenCalledWith(session, 'Customer', 'UserGlobals');
@@ -309,9 +339,17 @@ describe('registerMcpTools', () => {
 
     it('find_references_to formats results and defaults environmentId to 0', async () => {
       vi.mocked(queries.referencesToObject).mockReturnValue([
-        { dictName: 'Globals', className: 'Foo', isMeta: false, selector: 'use', category: 'client' },
+        {
+          dictName: 'Globals',
+          className: 'Foo',
+          isMeta: false,
+          selector: 'use',
+          category: 'client',
+        },
       ]);
-      const result = await server.getTool('find_references_to')!.handler({ objectName: 'AllUsers' });
+      const result = await server
+        .getTool('find_references_to')!
+        .handler({ objectName: 'AllUsers' });
 
       expect(queries.referencesToObject).toHaveBeenCalledWith(session, 'AllUsers', 0);
       expect(result.content[0].text).toContain('Globals\tFoo\tinstance\tuse\tclient');
@@ -353,7 +391,9 @@ describe('registerMcpTools', () => {
         { isClass: true, category: 'accessing', name: 'Array' },
         { isClass: false, category: '', name: 'MyVar' },
       ]);
-      const result = await server.getTool('list_dictionary_entries')!.handler({ dictionaryName: 'Globals' });
+      const result = await server
+        .getTool('list_dictionary_entries')!
+        .handler({ dictionaryName: 'Globals' });
 
       expect(queries.getDictionaryEntries).toHaveBeenCalledWith(session, 'Globals');
       expect(result.content[0].text).toBe('class\taccessing\tArray\nglobal\t\tMyVar');
@@ -361,7 +401,9 @@ describe('registerMcpTools', () => {
 
     it('list_dictionary_entries reports empty dictionary with a friendly message', async () => {
       vi.mocked(queries.getDictionaryEntries).mockReturnValue([]);
-      const result = await server.getTool('list_dictionary_entries')!.handler({ dictionaryName: 'NoSuchDict' });
+      const result = await server
+        .getTool('list_dictionary_entries')!
+        .handler({ dictionaryName: 'NoSuchDict' });
 
       expect(result.content[0].text).toBe('Dictionary not found or empty: NoSuchDict');
     });
@@ -401,7 +443,13 @@ describe('registerMcpTools', () => {
       });
 
       expect(queries.compileMethod).toHaveBeenCalledWith(
-        session, 'MyClass', false, 'testing', "greeting\n  ^ 'Hello'", 0, undefined,
+        session,
+        'MyClass',
+        false,
+        'testing',
+        "greeting\n  ^ 'Hello'",
+        0,
+        undefined,
       );
     });
 
@@ -421,17 +469,28 @@ describe('registerMcpTools', () => {
       expect(queries.removeDictionary).toHaveBeenCalledWith(session, 'X');
       expect(rmr.content[0].text).toBe('Removed dictionary: X');
 
-      await server.getTool('set_class_comment')!.handler({ className: 'Foo', comment: 'hi', dictionaryName: 'Globals' });
+      await server
+        .getTool('set_class_comment')!
+        .handler({ className: 'Foo', comment: 'hi', dictionaryName: 'Globals' });
       expect(queries.setClassComment).toHaveBeenCalledWith(session, 'Foo', 'hi', 'Globals');
 
-      await server.getTool('delete_class')!.handler({ className: 'Foo', dictionaryName: 'UserGlobals' });
+      await server
+        .getTool('delete_class')!
+        .handler({ className: 'Foo', dictionaryName: 'UserGlobals' });
       expect(queries.deleteClass).toHaveBeenCalledWith(session, 'UserGlobals', 'Foo');
 
-      await server.getTool('delete_method')!.handler({ className: 'Foo', isMeta: false, selector: 'bar' });
+      await server
+        .getTool('delete_method')!
+        .handler({ className: 'Foo', isMeta: false, selector: 'bar' });
       expect(queries.deleteMethod).toHaveBeenCalledWith(session, 'Foo', false, 'bar', undefined);
 
-      const ccd = await server.getTool('compile_class_definition')!.handler({ source: "Object subclass: 'Foo'" });
-      expect(queries.compileClassDefinition).toHaveBeenCalledWith(session, "Object subclass: 'Foo'");
+      const ccd = await server
+        .getTool('compile_class_definition')!
+        .handler({ source: "Object subclass: 'Foo'" });
+      expect(queries.compileClassDefinition).toHaveBeenCalledWith(
+        session,
+        "Object subclass: 'Foo'",
+      );
       expect(ccd.content[0].text).toBe('Class: Foo');
     });
 
@@ -440,7 +499,11 @@ describe('registerMcpTools', () => {
         { dictName: 'Globals', className: 'ArrayTest', testCount: 5 },
       ]);
       vi.mocked(sunit.runTestMethod).mockReturnValue({
-        className: 'ArrayTest', selector: 'testSize', status: 'passed', message: '', durationMs: 3,
+        className: 'ArrayTest',
+        selector: 'testSize',
+        status: 'passed',
+        message: '',
+        durationMs: 3,
       });
       const result = await server.getTool('run_test_method')!.handler({
         className: 'ArrayTest',
@@ -453,22 +516,38 @@ describe('registerMcpTools', () => {
 
     it('run_test_method uses an explicit dictionary without discovery', async () => {
       vi.mocked(sunit.runTestMethod).mockReturnValue({
-        className: 'AnnouncerTest', selector: 'testFoo', status: 'passed', message: '', durationMs: 1,
+        className: 'AnnouncerTest',
+        selector: 'testFoo',
+        status: 'passed',
+        message: '',
+        durationMs: 1,
       });
       await server.getTool('run_test_method')!.handler({
-        className: 'AnnouncerTest', selector: 'testFoo', dictionary: 'UserGlobals',
+        className: 'AnnouncerTest',
+        selector: 'testFoo',
+        dictionary: 'UserGlobals',
       });
 
       expect(sunit.discoverTestClasses).not.toHaveBeenCalled();
-      expect(sunit.runTestMethod).toHaveBeenCalledWith(session, 'AnnouncerTest', 'testFoo', 'UserGlobals');
+      expect(sunit.runTestMethod).toHaveBeenCalledWith(
+        session,
+        'AnnouncerTest',
+        'testFoo',
+        'UserGlobals',
+      );
     });
 
     it('run_test_method auto-refreshes the session view before running', async () => {
       vi.mocked(sunit.runTestMethod).mockReturnValue({
-        className: 'ArrayTest', selector: 'testSize', status: 'passed', message: '', durationMs: 1,
+        className: 'ArrayTest',
+        selector: 'testSize',
+        status: 'passed',
+        message: '',
+        durationMs: 1,
       });
       await server.getTool('run_test_method')!.handler({
-        className: 'ArrayTest', selector: 'testSize',
+        className: 'ArrayTest',
+        selector: 'testSize',
       });
 
       const refreshCall = vi.mocked(queries.executeFetchString).mock.calls[0][2];
@@ -481,8 +560,20 @@ describe('registerMcpTools', () => {
         { dictName: 'Globals', className: 'ArrayTest', testCount: 5 },
       ]);
       vi.mocked(sunit.runTestClass).mockReturnValue([
-        { className: 'ArrayTest', selector: 'testSize', status: 'passed', message: '', durationMs: 0 },
-        { className: 'ArrayTest', selector: 'testBad', status: 'failed', message: 'expected 1 got 2', durationMs: 0 },
+        {
+          className: 'ArrayTest',
+          selector: 'testSize',
+          status: 'passed',
+          message: '',
+          durationMs: 0,
+        },
+        {
+          className: 'ArrayTest',
+          selector: 'testBad',
+          status: 'failed',
+          message: 'expected 1 got 2',
+          durationMs: 0,
+        },
       ]);
       const result = await server.getTool('run_test_class')!.handler({ className: 'ArrayTest' });
 
@@ -497,7 +588,9 @@ describe('registerMcpTools', () => {
         { dictName: 'UserGlobals', className: 'AnnouncerTest', testCount: 7 },
         { dictName: 'Globals', className: 'AnnouncerTest', testCount: 19 },
       ]);
-      const result = await server.getTool('run_test_class')!.handler({ className: 'AnnouncerTest' });
+      const result = await server
+        .getTool('run_test_class')!
+        .handler({ className: 'AnnouncerTest' });
 
       expect(sunit.runTestClass).not.toHaveBeenCalled();
       expect(result.content[0].text).toContain('UserGlobals');
@@ -531,8 +624,20 @@ describe('registerMcpTools', () => {
 
     it('list_failing_tests formats failures and errors with status\\tclass\\tselector\\tmessage', async () => {
       vi.mocked(sunit.runFailingTests).mockReturnValue([
-        { className: 'MyTest', selector: 'testBad', status: 'failed', message: 'expected 1 got 2', durationMs: 0 },
-        { className: 'Other', selector: 'testBoom', status: 'error', message: 'division by zero', durationMs: 0 },
+        {
+          className: 'MyTest',
+          selector: 'testBad',
+          status: 'failed',
+          message: 'expected 1 got 2',
+          durationMs: 0,
+        },
+        {
+          className: 'Other',
+          selector: 'testBoom',
+          status: 'error',
+          message: 'division by zero',
+          durationMs: 0,
+        },
       ]);
       const result = await server.getTool('list_failing_tests')!.handler({});
 
@@ -542,11 +647,16 @@ describe('registerMcpTools', () => {
 
     it('list_failing_tests forwards classNames to the underlying query', async () => {
       vi.mocked(sunit.runFailingTests).mockReturnValue([]);
-      await server.getTool('list_failing_tests')!
+      await server
+        .getTool('list_failing_tests')!
         .handler({ classNames: ['ArrayTest', 'StringTest'] });
 
       // Third arg is `classNamePattern`, undefined when not passed.
-      expect(sunit.runFailingTests).toHaveBeenCalledWith(session, ['ArrayTest', 'StringTest'], undefined);
+      expect(sunit.runFailingTests).toHaveBeenCalledWith(
+        session,
+        ['ArrayTest', 'StringTest'],
+        undefined,
+      );
     });
 
     // Round-2 enhancement: glob-pattern filter (e.g. "Bytes*TestCase") is
@@ -554,8 +664,7 @@ describe('registerMcpTools', () => {
     // GemStone's `String match:` so we still hit the suite in one round-trip.
     it('list_failing_tests forwards classNamePattern to the underlying query', async () => {
       vi.mocked(sunit.runFailingTests).mockReturnValue([]);
-      await server.getTool('list_failing_tests')!
-        .handler({ classNamePattern: 'Bytes*TestCase' });
+      await server.getTool('list_failing_tests')!.handler({ classNamePattern: 'Bytes*TestCase' });
 
       expect(sunit.runFailingTests).toHaveBeenCalledWith(session, undefined, 'Bytes*TestCase');
     });
@@ -598,7 +707,8 @@ describe('registerMcpTools', () => {
     // back from the Smalltalk side as ordinary result text.
     it('eval_python passes the "Grail not detected" hint through verbatim', async () => {
       vi.mocked(python.evalPython).mockReturnValue(
-        'Grail (GemStone-Python) not detected: class ModuleAst not found in symbolList. ...');
+        'Grail (GemStone-Python) not detected: class ModuleAst not found in symbolList. ...',
+      );
       const result = await server.getTool('eval_python')!.handler({ source: 'x = 1' });
 
       expect(result.content[0].text).toContain('Grail (GemStone-Python) not detected');
@@ -621,7 +731,8 @@ describe('registerMcpTools', () => {
         messageText: 'Assertion failed',
         description: 'TestFailure: Assertion failed',
       });
-      const result = await server.getTool('describe_test_failure')!
+      const result = await server
+        .getTool('describe_test_failure')!
         .handler({ className: 'ArrayTest', selector: 'testBad' });
 
       expect(sunit.describeTestFailure).toHaveBeenCalledWith(session, 'ArrayTest', 'testBad');
@@ -640,7 +751,8 @@ describe('registerMcpTools', () => {
         mnuReceiver: 'Object',
         mnuSelector: 'foo',
       });
-      const result = await server.getTool('describe_test_failure')!
+      const result = await server
+        .getTool('describe_test_failure')!
         .handler({ className: 'ArrayTest', selector: 'testErrors' });
 
       expect(result.content[0].text).toContain('mnuReceiver: Object');
@@ -649,7 +761,8 @@ describe('registerMcpTools', () => {
 
     it('describe_test_failure returns "PASSED" when the re-run actually passed', async () => {
       vi.mocked(sunit.describeTestFailure).mockReturnValue({ status: 'passed' });
-      const result = await server.getTool('describe_test_failure')!
+      const result = await server
+        .getTool('describe_test_failure')!
         .handler({ className: 'ArrayTest', selector: 'testGood' });
 
       expect(result.content[0].text).toBe('PASSED');
@@ -666,7 +779,8 @@ describe('registerMcpTools', () => {
           'TestFailure (AbstractException) >> signal: @3 line 7  [GsNMethod 3523841]\n' +
           'JasperProbeTest >> testFails @3 line 1  [GsNMethod 1236251649]',
       });
-      const result = await server.getTool('describe_test_failure')!
+      const result = await server
+        .getTool('describe_test_failure')!
         .handler({ className: 'ArrayTest', selector: 'testBad' });
       const text = result.content[0].text;
 

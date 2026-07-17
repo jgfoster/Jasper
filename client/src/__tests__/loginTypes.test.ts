@@ -21,8 +21,9 @@ function makeSession(login: GemStoneLogin, id: number): { id: number; login: Gem
 
 describe('loginLabel', () => {
   it('formats user, stone, and host', () => {
-    expect(loginLabel(makeLogin({ gs_user: 'Admin', stone: 'prod', gem_host: 'db' })))
-      .toBe('Admin on prod (db)');
+    expect(loginLabel(makeLogin({ gs_user: 'Admin', stone: 'prod', gem_host: 'db' }))).toBe(
+      'Admin on prod (db)',
+    );
   });
 });
 
@@ -67,8 +68,12 @@ describe('loginTargetKey', () => {
     const sameTarget = makeLogin({ label: 'other', gs_password: 'other' });
     const otherTarget = makeLogin({ stone: 'another' });
 
-    expect(loginTargetKey(base) === loginTargetKey(sameTarget)).toBe(sameLoginTarget(base, sameTarget));
-    expect(loginTargetKey(base) === loginTargetKey(otherTarget)).toBe(sameLoginTarget(base, otherTarget));
+    expect(loginTargetKey(base) === loginTargetKey(sameTarget)).toBe(
+      sameLoginTarget(base, sameTarget),
+    );
+    expect(loginTargetKey(base) === loginTargetKey(otherTarget)).toBe(
+      sameLoginTarget(base, otherTarget),
+    );
   });
 });
 

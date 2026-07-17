@@ -28,11 +28,13 @@ export class DatabaseManager {
     // Step 1: Pick extracted version
     const versions = this.storage.getExtractedVersions();
     if (versions.length === 0) {
-      vscode.window.showErrorMessage('No GemStone versions extracted. Download and extract a version first.');
+      vscode.window.showErrorMessage(
+        'No GemStone versions extracted. Download and extract a version first.',
+      );
       return undefined;
     }
     const versionPick = await vscode.window.showQuickPick(
-      versions.map(v => ({ label: v })),
+      versions.map((v) => ({ label: v })),
       { placeHolder: 'Select GemStone version', title: 'New GemStone Database (1/4)' },
     );
     if (!versionPick) return undefined;
@@ -45,7 +47,7 @@ export class DatabaseManager {
       return undefined;
     }
     const extentPick = await vscode.window.showQuickPick(
-      extents.map(e => ({ label: e })),
+      extents.map((e) => ({ label: e })),
       { placeHolder: 'Select base extent', title: 'New GemStone Database (2/4)' },
     );
     if (!extentPick) return undefined;
@@ -56,7 +58,7 @@ export class DatabaseManager {
       prompt: 'Stone name',
       value: 'gs64stone',
       title: 'New GemStone Database (3/4)',
-      validateInput: (v) => /^\w+$/.test(v) ? null : 'Alphanumeric and underscore only',
+      validateInput: (v) => (/^\w+$/.test(v) ? null : 'Alphanumeric and underscore only'),
     });
     if (!stoneName) return undefined;
 
@@ -65,7 +67,7 @@ export class DatabaseManager {
       prompt: 'NetLDI name',
       value: 'gs64ldi',
       title: 'New GemStone Database (4/4)',
-      validateInput: (v) => /^\w+$/.test(v) ? null : 'Alphanumeric and underscore only',
+      validateInput: (v) => (/^\w+$/.test(v) ? null : 'Alphanumeric and underscore only'),
     });
     if (!ldiName) return undefined;
 
@@ -106,7 +108,10 @@ export class DatabaseManager {
             openLabel: 'Use This Folder',
             title: 'Select a local disk folder for this GemStone database',
           });
-          if (!folderResult?.[0]) { appendSysadmin('NFS check: folder picker cancelled'); return undefined; }
+          if (!folderResult?.[0]) {
+            appendSysadmin('NFS check: folder picker cancelled');
+            return undefined;
+          }
           effectiveParentDir = folderResult[0].fsPath;
           appendSysadmin(`NFS check: local directory selected: ${effectiveParentDir}`);
         } else {
@@ -120,47 +125,66 @@ export class DatabaseManager {
       { location: vscode.ProgressLocation.Notification, title: 'Creating GemStone database...' },
       async (progress) => {
         try {
-          appendSysadmin(`createDatabase: parentDir=${effectiveParentDir ?? '(rootPath)'}, allowNfsExtents=${allowNfsExtents}`);
+          appendSysadmin(
+            `createDatabase: parentDir=${effectiveParentDir ?? '(rootPath)'}, allowNfsExtents=${allowNfsExtents}`,
+          );
           const db = await this.createDatabaseDirect(
-            version, baseExtent, stoneName, ldiName, progress, effectiveParentDir, allowNfsExtents,
+            version,
+            baseExtent,
+            stoneName,
+            ldiName,
+            progress,
+            effectiveParentDir,
+            allowNfsExtents,
           );
 
           if (effectiveParentDir) {
             // Update rootPath after creation so version lookup used the old path during creation
-            await vscode.workspace.getConfiguration('gemstone').update(
-              'rootPath', effectiveParentDir, vscode.ConfigurationTarget.Global,
-            );
-            vscode.window.showInformationMessage(
-              `Database created at ${effectiveParentDir}. ` +
-              `Your GemStone root path setting has been updated to this location — ` +
-              `new databases and version downloads will go here by default. ` +
-              `To change it, open Preferences › Settings and search for "GemStone: Root Path".`,
-              'Open Settings',
-            ).then(btn => {
-              if (btn === 'Open Settings') {
-                vscode.commands.executeCommand('workbench.action.openSettings', 'gemstone.rootPath');
-              }
-            });
+            await vscode.workspace
+              .getConfiguration('gemstone')
+              .update('rootPath', effectiveParentDir, vscode.ConfigurationTarget.Global);
+            vscode.window
+              .showInformationMessage(
+                `Database created at ${effectiveParentDir}. ` +
+                  `Your GemStone root path setting has been updated to this location — ` +
+                  `new databases and version downloads will go here by default. ` +
+                  `To change it, open Preferences › Settings and search for "GemStone: Root Path".`,
+                'Open Settings',
+              )
+              .then((btn) => {
+                if (btn === 'Open Settings') {
+                  vscode.commands.executeCommand(
+                    'workbench.action.openSettings',
+                    'gemstone.rootPath',
+                  );
+                }
+              });
           }
 
           if (allowNfsExtents) {
             const systemConfPath = path.join(db.path, 'conf', 'system.conf');
-            vscode.window.showInformationMessage(
-              `Database created on NFS. ` +
-              `STN_ALLOW_NFS_EXTENTS = TRUE was added to system.conf so the database can start on a network filesystem. ` +
-              `You can view that file using the button below. ` +
-              `To store future databases on local disk instead, open Preferences › Settings ` +
-              `and search for "GemStone: Root Path".`,
-              'Open system.conf',
-              'Open Settings',
-            ).then(btn => {
-              if (btn === 'Open system.conf') {
-                vscode.workspace.openTextDocument(systemConfPath)
-                  .then(doc => vscode.window.showTextDocument(doc));
-              } else if (btn === 'Open Settings') {
-                vscode.commands.executeCommand('workbench.action.openSettings', 'gemstone.rootPath');
-              }
-            });
+            vscode.window
+              .showInformationMessage(
+                `Database created on NFS. ` +
+                  `STN_ALLOW_NFS_EXTENTS = TRUE was added to system.conf so the database can start on a network filesystem. ` +
+                  `You can view that file using the button below. ` +
+                  `To store future databases on local disk instead, open Preferences › Settings ` +
+                  `and search for "GemStone: Root Path".`,
+                'Open system.conf',
+                'Open Settings',
+              )
+              .then((btn) => {
+                if (btn === 'Open system.conf') {
+                  vscode.workspace
+                    .openTextDocument(systemConfPath)
+                    .then((doc) => vscode.window.showTextDocument(doc));
+                } else if (btn === 'Open Settings') {
+                  vscode.commands.executeCommand(
+                    'workbench.action.openSettings',
+                    'gemstone.rootPath',
+                  );
+                }
+              });
           }
 
           return db;
@@ -202,37 +226,45 @@ export class DatabaseManager {
     const confPath = needsWsl() ? windowsPathToWsl(dbDir) : dbDir;
 
     // database.yaml
-    wslWriteFileSync(path.join(dbDir, 'database.yaml'),
-      `---\nbaseExtent: "${baseExtent}.dbf"\nldiName: "${ldiName}"\nstoneName: "${stoneName}"\nversion: "${version}"\n`);
+    wslWriteFileSync(
+      path.join(dbDir, 'database.yaml'),
+      `---\nbaseExtent: "${baseExtent}.dbf"\nldiName: "${ldiName}"\nstoneName: "${stoneName}"\nversion: "${version}"\n`,
+    );
 
     // gem.conf
-    wslWriteFileSync(path.join(dbDir, 'conf', 'gem.conf'),
+    wslWriteFileSync(
+      path.join(dbDir, 'conf', 'gem.conf'),
       `# Edit this file to change your gem or topaz configuration\n\n` +
-      `# 500 MB: large Rowan project loads (e.g. Seaside) overflow the 50 MB\n` +
-      `# default's old space; a development gem can afford the headroom.\n` +
-      `GEM_TEMPOBJ_CACHE_SIZE = 500000;\n` +
-      `GEM_TEMPOBJ_POMGEN_PRUNE_ON_VOTE = 90;\n\n` +
-      `# Set the following to FALSE if you get an error\n` +
-      `# related to native code when stepping in the debugger\n` +
-      `GEM_NATIVE_CODE_ENABLED = TRUE;\n`);
+        `# 500 MB: large Rowan project loads (e.g. Seaside) overflow the 50 MB\n` +
+        `# default's old space; a development gem can afford the headroom.\n` +
+        `GEM_TEMPOBJ_CACHE_SIZE = 500000;\n` +
+        `GEM_TEMPOBJ_POMGEN_PRUNE_ON_VOTE = 90;\n\n` +
+        `# Set the following to FALSE if you get an error\n` +
+        `# related to native code when stepping in the debugger\n` +
+        `GEM_NATIVE_CODE_ENABLED = TRUE;\n`,
+    );
 
     // stoneName.conf
-    wslWriteFileSync(path.join(dbDir, 'conf', `${stoneName}.conf`),
+    wslWriteFileSync(
+      path.join(dbDir, 'conf', `${stoneName}.conf`),
       `# Edit this file to change your stone configuration.\n` +
-      `# For example, you might want a larger Shared Page Cache.\n\n` +
-      `SHR_PAGE_CACHE_SIZE_KB = 100000;\n` +
-      `KEYFILE = "${confPath}/conf/gemstone.key";\n`);
+        `# For example, you might want a larger Shared Page Cache.\n\n` +
+        `SHR_PAGE_CACHE_SIZE_KB = 100000;\n` +
+        `KEYFILE = "${confPath}/conf/gemstone.key";\n`,
+    );
 
     // system.conf
-    wslWriteFileSync(path.join(dbDir, 'conf', 'system.conf'),
+    wslWriteFileSync(
+      path.join(dbDir, 'conf', 'system.conf'),
       `# See conf/default.conf (a copy of $GEMSTONE/data/system.conf) for descriptions of these lines.\n` +
-      `# In general, this file should not be edited.\n` +
-      `# You may customize the stone config file (stonename.conf) or gem.conf\n\n` +
-      `DBF_EXTENT_NAMES = "${confPath}/data/extent0.dbf";\n` +
-      `STN_TRAN_FULL_LOGGING = TRUE;\n` +
-      `STN_TRAN_LOG_DIRECTORIES = "${confPath}/data/";\n` +
-      `STN_TRAN_LOG_SIZES = 1000;\n` +
-      (allowNfsExtents ? `STN_ALLOW_NFS_EXTENTS = TRUE;\n` : ''));
+        `# In general, this file should not be edited.\n` +
+        `# You may customize the stone config file (stonename.conf) or gem.conf\n\n` +
+        `DBF_EXTENT_NAMES = "${confPath}/data/extent0.dbf";\n` +
+        `STN_TRAN_FULL_LOGGING = TRUE;\n` +
+        `STN_TRAN_LOG_DIRECTORIES = "${confPath}/data/";\n` +
+        `STN_TRAN_LOG_SIZES = 1000;\n` +
+        (allowNfsExtents ? `STN_ALLOW_NFS_EXTENTS = TRUE;\n` : ''),
+    );
 
     progress?.report({ message: 'Copying key file...' });
     const gsPath = this.storage.getGemstonePath(version)!;
@@ -316,7 +348,7 @@ export class DatabaseManager {
     const extents = this.storage.getAvailableExtents(db.config.version);
     if (extents.length > 0) {
       items.push({ label: 'Initial databases', kind: vscode.QuickPickItemKind.Separator });
-      items.push(...extents.map(e => ({ label: e, picked: e === currentExtent })));
+      items.push(...extents.map((e) => ({ label: e, picked: e === currentExtent })));
     }
 
     const pick = await vscode.window.showQuickPick(items, {
@@ -352,14 +384,17 @@ export class DatabaseManager {
 
     const confirmed = await vscode.window.showWarningMessage(
       `Replace the database for "${db.config.stoneName}" with ${baseExtentName}? ` +
-      `This will delete the current extent and all transaction logs. This cannot be undone.`,
+        `This will delete the current extent and all transaction logs. This cannot be undone.`,
       { modal: true },
       'Replace',
     );
     if (confirmed !== 'Replace') return false;
 
     return vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: `Replacing extent for ${db.config.stoneName}...` },
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Replacing extent for ${db.config.stoneName}...`,
+      },
       async (progress) => {
         try {
           // Verify the source exists before deleting anything, so a missing or
@@ -388,9 +423,11 @@ export class DatabaseManager {
 
           // Update database.yaml
           progress.report({ message: 'Updating configuration...' });
-          wslWriteFileSync(path.join(db.path, 'database.yaml'),
+          wslWriteFileSync(
+            path.join(db.path, 'database.yaml'),
             `---\nbaseExtent: "${baseExtentName}"\nldiName: "${db.config.ldiName}"\n` +
-            `stoneName: "${db.config.stoneName}"\nversion: "${db.config.version}"\n`);
+              `stoneName: "${db.config.stoneName}"\nversion: "${db.config.version}"\n`,
+          );
 
           appendSysadmin(`Replaced extent for ${db.config.stoneName} with ${baseExtentName}`);
           return true;
@@ -405,9 +442,7 @@ export class DatabaseManager {
 
   private detectFilesystem(linuxPath: string): string | undefined {
     try {
-      const out = wslExecSync(
-        `findmnt -n -o FSTYPE --target "${linuxPath}" 2>/dev/null`,
-      ).trim();
+      const out = wslExecSync(`findmnt -n -o FSTYPE --target "${linuxPath}" 2>/dev/null`).trim();
       return out || undefined;
     } catch {
       return undefined;

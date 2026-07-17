@@ -6,7 +6,9 @@ import { classLookupExpr, escapeString } from './util';
 // dictionaries resolves to the intended class; without it, the class name is
 // resolved as a bare global (first match in the symbol list).
 export function getClassDefinition(
-  execute: QueryExecutor, className: string, dict?: number | string,
+  execute: QueryExecutor,
+  className: string,
+  dict?: number | string,
 ): string {
   if (dict === undefined) {
     return execute(`getClassDefinition(${className})`, `${className} definition`);

@@ -21,7 +21,7 @@
   function wire(doc, vscode) {
     const scriptEl = doc.querySelector('script[data-old-selector]');
     const oldSelector = scriptEl ? scriptEl.getAttribute('data-old-selector') : '';
-    const dictName = scriptEl ? (scriptEl.getAttribute('data-dict-name') || '') : '';
+    const dictName = scriptEl ? scriptEl.getAttribute('data-dict-name') || '' : '';
     const okBtn = doc.getElementById('ok');
     const cancelBtn = doc.getElementById('cancel');
     const selEl = doc.getElementById('sel');
@@ -41,16 +41,30 @@
     };
     const originalIndices = function () {
       return rows()
-        .filter(function (li) { return li.hasAttribute('data-orig'); })
-        .map(function (li) { return parseInt(li.getAttribute('data-orig'), 10); });
+        .filter(function (li) {
+          return li.hasAttribute('data-orig');
+        })
+        .map(function (li) {
+          return parseInt(li.getAttribute('data-orig'), 10);
+        });
     };
 
     // Live validation mirrors renameMethodPreview.validateNewParts closely enough
     // for immediate feedback; the extension re-validates authoritatively.
     const validate = function () {
       const p = parts();
-      if (p.some(function (s) { return s.trim().length === 0; })) return 'Selector parts cannot be empty.';
-      if (keyword && !p.every(function (s) { return /^[A-Za-z_][A-Za-z0-9_]*:$/.test(s); })) {
+      if (
+        p.some(function (s) {
+          return s.trim().length === 0;
+        })
+      )
+        return 'Selector parts cannot be empty.';
+      if (
+        keyword &&
+        !p.every(function (s) {
+          return /^[A-Za-z_][A-Za-z0-9_]*:$/.test(s);
+        })
+      ) {
         return 'Each keyword part must be an identifier ending in a colon.';
       }
       return '';
@@ -78,8 +92,14 @@
       const up = li.querySelector('button.up');
       const down = li.querySelector('button.down');
       const inp = li.querySelector('input.part');
-      if (up) up.addEventListener('click', function () { move(li, -1); });
-      if (down) down.addEventListener('click', function () { move(li, 1); });
+      if (up)
+        up.addEventListener('click', function () {
+          move(li, -1);
+        });
+      if (down)
+        down.addEventListener('click', function () {
+          move(li, 1);
+        });
       if (inp) inp.addEventListener('input', updatePreview);
     });
 
@@ -103,10 +123,18 @@
     }
 
     // Suppress list-level bubbling weirdness; keep focus usable.
-    if (list) list.addEventListener('submit', function (e) { e.preventDefault(); });
+    if (list)
+      list.addEventListener('submit', function (e) {
+        e.preventDefault();
+      });
 
     updatePreview();
-    return { parts: parts, originalIndices: originalIndices, updatePreview: updatePreview, move: move };
+    return {
+      parts: parts,
+      originalIndices: originalIndices,
+      updatePreview: updatePreview,
+      move: move,
+    };
   }
 
   const root = typeof globalThis !== 'undefined' ? globalThis : window;

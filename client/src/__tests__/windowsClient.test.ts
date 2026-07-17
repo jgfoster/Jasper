@@ -236,7 +236,12 @@ describe('VersionManager.deleteWindowsClientExtracted', () => {
 
     const version: GemStoneVersion = {
       version: '3.7.5',
-      fileName: '', url: '', size: 0, date: '', downloaded: false, extracted: true,
+      fileName: '',
+      url: '',
+      size: 0,
+      date: '',
+      downloaded: false,
+      extracted: true,
     };
     await manager.deleteWindowsClientExtracted(version);
     expect(fs.existsSync(dirPath)).toBe(false);
@@ -248,7 +253,12 @@ describe('VersionManager.deleteWindowsClientExtracted', () => {
 
     const version: GemStoneVersion = {
       version: '9.9.9',
-      fileName: '', url: '', size: 0, date: '', downloaded: false, extracted: false,
+      fileName: '',
+      url: '',
+      size: 0,
+      date: '',
+      downloaded: false,
+      extracted: false,
     };
     await manager.deleteWindowsClientExtracted(version); // should not throw
   });
@@ -270,7 +280,7 @@ describe('VersionManager.fetchAvailableVersions (client state)', () => {
       vi.spyOn(manager as unknown as PrivateDownloadHost, 'fetchUrl').mockResolvedValue(html);
 
       const versions = await manager.fetchAvailableVersions();
-      const v = versions.find(x => x.version === '3.7.5');
+      const v = versions.find((x) => x.version === '3.7.5');
       expect(v?.clientExtracted).toBe(true);
     } finally {
       Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
@@ -281,7 +291,10 @@ describe('VersionManager.fetchAvailableVersions (client state)', () => {
 // ── VersionManager.downloadAndExtractWindowsClient ────────
 
 describe('VersionManager.downloadAndExtractWindowsClient', () => {
-  const noopToken = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) } as unknown as vscode.CancellationToken;
+  const noopToken = {
+    isCancellationRequested: false,
+    onCancellationRequested: () => ({ dispose: () => {} }),
+  } as unknown as vscode.CancellationToken;
 
   it('throws when version is empty', async () => {
     const storage = new SysadminStorage();
@@ -313,7 +326,9 @@ describe('VersionManager.downloadAndExtractWindowsClient', () => {
   it('does not mask non-404 download errors', async () => {
     const storage = new SysadminStorage();
     const manager = new VersionManager(storage);
-    vi.spyOn(manager as unknown as PrivateDownloadHost, 'downloadFile').mockRejectedValue(new Error('ECONNREFUSED'));
+    vi.spyOn(manager as unknown as PrivateDownloadHost, 'downloadFile').mockRejectedValue(
+      new Error('ECONNREFUSED'),
+    );
     await expect(
       manager.downloadAndExtractWindowsClient('3.7.5', { report: vi.fn() }, noopToken),
     ).rejects.toThrow(/ECONNREFUSED/);
@@ -323,18 +338,17 @@ describe('VersionManager.downloadAndExtractWindowsClient', () => {
     const storage = new SysadminStorage();
     const manager = new VersionManager(storage);
     const zipPath = path.join(tmpDir, 'GemStone64BitClient3.7.5-x86.Windows_NT.zip');
-    vi.spyOn(manager as unknown as PrivateDownloadHost, 'downloadFile').mockImplementation(async () => {
-      // Simulate the download by dropping a file at the expected location.
-      fs.writeFileSync(zipPath, '');
-    });
+    vi.spyOn(manager as unknown as PrivateDownloadHost, 'downloadFile').mockImplementation(
+      async () => {
+        // Simulate the download by dropping a file at the expected location.
+        fs.writeFileSync(zipPath, '');
+      },
+    );
 
     await manager.downloadAndExtractWindowsClient('3.7.5', { report: vi.fn() }, noopToken);
 
     // Extraction used tar, not PowerShell
-    expect(execSync).toHaveBeenCalledWith(
-      expect.stringContaining('tar -xf'),
-      expect.anything(),
-    );
+    expect(execSync).toHaveBeenCalledWith(expect.stringContaining('tar -xf'), expect.anything());
     for (const call of vi.mocked(execSync).mock.calls) {
       expect(String(call[0]).toLowerCase()).not.toContain('powershell');
     }

@@ -17,11 +17,13 @@ export interface ClassVersionInfo {
 // recompiled/reshaped class versions visible at a glance. Accepts a dictionary by
 // 1-based index (canonical for Jasper) or by name.
 export function getClassVersions(
-  execute: QueryExecutor, dict: number | string,
+  execute: QueryExecutor,
+  dict: number | string,
 ): Map<string, ClassVersionInfo> {
-  const dictExpr = typeof dict === 'number'
-    ? `System myUserProfile symbolList at: ${dict}`
-    : `System myUserProfile symbolList objectNamed: #'${escapeString(dict)}'`;
+  const dictExpr =
+    typeof dict === 'number'
+      ? `System myUserProfile symbolList at: ${dict}`
+      : `System myUserProfile symbolList objectNamed: #'${escapeString(dict)}'`;
   const code = `| ws dict |
 dict := ${dictExpr}.
 dict ifNil: [^ ''].
@@ -33,9 +35,10 @@ dict keysAndValuesDo: [:k :v |
     (hist notNil and: [hist size > 1]) ifTrue: [
       ws nextPutAll: k; tab; print: (hist indexOf: v); tab; print: hist size; lf]]].
 ws contents`;
-  const label = typeof dict === 'number'
-    ? `getClassVersions(dictIndex: ${dict})`
-    : `getClassVersions(dictName: ${dict})`;
+  const label =
+    typeof dict === 'number'
+      ? `getClassVersions(dictIndex: ${dict})`
+      : `getClassVersions(dictName: ${dict})`;
   const map = new Map<string, ClassVersionInfo>();
   for (const line of splitLines(execute(label, code))) {
     const parts = line.split('\t');

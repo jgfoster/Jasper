@@ -44,8 +44,7 @@ export class RowanDecorationProvider implements vscode.FileDecorationProvider {
   provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
     if (uri.scheme !== ROWAN_URI_SCHEME) return undefined;
     const state = /(?:^|&)state=([MAD])(?:&|$)/.exec(uri.query)?.[1] as
-      | RowanChangeState
-      | undefined;
+      RowanChangeState | undefined;
     if (!state) return undefined;
     return {
       badge: state,

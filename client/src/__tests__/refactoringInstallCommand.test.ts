@@ -86,7 +86,9 @@ beforeEach(() => {
   mocks.showInputBox.mockResolvedValue(undefined);
   mocks.sessionNeedsCommit.mockReturnValue(false);
   mocks.installSupport.mockResolvedValue({
-    success: true, report: 'SUCCESS -- all checks passed.', message: 'ok',
+    success: true,
+    report: 'SUCCESS -- all checks passed.',
+    message: 'ok',
   });
   mocks.refreshAvailable.mockImplementation((s: { rbSupportAvailable?: boolean }) => {
     s.rbSupportAvailable = true;
@@ -144,7 +146,9 @@ describe('installRefactoringFeature', () => {
 
   it('surfaces the report and reports failure when the loader install is incomplete', async () => {
     mocks.installSupport.mockResolvedValueOnce({
-      success: false, report: 'INCOMPLETE -- missing RBParser', message: 'did not install completely',
+      success: false,
+      report: 'INCOMPLETE -- missing RBParser',
+      message: 'did not install completely',
     });
     const base = createBaseSession();
 
@@ -162,6 +166,10 @@ describe('installRefactoringFeature', () => {
 
     expect(abortMock).toHaveBeenCalledWith(base.id);
     expect(base.rbSupportAvailable).toBe(true);
-    expect(mocks.executeCommand).toHaveBeenCalledWith('setContext', 'gemstone.rbSupportAvailable', true);
+    expect(mocks.executeCommand).toHaveBeenCalledWith(
+      'setContext',
+      'gemstone.rbSupportAvailable',
+      true,
+    );
   });
 });

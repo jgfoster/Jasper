@@ -18,14 +18,19 @@ import * as crypto from 'crypto';
 import { RenameChange } from './renameInstVarPreview';
 import { renderRenamePanelHtml } from './renameInstVarPanelHtml';
 
-const panelJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'renameInstVarPanelView.js'), 'utf8');
+const panelJs = fs.readFileSync(
+  path.join(__dirname, '..', 'src', 'renameInstVarPanelView.js'),
+  'utf8',
+);
 
 /**
  * Show the rename preview and resolve with the ids of the changes the user chose
  * to apply (in the order given), or undefined if they cancelled/closed it.
  */
 export function showRenameInstVarPanel(
-  oldName: string, newName: string, changes: RenameChange[],
+  oldName: string,
+  newName: string,
+  changes: RenameChange[],
 ): Promise<string[] | undefined> {
   const panel = vscode.window.createWebviewPanel(
     'gemstoneRenameInstVar',

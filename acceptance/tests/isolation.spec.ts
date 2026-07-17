@@ -6,7 +6,7 @@ import { test, expect } from '../helpers/vscode';
  * installed release would show "extracted and ready to use". With isolation
  * intact, every release reads as merely available for download.
  */
-test('does not surface the machine\'s installed GemStone versions', async ({ window }) => {
+test("does not surface the machine's installed GemStone versions", async ({ window }) => {
   await window.getByRole('tab', { name: /GemStone/ }).click();
 
   const sidebar = window.locator('.sidebar');

@@ -12,9 +12,7 @@ export class GemStoneLoginItem extends vscode.TreeItem {
   ) {
     super(
       loginLabel(login),
-      hasSessions
-        ? vscode.TreeItemCollapsibleState.Expanded
-        : vscode.TreeItemCollapsibleState.None,
+      hasSessions ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None,
     );
     this.description = login.version || '';
     this.tooltip = `${loginLabel(login)} (${login.version || ''})`;
@@ -37,7 +35,10 @@ export class GemStoneLoginItem extends vscode.TreeItem {
 
 /** An active session (tree child of the login that started it). */
 export class GemStoneSessionItem extends vscode.TreeItem {
-  constructor(public readonly activeSession: ActiveSession, isSelected: boolean) {
+  constructor(
+    public readonly activeSession: ActiveSession,
+    isSelected: boolean,
+  ) {
     super(loginLabel(activeSession.login), vscode.TreeItemCollapsibleState.None);
     const { id, stoneVersion } = activeSession;
     this.id = `session-${id}`;

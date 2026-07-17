@@ -62,7 +62,9 @@ export class GlobalsBrowser {
           this.isReady = true;
           this.flush();
         } else if (message.command === 'inspectGlobal') {
-          vscode.commands.executeCommand('gemstone.inspectGlobal', { className: message.name as string });
+          vscode.commands.executeCommand('gemstone.inspectGlobal', {
+            className: message.name as string,
+          });
         }
       },
       null,

@@ -165,7 +165,9 @@ describe('buildEnhancedInspectorPerfStatusBarText', () => {
   });
 
   it('formats a non-zero count', () => {
-    expect(buildEnhancedInspectorPerfStatusBarText(14)).toBe('$(record) Enhanced Inspector Perf: 14');
+    expect(buildEnhancedInspectorPerfStatusBarText(14)).toBe(
+      '$(record) Enhanced Inspector Perf: 14',
+    );
   });
 });
 
@@ -196,10 +198,10 @@ describe('buildEnhancedInspectorPerfClipboardText', () => {
 
   it('sorts methods by count descending', () => {
     enhancedInspectorPerfTracker.setEnabled(true);
-    enhancedInspectorPerfTracker.increment('GciTsResolveSymbol');          // count: 1, inserted first
-    enhancedInspectorPerfTracker.increment('GciTsPerformFetchBytes');       // count: 2, inserted second
+    enhancedInspectorPerfTracker.increment('GciTsResolveSymbol'); // count: 1, inserted first
+    enhancedInspectorPerfTracker.increment('GciTsPerformFetchBytes'); // count: 2, inserted second
     enhancedInspectorPerfTracker.increment('GciTsPerformFetchBytes');
-    enhancedInspectorPerfTracker.increment('GciTsExecuteFetchBytes');       // count: 3, inserted third
+    enhancedInspectorPerfTracker.increment('GciTsExecuteFetchBytes'); // count: 3, inserted third
     enhancedInspectorPerfTracker.increment('GciTsExecuteFetchBytes');
     enhancedInspectorPerfTracker.increment('GciTsExecuteFetchBytes');
     const lines = buildEnhancedInspectorPerfClipboardText(enhancedInspectorPerfTracker).split('\n');
@@ -242,10 +244,10 @@ describe('buildEnhancedInspectorPerfQuickPickItems', () => {
 
   it('lists methods after the separator sorted by count descending', () => {
     enhancedInspectorPerfTracker.setEnabled(true);
-    enhancedInspectorPerfTracker.increment('GciTsResolveSymbol');          // count: 1, inserted first
-    enhancedInspectorPerfTracker.increment('GciTsPerformFetchBytes');       // count: 2, inserted second
+    enhancedInspectorPerfTracker.increment('GciTsResolveSymbol'); // count: 1, inserted first
+    enhancedInspectorPerfTracker.increment('GciTsPerformFetchBytes'); // count: 2, inserted second
     enhancedInspectorPerfTracker.increment('GciTsPerformFetchBytes');
-    enhancedInspectorPerfTracker.increment('GciTsExecuteFetchBytes');       // count: 3, inserted third
+    enhancedInspectorPerfTracker.increment('GciTsExecuteFetchBytes'); // count: 3, inserted third
     enhancedInspectorPerfTracker.increment('GciTsExecuteFetchBytes');
     enhancedInspectorPerfTracker.increment('GciTsExecuteFetchBytes');
     const items = buildEnhancedInspectorPerfQuickPickItems(enhancedInspectorPerfTracker);

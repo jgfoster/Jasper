@@ -11,7 +11,10 @@ beforeAll(() => {
 });
 
 interface PanelApi {
-  wire(doc: Document, vscode: { postMessage: (m: unknown) => void }): {
+  wire(
+    doc: Document,
+    vscode: { postMessage: (m: unknown) => void },
+  ): {
     refresh: () => void;
     deselectedIds: () => string[];
     appendChanges: (html: string, done: boolean) => void;
@@ -22,16 +25,29 @@ function api(): PanelApi {
 }
 
 const change = (id: string, selector: string): MethodRenameChange => ({
-  id, kind: 'methodRename', dictName: 'UserGlobals', className: 'Foo', isMeta: false,
-  selector, newSelector: `${selector}X`, category: 'accessing',
-  oldSource: `${selector}\n\t^1`, newSource: `${selector}X\n\t^1`,
+  id,
+  kind: 'methodRename',
+  dictName: 'UserGlobals',
+  className: 'Foo',
+  isMeta: false,
+  selector,
+  newSelector: `${selector}X`,
+  category: 'accessing',
+  oldSource: `${selector}\n\t^1`,
+  newSource: `${selector}X\n\t^1`,
 });
 
 function mount(changes: MethodRenameChange[], total: number, done: boolean) {
   const full = renderMethodPanelHtml({
-    oldSelector: 'a', newSelector: 'b', total, changes, done,
-    outOfScope: { implementors: 0, senders: 0, skipped: 0 }, skippedMethods: [],
-    nonce: 'test', script: '',
+    oldSelector: 'a',
+    newSelector: 'b',
+    total,
+    changes,
+    done,
+    outOfScope: { implementors: 0, senders: 0, skipped: 0 },
+    skippedMethods: [],
+    nonce: 'test',
+    script: '',
   });
   const m = full.match(/<body([^>]*)>([\s\S]*)<\/body>/)!;
   document.body.setAttribute('data-total', String(total));

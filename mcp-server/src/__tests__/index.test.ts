@@ -3,13 +3,20 @@ import { parseArgs } from '../index';
 
 describe('parseArgs', () => {
   const validArgs = [
-    'node', 'index.js',
-    '--library-path', '/path/to/lib.dylib',
-    '--stone-nrs', '!tcp@localhost#server!gs64stone',
-    '--gem-nrs', '!tcp@localhost#netldi:gs64ldi#task!gemnetobject',
-    '--gs-user', 'DataCurator',
-    '--gemstone', '/opt/gemstone/3.7.4',
-    '--gemstone-global-dir', '/home/user/gemstone',
+    'node',
+    'index.js',
+    '--library-path',
+    '/path/to/lib.dylib',
+    '--stone-nrs',
+    '!tcp@localhost#server!gs64stone',
+    '--gem-nrs',
+    '!tcp@localhost#netldi:gs64ldi#task!gemnetobject',
+    '--gs-user',
+    'DataCurator',
+    '--gemstone',
+    '/opt/gemstone/3.7.4',
+    '--gemstone-global-dir',
+    '/home/user/gemstone',
   ];
 
   it('parses all required arguments', () => {
@@ -37,10 +44,7 @@ describe('parseArgs', () => {
   });
 
   it('throws on missing required argument for stdio/sse mode', () => {
-    const args = [
-      'node', 'index.js',
-      '--library-path', '/path/to/lib.dylib',
-    ];
+    const args = ['node', 'index.js', '--library-path', '/path/to/lib.dylib'];
 
     expect(() => parseArgs(args)).toThrow('Missing required argument');
   });
@@ -61,8 +65,9 @@ describe('parseArgs', () => {
   });
 
   it('throws on invalid transport value', () => {
-    expect(() => parseArgs([...validArgs, '--transport', 'websocket']))
-      .toThrow('Invalid --transport');
+    expect(() => parseArgs([...validArgs, '--transport', 'websocket'])).toThrow(
+      'Invalid --transport',
+    );
   });
 
   describe('proxy mode', () => {
@@ -73,15 +78,13 @@ describe('parseArgs', () => {
     });
 
     it('does not require library-path or GemStone args in proxy mode', () => {
-      expect(() => parseArgs(['node', 'index.js', '--proxy-socket', '/tmp/jasper.sock']))
-        .not.toThrow();
+      expect(() =>
+        parseArgs(['node', 'index.js', '--proxy-socket', '/tmp/jasper.sock']),
+      ).not.toThrow();
     });
 
     it('still exposes the socket path when other args are also given', () => {
-      const result = parseArgs([
-        ...validArgs,
-        '--proxy-socket', '/tmp/jasper.sock',
-      ]);
+      const result = parseArgs([...validArgs, '--proxy-socket', '/tmp/jasper.sock']);
       expect(result.transport).toBe('proxy');
       expect(result.proxySocket).toBe('/tmp/jasper.sock');
     });

@@ -37,23 +37,37 @@
     var buildColumnDom = opts.buildColumnDom;
     var populate = opts.populate;
 
-    var columns = [];        // ordered array of column descriptors (left→right)
-    var columnsById = {};    // id -> descriptor
+    var columns = []; // ordered array of column descriptors (left→right)
+    var columnsById = {}; // id -> descriptor
     var focusedColumnId = null;
 
     function makeDescriptor(id, oop, width) {
       return {
-        id: id, oop: oop, width: width,
-        specs: null, metaData: null, className: '', label: '', title: '',
+        id: id,
+        oop: oop,
+        width: width,
+        specs: null,
+        metaData: null,
+        className: '',
+        label: '',
+        title: '',
         activeMethodSelector: null,
-        cachedViewData: {}, loadedRowCounts: {}, colWidths: {},
-        rangesMode: {}, rangeTotals: {}, rangeDataCache: {}, methodSourceCache: {},
-        metaSubTab: 'instanceMethods', openMethodSel: null,
+        cachedViewData: {},
+        loadedRowCounts: {},
+        colWidths: {},
+        rangesMode: {},
+        rangeTotals: {},
+        rangeDataCache: {},
+        methodSourceCache: {},
+        metaSubTab: 'instanceMethods',
+        openMethodSel: null,
         el: null,
       };
     }
 
-    function get(id) { return columnsById[id]; }
+    function get(id) {
+      return columnsById[id];
+    }
 
     function columnOf(elem) {
       var colEl = elem && elem.closest ? elem.closest('.column') : null;
@@ -116,7 +130,10 @@
       var idx = columns.indexOf(col);
       if (idx === -1) return;
       removeColumns(columns.splice(idx, 1));
-      if (columns.length === 0) { postMessage({ command: 'closePanel' }); return; }
+      if (columns.length === 0) {
+        postMessage({ command: 'closePanel' });
+        return;
+      }
       focus(columns[Math.min(idx, columns.length - 1)], true);
     }
 
@@ -151,7 +168,9 @@
       close: close,
       focus: focus,
       pinWidth: pinWidth,
-      focusedId: function () { return focusedColumnId; },
+      focusedId: function () {
+        return focusedColumnId;
+      },
     };
   }
 

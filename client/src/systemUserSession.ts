@@ -28,8 +28,15 @@ export function loginAsSystemUser(base: ActiveSession, password: string): Active
   const stoneNrs = `!tcp@${login.gem_host}#server!${login.stone}`;
   const gemNrs = `!tcp@${login.gem_host}#netldi:${login.netldi}#task!gemnetobject`;
   const result = base.gci.GciTsLogin(
-    stoneNrs, login.host_user || null, login.host_password || null, false,
-    gemNrs, 'SystemUser', password, 0, 0,
+    stoneNrs,
+    login.host_user || null,
+    login.host_password || null,
+    false,
+    gemNrs,
+    'SystemUser',
+    password,
+    0,
+    0,
   );
   if (!result.session) {
     throw new Error(result.err.message || `SystemUser login failed (error ${result.err.number})`);
@@ -47,7 +54,8 @@ export function loginAsSystemUser(base: ActiveSession, password: string): Active
 // prompting for it otherwise. `purpose` completes the prompt "…required to
 // <purpose>". Returns undefined if the user cancels or login fails.
 export async function obtainSystemUserSession(
-  base: ActiveSession, purpose: string,
+  base: ActiveSession,
+  purpose: string,
 ): Promise<ActiveSession | undefined> {
   try {
     return loginAsSystemUser(base, DEFAULT_SYSTEMUSER_PW);
@@ -63,7 +71,9 @@ export async function obtainSystemUserSession(
   try {
     return loginAsSystemUser(base, password);
   } catch (e: unknown) {
-    vscode.window.showErrorMessage(`Could not log in as SystemUser: ${e instanceof Error ? e.message : String(e)}`);
+    vscode.window.showErrorMessage(
+      `Could not log in as SystemUser: ${e instanceof Error ? e.message : String(e)}`,
+    );
     return undefined;
   }
 }
@@ -74,11 +84,14 @@ export async function obtainSystemUserSession(
 // does (the abort discards uncommitted changes). `doneMessage` prefixes the
 // confirmation, e.g. "Project loaded.". Returns true if the view was refreshed.
 export async function refreshWorkingSession(
-  base: ActiveSession, sessionManager: SessionManager, doneMessage: string,
+  base: ActiveSession,
+  sessionManager: SessionManager,
+  doneMessage: string,
 ): Promise<boolean> {
   let needsCommit: boolean | undefined;
   try {
-    needsCommit = executeFetchString(base, 'needsCommit', 'System needsCommit printString').trim() === 'true';
+    needsCommit =
+      executeFetchString(base, 'needsCommit', 'System needsCommit printString').trim() === 'true';
   } catch {
     needsCommit = undefined;
   }
@@ -92,7 +105,8 @@ export async function refreshWorkingSession(
     : 'Any uncommitted changes in this session will be discarded.';
   const choice = await vscode.window.showInformationMessage(
     `${doneMessage} Refresh this session to see it? ${detail}`,
-    'Refresh', 'Later',
+    'Refresh',
+    'Later',
   );
   if (choice === 'Refresh') return safeAbort(base, sessionManager);
   return false;

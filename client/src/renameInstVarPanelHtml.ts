@@ -24,9 +24,12 @@ function renderDiff(diff: DiffLine[]): string {
 
 function renderCard(change: RenameChange): string {
   const label = escapeHtml(changeLabel(change));
-  const badge = change.kind === 'classDefinitionEdit'
-    ? '<span class="badge def">class definition</span>'
-    : (change.category ? `<span class="badge">${escapeHtml(change.category)}</span>` : '');
+  const badge =
+    change.kind === 'classDefinitionEdit'
+      ? '<span class="badge def">class definition</span>'
+      : change.category
+        ? `<span class="badge">${escapeHtml(change.category)}</span>`
+        : '';
   const diff = renderDiff(lineDiff(change.oldSource, change.newSource));
   // Diffs start collapsed so the list is a scannable set of change headers;
   // click a row (or its chevron) to expand its before/after.

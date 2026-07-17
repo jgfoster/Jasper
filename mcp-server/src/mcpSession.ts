@@ -28,7 +28,8 @@ export class McpSession {
       config.gemNrs,
       config.gsUser,
       config.gsPassword,
-      0, 0,
+      0,
+      0,
     );
     if (!result.session) {
       throw new Error(result.err.message || `Login failed (error ${result.err.number})`);

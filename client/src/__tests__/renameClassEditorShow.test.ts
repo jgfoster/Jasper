@@ -44,20 +44,32 @@ function lastPanel(): MockPanel {
 
 describe('showRenameClassEditor', () => {
   const OPTS = {
-    copyMethods: true, recompileSubclasses: true, migrateInstances: true, removeOldFromHistory: false,
+    copyMethods: true,
+    recompileSubclasses: true,
+    migrateInstances: true,
+    removeOldFromHistory: false,
   };
 
   it('resolves with the new name, scope, and options when validation passes', async () => {
     const result = showRenameClassEditor({ oldName: 'Account' }, () => undefined);
     lastPanel().__emit({
-      command: 'ok', newName: 'BankAccount', scope: { kind: 'wholeSystem' }, options: OPTS,
+      command: 'ok',
+      newName: 'BankAccount',
+      scope: { kind: 'wholeSystem' },
+      options: OPTS,
     });
 
-    expect(await result).toEqual({ newName: 'BankAccount', scope: { kind: 'wholeSystem' }, options: OPTS });
+    expect(await result).toEqual({
+      newName: 'BankAccount',
+      scope: { kind: 'wholeSystem' },
+      options: OPTS,
+    });
   });
 
   it('rejects a name in use without closing, then resolves once a free name is entered', async () => {
-    const validate = vi.fn((name: string) => (name === 'Taken' ? 'The name Taken is already in use.' : undefined));
+    const validate = vi.fn((name: string) =>
+      name === 'Taken' ? 'The name Taken is already in use.' : undefined,
+    );
 
     const result = showRenameClassEditor({ oldName: 'Account' }, validate);
     const panel = lastPanel();
@@ -67,8 +79,17 @@ describe('showRenameClassEditor', () => {
       expect.objectContaining({ command: 'invalid' }),
     );
 
-    panel.__emit({ command: 'ok', newName: 'BankAccount', scope: { kind: 'wholeSystem' }, options: OPTS });
-    expect(await result).toEqual({ newName: 'BankAccount', scope: { kind: 'wholeSystem' }, options: OPTS });
+    panel.__emit({
+      command: 'ok',
+      newName: 'BankAccount',
+      scope: { kind: 'wholeSystem' },
+      options: OPTS,
+    });
+    expect(await result).toEqual({
+      newName: 'BankAccount',
+      scope: { kind: 'wholeSystem' },
+      options: OPTS,
+    });
   });
 
   it('resolves undefined when cancelled', async () => {

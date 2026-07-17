@@ -19,7 +19,8 @@ import { StartClassPreview, PreviewPage, ApplyResult } from './renameClassPrevie
 import { renderClassPanelHtml, renderClassCards } from './renameClassPanelHtml';
 
 const panelJs = fs.readFileSync(
-  path.join(__dirname, '..', 'src', 'renameMethodPanelView.js'), 'utf8',
+  path.join(__dirname, '..', 'src', 'renameMethodPanelView.js'),
+  'utf8',
 );
 
 export interface RenameClassPanelHandlers {
@@ -37,8 +38,11 @@ export interface RenameClassPanelOptions {
 /** Show the paginated preview; resolve with the apply result, or undefined if the
  *  user cancelled/closed it. */
 export function showRenameClassPanel(
-  oldName: string, newName: string,
-  start: StartClassPreview, options: RenameClassPanelOptions, handlers: RenameClassPanelHandlers,
+  oldName: string,
+  newName: string,
+  start: StartClassPreview,
+  options: RenameClassPanelOptions,
+  handlers: RenameClassPanelHandlers,
 ): Promise<ApplyResult | undefined> {
   const panel = vscode.window.createWebviewPanel(
     'gemstoneRenameClass',
@@ -93,7 +97,10 @@ export function showRenameClassPanel(
         try {
           if (message?.command === 'loadMore' || message?.command === 'loadAll') {
             if (loading) return;
-            if (done) { void panel.webview.postMessage({ command: 'busyDone' }); return; }
+            if (done) {
+              void panel.webview.postMessage({ command: 'busyDone' });
+              return;
+            }
             loading = true;
             try {
               if (message.command === 'loadAll') {
@@ -107,7 +114,9 @@ export function showRenameClassPanel(
               loading = false;
             }
           } else if (message?.command === 'apply') {
-            const deselected: string[] = Array.isArray(message.deselected) ? message.deselected : [];
+            const deselected: string[] = Array.isArray(message.deselected)
+              ? message.deselected
+              : [];
             const result = await handlers.apply(deselected);
             finish(result);
           } else if (message?.command === 'cancel') {

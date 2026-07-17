@@ -1,28 +1,58 @@
 import { describe, it, expect } from 'vitest';
 import {
-  parseStartPreview, parsePage, parseApplyResult,
-  isStructuralChange, classChangeLabel, validateNewClassName, ClassRenameChange,
+  parseStartPreview,
+  parsePage,
+  parseApplyResult,
+  isStructuralChange,
+  classChangeLabel,
+  validateNewClassName,
+  ClassRenameChange,
 } from '../renameClassPreview';
 
 const renameChange = {
-  id: '1', kind: 'classRename', dictName: 'UserGlobals', className: 'Foo', isMeta: false,
-  selector: null, newName: 'Bar', newSelector: null, category: null,
-  oldSource: "Object subclass: 'Foo'", newSource: "Object subclass: 'Bar'",
+  id: '1',
+  kind: 'classRename',
+  dictName: 'UserGlobals',
+  className: 'Foo',
+  isMeta: false,
+  selector: null,
+  newName: 'Bar',
+  newSelector: null,
+  category: null,
+  oldSource: "Object subclass: 'Foo'",
+  newSource: "Object subclass: 'Bar'",
 };
 const reparentChange = {
-  id: '2', kind: 'classReparent', dictName: 'UserGlobals', className: 'Sub', isMeta: false,
-  selector: null, newName: null, category: null,
-  oldSource: "Foo subclass: 'Sub'", newSource: "Bar subclass: 'Sub'",
+  id: '2',
+  kind: 'classReparent',
+  dictName: 'UserGlobals',
+  className: 'Sub',
+  isMeta: false,
+  selector: null,
+  newName: null,
+  category: null,
+  oldSource: "Foo subclass: 'Sub'",
+  newSource: "Bar subclass: 'Sub'",
 };
 const refChange = {
-  id: '3', kind: 'methodRecompile', dictName: 'UserGlobals', className: 'Other', isMeta: false,
-  selector: 'usesFoo', newName: null, category: 'making',
-  oldSource: 'usesFoo ^Foo new', newSource: 'usesFoo ^Bar new',
+  id: '3',
+  kind: 'methodRecompile',
+  dictName: 'UserGlobals',
+  className: 'Other',
+  isMeta: false,
+  selector: 'usesFoo',
+  newName: null,
+  category: 'making',
+  oldSource: 'usesFoo ^Foo new',
+  newSource: 'usesFoo ^Bar new',
 };
 
 function startJson(over: Record<string, unknown> = {}): string {
   return JSON.stringify({
-    token: 'tok', total: 3, oldName: 'Foo', newName: 'Bar',
+    token: 'tok',
+    total: 3,
+    oldName: 'Foo',
+    newName: 'Bar',
     outOfScope: { references: 2, descendants: 1, skipped: 0, collision: null },
     skippedMethods: [],
     page: { changes: [renameChange, reparentChange, refChange], nextOffset: 4, done: true },
@@ -46,15 +76,25 @@ describe('rename-class preview parsing', () => {
   it('parses all three change kinds with the new class name on the rename', () => {
     const start = parseStartPreview(startJson());
 
-    expect(start.page.changes.map((c) => c.kind))
-      .toEqual(['classRename', 'classReparent', 'methodRecompile']);
+    expect(start.page.changes.map((c) => c.kind)).toEqual([
+      'classRename',
+      'classReparent',
+      'methodRecompile',
+    ]);
     expect(start.page.changes[0].newName).toBe('Bar');
   });
 
   it('surfaces a name-collision reason when the new name is in use', () => {
-    const start = parseStartPreview(startJson({
-      outOfScope: { references: 0, descendants: 0, skipped: 0, collision: 'the name Bar is already in use' },
-    }));
+    const start = parseStartPreview(
+      startJson({
+        outOfScope: {
+          references: 0,
+          descendants: 0,
+          skipped: 0,
+          collision: 'the name Bar is already in use',
+        },
+      }),
+    );
 
     expect(start.outOfScope.collision).toBe('the name Bar is already in use');
   });
@@ -71,15 +111,18 @@ describe('rename-class preview parsing', () => {
   });
 
   it('throws on an expired-session page envelope', () => {
-    expect(() => parsePage(JSON.stringify({ error: 'preview session expired', changes: [] }))).toThrow(
-      'preview session expired',
-    );
+    expect(() =>
+      parsePage(JSON.stringify({ error: 'preview session expired', changes: [] })),
+    ).toThrow('preview session expired');
   });
 
   it('reads the applied count and failures from an apply result', () => {
-    const result = parseApplyResult(JSON.stringify({
-      applied: 2, failed: [{ id: '3', label: 'Other', error: 'boom' }],
-    }));
+    const result = parseApplyResult(
+      JSON.stringify({
+        applied: 2,
+        failed: [{ id: '3', label: 'Other', error: 'boom' }],
+      }),
+    );
 
     expect(result.applied).toBe(2);
     expect(result.failed[0].error).toBe('boom');

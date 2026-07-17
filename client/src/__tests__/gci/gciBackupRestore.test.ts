@@ -23,7 +23,11 @@ import * as path from 'path';
 import { GciLibrary } from '../../gciLibrary';
 import { GCI_LIBRARY_PATH, STONE_NRS, GEM_NRS, GS_USER, GS_PASSWORD } from './gciTestConfig';
 import { fullBackupCode } from '../../queries/backup';
-import { restoreFromBackupCode, commitRestoreCode, RESTORE_NO_LOGOUT_MARKER } from '../../queries/restore';
+import {
+  restoreFromBackupCode,
+  commitRestoreCode,
+  RESTORE_NO_LOGOUT_MARKER,
+} from '../../queries/restore';
 
 const OOP_NIL = 0x14n;
 const OOP_ILLEGAL = 0x01n;
@@ -64,7 +68,13 @@ function sourceClass(gci: GciLibrary, session: unknown): bigint {
 // caller can treat the 4046 auto-logout as success rather than failure.
 function run(gci: GciLibrary, session: unknown, src: bigint, code: string): RunResult {
   const { data, err } = gci.GciTsExecuteFetchBytes(
-    session, code, -1, src, OOP_ILLEGAL, OOP_NIL, MAX_RESULT,
+    session,
+    code,
+    -1,
+    src,
+    OOP_ILLEGAL,
+    OOP_NIL,
+    MAX_RESULT,
   );
   return { data: (data ?? '').trim(), errNumber: err.number, errMessage: err.message || '' };
 }
@@ -81,10 +91,14 @@ describe('full logical backup + restore round-trip', () => {
         let session = connect(gci);
         let src = sourceClass(gci, session);
 
-        const committedBefore = run(gci, session, src,
-          `System abortTransaction. `
-          + `UserGlobals at: #${KEY_BEFORE} put: 'before-backup'. `
-          + `System commitTransaction. 'ok'`);
+        const committedBefore = run(
+          gci,
+          session,
+          src,
+          `System abortTransaction. ` +
+            `UserGlobals at: #${KEY_BEFORE} put: 'before-backup'. ` +
+            `System commitTransaction. 'ok'`,
+        );
         expect(committedBefore.errNumber).toBe(0);
 
         const backup = run(gci, session, src, fullBackupCode(backupFile));
@@ -92,26 +106,38 @@ describe('full logical backup + restore round-trip', () => {
         expect(backup.data).toBe('OK');
         expect(fs.existsSync(backupFile)).toBe(true);
 
-        const committedAfter = run(gci, session, src,
-          `UserGlobals at: #${KEY_AFTER} put: 'after-backup'. `
-          + `System commitTransaction. 'ok'`);
+        const committedAfter = run(
+          gci,
+          session,
+          src,
+          `UserGlobals at: #${KEY_AFTER} put: 'after-backup'. ` + `System commitTransaction. 'ok'`,
+        );
         expect(committedAfter.errNumber).toBe(0);
 
         // ── Restore. Full logging → 4046 auto-logout (success) then commitRestore;
         //    partial logging → returns the marker, already fully restored. ──
         const restore = run(gci, session, src, restoreFromBackupCode(backupFile));
         if (restore.errNumber === RESTORE_SUCCESS_LOGOUT_ERROR) {
-          try { gci.GciTsLogout(session); } catch { /* already gone */ }
+          try {
+            gci.GciTsLogout(session);
+          } catch {
+            /* already gone */
+          }
 
           session = connect(gci);
           src = sourceClass(gci, session);
           const commit = run(gci, session, src, commitRestoreCode());
           // commitRestore raises a benign warning when we don't roll forward the
           // current tranlogs (out of scope); the commit still completes.
-          const committed = commit.errNumber === 0
-            || /restoreFromCurrentLogs|may not be restored/i.test(commit.errMessage);
+          const committed =
+            commit.errNumber === 0 ||
+            /restoreFromCurrentLogs|may not be restored/i.test(commit.errMessage);
           expect(committed).toBe(true);
-          try { gci.GciTsLogout(session); } catch { /* ignore */ }
+          try {
+            gci.GciTsLogout(session);
+          } catch {
+            /* ignore */
+          }
         } else {
           expect(restore.errNumber).toBe(0);
           expect(restore.data).toBe(RESTORE_NO_LOGOUT_MARKER);
@@ -120,15 +146,33 @@ describe('full logical backup + restore round-trip', () => {
         // ── Verify the rollback: before-backup survived, after-backup is gone ──
         session = connect(gci);
         src = sourceClass(gci, session);
-        const hasBefore = run(gci, session, src, `(UserGlobals includesKey: #${KEY_BEFORE}) printString`);
-        const hasAfter = run(gci, session, src, `(UserGlobals includesKey: #${KEY_AFTER}) printString`);
+        const hasBefore = run(
+          gci,
+          session,
+          src,
+          `(UserGlobals includesKey: #${KEY_BEFORE}) printString`,
+        );
+        const hasAfter = run(
+          gci,
+          session,
+          src,
+          `(UserGlobals includesKey: #${KEY_AFTER}) printString`,
+        );
         expect(hasBefore.data).toBe('true');
         expect(hasAfter.data).toBe('false');
 
         // Leave the shared stone as we found it.
-        run(gci, session, src,
-          `UserGlobals removeKey: #${KEY_BEFORE} ifAbsent: []. System commitTransaction. 'ok'`);
-        try { gci.GciTsLogout(session); } catch { /* ignore */ }
+        run(
+          gci,
+          session,
+          src,
+          `UserGlobals removeKey: #${KEY_BEFORE} ifAbsent: []. System commitTransaction. 'ok'`,
+        );
+        try {
+          gci.GciTsLogout(session);
+        } catch {
+          /* ignore */
+        }
       } finally {
         fs.rmSync(backupFile, { force: true });
         gci.close();

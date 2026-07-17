@@ -5,12 +5,15 @@ import { escapeString } from './util';
 // or by name — required because deletion must target a specific dictionary
 // (otherwise a shadowed name would be ambiguous).
 export function deleteClass(
-  execute: QueryExecutor, dict: number | string, className: string,
+  execute: QueryExecutor,
+  dict: number | string,
+  className: string,
 ): string {
   const esc = escapeString(className);
-  const dictExpr = typeof dict === 'number'
-    ? `System myUserProfile symbolList at: ${dict}`
-    : `System myUserProfile symbolList objectNamed: #'${escapeString(dict)}'`;
+  const dictExpr =
+    typeof dict === 'number'
+      ? `System myUserProfile symbolList at: ${dict}`
+      : `System myUserProfile symbolList objectNamed: #'${escapeString(dict)}'`;
   const code = `| d removed |
 d := ${dictExpr}.
 d ifNil: [^ 'Dictionary not found'].

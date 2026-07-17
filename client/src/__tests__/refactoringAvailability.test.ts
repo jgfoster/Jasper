@@ -11,7 +11,16 @@ import { GemStoneLogin } from '../loginTypes';
 import * as queries from '../browserQueries';
 import { refreshRefactoringSupportAvailable } from '../refactoringAvailability';
 
-const noErr = { number: 0, message: '', context: 0n, category: 0, fatal: false, argCount: 0, exceptionObj: 0n, args: [] };
+const noErr = {
+  number: 0,
+  message: '',
+  context: 0n,
+  category: 0,
+  fatal: false,
+  argCount: 0,
+  exceptionObj: 0n,
+  args: [],
+};
 
 function createMockSession(executeFetchData = '', stoneVersion = '3.7.5'): ActiveSession {
   const mockGci = {
@@ -63,7 +72,8 @@ describe('checkRefactoringSupportAvailable', () => {
 
     queries.checkRefactoringSupportAvailable(session);
 
-    const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock.calls[0][1] as string;
+    const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock
+      .calls[0][1] as string;
     expect(code).toContain('GsRenameInstanceVariableRefactoring');
   });
 });

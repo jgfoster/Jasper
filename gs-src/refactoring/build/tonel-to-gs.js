@@ -34,7 +34,11 @@ function readTonelComment(text, i) {
   while (i < text.length) {
     const ch = text[i];
     if (ch === '"') {
-      if (text[i + 1] === '"') { out += '"'; i += 2; continue; }
+      if (text[i + 1] === '"') {
+        out += '"';
+        i += 2;
+        continue;
+      }
       return { value: out, next: i + 1 };
     }
     out += ch;
@@ -69,10 +73,18 @@ function parseTonelFile(text) {
   const kind = headMatch[1] === 'Extension' ? 'extension' : 'class';
   const braceStart = i + headMatch.index + headMatch[0].length - 1; // at the {
   // Find the matching } for the header block (no nested braces in practice).
-  let depth = 0, j = braceStart, headerBody = '';
+  let depth = 0,
+    j = braceStart,
+    headerBody = '';
   for (; j < text.length; j++) {
     if (text[j] === '{') depth++;
-    else if (text[j] === '}') { depth--; if (depth === 0) { j++; break; } }
+    else if (text[j] === '}') {
+      depth--;
+      if (depth === 0) {
+        j++;
+        break;
+      }
+    }
     headerBody += text[j];
   }
   const nameM = headerBody.match(/#name\s*:\s*'((?:[^']|'')*)'/);
@@ -106,20 +118,29 @@ function parseMethods(text, _className) {
   while (k < lines.length) {
     const line = lines[k];
     const catM = line.match(/^\{\s*#category\s*:\s*'((?:[^']|'')*)'\s*\}\s*$/);
-    if (!catM) { k++; continue; }
+    if (!catM) {
+      k++;
+      continue;
+    }
     const category = catM[1].replace(/''/g, "'");
     const sig = lines[k + 1];
     if (sig === undefined) break;
     // Name >> pattern [   or   Name class >> pattern [   (trailing space after [ is common)
     const sigM = sig.match(/^(\S+)\s+(class\s+)?>>\s*(.*?)\s*\[\s*$/);
-    if (!sigM) { k++; continue; }
+    if (!sigM) {
+      k++;
+      continue;
+    }
     const side = sigM[2] ? 'class' : 'instance';
     const pattern = sigM[3];
     // Body runs until a line that is just ']' (column 0, maybe trailing space) --
     // the Tonel convention: body lines are indented, the closing bracket is not.
     let b = k + 2;
     const bodyLines = [];
-    while (b < lines.length && !/^\]\s*$/.test(lines[b])) { bodyLines.push(lines[b]); b++; }
+    while (b < lines.length && !/^\]\s*$/.test(lines[b])) {
+      bodyLines.push(lines[b]);
+      b++;
+    }
     methods.push({ side, category, source: pattern + '\n' + bodyLines.join('\n') });
     k = b + 1;
   }
@@ -128,9 +149,15 @@ function parseMethods(text, _className) {
 
 /* ---- .gs emission ----------------------------------------------------- */
 
-function gsString(s) { return "'" + String(s).replace(/'/g, "''") + "'"; }
-function gsSymbol(s) { return "#'" + String(s).replace(/'/g, "''") + "'"; }
-function symbolArray(names) { return '#(' + names.map(n => "'" + n.replace(/'/g, "''") + "'").join(' ') + ')'; }
+function gsString(s) {
+  return "'" + String(s).replace(/'/g, "''") + "'";
+}
+function gsSymbol(s) {
+  return "#'" + String(s).replace(/'/g, "''") + "'";
+}
+function symbolArray(names) {
+  return '#(' + names.map((n) => "'" + n.replace(/'/g, "''") + "'").join(' ') + ')';
+}
 
 // Derive a selector symbol from a Tonel method pattern line, e.g.
 //   'readStreamPortable'                       -> 'readStreamPortable'  (unary)
@@ -144,8 +171,9 @@ function selectorFromPattern(pattern) {
 }
 
 function topoSortClasses(classes) {
-  const byName = new Map(classes.map(c => [c.name, c]));
-  const done = new Set(), out = [];
+  const byName = new Map(classes.map((c) => [c.name, c]));
+  const done = new Set(),
+    out = [];
   function visit(c) {
     if (done.has(c.name)) return;
     const sup = byName.get(c.superclass); // undefined => base-kernel superclass
@@ -168,7 +196,7 @@ function emitClassDeclaration(c, dict) {
     '  poolDictionaries: #()',
     `  inDictionary: ${dict}.`,
     `cls category: ${gsString(c.category)}.`,
-    (c.comment && c.comment.length ? `cls comment: ${gsString(c.comment)}.` : '"no comment"'),
+    c.comment && c.comment.length ? `cls comment: ${gsString(c.comment)}.` : '"no comment"',
     'true.',
     '%',
     '',
@@ -180,13 +208,9 @@ function emitClassDeclaration(c, dict) {
 
 function emitMethod(className, m) {
   const directive = m.side === 'class' ? 'classmethod:' : 'method:';
-  return [
-    `category: ${gsString(m.category)}`,
-    `${directive} ${className}`,
-    m.source,
-    '%',
-    '',
-  ].join('\n');
+  return [`category: ${gsString(m.category)}`, `${directive} ${className}`, m.source, '%', ''].join(
+    '\n',
+  );
 }
 
 // Emit an extension method as a self-gating doit: compile it ONLY if the target
@@ -217,8 +241,9 @@ function emitFeatureDetectedMethod(className, m) {
 // from, so a file-in that silently drops classes or methods (the converter once
 // dropped ~40% of methods) shows up as a shortfall against the manifest.
 function emitManifest(classes, dict) {
-  const rows = classes.map(c =>
-    `m add: (Array with: ${gsString(c.name)} with: ${c.methods.length}).`);
+  const rows = classes.map(
+    (c) => `m add: (Array with: ${gsString(c.name)} with: ${c.methods.length}).`,
+  );
   return [
     '! Load manifest (expected classes + defined-method counts) for the',
     "! loader's post-load completeness check. Generated by tonel-to-gs.js.",
@@ -237,7 +262,10 @@ function emitManifest(classes, dict) {
 
 function main() {
   const args = process.argv.slice(2);
-  let dict = 'UserGlobals', headerFile = null, out = null, manifest = null;
+  let dict = 'UserGlobals',
+    headerFile = null,
+    out = null,
+    manifest = null;
   let featureDetect = false;
   const dirs = [];
   for (let a = 0; a < args.length; a++) {
@@ -249,18 +277,22 @@ function main() {
     else dirs.push(args[a]);
   }
   if ((!out && !manifest) || dirs.length === 0) {
-    console.error('usage: tonel-to-gs.js --dict D [--header H] [--feature-detect] '
-      + '(--out O | --manifest M) <packageDir>...');
+    console.error(
+      'usage: tonel-to-gs.js --dict D [--header H] [--feature-detect] ' +
+        '(--out O | --manifest M) <packageDir>...',
+    );
     process.exit(2);
   }
 
-  const classes = [], extensions = [];
+  const classes = [],
+    extensions = [];
   for (const dir of dirs) {
     for (const f of fs.readdirSync(dir).sort()) {
       if (f === 'package.st') continue;
       const full = path.join(dir, f);
       if (f.endsWith('.class.st')) classes.push(parseTonelFile(fs.readFileSync(full, 'utf8')));
-      else if (f.endsWith('.extension.st')) extensions.push(parseTonelFile(fs.readFileSync(full, 'utf8')));
+      else if (f.endsWith('.extension.st'))
+        extensions.push(parseTonelFile(fs.readFileSync(full, 'utf8')));
     }
   }
 
@@ -277,30 +309,37 @@ function main() {
   for (const c of topoSortClasses(classes)) parts.push(emitClassDeclaration(c, dict));
   parts.push('! Class implementations\n');
   for (const c of classes) {
-    for (const m of c.methods.filter(m => m.side === 'instance')) parts.push(emitMethod(c.name, m));
-    for (const m of c.methods.filter(m => m.side === 'class')) parts.push(emitMethod(c.name, m));
+    for (const m of c.methods.filter((m) => m.side === 'instance'))
+      parts.push(emitMethod(c.name, m));
+    for (const m of c.methods.filter((m) => m.side === 'class')) parts.push(emitMethod(c.name, m));
   }
   parts.push('! Extension methods\n');
-  for (const e of extensions) for (const m of e.methods) {
-    parts.push(featureDetect ? emitFeatureDetectedMethod(e.name, m) : emitMethod(e.name, m));
-  }
+  for (const e of extensions)
+    for (const m of e.methods) {
+      parts.push(featureDetect ? emitFeatureDetectedMethod(e.name, m) : emitMethod(e.name, m));
+    }
 
   // Topaz file-in does not run class-side `initialize` the way a Pharo image
   // load does, so classes that rely on it (e.g. RBScanner's character tables,
   // RBConfigurableFormatter's default settings) come up with nil class vars.
   // Emit an explicit initialize doit for every class that defines one.
   const initClasses = topoSortClasses(classes)
-    .filter(c => c.methods.some(m => m.side === 'class' && m.source.split('\n')[0].trim() === 'initialize'))
-    .map(c => c.name);
+    .filter((c) =>
+      c.methods.some((m) => m.side === 'class' && m.source.split('\n')[0].trim() === 'initialize'),
+    )
+    .map((c) => c.name);
   if (initClasses.length) {
     parts.push('! Class-side initializers (topaz file-in does not auto-run them)\n');
     for (const name of initClasses) parts.push(`doit\n${name} initialize.\ntrue.\n%\n`);
   }
 
   fs.writeFileSync(out, parts.join('\n'));
-  const nMethods = classes.reduce((s, c) => s + c.methods.length, 0)
-    + extensions.reduce((s, e) => s + e.methods.length, 0);
-  console.error(`wrote ${out}: ${classes.length} classes, ${extensions.length} extensions, ${nMethods} methods`);
+  const nMethods =
+    classes.reduce((s, c) => s + c.methods.length, 0) +
+    extensions.reduce((s, e) => s + e.methods.length, 0);
+  console.error(
+    `wrote ${out}: ${classes.length} classes, ${extensions.length} extensions, ${nMethods} methods`,
+  );
 }
 
 main();

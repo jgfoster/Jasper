@@ -11,13 +11,17 @@
 const fs = require('fs');
 const { compareGemStoneVersions } = require('../src/gemStoneVersion.js');
 
-const releasesFileContents = fs.readFileSync(`${__dirname}/../.gemstone-integration-releases.json`, 'utf8');
-const releasesInAscendingOrder = JSON.parse(releasesFileContents)
-    .sort((release, anotherRelease) => compareGemStoneVersions(release.version, anotherRelease.version));
+const releasesFileContents = fs.readFileSync(
+  `${__dirname}/../.gemstone-integration-releases.json`,
+  'utf8',
+);
+const releasesInAscendingOrder = JSON.parse(releasesFileContents).sort((release, anotherRelease) =>
+  compareGemStoneVersions(release.version, anotherRelease.version),
+);
 
 if (process.argv.includes('--oldest')) {
-    console.log(releasesInAscendingOrder[0].version);
-    return;
+  console.log(releasesInAscendingOrder[0].version);
+  return;
 }
 
-console.log(JSON.stringify(releasesInAscendingOrder.map(release => release.version)));
+console.log(JSON.stringify(releasesInAscendingOrder.map((release) => release.version)));

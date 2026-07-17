@@ -11,11 +11,13 @@ export function getMethodSource(
 ): string {
   const recv = receiver(className, isMeta, dict);
   const labelRecv = receiver(className, isMeta);
-  const code = environmentId === 0
-    ? `(${recv} compiledMethodAt: #'${escapeString(selector)}') sourceString`
-    : `(${recv} compiledMethodAt: #'${escapeString(selector)}' environmentId: ${environmentId}) sourceString`;
-  const label = environmentId === 0
-    ? `getMethodSource(${labelRecv}>>#${selector})`
-    : `getMethodSource(${labelRecv}>>#${selector} env:${environmentId})`;
+  const code =
+    environmentId === 0
+      ? `(${recv} compiledMethodAt: #'${escapeString(selector)}') sourceString`
+      : `(${recv} compiledMethodAt: #'${escapeString(selector)}' environmentId: ${environmentId}) sourceString`;
+  const label =
+    environmentId === 0
+      ? `getMethodSource(${labelRecv}>>#${selector})`
+      : `getMethodSource(${labelRecv}>>#${selector} env:${environmentId})`;
   return execute(label, code);
 }

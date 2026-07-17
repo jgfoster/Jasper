@@ -33,11 +33,20 @@ describe('getEnhancedInspectorViewSpecs', () => {
   it('makes a second execute call to resolve a forward view spec', () => {
     expect.assertions(2);
     const specs = [
-      { viewName: 'GtPhlowForwardViewSpecification', title: 'Forward', priority: 1, methodSelector: 'gtForwardFor:', dataTransport: 1 },
+      {
+        viewName: 'GtPhlowForwardViewSpecification',
+        title: 'Forward',
+        priority: 1,
+        methodSelector: 'gtForwardFor:',
+        dataTransport: 1,
+      },
     ];
-    const execute = vi.fn()
+    const execute = vi
+      .fn()
       .mockReturnValueOnce(JSON.stringify(specs))
-      .mockReturnValueOnce(JSON.stringify({ __typeName: 'GtPhlowListViewSpecification', columnSpecifications: [] }));
+      .mockReturnValueOnce(
+        JSON.stringify({ __typeName: 'GtPhlowListViewSpecification', columnSpecifications: [] }),
+      );
     const result = getEnhancedInspectorViewSpecs(execute, 1000n);
     expect(execute).toHaveBeenCalledTimes(2);
     expect(result![0].resolvedViewName).toBe('GtPhlowListViewSpecification');

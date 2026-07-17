@@ -33,8 +33,7 @@ export interface TutorialLesson {
 export const TUTORIAL_LESSONS: TutorialLesson[] = [
   {
     title: 'Welcome to GemStone Smalltalk',
-    body:
-`Hello! This notebook is a hands-on tour of **GemStone Smalltalk**, adapted from the classic *Prof Stef* tutorial.
+    body: `Hello! This notebook is a hands-on tour of **GemStone Smalltalk**, adapted from the classic *Prof Stef* tutorial.
 
 **Before you start:**
 1. Choose the **GemStone Smalltalk** kernel (top-right of this notebook).
@@ -47,21 +46,14 @@ Edit any cell and re-run it — experimenting is the whole point. Let's begin.`,
   },
   {
     title: 'Evaluating and displaying',
-    body:
-`You just executed a Smalltalk expression and saw its value. Every cell evaluates its code and shows the result of the **last expression**.
+    body: `You just executed a Smalltalk expression and saw its value. Every cell evaluates its code and shows the result of the **last expression**.
 
 Smalltalk has very little syntax: you send *messages* to *objects*. \`3 + 4\` sends the message \`+ 4\` to the object \`3\`. Run each cell below.`,
-    snippets: [
-      '1 + 2',
-      'DateAndTime now',
-      'Date today weekDayName',
-      'Time now',
-    ],
+    snippets: ['1 + 2', 'DateAndTime now', 'Date today weekDayName', 'Time now'],
   },
   {
     title: 'The Transcript',
-    body:
-`The \`Transcript\` is a global output stream — the Smalltalk "console". Writing to it does not change a cell's result; instead the text appears in the **GemStone Transcript** output panel (View ▸ Output ▸ *GemStone Transcript*), which comes forward when it receives output.
+    body: `The \`Transcript\` is a global output stream — the Smalltalk "console". Writing to it does not change a cell's result; instead the text appears in the **GemStone Transcript** output panel (View ▸ Output ▸ *GemStone Transcript*), which comes forward when it receives output.
 
 \`show:\` writes a string; \`cr\` starts a new line.`,
     snippets: [
@@ -71,20 +63,14 @@ Smalltalk has very little syntax: you send *messages* to *objects*. \`3 + 4\` se
   },
   {
     title: 'Inspecting',
-    body:
-`Displaying a result gives a simple string. When you have a richer object you want to explore, **inspect** it. In a GemStone Workspace or the Inspector view you can *Inspect It* on an expression to open it in the object Inspector and drill into its instance variables.
+    body: `Displaying a result gives a simple string. When you have a richer object you want to explore, **inspect** it. In a GemStone Workspace or the Inspector view you can *Inspect It* on an expression to open it in the object Inspector and drill into its instance variables.
 
 Here, run the expressions and read their printed form; each is an object you could inspect.`,
-    snippets: [
-      'DateAndTime now',
-      "(1 to: 5) asArray",
-      'System myUserProfile',
-    ],
+    snippets: ['DateAndTime now', '(1 to: 5) asArray', 'System myUserProfile'],
   },
   {
     title: 'Basic types: Numbers',
-    body:
-`\`1\`, \`2\`, \`100\`, \`2/3\` … are all **Number** objects and respond to many arithmetic messages.
+    body: `\`1\`, \`2\`, \`100\`, \`2/3\` … are all **Number** objects and respond to many arithmetic messages.
 
 Notice that fractions stay exact (they are not reduced to floating point), and integers grow arbitrarily large.`,
     snippets: [
@@ -101,8 +87,7 @@ Notice that fractions stay exact (they are not reduced to floating point), and i
   },
   {
     title: 'Basic types: Characters',
-    body:
-`A **Character** literal is written with a \`$\` prefix. Any Unicode character can also be built from its code point.`,
+    body: `A **Character** literal is written with a \`$\` prefix. Any Unicode character can also be built from its code point.`,
     snippets: [
       '$A',
       '$A class',
@@ -114,8 +99,7 @@ Notice that fractions stay exact (they are not reduced to floating point), and i
   },
   {
     title: 'Basic types: Strings',
-    body:
-`A **String** is a collection of characters, written between single quotes. To include a single quote in a string, double it: \`'it''s here'\`.`,
+    body: `A **String** is a collection of characters, written between single quotes. To include a single quote in a string, double it: \`'it''s here'\`.`,
     snippets: [
       "'ProfStef'",
       "'ProfStef' size",
@@ -127,8 +111,7 @@ Notice that fractions stay exact (they are not reduced to floating point), and i
   },
   {
     title: 'Basic types: Symbols',
-    body:
-`A **Symbol** is a String that is guaranteed globally unique. Write one with a \`#\` prefix: \`#ProfStef\`, or \`#'has spaces'\`.
+    body: `A **Symbol** is a String that is guaranteed globally unique. Write one with a \`#\` prefix: \`#ProfStef\`, or \`#'has spaces'\`.
 
 There is only ever *one* \`#ProfStef\` symbol, but there can be many equal \`'ProfStef'\` strings. \`==\` tests whether two references are the *same* object.`,
     snippets: [
@@ -140,8 +123,7 @@ There is only ever *one* \`#ProfStef\` symbol, but there can be many equal \`'Pr
   },
   {
     title: 'Basic types: Arrays',
-    body:
-`A literal **Array** is written \`#( … )\` and is built when the code is parsed. Arrays are indexed from **1**.`,
+    body: `A literal **Array** is written \`#( … )\` and is built when the code is parsed. Arrays are indexed from **1**.`,
     snippets: [
       '#(1 2 3)',
       '#(1 2 3 #(4 5 6)) size',
@@ -152,8 +134,7 @@ There is only ever *one* \`#ProfStef\` symbol, but there can be many equal \`'Pr
   },
   {
     title: 'Message syntax: Unary messages',
-    body:
-`Messages come in three kinds. **Unary** messages take no argument — just a name sent to an object: \`anObject aMessage\`.`,
+    body: `Messages come in three kinds. **Unary** messages take no argument — just a name sent to an object: \`anObject aMessage\`.`,
     snippets: [
       '5 factorial',
       '10 printString',
@@ -164,8 +145,7 @@ There is only ever *one* \`#ProfStef\` symbol, but there can be many equal \`'Pr
   },
   {
     title: 'Message syntax: Binary messages',
-    body:
-`**Binary** messages use symbolic names and take one argument: \`anObject + anotherObject\`.`,
+    body: `**Binary** messages use symbolic names and take one argument: \`anObject + anotherObject\`.`,
     snippets: [
       '3 * 2',
       'false | true',
@@ -177,8 +157,7 @@ There is only ever *one* \`#ProfStef\` symbol, but there can be many equal \`'Pr
   },
   {
     title: 'Message syntax: Keyword messages',
-    body:
-`**Keyword** messages take one or more arguments, each introduced by a keyword ending in a colon. The parts combine into a single *selector* like \`between:and:\`.`,
+    body: `**Keyword** messages take one or more arguments, each introduced by a keyword ending in a colon. The parts combine into a single *selector* like \`between:and:\`.`,
     snippets: [
       '3 between: 1 and: 10',
       '10 gcd: 15',
@@ -188,8 +167,7 @@ There is only ever *one* \`#ProfStef\` symbol, but there can be many equal \`'Pr
   },
   {
     title: 'Message syntax: Execution order',
-    body:
-`When kinds mix, precedence is fixed: **Unary → Binary → Keyword**. There are no per-operator precedence rules beyond that, and messages of equal precedence run left to right.`,
+    body: `When kinds mix, precedence is fixed: **Unary → Binary → Keyword**. There are no per-operator precedence rules beyond that, and messages of equal precedence run left to right.`,
     snippets: [
       '"rounded (unary) runs before + (binary): 3.8 rounded = 4, then 2.5 + 4"\n2.5 + 3.8 rounded',
       '"2 + 2 (binary) runs before max: (keyword)"\n3 max: 2 + 2',
@@ -199,8 +177,7 @@ There is only ever *one* \`#ProfStef\` symbol, but there can be many equal \`'Pr
   },
   {
     title: 'Mathematical precedence',
-    body:
-`Because binary messages all share one precedence and run left to right, familiar maths precedence does **not** apply. Use parentheses when you need a different order.`,
+    body: `Because binary messages all share one precedence and run left to right, familiar maths precedence does **not** apply. Use parentheses when you need a different order.`,
     snippets: [
       '"* does not bind tighter than +; left to right: (2 * 10) + 2"\n2 * 10 + 2',
       '"left to right: (2 + 2) * 10"\n2 + 2 * 10',
@@ -212,8 +189,7 @@ There is only ever *one* \`#ProfStef\` symbol, but there can be many equal \`'Pr
   },
   {
     title: 'Cascades',
-    body:
-`A **cascade** — the \`;\` operator — sends several messages to the *same* receiver. These two cells are equivalent; the second uses a cascade.`,
+    body: `A **cascade** — the \`;\` operator — sends several messages to the *same* receiver. These two cells are equivalent; the second uses a cascade.`,
     snippets: [
       "Transcript show: 'hello '.\nTranscript show: 'Smalltalk'.\nTranscript cr.",
       "Transcript\n  show: 'hello ';\n  show: 'Smalltalk';\n  cr.",
@@ -221,8 +197,7 @@ There is only ever *one* \`#ProfStef\` symbol, but there can be many equal \`'Pr
   },
   {
     title: 'Blocks',
-    body:
-`A **block** is an anonymous function, delimited by square brackets \`[ ]\`. It is an object: creating one does not run it. Send it \`value\` (or \`value:\`) to execute it. \`[:x | … ]\` declares a block that takes an argument \`x\`.`,
+    body: `A **block** is an anonymous function, delimited by square brackets \`[ ]\`. It is an object: creating one does not run it. Send it \`value\` (or \`value:\`) to execute it. \`[:x | … ]\` declares a block that takes an argument \`x\`.`,
     snippets: [
       '"Just creates the block; nothing runs:"\n[3 + 4]',
       '[3 + 4] value',
@@ -232,18 +207,14 @@ There is only ever *one* \`#ProfStef\` symbol, but there can be many equal \`'Pr
   },
   {
     title: 'Blocks and variables',
-    body:
-`Like any object, a block can be stored in a variable and used later. \`| b |\` declares a temporary variable named \`b\`; \`:=\` assigns to it.
+    body: `Like any object, a block can be stored in a variable and used later. \`| b |\` declares a temporary variable named \`b\`; \`:=\` assigns to it.
 
 Run the whole cell together — the temporary lives only while the cell runs.`,
-    snippets: [
-      '| b |\nb := [:x | x + 2].\nb value: 12',
-    ],
+    snippets: ['| b |\nb := [:x | x + 2].\nb value: 12'],
   },
   {
     title: 'Conditionals',
-    body:
-`Conditionals are just keyword messages sent to **Boolean** objects, taking blocks as arguments: \`ifTrue:ifFalse:\`.`,
+    body: `Conditionals are just keyword messages sent to **Boolean** objects, taking blocks as arguments: \`ifTrue:ifFalse:\`.`,
     snippets: [
       '1 < 2\n  ifTrue: [100]\n  ifFalse: [42]',
       "3 > 10\n  ifTrue: ['maybe there''s a bug…']\n  ifFalse: ['all good: 3 is less than 10']",
@@ -251,8 +222,7 @@ Run the whole cell together — the temporary lives only while the cell runs.`,
   },
   {
     title: 'Loops',
-    body:
-`Basic counting loops are ordinary keyword messages on numbers: \`to:do:\` and \`to:by:do:\`. The block receives the loop variable. (Output goes to the **GemStone Transcript** panel.)`,
+    body: `Basic counting loops are ordinary keyword messages on numbers: \`to:do:\` and \`to:by:do:\`. The block receives the loop variable. (Output goes to the **GemStone Transcript** panel.)`,
     snippets: [
       '| sum |\nsum := 0.\n1 to: 10 do: [:i | sum := sum + i].\nsum',
       "0 to: 30 by: 3 do: [:i | Transcript show: i printString; show: ' '].\nTranscript cr.",
@@ -261,8 +231,7 @@ Run the whole cell together — the temporary lives only while the cell runs.`,
   },
   {
     title: 'Iterators',
-    body:
-`Collections understand higher-level iteration messages, each taking a block:
+    body: `Collections understand higher-level iteration messages, each taking a block:
 - \`do:\` — run the block for every element
 - \`collect:\` — a new collection of the block's results
 - \`select:\` / \`reject:\` — keep / drop elements the block answers \`true\` for
@@ -277,8 +246,7 @@ Run the whole cell together — the temporary lives only while the cell runs.`,
   },
   {
     title: 'Creating objects',
-    body:
-`Objects are **instances** of a class. Usually you send \`new\` to a class to create one. An \`OrderedCollection\` is like an Array whose size can grow and shrink.
+    body: `Objects are **instances** of a class. Usually you send \`new\` to a class to create one. An \`OrderedCollection\` is like an Array whose size can grow and shrink.
 
 The second cell keeps the collection in a variable so it can be changed step by step; run it all together.`,
     snippets: [
@@ -288,8 +256,7 @@ The second cell keeps the collection in a variable so it can be changed step by 
   },
   {
     title: 'Reflection',
-    body:
-`Smalltalk can examine itself at runtime. Classes, methods, and their source are all objects you can query.`,
+    body: `Smalltalk can examine itself at runtime. Classes, methods, and their source are all objects you can query.`,
     snippets: [
       '"The source of a method, as a string:"\n(Integer compiledMethodAt: #bitInvert) sourceString',
       '"Every place that sends #bitInvert:"\n(ClassOrganizer new allReferencesTo: #bitInvert) size',
@@ -299,20 +266,16 @@ The second cell keeps the collection in a variable so it can be changed step by 
   },
   {
     title: 'The debugger',
-    body:
-`The debugger is one of Smalltalk's signature tools. When code raises an unhandled error, GemStone can open a debugger *on the live, suspended execution* — you inspect variables, evaluate expressions in context, edit the method, and continue.
+    body: `The debugger is one of Smalltalk's signature tools. When code raises an unhandled error, GemStone can open a debugger *on the live, suspended execution* — you inspect variables, evaluate expressions in context, edit the method, and continue.
 
 Notebook cells report an error inline rather than opening the debugger. To experience the debugger, use **Debug It** on an expression in a GemStone Workspace, or run failing code there — for example \`nil foo\` or \`self halt\`. Jasper offers both a VS Code debugger and an Enhanced (Smalltalk-style) debugger.
 
 Run the cell below to see how an error is reported here.`,
-    snippets: [
-      '"An intentional error — a nil does not understand #foo:"\nnil foo',
-    ],
+    snippets: ['"An intentional error — a nil does not understand #foo:"\nnil foo'],
   },
   {
     title: 'Introduction to GemStone',
-    body:
-`You now know the Smalltalk *language*. What makes **GemStone/S** different from other Smalltalks is where the objects live.
+    body: `You now know the Smalltalk *language*. What makes **GemStone/S** different from other Smalltalks is where the objects live.
 
 In most Smalltalks your objects live in an in-memory *image* that belongs to one process. In GemStone they live in a **persistent, shared, transactional object repository** on disk that many sessions connect to at once. A few consequences worth understanding:
 
@@ -333,8 +296,7 @@ Run these read-only cells to look around. (This lesson changes nothing permanent
   },
   {
     title: 'The end',
-    body:
-`That's the tour. You've run Smalltalk expressions; met numbers, strings, symbols, arrays, and blocks; learned message precedence and cascades; iterated over collections; used reflection; and seen what GemStone's persistent, shared, transactional repository adds on top of the language.
+    body: `That's the tour. You've run Smalltalk expressions; met numbers, strings, symbols, arrays, and blocks; learned message precedence and cascades; iterated over collections; used reflection; and seen what GemStone's persistent, shared, transactional repository adds on top of the language.
 
 **Where to go next:**
 - Open a **Workspace** (command: *GemStone: Open Getting Started Workspace*) for free-form experimenting with *Display It*, *Inspect It*, and *Debug It*.
@@ -355,17 +317,17 @@ export function buildTutorialCells(
 ): vscode.NotebookCellData[] {
   const cells: vscode.NotebookCellData[] = [];
   for (const lesson of lessons) {
-    cells.push(new vscode.NotebookCellData(
-      vscode.NotebookCellKind.Markup,
-      `## ${lesson.title}\n\n${lesson.body}`,
-      'markdown',
-    ));
+    cells.push(
+      new vscode.NotebookCellData(
+        vscode.NotebookCellKind.Markup,
+        `## ${lesson.title}\n\n${lesson.body}`,
+        'markdown',
+      ),
+    );
     for (const snippet of lesson.snippets) {
-      cells.push(new vscode.NotebookCellData(
-        vscode.NotebookCellKind.Code,
-        snippet,
-        SMALLTALK_LANGUAGE_ID,
-      ));
+      cells.push(
+        new vscode.NotebookCellData(vscode.NotebookCellKind.Code, snippet, SMALLTALK_LANGUAGE_ID),
+      );
     }
   }
   return cells;
@@ -394,8 +356,8 @@ export async function openTutorialNotebook(): Promise<void> {
     const msg = e instanceof Error ? e.message : String(e);
     logInfo(`[Tutorial] ERROR: ${msg}`);
     vscode.window.showErrorMessage(
-      `Could not open the tutorial notebook: ${msg}. `
-      + 'Notebook support requires the Jupyter extension.',
+      `Could not open the tutorial notebook: ${msg}. ` +
+        'Notebook support requires the Jupyter extension.',
     );
   }
 }

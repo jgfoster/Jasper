@@ -1,10 +1,16 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  startRenameClassPreview, pageRenameClassPreview, applyRenameClass, clearRenameClassPreview,
+  startRenameClassPreview,
+  pageRenameClassPreview,
+  applyRenameClass,
+  clearRenameClassPreview,
 } from '../previewRenameClass';
 
 const OPTS = {
-  copyMethods: true, recompileSubclasses: true, migrateInstances: true, removeOldFromHistory: false,
+  copyMethods: true,
+  recompileSubclasses: true,
+  migrateInstances: true,
+  removeOldFromHistory: false,
 };
 
 describe('previewRenameClass queries', () => {
@@ -12,7 +18,14 @@ describe('previewRenameClass queries', () => {
     const execute = vi.fn().mockResolvedValue('{}');
 
     await startRenameClassPreview(
-      execute, 'Account', 'BankAccount', { kind: 'wholeSystem' }, OPTS, 'tok', 1000, 3,
+      execute,
+      'Account',
+      'BankAccount',
+      { kind: 'wholeSystem' },
+      OPTS,
+      'tok',
+      1000,
+      3,
     );
 
     const code = execute.mock.calls[0][1];
@@ -29,8 +42,13 @@ describe('previewRenameClass queries', () => {
     const execute = vi.fn().mockResolvedValue('{}');
 
     await startRenameClassPreview(
-      execute, 'Account', 'BankAccount', { kind: 'dictionary', dictName: 'MyDict' },
-      { ...OPTS, migrateInstances: false, removeOldFromHistory: true }, 'tok', 1000,
+      execute,
+      'Account',
+      'BankAccount',
+      { kind: 'dictionary', dictName: 'MyDict' },
+      { ...OPTS, migrateInstances: false, removeOldFromHistory: true },
+      'tok',
+      1000,
     );
 
     const code = execute.mock.calls[0][1];

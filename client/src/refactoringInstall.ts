@@ -113,17 +113,15 @@ export async function installRefactoringSupport(
 
   // Fail fast (and clearly) if the gem can't read the payload — e.g. a remote
   // stone whose gem doesn't share this machine's filesystem.
-  const unreadable = REFACTORING_PAYLOAD_FILES.filter(
-    (f) => !gemCanRead(session, serverPath(f)),
-  );
+  const unreadable = REFACTORING_PAYLOAD_FILES.filter((f) => !gemCanRead(session, serverPath(f)));
   if (unreadable.length > 0) {
     return {
       success: false,
       report: '',
       message:
-        `The database's gem cannot read the payload files (${unreadable.join(', ')}) under `
-        + `${payloadDir}. Server-side install requires a local stone whose gem shares this `
-        + 'filesystem.',
+        `The database's gem cannot read the payload files (${unreadable.join(', ')}) under ` +
+        `${payloadDir}. Server-side install requires a local stone whose gem shares this ` +
+        'filesystem.',
     };
   }
 
@@ -159,9 +157,9 @@ export async function installRefactoringSupport(
     raw = executeFetchString(
       session,
       'install:refactoring-load',
-      '| ldr | '
-        + `ldr := GsRefactoringLoader loadFromServerDir: ${gsStringLiteral(payloadDir)}. `
-        + "(ldr allOk ifTrue: ['OK'] ifFalse: ['FAIL']), (String with: Character lf), ldr reportString",
+      '| ldr | ' +
+        `ldr := GsRefactoringLoader loadFromServerDir: ${gsStringLiteral(payloadDir)}. ` +
+        "(ldr allOk ifTrue: ['OK'] ifFalse: ['FAIL']), (String with: Character lf), ldr reportString",
     );
   } catch (e: unknown) {
     // The loader aborts on its own failures, but a failure to even run it (e.g.
@@ -183,8 +181,8 @@ export async function installRefactoringSupport(
     report,
     message: success
       ? 'Refactoring engine installed and verified.'
-      : 'The refactoring engine did not install completely; the completeness check failed and '
-        + 'nothing was committed. See the report for what was missing.',
+      : 'The refactoring engine did not install completely; the completeness check failed and ' +
+        'nothing was committed. See the report for what was missing.',
   };
 }
 
@@ -223,8 +221,8 @@ function gemCanRead(session: ActiveSession, serverPath: string): boolean {
     const r = executeFetchString(
       session,
       'gemCanRead',
-      `[(GsFile existsOnServer: ${gsStringLiteral(serverPath)}) printString] `
-        + "on: Error do: [:e | 'false']",
+      `[(GsFile existsOnServer: ${gsStringLiteral(serverPath)}) printString] ` +
+        "on: Error do: [:e | 'false']",
     );
     return r.trim() === 'true';
   } catch {

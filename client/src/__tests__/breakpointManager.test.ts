@@ -35,7 +35,7 @@ function makeSessionManager(hasSession: boolean) {
     getSelectedSession: vi.fn(() =>
       hasSession
         ? { id: 1, gci: {}, handle: 'h1', login: { label: 'Test' }, stoneVersion: '3.7.2' }
-        : undefined
+        : undefined,
     ),
     onDidChangeSelection: vi.fn(() => ({ dispose: () => {} })),
   } as unknown as SessionManager;
@@ -207,7 +207,9 @@ describe('BreakpointManager', () => {
     });
 
     it('returns unverified when getMethodSource throws', () => {
-      mockGetMethodSource.mockImplementation(() => { throw new Error('fail'); });
+      mockGetMethodSource.mockImplementation(() => {
+        throw new Error('fail');
+      });
 
       const manager = new BreakpointManager(makeSessionManager(true));
       const session = makeSessionManager(true).getSelectedSession()!;
@@ -221,7 +223,9 @@ describe('BreakpointManager', () => {
     it('returns unverified when setBreakAtStepPoint throws', () => {
       mockGetMethodSource.mockReturnValue('foo\n  ^ 1');
       mockGetSourceOffsets.mockReturnValue([0, 6]);
-      mockSetBreakAtStepPoint.mockImplementation(() => { throw new Error('fail'); });
+      mockSetBreakAtStepPoint.mockImplementation(() => {
+        throw new Error('fail');
+      });
 
       const manager = new BreakpointManager(makeSessionManager(true));
       const session = makeSessionManager(true).getSelectedSession()!;
@@ -241,9 +245,7 @@ describe('BreakpointManager', () => {
       const uri = Uri.parse('gemstone://1/Globals/Array/class/creation/new');
       manager.setBreakpointsForSource(session, uri, [1]);
 
-      expect(mockGetMethodSource).toHaveBeenCalledWith(
-        expect.anything(), 'Array', true, 'new', 0,
-      );
+      expect(mockGetMethodSource).toHaveBeenCalledWith(expect.anything(), 'Array', true, 'new', 0);
     });
 
     it('parses environment ID from query string', () => {
@@ -255,9 +257,7 @@ describe('BreakpointManager', () => {
       const uri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/foo?env=2');
       manager.setBreakpointsForSource(session, uri, [1]);
 
-      expect(mockGetMethodSource).toHaveBeenCalledWith(
-        expect.anything(), 'Array', false, 'foo', 2,
-      );
+      expect(mockGetMethodSource).toHaveBeenCalledWith(expect.anything(), 'Array', false, 'foo', 2);
     });
   });
 

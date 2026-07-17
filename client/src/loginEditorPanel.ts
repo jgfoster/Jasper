@@ -5,11 +5,7 @@ import { LoginStorage } from './loginStorage';
 import { LoginTreeProvider } from './loginTreeProvider';
 import { SysadminStorage } from './sysadminStorage';
 import { bundledWindowsClientVersions, bundledGciArchSupported } from './bundledGci';
-import {
-  setLoginPassword,
-  getLoginPassword,
-  deleteLoginPassword,
-} from './loginCredentials';
+import { setLoginPassword, getLoginPassword, deleteLoginPassword } from './loginCredentials';
 
 export class LoginEditorPanel {
   private static currentPanel: LoginEditorPanel | undefined;
@@ -17,7 +13,10 @@ export class LoginEditorPanel {
   private disposables: vscode.Disposable[] = [];
 
   /** Collect versions that have a GCI library available */
-  private static getAvailableVersions(storage: LoginStorage, sysadminStorage: SysadminStorage): string[] {
+  private static getAvailableVersions(
+    storage: LoginStorage,
+    sysadminStorage: SysadminStorage,
+  ): string[] {
     const versionSet = new Set<string>();
     // Extracted versions have GCI libraries in their lib/ directory
     for (const v of sysadminStorage.getExtractedVersions()) {
@@ -88,7 +87,10 @@ export class LoginEditorPanel {
       LoginEditorPanel.currentPanel.panel.reveal(column);
       LoginEditorPanel.currentPanel.versions = versions;
       LoginEditorPanel.currentPanel.readOnly = readOnly;
-      LoginEditorPanel.currentPanel.panel.title = LoginEditorPanel.titleFor(existingLogin, readOnly);
+      LoginEditorPanel.currentPanel.panel.title = LoginEditorPanel.titleFor(
+        existingLogin,
+        readOnly,
+      );
       LoginEditorPanel.currentPanel.update(login);
       return;
     }
@@ -105,7 +107,13 @@ export class LoginEditorPanel {
     );
 
     LoginEditorPanel.currentPanel = new LoginEditorPanel(
-      panel, storage, secrets, treeProvider, login, versions, readOnly,
+      panel,
+      storage,
+      secrets,
+      treeProvider,
+      login,
+      versions,
+      readOnly,
     );
   }
 
@@ -178,7 +186,10 @@ export class LoginEditorPanel {
     this.login = login;
     this.panel.webview.html = this.getHtml();
     this.panel.webview.postMessage({
-      command: 'loadData', data: login, versions: this.versions, readOnly: this.readOnly,
+      command: 'loadData',
+      data: login,
+      versions: this.versions,
+      readOnly: this.readOnly,
     });
   }
 

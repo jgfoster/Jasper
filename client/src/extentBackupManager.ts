@@ -82,8 +82,10 @@ function errorMessage(e: unknown): string {
 function timestamp(): string {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-    + `_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`
+  );
 }
 
 // Returns true if the backup completed, false if it was cancelled or failed
@@ -101,20 +103,21 @@ export async function runOnlineExtentBackup(deps: ExtentBackupDeps): Promise<boo
   }
   if (logging === false) {
     vscode.window.showErrorMessage(
-      'Online extent backup requires full transaction logging (STN_TRAN_FULL_LOGGING = TRUE). '
-      + 'Checkpoints cannot be suspended in partial-logging mode.',
+      'Online extent backup requires full transaction logging (STN_TRAN_FULL_LOGGING = TRUE). ' +
+        'Checkpoints cannot be suspended in partial-logging mode.',
     );
     return false;
   }
 
   // Resolve the extent files: ask the stone first (authoritative — excludes
   // tranlogs and honours custom layouts), else scan <dataDir>/extent*.dbf.
-  let extents = extentBackup.extentFileNames(deps.execute).filter(p => deps.fileExists(p));
+  let extents = extentBackup.extentFileNames(deps.execute).filter((p) => deps.fileExists(p));
   if (extents.length === 0) {
-    extents = deps.listDataFiles(deps.dataDir)
-      .filter(f => /^extent.*\.dbf$/i.test(f))
-      .map(f => path.join(deps.dataDir, f))
-      .filter(p => deps.fileExists(p));
+    extents = deps
+      .listDataFiles(deps.dataDir)
+      .filter((f) => /^extent.*\.dbf$/i.test(f))
+      .map((f) => path.join(deps.dataDir, f))
+      .filter((p) => deps.fileExists(p));
   }
   if (extents.length === 0) {
     vscode.window.showErrorMessage(`Found no extent files to copy for stone "${deps.stoneName}".`);
@@ -156,8 +159,8 @@ export async function runOnlineExtentBackup(deps: ExtentBackupDeps): Promise<boo
   }
   if (!suspended) {
     vscode.window.showErrorMessage(
-      'Could not suspend checkpoints (another session may already hold them, or the stone is in '
-      + 'partial-logging mode). No backup taken.',
+      'Could not suspend checkpoints (another session may already hold them, or the stone is in ' +
+        'partial-logging mode). No backup taken.',
     );
     return false;
   }
@@ -195,8 +198,8 @@ export async function runOnlineExtentBackup(deps: ExtentBackupDeps): Promise<boo
   } catch (e) {
     status.dispose();
     vscode.window.showErrorMessage(
-      'Failed to resume checkpoints after the copy — check the stone immediately '
-      + `(checkpoints may still be suspended until the ${minutes}-minute timeout): ${errorMessage(e)}`,
+      'Failed to resume checkpoints after the copy — check the stone immediately ' +
+        `(checkpoints may still be suspended until the ${minutes}-minute timeout): ${errorMessage(e)}`,
     );
     return false;
   }
@@ -209,8 +212,8 @@ export async function runOnlineExtentBackup(deps: ExtentBackupDeps): Promise<boo
   if (!resumed) {
     status.dispose();
     vscode.window.showErrorMessage(
-      'Checkpoints resumed before the extent copy completed — the copied extents are NOT usable '
-      + `and should be discarded (in ${destDir}). Increase the suspend timeout and retry.`,
+      'Checkpoints resumed before the extent copy completed — the copied extents are NOT usable ' +
+        `and should be discarded (in ${destDir}). Increase the suspend timeout and retry.`,
     );
     return false;
   }
@@ -223,9 +226,9 @@ export async function runOnlineExtentBackup(deps: ExtentBackupDeps): Promise<boo
   // needs the stone's transaction logs to recover — flag that here.
   const reveal = 'Reveal in File Explorer';
   const choice = await vscode.window.showInformationMessage(
-    `Online extent backup of "${deps.stoneName}" written to ${destDir} (${extents.length} extent(s)). `
-    + 'To restore, this snapshot also needs the stone’s transaction logs (the extents were '
-    + 'copied while running, so recovery replays them on startup).',
+    `Online extent backup of "${deps.stoneName}" written to ${destDir} (${extents.length} extent(s)). ` +
+      'To restore, this snapshot also needs the stone’s transaction logs (the extents were ' +
+      'copied while running, so recovery replays them on startup).',
     reveal,
   );
   if (choice === reveal) {

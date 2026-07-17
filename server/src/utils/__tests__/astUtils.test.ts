@@ -153,7 +153,7 @@ describe('findSelectorAtPosition', () => {
 
       // Offset tokens to simulate document-level coordinates
       const lineOffset = 5;
-      const offsetTokens = regionTokens.map(t => ({
+      const offsetTokens = regionTokens.map((t) => ({
         ...t,
         range: {
           start: { ...t.range.start, line: t.range.start.line + lineOffset },
@@ -163,7 +163,10 @@ describe('findSelectorAtPosition', () => {
 
       // Position is in document coordinates (line 6 = "  ^self size")
       const result = findSelectorAtPosition(
-        offsetTokens, ast, { line: 6, character: 8 }, lineOffset,
+        offsetTokens,
+        ast,
+        { line: 6, character: 8 },
+        lineOffset,
       );
       expect(result).toBe('size');
     });

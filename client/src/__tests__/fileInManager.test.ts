@@ -61,21 +61,28 @@ function createMockSessionManager(sessions: ActiveSession[] = []): SessionManage
   } as unknown as SessionManager;
 }
 
-function createMockExportManager(overrides: {
-  exportRoot?: string;
-  sessionRoot?: string;
-  isWriting?: boolean;
-} = {}): ExportManager {
+function createMockExportManager(
+  overrides: {
+    exportRoot?: string;
+    sessionRoot?: string;
+    isWriting?: boolean;
+  } = {},
+): ExportManager {
   return {
     getExportRoot: vi.fn(() => overrides.exportRoot ?? '/workspace/gemstone'),
-    getSessionRoot: vi.fn(() => overrides.sessionRoot ?? '/workspace/gemstone/localhost/gs64stone/DataCurator'),
+    getSessionRoot: vi.fn(
+      () => overrides.sessionRoot ?? '/workspace/gemstone/localhost/gs64stone/DataCurator',
+    ),
     isWriting: overrides.isWriting ?? false,
     removeClassFile: vi.fn(),
     scheduleRefresh: vi.fn(),
   } as unknown as ExportManager;
 }
 
-function createMockDocument(fsPath: string, options: { scheme?: string; isDirty?: boolean; authority?: string } = {}): vscode.TextDocument {
+function createMockDocument(
+  fsPath: string,
+  options: { scheme?: string; isDirty?: boolean; authority?: string } = {},
+): vscode.TextDocument {
   return {
     uri: {
       scheme: options.scheme ?? 'file',
@@ -142,7 +149,8 @@ describe('FileInManager', () => {
       session2.id = 2;
       mockSessionManager = createMockSessionManager([mockSession, session2]);
       (mockExportManager.getSessionRoot as ReturnType<typeof vi.fn>).mockImplementation(
-        (s: ActiveSession) => `/workspace/gemstone/${s.login.gem_host}/${s.login.stone}/${s.login.gs_user}`,
+        (s: ActiveSession) =>
+          `/workspace/gemstone/${s.login.gem_host}/${s.login.stone}/${s.login.gs_user}`,
       );
       manager = new FileInManager(mockSessionManager, mockExportManager);
 
@@ -196,7 +204,12 @@ describe('FileInManager', () => {
 
     it('returns false for dirty gemstone:// editors for a different session', () => {
       const doc = {
-        uri: { scheme: 'gemstone', authority: '99', fsPath: '', toString: () => 'gemstone://99/...' },
+        uri: {
+          scheme: 'gemstone',
+          authority: '99',
+          fsPath: '',
+          toString: () => 'gemstone://99/...',
+        },
         isDirty: true,
         getText: vi.fn(() => ''),
       } as unknown as vscode.TextDocument;
@@ -388,7 +401,10 @@ describe('FileInManager', () => {
     });
 
     it('skips when isWriting is true', () => {
-      Object.defineProperty(mockExportManager, 'isWriting', { get: () => true, configurable: true });
+      Object.defineProperty(mockExportManager, 'isWriting', {
+        get: () => true,
+        configurable: true,
+      });
 
       const dictDir = path.join(exportRoot, '1-UserGlobals');
       fs.mkdirSync(dictDir, { recursive: true });
@@ -491,7 +507,10 @@ describe('FileInManager', () => {
       expect(queries.deleteClass).toHaveBeenCalledWith(mockSession, 1, 'MyClass');
       // Drop the (already-deleted) class from the persisted mirror state too.
       expect(mockExportManager.removeClassFile).toHaveBeenCalledWith(
-        mockSession, 1, 'UserGlobals', 'MyClass',
+        mockSession,
+        1,
+        'UserGlobals',
+        'MyClass',
       );
       expect(SystemBrowser.refresh).toHaveBeenCalledWith(mockSession.id);
     });
@@ -515,7 +534,10 @@ describe('FileInManager', () => {
     });
 
     it('skips when isWriting is true', () => {
-      Object.defineProperty(mockExportManager, 'isWriting', { get: () => true, configurable: true });
+      Object.defineProperty(mockExportManager, 'isWriting', {
+        get: () => true,
+        configurable: true,
+      });
 
       const fsPath = '/workspace/gemstone/localhost/gs64stone/DataCurator/1-UserGlobals/MyClass.gs';
       deleteHandler({ files: [createUri(fsPath)] });
@@ -524,7 +546,10 @@ describe('FileInManager', () => {
     });
 
     it('skips non-file scheme URIs', () => {
-      const uri = { scheme: 'gemstone', fsPath: '/workspace/gemstone/localhost/gs64stone/DataCurator/1-UserGlobals/MyClass.gs' } as unknown as vscode.Uri;
+      const uri = {
+        scheme: 'gemstone',
+        fsPath: '/workspace/gemstone/localhost/gs64stone/DataCurator/1-UserGlobals/MyClass.gs',
+      } as unknown as vscode.Uri;
       deleteHandler({ files: [uri] });
 
       expect(queries.deleteClass).not.toHaveBeenCalled();

@@ -17,9 +17,10 @@ export function copyMethodToClass(
 ): string {
   const sel = escapeString(selector);
   const side = isMeta ? ' class' : '';
-  const at = environmentId === 0
-    ? `compiledMethodAt: #'${sel}'`
-    : `compiledMethodAt: #'${sel}' environmentId: ${environmentId}`;
+  const at =
+    environmentId === 0
+      ? `compiledMethodAt: #'${sel}'`
+      : `compiledMethodAt: #'${sel}' environmentId: ${environmentId}`;
   const code = `| src target srcRecv tgtRecv source category |
 src := ${classLookupExpr(sourceClass, dict)}.
 src ifNil: [^ 'Source class not found: ${escapeString(sourceClass)}'].

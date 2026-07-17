@@ -39,14 +39,11 @@ export interface HarnessSession {
 // build their own executor.
 export function login(): HarnessSession {
   const gci = new GciLibrary(GCI_LIBRARY_PATH);
-  const result = gci.GciTsLogin(
-    STONE_NRS, null, null, false,
-    GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
-  );
+  const result = gci.GciTsLogin(STONE_NRS, null, null, false, GEM_NRS, GS_USER, GS_PASSWORD, 0, 0);
   if (!result.session) {
     throw new Error(
       `GciTsLogin failed: ${result.err.message || `error ${result.err.number}`}. ` +
-      'Verify the stone, NetLDI, and credentials in the harness env vars.',
+        'Verify the stone, NetLDI, and credentials in the harness env vars.',
     );
   }
   const handle = result.session;
@@ -59,7 +56,13 @@ export function login(): HarnessSession {
 
   const exec: QueryExecutor = (_label, code) => {
     const { data, err } = gci.GciTsExecuteFetchBytes(
-      handle, code, -1, utf8Oop, OOP_ILLEGAL, OOP_NIL, MAX_RESULT,
+      handle,
+      code,
+      -1,
+      utf8Oop,
+      OOP_ILLEGAL,
+      OOP_NIL,
+      MAX_RESULT,
     );
     if (err.number !== 0) {
       throw new Error(`${err.message || `GCI error ${err.number}`} | source: ${code}`);
@@ -69,11 +72,17 @@ export function login(): HarnessSession {
 
   let loggedOut = false;
   return {
-    gci, handle, exec,
+    gci,
+    handle,
+    exec,
     logout: () => {
       if (loggedOut) return;
       loggedOut = true;
-      try { gci.GciTsLogout(handle); } catch { /* already gone */ }
+      try {
+        gci.GciTsLogout(handle);
+      } catch {
+        /* already gone */
+      }
     },
   };
 }
@@ -82,7 +91,10 @@ export function login(): HarnessSession {
 // dictionary if `meta` is true). Used by the selector-probe test as a
 // regression guard for the `asUtf8` / `encodeAsUTF8` family of typos.
 export function selectorExists(
-  exec: QueryExecutor, className: string, selector: string, meta = false,
+  exec: QueryExecutor,
+  className: string,
+  selector: string,
+  meta = false,
 ): boolean {
   const receiver = meta ? `${className} class` : className;
   const code = `(${receiver} canUnderstand: #'${selector.replace(/'/g, "''")}') printString`;

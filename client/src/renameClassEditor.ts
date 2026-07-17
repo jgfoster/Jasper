@@ -19,7 +19,8 @@ import { renderClassEditorHtml } from './renameClassEditorHtml';
 import { RenameClassScope, RenameClassOptions } from './queries/previewRenameClass';
 
 const editorJs = fs.readFileSync(
-  path.join(__dirname, '..', 'src', 'renameClassEditorView.js'), 'utf8',
+  path.join(__dirname, '..', 'src', 'renameClassEditorView.js'),
+  'utf8',
 );
 
 const DEFAULT_OPTIONS: RenameClassOptions = {

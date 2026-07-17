@@ -46,10 +46,13 @@ describe('runtime-injected webview assets are shipped in the .vsix', () => {
     expect(referenced).toContain('debuggerView.js');
   });
 
-  it.each([...referenced])('ships %s (exists on disk and is whitelisted in .vscodeignore)', (file) => {
-    expect(fs.existsSync(path.join(clientSrc, file))).toBe(true);
-    expect(whitelist.has(`!client/src/${file}`)).toBe(true);
-  });
+  it.each([...referenced])(
+    'ships %s (exists on disk and is whitelisted in .vscodeignore)',
+    (file) => {
+      expect(fs.existsSync(path.join(clientSrc, file))).toBe(true);
+      expect(whitelist.has(`!client/src/${file}`)).toBe(true);
+    },
+  );
 });
 
 // The integration-test setup (npm run test:setup) downloads a full ~1GB GemStone install
@@ -85,10 +88,14 @@ describe('contributor tooling is excluded from the .vsix', () => {
     .map((line) => line.trim())
     .filter((line) => line && !line.startsWith('#') && !line.startsWith('!'));
 
-  it.each(['.github/**', 'acceptance/**', 'scripts/**', '.dockerignore', 'CLAUDE.md', '**/CLAUDE.md'])(
-    'excludes %s',
-    (pattern) => {
-      expect(ignores).toContain(pattern);
-    },
-  );
+  it.each([
+    '.github/**',
+    'acceptance/**',
+    'scripts/**',
+    '.dockerignore',
+    'CLAUDE.md',
+    '**/CLAUDE.md',
+  ])('excludes %s', (pattern) => {
+    expect(ignores).toContain(pattern);
+  });
 });

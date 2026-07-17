@@ -14,7 +14,7 @@ import {
   proxyScriptPath,
   writeClaudeDesktopMcpConfig,
 } from '../mcpSocketServer';
-import {extensionPathFrom} from "../extensionPath";
+import { extensionPathFrom } from '../extensionPath';
 
 // A pre-rename `gemstone` entry that Jasper itself wrote — same proxy script,
 // possibly a different (older) socket.
@@ -71,7 +71,13 @@ describe('claudeDesktopConfigPath', () => {
   it('resolves the macOS Application Support path', () => {
     withPlatform('darwin', () => {
       expect(claudeDesktopConfigPath()).toBe(
-        path.join(os.homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json'),
+        path.join(
+          os.homedir(),
+          'Library',
+          'Application Support',
+          'Claude',
+          'claude_desktop_config.json',
+        ),
       );
     });
   });
@@ -129,12 +135,14 @@ describe('writeClaudeDesktopMcpConfig', () => {
   });
 
   it('preserves unrelated mcpServers entries', () => {
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
-      mcpServers: {
-        filesystem: { command: 'mcp-fs' },
-        notion: { command: 'mcp-notion' },
-      },
-    }));
+    vi.mocked(fs.readFileSync).mockReturnValue(
+      JSON.stringify({
+        mcpServers: {
+          filesystem: { command: 'mcp-fs' },
+          notion: { command: 'mcp-notion' },
+        },
+      }),
+    );
 
     writeClaudeDesktopMcpConfig('/ext', '/tmp/socket.sock');
 
@@ -146,10 +154,12 @@ describe('writeClaudeDesktopMcpConfig', () => {
   });
 
   it('preserves top-level siblings of mcpServers', () => {
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
-      globalShortcut: 'Ctrl+Space',
-      mcpServers: {},
-    }));
+    vi.mocked(fs.readFileSync).mockReturnValue(
+      JSON.stringify({
+        globalShortcut: 'Ctrl+Space',
+        mcpServers: {},
+      }),
+    );
 
     writeClaudeDesktopMcpConfig('/ext', '/tmp/socket.sock');
 
@@ -159,14 +169,16 @@ describe('writeClaudeDesktopMcpConfig', () => {
   });
 
   it('does not rewrite when the entry is already correct', () => {
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
-      mcpServers: {
-        jasper: {
-          command: 'node',
-          args: [proxyScriptPath('/ext'), '--proxy-socket', '/tmp/socket.sock'],
+    vi.mocked(fs.readFileSync).mockReturnValue(
+      JSON.stringify({
+        mcpServers: {
+          jasper: {
+            command: 'node',
+            args: [proxyScriptPath('/ext'), '--proxy-socket', '/tmp/socket.sock'],
+          },
         },
-      },
-    }));
+      }),
+    );
 
     writeClaudeDesktopMcpConfig('/ext', '/tmp/socket.sock');
 
@@ -174,14 +186,16 @@ describe('writeClaudeDesktopMcpConfig', () => {
   });
 
   it('rewrites when the socket path has changed', () => {
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
-      mcpServers: {
-        jasper: {
-          command: 'node',
-          args: [proxyScriptPath('/ext'), '--proxy-socket', '/tmp/OLD.sock'],
+    vi.mocked(fs.readFileSync).mockReturnValue(
+      JSON.stringify({
+        mcpServers: {
+          jasper: {
+            command: 'node',
+            args: [proxyScriptPath('/ext'), '--proxy-socket', '/tmp/OLD.sock'],
+          },
         },
-      },
-    }));
+      }),
+    );
 
     writeClaudeDesktopMcpConfig('/ext', '/tmp/NEW.sock');
 
@@ -191,10 +205,12 @@ describe('writeClaudeDesktopMcpConfig', () => {
     expect(written.mcpServers[MCP_SERVER_NAME].args).toContain('/tmp/NEW.sock');
   });
 
-  it('removes the pre-rename gemstone entry when it is Jasper\'s own proxy', () => {
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
-      mcpServers: { gemstone: legacyJasperEntry('/ext', '/tmp/OLD.sock') },
-    }));
+  it("removes the pre-rename gemstone entry when it is Jasper's own proxy", () => {
+    vi.mocked(fs.readFileSync).mockReturnValue(
+      JSON.stringify({
+        mcpServers: { gemstone: legacyJasperEntry('/ext', '/tmp/OLD.sock') },
+      }),
+    );
 
     writeClaudeDesktopMcpConfig('/ext', '/tmp/socket.sock');
 
@@ -205,9 +221,11 @@ describe('writeClaudeDesktopMcpConfig', () => {
   });
 
   it('keeps a foreign gemstone entry (e.g. the native GemStone MCP server)', () => {
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
-      mcpServers: { gemstone: foreignGemstoneEntry },
-    }));
+    vi.mocked(fs.readFileSync).mockReturnValue(
+      JSON.stringify({
+        mcpServers: { gemstone: foreignGemstoneEntry },
+      }),
+    );
 
     writeClaudeDesktopMcpConfig('/ext', '/tmp/socket.sock');
 
@@ -218,13 +236,15 @@ describe('writeClaudeDesktopMcpConfig', () => {
   });
 
   it('migrates legacy gemstone-<hash> entries into the single global entry', () => {
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
-      mcpServers: {
-        'gemstone-abcdef0123': { command: 'node', args: ['stale'] },
-        'gemstone-fedcba9876': { command: 'node', args: ['also-stale'] },
-        filesystem: { command: 'mcp-fs' },
-      },
-    }));
+    vi.mocked(fs.readFileSync).mockReturnValue(
+      JSON.stringify({
+        mcpServers: {
+          'gemstone-abcdef0123': { command: 'node', args: ['stale'] },
+          'gemstone-fedcba9876': { command: 'node', args: ['also-stale'] },
+          filesystem: { command: 'mcp-fs' },
+        },
+      }),
+    );
 
     writeClaudeDesktopMcpConfig('/ext', '/tmp/socket.sock');
 
@@ -237,15 +257,17 @@ describe('writeClaudeDesktopMcpConfig', () => {
   });
 
   it('rewrites when only the legacy cleanup applies, even if the new entry is current', () => {
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
-      mcpServers: {
-        jasper: {
-          command: 'node',
-          args: [proxyScriptPath('/ext'), '--proxy-socket', '/tmp/socket.sock'],
+    vi.mocked(fs.readFileSync).mockReturnValue(
+      JSON.stringify({
+        mcpServers: {
+          jasper: {
+            command: 'node',
+            args: [proxyScriptPath('/ext'), '--proxy-socket', '/tmp/socket.sock'],
+          },
+          'gemstone-abcdef0123': { command: 'node', args: ['stale'] },
         },
-        'gemstone-abcdef0123': { command: 'node', args: ['stale'] },
-      },
-    }));
+      }),
+    );
 
     writeClaudeDesktopMcpConfig('/ext', '/tmp/socket.sock');
 
@@ -260,10 +282,9 @@ describe('writeClaudeDesktopMcpConfig', () => {
 
     writeClaudeDesktopMcpConfig('/ext', '/tmp/socket.sock');
 
-    expect(fs.mkdirSync).toHaveBeenCalledWith(
-      expect.stringMatching(/Claude$/),
-      { recursive: true },
-    );
+    expect(fs.mkdirSync).toHaveBeenCalledWith(expect.stringMatching(/Claude$/), {
+      recursive: true,
+    });
   });
 
   it('recovers from an unreadable config by starting fresh (without throwing)', () => {

@@ -1,7 +1,5 @@
 // @vitest-environment jsdom
-import {
-  describe, it, expect, beforeAll, vi,
-} from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { renderClassEditorHtml } from '../renameClassEditorHtml';
@@ -12,7 +10,10 @@ beforeAll(() => {
 });
 
 interface EditorApi {
-  wire(doc: Document, vscode: { postMessage: (m: unknown) => void }): {
+  wire(
+    doc: Document,
+    vscode: { postMessage: (m: unknown) => void },
+  ): {
     formatError: () => string;
     submit: () => void;
     handleMessage: (m: unknown) => void;
@@ -98,9 +99,11 @@ describe('rename-class editor', () => {
     (document.getElementById('optCopyMethods') as HTMLInputElement).checked = false;
     (document.getElementById('ok') as HTMLButtonElement).click();
 
-    expect(vscode.postMessage).toHaveBeenCalledWith(expect.objectContaining({
-      options: expect.objectContaining({ migrateInstances: false, copyMethods: false }),
-    }));
+    expect(vscode.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({ migrateInstances: false, copyMethods: false }),
+      }),
+    );
   });
 
   it('shows a host rejection (name already in use) and re-enables OK to try again', () => {
@@ -123,9 +126,13 @@ describe('rename-class editor', () => {
     mount();
 
     (document.getElementById('optMigrateInstances') as HTMLInputElement).checked = false;
-    (document.getElementById('optMigrateInstances') as HTMLInputElement).dispatchEvent(new Event('change'));
+    (document.getElementById('optMigrateInstances') as HTMLInputElement).dispatchEvent(
+      new Event('change'),
+    );
     (document.getElementById('optRemoveOldFromHistory') as HTMLInputElement).checked = true;
-    (document.getElementById('optRemoveOldFromHistory') as HTMLInputElement).dispatchEvent(new Event('change'));
+    (document.getElementById('optRemoveOldFromHistory') as HTMLInputElement).dispatchEvent(
+      new Event('change'),
+    );
 
     expect(document.getElementById('optWarn')?.textContent).toMatch(/orphan/i);
   });

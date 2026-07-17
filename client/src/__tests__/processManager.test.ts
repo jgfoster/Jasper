@@ -20,7 +20,12 @@ vi.mock('../wslBridge', async () => {
 
 import * as vscode from 'vscode';
 import { spawn, type SpawnOptions } from 'child_process';
-import { ProcessManager, parseGslist, classifyPidOwnership, versionsMatch } from '../processManager';
+import {
+  ProcessManager,
+  parseGslist,
+  classifyPidOwnership,
+  versionsMatch,
+} from '../processManager';
 import { GemStoneDatabase, GemStoneProcess } from '../sysadminTypes';
 import * as wslBridge from '../wslBridge';
 import { SysadminStorage } from '../sysadminStorage';
@@ -270,7 +275,7 @@ describe('ProcessManager', () => {
 
     it('marks an "OK" netldi as responding and preserves its port', () => {
       const procs = parseGslist(sampleOutput);
-      const netldi = procs.find(p => p.type === 'netldi')!;
+      const netldi = procs.find((p) => p.type === 'netldi')!;
       expect(netldi.status).toBe('OK');
       expect(netldi.responding).toBe(true);
       expect(netldi.port).toBe(50377);
@@ -280,7 +285,7 @@ describe('ProcessManager', () => {
 
     it('marks a "frozen" stone as not responding so the UI can flag it', () => {
       const procs = parseGslist(sampleOutput);
-      const stone = procs.find(p => p.type === 'stone')!;
+      const stone = procs.find((p) => p.type === 'stone')!;
       expect(stone.status).toBe('frozen');
       expect(stone.responding).toBe(false);
       expect(stone.pid).toBe(4106);
@@ -288,7 +293,8 @@ describe('ProcessManager', () => {
     });
 
     it('recognizes the two-word "exe deleted" status without bleeding into version', () => {
-      const line = 'exe deleted  3.7.5     jfoster       4106 49677 May 17 19:57 Stone       gs64stone';
+      const line =
+        'exe deleted  3.7.5     jfoster       4106 49677 May 17 19:57 Stone       gs64stone';
       const procs = parseGslist(line);
       expect(procs).toHaveLength(1);
       expect(procs[0].status).toBe('exe deleted');
@@ -297,7 +303,8 @@ describe('ProcessManager', () => {
     });
 
     it('recognizes "unknown(EPERM)" as a stale (non-responding) status', () => {
-      const line = 'unknown(EPERM)  3.7.5     jfoster       4106 49677 May 17 19:57 Stone       gs64stone';
+      const line =
+        'unknown(EPERM)  3.7.5     jfoster       4106 49677 May 17 19:57 Stone       gs64stone';
       const procs = parseGslist(line);
       expect(procs).toHaveLength(1);
       expect(procs[0].status).toBe('unknown(EPERM)');
@@ -424,7 +431,8 @@ describe('ProcessManager', () => {
     });
 
     it('recognizes a real stoned command line as a GemStone server', () => {
-      const cmd = '/Users/jfoster/Documents/GemStone/GemStone64Bit3.7.5/sys/stoned -l /log/x.log -e /conf/x.conf -z /conf/system.conf gs64stone';
+      const cmd =
+        '/Users/jfoster/Documents/GemStone/GemStone64Bit3.7.5/sys/stoned -l /log/x.log -e /conf/x.conf -z /conf/system.conf gs64stone';
       const r = classifyPidOwnership(cmd);
       expect(r.pidGone).toBe(false);
       expect(r.isGemStoneServer).toBe(true);
@@ -626,7 +634,8 @@ describe('ProcessManager', () => {
 
       manager.openVersionTerminal('3.7.4');
 
-      const options = vi.mocked(vscode.window.createTerminal).mock.calls[0][0] as vscode.TerminalOptions;
+      const options = vi.mocked(vscode.window.createTerminal).mock
+        .calls[0][0] as vscode.TerminalOptions;
       expect(options.env).toEqual({
         GEMSTONE: '/gs/3.7.4',
         GEMSTONE_GLOBAL_DIR: '/home/user/gemstone',
@@ -667,7 +676,10 @@ describe('ProcessManager', () => {
   });
 
   describe('gem temp-object cache self-heal (via startNetldi)', () => {
-    function dbWithGemConf(cacheLine: string | null): { db: ReturnType<typeof makeDatabase>; confFile: string } {
+    function dbWithGemConf(cacheLine: string | null): {
+      db: ReturnType<typeof makeDatabase>;
+      confFile: string;
+    } {
       const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'pm-db-'));
       fs.mkdirSync(nodePath.join(dir, 'conf'));
       fs.mkdirSync(nodePath.join(dir, 'log'), { recursive: true });
@@ -716,5 +728,4 @@ describe('ProcessManager', () => {
       expect(fs.readFileSync(confFile, 'utf8')).toContain('GEM_TEMPOBJ_CACHE_SIZE = 2000000;');
     });
   });
-
 });

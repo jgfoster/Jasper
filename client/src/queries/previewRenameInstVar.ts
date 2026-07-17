@@ -12,7 +12,9 @@ import { classLookupExpr, escapeString } from './util';
 // class name in two dictionaries resolves to the intended class.
 export function previewRenameInstVar(
   execute: QueryExecutor,
-  className: string, oldName: string, newName: string,
+  className: string,
+  oldName: string,
+  newName: string,
   dict?: number | string,
 ): string {
   const code = `| cls |
@@ -22,7 +24,5 @@ cls isNil ifTrue: [^ 'Class not found: ${escapeString(className)}'].
   class: cls
   renameInstVar: '${escapeString(oldName)}'
   to: '${escapeString(newName)}') previewJsonString`;
-  return execute(
-    `previewRenameInstVar(${className}, '${oldName}' -> '${newName}')`, code,
-  );
+  return execute(`previewRenameInstVar(${className}, '${oldName}' -> '${newName}')`, code);
 }

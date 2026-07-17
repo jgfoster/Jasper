@@ -1,7 +1,12 @@
 import { SourceRange, SourcePosition } from '../lexer/tokens';
 import {
-  MethodNode, BlockNode, StatementNode, ExpressionNode,
-  PrimaryNode, MessageNode, VariableNode,
+  MethodNode,
+  BlockNode,
+  StatementNode,
+  ExpressionNode,
+  PrimaryNode,
+  MessageNode,
+  VariableNode,
 } from '../parser/ast';
 
 export type VariableKind = 'argument' | 'temporary' | 'blockParameter' | 'blockTemporary';

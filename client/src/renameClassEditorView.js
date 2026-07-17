@@ -16,14 +16,16 @@
   function wire(doc, vscode) {
     const scriptEl = doc.querySelector('script[data-old-name]');
     const oldName = scriptEl ? scriptEl.getAttribute('data-old-name') : '';
-    const dictName = scriptEl ? (scriptEl.getAttribute('data-dict-name') || '') : '';
+    const dictName = scriptEl ? scriptEl.getAttribute('data-dict-name') || '' : '';
     const okBtn = doc.getElementById('ok');
     const cancelBtn = doc.getElementById('cancel');
     const nameEl = doc.getElementById('name');
     const errEl = doc.getElementById('error');
     const scopeEl = doc.getElementById('scope');
 
-    const value = function () { return nameEl ? nameEl.value.trim() : ''; };
+    const value = function () {
+      return nameEl ? nameEl.value.trim() : '';
+    };
 
     const formatError = function () {
       const v = value();
@@ -67,9 +69,10 @@
     const refreshOptWarn = function () {
       const warn = doc.getElementById('optWarn');
       if (!warn) return;
-      warn.textContent = (checked('optRemoveOldFromHistory') && !checked('optMigrateInstances'))
-        ? '⚠ Removing old versions without migrating will orphan existing instances.'
-        : '';
+      warn.textContent =
+        checked('optRemoveOldFromHistory') && !checked('optMigrateInstances')
+          ? '⚠ Removing old versions without migrating will orphan existing instances.'
+          : '';
     };
     ['optMigrateInstances', 'optRemoveOldFromHistory'].forEach(function (id) {
       const el = doc.getElementById(id);
@@ -85,7 +88,10 @@
     if (nameEl) {
       nameEl.addEventListener('input', refresh);
       nameEl.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') { e.preventDefault(); submit(); }
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          submit();
+        }
       });
     }
     if (okBtn) okBtn.addEventListener('click', submit);
@@ -105,17 +111,28 @@
       }
     };
     if (typeof doc.defaultView !== 'undefined' && doc.defaultView) {
-      doc.defaultView.addEventListener('message', function (e) { handleMessage(e.data); });
+      doc.defaultView.addEventListener('message', function (e) {
+        handleMessage(e.data);
+      });
     }
 
     refresh();
     refreshOptWarn();
     if (nameEl && nameEl.focus) {
-      try { nameEl.focus(); nameEl.select(); } catch (_e) { /* jsdom */ }
+      try {
+        nameEl.focus();
+        nameEl.select();
+      } catch (_e) {
+        /* jsdom */
+      }
     }
     return {
-      formatError: formatError, submit: submit, refresh: refresh, handleMessage: handleMessage,
-      options: options, refreshOptWarn: refreshOptWarn,
+      formatError: formatError,
+      submit: submit,
+      refresh: refresh,
+      handleMessage: handleMessage,
+      options: options,
+      refreshOptWarn: refreshOptWarn,
     };
   }
 

@@ -13,7 +13,10 @@ beforeAll(() => {
 });
 
 interface PanelApi {
-  wire(doc: Document, vscode: { postMessage: (m: unknown) => void }): {
+  wire(
+    doc: Document,
+    vscode: { postMessage: (m: unknown) => void },
+  ): {
     refresh: () => void;
     selectedIds: () => string[];
   };
@@ -50,7 +53,11 @@ const classDef: RenameChange = {
 
 function mount(changes: RenameChange[]): { vscode: { postMessage: ReturnType<typeof vi.fn> } } {
   const html = renderRenamePanelHtml({
-    oldName: 'count', newName: 'tally', changes, nonce: 'test', script: '',
+    oldName: 'count',
+    newName: 'tally',
+    changes,
+    nonce: 'test',
+    script: '',
   });
   document.body.innerHTML = html.split('<body>')[1].split('</body>')[0];
   const vscode = { postMessage: vi.fn() };
@@ -61,7 +68,11 @@ function mount(changes: RenameChange[]): { vscode: { postMessage: ReturnType<typ
 describe('renderRenamePanelHtml', () => {
   it('renders one card per change, all checkboxes checked', () => {
     const html = renderRenamePanelHtml({
-      oldName: 'count', newName: 'tally', changes: [method(), classDef], nonce: 'n', script: '',
+      oldName: 'count',
+      newName: 'tally',
+      changes: [method(), classDef],
+      nonce: 'n',
+      script: '',
     });
 
     const cards = html.match(/class="change"/g) ?? [];
@@ -73,7 +84,11 @@ describe('renderRenamePanelHtml', () => {
 
   it('collapses diffs by default and offers an expand-all toggle', () => {
     const html = renderRenamePanelHtml({
-      oldName: 'count', newName: 'tally', changes: [method(), classDef], nonce: 'n', script: '',
+      oldName: 'count',
+      newName: 'tally',
+      changes: [method(), classDef],
+      nonce: 'n',
+      script: '',
     });
 
     expect(html.match(/class="diff hidden"/g) ?? []).toHaveLength(2);
@@ -83,7 +98,11 @@ describe('renderRenamePanelHtml', () => {
 
   it('shows the before/after diff lines for a change', () => {
     const html = renderRenamePanelHtml({
-      oldName: 'count', newName: 'tally', changes: [method()], nonce: 'n', script: '',
+      oldName: 'count',
+      newName: 'tally',
+      changes: [method()],
+      nonce: 'n',
+      script: '',
     });
 
     expect(html).toContain('class="line del"');
@@ -94,8 +113,11 @@ describe('renderRenamePanelHtml', () => {
 
   it('escapes HTML in source so markup cannot break out', () => {
     const html = renderRenamePanelHtml({
-      oldName: 'count', newName: 'tally',
-      changes: [method({ newSource: 'bar\n\t^<script>' })], nonce: 'n', script: '',
+      oldName: 'count',
+      newName: 'tally',
+      changes: [method({ newSource: 'bar\n\t^<script>' })],
+      nonce: 'n',
+      script: '',
     });
 
     expect(html).not.toContain('^<script>');
@@ -119,7 +141,9 @@ describe('rename panel interactions', () => {
     first.dispatchEvent(new Event('change'));
 
     expect(document.getElementById('count')?.textContent).toBe('1');
-    expect(document.querySelector('li.change[data-id="1"]')?.classList.contains('deselected')).toBe(true);
+    expect(document.querySelector('li.change[data-id="1"]')?.classList.contains('deselected')).toBe(
+      true,
+    );
   });
 
   it('applies only the still-checked change ids', () => {
@@ -186,8 +210,10 @@ describe('rename panel interactions', () => {
     mount([method({ id: '1' }), method({ id: '2', selector: 'baz' }), classDef]);
 
     const toggleAll = document.getElementById('toggleAll') as HTMLButtonElement;
-    const hidden = () => Array.from(document.querySelectorAll('li.change pre.diff'))
-      .filter((p) => p.classList.contains('hidden')).length;
+    const hidden = () =>
+      Array.from(document.querySelectorAll('li.change pre.diff')).filter((p) =>
+        p.classList.contains('hidden'),
+      ).length;
 
     expect(toggleAll.textContent).toBe('Expand all');
     toggleAll.click();

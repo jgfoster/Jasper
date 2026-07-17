@@ -14,9 +14,7 @@ const executor = (result: string) => vi.fn<QueryExecutor>(() => result);
 
 describe('listRowanProjects', () => {
   it('parses project names with their dirty and built-in flags', () => {
-    const result = listRowanProjects(
-      executor('Cypress\tfalse\ttrue\nSeaside\ttrue\tfalse\n'),
-    );
+    const result = listRowanProjects(executor('Cypress\tfalse\ttrue\nSeaside\ttrue\tfalse\n'));
 
     expect(result.available).toBe(true);
     expect(result.projects).toEqual([
@@ -33,11 +31,24 @@ describe('listRowanProjects', () => {
 describe('getRowanProjectDetail', () => {
   it('parses the load recipe, joined lists, and trailing comment', () => {
     const raw = [
-      'name\tSTON', 'isDirty\tfalse', 'isCommitted\ttrue', 'loadedCommitId\t8685ae5b',
-      'commitId\t8685ae5b', 'useGit\tfalse', 'branch\t', 'repositoryRootPath\t/gs/STON',
-      'gitUrl\t', 'remote\t', 'revision\t', 'packageConvention\tRowanHybrid',
-      'defaultSymbolDict\tUserGlobals', 'conditionalAttributes\tgemstone, 3.7',
-      'components\tCore, Tests', 'packageCount\t5', '@@COMMENT@@', 'STON project.',
+      'name\tSTON',
+      'isDirty\tfalse',
+      'isCommitted\ttrue',
+      'loadedCommitId\t8685ae5b',
+      'commitId\t8685ae5b',
+      'useGit\tfalse',
+      'branch\t',
+      'repositoryRootPath\t/gs/STON',
+      'gitUrl\t',
+      'remote\t',
+      'revision\t',
+      'packageConvention\tRowanHybrid',
+      'defaultSymbolDict\tUserGlobals',
+      'conditionalAttributes\tgemstone, 3.7',
+      'components\tCore, Tests',
+      'packageCount\t5',
+      '@@COMMENT@@',
+      'STON project.',
     ].join('\n');
 
     const d = getRowanProjectDetail(executor(raw), 'STON');
@@ -59,12 +70,19 @@ describe('getRowanProjectDetail', () => {
 describe('listAllRowanClasses', () => {
   it('parses each class with its project, package, and symbol dictionary', () => {
     const result = listAllRowanClasses(
-      executor('STONReader\tSTON\tSTON-Core\tUserGlobals\nAnnouncementSet\tAnnouncements\tAnnouncements-Core-GemStone\tGlobals\n'),
+      executor(
+        'STONReader\tSTON\tSTON-Core\tUserGlobals\nAnnouncementSet\tAnnouncements\tAnnouncements-Core-GemStone\tGlobals\n',
+      ),
     );
 
     expect(result).toEqual([
       { name: 'STONReader', project: 'STON', package: 'STON-Core', symbolDict: 'UserGlobals' },
-      { name: 'AnnouncementSet', project: 'Announcements', package: 'Announcements-Core-GemStone', symbolDict: 'Globals' },
+      {
+        name: 'AnnouncementSet',
+        project: 'Announcements',
+        package: 'Announcements-Core-GemStone',
+        symbolDict: 'Globals',
+      },
     ]);
   });
 
@@ -124,7 +142,10 @@ describe('loadRowanProject', () => {
 
 describe('unloadRowanProject', () => {
   it('reports the unloaded project name on OK', () => {
-    expect(unloadRowanProject(executor('OK\tSTON'), 'STON')).toEqual({ success: true, detail: 'STON' });
+    expect(unloadRowanProject(executor('OK\tSTON'), 'STON')).toEqual({
+      success: true,
+      detail: 'STON',
+    });
   });
 
   it('surfaces the dependency error and aborts on ERR', () => {
@@ -169,7 +190,8 @@ describe('diffRowanProject', () => {
   it('reports Rowan-absent and error sentinels as not ok', () => {
     expect(diffRowanProject(executor('!NO_ROWAN'), 'X').ok).toBe(false);
     expect(diffRowanProject(executor('!ERR could not read disk'), 'X')).toMatchObject({
-      ok: false, error: 'could not read disk',
+      ok: false,
+      error: 'could not read disk',
     });
   });
 });
@@ -183,7 +205,8 @@ describe('formatRowanDiff', () => {
 
   it('groups operations by package with labels', () => {
     const text = formatRowanDiff('STON', {
-      ok: true, error: '',
+      ok: true,
+      error: '',
       operations: [
         { location: 'image', package: 'STON-Core', target: 'STONReader>>next' },
         { location: 'disk', package: 'STON-Core', target: 'STONWriter>>old' },
@@ -212,7 +235,11 @@ describe('exportRowanProject', () => {
   });
 
   it('reports failure with the error message on ERR', () => {
-    const result = exportRowanProject(executor('ERR\tProject Cypress is not loaded'), 'Cypress', '/out');
+    const result = exportRowanProject(
+      executor('ERR\tProject Cypress is not loaded'),
+      'Cypress',
+      '/out',
+    );
 
     expect(result).toEqual({ success: false, detail: 'Project Cypress is not loaded' });
   });

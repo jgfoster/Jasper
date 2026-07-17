@@ -29,7 +29,8 @@ describe('ensureSelfSignedCert', () => {
   });
 
   it('generates a cert + key on first run with `generated: true`', async () => {
-    const dir = mkStorage(); dirs.push(dir);
+    const dir = mkStorage();
+    dirs.push(dir);
     const material = await ensureSelfSignedCert(dir);
     expect(material.generated).toBe(true);
     expect(material.cert.toString()).toMatch(/^-----BEGIN CERTIFICATE-----/);
@@ -39,7 +40,8 @@ describe('ensureSelfSignedCert', () => {
   });
 
   it('reuses existing cert on second run with `generated: false`', async () => {
-    const dir = mkStorage(); dirs.push(dir);
+    const dir = mkStorage();
+    dirs.push(dir);
     const first = await ensureSelfSignedCert(dir);
     const second = await ensureSelfSignedCert(dir);
     expect(second.generated).toBe(false);
@@ -48,7 +50,8 @@ describe('ensureSelfSignedCert', () => {
   });
 
   it('creates the storage directory if missing', async () => {
-    const parent = mkStorage(); dirs.push(parent);
+    const parent = mkStorage();
+    dirs.push(parent);
     const nested = path.join(parent, 'nested', 'mcp');
     expect(fs.existsSync(nested)).toBe(false);
     const material = await ensureSelfSignedCert(nested);
@@ -57,7 +60,8 @@ describe('ensureSelfSignedCert', () => {
 
   it('writes cert + key with 0600 permissions', async () => {
     if (process.platform === 'win32') return; // POSIX only
-    const dir = mkStorage(); dirs.push(dir);
+    const dir = mkStorage();
+    dirs.push(dir);
     const material = await ensureSelfSignedCert(dir);
     const certMode = fs.statSync(material.certPath).mode & 0o777;
     const keyMode = fs.statSync(material.keyPath).mode & 0o777;
@@ -73,7 +77,8 @@ describe('loadUserCert', () => {
   });
 
   it('loads cert + key bytes from the given paths', async () => {
-    const dir = mkStorage(); dirs.push(dir);
+    const dir = mkStorage();
+    dirs.push(dir);
     const material = await ensureSelfSignedCert(dir);
     const loaded = loadUserCert(material.certPath, material.keyPath);
     expect(loaded.cert.toString()).toBe(material.cert.toString());

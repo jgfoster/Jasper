@@ -33,12 +33,17 @@ export function formatLocalTimestamp(raw: string): string {
 function renderChangedMethods(changes: MethodChange[]): string {
   if (changes.length === 0) return '<div class="nochange">No method changes.</div>';
   const glyph = { added: '+', removed: '−', modified: '~' };
-  return '<ul class="methods">'
-    + changes
-      .map((m) => `<li class="mc ${m.change}"><span class="mc-glyph">${glyph[m.change]}</span> `
-        + `${escapeHtml(m.side)} <code>${escapeHtml(m.selector)}</code></li>`)
-      .join('')
-    + '</ul>';
+  return (
+    '<ul class="methods">' +
+    changes
+      .map(
+        (m) =>
+          `<li class="mc ${m.change}"><span class="mc-glyph">${glyph[m.change]}</span> ` +
+          `${escapeHtml(m.side)} <code>${escapeHtml(m.selector)}</code></li>`,
+      )
+      .join('') +
+    '</ul>'
+  );
 }
 
 function renderVersionRow(v: ClassVersion): string {
@@ -47,9 +52,9 @@ function renderVersionRow(v: ClassVersion): string {
   const when = formatLocalTimestamp(v.timeStamp);
   const restore = v.isCurrent
     ? ''
-    : '<button class="restore" title="Recompile this version as a new version (a redo)">'
-      + 'Restore this version</button>'
-      + '<button class="remove" title="Remove this version from the class history">Remove</button>';
+    : '<button class="restore" title="Recompile this version as a new version (a redo)">' +
+      'Restore this version</button>' +
+      '<button class="remove" title="Remove this version from the class history">Remove</button>';
   return `<li class="version" data-index="${v.index}">
   <div class="version-head">
     <button class="toggle" title="Show/hide definition" aria-expanded="false">▸</button>

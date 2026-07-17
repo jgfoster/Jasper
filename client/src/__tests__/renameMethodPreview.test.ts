@@ -15,14 +15,28 @@ import {
 } from '../renameMethodPreview';
 
 const renameChange = {
-  id: '1', kind: 'methodRename', dictName: 'UserGlobals', className: 'Foo', isMeta: false,
-  selector: 'from:to:', newSelector: 'to:from:', category: 'accessing',
-  oldSource: 'from: a to: b\n\t^a', newSource: 'to: b from: a\n\t^a',
+  id: '1',
+  kind: 'methodRename',
+  dictName: 'UserGlobals',
+  className: 'Foo',
+  isMeta: false,
+  selector: 'from:to:',
+  newSelector: 'to:from:',
+  category: 'accessing',
+  oldSource: 'from: a to: b\n\t^a',
+  newSource: 'to: b from: a\n\t^a',
 };
 const senderChange = {
-  id: '2', kind: 'methodRecompile', dictName: 'UserGlobals', className: 'Bar', isMeta: true,
-  selector: 'caller', newSelector: null, category: 'x',
-  oldSource: '^self from: 1 to: 2', newSource: '^self to: 2 from: 1',
+  id: '2',
+  kind: 'methodRecompile',
+  dictName: 'UserGlobals',
+  className: 'Bar',
+  isMeta: true,
+  selector: 'caller',
+  newSelector: null,
+  category: 'x',
+  oldSource: '^self from: 1 to: 2',
+  newSource: '^self to: 2 from: 1',
 };
 
 function startEnvelope(over: Record<string, unknown> = {}): string {
@@ -38,11 +52,13 @@ function startEnvelope(over: Record<string, unknown> = {}): string {
 
 describe('parseStartPreview', () => {
   it('parses the token, totals, warnings, and first page', () => {
-    const p = parseStartPreview(startEnvelope({
-      outOfScope: { implementors: 3, senders: 5, skipped: 1 },
-      skippedMethods: [{ class: 'AutoComplete', selector: 'strings:' }],
-      page: { changes: [renameChange], nextOffset: 2, done: false },
-    }));
+    const p = parseStartPreview(
+      startEnvelope({
+        outOfScope: { implementors: 3, senders: 5, skipped: 1 },
+        skippedMethods: [{ class: 'AutoComplete', selector: 'strings:' }],
+        page: { changes: [renameChange], nextOffset: 2, done: false },
+      }),
+    );
 
     expect(p.token).toBe('tok1');
     expect(p.total).toBe(2);
@@ -65,9 +81,13 @@ describe('parseStartPreview', () => {
 
 describe('parsePage', () => {
   it('parses a page of changes with its next offset and done flag', () => {
-    const page = parsePage(JSON.stringify({
-      changes: [senderChange], nextOffset: 42, done: false,
-    }));
+    const page = parsePage(
+      JSON.stringify({
+        changes: [senderChange],
+        nextOffset: 42,
+        done: false,
+      }),
+    );
 
     expect(page.changes).toHaveLength(1);
     expect(page.changes[0].kind).toBe('methodRecompile');
@@ -76,17 +96,27 @@ describe('parsePage', () => {
   });
 
   it('throws when the preview session has expired', () => {
-    expect(() => parsePage(JSON.stringify({
-      error: 'preview session expired', changes: [], nextOffset: 0, done: true,
-    }))).toThrow(/expired/);
+    expect(() =>
+      parsePage(
+        JSON.stringify({
+          error: 'preview session expired',
+          changes: [],
+          nextOffset: 0,
+          done: true,
+        }),
+      ),
+    ).toThrow(/expired/);
   });
 });
 
 describe('parseApplyResult', () => {
   it('parses the applied count and failures', () => {
-    const r = parseApplyResult(JSON.stringify({
-      applied: 5, failed: [{ id: '9', label: 'Foo>>bar', error: 'boom' }],
-    }));
+    const r = parseApplyResult(
+      JSON.stringify({
+        applied: 5,
+        failed: [{ id: '9', label: 'Foo>>bar', error: 'boom' }],
+      }),
+    );
 
     expect(r.applied).toBe(5);
     expect(r.failed).toEqual([{ id: '9', label: 'Foo>>bar', error: 'boom' }]);
@@ -94,7 +124,9 @@ describe('parseApplyResult', () => {
   });
 
   it('surfaces an expired-session error', () => {
-    const r = parseApplyResult(JSON.stringify({ applied: 0, failed: [], error: 'preview session expired' }));
+    const r = parseApplyResult(
+      JSON.stringify({ applied: 0, failed: [], error: 'preview session expired' }),
+    );
 
     expect(r.error).toBe('preview session expired');
   });

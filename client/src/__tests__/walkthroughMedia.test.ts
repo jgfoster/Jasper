@@ -12,8 +12,10 @@ import * as path from 'path';
 describe('walkthrough media files are present', () => {
   const repoRoot = path.resolve(__dirname, '..', '..', '..');
   const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
-  const walkthroughs: Array<{ id: string; steps: Array<{ id: string; media?: Record<string, string> }> }> =
-    pkg.contributes?.walkthroughs ?? [];
+  const walkthroughs: Array<{
+    id: string;
+    steps: Array<{ id: string; media?: Record<string, string> }>;
+  }> = pkg.contributes?.walkthroughs ?? [];
 
   const mediaPaths: string[] = [];
   for (const wt of walkthroughs) {

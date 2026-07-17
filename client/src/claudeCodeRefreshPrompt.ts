@@ -23,28 +23,17 @@ const PROMPT_MESSAGE =
 export interface RefreshPromptDeps {
   getSuppressed: () => boolean;
   setSuppressed: (value: boolean) => Thenable<void>;
-  showInformationMessage: (
-    message: string,
-    ...items: string[]
-  ) => Thenable<string | undefined>;
+  showInformationMessage: (message: string, ...items: string[]) => Thenable<string | undefined>;
   executeCommand: (command: string) => Thenable<unknown>;
 }
 
-export type RefreshPromptResult =
-  | 'suppressed'
-  | 'dismissed'
-  | 'acknowledged'
-  | 'reloaded';
+export type RefreshPromptResult = 'suppressed' | 'dismissed' | 'acknowledged' | 'reloaded';
 
 export async function promptClaudeCodeRefresh(
   deps: RefreshPromptDeps,
 ): Promise<RefreshPromptResult> {
   if (deps.getSuppressed()) return 'suppressed';
-  const choice = await deps.showInformationMessage(
-    PROMPT_MESSAGE,
-    RELOAD_WINDOW,
-    DONT_SHOW_AGAIN,
-  );
+  const choice = await deps.showInformationMessage(PROMPT_MESSAGE, RELOAD_WINDOW, DONT_SHOW_AGAIN);
   if (choice === RELOAD_WINDOW) {
     await deps.executeCommand(RELOAD_COMMAND);
     return 'reloaded';
@@ -56,9 +45,7 @@ export async function promptClaudeCodeRefresh(
   return 'dismissed';
 }
 
-export function buildRefreshPromptDeps(
-  context: vscode.ExtensionContext,
-): RefreshPromptDeps {
+export function buildRefreshPromptDeps(context: vscode.ExtensionContext): RefreshPromptDeps {
   return {
     getSuppressed: () =>
       context.globalState.get<boolean>(SUPPRESS_KEY, false) ||

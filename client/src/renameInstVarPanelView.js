@@ -54,12 +54,16 @@
 
     const selectedIds = function () {
       return checkboxes()
-        .filter(function (cb) { return cb.checked; })
+        .filter(function (cb) {
+          return cb.checked;
+        })
         .map(function (cb) {
           const li = cb.closest('li.change');
           return li ? li.getAttribute('data-id') : null;
         })
-        .filter(function (id) { return id !== null; });
+        .filter(function (id) {
+          return id !== null;
+        });
     };
 
     const refresh = function () {
@@ -83,8 +87,8 @@
       const head = li.querySelector('.change-head');
       if (!head) return;
       head.addEventListener('click', function (event) {
-        if (event.target && event.target.classList
-          && event.target.classList.contains('sel')) return;
+        if (event.target && event.target.classList && event.target.classList.contains('sel'))
+          return;
         setExpanded(li, !isExpanded(li));
         syncToggleAll();
       });
@@ -100,7 +104,9 @@
     if (toggleAllBtn) {
       toggleAllBtn.addEventListener('click', function () {
         const expand = !cards().every(isExpanded);
-        cards().forEach(function (li) { setExpanded(li, expand); });
+        cards().forEach(function (li) {
+          setExpanded(li, expand);
+        });
         syncToggleAll();
       });
     }

@@ -16,7 +16,8 @@ import { renderMethodEditorHtml } from './renameMethodEditorHtml';
 import { RenameMethodScope } from './queries/previewRenameMethod';
 
 const editorJs = fs.readFileSync(
-  path.join(__dirname, '..', 'src', 'renameMethodEditorView.js'), 'utf8',
+  path.join(__dirname, '..', 'src', 'renameMethodEditorView.js'),
+  'utf8',
 );
 
 export interface MethodEditResult {

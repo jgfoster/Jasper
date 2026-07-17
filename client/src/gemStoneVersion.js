@@ -10,8 +10,8 @@
  * @param {string} versionString
  */
 function assertIsValidVersionString(versionString) {
-    if (!/^\d+\.\d+\.\d+(\.\d+)?$/.test(versionString))
-        throw new Error(`Invalid version: ${versionString}`);
+  if (!/^\d+\.\d+\.\d+(\.\d+)?$/.test(versionString))
+    throw new Error(`Invalid version: ${versionString}`);
 }
 
 /**
@@ -20,14 +20,14 @@ function assertIsValidVersionString(versionString) {
  * @returns {number[]}
  */
 function parseGemStoneVersion(versionString) {
-    assertIsValidVersionString(versionString);
+  assertIsValidVersionString(versionString);
 
-    const segments = versionString.split('.').map(Number);
+  const segments = versionString.split('.').map(Number);
 
-    // normalize to 4 parts so compareVersions can always iterate exactly 4
-    if (segments.length === 3) segments.push(0);
+  // normalize to 4 parts so compareVersions can always iterate exactly 4
+  if (segments.length === 3) segments.push(0);
 
-    return segments;
+  return segments;
 }
 
 /**
@@ -39,15 +39,15 @@ function parseGemStoneVersion(versionString) {
  *                   positive if versionString > anotherVersionString.
  */
 function compareGemStoneVersions(versionString, anotherVersionString) {
-    const va = parseGemStoneVersion(versionString);
-    const vb = parseGemStoneVersion(anotherVersionString);
+  const va = parseGemStoneVersion(versionString);
+  const vb = parseGemStoneVersion(anotherVersionString);
 
-    for (let i = 0; i < 4; i++) {
-        const diff = va[i] - vb[i];
-        if (diff !== 0) return diff;
-    }
+  for (let i = 0; i < 4; i++) {
+    const diff = va[i] - vb[i];
+    if (diff !== 0) return diff;
+  }
 
-    return 0;
+  return 0;
 }
 
 module.exports = { compareGemStoneVersions };

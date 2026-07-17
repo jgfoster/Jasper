@@ -8,8 +8,7 @@ export type AsyncQueryExecutor = (label: string, code: string) => Promise<string
 // The scope a rename-method preview runs in. #class / #hierarchy / #wholeSystem
 // take no argument; #dictionary names a single SymbolDictionary.
 export type RenameMethodScope =
-  | { kind: 'class' | 'hierarchy' | 'wholeSystem' }
-  | { kind: 'dictionary'; dictName: string };
+  { kind: 'class' | 'hierarchy' | 'wholeSystem' } | { kind: 'dictionary'; dictName: string };
 
 // Target page size (bytes of change JSON) for a paginated preview. The engine
 // accumulates changes until roughly this many bytes (plus the one change that
@@ -36,8 +35,13 @@ function scopeClauseOf(scope: RenameMethodScope): string {
 // the apply reuse. `dict` scopes the class lookup.
 export function startRenameMethodPreview(
   execute: AsyncQueryExecutor,
-  className: string, oldSelector: string, newParts: string[], permutation: number[],
-  scope: RenameMethodScope, token: string, maxBytes: number,
+  className: string,
+  oldSelector: string,
+  newParts: string[],
+  permutation: number[],
+  scope: RenameMethodScope,
+  token: string,
+  maxBytes: number,
   dict?: number | string,
 ): Promise<string> {
   const partsLiteral = newParts.map((p) => `'${escapeString(p)}'`).join(' ');
@@ -62,10 +66,14 @@ ref startPreviewToken: '${escapeString(token)}' maxBytes: ${maxBytes}`;
 // {"changes":[..],"nextOffset":M,"done":bool} (or an error envelope if the
 // preview session has expired).
 export function pageRenameMethodPreview(
-  execute: AsyncQueryExecutor, token: string, offset: number, maxBytes: number,
+  execute: AsyncQueryExecutor,
+  token: string,
+  offset: number,
+  maxBytes: number,
 ): Promise<string> {
-  const code = `GsRenameMethodRefactoring pageForToken: '${escapeString(token)}' `
-    + `from: ${offset} maxBytes: ${maxBytes}`;
+  const code =
+    `GsRenameMethodRefactoring pageForToken: '${escapeString(token)}' ` +
+    `from: ${offset} maxBytes: ${maxBytes}`;
   return execute(`pageRenameMethodPreview(${token} @ ${offset})`, code);
 }
 
@@ -73,11 +81,14 @@ export function pageRenameMethodPreview(
 // given deselected change ids, WITHOUT committing. Returns
 // {"applied":N,"failed":[{"id":..,"label":..,"error":..}]}.
 export function applyRenameMethod(
-  execute: AsyncQueryExecutor, token: string, deselectedIds: string[],
+  execute: AsyncQueryExecutor,
+  token: string,
+  deselectedIds: string[],
 ): Promise<string> {
   const idsLiteral = deselectedIds.map((id) => `'${escapeString(id)}'`).join(' ');
-  const code = `GsRenameMethodRefactoring applyForToken: '${escapeString(token)}' `
-    + `deselected: #(${idsLiteral})`;
+  const code =
+    `GsRenameMethodRefactoring applyForToken: '${escapeString(token)}' ` +
+    `deselected: #(${idsLiteral})`;
   return execute(`applyRenameMethod(${token}, -${deselectedIds.length})`, code);
 }
 

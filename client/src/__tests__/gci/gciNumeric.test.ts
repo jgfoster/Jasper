@@ -11,10 +11,7 @@ describe('GciTsDoubleToOop / GciTsOopToDouble / GciTsI64ToOop / GciTsOopToI64', 
   let session: unknown;
 
   beforeAll(() => {
-    const login = gci.GciTsLogin(
-      STONE_NRS, null, null, false,
-      GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
-    );
+    const login = gci.GciTsLogin(STONE_NRS, null, null, false, GEM_NRS, GS_USER, GS_PASSWORD, 0, 0);
     expect(login.session).not.toBeNull();
     session = login.session;
   });
@@ -29,7 +26,12 @@ describe('GciTsDoubleToOop / GciTsOopToDouble / GciTsI64ToOop / GciTsOopToI64', 
   describe('GciTsDoubleToOop and GciTsOopToDouble', () => {
     it('round-trips a SmallDouble (1.5)', () => {
       const { result: oop, err } = gci.GciTsDoubleToOop(session, 1.5);
-      console.log('DoubleToOop(1.5) - oop:', oop.toString(16), 'err:', JSON.stringify(err, bigIntReplacer, 2));
+      console.log(
+        'DoubleToOop(1.5) - oop:',
+        oop.toString(16),
+        'err:',
+        JSON.stringify(err, bigIntReplacer, 2),
+      );
       expect(err.number).toBe(0);
 
       const { success, value } = gci.GciTsOopToDouble(session, oop);
@@ -40,7 +42,12 @@ describe('GciTsDoubleToOop / GciTsOopToDouble / GciTsI64ToOop / GciTsOopToI64', 
 
     it('round-trips a non-SmallDouble (Math.PI)', () => {
       const { result: oop, err } = gci.GciTsDoubleToOop(session, Math.PI);
-      console.log('DoubleToOop(PI) - oop:', oop.toString(16), 'err:', JSON.stringify(err, bigIntReplacer, 2));
+      console.log(
+        'DoubleToOop(PI) - oop:',
+        oop.toString(16),
+        'err:',
+        JSON.stringify(err, bigIntReplacer, 2),
+      );
       expect(err.number).toBe(0);
 
       const { success, value } = gci.GciTsOopToDouble(session, oop);
@@ -77,7 +84,12 @@ describe('GciTsDoubleToOop / GciTsOopToDouble / GciTsI64ToOop / GciTsOopToI64', 
   describe('GciTsI64ToOop and GciTsOopToI64', () => {
     it('round-trips a SmallInteger (42)', () => {
       const { result: oop, err } = gci.GciTsI64ToOop(session, 42n);
-      console.log('I64ToOop(42) - oop:', oop.toString(16), 'err:', JSON.stringify(err, bigIntReplacer, 2));
+      console.log(
+        'I64ToOop(42) - oop:',
+        oop.toString(16),
+        'err:',
+        JSON.stringify(err, bigIntReplacer, 2),
+      );
       expect(err.number).toBe(0);
 
       const { success, value } = gci.GciTsOopToI64(session, oop);
@@ -107,7 +119,12 @@ describe('GciTsDoubleToOop / GciTsOopToDouble / GciTsI64ToOop / GciTsOopToI64', 
     it('round-trips a large 64-bit value', () => {
       const big = 2n ** 60n;
       const { result: oop, err } = gci.GciTsI64ToOop(session, big);
-      console.log('I64ToOop(2^60) - oop:', oop.toString(16), 'err:', JSON.stringify(err, bigIntReplacer, 2));
+      console.log(
+        'I64ToOop(2^60) - oop:',
+        oop.toString(16),
+        'err:',
+        JSON.stringify(err, bigIntReplacer, 2),
+      );
       expect(err.number).toBe(0);
 
       const { success, value } = gci.GciTsOopToI64(session, oop);

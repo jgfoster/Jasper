@@ -1,6 +1,6 @@
-import type {CancellationToken, TestItem} from "vscode";
+import type { CancellationToken, TestItem } from 'vscode';
 import * as vscode from 'vscode';
-import {ActiveSession, SessionManager} from './sessionManager';
+import { ActiveSession, SessionManager } from './sessionManager';
 import * as sunit from './sunitQueries';
 
 /**
@@ -19,7 +19,12 @@ function makeClassId(sessionId: number, dictName: string, className: string): st
   return `sunit/${sessionId}/${dictName}/${className}`;
 }
 
-function makeMethodId(sessionId: number, dictName: string, className: string, selector: string): string {
+function makeMethodId(
+  sessionId: number,
+  dictName: string,
+  className: string,
+  selector: string,
+): string {
   return `${makeClassId(sessionId, dictName, className)}/${selector}`;
 }
 
@@ -46,10 +51,7 @@ export class SunitTestController implements vscode.Disposable {
   private methodCategory = new Map<string, string>();
 
   constructor(private sessionManager: SessionManager) {
-    this.controller = vscode.tests.createTestController(
-      'gemstone-sunit',
-      'GemStone SUnit Tests',
-    );
+    this.controller = vscode.tests.createTestController('gemstone-sunit', 'GemStone SUnit Tests');
 
     this.controller.resolveHandler = async (item) => {
       if (!item) {
@@ -118,9 +120,12 @@ export class SunitTestController implements vscode.Disposable {
     }
 
     // Run directly via a TestRun
-    const run = this.controller.createTestRun(
-      { include: [classItem], exclude: [], profile: undefined, preserveFocus: false } as vscode.TestRunRequest,
-    );
+    const run = this.controller.createTestRun({
+      include: [classItem],
+      exclude: [],
+      profile: undefined,
+      preserveFocus: false,
+    } as vscode.TestRunRequest);
     await this.runClassTests(session, run, classItem, className, dictName);
     run.end();
   }
@@ -137,7 +142,11 @@ export class SunitTestController implements vscode.Disposable {
   }
 
   /** Run all test methods in a method category from browser context menus. */
-  async runMethodCategoryByName(dictName: string, className: string, category: string): Promise<void> {
+  async runMethodCategoryByName(
+    dictName: string,
+    className: string,
+    category: string,
+  ): Promise<void> {
     await this.discoverTests();
 
     const classItem = this.findClassItem(dictName, className);
@@ -151,7 +160,7 @@ export class SunitTestController implements vscode.Disposable {
     }
 
     const methodItems: TestItem[] = [];
-    classItem.children.forEach(child => {
+    classItem.children.forEach((child) => {
       if (this.methodCategory.get(`${dictName}/${className}/${child.label}`) === category) {
         methodItems.push(child);
       }
@@ -175,8 +184,8 @@ export class SunitTestController implements vscode.Disposable {
     }
 
     const methodItems = selectors
-      .map(selector => this.itemForMethodNamed(classItem, selector))
-        .filter(result => result !== undefined);
+      .map((selector) => this.itemForMethodNamed(classItem, selector))
+      .filter((result) => result !== undefined);
 
     await this.runTestItems(methodItems);
   }
@@ -184,12 +193,12 @@ export class SunitTestController implements vscode.Disposable {
   public notATestClassErrorMessage(className: string) {
     return `${className} is not a test class.`;
   }
-  
+
   public noTestsFoundErrorMessage() {
-    return `No tests found`
+    return `No tests found`;
   }
 
-// ── Discovery ──────────────────────────────────────────────
+  // ── Discovery ──────────────────────────────────────────────
 
   private async discoverTests(): Promise<void> {
     const session = this.sessionManager.getSelectedSession();
@@ -215,9 +224,9 @@ export class SunitTestController implements vscode.Disposable {
 
         const uri = vscode.Uri.parse(
           `gemstone://${session.id}` +
-          `/${encodeURIComponent(cls.dictName)}` +
-          `/${encodeURIComponent(cls.className)}` +
-          `/definition`,
+            `/${encodeURIComponent(cls.dictName)}` +
+            `/${encodeURIComponent(cls.className)}` +
+            `/definition`,
         );
         const classItem = this.controller.createTestItem(
           makeClassId(session.id, cls.dictName, cls.className),
@@ -259,11 +268,11 @@ export class SunitTestController implements vscode.Disposable {
 
         const uri = vscode.Uri.parse(
           `gemstone://${session.id}` +
-          `/${encodeURIComponent(dictName)}` +
-          `/${encodeURIComponent(className)}` +
-          `/instance` +
-          `/${encodeURIComponent(category || 'as yet unclassified')}` +
-          `/${encodeURIComponent(selector)}`,
+            `/${encodeURIComponent(dictName)}` +
+            `/${encodeURIComponent(className)}` +
+            `/instance` +
+            `/${encodeURIComponent(category || 'as yet unclassified')}` +
+            `/${encodeURIComponent(selector)}`,
         );
         const methodItem = this.controller.createTestItem(
           makeMethodId(session.id, dictName, className, selector),
@@ -322,11 +331,11 @@ export class SunitTestController implements vscode.Disposable {
         queue.push(item);
       }
     } else {
-      this.controller.items.forEach(item => queue.push(item));
+      this.controller.items.forEach((item) => queue.push(item));
     }
 
-    const excluded = new Set(request.exclude?.map(i => i.id) ?? []);
-    return queue.filter(i => !excluded.has(i.id));
+    const excluded = new Set(request.exclude?.map((i) => i.id) ?? []);
+    return queue.filter((i) => !excluded.has(i.id));
   }
 
   private runSingleTest(
@@ -360,14 +369,14 @@ export class SunitTestController implements vscode.Disposable {
 
     // Mark all children as started
     run.started(classItem);
-    classItem.children.forEach(child => run.started(child));
+    classItem.children.forEach((child) => run.started(child));
 
     try {
       const results = sunit.runTestClass(session, className, dictName);
-      const resultMap = new Map(results.map(r => [r.selector, r]));
+      const resultMap = new Map(results.map((r) => [r.selector, r]));
 
       let allPassed = true;
-      classItem.children.forEach(child => {
+      classItem.children.forEach((child) => {
         // Children are always method ids, so selector is present.
         const selector = parseTestId(child.id).selector!;
         const result = resultMap.get(selector);
@@ -390,7 +399,7 @@ export class SunitTestController implements vscode.Disposable {
       const msg = e instanceof Error ? e.message : String(e);
       const errMsg = new vscode.TestMessage(`Execution error: ${msg}`);
       run.errored(classItem, errMsg);
-      classItem.children.forEach(child => {
+      classItem.children.forEach((child) => {
         run.errored(child, new vscode.TestMessage(`Class execution error: ${msg}`));
       });
     }
@@ -427,20 +436,20 @@ export class SunitTestController implements vscode.Disposable {
   private itemsForClasses(dictName: string, classNames: string[]): TestItem[] {
     const result: TestItem[] = [];
 
-    this.controller.items.forEach(testItem => {
+    this.controller.items.forEach((testItem) => {
       const { dictName: itemDict, className: itemClass } = parseTestId(testItem.id);
       if (itemDict === dictName && classNames.includes(itemClass)) {
         result.push(testItem);
       }
     });
 
-   return result;
+    return result;
   }
 
   private findClassItem(dictName: string, className: string): TestItem | undefined {
     let classItem: TestItem | undefined;
 
-    this.controller.items.forEach(testItem => {
+    this.controller.items.forEach((testItem) => {
       if (this.classItemMatches(testItem, dictName, className)) {
         classItem = testItem;
       }
@@ -451,30 +460,33 @@ export class SunitTestController implements vscode.Disposable {
 
   private itemForMethodNamed(classItem: TestItem, selector: string): TestItem | undefined {
     let methodItem: TestItem | undefined;
-    
-    classItem.children.forEach(child => {
+
+    classItem.children.forEach((child) => {
       if (child.label === selector) {
         methodItem = child;
       }
     });
-    
+
     return methodItem;
   }
-  
+
   private async runTestItems(testItems: TestItem[]) {
     if (testItems.length === 0) {
       vscode.window.showWarningMessage(this.noTestsFoundErrorMessage());
       return;
     }
-    
-    await this.runTests({
-      include: testItems,
-      exclude: undefined,
-      preserveFocus: false,
-      profile: undefined,
-      continuous: false
-    }, {
-      isCancellationRequested: false
-    } as CancellationToken);
+
+    await this.runTests(
+      {
+        include: testItems,
+        exclude: undefined,
+        preserveFocus: false,
+        profile: undefined,
+        continuous: false,
+      },
+      {
+        isCancellationRequested: false,
+      } as CancellationToken,
+    );
   }
 }

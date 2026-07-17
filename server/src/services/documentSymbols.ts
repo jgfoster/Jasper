@@ -1,5 +1,12 @@
 import { DocumentSymbol, SymbolKind } from 'vscode-languageserver';
-import { MethodNode, BlockNode, StatementNode, ExpressionNode, PrimaryNode, MessageNode } from '../parser/ast';
+import {
+  MethodNode,
+  BlockNode,
+  StatementNode,
+  ExpressionNode,
+  PrimaryNode,
+  MessageNode,
+} from '../parser/ast';
 import { SourceRange } from '../lexer/tokens';
 import { TopazRegion } from '../topaz/topazParser';
 
@@ -62,7 +69,11 @@ export function getDocumentSymbols(method: MethodNode, region?: TopazRegion): Do
   return symbols;
 }
 
-function collectBlockSymbols(statements: StatementNode[], symbols: DocumentSymbol[], off: number): void {
+function collectBlockSymbols(
+  statements: StatementNode[],
+  symbols: DocumentSymbol[],
+  off: number,
+): void {
   for (const stmt of statements) {
     collectFromStatement(stmt, symbols, off);
   }
@@ -106,9 +117,10 @@ function collectFromPrimary(primary: PrimaryNode, symbols: DocumentSymbol[], off
   if (primary.kind === 'Block') {
     const block = primary as BlockNode;
     const blockSymbol: DocumentSymbol = {
-      name: block.parameters.length > 0
-        ? `[:${block.parameters.map((p) => p.name).join(' :')} | ...]`
-        : '[...]',
+      name:
+        block.parameters.length > 0
+          ? `[:${block.parameters.map((p) => p.name).join(' :')} | ...]`
+          : '[...]',
       kind: SymbolKind.Function,
       range: toLspRange(block.range, off),
       selectionRange: toLspRange(block.range, off),

@@ -6,9 +6,7 @@ import { useIntegrationTest } from './useIntegrationTest';
 import { GciLibrary } from '../gciLibrary';
 import * as q from '../browserQueries';
 import { escapeString } from '../queries/util';
-import {
-  startRenameClassPreview, applyRenameClass,
-} from '../queries/previewRenameClass';
+import { startRenameClassPreview, applyRenameClass } from '../queries/previewRenameClass';
 import { PREVIEW_PAGE_BYTES } from '../queries/previewRenameMethod';
 import { parseStartPreview, parseApplyResult } from '../renameClassPreview';
 import { parseClassHistory, parseRevertResult } from '../classHistoryModel';
@@ -34,15 +32,19 @@ import type { ActiveSession } from '../sessionManager';
 describe('rename class + class history (integration)', () => {
   let gci: GciLibrary;
   let handle: unknown;
-  useIntegrationTest((testContext) => { gci = testContext.gciLibrary; handle = testContext.session; });
+  useIntegrationTest((testContext) => {
+    gci = testContext.gciLibrary;
+    handle = testContext.session;
+  });
 
   const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
   const exec = (code: string): string => q.executeFetchString(session(), 'rename-class-it', code);
   const asyncExec = (_label: string, code: string): Promise<string> => Promise.resolve(exec(code));
 
   const enginePresent = (): boolean =>
-    exec('(System myUserProfile symbolList objectNamed: #GsRenameClassRefactoring) notNil printString')
-      .trim() === 'true';
+    exec(
+      '(System myUserProfile symbolList objectNamed: #GsRenameClassRefactoring) notNil printString',
+    ).trim() === 'true';
 
   const engineTestsPayload = (): string =>
     path.resolve(__dirname, '../../../resources/refactoring/engine-tests.gs');
@@ -76,18 +78,30 @@ failuresAndErrors printString`;
   const OTHER = 'RCItOther';
   const RENAMED = 'RCItRenamed';
   const defineFixture = (): void => {
-    q.compileClassDefinition(session(),
-      `Object subclass: '${BASE}' instVarNames: #(x) classVars: #() `
-      + 'classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals');
+    q.compileClassDefinition(
+      session(),
+      `Object subclass: '${BASE}' instVarNames: #(x) classVars: #() ` +
+        'classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals',
+    );
     q.compileMethod(session(), BASE, false, 'accessing', 'foo\n\t^x');
-    q.compileClassDefinition(session(),
-      `${BASE} subclass: '${SUB}' instVarNames: #() classVars: #() `
-      + 'classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals');
+    q.compileClassDefinition(
+      session(),
+      `${BASE} subclass: '${SUB}' instVarNames: #() classVars: #() ` +
+        'classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals',
+    );
     q.compileMethod(session(), SUB, false, 'making', `bar\n\t^${BASE} new`);
-    q.compileClassDefinition(session(),
-      `Object subclass: '${OTHER}' instVarNames: #() classVars: #() `
-      + 'classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals');
-    q.compileMethod(session(), OTHER, false, 'making', `usesBase\n\t"a ${BASE} comment"\n\t^${BASE} new`);
+    q.compileClassDefinition(
+      session(),
+      `Object subclass: '${OTHER}' instVarNames: #() classVars: #() ` +
+        'classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals',
+    );
+    q.compileMethod(
+      session(),
+      OTHER,
+      false,
+      'making',
+      `usesBase\n\t"a ${BASE} comment"\n\t^${BASE} new`,
+    );
   };
 
   it('previews a whole-system class rename, then applies it server-side', async () => {
@@ -96,20 +110,35 @@ failuresAndErrors printString`;
     defineFixture();
     const token = `rcit-${BASE}`;
 
-    const start = parseStartPreview(await startRenameClassPreview(
-      asyncExec, BASE, RENAMED, { kind: 'wholeSystem' },
-      // Non-committing options so the harness can abort this test.
-      { copyMethods: true, recompileSubclasses: true, migrateInstances: false, removeOldFromHistory: false },
-      token, PREVIEW_PAGE_BYTES,
-    ));
+    const start = parseStartPreview(
+      await startRenameClassPreview(
+        asyncExec,
+        BASE,
+        RENAMED,
+        { kind: 'wholeSystem' },
+        // Non-committing options so the harness can abort this test.
+        {
+          copyMethods: true,
+          recompileSubclasses: true,
+          migrateInstances: false,
+          removeOldFromHistory: false,
+        },
+        token,
+        PREVIEW_PAGE_BYTES,
+      ),
+    );
 
     expect(start.oldName).toBe(BASE);
     expect(start.newName).toBe(RENAMED);
     const rename = start.page.changes.find((c) => c.kind === 'classRename');
     expect(rename?.newName).toBe(RENAMED);
-    const reparent = start.page.changes.find((c) => c.kind === 'classReparent' && c.className === SUB);
+    const reparent = start.page.changes.find(
+      (c) => c.kind === 'classReparent' && c.className === SUB,
+    );
     expect(reparent?.newSource).toContain(`${RENAMED} subclass: '${SUB}'`);
-    const ref = start.page.changes.find((c) => c.kind === 'methodRecompile' && c.className === OTHER);
+    const ref = start.page.changes.find(
+      (c) => c.kind === 'methodRecompile' && c.className === OTHER,
+    );
     expect(ref?.newSource).toContain(`${RENAMED} new`);
     expect(ref?.newSource).toContain(`"a ${BASE} comment"`); // comment left untouched
 
@@ -120,21 +149,26 @@ failuresAndErrors printString`;
     expect(exec(`(UserGlobals includesKey: #${BASE}) printString`).trim()).toBe('false');
     expect(exec(`(${RENAMED} includesSelector: #foo) printString`).trim()).toBe('true');
     expect(exec(`(${SUB} superclass == ${RENAMED}) printString`).trim()).toBe('true');
-    expect(exec(`(${OTHER} compiledMethodAt: #usesBase environmentId: 0 otherwise: nil) sourceString`))
-      .toContain(`${RENAMED} new`);
+    expect(
+      exec(`(${OTHER} compiledMethodAt: #usesBase environmentId: 0 otherwise: nil) sourceString`),
+    ).toContain(`${RENAMED} new`);
   });
 
   it('reads a class definition history and restores a prior version as a new one', async () => {
     if (!enginePresent()) return;
 
     // Two-version fixture: shape a, then shape a+y (new version).
-    q.compileClassDefinition(session(),
-      "Object subclass: 'RCItHist' instVarNames: #(a) classVars: #() "
-      + 'classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals');
+    q.compileClassDefinition(
+      session(),
+      "Object subclass: 'RCItHist' instVarNames: #(a) classVars: #() " +
+        'classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals',
+    );
     q.compileMethod(session(), 'RCItHist', false, 'accessing', 'm1\n\t^a');
-    q.compileClassDefinition(session(),
-      "Object subclass: 'RCItHist' instVarNames: #(a y) classVars: #() "
-      + 'classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals');
+    q.compileClassDefinition(
+      session(),
+      "Object subclass: 'RCItHist' instVarNames: #(a y) classVars: #() " +
+        'classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals',
+    );
 
     const versions = parseClassHistory(q.getClassHistory(session(), 'RCItHist'));
     expect(versions.length).toBeGreaterThanOrEqual(2);
@@ -144,7 +178,8 @@ failuresAndErrors printString`;
     const result = parseRevertResult(q.revertClassToVersion(session(), 'RCItHist', baseline.index));
     expect(result.reverted).toBe(true);
     // Restored to the baseline shape (only a).
-    expect(exec("(RCItHist instVarNames collect: [:e | e asString]) asArray printString").trim())
-      .toBe("an Array( 'a')");
+    expect(
+      exec('(RCItHist instVarNames collect: [:e | e asString]) asArray printString').trim(),
+    ).toBe("an Array( 'a')");
   });
 });

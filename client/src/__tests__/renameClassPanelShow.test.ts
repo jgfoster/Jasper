@@ -12,9 +12,15 @@ vi.mock('vscode', () => ({
         webview: {
           html: '',
           postMessage: vi.fn(),
-          onDidReceiveMessage: (cb: (m: unknown) => void) => { messageCbs.push(cb); return { dispose() {} }; },
+          onDidReceiveMessage: (cb: (m: unknown) => void) => {
+            messageCbs.push(cb);
+            return { dispose() {} };
+          },
         },
-        onDidDispose: (cb: () => void) => { disposeCbs.push(cb); return { dispose() {} }; },
+        onDidDispose: (cb: () => void) => {
+          disposeCbs.push(cb);
+          return { dispose() {} };
+        },
         dispose: () => disposeCbs.forEach((c) => c()),
         __emit: (m: unknown) => messageCbs.forEach((c) => c(m)),
       };
@@ -47,10 +53,20 @@ const start: StartClassPreview = {
   outOfScope: { references: 0, descendants: 1, skipped: 0, collision: null },
   skippedMethods: [],
   page: {
-    changes: [{
-      id: '1', kind: 'classRename', dictName: 'UserGlobals', className: 'Foo', isMeta: false,
-      selector: null, newName: 'Bar', category: null, oldSource: 'a', newSource: 'b',
-    }],
+    changes: [
+      {
+        id: '1',
+        kind: 'classRename',
+        dictName: 'UserGlobals',
+        className: 'Foo',
+        isMeta: false,
+        selector: null,
+        newName: 'Bar',
+        category: null,
+        oldSource: 'a',
+        newSource: 'b',
+      },
+    ],
     nextOffset: 2,
     done: false,
   },
@@ -66,7 +82,13 @@ describe('showRenameClassPanel', () => {
       cleanup: vi.fn(),
     };
 
-    const result = showRenameClassPanel('Foo', 'Bar', start, { recompileSubclasses: true, migrateInstances: true }, handlers);
+    const result = showRenameClassPanel(
+      'Foo',
+      'Bar',
+      start,
+      { recompileSubclasses: true, migrateInstances: true },
+      handlers,
+    );
     lastPanel().__emit({ command: 'apply', deselected: ['3'] });
 
     expect(await result).toEqual({ applied: 2, failed: [], committed: false });
@@ -77,7 +99,13 @@ describe('showRenameClassPanel', () => {
   it('resolves undefined and cleans up on cancel', async () => {
     const handlers = { loadPage: vi.fn(), apply: vi.fn(), cleanup: vi.fn() };
 
-    const result = showRenameClassPanel('Foo', 'Bar', start, { recompileSubclasses: true, migrateInstances: true }, handlers);
+    const result = showRenameClassPanel(
+      'Foo',
+      'Bar',
+      start,
+      { recompileSubclasses: true, migrateInstances: true },
+      handlers,
+    );
     lastPanel().__emit({ command: 'cancel' });
 
     expect(await result).toBeUndefined();
@@ -91,7 +119,13 @@ describe('showRenameClassPanel', () => {
       cleanup: vi.fn(),
     };
 
-    showRenameClassPanel('Foo', 'Bar', start, { recompileSubclasses: true, migrateInstances: true }, handlers);
+    showRenameClassPanel(
+      'Foo',
+      'Bar',
+      start,
+      { recompileSubclasses: true, migrateInstances: true },
+      handlers,
+    );
     lastPanel().__emit({ command: 'loadMore' });
     await vi.waitFor(() => expect(handlers.loadPage).toHaveBeenCalledWith(2));
   });

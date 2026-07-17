@@ -20,7 +20,10 @@ type MethodListViewApi = {
   makeSessionIndicator(selector: string, sessionBit: number): HTMLSpanElement;
   applyOverrideArrows(div: HTMLElement, selector: string, methodOverrideBit: number): void;
   applyMethodIndicators(
-    div: HTMLElement, selector: string, methodOverrideBit: number, sessionBit: number,
+    div: HTMLElement,
+    selector: string,
+    methodOverrideBit: number,
+    sessionBit: number,
   ): void;
   methodListClickMessage(event: { target: Element }, listEl: HTMLElement): ClickMessage;
 };
@@ -86,8 +89,8 @@ describe('MethodListView.applyOverrideArrows', () => {
   it('bit 3 renders both ▲ and ▼ (in that order) then the selector', () => {
     const div = makeItem('new', 3);
     const arrows = [...div.querySelectorAll('.override-arrow')];
-    expect(arrows.map(a => a.textContent)).toEqual(['▲', '▼']);
-    expect(arrows.map(a => (a as HTMLElement).dataset.dir)).toEqual(['up', 'down']);
+    expect(arrows.map((a) => a.textContent)).toEqual(['▲', '▼']);
+    expect(arrows.map((a) => (a as HTMLElement).dataset.dir)).toEqual(['up', 'down']);
     // Selector text follows the arrows.
     expect(div.lastChild?.textContent).toBe('new');
     expect(div.textContent).toBe('▲▼new');
@@ -165,7 +168,7 @@ describe('MethodListView indicator gutter', () => {
     const gutters = div.querySelectorAll('.method-gutter');
 
     expect(gutters).toHaveLength(1);
-    expect([...gutters[0].children].map(c => c.textContent)).toEqual(['▲', '▼', '±']);
+    expect([...gutters[0].children].map((c) => c.textContent)).toEqual(['▲', '▼', '±']);
   });
 
   it('renders three empty slots for a method with no markers so its name still aligns', () => {
@@ -182,14 +185,14 @@ describe('MethodListView indicator gutter', () => {
     const upOnly = [...makeItem('a', 1, 0).querySelector('.method-gutter')!.children];
     const downOnly = [...makeItem('b', 2, 0).querySelector('.method-gutter')!.children];
 
-    expect(upOnly.map(s => s.textContent)).toEqual(['▲', '', '']);
-    expect(downOnly.map(s => s.textContent)).toEqual(['', '▼', '']);
+    expect(upOnly.map((s) => s.textContent)).toEqual(['▲', '', '']);
+    expect(downOnly.map((s) => s.textContent)).toEqual(['', '▼', '']);
   });
 
   it('keeps the session glyph in the third slot regardless of the arrows', () => {
     const sessionOnly = [...makeItem('x', 0, 1).querySelector('.method-gutter')!.children];
 
-    expect(sessionOnly.map(s => s.textContent)).toEqual(['', '', '+']);
+    expect(sessionOnly.map((s) => s.textContent)).toEqual(['', '', '+']);
   });
 
   it('fills an absent marker with a non-interactive placeholder slot, not an arrow/glyph', () => {

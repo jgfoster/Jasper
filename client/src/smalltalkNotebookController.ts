@@ -32,7 +32,9 @@ const MAX_CELL_RESULT = 256 * 1024;
 export async function evalSmalltalk(session: ActiveSession, source: string): Promise<string> {
   const { result: inProgress } = session.gci.GciTsCallInProgress(session.handle);
   if (inProgress !== 0) {
-    throw new Error('Session is busy with another operation. Please wait or use a different session.');
+    throw new Error(
+      'Session is busy with another operation. Please wait or use a different session.',
+    );
   }
 
   const code = wrapExecuteCode(source);
@@ -45,13 +47,19 @@ export async function evalSmalltalk(session: ActiveSession, source: string): Pro
         // non-ASCII literals compile correctly (same convention as
         // browserQueries.executeFetchString).
         const { success, err } = session.gci.GciTsNbExecute(
-          session.handle, code, OOP_CLASS_UTF8, OOP_ILLEGAL, OOP_NIL, 0, 0,
+          session.handle,
+          code,
+          OOP_CLASS_UTF8,
+          OOP_ILLEGAL,
+          OOP_NIL,
+          0,
+          0,
         );
         return { success, err };
       },
       async () => {
-        const { result, err } = await settleNbResult(
-          session, text => appendTranscriptOutput(text),
+        const { result, err } = await settleNbResult(session, (text) =>
+          appendTranscriptOutput(text),
         );
         if (err.number !== 0) {
           throw new Error(err.message || `GCI error ${err.number}`);
@@ -63,7 +71,9 @@ export async function evalSmalltalk(session: ActiveSession, source: string): Pro
 
     // wrapExecuteCode printStrings server-side, so the result IS a string.
     const { data, err: fetchErr } = session.gci.GciTsFetchUtf8(
-      session.handle, resultOop, MAX_CELL_RESULT,
+      session.handle,
+      resultOop,
+      MAX_CELL_RESULT,
     );
     if (fetchErr.number !== 0) {
       throw new Error(fetchErr.message || `GCI error ${fetchErr.number}`);

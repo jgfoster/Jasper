@@ -14,7 +14,9 @@ import { classLookupExpr, escapeString } from './util';
 // shadowed class names. Without it, falls back to `objectNamed:` — the
 // first match in the user's symbolList.
 export function describeClass(
-  execute: QueryExecutor, className: string, dict?: number | string,
+  execute: QueryExecutor,
+  className: string,
+  dict?: number | string,
 ): string {
   const esc = escapeString(className);
   const code = `| cls ws |
@@ -38,8 +40,9 @@ cls class categoryNames asSortedCollection do: [:cat |
   (cls class sortedSelectorsIn: cat) do: [:sel |
     ws nextPutAll: '  '; nextPutAll: sel; lf]].
 ws contents`;
-  const label = dict === undefined
-    ? `describeClass(${className})`
-    : `describeClass(${className}, dict: ${dict})`;
+  const label =
+    dict === undefined
+      ? `describeClass(${className})`
+      : `describeClass(${className}, dict: ${dict})`;
   return execute(label, code);
 }

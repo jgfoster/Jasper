@@ -47,8 +47,8 @@ describe('session row inline button order', () => {
   });
 
   it('keeps the rare backup and restore actions off the inline row, paired in a context-menu group', () => {
-    const sessionItems = itemContext.filter(
-      (m) => (m.when ?? '').includes('viewItem == gemstoneSession'),
+    const sessionItems = itemContext.filter((m) =>
+      (m.when ?? '').includes('viewItem == gemstoneSession'),
     );
 
     const backup = sessionItems.find((m) => m.command === 'gemstone.fullLogicalBackup');
@@ -63,10 +63,6 @@ describe('login row inline button order', () => {
   it('leads with Login and trails with the destructive Delete', () => {
     const order = inlineOrderFor('viewItem == gemstoneLogin');
 
-    expect(order).toEqual([
-      'gemstone.login',
-      'gemstone.editLogin',
-      'gemstone.deleteLogin',
-    ]);
+    expect(order).toEqual(['gemstone.login', 'gemstone.editLogin', 'gemstone.deleteLogin']);
   });
 });

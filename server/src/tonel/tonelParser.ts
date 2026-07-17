@@ -55,9 +55,7 @@ export function parseTonelDocument(text: string): TopazRegion[] {
   }
 
   // Parse file header: Class { ... }, Extension { ... }, or Package { ... }
-  const headerMatch = i < lines.length
-    ? lines[i].match(/^(Class|Extension|Package)\s*\{/)
-    : null;
+  const headerMatch = i < lines.length ? lines[i].match(/^(Class|Extension|Package)\s*\{/) : null;
 
   let headerClassName: string | undefined;
 
@@ -140,7 +138,12 @@ export function parseTonelDocument(text: string): TopazRegion[] {
     }
 
     const signatureLine = i;
-    const { className: sigClassName, isClassSide, selectorPattern, selectorColumnOffset } = sigMatch;
+    const {
+      className: sigClassName,
+      isClassSide,
+      selectorPattern,
+      selectorColumnOffset,
+    } = sigMatch;
     const className = sigClassName || headerClassName;
 
     // Find the matching ] via bracket counting

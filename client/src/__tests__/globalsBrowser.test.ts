@@ -173,25 +173,25 @@ describe('GlobalsBrowser', () => {
     beforeEach(async () => {
       await GlobalsBrowser.showOrUpdate(session, 'Globals', 1);
       // Capture the message handler that the webview uses to send messages to the host
-      webviewMessageHandler = vi.mocked(mockPanel.webview.onDidReceiveMessage).mock.calls[0][0] as (msg: unknown) => void;
+      webviewMessageHandler = vi.mocked(mockPanel.webview.onDidReceiveMessage).mock.calls[0][0] as (
+        msg: unknown,
+      ) => void;
     });
 
     it('executes gemstone.inspectGlobal when inspectGlobal message is received', () => {
       webviewMessageHandler({ command: 'inspectGlobal', name: 'AllUsers' });
 
-      expect(commands.executeCommand).toHaveBeenCalledWith(
-        'gemstone.inspectGlobal',
-        { className: 'AllUsers' },
-      );
+      expect(commands.executeCommand).toHaveBeenCalledWith('gemstone.inspectGlobal', {
+        className: 'AllUsers',
+      });
     });
 
     it('passes the global name through to the command', () => {
       webviewMessageHandler({ command: 'inspectGlobal', name: '_remoteNil' });
 
-      expect(commands.executeCommand).toHaveBeenCalledWith(
-        'gemstone.inspectGlobal',
-        { className: '_remoteNil' },
-      );
+      expect(commands.executeCommand).toHaveBeenCalledWith('gemstone.inspectGlobal', {
+        className: '_remoteNil',
+      });
     });
   });
 

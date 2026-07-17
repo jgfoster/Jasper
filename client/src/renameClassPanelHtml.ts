@@ -15,7 +15,11 @@
  * so it is never reported as deselected, and the engine applies it regardless.
  */
 import {
-  ClassRenameChange, classChangeLabel, isStructuralChange, ClassOutOfScope, SkippedMethod,
+  ClassRenameChange,
+  classChangeLabel,
+  isStructuralChange,
+  ClassOutOfScope,
+  SkippedMethod,
 } from './renameClassPreview';
 import { lineDiff, DiffLine } from './lineDiff';
 
@@ -43,14 +47,18 @@ function kindBadge(change: ClassRenameChange): string {
 function headerLabel(change: ClassRenameChange): string {
   const side = change.isMeta ? ' class' : '';
   if (change.kind === 'classRename' && change.newName) {
-    return `<span class="sel-removed" title="old name">${escapeHtml(change.className)}</span>`
-      + '<span class="ren-arrow"> → </span>'
-      + `<span class="sel-added" title="new name">${escapeHtml(change.newName)}</span>`;
+    return (
+      `<span class="sel-removed" title="old name">${escapeHtml(change.className)}</span>` +
+      '<span class="ren-arrow"> → </span>' +
+      `<span class="sel-added" title="new name">${escapeHtml(change.newName)}</span>`
+    );
   }
-  return `${escapeHtml(change.className)}${escapeHtml(side)}`
-    + (change.kind === 'methodRecompile' && change.selector
+  return (
+    `${escapeHtml(change.className)}${escapeHtml(side)}` +
+    (change.kind === 'methodRecompile' && change.selector
       ? `&gt;&gt;${escapeHtml(change.selector)}`
-      : '');
+      : '')
+  );
 }
 
 function renderCard(change: ClassRenameChange): string {
@@ -79,38 +87,51 @@ export function renderClassCards(changes: ClassRenameChange[]): string {
 }
 
 function renderOutOfScope(
-  oos: ClassOutOfScope, skippedMethods: SkippedMethod[],
-  recompileSubclasses: boolean, migrateInstances: boolean,
+  oos: ClassOutOfScope,
+  skippedMethods: SkippedMethod[],
+  recompileSubclasses: boolean,
+  migrateInstances: boolean,
 ): string {
   const lines: string[] = [];
   if (oos.collision) {
-    lines.push(`⚠ ${escapeHtml(oos.collision)} — applying will fail unless you choose another name.`);
+    lines.push(
+      `⚠ ${escapeHtml(oos.collision)} — applying will fail unless you choose another name.`,
+    );
   }
   if (oos.references > 0) {
-    lines.push(`${oos.references} reference${oos.references === 1 ? '' : 's'} outside the chosen `
-      + 'scope will NOT be updated.');
+    lines.push(
+      `${oos.references} reference${oos.references === 1 ? '' : 's'} outside the chosen ` +
+        'scope will NOT be updated.',
+    );
   }
   if (oos.descendants > 0) {
     const n = oos.descendants;
     const plural = n === 1 ? '' : 'es';
-    lines.push(recompileSubclasses
-      ? `${n} subclass${plural} will be re-parented onto the new version.`
-      : `⚠ ${n} subclass${plural} will NOT be re-parented (recompile subclasses is off) `
-        + `and will be orphaned on the old version.`);
+    lines.push(
+      recompileSubclasses
+        ? `${n} subclass${plural} will be re-parented onto the new version.`
+        : `⚠ ${n} subclass${plural} will NOT be re-parented (recompile subclasses is off) ` +
+            `and will be orphaned on the old version.`,
+    );
   }
-  lines.push(migrateInstances
-    ? 'Existing instances will be migrated to the new version (this commits the rename).'
-    : 'Existing instances stay on their prior version (not migrated).');
+  lines.push(
+    migrateInstances
+      ? 'Existing instances will be migrated to the new version (this commits the rename).'
+      : 'Existing instances stay on their prior version (not migrated).',
+  );
   let skippedList = '';
   if (oos.skipped > 0) {
-    lines.push(`${oos.skipped} method${oos.skipped === 1 ? '' : 's'} could not be rewritten and `
-      + `${oos.skipped === 1 ? 'was' : 'were'} skipped. `
-      + '<button class="linkish" id="showSkipped" aria-expanded="false">Show</button>');
-    skippedList = '<ul class="skipped-list hidden" id="skippedList">'
-      + skippedMethods
+    lines.push(
+      `${oos.skipped} method${oos.skipped === 1 ? '' : 's'} could not be rewritten and ` +
+        `${oos.skipped === 1 ? 'was' : 'were'} skipped. ` +
+        '<button class="linkish" id="showSkipped" aria-expanded="false">Show</button>',
+    );
+    skippedList =
+      '<ul class="skipped-list hidden" id="skippedList">' +
+      skippedMethods
         .map((m) => `<li>${escapeHtml(m.className)}&gt;&gt;${escapeHtml(m.selector)}</li>`)
-        .join('')
-      + '</ul>';
+        .join('') +
+      '</ul>';
   }
   if (lines.length === 0) return '';
   return `<div class="oos">${lines.join('<br>')}${skippedList}</div>`;
@@ -135,8 +156,17 @@ export interface ClassPanelHtmlOptions {
 /** Build the panel's HTML. Pure (no vscode) so it unit-tests directly. */
 export function renderClassPanelHtml(opts: ClassPanelHtmlOptions): string {
   const {
-    oldName, newName, total, changes, done, outOfScope, skippedMethods,
-    recompileSubclasses, migrateInstances, nonce, script,
+    oldName,
+    newName,
+    total,
+    changes,
+    done,
+    outOfScope,
+    skippedMethods,
+    recompileSubclasses,
+    migrateInstances,
+    nonce,
+    script,
   } = opts;
   const cards = renderClassCards(changes);
   const pagerHidden = done ? ' hidden' : '';

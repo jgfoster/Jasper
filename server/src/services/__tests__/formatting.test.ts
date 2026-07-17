@@ -152,13 +152,17 @@ describe('AST Formatter', () => {
     it('formats multi-statement blocks with bracket-flow', () => {
       const input = 'run\ncondition ifTrue: [x := 1. y := 2] ifFalse: [z := 3]\n%';
       const result = format(input);
-      expect(result).toBe('run\ncondition ifTrue: [\n  x := 1.\n  y := 2.\n] ifFalse: [\n  z := 3.\n].\n%');
+      expect(result).toBe(
+        'run\ncondition ifTrue: [\n  x := 1.\n  y := 2.\n] ifFalse: [\n  z := 3.\n].\n%',
+      );
     });
 
     it('formats bracket-flow inside method body', () => {
       const input = 'method: Foo\nfoo condition ifTrue: [x := 1. y := 2] ifFalse: [z := 3]\n%';
       const result = format(input);
-      expect(result).toBe('method: Foo\nfoo\n\n  condition ifTrue: [\n    x := 1.\n    y := 2.\n  ] ifFalse: [\n    z := 3.\n  ].\n%');
+      expect(result).toBe(
+        'method: Foo\nfoo\n\n  condition ifTrue: [\n    x := 1.\n    y := 2.\n  ] ifFalse: [\n    z := 3.\n  ].\n%',
+      );
     });
 
     it('formats blocks with temporaries as bracket-flow', () => {
@@ -168,7 +172,8 @@ describe('AST Formatter', () => {
     });
 
     it('falls back to bracket-flow when single statement is multi-line', () => {
-      const input = "run\ncondition ifTrue: [self at: 1 put: 'v'] ifFalse: [self at: 2 put: 'w']\n%";
+      const input =
+        "run\ncondition ifTrue: [self at: 1 put: 'v'] ifFalse: [self at: 2 put: 'w']\n%";
       const result = format(input);
       expect(result).toContain('ifTrue: [');
       expect(result).toContain('] ifFalse: [');
@@ -184,7 +189,9 @@ describe('AST Formatter', () => {
     it('applies bracket-flow to ifNotNil:ifNil:', () => {
       const input = 'run\nvalue ifNotNil: [x := 1. y := 2] ifNil: [z := 3]\n%';
       const result = format(input);
-      expect(result).toBe('run\nvalue ifNotNil: [\n  x := 1.\n  y := 2.\n] ifNil: [\n  z := 3.\n].\n%');
+      expect(result).toBe(
+        'run\nvalue ifNotNil: [\n  x := 1.\n  y := 2.\n] ifNil: [\n  z := 3.\n].\n%',
+      );
     });
 
     // Non-block args still use existing multi-keyword logic
@@ -223,7 +230,9 @@ describe('AST Formatter', () => {
     it('closing bracket at same indent as opening line', () => {
       const input = 'method: Foo\nfoo 1 timesRepeat: [x := 1. y := 2]\n%';
       const result = format(input);
-      expect(result).toBe('method: Foo\nfoo\n\n  1 timesRepeat: [\n    x := 1.\n    y := 2.\n  ].\n%');
+      expect(result).toBe(
+        'method: Foo\nfoo\n\n  1 timesRepeat: [\n    x := 1.\n    y := 2.\n  ].\n%',
+      );
     });
 
     it('keeps simple block inline', () => {
@@ -401,7 +410,9 @@ describe('Formatter Settings', () => {
 
     it('omits blank line when disabled', () => {
       const input = 'method: Foo\nfoo ^42\n%';
-      expect(format(input, { blankLineAfterMethodPattern: false })).toBe('method: Foo\nfoo\n  ^42\n%');
+      expect(format(input, { blankLineAfterMethodPattern: false })).toBe(
+        'method: Foo\nfoo\n  ^42\n%',
+      );
     });
   });
 
