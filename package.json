@@ -323,7 +323,7 @@
           "name": "Open Editors",
           "type": "tree",
           "icon": "$(go-to-file)",
-          "when": "gemstone.explorerActive",
+          "when": "gemstone.explorerActive && gemstone.explorerHasOpenEditors",
           "size": 1
         },
         {
@@ -1066,6 +1066,18 @@
         "icon": "$(edit)"
       },
       {
+        "command": "gemstone.explorer.renameClass",
+        "title": "Rename Class…",
+        "category": "GemStone",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "gemstone.explorer.classHistory",
+        "title": "Class History…",
+        "category": "GemStone",
+        "icon": "$(history)"
+      },
+      {
         "command": "gemstone.downloadVersion",
         "title": "Download",
         "category": "GemStone Admin",
@@ -1299,6 +1311,14 @@
         },
         {
           "command": "gemstone.explorer.renameMethod",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.explorer.renameClass",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.explorer.classHistory",
           "when": "false"
         },
         {
@@ -1549,7 +1569,22 @@
           "group": "inline"
         },
         {
+          "command": "gemstone.explorer.renameClass",
+          "when": "view == gemstoneExplorerClasses && viewItem == explorerClass",
+          "group": "inline"
+        },
+        {
+          "command": "gemstone.explorer.classHistory",
+          "when": "view == gemstoneExplorerClasses && viewItem == explorerClass",
+          "group": "3_refactor@1"
+        },
+        {
           "command": "gemstone.explorer.openHierarchyDefinition",
+          "when": "view == gemstoneExplorerHierarchy && viewItem == explorerHierClass",
+          "group": "inline"
+        },
+        {
+          "command": "gemstone.explorer.renameClass",
           "when": "view == gemstoneExplorerHierarchy && viewItem == explorerHierClass",
           "group": "inline"
         },
@@ -1557,6 +1592,11 @@
           "command": "gemstone.explorer.openHierarchyDefinition",
           "when": "view == gemstoneExplorerHierarchy && viewItem == explorerHierClass",
           "group": "1_open@1"
+        },
+        {
+          "command": "gemstone.explorer.classHistory",
+          "when": "view == gemstoneExplorerHierarchy && viewItem == explorerHierClass",
+          "group": "3_refactor@1"
         },
         {
           "command": "gemstone.explorer.openDefinition",

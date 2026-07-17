@@ -19,6 +19,7 @@ Class {
 		'isMeta',
 		'selector',
 		'newSelector',
+		'newName',
 		'category',
 		'oldSource',
 		'newSource'
@@ -48,6 +49,29 @@ GsRefactoringChange class >> methodRenameId: anId dictName: dn className: cn isM
 		setId: anId kind: #methodRename dictName: dn className: cn
 		isMeta: aBool selector: oldSel category: cat oldSource: os newSource: ns)
 		setNewSelector: newSel
+]
+
+{ #category : 'instance creation' }
+GsRefactoringChange class >> classRenameId: anId dictName: dn className: cn newName: nn oldSource: os newSource: ns [
+	"The target class of a rename: `className` holds the OLD name, `newName` the new.
+	 Apply (server-side) creates a new version under the new name, copies the old
+	 version's methods forward, then rebinds the dictionary key (add new, remove old).
+	 oldSource/newSource are the old/new class definitions, for the before/after diff."
+	^(self new
+		setId: anId kind: #classRename dictName: dn className: cn
+		isMeta: false selector: nil category: nil oldSource: os newSource: ns)
+		setNewName: nn
+]
+
+{ #category : 'instance creation' }
+GsRefactoringChange class >> classReparentId: anId dictName: dn className: cn oldSource: os newSource: ns [
+	"A descendant of a renamed class: it must be recompiled newVersionOf: its current
+	 version so it re-points at the freshly created parent chain (and, for a direct
+	 child, so its definition names the new superclass). `className` is the descendant's
+	 own (unchanged) name. oldSource/newSource are its old/new definition."
+	^self new
+		setId: anId kind: #classReparent dictName: dn className: cn
+		isMeta: false selector: nil category: nil oldSource: os newSource: ns
 ]
 
 { #category : 'accessing' }
@@ -126,6 +150,8 @@ GsRefactoringChange >> jsonOn: aStream [
 	self jsonValue: selector on: aStream.
 	aStream nextPutAll: ',"newSelector":'.
 	self jsonValue: newSelector on: aStream.
+	aStream nextPutAll: ',"newName":'.
+	self jsonValue: newName on: aStream.
 	aStream nextPutAll: ',"category":'.
 	self jsonValue: category on: aStream.
 	aStream nextPutAll: ',"oldSource":'.
@@ -164,6 +190,17 @@ GsRefactoringChange >> oldSource [
 GsRefactoringChange >> newSelector [
 	"The new selector for a #methodRename change; nil for every other kind."
 	^newSelector
+]
+
+{ #category : 'accessing' }
+GsRefactoringChange >> newName [
+	"The new class name for a #classRename change; nil for every other kind."
+	^newName
+]
+
+{ #category : 'private' }
+GsRefactoringChange >> setNewName: aString [
+	newName := aString
 ]
 
 { #category : 'accessing' }

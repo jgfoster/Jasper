@@ -23,6 +23,16 @@ import {
 import { PREVIEW_PAGE_BYTES } from './queries/previewRenameMethod';
 import { showRenameMethodEditor } from './renameMethodEditor';
 import { showRenameMethodPanel } from './renameMethodPanel';
+import {
+  parseStartPreview as parseStartClassPreview,
+  parsePage as parseClassPage,
+  parseApplyResult as parseClassApplyResult,
+  validateNewClassName,
+} from './renameClassPreview';
+import { showRenameClassEditor } from './renameClassEditor';
+import { showRenameClassPanel } from './renameClassPanel';
+import { parseClassHistory, parseRevertResult, parseRemoveResult } from './classHistoryModel';
+import { showClassHistoryPanel } from './classHistoryPanel';
 
 const VIEW_DICTS = 'gemstoneExplorerDicts';
 const VIEW_CATEGORIES = 'gemstoneExplorerCategories';
@@ -132,8 +142,8 @@ class ClassItem extends vscode.TreeItem {
   // `hasIvars` drives the expansion caret: a class with locally-defined instance
   // variables opens to reveal its ivar sub-tree; one without stays flat. It never
   // affects the stable `id`, so TreeView.reveal still matches regardless.
-  constructor(public readonly className: string, hasIvars = false, version?: number) {
-    super(version === undefined ? className : `${className}[${version}]`, hasIvars
+  constructor(public readonly className: string, hasIvars = false, versionTag?: string) {
+    super(versionTag === undefined ? className : `${className}[${versionTag}]`, hasIvars
       ? vscode.TreeItemCollapsibleState.Collapsed
       : vscode.TreeItemCollapsibleState.None);
     // The displayed label may carry a `[n]` version tag, but the node's identity
@@ -276,8 +286,11 @@ class HierarchyItem extends vscode.TreeItem {
     // Position in the ancestor→self chain; -1 for subclasses.
     public readonly chainIndex: number,
     hasChildren: boolean,
+    // A `[current/total]` class-history version tag, when the class has more than
+    // one version (same rule as the Classes pane). Affects only the label, never the id.
+    versionTag?: string,
   ) {
-    super(className, hasChildren
+    super(versionTag === undefined ? className : `${className}[${versionTag}]`, hasChildren
       ? vscode.TreeItemCollapsibleState.Expanded
       : vscode.TreeItemCollapsibleState.None);
     this.id = `h:${role}:${chainIndex}:${className}`;
@@ -334,10 +347,11 @@ class ExplorerController {
   // expansion caret. Names are fetched lazily on expand and memoized here.
   private definedIvarCounts = new Map<string, number>();
   private readonly definedIvarNamesCache = new Map<string, string[]>();
-  // className → version number, for classes with more than one version in the
-  // current dictionary; fetched once per dict so a reshaped class row can render
-  // `Foo[2]`. Single-version classes are absent (they render with no version tag).
-  private classVersions = new Map<string, number>();
+  // className → {current,total} position in its class history, for classes with
+  // more than one version in the current dictionary; fetched once per dict so a
+  // reshaped class row can render `Foo[2/3]`. Single-version classes are absent
+  // (they render with no version tag).
+  private classVersions = new Map<string, queries.ClassVersionInfo>();
   // Per-method metadata for the selected class; fetched once per class.
   private envLines: queries.EnvCategoryLine[] = [];
   private views?: ExplorerViews;
@@ -898,13 +912,18 @@ class ExplorerController {
       const e = this.hierChain[i];
       const isSelf = i === lastIdx;
       const hasChildren = !isSelf || this.hierSubs.length > 0;
-      return new HierarchyItem(e.className, e.dictName, isSelf ? 'self' : 'ancestor', i, hasChildren);
+      return new HierarchyItem(
+        e.className, e.dictName, isSelf ? 'self' : 'ancestor', i, hasChildren,
+        this.classVersion(e.className),
+      );
     };
     if (!element) return [chainItem(0)];
     if (element.role === 'subclass') return [];
     if (element.chainIndex < lastIdx) return [chainItem(element.chainIndex + 1)];
     // element is the current class → list its subclasses.
-    return this.hierSubs.map((s) => new HierarchyItem(s.className, s.dictName, 'subclass', -1, false));
+    return this.hierSubs.map((s) => new HierarchyItem(
+      s.className, s.dictName, 'subclass', -1, false, this.classVersion(s.className),
+    ));
   }
 
   // Select the current class's node in the Hierarchy pane so its selection stays
@@ -1025,11 +1044,12 @@ class ExplorerController {
     return (this.definedIvarCounts.get(className) ?? 0) > 0;
   }
 
-  // The class's version number when it has more than one version in the current
-  // dictionary (so the row renders `Foo[n]`), or undefined for a single-version
-  // class (rendered as a plain `Foo`).
-  classVersion(className: string): number | undefined {
-    return this.classVersions.get(className);
+  // The class's `current/total` version tag when it has more than one version in
+  // the current dictionary (so the row renders `Foo[2/3]`), or undefined for a
+  // single-version class (rendered as a plain `Foo`).
+  classVersion(className: string): string | undefined {
+    const v = this.classVersions.get(className);
+    return v ? `${v.current}/${v.total}` : undefined;
   }
 
   // Locally-defined instance variable names for a class, memoized per dict load.
@@ -1310,6 +1330,225 @@ class ExplorerController {
       `Renamed '${oldSelector}' → '${newSelector}' (${result.applied} change`
       + `${result.applied === 1 ? '' : 's'}). Compiled but NOT committed — commit when ready.`,
     );
+  }
+
+  // Ensure the refactoring engine is loaded, offering to install it if not.
+  // Returns true when it is (now) available. Shared by rename-class and history.
+  private async ensureRbSupport(action: string): Promise<boolean> {
+    const session = this.session();
+    if (!session) return false;
+    if (session.rbSupportAvailable) return true;
+    const LOAD = 'Install GemStone Support…';
+    const choice = await vscode.window.showInformationMessage(
+      `${action} needs the GemStone refactoring engine, which isn't loaded in this stone yet.`,
+      LOAD,
+    );
+    if (choice !== LOAD) return false;
+    await vscode.commands.executeCommand('gemstone.installServerSupport');
+    return this.session()?.rbSupportAvailable === true;
+  }
+
+  // Validate a proposed rename target: the name's format AND that it isn't already
+  // bound to another global in the stone (so we reject a collision up front and let
+  // the user pick another name, per Eric's UX). Returns an error string or undefined.
+  private validateRenameTarget(newName: string, oldName: string): string | undefined {
+    const fmt = validateNewClassName(newName, oldName);
+    if (fmt) return fmt;
+    const session = this.session();
+    if (session && queries.globalNameInUse(session, newName)) {
+      return `The name ${newName} is already in use. Choose another.`;
+    }
+    return undefined;
+  }
+
+  // Re-cascade the class panes onto a (renamed or reshaped) class so the Classes
+  // and Hierarchy panes show the new name / version tag. When the class is in the
+  // current dictionary, revealClass does the full reload+reveal; otherwise reload
+  // what we can from the current view.
+  private async refreshAfterClassReshape(className: string): Promise<void> {
+    const session = this.session();
+    const { dictName, dictIndex } = this.state;
+    if (!session || dictName === undefined || dictIndex === undefined) {
+      this.classProvider.refresh();
+      this.hierarchyProvider.refresh();
+      return;
+    }
+    let entries: queries.ClassCategoryEntry[];
+    try {
+      entries = queries.getClassesWithCategory(session, dictIndex);
+    } catch {
+      this.classProvider.refresh();
+      this.hierarchyProvider.refresh();
+      return;
+    }
+    if (entries.some((e) => e.className === className)) {
+      await this.revealClass(dictName, dictIndex, className);
+      return;
+    }
+    this.classCategoryEntries = entries;
+    this.loadDefinedIvarCounts();
+    this.loadHierarchy();
+    this.categoryProvider.refresh();
+    this.classProvider.refresh();
+    this.hierarchyProvider.refresh();
+    this.methodProvider.refresh();
+    this.syncTitles();
+  }
+
+  // Rename this class across the image via the server-side engine (R3): a new
+  // class version under the new name (bumping the class history), methods copied
+  // forward, descendants re-parented, and references rewritten — WITHOUT
+  // committing. The name + reference scope are chosen in a rename-method-style
+  // editor (default scope: whole system); then the (paginated, non-committing)
+  // change set is previewed, any optional reference unchecked, and applied.
+  // Invokable from a class row OR a hierarchy-pane class node.
+  async renameClass(item: ClassItem | HierarchyItem): Promise<void> {
+    const session = this.session();
+    if (!session) return;
+    const oldName = item.className;
+    if (!(await this.ensureRbSupport('Renaming a class'))) return;
+
+    // Renaming a kernel/system class is hazardous (pervasive references; some
+    // kernel histories are deliberately size 1) — warn before proceeding.
+    let isKernel = false;
+    try {
+      isKernel = queries.isKernelClass(session, oldName);
+    } catch { /* if the probe fails, don't block the rename */ }
+    if (isKernel) {
+      const PROCEED = 'Rename anyway';
+      const choice = await vscode.window.showWarningMessage(
+        `${oldName} looks like a kernel/system class. Renaming it is risky — it is referenced `
+        + 'pervasively across the image and may destabilize the stone. Continue?',
+        { modal: true },
+        PROCEED,
+      );
+      if (choice !== PROCEED) return;
+    }
+
+    const edit = await showRenameClassEditor(
+      { oldName, dictName: this.state.dictName },
+      (newName) => this.validateRenameTarget(newName, oldName),
+    );
+    if (!edit) return;
+    const { newName, scope, options } = edit;
+
+    // A hierarchy node may name a class outside the current dictionary, so resolve
+    // it across the whole symbol list; a class-row uses the current dictionary.
+    const dictArg = item instanceof HierarchyItem ? undefined : this.state.dictIndex;
+
+    const token = `rcp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const safeClear = (): void => {
+      try {
+        queries.clearRenameClassPreview(session, token);
+      } catch {
+        /* best-effort cleanup */
+      }
+    };
+
+    let start;
+    try {
+      const json = await queries.startRenameClassPreview(
+        session, oldName, newName, scope, options, token, PREVIEW_PAGE_BYTES, dictArg,
+      );
+      start = parseStartClassPreview(json);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      void vscode.window.showErrorMessage(`Rename preview failed: ${msg}`);
+      safeClear();
+      return;
+    }
+
+    if (start.total === 0) {
+      safeClear();
+      void vscode.window.showInformationMessage(`Nothing to rename for '${oldName}'.`);
+      return;
+    }
+
+    const result = await showRenameClassPanel(oldName, newName, start, {
+      recompileSubclasses: options.recompileSubclasses,
+      migrateInstances: options.migrateInstances,
+    }, {
+      loadPage: async (offset) =>
+        parseClassPage(await queries.pageRenameClassPreview(session, token, offset, PREVIEW_PAGE_BYTES)),
+      apply: async (deselected) =>
+        parseClassApplyResult(await queries.applyRenameClass(session, token, deselected)),
+      cleanup: safeClear,
+    });
+    if (!result) return;
+
+    // The class was reshaped/rebound — re-cascade so both panes show the new name
+    // and version tag.
+    await this.refreshAfterClassReshape(newName);
+
+    if (result.failed.length > 0) {
+      const first = result.failed[0];
+      void vscode.window.showErrorMessage(
+        `Rename applied ${result.applied} change(s); ${result.failed.length} failed: `
+        + `${first.label}: ${first.error}`
+        + (result.failed.length > 1 ? ` (+${result.failed.length - 1} more)` : ''),
+      );
+      return;
+    }
+    const migrateNote = result.migratedFailures && result.migratedFailures > 0
+      ? ` (${result.migratedFailures} instance(s) could not be migrated)` : '';
+    const commitNote = result.committed
+      ? `Migrated and COMMITTED${migrateNote}.`
+      : 'Compiled but NOT committed — commit when ready.';
+    void vscode.window.showInformationMessage(
+      `Renamed class '${oldName}' → '${newName}' (${result.applied} change`
+      + `${result.applied === 1 ? '' : 's'}). ${commitNote}`,
+    );
+  }
+
+  // Open the (read-only, this-stone-only) class-definition history viewer for a
+  // class: every version with its timestamp, the name it had then, its oop, and
+  // the methods that changed. Offers a redo — restore a prior version as a new
+  // version (no commit). Invokable from a class row OR a hierarchy-pane class node.
+  async classHistory(item: ClassItem | HierarchyItem): Promise<void> {
+    const session = this.session();
+    if (!session) return;
+    const className = item.className;
+    if (!(await this.ensureRbSupport('Viewing class history'))) return;
+
+    let versions;
+    try {
+      versions = parseClassHistory(queries.getClassHistory(session, className));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      void vscode.window.showErrorMessage(`Class history failed: ${msg}`);
+      return;
+    }
+    if (versions.length === 0) {
+      void vscode.window.showInformationMessage(`No definition history for ${className}.`);
+      return;
+    }
+
+    // Restoring across a rename renames the class back, so the current name can
+    // change between restores; track it so the follow-up history fetch, the tree
+    // refresh, and a second restore all target the right (current) name.
+    let currentName = className;
+    showClassHistoryPanel(className, versions, {
+      restore: async (index) => {
+        const result = parseRevertResult(queries.revertClassToVersion(session, currentName, index));
+        if (result.reverted && result.name) currentName = result.name;
+        const refreshed = result.reverted
+          ? parseClassHistory(queries.getClassHistory(session, currentName))
+          : versions;
+        // The class was reshaped/renamed (a new version) — re-cascade so the
+        // Explorer's Classes + Hierarchy panes show the restored name and version.
+        if (result.reverted) await this.refreshAfterClassReshape(currentName);
+        return { result, versions: refreshed };
+      },
+      remove: async (index) => {
+        const result = parseRemoveResult(queries.removeClassVersion(session, currentName, index));
+        const refreshed = result.removed
+          ? parseClassHistory(queries.getClassHistory(session, currentName))
+          : versions;
+        // The version count / tag changed — refresh the tree's version tags.
+        if (result.removed) await this.refreshAfterClassReshape(currentName);
+        return { result, versions: refreshed };
+      },
+    });
   }
 
   // Method categories for one side, with the computed ALL/SESSION rows on top,
@@ -2203,6 +2442,28 @@ export function registerGemStoneExplorer(
         void ctl.renameMethod(item).catch((e: unknown) => {
           const msg = e instanceof Error ? e.message : String(e);
           void vscode.window.showErrorMessage(`Rename method failed: ${msg}`);
+        });
+      },
+    ),
+    // Rename a class across the image (pencil on a class row OR a hierarchy node).
+    vscode.commands.registerCommand(
+      'gemstone.explorer.renameClass',
+      (item?: ClassItem | HierarchyItem) => {
+        if (!(item instanceof ClassItem) && !(item instanceof HierarchyItem)) return;
+        void ctl.renameClass(item).catch((e: unknown) => {
+          const msg = e instanceof Error ? e.message : String(e);
+          void vscode.window.showErrorMessage(`Rename class failed: ${msg}`);
+        });
+      },
+    ),
+    // Show a class's definition history (context menu on a class row or hierarchy node).
+    vscode.commands.registerCommand(
+      'gemstone.explorer.classHistory',
+      (item?: ClassItem | HierarchyItem) => {
+        if (!(item instanceof ClassItem) && !(item instanceof HierarchyItem)) return;
+        void ctl.classHistory(item).catch((e: unknown) => {
+          const msg = e instanceof Error ? e.message : String(e);
+          void vscode.window.showErrorMessage(`Class history failed: ${msg}`);
         });
       },
     ),

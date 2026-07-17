@@ -61,6 +61,8 @@ client/src/**
 !client/src/renameInstVarPanelView.js
 !client/src/renameMethodEditorView.js
 !client/src/renameMethodPanelView.js
+!client/src/renameClassEditorView.js
+!client/src/classHistoryPanelView.js
 server/src/**
 mcp-server/src/**
 

@@ -33,7 +33,7 @@ import { loadClassInfo as sharedLoadClassInfo } from './queries/loadClassInfo';
 import { getInstVarNames as sharedGetInstVarNames } from './queries/getInstVarNames';
 import { getDefinedInstVarNames as sharedGetDefinedInstVarNames } from './queries/getDefinedInstVarNames';
 import { getDefinedInstVarCounts as sharedGetDefinedInstVarCounts } from './queries/getDefinedInstVarCounts';
-import { getClassVersions as sharedGetClassVersions } from './queries/getClassVersions';
+import { getClassVersions as sharedGetClassVersions, ClassVersionInfo } from './queries/getClassVersions';
 import { previewRenameInstVar as sharedPreviewRenameInstVar } from './queries/previewRenameInstVar';
 import {
   startRenameMethodPreview as sharedStartRenameMethodPreview,
@@ -42,6 +42,21 @@ import {
   clearRenameMethodPreview as sharedClearRenameMethodPreview,
   RenameMethodScope,
 } from './queries/previewRenameMethod';
+import {
+  startRenameClassPreview as sharedStartRenameClassPreview,
+  pageRenameClassPreview as sharedPageRenameClassPreview,
+  applyRenameClass as sharedApplyRenameClass,
+  clearRenameClassPreview as sharedClearRenameClassPreview,
+  RenameClassScope,
+  RenameClassOptions,
+} from './queries/previewRenameClass';
+import {
+  getClassHistory as sharedGetClassHistory,
+  revertClassToVersion as sharedRevertClassToVersion,
+  removeClassVersion as sharedRemoveClassVersion,
+} from './queries/classHistory';
+import { globalNameInUse as sharedGlobalNameInUse } from './queries/globalNameInUse';
+import { isKernelClass as sharedIsKernelClass } from './queries/isKernelClass';
 import {
   getGrailStubReflection as sharedGetGrailStubReflection,
   GrailStubReflection,
@@ -113,6 +128,8 @@ export type { RowanLoadResult } from './queries/rowan/loadRowanProject';
 export type { RowanDiff, RowanDiffOp } from './queries/rowan/diffRowanProject';
 export { formatRowanDiff } from './queries/rowan/diffRowanProject';
 export type { RowanUnloadResult } from './queries/rowan/unloadRowanProject';
+export type { RenameClassScope, RenameClassOptions } from './queries/previewRenameClass';
+export type { ClassVersionInfo } from './queries/getClassVersions';
 
 const MAX_RESULT = 256 * 1024;
 
@@ -536,7 +553,7 @@ export function getDefinedInstVarCounts(
 
 export function getClassVersions(
   session: ActiveSession, dict: number | string,
-): Map<string, number> {
+): Map<string, ClassVersionInfo> {
   return sharedGetClassVersions(bind(session), dict);
 }
 
@@ -580,6 +597,64 @@ export function applyRenameMethod(
 
 export function clearRenameMethodPreview(session: ActiveSession, token: string): string {
   return sharedClearRenameMethodPreview(bind(session), token);
+}
+
+// Paginated rename-class preview: fetched NON-BLOCKING (progress + responsive),
+// byte-bounded pages, server-side apply. Mirrors the rename-method wrappers.
+export function startRenameClassPreview(
+  session: ActiveSession,
+  className: string, newName: string, scope: RenameClassScope, options: RenameClassOptions,
+  token: string, maxBytes: number, dict?: number | string,
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, `Previewing rename of ${className}…`);
+  return sharedStartRenameClassPreview(exec, className, newName, scope, options, token, maxBytes, dict);
+}
+
+export function pageRenameClassPreview(
+  session: ActiveSession, token: string, offset: number, maxBytes: number,
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, 'Loading more changes…');
+  return sharedPageRenameClassPreview(exec, token, offset, maxBytes);
+}
+
+export function applyRenameClass(
+  session: ActiveSession, token: string, deselectedIds: string[],
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, 'Applying rename…');
+  return sharedApplyRenameClass(exec, token, deselectedIds);
+}
+
+export function clearRenameClassPreview(session: ActiveSession, token: string): string {
+  return sharedClearRenameClassPreview(bind(session), token);
+}
+
+// Class-definition history (native classHistory, this-stone-only, read-only) and
+// the redo (restore a historical version as a new version, no commit).
+export function getClassHistory(session: ActiveSession, className: string): string {
+  return sharedGetClassHistory(bind(session), className);
+}
+
+export function revertClassToVersion(
+  session: ActiveSession, className: string, index: number,
+): string {
+  return sharedRevertClassToVersion(bind(session), className, index);
+}
+
+export function globalNameInUse(session: ActiveSession, name: string): boolean {
+  return sharedGlobalNameInUse(bind(session), name);
+}
+
+export function isKernelClass(session: ActiveSession, name: string): boolean {
+  return sharedIsKernelClass(bind(session), name);
+}
+
+export function removeClassVersion(
+  session: ActiveSession, className: string, index: number,
+): string {
+  return sharedRemoveClassVersion(bind(session), className, index);
 }
 
 export function getGrailStubReflection(

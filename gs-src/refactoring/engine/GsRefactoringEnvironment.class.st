@@ -76,6 +76,40 @@ GsRefactoringEnvironment >> sendersOf: aSelector [
 	^(ClassOrganizer new sendersOf: aSelector asSymbol) at: 1
 ]
 
+{ #category : 'selectors' }
+GsRefactoringEnvironment >> referencesToClassNamed: aName [
+	"Every method whose compiled code references the class currently bound to aName
+	 (across all dictionaries), as an Array of GsNMethod. These are the method bodies
+	 whose source names the class as a global -- exactly the references a rename must
+	 rewrite. Uses the same ClassOrganizer reflection the client's referencesToObject
+	 query uses. Read-only; returns an empty Array if the name is unbound."
+	| obj |
+	obj := self classNamed: aName.
+	obj isNil ifTrue: [^Array new].
+	^(ClassOrganizer new referencesToObject: obj) asArray
+]
+
+{ #category : 'enumerating' }
+GsRefactoringEnvironment >> descendantsOf: aClass [
+	"aClass's subclasses, ordered top-down (a superclass always precedes its own
+	 subclasses), de-duplicated by identity. A rename re-parents the whole descendant
+	 subtree, and it must recompile a parent before its children so each child
+	 re-points at the freshly created parent version. Read-only."
+	| ordered seen frontier |
+	ordered := OrderedCollection new.
+	seen := IdentitySet new.
+	frontier := OrderedCollection new.
+	frontier addAll: (aClass subclasses ifNil: [#()]).
+	[frontier isEmpty] whileFalse: [
+		| cls |
+		cls := frontier removeFirst.
+		(seen includes: cls) ifFalse: [
+			seen add: cls.
+			ordered add: cls.
+			frontier addAll: (cls subclasses ifNil: [#()])]].
+	^ordered asArray
+]
+
 { #category : 'accessing' }
 GsRefactoringEnvironment >> classNamed: aName [
 	"The first class bound to aName across all dictionaries (symbol-list order),

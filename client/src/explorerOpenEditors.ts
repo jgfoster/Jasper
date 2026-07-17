@@ -9,12 +9,13 @@ import { classifyGemstoneUri, OpenEditorKind } from './explorerOpenEditorsLabel'
 // editors ("Classes") and method source editors ("Methods"). Clicking a row
 // focuses that editor. When no gemstone editors are open the pane shows no rows.
 //
-// The view is gated only on `gemstone.explorerActive`, NOT on whether any
-// editors are open. A contributed view is registered only once its `when` is
-// satisfied, and `createTreeView` throws "No view is registered with id: …" for
-// a view whose `when` is still false. A content-derived key like "has open
-// editors" is false at login (nothing is open yet), so gating on it made
-// createTreeView throw on every login.
+// The view is hidden entirely when no gemstone editors are open: its `when` is
+// `gemstone.explorerActive && gemstone.explorerHasOpenEditors`, and we drive the
+// `explorerHasOpenEditors` context key from the open-tab count (initially and on
+// every tab change). We use `registerTreeDataProvider` (NOT `createTreeView`)
+// because the latter throws "No view is registered with id: …" while the view's
+// `when` is false, whereas `registerTreeDataProvider` simply binds the provider
+// and tolerates the view being currently hidden — so an empty pane never shows.
 
 const VIEW_ID = 'gemstoneExplorerOpenEditors';
 const REVEAL_COMMAND = 'gemstone.explorer.revealOpenEditor';
@@ -136,19 +137,29 @@ async function closeAllEditors(): Promise<void> {
   if (tabs.length) await vscode.window.tabGroups.close(tabs);
 }
 
+// Keep the `explorerHasOpenEditors` context key in sync with whether any
+// gemstone:// source editor is open, so the view's `when` hides an empty pane.
+function syncHasOpenEditorsContext(): void {
+  void vscode.commands.executeCommand(
+    'setContext', 'gemstone.explorerHasOpenEditors', openEntries().length > 0,
+  );
+}
+
 export function registerExplorerOpenEditors(context: vscode.ExtensionContext): void {
   const provider = new OpenEditorsProvider();
-  const view = vscode.window.createTreeView(VIEW_ID, { treeDataProvider: provider });
   const decorations = new DirtyDecorationProvider();
+  syncHasOpenEditorsContext();
 
   context.subscriptions.push(
-    view,
+    vscode.window.registerTreeDataProvider(VIEW_ID, provider),
     vscode.window.registerFileDecorationProvider(decorations),
     // A tab opening, closing, or changing its dirty state rebuilds the pane's
-    // rows and refreshes the unsaved-dot decorations.
+    // rows, refreshes the unsaved-dot decorations, and re-evaluates whether the
+    // pane should be shown at all.
     vscode.window.tabGroups.onDidChangeTabs(() => {
       provider.refresh();
       decorations.refresh();
+      syncHasOpenEditorsContext();
     }),
     vscode.commands.registerCommand(REVEAL_COMMAND, (uri?: vscode.Uri) => {
       if (uri instanceof vscode.Uri) {

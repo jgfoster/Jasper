@@ -61,6 +61,34 @@ GsRefactoringChangeSet >> addMethodRenameInDictionary: dn className: cn isMeta: 
 	^change
 ]
 
+{ #category : 'building' }
+GsRefactoringChangeSet >> addClassRenameInDictionary: dn className: cn newName: nn oldSource: os newSource: ns [
+	"Stage the rename of the target class. Records the change only; NEVER compiles or
+	 commits. Apply creates a new class version under the new name (newVersionOf: the
+	 current version), copies methods forward, and rebinds the dictionary key.
+	 Returns the new GsRefactoringChange."
+	| change |
+	change := GsRefactoringChange
+		classRenameId: self nextIdString dictName: dn className: cn
+		newName: nn oldSource: os newSource: ns.
+	changes add: change.
+	^change
+]
+
+{ #category : 'building' }
+GsRefactoringChangeSet >> addClassReparentInDictionary: dn className: cn oldSource: os newSource: ns [
+	"Stage the re-parenting of one descendant of a renamed class. Records the change
+	 only; NEVER compiles or commits. Apply recompiles the descendant's definition
+	 newVersionOf: its current version and copies its methods forward.
+	 Returns the new GsRefactoringChange."
+	| change |
+	change := GsRefactoringChange
+		classReparentId: self nextIdString dictName: dn className: cn
+		oldSource: os newSource: ns.
+	changes add: change.
+	^change
+]
+
 { #category : 'accessing' }
 GsRefactoringChangeSet >> changeWithId: anId [
 	^changes detect: [:c | c id = anId] ifNone: [nil]
