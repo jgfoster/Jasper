@@ -8,6 +8,7 @@ vi.mock('../browserQueries', () => ({
 }));
 
 import { Uri } from 'vscode';
+import type { TextDocument, CodeLens } from 'vscode';
 import { GemStoneCodeLensProvider } from '../gemstoneCodeLensProvider';
 import { SessionManager, ActiveSession } from '../sessionManager';
 import * as queries from '../browserQueries';
@@ -32,7 +33,8 @@ function createMockSession(): ActiveSession {
   };
 }
 
-function createMockDocument(text: string, scheme = 'file') {
+/** Build a partial TextDocument mock, confining the one unavoidable cast here. */
+function createMockDocument(text: string, scheme = 'file'): TextDocument {
   return {
     uri: scheme === 'gemstone'
       ? Uri.parse('gemstone://1/UserGlobals/MyClass/instance/accessing/name')
@@ -41,7 +43,7 @@ function createMockDocument(text: string, scheme = 'file') {
     languageId: scheme === 'gemstone' ? 'gemstone-smalltalk' : 'gemstone-topaz',
     lineAt: vi.fn(),
     lineCount: text.split('\n').length,
-  };
+  } as unknown as TextDocument;
 }
 
 describe('GemStoneCodeLensProvider', () => {
@@ -61,7 +63,7 @@ describe('GemStoneCodeLensProvider', () => {
 
   // The count is computed off the resolve path (so a spinner can paint first),
   // so resolving twice with the deferred work flushed in between yields the count.
-  function resolveCount(lens: any): any {
+  function resolveCount(lens: CodeLens): CodeLens {
     provider.resolveCodeLens(lens);   // first resolve → spinner + schedules the lookup
     vi.runAllTimers();                // run the deferred sendersOf/implementorsOf
     return provider.resolveCodeLens(lens); // re-resolve → cache hit → the count
@@ -83,19 +85,19 @@ method: MyClass
 name: aString
   name := aString
 %`);
-      const lenses = provider.provideCodeLenses(doc as any);
+      const lenses = provider.provideCodeLenses(doc);
       expect(lenses).toHaveLength(4); // 2 methods × 2 lenses
     });
 
     it('returns a senders+implementors lens pair for gemstone:// method URIs', () => {
       const doc = createMockDocument('name\n  ^ name', 'gemstone');
-      const lenses = provider.provideCodeLenses(doc as any);
+      const lenses = provider.provideCodeLenses(doc);
       expect(lenses).toHaveLength(2); // 1 method × 2 lenses
     });
 
     it('returns no lenses for empty files', () => {
       const doc = createMockDocument('');
-      const lenses = provider.provideCodeLenses(doc as any);
+      const lenses = provider.provideCodeLenses(doc);
       expect(lenses).toHaveLength(0);
     });
 
@@ -103,7 +105,7 @@ name: aString
       const doc = createMockDocument(`run
 true
 %`);
-      const lenses = provider.provideCodeLenses(doc as any);
+      const lenses = provider.provideCodeLenses(doc);
       expect(lenses).toHaveLength(0);
     });
   });
@@ -118,7 +120,7 @@ true
 foo
   ^ 42
 %`);
-      const lenses = provider.provideCodeLenses(doc as any);
+      const lenses = provider.provideCodeLenses(doc);
       const loading = provider.resolveCodeLens(lenses[0]); // before the deferred lookup runs
 
       expect(loading.command?.title).toContain('$(loading~spin)');
@@ -135,7 +137,7 @@ foo
 foo
   ^ 42
 %`);
-      const lens = provider.provideCodeLenses(doc as any)[0];
+      const lens = provider.provideCodeLenses(doc)[0];
 
       expect(provider.resolveCodeLens(lens).command?.title).toContain('$(loading~spin)');
       vi.runAllTimers(); // the deferred lookup runs and caches the count
@@ -147,7 +149,7 @@ foo
 foo
   ^ 42
 %`);
-      const lenses = provider.provideCodeLenses(doc as any);
+      const lenses = provider.provideCodeLenses(doc);
       expect(lenses).toHaveLength(2);
 
       // Both lenses report no session — neither computes a count when
@@ -174,7 +176,7 @@ foo
 foo
   ^ 42
 %`);
-      const lenses = provider.provideCodeLenses(doc as any);
+      const lenses = provider.provideCodeLenses(doc);
       const sendersLens = resolveCount(lenses[0]);
 
       expect(sendersLens.command?.title).toBe('2 senders');
@@ -200,7 +202,7 @@ foo
 foo
   ^ 42
 %`);
-      const lenses = provider.provideCodeLenses(doc as any);
+      const lenses = provider.provideCodeLenses(doc);
       const implementorsLens = resolveCount(lenses[1]);
 
       expect(implementorsLens.command?.title).toBe('1 implementor');
@@ -224,7 +226,7 @@ foo
 foo
   ^ 42
 %`);
-      const lenses = provider.provideCodeLenses(doc as any);
+      const lenses = provider.provideCodeLenses(doc);
       resolveCount(lenses[0]); // senders lens
 
       expect(queries.sendersOf).toHaveBeenCalled();
@@ -241,7 +243,7 @@ foo
 foo
   ^ 42
 %`);
-      const lenses = provider.provideCodeLenses(doc as any);
+      const lenses = provider.provideCodeLenses(doc);
       resolveCount(lenses[1]); // implementors lens
 
       expect(queries.implementorsOf).toHaveBeenCalled();
@@ -263,7 +265,7 @@ foo
 foo
   ^ 42
 %`);
-      const lenses = provider.provideCodeLenses(doc as any);
+      const lenses = provider.provideCodeLenses(doc);
       expect(resolveCount(lenses[0]).command?.title).toBe('1 sender');
       expect(resolveCount(lenses[1]).command?.title).toBe('1 implementor');
     });
@@ -280,11 +282,11 @@ foo
 foo
   ^ 42
 %`);
-      const lenses = provider.provideCodeLenses(doc as any);
+      const lenses = provider.provideCodeLenses(doc);
       expect(resolveCount(lenses[0]).command?.title).toBe('3 senders');
       // Re-provide + re-resolve (fresh lens objects, as VS Code does on a refresh):
       // the count comes from cache, so no second server lookup.
-      const again = provider.provideCodeLenses(doc as any);
+      const again = provider.provideCodeLenses(doc);
       expect(provider.resolveCodeLens(again[0]).command?.title).toBe('3 senders');
       expect(queries.sendersOf as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(1);
     });
@@ -297,7 +299,7 @@ foo
 foo
   ^ 42
 %`);
-      provider.resolveCodeLens(provider.provideCodeLenses(doc as any)[0]); // schedules the lookup
+      provider.resolveCodeLens(provider.provideCodeLenses(doc)[0]); // schedules the lookup
 
       provider.dispose();
       vi.runAllTimers();              // a still-pending timer would fire here
@@ -314,9 +316,9 @@ foo
 foo
   ^ 42
 %`);
-      resolveCount(provider.provideCodeLenses(doc as any)[0]);
+      resolveCount(provider.provideCodeLenses(doc)[0]);
       provider.refresh();
-      resolveCount(provider.provideCodeLenses(doc as any)[0]);
+      resolveCount(provider.provideCodeLenses(doc)[0]);
       expect(queries.sendersOf as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(2);
     });
   });

@@ -11,7 +11,7 @@ vi.mock('child_process', () => ({
 }));
 
 import * as fs from 'fs';
-import { exec } from 'child_process';
+import { exec, type ChildProcess } from 'child_process';
 import {
   parseWslConfigForMirrored,
   parseWslCoreVersion,
@@ -32,28 +32,31 @@ function setPlatform(platform: string) {
 
 /** Make exec call its callback with the given stdout. */
 function mockExec(stdout: string) {
-  vi.mocked(exec as any).mockImplementation((_cmd: any, _opts: any, cb: any) => {
-    cb(null, stdout, '');
+  vi.mocked(exec).mockImplementation((_cmd, _opts, cb) => {
+    cb?.(null, stdout, '');
+    return {} as ChildProcess;
   });
 }
 
 function mockExecError() {
-  vi.mocked(exec as any).mockImplementation((_cmd: any, _opts: any, cb: any) => {
-    cb(new Error('fail'), '', '');
+  vi.mocked(exec).mockImplementation((_cmd, _opts, cb) => {
+    cb?.(new Error('fail'), '', '');
+    return {} as ChildProcess;
   });
 }
 
 /** Route stdout per command substring — useful when refreshWslNetworkInfo
  *  fans out into multiple exec calls (hostname + version). */
 function mockExecByCommand(table: Array<{ match: RegExp; stdout?: string; error?: boolean }>) {
-  vi.mocked(exec as any).mockImplementation((cmd: any, _opts: any, cb: any) => {
+  vi.mocked(exec).mockImplementation((cmd, _opts, cb) => {
     for (const row of table) {
       if (row.match.test(String(cmd))) {
-        if (row.error) { cb(new Error('fail'), '', ''); return; }
-        cb(null, row.stdout ?? '', ''); return;
+        if (row.error) { cb?.(new Error('fail'), '', ''); return {} as ChildProcess; }
+        cb?.(null, row.stdout ?? '', ''); return {} as ChildProcess;
       }
     }
-    cb(new Error('no match'), '', '');
+    cb?.(new Error('no match'), '', '');
+    return {} as ChildProcess;
   });
 }
 
@@ -178,7 +181,7 @@ describe('refreshWslNetworkInfo', () => {
 
   it('on Windows with mirrored config skips the IP probe but still checks WSL core version', async () => {
     setPlatform('win32');
-    vi.mocked(fs.readFileSync).mockReturnValue('[wsl2]\nnetworkingMode=mirrored\n' as any);
+    vi.mocked(fs.readFileSync).mockReturnValue('[wsl2]\nnetworkingMode=mirrored\n');
     mockExecByCommand([
       { match: /--version/, stdout: 'WSL version: 2.0.9.0\n' },
     ]);
@@ -188,13 +191,13 @@ describe('refreshWslNetworkInfo', () => {
       wslCoreVersion: '2.0.9.0', supportsMirrored: true,
     });
     // IP probe (hostname -I) should NOT run when mirrored is true.
-    const calls = vi.mocked(exec as any).mock.calls;
-    expect(calls.some((c: any[]) => /hostname -I/.test(String(c[0])))).toBe(false);
+    const calls = vi.mocked(exec).mock.calls;
+    expect(calls.some((c) => /hostname -I/.test(String(c[0])))).toBe(false);
   });
 
   it('on Windows without mirrored config probes both IP and core version', async () => {
     setPlatform('win32');
-    vi.mocked(fs.readFileSync).mockReturnValue('[wsl2]\n' as any);
+    vi.mocked(fs.readFileSync).mockReturnValue('[wsl2]\n');
     mockExecByCommand([
       { match: /hostname -I/, stdout: '172.29.240.2\n' },
       { match: /--version/, stdout: 'WSL version: 2.0.9.0\n' },
@@ -208,7 +211,7 @@ describe('refreshWslNetworkInfo', () => {
 
   it('on older WSL where --version errors, reports supportsMirrored=false', async () => {
     setPlatform('win32');
-    vi.mocked(fs.readFileSync).mockReturnValue('[wsl2]\n' as any);
+    vi.mocked(fs.readFileSync).mockReturnValue('[wsl2]\n');
     mockExecByCommand([
       { match: /hostname -I/, stdout: '10.0.0.5\n' },
       { match: /--version/, error: true },
@@ -233,7 +236,7 @@ describe('refreshWslNetworkInfo', () => {
 
   it('leaves netldiHost undefined when mirrored is false and IP probe fails', async () => {
     setPlatform('win32');
-    vi.mocked(fs.readFileSync).mockReturnValue('[wsl2]\n' as any);
+    vi.mocked(fs.readFileSync).mockReturnValue('[wsl2]\n');
     mockExecError();
     const info = await refreshWslNetworkInfo();
     expect(info.netldiHost).toBeUndefined();
@@ -242,7 +245,7 @@ describe('refreshWslNetworkInfo', () => {
 
   it('caches the last result for getWslNetworkInfoCached', async () => {
     setPlatform('win32');
-    vi.mocked(fs.readFileSync).mockReturnValue('[wsl2]\nnetworkingMode=mirrored\n' as any);
+    vi.mocked(fs.readFileSync).mockReturnValue('[wsl2]\nnetworkingMode=mirrored\n');
     mockExecByCommand([
       { match: /--version/, stdout: 'WSL version: 2.0.9.0\n' },
     ]);
@@ -255,7 +258,7 @@ describe('refreshWslNetworkInfo', () => {
 
   it('invalidateWslNetworkCache resets the cache', async () => {
     setPlatform('win32');
-    vi.mocked(fs.readFileSync).mockReturnValue('[wsl2]\nnetworkingMode=mirrored\n' as any);
+    vi.mocked(fs.readFileSync).mockReturnValue('[wsl2]\nnetworkingMode=mirrored\n');
     mockExecByCommand([
       { match: /--version/, stdout: 'WSL version: 2.0.9.0\n' },
     ]);

@@ -175,7 +175,7 @@ describe('BreakpointManager', () => {
       const manager = new BreakpointManager(makeSessionManager(true));
       const session = makeSessionManager(true).getSelectedSession()!;
       const uri = Uri.parse('file:///test.tpz');
-      const results = manager.setBreakpointsForSource(session, uri as any, [1]);
+      const results = manager.setBreakpointsForSource(session, uri, [1]);
       expect(results).toHaveLength(1);
       expect(results[0].verified).toBe(false);
     });
@@ -187,7 +187,7 @@ describe('BreakpointManager', () => {
       const manager = new BreakpointManager(makeSessionManager(true));
       const session = makeSessionManager(true).getSelectedSession()!;
       const uri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A');
-      const results = manager.setBreakpointsForSource(session, uri as any, [1, 2]);
+      const results = manager.setBreakpointsForSource(session, uri, [1, 2]);
 
       expect(results).toHaveLength(2);
       expect(results[0]).toEqual({ stepPoint: 1, actualLine: 1, verified: true });
@@ -200,7 +200,7 @@ describe('BreakpointManager', () => {
       const manager = new BreakpointManager(makeSessionManager(true));
       const session = makeSessionManager(true).getSelectedSession()!;
       const uri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A');
-      const results = manager.setBreakpointsForSource(session, uri as any, []);
+      const results = manager.setBreakpointsForSource(session, uri, []);
 
       expect(results).toHaveLength(0);
       expect(mockClearAllBreaks).toHaveBeenCalledTimes(1);
@@ -212,7 +212,7 @@ describe('BreakpointManager', () => {
       const manager = new BreakpointManager(makeSessionManager(true));
       const session = makeSessionManager(true).getSelectedSession()!;
       const uri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/at%3A');
-      const results = manager.setBreakpointsForSource(session, uri as any, [1]);
+      const results = manager.setBreakpointsForSource(session, uri, [1]);
 
       expect(results).toHaveLength(1);
       expect(results[0].verified).toBe(false);
@@ -226,7 +226,7 @@ describe('BreakpointManager', () => {
       const manager = new BreakpointManager(makeSessionManager(true));
       const session = makeSessionManager(true).getSelectedSession()!;
       const uri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/foo');
-      const results = manager.setBreakpointsForSource(session, uri as any, [1]);
+      const results = manager.setBreakpointsForSource(session, uri, [1]);
 
       expect(results).toHaveLength(1);
       expect(results[0].verified).toBe(false);
@@ -239,7 +239,7 @@ describe('BreakpointManager', () => {
       const manager = new BreakpointManager(makeSessionManager(true));
       const session = makeSessionManager(true).getSelectedSession()!;
       const uri = Uri.parse('gemstone://1/Globals/Array/class/creation/new');
-      manager.setBreakpointsForSource(session, uri as any, [1]);
+      manager.setBreakpointsForSource(session, uri, [1]);
 
       expect(mockGetMethodSource).toHaveBeenCalledWith(
         expect.anything(), 'Array', true, 'new', 0,
@@ -253,7 +253,7 @@ describe('BreakpointManager', () => {
       const manager = new BreakpointManager(makeSessionManager(true));
       const session = makeSessionManager(true).getSelectedSession()!;
       const uri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/foo?env=2');
-      manager.setBreakpointsForSource(session, uri as any, [1]);
+      manager.setBreakpointsForSource(session, uri, [1]);
 
       expect(mockGetMethodSource).toHaveBeenCalledWith(
         expect.anything(), 'Array', false, 'foo', 2,
@@ -269,17 +269,17 @@ describe('BreakpointManager', () => {
       const manager = new BreakpointManager(makeSessionManager(true));
       const session = makeSessionManager(true).getSelectedSession()!;
       const uri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/foo');
-      manager.setBreakpointsForSource(session, uri as any, [1]);
+      manager.setBreakpointsForSource(session, uri, [1]);
 
       // Verify tracked (indirectly: clearing and re-setting should not fail)
       manager.clearAllForSession(1);
 
       // After clearing, the internal map should be empty for this session
       // We can verify by calling invalidateForUri which checks the map
-      manager.invalidateForUri(uri as any);
+      manager.invalidateForUri(uri);
       // getMethodSource should NOT be called again since tracking was cleared
       mockGetMethodSource.mockReset();
-      manager.invalidateForUri(uri as any);
+      manager.invalidateForUri(uri);
       expect(mockGetMethodSource).not.toHaveBeenCalled();
     });
   });

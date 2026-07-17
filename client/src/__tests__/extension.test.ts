@@ -35,6 +35,11 @@ import * as queries from '../browserQueries';
 import { InFlightGuard } from '../inFlightGuard';
 import { DEFAULT_LOGIN } from '../loginTypes';
 
+/** Replace the mocked `tabGroups.all`, keeping the cast in one place. */
+function setTabs(groups: { tabs: vscode.Tab[] }[]): void {
+  (vscode.window.tabGroups as unknown as { all: { tabs: vscode.Tab[] }[] }).all = groups;
+}
+
 describe('openTextEditorOn', () => {
   const uri = vscode.Uri.parse('gemstone://1/SymbolDictionary/Array/instance/accessing/at:');
 
@@ -101,14 +106,14 @@ describe('closeTextEditorOn', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
-    (vscode.window.tabGroups as any).all = [];
+    setTabs([]);
     vi.mocked(vscode.window.tabGroups.close).mockReset();
     vi.mocked(vscode.window.showErrorMessage).mockReset();
     vi.mocked(vscode.window.showErrorMessage).mockResolvedValue(undefined);
   });
 
   it('does nothing when no tabs are opened for the given uri', async () => {
-    (vscode.window.tabGroups as any).all = [{ tabs: [] }];
+    setTabs([{ tabs: [] }]);
 
     await extension.closeTextEditorOn(targetUri);
 
@@ -118,7 +123,7 @@ describe('closeTextEditorOn', () => {
 
   it('closes one matching opened tab (happy path)', async () => {
     const tab = makeTextTab(targetUri);
-    (vscode.window.tabGroups as any).all = [{ tabs: [tab] }];
+    setTabs([{ tabs: [tab] }]);
     vi.mocked(vscode.window.tabGroups.close).mockResolvedValue(undefined as never);
 
     await extension.closeTextEditorOn(targetUri);
@@ -131,7 +136,7 @@ describe('closeTextEditorOn', () => {
   it('logs error when closing one matching opened tab fails', async () => {
     const tab = makeTextTab(targetUri);
     const error = new Error('close failed');
-    (vscode.window.tabGroups as any).all = [{ tabs: [tab] }];
+    setTabs([{ tabs: [tab] }]);
     vi.mocked(vscode.window.tabGroups.close).mockRejectedValue(error);
 
     await extension.closeTextEditorOn(targetUri);
@@ -147,7 +152,7 @@ describe('closeTextEditorOn', () => {
   it('closes both tabs when more than one matching tab is opened (happy path)', async () => {
     const tab1 = makeTextTab(targetUri);
     const tab2 = makeTextTab(targetUri);
-    (vscode.window.tabGroups as any).all = [{ tabs: [tab1, tab2] }];
+    setTabs([{ tabs: [tab1, tab2] }]);
     vi.mocked(vscode.window.tabGroups.close).mockResolvedValue(undefined as never);
 
     await extension.closeTextEditorOn(targetUri);
@@ -162,7 +167,7 @@ describe('closeTextEditorOn', () => {
     const tab1 = makeTextTab(targetUri);
     const tab2 = makeTextTab(targetUri);
     const error = new Error('first close failed');
-    (vscode.window.tabGroups as any).all = [{ tabs: [tab1, tab2] }];
+    setTabs([{ tabs: [tab1, tab2] }]);
     vi.mocked(vscode.window.tabGroups.close)
       .mockRejectedValueOnce(error)
       .mockResolvedValueOnce(undefined as never);
@@ -183,7 +188,7 @@ describe('closeTextEditorOn', () => {
     const matching = makeTextTab(targetUri);
     const different = makeTextTab(otherUri);
     const notText = { input: { uri: targetUri } } as unknown as vscode.Tab;
-    (vscode.window.tabGroups as any).all = [{ tabs: [matching, different, notText] }];
+    setTabs([{ tabs: [matching, different, notText] }]);
     vi.mocked(vscode.window.tabGroups.close).mockResolvedValue(undefined as never);
 
     await extension.closeTextEditorOn(targetUri);
@@ -203,7 +208,7 @@ describe('handleMethodCompiled', () => {
     vi.mocked(vscode.window.showTextDocument).mockReset();
     vi.mocked(vscode.window.tabGroups.close).mockReset();
     vi.mocked(vscode.window.showErrorMessage).mockResolvedValue(undefined);
-    (vscode.window.tabGroups as any).all = [];
+    setTabs([]);
   });
 
   it('opens the new uri and closes the previous tab when the previous URI is a template', async () => {
@@ -211,7 +216,7 @@ describe('handleMethodCompiled', () => {
     vi.mocked(vscode.workspace.openTextDocument).mockResolvedValue(document);
     vi.mocked(vscode.window.showTextDocument).mockResolvedValue({} as vscode.TextEditor);
     const previousTab = { input: new vscode.TabInputText(previousUri) } as unknown as vscode.Tab;
-    (vscode.window.tabGroups as any).all = [{ tabs: [previousTab] }];
+    setTabs([{ tabs: [previousTab] }]);
     vi.mocked(vscode.window.tabGroups.close).mockResolvedValue(undefined as never);
 
     await extension.handleMethodCompiled({ uri, previousUri, previousUriIsTemplate: true });
@@ -223,7 +228,7 @@ describe('handleMethodCompiled', () => {
   });
 
   it('does nothing when uri equals previousUri (selector unchanged)', async () => {
-    (vscode.window.tabGroups as any).all = [];
+    setTabs([]);
 
     await extension.handleMethodCompiled({ uri, previousUri: uri, previousUriIsTemplate: false });
 
@@ -236,7 +241,7 @@ describe('handleMethodCompiled', () => {
     vi.mocked(vscode.workspace.openTextDocument).mockResolvedValue(document);
     vi.mocked(vscode.window.showTextDocument).mockResolvedValue({} as vscode.TextEditor);
     const previousTab = { input: new vscode.TabInputText(previousUri) } as unknown as vscode.Tab;
-    (vscode.window.tabGroups as any).all = [{ tabs: [previousTab] }];
+    setTabs([{ tabs: [previousTab] }]);
 
     await extension.handleMethodCompiled({ uri, previousUri, previousUriIsTemplate: false });
 
@@ -255,7 +260,7 @@ describe('handleClassDefinitionCompiled', () => {
     vi.mocked(vscode.window.showTextDocument).mockReset();
     vi.mocked(vscode.window.tabGroups.close).mockReset();
     vi.mocked(vscode.window.showErrorMessage).mockResolvedValue(undefined);
-    (vscode.window.tabGroups as any).all = [];
+    setTabs([]);
   });
 
   it('opens the definition uri when uri differs from previousUri', async () => {
@@ -279,7 +284,7 @@ describe('handleClassDefinitionCompiled', () => {
     vi.mocked(vscode.workspace.openTextDocument).mockResolvedValue(document);
     vi.mocked(vscode.window.showTextDocument).mockResolvedValue({} as vscode.TextEditor);
     const previousTab = { input: new vscode.TabInputText(previousUri) } as unknown as vscode.Tab;
-    (vscode.window.tabGroups as any).all = [{ tabs: [previousTab] }];
+    setTabs([{ tabs: [previousTab] }]);
     vi.mocked(vscode.window.tabGroups.close).mockResolvedValue(undefined as never);
 
     await extension.handleClassDefinitionCompiled({ uri, previousUri, previousUriIsTemplate: true });
@@ -356,7 +361,7 @@ describe('confirmLogoutWithUncommittedChanges', () => {
   });
 
   it('commits then proceeds when the user chooses to commit before logging out', async () => {
-    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Commit & Logout' as any);
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Commit & Logout' as unknown as vscode.MessageItem);
     const commit = vi.fn(() => ({ success: true, err: { number: 0, message: '' } }));
 
     const decision = await extension.confirmLogoutWithUncommittedChanges(3, true, commit);
@@ -366,7 +371,7 @@ describe('confirmLogoutWithUncommittedChanges', () => {
   });
 
   it('cancels the logout when the requested commit fails', async () => {
-    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Commit & Logout' as any);
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Commit & Logout' as unknown as vscode.MessageItem);
     const commit = vi.fn(() => ({ success: false, err: { number: 4001, message: 'no privilege' } }));
 
     const decision = await extension.confirmLogoutWithUncommittedChanges(3, true, commit);
@@ -376,7 +381,7 @@ describe('confirmLogoutWithUncommittedChanges', () => {
   });
 
   it('proceeds without committing when the user chooses to log out anyway', async () => {
-    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Logout Anyway' as any);
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Logout Anyway' as unknown as vscode.MessageItem);
     const commit = vi.fn();
 
     const decision = await extension.confirmLogoutWithUncommittedChanges(3, true, commit);
@@ -396,7 +401,7 @@ describe('confirmLogoutWithUncommittedChanges', () => {
   });
 
   it('still prompts when the commit state could not be determined', async () => {
-    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Logout Anyway' as any);
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Logout Anyway' as unknown as vscode.MessageItem);
     const commit = vi.fn();
 
     const decision = await extension.confirmLogoutWithUncommittedChanges(3, undefined, commit);
