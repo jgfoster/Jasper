@@ -98,7 +98,6 @@ export function showRenameClassPanel(
             try {
               if (message.command === 'loadAll') {
                 while (!done) {
-                  // eslint-disable-next-line no-await-in-loop
                   await fetchOne();
                 }
               } else {

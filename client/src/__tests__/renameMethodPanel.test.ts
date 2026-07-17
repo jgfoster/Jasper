@@ -7,7 +7,6 @@ import { MethodRenameChange } from '../renameMethodPreview';
 
 beforeAll(() => {
   const source = fs.readFileSync(path.resolve(__dirname, '../renameMethodPanelView.js'), 'utf8');
-  // eslint-disable-next-line no-new-func
   new Function(source)();
 });
 

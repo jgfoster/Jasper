@@ -46,7 +46,9 @@ export default tseslint.config(
     files: ['client/src/**/*.js'],
     // Shared with a Node bin script below — not a webview global consumer.
     ignores: ['client/src/gemStoneVersion.js'],
-    languageOptions: { globals: { ...globals.browser } },
+    // `acquireVsCodeApi` is the VS Code webview host bridge, injected into the
+    // webview global scope — not part of `globals.browser`.
+    languageOptions: { globals: { ...globals.browser, acquireVsCodeApi: 'readonly' } },
   },
   {
     // Config/build scripts and CLI bin scripts, plus gemStoneVersion.js: a plain
@@ -55,6 +57,9 @@ export default tseslint.config(
     files: [
       '**/*.mjs', '**/*.cjs', 'client/bin/**/*.js', '**/*.config.{ts,js,mjs}',
       'client/src/gemStoneVersion.js',
+      // Server-side refactoring-engine build tooling (Node CLI scripts that
+      // transform Tonel sources into `.gs` payloads).
+      'gs-src/**/*.js',
     ],
     languageOptions: { globals: { ...globals.node } },
     // These are CJS/Node runtime scripts where `require()` is the correct module

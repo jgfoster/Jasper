@@ -9,7 +9,6 @@ import { RenameChange } from '../renameInstVarPreview';
 // RenameInstVarPanel, exactly as the webview does when it injects the file.
 beforeAll(() => {
   const source = fs.readFileSync(path.resolve(__dirname, '../renameInstVarPanelView.js'), 'utf8');
-  // eslint-disable-next-line no-new-func
   new Function(source)();
 });
 

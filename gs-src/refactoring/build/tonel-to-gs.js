@@ -99,7 +99,7 @@ function listField(headerBody, field) {
 //   Name [class ]>> selector args [
 //       body...
 //   ]
-function parseMethods(text, className) {
+function parseMethods(text, _className) {
   const lines = text.split('\n');
   const methods = [];
   let k = 0;

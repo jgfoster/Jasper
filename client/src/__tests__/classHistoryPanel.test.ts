@@ -9,7 +9,6 @@ import { ClassVersion } from '../classHistoryModel';
 
 beforeAll(() => {
   const source = fs.readFileSync(path.resolve(__dirname, '../classHistoryPanelView.js'), 'utf8');
-  // eslint-disable-next-line no-new-func
   new Function(source)();
 });
 

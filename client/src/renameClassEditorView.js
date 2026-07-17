@@ -111,7 +111,7 @@
     refresh();
     refreshOptWarn();
     if (nameEl && nameEl.focus) {
-      try { nameEl.focus(); nameEl.select(); } catch (e) { /* jsdom */ }
+      try { nameEl.focus(); nameEl.select(); } catch (_e) { /* jsdom */ }
     }
     return {
       formatError: formatError, submit: submit, refresh: refresh, handleMessage: handleMessage,

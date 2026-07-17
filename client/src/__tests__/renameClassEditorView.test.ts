@@ -8,7 +8,6 @@ import { renderClassEditorHtml } from '../renameClassEditorHtml';
 
 beforeAll(() => {
   const source = fs.readFileSync(path.resolve(__dirname, '../renameClassEditorView.js'), 'utf8');
-  // eslint-disable-next-line no-new-func
   new Function(source)();
 });
 

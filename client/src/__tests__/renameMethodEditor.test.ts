@@ -8,7 +8,6 @@ import { renderMethodEditorHtml } from '../renameMethodEditorHtml';
 // RenameMethodEditor, exactly as the webview does when it injects the file.
 beforeAll(() => {
   const source = fs.readFileSync(path.resolve(__dirname, '../renameMethodEditorView.js'), 'utf8');
-  // eslint-disable-next-line no-new-func
   new Function(source)();
 });
 
