@@ -315,6 +315,98 @@ describe('GciLibrary', () => {
 
     });
     
+    describe('sending messages', () => {
+        
+        it ('returns the result of sending a message', () => {
+            const result = gciLibrary.perform(session, gciLibrary.falseOop(), 'not');
+
+            expectOopToBeTrue(result)
+        })
+
+        it ('throws when the selector cannot be resolved', () => {
+            expectToThrowGciLibraryError(
+                () => gciLibrary.perform(session, gciLibrary.falseOop(), 'foo'),
+                'a NameError occurred (error 2404), foo, There is no Symbol with the specified value'
+            )
+        })
+        
+    })
+    
+    describe('sending a message and releasing its result automatically', () => {
+
+        it('passes the resulting oop to the callback', () => {
+            gciLibrary.performAndRelease(session, gciLibrary.falseOop(), 'not', resultOop => {
+                expectOopToBeTrue(resultOop);
+            });
+        });
+
+        it('returns the result of evaluating the callback', () => {
+            const expectedResult = 'callback result';
+
+            const result = gciLibrary.performAndRelease(session, gciLibrary.falseOop(), 'not', () => expectedResult);
+
+            expect(result).toBe(expectedResult);
+        });
+
+        it('releases the resulting oop after the callback returns', () => {
+            let oopToRelease: bigint;
+            
+            gciLibrary.performAndRelease(session, gciLibrary.falseOop(), 'asString', resultOop => { oopToRelease = resultOop; });
+
+            expectPureExportSetToIncludeOop(false, oopToRelease!);
+        });
+
+        it('releases the resulting oop even when the callback throws', () => {
+            let oopToRelease: bigint;
+            const captureResultOopAndFail = (resultOop: bigint) => {
+                oopToRelease = resultOop;
+                throw new Error();
+            };
+
+            expect(() => gciLibrary.performAndRelease(session, gciLibrary.falseOop(), 'asString', captureResultOopAndFail)).toThrow();
+
+            expectPureExportSetToIncludeOop(false, oopToRelease!);
+        });
+
+        it("re-throws the callback's error unchanged", () => {
+            expectToThrowExpectedError(throwExpectedError => {
+                gciLibrary.performAndRelease(session, gciLibrary.falseOop(), 'not', () => throwExpectedError());
+            });
+        });
+
+        it('throws when sending a message signals an error', () => {
+            expectToThrowGciLibraryError(
+                () => gciLibrary.performAndRelease(session, gciLibrary.falseOop(), 'foo', () => {}),
+                'a NameError occurred (error 2404), foo, There is no Symbol with the specified value'
+            );
+        });
+
+        it('does not evaluate the callback when sending a message signals an error', () => {
+            let callbackEvaluated = false;
+
+            expect(() => gciLibrary.performAndRelease(session, gciLibrary.falseOop(), 'foo', () => { callbackEvaluated = true; })).toThrow();
+
+            expect(callbackEvaluated).toBe(false);
+        });
+
+        it("still returns the callback's result when releasing the oop fails", () => {
+            simulateReleaseObjectFailure(() => {
+                const result = gciLibrary.performAndRelease(session, gciLibrary.falseOop(), 'not', () => 'callback result');
+
+                expect(result).toBe('callback result');
+            });
+        });
+
+        it('still throws the original error when the callback and its cleanup both fail', () => {
+            simulateReleaseObjectFailure(() => {
+                expectToThrowExpectedError(throwExpectedError => {
+                    gciLibrary.performAndRelease(session, gciLibrary.falseOop(), 'not', () => throwExpectedError());
+                });
+            });
+        });
+        
+    })
+    
     describe('creating strings', () => {
 
         it('creates a String object from the given contents', () => {

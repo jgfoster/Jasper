@@ -1,6 +1,6 @@
 import koffi from 'koffi';
 import * as path from 'path';
-import {OOP_ILLEGAL, OOP_NIL, OOP_TRUE} from "./gciConstants";
+import {OOP_FALSE, OOP_ILLEGAL, OOP_NIL, OOP_TRUE} from "./gciConstants";
 import {GciLibraryError} from "./gciLibraryError";
 
 // OopType is uint64_t in C; koffi maps this to BigInt in JS
@@ -1231,8 +1231,8 @@ export class GciLibrary {
     const result = Buffer.alloc(maxResultSize);
     const err: Record<string, unknown> = {};
     const bytesReturned = this._GciTsPerformFetchBytes(
-      session, receiver, selectorStr,
-      args.length > 0 ? args : null, args.length,
+        session, receiver, selectorStr,
+        args.length > 0 ? args : null, args.length,
       result, maxResultSize, err,
     );
     const str = bytesReturned >= 0 ? result.toString('utf8', 0, bytesReturned) : '';
@@ -2018,6 +2018,60 @@ export class GciLibrary {
   }
 
   // ---------------------------------------------------------------------
+  // Message sending
+  // ---------------------------------------------------------------------
+
+  /**
+   * Sends the unary message `selector` to `receiverOop` and returns the OOP
+   * of the result.
+   *
+   * The result OOP is retained in the session's PureExportSet, so the caller
+   * is responsible for releasing it when no longer needed.
+   *
+   * @param session - The GemStone session to operate in.
+   * @param receiverOop - The oop of the message's receiver.
+   * @param selector - The unary selector to send.
+   * @returns The OOP of the result object.
+   * @throws {GciLibraryError} If `selector` cannot be resolved, the sent
+   *   method signals an error, or the underlying GCI call fails.
+   */
+  public perform(session: unknown, receiverOop: bigint, selector: string) {
+    const {result, err} = this.GciTsPerform(session, receiverOop, OOP_ILLEGAL, selector, [], 0, 0);
+
+    this.throwOnIllegalOop(result, err);
+
+    return result;
+  }
+
+  /**
+   * Sends the unary message `selector` to `receiverOop`, passes the
+   * resulting oop to `callback`, and releases that oop afterwards regardless
+   * of whether `callback` returns or throws.
+   *
+   * `callback` must consume `oop` synchronously and must not let it escape
+   * past its own return (e.g. by returning it, or by capturing it in
+   * something that outlives the call): the oop is released the instant
+   * `callback` returns, so any use of it afterwards operates on an already
+   * released oop. Async callbacks are rejected at the type level for this
+   * reason; there is no equivalent check for an oop returned directly.
+   *
+   * @param session - The GemStone session to operate in.
+   * @param receiverOop - The oop of the message's receiver.
+   * @param selector - The unary selector to send.
+   * @param callback - Receives the oop `selector` resolved to on
+   *   `receiverOop`. Must be synchronous and must not let the oop escape its
+   *   own return.
+   * @returns Whatever `callback` returns.
+   * @throws {GciLibraryError} If `selector` cannot be resolved, the sent
+   *   method signals an error, or the underlying GCI call fails.
+   * @throws Whatever `callback` itself throws, unchanged, not necessarily a
+   *   {@link GciLibraryError}.
+   */
+  public performAndRelease<T>(session: unknown, receiverOop: bigint, selector: string, callback: (oop: bigint) => NotPromise<T>) : T {
+    return this.releaseAfterUse(session, this.perform(session, receiverOop, selector), callback);
+  }
+
+  // ---------------------------------------------------------------------
   // Symbol resolution & Utf8 caching
   // ---------------------------------------------------------------------
 
@@ -2474,6 +2528,11 @@ export class GciLibrary {
     return OOP_NIL;
   }
 
+  /** Returns the OOP of GemStone's `false` singleton. */
+  public falseOop() {
+    return OOP_FALSE;
+  }
+
   /** Returns whether `oop` is the OOP of GemStone's `nil` singleton. */
   public isNilOop(oop: bigint) {
     return this.nilOop() === oop;
@@ -2609,6 +2668,5 @@ export class GciLibrary {
 
     return Buffer.concat(chunks).toString('utf8');
   }
-
 }
 
