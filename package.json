@@ -221,6 +221,21 @@
             "default": "ask",
             "description": "What to do on connecting to a stone that does not have enhanced inspector support installed. Only applies to GemStone 3.7.5 and later, which the enhanced inspector requires; older stones are never offered it. The buttons on the install prompt update this setting."
           },
+          "gemstone.mcpServer.autoInstall": {
+            "type": "string",
+            "enum": [
+              "ask",
+              "always",
+              "never"
+            ],
+            "enumDescriptions": [
+              "When a stone without the native MCP server is connected, offer to install it.",
+              "Install the native MCP server automatically and start it (uses the connection's stored password; otherwise a notification explains how to install manually).",
+              "Never offer to install the native MCP server."
+            ],
+            "default": "ask",
+            "description": "What to do on connecting to a stone that does not have the native GemStone MCP server installed. Only applies to GemStone 3.6.2 and later, which the server requires; older stones are never offered it. The buttons on the install prompt update this setting."
+          },
           "gemstone.displayItMode": {
             "type": "string",
             "enum": [
@@ -675,6 +690,26 @@
       {
         "command": "gemstone.configureEnhancedInspectorAutoInstall",
         "title": "Enhanced Inspector Auto-Install\u2026",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.installGemStoneMcpServer",
+        "title": "Install Native MCP Server",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.configureMcpServerAutoInstall",
+        "title": "Native MCP Server Auto-Install\u2026",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.startMcpServer",
+        "title": "Start Native MCP Server",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.stopMcpServer",
+        "title": "Stop Native MCP Server",
         "category": "GemStone"
       },
       {
@@ -1354,6 +1389,18 @@
         {
           "command": "gemstone.installEnhancedInspector",
           "when": "gemstone.hasActiveSession && gemstone.enhancedInspectorSupported"
+        },
+        {
+          "command": "gemstone.installGemStoneMcpServer",
+          "when": "gemstone.hasActiveSession"
+        },
+        {
+          "command": "gemstone.startMcpServer",
+          "when": "gemstone.hasActiveSession"
+        },
+        {
+          "command": "gemstone.stopMcpServer",
+          "when": "gemstone.hasActiveSession"
         },
         {
           "command": "gemstone.serveSeaside",

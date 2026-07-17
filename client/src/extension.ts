@@ -57,6 +57,19 @@ import {
 } from './enhancedInspectorCommand';
 import { refreshEnhancedInspectorAvailable } from './enhancedInspectorAvailability';
 import { supportsEnhancedInspector } from './enhancedInspectorInstall';
+import {
+  runInstallMcpServer,
+  configureMcpServerAutoInstall,
+  maybeOfferMcpServerInstall,
+  LaunchServerFn,
+} from './mcpServerInstallCommand';
+import { isMcpServerInstalled } from './mcpServerInstall';
+import {
+  startMcpServerGem,
+  stopMcpServerGem,
+  stopAllMcpServerGems,
+  MCP_SERVER_DEFAULT_PORT,
+} from './mcpServerGem';
 import { DebuggerPanel } from './debuggerPanel';
 import { InlineValuesCodeLensProvider } from './inlineValuesCodeLens';
 import { GemStoneFileSystemProvider, MethodCompiledEvent, ClassDefinitionCompiledEvent, closeGemstoneTabsForSession, installStaleGemstoneTabReaper, buildMethodUri } from './gemstoneFileSystemProvider';
@@ -927,6 +940,53 @@ export function activate(context: vscode.ExtensionContext) {
     }
   }
 
+  // Boots the managed native MCP server gem for `session`, resolving the
+  // GemStone install path the same way Serve Seaside does. Passed into the MCP
+  // install flow so a successful install can offer to start the server, and
+  // reused by the standalone start command. Local stone only (the gem runs where
+  // the stone does). The native server uses its own port (MCP_SERVER_DEFAULT_PORT),
+  // distinct from the extension-hosted TS MCP HTTP server's port (DEFAULT_MCP_HTTP_PORT).
+  const launchMcpServer: LaunchServerFn = async (session, password) => {
+    const host = session.login.gem_host;
+    if (host !== 'localhost' && host !== '127.0.0.1') {
+      vscode.window.showErrorMessage(
+        'Starting the native MCP server currently supports a local stone (the gem runs where the '
+          + 'stone does).',
+      );
+      return;
+    }
+    const version = session.login.version;
+    const gciPath = storage.getGciLibraryPath(version);
+    const gemstonePath =
+      sysadminStorage.getGemstonePath(version) ??
+      (gciPath ? path.dirname(path.dirname(gciPath)) : undefined);
+    if (!gemstonePath) {
+      vscode.window.showErrorMessage(
+        `Could not locate the GemStone ${version} install for this session.`,
+      );
+      return;
+    }
+    const globalDir = sysadminStorage.getRootPath();
+    try {
+      const url = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'Starting the native MCP server…' },
+        () =>
+          startMcpServerGem({
+            session,
+            gemstonePath,
+            globalDir,
+            password,
+            port: MCP_SERVER_DEFAULT_PORT,
+          }),
+      );
+      vscode.window.showInformationMessage(`Native MCP server is serving at ${url}`);
+    } catch (e) {
+      vscode.window.showErrorMessage(
+        `Start MCP server failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  };
+
   // ── Commands ───────────────────────────────────────────
   context.subscriptions.push(
     vscode.commands.registerCommand('gemstone.openDocument', async (uri: vscode.Uri) => {
@@ -996,6 +1056,54 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('gemstone.configureEnhancedInspectorAutoInstall', async () => {
       await configureEnhancedInspectorAutoInstall();
+    }),
+
+    vscode.commands.registerCommand('gemstone.installGemStoneMcpServer', async () => {
+      await runInstallMcpServer(sessionManager, context.extensionPath, launchMcpServer);
+    }),
+
+    vscode.commands.registerCommand('gemstone.configureMcpServerAutoInstall', async () => {
+      await configureMcpServerAutoInstall();
+    }),
+
+    vscode.commands.registerCommand('gemstone.startMcpServer', async () => {
+      const session = sessionManager.getSelectedSession();
+      if (!session) {
+        vscode.window.showErrorMessage('No active GemStone session — connect to a stone first.');
+        return;
+      }
+      if (!isMcpServerInstalled(session)) {
+        const INSTALL = 'Install First';
+        const choice = await vscode.window.showErrorMessage(
+          `The native MCP server is not installed in "${session.login.stone}".`,
+          INSTALL,
+        );
+        if (choice === INSTALL) {
+          await runInstallMcpServer(sessionManager, context.extensionPath, launchMcpServer);
+        }
+        return;
+      }
+      const password =
+        session.login.gs_password ||
+        (await vscode.window.showInputBox({
+          prompt: `GemStone password for "${session.login.gs_user}" on "${session.login.stone}"`,
+          password: true,
+          ignoreFocusOut: true,
+        }));
+      if (!password) return;
+      await launchMcpServer(session, password);
+    }),
+
+    vscode.commands.registerCommand('gemstone.stopMcpServer', async () => {
+      if (stopMcpServerGem(MCP_SERVER_DEFAULT_PORT)) {
+        vscode.window.showInformationMessage(
+          `Stopped the native MCP server on port ${MCP_SERVER_DEFAULT_PORT}.`,
+        );
+      } else {
+        vscode.window.showInformationMessage(
+          `No native MCP server is running on port ${MCP_SERVER_DEFAULT_PORT}.`,
+        );
+      }
     }),
 
     vscode.commands.registerCommand('gemstone.resetGettingStarted', async () => {
@@ -1223,6 +1331,18 @@ export function activate(context: vscode.ExtensionContext) {
       // forget so the connect flow completes; the offer surfaces its own UI.
       if (!session.enhancedInspectorAvailable) {
         void maybeOfferEnhancedInspectorInstall(session, sessionManager, context.extensionPath);
+      }
+
+      // If this stone lacks the native MCP server, offer (or auto-run) the
+      // install per the gemstone.mcpServer.autoInstall setting. Fire and forget
+      // so the connect flow completes; the offer surfaces its own UI.
+      if (!isMcpServerInstalled(session)) {
+        void maybeOfferMcpServerInstall(
+          session,
+          sessionManager,
+          context.extensionPath,
+          launchMcpServer,
+        );
       }
     })),
 
@@ -3114,6 +3234,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate(): Thenable<void> | undefined {
   stopAllSeasideServers();
+  stopAllMcpServerGems();
   if (fileInManager) {
     fileInManager.dispose();
   }
