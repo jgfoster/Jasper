@@ -2,6 +2,7 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import globals from 'globals';
 import eslintComments from '@eslint-community/eslint-plugin-eslint-comments';
+import eslintConfigPrettier from 'eslint-config-prettier';
 
 export default tseslint.config(
   {
@@ -68,4 +69,6 @@ export default tseslint.config(
     files: ['client/src/__tests__/vitest.windowSetup.cjs'],
     languageOptions: { globals: { ...globals.browser } },
   },
+  // Disables stylistic ESLint rules that would conflict with Prettier; must stay last.
+  eslintConfigPrettier,
 );

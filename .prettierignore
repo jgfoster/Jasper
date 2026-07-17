@@ -1,0 +1,7 @@
+**/out
+**/*.d.ts
+resources
+.gemstone
+client/tmp
+acceptance/test-results
+*.vsix
