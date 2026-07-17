@@ -62,8 +62,9 @@ m add: (Array with: 'RBWorkspaceNode' with: 15).
 m add: (Array with: 'GsClassHistory' with: 13).
 m add: (Array with: 'GsRefactoringChange' with: 23).
 m add: (Array with: 'GsRefactoringChangeSet' with: 15).
-m add: (Array with: 'GsRefactoringEnvironment' with: 14).
+m add: (Array with: 'GsRefactoringEnvironment' with: 16).
 m add: (Array with: 'GsRenameClassRefactoring' with: 54).
+m add: (Array with: 'GsRenameClassVariableRefactoring' with: 37).
 m add: (Array with: 'GsRenameInstanceVariableRefactoring' with: 17).
 m add: (Array with: 'GsRenameMethodRefactoring' with: 36).
 GsRefactoring at: #GsRefactoringManifest put: m.

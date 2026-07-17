@@ -59,6 +59,37 @@ GsRefactoringEnvironment >> classesAndSelectorsAccessing: anInstVarName inHierar
 	^result
 ]
 
+{ #category : 'class variables' }
+GsRefactoringEnvironment >> methodsAccessingClassVar: anAssociation inHierarchyOf: aClass [
+	"The rename-classVar affected set: every method -- instance AND class side, in
+	 aClass and every subclass -- whose compiled code references the class variable
+	 whose binding is anAssociation, as an Array of GsNMethod (each answers its own
+	 inClass and selector). Detection is bytecode-precise: a method references the class
+	 variable iff its literal frame holds the exact association object, so a same-named
+	 GLOBAL (a different association) and a shadowing temporary/argument (no association
+	 literal) are both excluded. Read-only; computes nothing on the persistent store."
+	| result classesToScan |
+	result := OrderedCollection new.
+	classesToScan := OrderedCollection new.
+	classesToScan add: aClass.
+	classesToScan addAll: aClass allSubclasses.
+	classesToScan do: [:cls |
+		self addMethodsAccessing: anAssociation inBehavior: cls to: result.
+		self addMethodsAccessing: anAssociation inBehavior: cls class to: result].
+	^result asArray
+]
+
+{ #category : 'class variables' }
+GsRefactoringEnvironment >> addMethodsAccessing: anAssociation inBehavior: aBehavior to: aCollection [
+	"Add to aCollection each of aBehavior's OWN methods (environment 0) whose literal
+	 frame holds anAssociation by identity -- i.e. that reference the class variable
+	 bound to it. aBehavior is a class or a metaclass (for the class side)."
+	aBehavior selectors do: [:sel | | m |
+		m := aBehavior compiledMethodAt: sel environmentId: 0 otherwise: nil.
+		(m notNil and: [m literals anySatisfy: [:e | e == anAssociation]])
+			ifTrue: [aCollection add: m]]
+]
+
 { #category : 'selectors' }
 GsRefactoringEnvironment >> implementorsOf: aSelector [
 	"Every method that implements aSelector anywhere in the image, as an Array of
