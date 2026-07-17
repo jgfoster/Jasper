@@ -239,6 +239,12 @@ describe('GciLibrary', () => {
             });
         })
 
+        it('does not retain the discarded result in the PureExportSet when evaluating non-local returns', () => {
+            expectPureExportSetToStayUnchanged(() => {
+                gciLibrary.executeDiscardingResult(session, '^ Object new');
+            });
+        });
+        
     });
 
     describe('evaluating an expression and releasing its result automatically', () => {

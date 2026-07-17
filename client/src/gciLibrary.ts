@@ -1979,9 +1979,16 @@ export class GciLibrary {
   /**
    * Evaluates `code` for effect, discarding its result.
    *
-   * Appends an explicit `nil` as the final statement so `execute`'s result
-   * OOP is nil — a special object that is never added to the PureExportSet —
-   * instead of retaining `code`'s own result there indefinitely.
+   * Wraps `code` in `[ code ] ensure: [ ^ nil ]` rather than simply
+   * appending `nil` as a final statement (e.g. `[ code ] value. nil`).
+   * Appending is unsafe: a non-local return (`^`) inside `code` exits the
+   * whole doit immediately, skipping that trailing `nil` statement, so
+   * `execute`'s result oop would be `code`'s own result instead of nil --
+   * silently retaining it in the PureExportSet forever, since callers of
+   * this method assume there is nothing to release. `ensure:`'s block runs
+   * regardless of how the protected block exits -- normally, via an
+   * exception, or via a non-local return -- so its own `^ nil` forces the
+   * doit's final result to be nil in every case.
    *
    * @param session - The GemStone session to operate in.
    * @param code - Smalltalk source to evaluate.
@@ -1989,7 +1996,7 @@ export class GciLibrary {
    *   the underlying GCI call fails.
    */
   public executeDiscardingResult(session: unknown, code: string) {
-    this.execute(session, `[ ${code} ] value. nil`);
+    this.execute(session, `[ ${code} ] ensure: [ ^ nil ]`);
   }
 
   /**
