@@ -37,3 +37,5 @@ topazerrors.log
 acceptance/playwright-report/
 acceptance/test-results/
 acceptance/.vscode-test/
+# Specs bddgen generates from the .feature files at test time
+acceptance/.features-gen/

@@ -10,7 +10,12 @@ import { readContainerStone } from '../helpers/containerStone';
 const stone = readContainerStone();
 
 test.describe('Rowan end to end', () => {
-  test.skip(!stone, 'no in-container Rowan stone (run npm run test:acceptance:rowan)');
+  // Clones a project from the internet and loads Seaside, which is minutes and
+  // a network dependency — too much for the routine run, so it opts in.
+  test.skip(
+    !stone || !process.env.JASPER_ONLINE_SPECS,
+    'clones from the internet (run npm run test:acceptance:rowan)',
+  );
   test.setTimeout(600_000);
 
   test.use({

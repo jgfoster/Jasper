@@ -19,7 +19,7 @@ if [ "$(docker volume inspect -f '{{.Labels.owner}}' jasper-vscode-cache 2>/dev/
   docker volume create --label owner=pwuser jasper-vscode-cache >/dev/null
 fi
 
-exec docker run --rm --init --shm-size=1g \
+exec docker run --rm --init -e JASPER_ONLINE_SPECS=1 --shm-size=1g \
   -v jasper-vscode-cache:/app/.vscode-test \
   -v "$PWD/acceptance/playwright-report:/app/acceptance/playwright-report" \
   -v "$PWD/acceptance/test-results:/app/acceptance/test-results" \
