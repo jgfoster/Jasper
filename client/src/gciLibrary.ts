@@ -1,6 +1,6 @@
 import koffi from 'koffi';
 import * as path from 'path';
-import {OOP_ILLEGAL, OOP_NIL, OOP_TRUE} from "./gciConstants";
+import {OOP_FALSE, OOP_ILLEGAL, OOP_NIL, OOP_TRUE} from "./gciConstants";
 import {GciLibraryError} from "./gciLibraryError";
 
 // OopType is uint64_t in C; koffi maps this to BigInt in JS
@@ -1231,8 +1231,8 @@ export class GciLibrary {
     const result = Buffer.alloc(maxResultSize);
     const err: Record<string, unknown> = {};
     const bytesReturned = this._GciTsPerformFetchBytes(
-      session, receiver, selectorStr,
-      args.length > 0 ? args : null, args.length,
+        session, receiver, selectorStr,
+        args.length > 0 ? args : null, args.length,
       result, maxResultSize, err,
     );
     const str = bytesReturned >= 0 ? result.toString('utf8', 0, bytesReturned) : '';
@@ -1979,9 +1979,16 @@ export class GciLibrary {
   /**
    * Evaluates `code` for effect, discarding its result.
    *
-   * Appends an explicit `nil` as the final statement so `execute`'s result
-   * OOP is nil — a special object that is never added to the PureExportSet —
-   * instead of retaining `code`'s own result there indefinitely.
+   * Wraps `code` in `[ code ] ensure: [ ^ nil ]` rather than simply
+   * appending `nil` as a final statement (e.g. `[ code ] value. nil`).
+   * Appending is unsafe: a non-local return (`^`) inside `code` exits the
+   * whole doit immediately, skipping that trailing `nil` statement, so
+   * `execute`'s result oop would be `code`'s own result instead of nil --
+   * silently retaining it in the PureExportSet forever, since callers of
+   * this method assume there is nothing to release. `ensure:`'s block runs
+   * regardless of how the protected block exits -- normally, via an
+   * exception, or via a non-local return -- so its own `^ nil` forces the
+   * doit's final result to be nil in every case.
    *
    * @param session - The GemStone session to operate in.
    * @param code - Smalltalk source to evaluate.
@@ -1989,7 +1996,7 @@ export class GciLibrary {
    *   the underlying GCI call fails.
    */
   public executeDiscardingResult(session: unknown, code: string) {
-    this.execute(session, `[ ${code} ] value. nil`);
+    this.execute(session, `[ ${code} ] ensure: [ ^ nil ]`);
   }
 
   /**
@@ -2015,6 +2022,60 @@ export class GciLibrary {
    */
   public executeAndRelease<T>(session: unknown, code: string, callback: (oop: bigint) => NotPromise<T>) : T {
     return this.releaseAfterUse(session, this.execute(session, code), callback);
+  }
+
+  // ---------------------------------------------------------------------
+  // Message sending
+  // ---------------------------------------------------------------------
+
+  /**
+   * Sends the unary message `selector` to `receiverOop` and returns the OOP
+   * of the result.
+   *
+   * The result OOP is retained in the session's PureExportSet, so the caller
+   * is responsible for releasing it when no longer needed.
+   *
+   * @param session - The GemStone session to operate in.
+   * @param receiverOop - The oop of the message's receiver.
+   * @param selector - The unary selector to send.
+   * @returns The OOP of the result object.
+   * @throws {GciLibraryError} If `selector` cannot be resolved, the sent
+   *   method signals an error, or the underlying GCI call fails.
+   */
+  public perform(session: unknown, receiverOop: bigint, selector: string) {
+    const {result, err} = this.GciTsPerform(session, receiverOop, OOP_ILLEGAL, selector, [], 0, 0);
+
+    this.throwOnIllegalOop(result, err);
+
+    return result;
+  }
+
+  /**
+   * Sends the unary message `selector` to `receiverOop`, passes the
+   * resulting oop to `callback`, and releases that oop afterwards regardless
+   * of whether `callback` returns or throws.
+   *
+   * `callback` must consume `oop` synchronously and must not let it escape
+   * past its own return (e.g. by returning it, or by capturing it in
+   * something that outlives the call): the oop is released the instant
+   * `callback` returns, so any use of it afterwards operates on an already
+   * released oop. Async callbacks are rejected at the type level for this
+   * reason; there is no equivalent check for an oop returned directly.
+   *
+   * @param session - The GemStone session to operate in.
+   * @param receiverOop - The oop of the message's receiver.
+   * @param selector - The unary selector to send.
+   * @param callback - Receives the oop `selector` resolved to on
+   *   `receiverOop`. Must be synchronous and must not let the oop escape its
+   *   own return.
+   * @returns Whatever `callback` returns.
+   * @throws {GciLibraryError} If `selector` cannot be resolved, the sent
+   *   method signals an error, or the underlying GCI call fails.
+   * @throws Whatever `callback` itself throws, unchanged, not necessarily a
+   *   {@link GciLibraryError}.
+   */
+  public performAndRelease<T>(session: unknown, receiverOop: bigint, selector: string, callback: (oop: bigint) => NotPromise<T>) : T {
+    return this.releaseAfterUse(session, this.perform(session, receiverOop, selector), callback);
   }
 
   // ---------------------------------------------------------------------
@@ -2474,6 +2535,11 @@ export class GciLibrary {
     return OOP_NIL;
   }
 
+  /** Returns the OOP of GemStone's `false` singleton. */
+  public falseOop() {
+    return OOP_FALSE;
+  }
+
   /** Returns whether `oop` is the OOP of GemStone's `nil` singleton. */
   public isNilOop(oop: bigint) {
     return this.nilOop() === oop;
@@ -2549,6 +2615,16 @@ export class GciLibrary {
    * `GciTsFetchBytes` -- see that method's comment for why
    * `GciTsFetchUtf8Bytes` itself isn't used for the fetch either.
    *
+   * The `encodeAsUTF8` send happens as its own {@link performAndRelease}
+   * call on the already-evaluated result oop, rather than being appended to
+   * `code`'s source (e.g. `[ ${code} ] value encodeAsUTF8`). Appending it to
+   * the source is unsafe: a non-local return (`^`) inside `code` exits the
+   * whole doit immediately, so a trailing `encodeAsUTF8` send would never
+   * run and the raw, un-encoded result would reach {@link fetchUtf8String}
+   * instead. The extra round-trip this costs is a deliberate trade-off for
+   * that correctness, not an oversight -- do not collapse the two sends
+   * back into one to save a round-trip.
+   *
    * @param session - The GemStone session to operate in.
    * @param code - Smalltalk source to evaluate.
    * @returns The evaluated result, decoded as a UTF-8 JS string.
@@ -2559,8 +2635,12 @@ export class GciLibrary {
   public executeAndFetchString(session: unknown, code: string) : string {
     return this.executeAndRelease(
         session,
-        `[ ${code} ] value encodeAsUTF8`,
-        stringOop => this.fetchUtf8String(session, stringOop, GciLibrary.FETCH_STRING_PAGE_SIZE_BYTES));
+        code,
+        resultOop => this.performAndRelease(
+            session,
+            resultOop,
+            'encodeAsUTF8',
+            utf8StringOop => this.fetchUtf8String(session, utf8StringOop, GciLibrary.FETCH_STRING_PAGE_SIZE_BYTES)));
   }
 
   /** The page size, in bytes, used by {@link fetchUtf8String} to page a string's contents out of GemStone. */
@@ -2609,6 +2689,5 @@ export class GciLibrary {
 
     return Buffer.concat(chunks).toString('utf8');
   }
-
 }
 

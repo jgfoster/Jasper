@@ -16,6 +16,8 @@ import {
 } from '../wslFs';
 import { DatabaseManager } from '../databaseManager';
 import { GemStoneDatabase } from '../sysadminTypes';
+import { SysadminStorage } from '../sysadminStorage';
+import { ProcessManager } from '../processManager';
 
 // ── Helpers ────────────────────────────────────────────────
 
@@ -41,18 +43,18 @@ function makeManager(overrides?: {
     getAvailableExtents: vi.fn(() => ['extent0']),
     getGemstonePath: vi.fn(() => '/gs'),
     ...overrides?.storage,
-  } as any;
+  } as unknown as SysadminStorage;
   const processManager = {
     isStoneRunning: vi.fn(() => false),
     ...overrides?.processManager,
-  } as any;
+  } as unknown as ProcessManager;
   return new DatabaseManager(storage, processManager);
 }
 
 /** Pick the QuickPick item at `index` (preserving object identity). */
 function pickItem(index: number): void {
   vi.mocked(vscode.window.showQuickPick).mockImplementation(
-    async (items: any) => (await items)[index],
+    async (items) => (await items)[index] as vscode.QuickPickItem,
   );
 }
 
@@ -61,14 +63,14 @@ describe('DatabaseManager.replaceExtent', () => {
     vi.clearAllMocks();
     vi.mocked(wslExistsSync).mockReturnValue(true);
     vi.mocked(wslReaddirSync).mockReturnValue(['extent0.dbf', 'tranlog1.dbf', 'README.txt']);
-    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Replace' as any);
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Replace' as unknown as vscode.MessageItem);
   });
 
   it('copies a browsed extent into extent0.dbf and records its basename', async () => {
     pickItem(0); // the "Browse for extent file…" item is always first
     vi.mocked(vscode.window.showOpenDialog).mockResolvedValue([
       vscode.Uri.file('/seed/mydata.dbf'),
-    ] as any);
+    ]);
 
     const ok = await makeManager().replaceExtent(makeDb());
 
@@ -87,7 +89,7 @@ describe('DatabaseManager.replaceExtent', () => {
   it('still copies a vendor extent from the product bin directory', async () => {
     // items = [browse, separator, extent0] → last item is the vendor extent.
     vi.mocked(vscode.window.showQuickPick).mockImplementation(
-      async (items: any) => { const r = await items; return r[r.length - 1]; },
+      async (items) => { const r = await items; return r[r.length - 1]; },
     );
 
     const ok = await makeManager().replaceExtent(makeDb());
@@ -103,7 +105,7 @@ describe('DatabaseManager.replaceExtent', () => {
     pickItem(0);
     vi.mocked(vscode.window.showOpenDialog).mockResolvedValue([
       vscode.Uri.file('/seed/mydata.dbf'),
-    ] as any);
+    ]);
 
     const ok = await makeManager({ storage: { getAvailableExtents: vi.fn(() => []) } })
       .replaceExtent(makeDb());
@@ -124,7 +126,7 @@ describe('DatabaseManager.replaceExtent', () => {
 
   it('does nothing when the browse dialog is cancelled', async () => {
     pickItem(0);
-    vi.mocked(vscode.window.showOpenDialog).mockResolvedValue(undefined as any);
+    vi.mocked(vscode.window.showOpenDialog).mockResolvedValue(undefined);
 
     const ok = await makeManager().replaceExtent(makeDb());
 
@@ -137,7 +139,7 @@ describe('DatabaseManager.replaceExtent', () => {
     pickItem(0);
     vi.mocked(vscode.window.showOpenDialog).mockResolvedValue([
       vscode.Uri.file('/seed/gone.dbf'),
-    ] as any);
+    ]);
     vi.mocked(wslExistsSync).mockReturnValue(false);
 
     const ok = await makeManager().replaceExtent(makeDb());
@@ -152,8 +154,8 @@ describe('DatabaseManager.replaceExtent', () => {
     pickItem(0);
     vi.mocked(vscode.window.showOpenDialog).mockResolvedValue([
       vscode.Uri.file('/seed/mydata.dbf'),
-    ] as any);
-    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as any);
+    ]);
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined);
 
     const ok = await makeManager().replaceExtent(makeDb());
 
@@ -170,14 +172,14 @@ describe('DatabaseManager.replaceExtent (copy helper choice)', () => {
     vi.clearAllMocks();
     vi.mocked(wslExistsSync).mockReturnValue(true);
     vi.mocked(wslReaddirSync).mockReturnValue(['extent0.dbf']);
-    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Replace' as any);
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Replace' as unknown as vscode.MessageItem);
   });
 
   it('uses wslImportFileSync, not wslCopyFileSync', async () => {
     pickItem(0);
     vi.mocked(vscode.window.showOpenDialog).mockResolvedValue([
       vscode.Uri.file('/seed/mydata.dbf'),
-    ] as any);
+    ]);
 
     await makeManager().replaceExtent(makeDb());
 

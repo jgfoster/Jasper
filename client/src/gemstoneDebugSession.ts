@@ -11,6 +11,7 @@ import {
   Variable,
 } from '@vscode/debugadapter';
 import { DebugProtocol } from '@vscode/debugprotocol';
+import type * as vscode from 'vscode';
 import { SessionManager, ActiveSession } from './sessionManager';
 import { OOP_NIL } from './gciConstants';
 import * as debug from './debugQueries';
@@ -156,17 +157,20 @@ export class GemStoneDebugSession extends DebugSession {
     // Try to resolve from source path (gemstone:// URI) if available
     if (args.source.path && this.breakpointManager) {
       try {
-        const uri = { scheme: 'gemstone', path: '', authority: '', query: '', fragment: '', fsPath: '', toString: () => args.source.path!, with: () => uri as any, toJSON: () => ({}) } as any;
         // Parse the path as a URI
         const parsed = args.source.path.match(/^gemstone:\/\/(\d+)(\/[^?]*?)(?:\?(.*))?$/);
         if (parsed) {
+          // A partial, hand-built Uri: breakpointManager only reads scheme/path/query
+          // (parseMethodUri) and toString() (tracking key). The path is kept *encoded*
+          // on purpose — parseMethodUri decodeURIComponent's it — so a real
+          // vscode.Uri.parse (which decodes .path) would double-decode. Cast honestly.
           const actualUri = {
             scheme: 'gemstone',
             authority: parsed[1],
             path: parsed[2],
             query: parsed[3] || '',
             toString: () => args.source.path!,
-          } as any;
+          } as unknown as vscode.Uri;
           const results = this.breakpointManager.setBreakpointsForSource(
             this.session, actualUri, requestedLines,
           );
