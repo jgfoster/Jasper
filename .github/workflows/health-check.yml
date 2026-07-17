@@ -73,7 +73,7 @@ jobs:
           advanced-security: false
 
   lint:
-    name: Lint TypeScript
+    name: Lint & Format TypeScript
     timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
@@ -93,8 +93,11 @@ jobs:
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
+      - name: Format check
+        run: npm run format:check
       - name: Lint
         run: npm run lint
+
 
   health-check:
     timeout-minutes: 5
