@@ -350,10 +350,17 @@ describe('GciLibrary', () => {
       expectOopToBeTrue(result);
     });
 
-    it('throws when the selector cannot be resolved', () => {
+    it('throws when the receiver does not understand the selector', () => {
+      // 'new' is used because it's a well-known selector that's always
+      // already a real Symbol. A made-up selector like 'foo' raises
+      // NameError instead, but only until something -- anything, even
+      // unrelated to this test -- compiles that exact text as a Symbol
+      // literal or send in this session; after that it raises
+      // MessageNotUnderstood instead, so a made-up selector's expected
+      // error flips depending on what else ran earlier in the file.
       expectToThrowGciLibraryError(
-        () => gciLibrary.perform(session, gciLibrary.falseOop(), 'foo'),
-        'a NameError occurred (error 2404), foo, There is no Symbol with the specified value',
+        () => gciLibrary.perform(session, gciLibrary.falseOop(), 'new'),
+        "a MessageNotUnderstood occurred (error 2010), a Boolean does not understand  #'new'",
       );
     });
   });
@@ -416,9 +423,16 @@ describe('GciLibrary', () => {
     });
 
     it('throws when sending a message signals an error', () => {
+      // 'new' is used because it's a well-known selector that's always
+      // already a real Symbol. A made-up selector like 'foo' raises
+      // NameError instead, but only until something -- anything, even
+      // unrelated to this test -- compiles that exact text as a Symbol
+      // literal or send in this session; after that it raises
+      // MessageNotUnderstood instead, so a made-up selector's expected
+      // error flips depending on what else ran earlier in the file.
       expectToThrowGciLibraryError(
-        () => gciLibrary.performAndRelease(session, gciLibrary.falseOop(), 'foo', () => {}),
-        'a NameError occurred (error 2404), foo, There is no Symbol with the specified value',
+        () => gciLibrary.performAndRelease(session, gciLibrary.falseOop(), 'new', () => {}),
+        "a MessageNotUnderstood occurred (error 2010), a Boolean does not understand  #'new'",
       );
     });
 
