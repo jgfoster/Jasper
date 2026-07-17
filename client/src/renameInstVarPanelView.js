@@ -105,6 +105,19 @@
       });
     }
 
+    // Optional (rename-method panel only): a "Show/Hide" link that expands the
+    // list of methods that could not be rewritten. Guarded so the shared
+    // rename-instance-variable panel, which never renders it, is unaffected.
+    const showSkippedBtn = doc.getElementById('showSkipped');
+    const skippedList = doc.getElementById('skippedList');
+    if (showSkippedBtn && skippedList) {
+      showSkippedBtn.addEventListener('click', function () {
+        const hidden = skippedList.classList.toggle('hidden');
+        showSkippedBtn.textContent = hidden ? 'Show' : 'Hide';
+        showSkippedBtn.setAttribute('aria-expanded', String(!hidden));
+      });
+    }
+
     if (applyBtn) {
       applyBtn.addEventListener('click', function () {
         vscode.postMessage({ command: 'apply', ids: selectedIds() });

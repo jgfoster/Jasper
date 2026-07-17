@@ -47,6 +47,20 @@ GsRefactoringChangeSet >> addMethodRecompileInDictionary: dn className: cn isMet
 	^change
 ]
 
+{ #category : 'building' }
+GsRefactoringChangeSet >> addMethodRenameInDictionary: dn className: cn isMeta: aBool oldSelector: oldSel newSelector: newSel category: cat oldSource: os newSource: ns [
+	"Stage a method rename (selector changes). Records the change only; NEVER
+	 compiles or commits. The client applies it as compile-new-then-remove-old.
+	 Returns the new GsRefactoringChange."
+	| change |
+	change := GsRefactoringChange
+		methodRenameId: self nextIdString dictName: dn className: cn
+		isMeta: aBool oldSelector: oldSel newSelector: newSel category: cat
+		oldSource: os newSource: ns.
+	changes add: change.
+	^change
+]
+
 { #category : 'accessing' }
 GsRefactoringChangeSet >> changeWithId: anId [
 	^changes detect: [:c | c id = anId] ifNone: [nil]

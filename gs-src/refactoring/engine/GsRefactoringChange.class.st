@@ -1,8 +1,12 @@
 "
 One individually-addressable change in a GsRefactoringChangeSet: a method to
-recompile, or a class definition to edit. A change carries the old and new
-source so a client can render a before/after diff, and an id so a client can
-select which changes to apply. Building a change compiles and commits nothing.
+recompile, a method to rename (compile under a new selector, then remove the
+old), or a class definition to edit. A change carries the old and new source so
+a client can render a before/after diff, and an id so a client can select which
+changes to apply. Building a change compiles and commits nothing.
+
+A #methodRename change carries both the old selector (in `selector`) and the new
+selector (in `newSelector`); every other kind leaves `newSelector` nil.
 "
 Class {
 	#name : 'GsRefactoringChange',
@@ -14,6 +18,7 @@ Class {
 		'className',
 		'isMeta',
 		'selector',
+		'newSelector',
 		'category',
 		'oldSource',
 		'newSource'
@@ -33,6 +38,16 @@ GsRefactoringChange class >> methodRecompileId: anId dictName: dn className: cn 
 	^self new
 		setId: anId kind: #methodRecompile dictName: dn className: cn
 		isMeta: aBool selector: sel category: cat oldSource: os newSource: ns
+]
+
+{ #category : 'instance creation' }
+GsRefactoringChange class >> methodRenameId: anId dictName: dn className: cn isMeta: aBool oldSelector: oldSel newSelector: newSel category: cat oldSource: os newSource: ns [
+	"A method whose selector changes: apply = compile newSource (under newSel),
+	 then remove the old-selector method. `selector` holds the old selector."
+	^(self new
+		setId: anId kind: #methodRename dictName: dn className: cn
+		isMeta: aBool selector: oldSel category: cat oldSource: os newSource: ns)
+		setNewSelector: newSel
 ]
 
 { #category : 'accessing' }
@@ -71,8 +86,12 @@ GsRefactoringChange >> isMeta [
 
 { #category : 'serializing' }
 GsRefactoringChange >> jsonEscape: aString on: aStream [
-	"Escape aString per JSON string rules. Iterates characters so it is safe on
-	 both byte Strings and Unicode strings (the 3.6.2 Unicode-literal trap)."
+	"Escape aString per JSON string rules, emitting PURE ASCII: control characters
+	 and any code point above 126 become \uXXXX escapes. This keeps the whole
+	 payload a byte String, so the client's non-blocking GCI fetch (which reads
+	 characters, not raw bytes) never trips over a Unicode-promoted result. A code
+	 point above the BMP (rare in source) is emitted as '?' -- the JSON is
+	 preview-only (apply uses the server-side source), so this is display-safe."
 	aString do: [:ch | | code |
 		code := ch asInteger.
 		ch == $" ifTrue: [aStream nextPutAll: '\"']
@@ -82,7 +101,13 @@ GsRefactoringChange >> jsonEscape: aString on: aStream [
 		ifFalse: [code = 9 ifTrue: [aStream nextPutAll: '\t']
 		ifFalse: [code < 32
 			ifTrue: [aStream nextPutAll: '\u00'; nextPutAll: (self hex2: code)]
-			ifFalse: [aStream nextPut: ch]]]]]]]
+		ifFalse: [code > 126
+			ifTrue: [code > 65535
+				ifTrue: [aStream nextPut: $?]
+				ifFalse: [aStream nextPutAll: '\u';
+					nextPutAll: (self hex2: code // 256);
+					nextPutAll: (self hex2: code \\ 256)]]
+			ifFalse: [aStream nextPut: ch]]]]]]]]
 ]
 
 { #category : 'serializing' }
@@ -99,6 +124,8 @@ GsRefactoringChange >> jsonOn: aStream [
 	aStream nextPutAll: (isMeta == true ifTrue: ['true'] ifFalse: ['false']).
 	aStream nextPutAll: ',"selector":'.
 	self jsonValue: selector on: aStream.
+	aStream nextPutAll: ',"newSelector":'.
+	self jsonValue: newSelector on: aStream.
 	aStream nextPutAll: ',"category":'.
 	self jsonValue: category on: aStream.
 	aStream nextPutAll: ',"oldSource":'.
@@ -134,8 +161,19 @@ GsRefactoringChange >> oldSource [
 ]
 
 { #category : 'accessing' }
+GsRefactoringChange >> newSelector [
+	"The new selector for a #methodRename change; nil for every other kind."
+	^newSelector
+]
+
+{ #category : 'accessing' }
 GsRefactoringChange >> selector [
 	^selector
+]
+
+{ #category : 'private' }
+GsRefactoringChange >> setNewSelector: aSelector [
+	newSelector := aSelector
 ]
 
 { #category : 'private' }

@@ -59,6 +59,23 @@ GsRefactoringEnvironment >> classesAndSelectorsAccessing: anInstVarName inHierar
 	^result
 ]
 
+{ #category : 'selectors' }
+GsRefactoringEnvironment >> implementorsOf: aSelector [
+	"Every method that implements aSelector anywhere in the image, as an Array of
+	 GsNMethod (instance- and class-side both; each answers its own inClass). Uses
+	 the same ClassOrganizer reflection the client's implementorsOf query uses, so
+	 the engine and the client agree on the affected set. Read-only."
+	^(ClassOrganizer new implementorsOf: aSelector asSymbol) asArray
+]
+
+{ #category : 'selectors' }
+GsRefactoringEnvironment >> sendersOf: aSelector [
+	"Every method that sends aSelector anywhere in the image, as an Array of
+	 GsNMethod. Uses the same ClassOrganizer reflection the client's sendersOf
+	 query uses. Read-only; compiles and commits nothing."
+	^(ClassOrganizer new sendersOf: aSelector asSymbol) at: 1
+]
+
 { #category : 'accessing' }
 GsRefactoringEnvironment >> classNamed: aName [
 	"The first class bound to aName across all dictionaries (symbol-list order),

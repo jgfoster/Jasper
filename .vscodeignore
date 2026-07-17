@@ -31,6 +31,10 @@ docs/**
 # gs-src/ itself. Mirrors how client/src, server/src, etc. are excluded.
 gs-src/**
 
+# The engine's GS SUnit tests, built for the automatic GCI test to file in from
+# the repo (dev/CI). Test-only — never shipped in the .vsix.
+resources/refactoring/engine-tests.gs
+
 node_modules/**
 client/node_modules/**
 server/node_modules/**
@@ -55,6 +59,8 @@ client/src/**
 !client/src/enhancedInspectorColumns.js
 !client/src/browserColumnResize.js
 !client/src/renameInstVarPanelView.js
+!client/src/renameMethodEditorView.js
+!client/src/renameMethodPanelView.js
 server/src/**
 mcp-server/src/**
 

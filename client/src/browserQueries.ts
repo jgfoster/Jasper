@@ -36,6 +36,13 @@ import { getDefinedInstVarCounts as sharedGetDefinedInstVarCounts } from './quer
 import { getClassVersions as sharedGetClassVersions } from './queries/getClassVersions';
 import { previewRenameInstVar as sharedPreviewRenameInstVar } from './queries/previewRenameInstVar';
 import {
+  startRenameMethodPreview as sharedStartRenameMethodPreview,
+  pageRenameMethodPreview as sharedPageRenameMethodPreview,
+  applyRenameMethod as sharedApplyRenameMethod,
+  clearRenameMethodPreview as sharedClearRenameMethodPreview,
+  RenameMethodScope,
+} from './queries/previewRenameMethod';
+import {
   getGrailStubReflection as sharedGetGrailStubReflection,
   GrailStubReflection,
 } from './queries/grailStubReflection';
@@ -538,6 +545,41 @@ export function previewRenameInstVar(
   className: string, oldName: string, newName: string, dict?: number | string,
 ): string {
   return sharedPreviewRenameInstVar(bind(session), className, oldName, newName, dict);
+}
+
+// Paginated rename-method preview: fetched NON-BLOCKING so a slow build shows a
+// progress notification and keeps the extension host responsive. Pages are
+// byte-bounded (PREVIEW_PAGE_BYTES) to stay under the non-blocking fetch cap.
+export function startRenameMethodPreview(
+  session: ActiveSession,
+  className: string, oldSelector: string, newParts: string[], permutation: number[],
+  scope: RenameMethodScope, token: string, maxBytes: number, dict?: number | string,
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, `Previewing rename of ${oldSelector}…`);
+  return sharedStartRenameMethodPreview(
+    exec, className, oldSelector, newParts, permutation, scope, token, maxBytes, dict,
+  );
+}
+
+export function pageRenameMethodPreview(
+  session: ActiveSession, token: string, offset: number, maxBytes: number,
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, 'Loading more changes…');
+  return sharedPageRenameMethodPreview(exec, token, offset, maxBytes);
+}
+
+export function applyRenameMethod(
+  session: ActiveSession, token: string, deselectedIds: string[],
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, 'Applying rename…');
+  return sharedApplyRenameMethod(exec, token, deselectedIds);
+}
+
+export function clearRenameMethodPreview(session: ActiveSession, token: string): string {
+  return sharedClearRenameMethodPreview(bind(session), token);
 }
 
 export function getGrailStubReflection(

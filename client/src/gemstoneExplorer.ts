@@ -4,7 +4,7 @@ import * as queries from './browserQueries';
 import { ALL_METHODS_CATEGORY, SESSION_METHODS_CATEGORY } from './systemBrowser';
 import {
   escapeSelectorSlashes, unescapeSelectorSlashes, buildClassDefinitionUri, buildNewMethodUri,
-  buildMethodUri,
+  buildMethodUri, parseUri, listOpenGemstoneTabs,
 } from './gemstoneFileSystemProvider';
 import { filterMatches } from './explorerFilter';
 import { DoubleClickDetector } from './explorerDoubleClick';
@@ -16,6 +16,13 @@ import {
   RenameChange, parseRenameChanges, orderChangesClassDefFirst, planRenameApply, validateNewIvarName,
 } from './renameInstVarPreview';
 import { showRenameInstVarPanel } from './renameInstVarPanel';
+import {
+  parseStartPreview, parsePage, parseApplyResult,
+  validateNewParts, buildSelector, permutationFromOriginalIndices, parseArgNames,
+} from './renameMethodPreview';
+import { PREVIEW_PAGE_BYTES } from './queries/previewRenameMethod';
+import { showRenameMethodEditor } from './renameMethodEditor';
+import { showRenameMethodPanel } from './renameMethodPanel';
 
 const VIEW_DICTS = 'gemstoneExplorerDicts';
 const VIEW_CATEGORIES = 'gemstoneExplorerCategories';
@@ -648,6 +655,68 @@ class ExplorerController {
     this.state.selectedMethodCategory = category;
   }
 
+  // Reload the current class's method/environment data (the source the Methods
+  // pane renders from) and refresh the affected panes. Called after a change that
+  // alters the visible class's selectors — e.g. a method rename — so the method
+  // list, override arrows, and class list reflect it without reselecting the class.
+  reloadCurrentClassMethods(): void {
+    const session = this.session();
+    this.envLines = session && this.state.dictIndex !== undefined && this.state.className !== undefined
+      ? queries.getClassEnvironments(session, this.state.dictIndex, this.state.className, this.maxEnv())
+      : [];
+    this.methodProvider.refresh();
+    this.hierarchyProvider.refresh();
+    this.classProvider.refresh();
+  }
+
+  // After a method rename, bring already-open editors on the affected methods up
+  // to date: a recompiled sender is reopened on the same URI (re-reading its new
+  // body), a renamed implementor is reopened on its NEW selector's URI (the old
+  // one no longer exists). An editor with UNSAVED changes is left alone — we
+  // never discard the user's in-progress edits. Best-effort and clean-only.
+  private async refreshRenamedSelectorEditors(oldSelector: string, newSelector: string): Promise<void> {
+    const session = this.session();
+    if (!session) return;
+    if (oldSelector === newSelector) return; // pure reorder: same selector, same URI
+
+    for (const { tab, uri } of listOpenGemstoneTabs()) {
+      if (tab.isDirty) continue; // never clobber unsaved edits
+
+      let parsed;
+      try {
+        parsed = parseUri(uri);
+      } catch {
+        continue;
+      }
+      if (parsed.kind !== 'method' || parsed.sessionId !== session.id) continue;
+      if (parsed.base || parsed.diffView) continue; // read-only override-diff views
+
+      // The rename maps oldSelector → newSelector uniformly, so an editor open on
+      // an implementor of the old selector should reopen on the new one (the old
+      // method no longer exists). Senders keep their own selector — left as is.
+      if (unescapeSelectorSlashes(parsed.selector) !== oldSelector) continue;
+
+      const targetUri = buildMethodUri({
+        kind: 'method',
+        sessionId: parsed.sessionId,
+        dictName: parsed.dictName,
+        className: parsed.className,
+        isMeta: parsed.isMeta,
+        category: parsed.category,
+        selector: escapeSelectorSlashes(newSelector),
+        environmentId: parsed.environmentId,
+        dictIndex: parsed.dictIndex,
+      });
+      const viewColumn = tab.group.viewColumn;
+      try {
+        await vscode.window.tabGroups.close(tab);
+        await vscode.window.showTextDocument(targetUri, { viewColumn, preview: false });
+      } catch {
+        // Best-effort: a failed reopen just leaves the tab closed.
+      }
+    }
+  }
+
   selectClass(item: ClassItem): void {
     this.state.className = item.className;
     this.state.selectedSelector = undefined;
@@ -1121,6 +1190,125 @@ class ExplorerController {
     void vscode.window.showInformationMessage(
       `Renamed '${oldName}' → '${newName}' (${applied} change${applied === 1 ? '' : 's'}). `
       + 'Compiled but NOT committed — commit when ready.',
+    );
+  }
+
+  // Rename this method / selector across its implementors and senders, within a
+  // chosen scope, via the server-side refactoring engine (R2). The user edits the
+  // selector as reorderable keyword-part rows, we preview the non-committing
+  // change set (a methodRename per implementor, a methodRecompile per sender), the
+  // user unchecks any change, and Apply recompiles the kept changes — deleting the
+  // old-selector implementors — WITHOUT committing.
+  async renameMethod(item: MethodItem): Promise<void> {
+    const session = this.session();
+    if (!session) return;
+    const className = this.state.className;
+    if (!className) return;
+
+    if (!session.rbSupportAvailable) {
+      const LOAD = 'Install GemStone Support…';
+      const choice = await vscode.window.showInformationMessage(
+        "Renaming a method needs the GemStone refactoring engine, which isn't "
+        + 'loaded in this stone yet.',
+        LOAD,
+      );
+      if (choice !== LOAD) return;
+      await vscode.commands.executeCommand('gemstone.installServerSupport');
+      if (!this.session()?.rbSupportAvailable) return;
+    }
+
+    const oldSelector = item.info.selector;
+    const isMeta = item.isMeta;
+
+    // Best-effort argument names for the editor rows (display only).
+    let argNames: string[];
+    try {
+      const src = queries.getMethodSource(session, className, isMeta, oldSelector, 0, this.state.dictIndex);
+      argNames = parseArgNames(src, oldSelector);
+    } catch {
+      argNames = parseArgNames('', oldSelector);
+    }
+
+    const edit = await showRenameMethodEditor({
+      className, oldSelector, isMeta, argNames, dictName: this.state.dictName,
+    });
+    if (!edit) return;
+
+    const err = validateNewParts(edit.parts, oldSelector);
+    if (err) {
+      void vscode.window.showErrorMessage(`Rename: ${err}`);
+      return;
+    }
+    const newSelector = buildSelector(edit.parts);
+    const permutation = permutationFromOriginalIndices(edit.originalIndices);
+    const noReorder = permutation.every((v, i) => v === i + 1);
+    if (newSelector === oldSelector && noReorder) return; // nothing to do
+
+    // A client-generated token keys this preview's server-side state (the built
+    // change set stored in SessionTemps) for paging and the eventual apply.
+    const token = `rmp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const safeClear = (): void => {
+      try {
+        queries.clearRenameMethodPreview(session, token);
+      } catch {
+        /* best-effort cleanup */
+      }
+    };
+
+    let start;
+    try {
+      // Non-blocking: shows a progress notification and keeps the UI responsive
+      // while the engine builds the (possibly large) change set.
+      const json = await queries.startRenameMethodPreview(
+        session, className, oldSelector, edit.parts, permutation, edit.scope,
+        token, PREVIEW_PAGE_BYTES, this.state.dictIndex,
+      );
+      start = parseStartPreview(json);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      void vscode.window.showErrorMessage(`Rename preview failed: ${msg}`);
+      safeClear();
+      return;
+    }
+
+    if (start.total === 0) {
+      safeClear();
+      void vscode.window.showInformationMessage(
+        `No implementors or senders of '${oldSelector}' were found in the chosen scope; `
+        + 'nothing to rename.',
+      );
+      return;
+    }
+
+    // The preview is paginated (each page bounded to fit the GCI buffer) and the
+    // apply runs server-side (skipping only the deselected ids), so an arbitrarily
+    // large rename previews and applies without loading every page client-side.
+    const result = await showRenameMethodPanel(oldSelector, newSelector, start, {
+      loadPage: async (offset) =>
+        parsePage(await queries.pageRenameMethodPreview(session, token, offset, PREVIEW_PAGE_BYTES)),
+      apply: async (deselected) =>
+        parseApplyResult(await queries.applyRenameMethod(session, token, deselected)),
+      cleanup: safeClear,
+    });
+    if (!result) return; // cancelled/closed
+
+    // Selectors changed, so the current class's cached method environment is
+    // stale — reload it and reopen any editor that was on the renamed selector.
+    this.reloadCurrentClassMethods();
+    await this.refreshRenamedSelectorEditors(oldSelector, newSelector);
+
+    if (result.failed.length > 0) {
+      const first = result.failed[0];
+      void vscode.window.showErrorMessage(
+        `Rename applied ${result.applied} change(s); ${result.failed.length} failed: `
+        + `${first.label}: ${first.error}`
+        + (result.failed.length > 1 ? ` (+${result.failed.length - 1} more)` : ''),
+      );
+      return;
+    }
+    void vscode.window.showInformationMessage(
+      `Renamed '${oldSelector}' → '${newSelector}' (${result.applied} change`
+      + `${result.applied === 1 ? '' : 's'}). Compiled but NOT committed — commit when ready.`,
     );
   }
 
@@ -2003,6 +2191,20 @@ export function registerGemStoneExplorer(
     vscode.commands.registerCommand(
       'gemstone.explorer.renameIvar',
       (item?: IvarItem) => { if (item instanceof IvarItem) void ctl.renameInstVar(item); },
+    ),
+    // Rename a method / selector across implementors and senders (pencil on the
+    // method row).
+    vscode.commands.registerCommand(
+      'gemstone.explorer.renameMethod',
+      (item?: MethodItem) => {
+        if (!(item instanceof MethodItem)) return;
+        // Surface any error rather than letting a fire-and-forget rejection vanish
+        // (which looked like the editor "just closing" with no preview).
+        void ctl.renameMethod(item).catch((e: unknown) => {
+          const msg = e instanceof Error ? e.message : String(e);
+          void vscode.window.showErrorMessage(`Rename method failed: ${msg}`);
+        });
+      },
     ),
     // New (+) actions, one per pane.
     vscode.commands.registerCommand('gemstone.explorer.newDictionary', () => ctl.newDictionary()),

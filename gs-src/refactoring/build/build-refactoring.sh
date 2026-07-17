@@ -55,5 +55,13 @@ node "$CONVERTER" --dict "$DICT" --manifest "$OUT/manifest.gs" \
   "$SRC/vendor/rowanv3-ast/AST-Kernel-Core" \
   "$SRC/engine"
 
+# Test-only: the engine's GS SUnit tests, converted so the automatic GCI test can
+# file them in and run them in-stone. Into UserGlobals (NOT the SystemUser-owned
+# GsRefactoring dict) so an ordinary user (e.g. DataCurator) can file them in.
+# NOT part of the production loader and NOT shipped in the .vsix (see
+# .vscodeignore); source-of-truth is gs-src/refactoring/tests/.
+echo "+ engine SUnit tests (test-only) -> engine-tests.gs"
+node "$CONVERTER" --dict "UserGlobals" --out "$OUT/engine-tests.gs" "$SRC/tests"
+
 echo "Done. Payloads in $OUT:"
 ls -1 "$OUT"
