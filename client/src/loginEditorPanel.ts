@@ -309,8 +309,9 @@ export class LoginEditorPanel {
     <label for="stone">Stone</label>
     <input type="text" id="stone" placeholder="gs64stone">
 
-    <label for="netldi">NetLDI</label>
-    <input type="text" id="netldi" placeholder="gs64ldi">
+    <label for="netldi">NetLDI (name or port)</label>
+    <input type="text" id="netldi" placeholder="gs64ldi or 50377">
+    <div class="hint">Accepts a NetLDI service name (e.g. gs64ldi) or a port number (e.g. 50377), useful for remote stones.</div>
   </div>
 
   <div class="field-group">
