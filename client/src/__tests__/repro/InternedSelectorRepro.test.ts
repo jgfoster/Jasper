@@ -8,9 +8,8 @@ import { GCI_LIBRARY_PATH, STONE_NRS, GEM_NRS, GS_USER, GS_PASSWORD } from '../g
 // whole point being demonstrated here is that a selector string only raises
 // NameError the first time this session has seen it become a real Symbol.
 // A fixed literal would only reproduce the "never seen" case once per
-// session, and reusing one across tests that share a session (as
-// useIntegrationTest-based suites do -- see README) makes the result depend
-// on what ran earlier.
+// session -- reusing one across a whole session's lifetime (e.g. multiple
+// tests sharing one login) makes the result depend on what ran earlier.
 function unique(label: string): string {
   return `${label}${Math.random().toString(36).slice(2, 10)}`;
 }

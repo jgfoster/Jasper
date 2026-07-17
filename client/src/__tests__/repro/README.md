@@ -1,12 +1,4 @@
-# perform: NameError vs. MessageNotUnderstood: a session-scoped gotcha
-
-While building Jasper (our VS Code extension for GemStone Smalltalk), a pair
-of our own unit tests turned out to be flaky in a way that traces back to a
-GemStone `perform:` behavior we hadn't seen documented. We wanted to write up
-what we found and share it, in case it's useful for your team, and in case
-you can shed light on the parts we're still unsure about.
-
-## The symptom
+# perform: NameError vs. MessageNotUnderstood depends on compile history
 
 `GciTsPerform` (`perform:` on a receiver, called with a selector string) can
 fail two different ways for what looks like the same input:
@@ -21,11 +13,18 @@ a MessageNotUnderstood occurred (error 2010), a Boolean does not
 understand  #'fooBar'
 ```
 
-We originally wrote a test asserting the first message for a made-up
-selector (`'foo'`) sent to `false`. It passed reliably in isolation, but
-started failing intermittently once we introduced randomized test ordering
-(vitest's `sequence.shuffle`) — the same assertion sometimes got the second
-message instead.
+Which one you get isn't about the receiver or the selector text in
+isolation — it depends on whether that exact selector text has ever been
+compiled as a Symbol before, in that session. That's easy to miss, since
+nothing about the call site changes between the two outcomes. We ran into
+this while building Jasper (our VS Code extension for GemStone Smalltalk):
+a pair of our own unit tests picked an arbitrary "made-up" selector expecting
+`NameError` every time, and started failing intermittently once we
+introduced randomized test ordering — the same assertion sometimes got
+`MessageNotUnderstood` instead, depending on what had run earlier in the same
+session. We wanted to isolate and write up the underlying mechanism, in case
+it's useful for your team, and in case you can shed light on the parts we're
+still unsure about.
 
 ## The trigger
 
@@ -37,29 +36,28 @@ doesn't have a method for this selector," just by two different routes:
 | The selector text has never become a real Symbol in this session | `NameError` (error 2404) |
 | The selector text already is a Symbol, but the receiver has no method for it | `MessageNotUnderstood` (error 2010) |
 
-The part that made our test flaky: **a selector text becomes a Symbol the
-moment it's compiled anywhere as a Symbol literal or message send — it does
-not need to be sent successfully, and it does not need to involve
-`perform:` at all.** We verified two independent ways to trigger it:
+The key mechanism: **a selector text becomes a Symbol the moment it's
+compiled anywhere as a Symbol literal or message send — it does not need to
+be sent successfully, and it does not need to involve `perform:` at all.**
+We verified two independent ways to trigger it:
 
 - Compiling a bare literal, e.g. evaluating `#fooBar` as a doit.
 - Sending `asSymbol` to a matching string, e.g. `'fooBar' asSymbol`.
 
-Once either of those has happened once, in that session, `perform:` on that
-exact text stops raising `NameError` and raises `MessageNotUnderstood`
-instead — permanently, for the rest of that session. We also checked that a
+Once either of those has happened, in that session, `perform:` on that exact
+text stops raising `NameError` and raises `MessageNotUnderstood` instead —
+permanently, for the rest of that session. We also checked that a
 *repeated, identical, failed* `perform:` call does **not** do this on its
 own: sending the same never-seen selector twice raises `NameError` both
 times. Interning only happens through compilation, never through a failed
 lookup.
 
-In our test suite this bit us because a shared GCI session (one login per
-test file, reused across all its tests) meant whichever test happened to run
-first, under a shuffled order, decided whether a later test's `'foo'`
-selector was still "never seen." The fix on our end was simple — assert
-`MessageNotUnderstood` against a selector we know is already a real Symbol
-(e.g. `'new'`) rather than trying to prove a negative about one that isn't —
-but we wanted to isolate the underlying mechanism, since it surprised us.
+The practical implication: any code that branches on `perform:` failing with
+`NameError` specifically (as opposed to any failure) is implicitly making a
+claim about that selector's entire compile history in the current session,
+not just about the current call — and any long-lived session that compiles a
+wide variety of source over its lifetime (a REPL, a worker process, a test
+suite reusing one login) makes that claim progressively less safe to rely on.
 
 ## Things we're still not sure about
 
@@ -87,11 +85,22 @@ hypothesis, not a diagnosis.
 
 | Version | Reproduces? |
 |---|---|
+| 3.6.1 | Yes |
 | 3.6.2 | Yes |
+| 3.6.3 | Yes |
+| 3.6.4 | Yes |
+| 3.6.5 | Yes |
+| 3.6.6 | Yes |
+| 3.6.8 | Yes |
+| 3.7.2 | Yes |
+| 3.7.4.3 | Untested |
+| 3.7.5 | Yes |
 
-We only had a 3.6.2 test stone on hand when isolating this; we haven't yet
-checked whether it holds across the rest of the release matrix we test
-Jasper against.
+Checked against every GemStone version we had a local test stone for. 3.7.4.3
+is untested only because a local environment issue (unrelated to GemStone
+itself — a machine-specific shared-memory cleanup problem) got in the way
+mid-sweep; every other version in the matrix, oldest to newest, reproduces
+identically.
 
 ## Reproducing this
 
