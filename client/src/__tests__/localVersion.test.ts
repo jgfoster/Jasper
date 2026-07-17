@@ -16,11 +16,15 @@ vi.mock('../wslBridge', () => ({
   wslExecSync: vi.fn(),
 }));
 
+import type * as vscode from 'vscode';
 import { __setConfig, __resetConfig } from '../__mocks__/vscode';
 import { SysadminStorage } from '../sysadminStorage';
 import { VersionManager } from '../versionManager';
 import { VersionItem } from '../versionTreeProvider';
 import { GemStoneVersion } from '../sysadminTypes';
+
+/** VersionManager's private `fetchUrl`, exposed as a narrow surface for spying. */
+type FetchUrlHost = { fetchUrl(url: string): Promise<string> };
 
 // ── Helpers ────────────────────────────────────────────────
 
@@ -177,7 +181,7 @@ describe('VersionItem (local version)', () => {
     expect(item.contextValue).toBe('gemstoneVersionLocal');
     expect(item.description).toContain('(local)');
     expect(item.description).toContain('2026-03-24');
-    expect((item.iconPath as any).id).toBe('check');
+    expect((item.iconPath as vscode.ThemeIcon).id).toBe('check');
     expect(item.tooltip).toContain('local build');
     expect(item.tooltip).toContain('private build (branch 3.7.6)');
   });
@@ -196,7 +200,7 @@ describe('VersionItem (local version)', () => {
     const item = new VersionItem(version);
 
     expect(item.contextValue).toBe('gemstoneVersion');
-    expect((item.iconPath as any).id).toBe('cloud');
+    expect((item.iconPath as vscode.ThemeIcon).id).toBe('cloud');
     expect(item.description).toContain('100 MB');
   });
 
@@ -214,7 +218,7 @@ describe('VersionItem (local version)', () => {
     const item = new VersionItem(version);
 
     expect(item.contextValue).toBe('gemstoneVersionServerDownloadedServerExtracted');
-    expect((item.iconPath as any).id).toBe('check');
+    expect((item.iconPath as vscode.ThemeIcon).id).toBe('check');
   });
 
   it('marks a bundled version in description, contextValue, and tooltip', () => {
@@ -256,7 +260,7 @@ describe('VersionManager.fetchAvailableVersions', () => {
     fs.symlinkSync(productDir, path.join(tmpDir, `GemStone64Bit3.7.6${suffix}`));
 
     // Mock the network fetch to return empty HTML (no remote versions)
-    const fetchSpy = vi.spyOn(manager as any, 'fetchUrl').mockResolvedValue('');
+    const fetchSpy = vi.spyOn(manager as unknown as FetchUrlHost, 'fetchUrl').mockResolvedValue('');
 
     const versions = await manager.fetchAvailableVersions();
 
@@ -283,7 +287,7 @@ describe('VersionManager.fetchAvailableVersions', () => {
 
     // Mock fetch to return a remote version with the same version number
     const html = `<a href="GemStone64Bit3.7.6-${platformKey}.${ext}">GemStone64Bit3.7.6-${platformKey}.${ext}</a>  24-Mar-2026 12:00  200000000`;
-    vi.spyOn(manager as any, 'fetchUrl').mockResolvedValue(html);
+    vi.spyOn(manager as unknown as FetchUrlHost, 'fetchUrl').mockResolvedValue(html);
 
     const versions = await manager.fetchAvailableVersions();
 
@@ -321,7 +325,7 @@ describe('VersionManager.fetchAvailableVersions', () => {
       `<a href="GemStone64Bit3.6.4-${platformKey}.${ext}">file</a>  06-Jun-2022 12:00  169000000`,
       `<a href="GemStone64Bit3.8.0-${platformKey}.${ext}">file</a>  01-Jan-2027 12:00  200000000`,
     ].join('\n');
-    vi.spyOn(manager as any, 'fetchUrl').mockResolvedValue(html);
+    vi.spyOn(manager as unknown as FetchUrlHost, 'fetchUrl').mockResolvedValue(html);
 
     const versions = await manager.fetchAvailableVersions();
 
@@ -341,7 +345,7 @@ describe('VersionManager.fetchAvailableVersions', () => {
       `<a href="GemStone64Bit3.6.2-${platformKey}.${ext}">file</a>  01-Jun-2021 12:00  161000000`,
       `<a href="GemStone64Bit3.7.0-${platformKey}.${ext}">file</a>  01-Jan-2022 12:00  170000000`,
     ].join('\n');
-    vi.spyOn(manager as any, 'fetchUrl').mockResolvedValue(html);
+    vi.spyOn(manager as unknown as FetchUrlHost, 'fetchUrl').mockResolvedValue(html);
 
     const versions = await manager.fetchAvailableVersions();
 
@@ -358,7 +362,7 @@ describe('VersionManager.fetchAvailableVersions', () => {
     writeVersionTxt(productDir, SAMPLE_VERSION_TXT);
     fs.symlinkSync(productDir, path.join(tmpDir, `GemStone64Bit3.5.0${suffix}`));
 
-    vi.spyOn(manager as any, 'fetchUrl').mockResolvedValue('');
+    vi.spyOn(manager as unknown as FetchUrlHost, 'fetchUrl').mockResolvedValue('');
 
     const versions = await manager.fetchAvailableVersions();
 

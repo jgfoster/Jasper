@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 
 vi.mock('vscode', () => import('../__mocks__/vscode'));
 
@@ -10,6 +10,7 @@ vi.mock('../browserQueries', () => ({
 }));
 
 import { Uri, window } from '../__mocks__/vscode';
+import type * as vscode from 'vscode';
 import {
   SelectorBreakpointManager,
   findNearestStepPoint,
@@ -57,7 +58,10 @@ function makeEditor(uriStr: string, source: string) {
       active: { line: 0, character: 5 },
     },
     setDecorations: vi.fn(),
-  } as any;
+  } as unknown as vscode.TextEditor & {
+    document: { offsetAt: Mock };
+    setDecorations: Mock;
+  };
 }
 
 // ── findNearestStepPoint ──────────────────────────────────

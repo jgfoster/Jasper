@@ -201,8 +201,11 @@ describe('getBaseMethodSource', () => {
   it('emits ASCII-only source (3.6.x miscompiles non-ASCII: ComStrmSetCursor)', () => {
     const execute = vi.fn<QueryExecutor>(() => '');
     getBaseMethodSource(execute, 'Character', false, 'isVowel', 0);
-    // eslint-disable-next-line no-control-regex
-    expect(/[^\x00-\x7F]/.test(execute.mock.calls[0][1])).toBe(false);
+
+    const code = execute.mock.calls[0][1];
+    // eslint-disable-next-line no-control-regex -- \x00-\x7F is the intentional ASCII range, not a stray control char
+    const asciiOnly = /^[\x00-\x7F]*$/;
+    expect(asciiOnly.test(code)).toBe(true);
   });
 });
 
