@@ -5,7 +5,21 @@ import * as path from 'path';
 import { ActiveSession } from './sessionManager';
 import * as debug from './debugQueries';
 import { executeFetchString } from './browserQueries';
-import { getEnhancedInspectorViewSpecs, fetchEnhancedInspectorPrintTabData, fetchEnhancedInspectorTextData, fetchEnhancedInspectorListData, fetchEnhancedInspectorForwardListData, fetchEnhancedInspectorForwardListTotal, fetchEnhancedInspectorRowOop, fetchEnhancedInspectorForwardRowOop, fetchEnhancedInspectorTreeChildren, fetchEnhancedInspectorListTotal, fetchObjectMeta, fetchMethodSource, fetchMethodBrowseLocation } from './queries/getEnhancedInspectorViewSpecs';
+import {
+  getEnhancedInspectorViewSpecs,
+  fetchEnhancedInspectorPrintTabData,
+  fetchEnhancedInspectorTextData,
+  fetchEnhancedInspectorListData,
+  fetchEnhancedInspectorForwardListData,
+  fetchEnhancedInspectorForwardListTotal,
+  fetchEnhancedInspectorRowOop,
+  fetchEnhancedInspectorForwardRowOop,
+  fetchEnhancedInspectorTreeChildren,
+  fetchEnhancedInspectorListTotal,
+  fetchObjectMeta,
+  fetchMethodSource,
+  fetchMethodBrowseLocation,
+} from './queries/getEnhancedInspectorViewSpecs';
 import { SystemBrowser } from './systemBrowser';
 import { QueryExecutor } from './queries/types';
 
@@ -25,15 +39,67 @@ const MIN_COLUMN_WIDTH = 280;
 
 type InspectorMessage =
   | { command: 'ready' }
-  | { command: 'fetchEnhancedInspectorViewData'; columnId: number; oop: string; methodSelector: string; viewName: string }
-  | { command: 'fetchMoreRows'; columnId: number; oop: string; methodSelector: string; viewName: string; fromIndex: number }
-  | { command: 'fetchEnhancedInspectorViewTotal'; columnId: number; oop: string; methodSelector: string; viewName: string }
-  | { command: 'fetchEnhancedInspectorRangeData'; columnId: number; oop: string; methodSelector: string; viewName: string; fromIndex: number; rangeStart: number }
-  | { command: 'fetchEnhancedInspectorTreeChildren'; columnId: number; itemOop: string; methodSelector: string; path: number[] }
-  | { command: 'enhancedInspectRow'; columnId: number; itemOop: string; methodSelector: string; nodeId: number; viewName: string }
+  | {
+      command: 'fetchEnhancedInspectorViewData';
+      columnId: number;
+      oop: string;
+      methodSelector: string;
+      viewName: string;
+    }
+  | {
+      command: 'fetchMoreRows';
+      columnId: number;
+      oop: string;
+      methodSelector: string;
+      viewName: string;
+      fromIndex: number;
+    }
+  | {
+      command: 'fetchEnhancedInspectorViewTotal';
+      columnId: number;
+      oop: string;
+      methodSelector: string;
+      viewName: string;
+    }
+  | {
+      command: 'fetchEnhancedInspectorRangeData';
+      columnId: number;
+      oop: string;
+      methodSelector: string;
+      viewName: string;
+      fromIndex: number;
+      rangeStart: number;
+    }
+  | {
+      command: 'fetchEnhancedInspectorTreeChildren';
+      columnId: number;
+      itemOop: string;
+      methodSelector: string;
+      path: number[];
+    }
+  | {
+      command: 'enhancedInspectRow';
+      columnId: number;
+      itemOop: string;
+      methodSelector: string;
+      nodeId: number;
+      viewName: string;
+    }
   | { command: 'fetchFullPrintString'; columnId: number; oop: string; methodSelector: string }
-  | { command: 'fetchMethodSource'; columnId: number; oop: string; methodSelector: string; isClassSide: boolean }
-  | { command: 'browseMethod'; columnId: number; oop: string; methodSelector: string; isClassSide: boolean }
+  | {
+      command: 'fetchMethodSource';
+      columnId: number;
+      oop: string;
+      methodSelector: string;
+      isClassSide: boolean;
+    }
+  | {
+      command: 'browseMethod';
+      columnId: number;
+      oop: string;
+      methodSelector: string;
+      isClassSide: boolean;
+    }
   | { command: 'setTitle'; title: string }
   | { command: 'closePanel' };
 
@@ -138,56 +204,139 @@ export class EnhancedInspector {
 
       case 'fetchEnhancedInspectorViewData': {
         const oop = BigInt(msg.oop);
-        if (msg.viewName === 'GtPhlowTextEditorViewSpecification' && msg.methodSelector === 'gtPrintFor:') {
-          const result = fetchEnhancedInspectorPrintTabData(this.makeExecutor(), oop, msg.methodSelector);
-          this.panel.webview.postMessage({ command: 'enhancedInspectorViewData', columnId: msg.columnId, methodSelector: msg.methodSelector, data: result.data, truncated: result.truncated });
+        if (
+          msg.viewName === 'GtPhlowTextEditorViewSpecification' &&
+          msg.methodSelector === 'gtPrintFor:'
+        ) {
+          const result = fetchEnhancedInspectorPrintTabData(
+            this.makeExecutor(),
+            oop,
+            msg.methodSelector,
+          );
+          this.panel.webview.postMessage({
+            command: 'enhancedInspectorViewData',
+            columnId: msg.columnId,
+            methodSelector: msg.methodSelector,
+            data: result.data,
+            truncated: result.truncated,
+          });
         } else {
           const data = this.fetchEnhancedInspectorViewData(oop, msg.methodSelector, msg.viewName);
-          this.panel.webview.postMessage({ command: 'enhancedInspectorViewData', columnId: msg.columnId, methodSelector: msg.methodSelector, data });
+          this.panel.webview.postMessage({
+            command: 'enhancedInspectorViewData',
+            columnId: msg.columnId,
+            methodSelector: msg.methodSelector,
+            data,
+          });
         }
         break;
       }
 
       case 'fetchMoreRows': {
-        const more = this.fetchEnhancedInspectorViewData(BigInt(msg.oop), msg.methodSelector, msg.viewName, msg.fromIndex);
-        this.panel.webview.postMessage({ command: 'enhancedInspectorMoreRows', columnId: msg.columnId, methodSelector: msg.methodSelector, data: more });
+        const more = this.fetchEnhancedInspectorViewData(
+          BigInt(msg.oop),
+          msg.methodSelector,
+          msg.viewName,
+          msg.fromIndex,
+        );
+        this.panel.webview.postMessage({
+          command: 'enhancedInspectorMoreRows',
+          columnId: msg.columnId,
+          methodSelector: msg.methodSelector,
+          data: more,
+        });
         break;
       }
 
       case 'fetchEnhancedInspectorViewTotal': {
         const isForward = msg.viewName === 'GtPhlowForwardViewSpecification';
         const total = isForward
-          ? fetchEnhancedInspectorForwardListTotal(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector)
-          : fetchEnhancedInspectorListTotal(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector);
-        this.panel.webview.postMessage({ command: 'enhancedInspectorViewTotal', columnId: msg.columnId, methodSelector: msg.methodSelector, total });
+          ? fetchEnhancedInspectorForwardListTotal(
+              this.makeExecutor(),
+              BigInt(msg.oop),
+              msg.methodSelector,
+            )
+          : fetchEnhancedInspectorListTotal(
+              this.makeExecutor(),
+              BigInt(msg.oop),
+              msg.methodSelector,
+            );
+        this.panel.webview.postMessage({
+          command: 'enhancedInspectorViewTotal',
+          columnId: msg.columnId,
+          methodSelector: msg.methodSelector,
+          total,
+        });
         break;
       }
 
       case 'fetchEnhancedInspectorRangeData': {
-        const rangeData = msg.viewName === 'GtPhlowForwardViewSpecification'
-          ? fetchEnhancedInspectorForwardListData(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector, msg.fromIndex, PAGE_SIZE)
-          : fetchEnhancedInspectorListData(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector, msg.fromIndex, PAGE_SIZE);
-        this.panel.webview.postMessage({ command: 'enhancedInspectorRangeData', columnId: msg.columnId, methodSelector: msg.methodSelector, rangeStart: msg.rangeStart, data: rangeData });
+        const rangeData =
+          msg.viewName === 'GtPhlowForwardViewSpecification'
+            ? fetchEnhancedInspectorForwardListData(
+                this.makeExecutor(),
+                BigInt(msg.oop),
+                msg.methodSelector,
+                msg.fromIndex,
+                PAGE_SIZE,
+              )
+            : fetchEnhancedInspectorListData(
+                this.makeExecutor(),
+                BigInt(msg.oop),
+                msg.methodSelector,
+                msg.fromIndex,
+                PAGE_SIZE,
+              );
+        this.panel.webview.postMessage({
+          command: 'enhancedInspectorRangeData',
+          columnId: msg.columnId,
+          methodSelector: msg.methodSelector,
+          rangeStart: msg.rangeStart,
+          data: rangeData,
+        });
         break;
       }
 
       case 'fetchEnhancedInspectorTreeChildren': {
-        const children = fetchEnhancedInspectorTreeChildren(this.makeExecutor(), BigInt(msg.itemOop), msg.methodSelector, msg.path);
-        this.panel.webview.postMessage({ command: 'enhancedInspectorTreeChildren', columnId: msg.columnId, methodSelector: msg.methodSelector, path: msg.path, data: children });
+        const children = fetchEnhancedInspectorTreeChildren(
+          this.makeExecutor(),
+          BigInt(msg.itemOop),
+          msg.methodSelector,
+          msg.path,
+        );
+        this.panel.webview.postMessage({
+          command: 'enhancedInspectorTreeChildren',
+          columnId: msg.columnId,
+          methodSelector: msg.methodSelector,
+          path: msg.path,
+          data: children,
+        });
         break;
       }
 
       case 'fetchFullPrintString': {
         const fullText = debug.fetchFullPrintString(this.session, BigInt(msg.oop));
         const data = JSON.stringify({ string: fullText, stylerSpecification: null });
-        this.panel.webview.postMessage({ command: 'fullPrintString', columnId: msg.columnId, methodSelector: msg.methodSelector, data });
+        this.panel.webview.postMessage({
+          command: 'fullPrintString',
+          columnId: msg.columnId,
+          methodSelector: msg.methodSelector,
+          data,
+        });
         break;
       }
 
       case 'browseMethod': {
-        const loc = fetchMethodBrowseLocation(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector, msg.isClassSide);
+        const loc = fetchMethodBrowseLocation(
+          this.makeExecutor(),
+          BigInt(msg.oop),
+          msg.methodSelector,
+          msg.isClassSide,
+        );
         if (!loc) {
-          vscode.window.showWarningMessage(`Cannot browse ${msg.methodSelector}: failed to locate class in GemStone.`);
+          vscode.window.showWarningMessage(
+            `Cannot browse ${msg.methodSelector}: failed to locate class in GemStone.`,
+          );
           break;
         }
         SystemBrowser.navigateBeside(this.session, {
@@ -201,15 +350,37 @@ export class EnhancedInspector {
       }
 
       case 'fetchMethodSource': {
-        const source = fetchMethodSource(this.makeExecutor(), BigInt(msg.oop), msg.methodSelector, msg.isClassSide);
-        this.panel.webview.postMessage({ command: 'methodSource', columnId: msg.columnId, methodSelector: msg.methodSelector, isClassSide: msg.isClassSide, source });
+        const source = fetchMethodSource(
+          this.makeExecutor(),
+          BigInt(msg.oop),
+          msg.methodSelector,
+          msg.isClassSide,
+        );
+        this.panel.webview.postMessage({
+          command: 'methodSource',
+          columnId: msg.columnId,
+          methodSelector: msg.methodSelector,
+          isClassSide: msg.isClassSide,
+          source,
+        });
         break;
       }
 
       case 'enhancedInspectRow': {
-        const rowOop = msg.viewName === 'GtPhlowForwardViewSpecification'
-          ? fetchEnhancedInspectorForwardRowOop(this.makeExecutor(), BigInt(msg.itemOop), msg.methodSelector, msg.nodeId)
-          : fetchEnhancedInspectorRowOop(this.makeExecutor(), BigInt(msg.itemOop), msg.methodSelector, msg.nodeId);
+        const rowOop =
+          msg.viewName === 'GtPhlowForwardViewSpecification'
+            ? fetchEnhancedInspectorForwardRowOop(
+                this.makeExecutor(),
+                BigInt(msg.itemOop),
+                msg.methodSelector,
+                msg.nodeId,
+              )
+            : fetchEnhancedInspectorRowOop(
+                this.makeExecutor(),
+                BigInt(msg.itemOop),
+                msg.methodSelector,
+                msg.nodeId,
+              );
         if (rowOop !== null) {
           const columnId = this.nextColumnId++;
           const label = msg.methodSelector + '[' + msg.nodeId + ']';
@@ -245,13 +416,27 @@ export class EnhancedInspector {
     return (label, code) => executeFetchString(this.session, label, code);
   }
 
-  private fetchEnhancedInspectorViewData(oop: bigint, methodSelector: string, viewName: string, fromIndex = 1): string | null {
+  private fetchEnhancedInspectorViewData(
+    oop: bigint,
+    methodSelector: string,
+    viewName: string,
+    fromIndex = 1,
+  ): string | null {
     const execute = this.makeExecutor();
-    if (viewName === 'GtPhlowTextViewSpecification' || viewName === 'GtPhlowTextEditorViewSpecification') {
+    if (
+      viewName === 'GtPhlowTextViewSpecification' ||
+      viewName === 'GtPhlowTextEditorViewSpecification'
+    ) {
       return fetchEnhancedInspectorTextData(execute, oop, methodSelector);
     }
     if (viewName === 'GtPhlowForwardViewSpecification') {
-      return fetchEnhancedInspectorForwardListData(execute, oop, methodSelector, fromIndex, PAGE_SIZE);
+      return fetchEnhancedInspectorForwardListData(
+        execute,
+        oop,
+        methodSelector,
+        fromIndex,
+        PAGE_SIZE,
+      );
     }
     return fetchEnhancedInspectorListData(execute, oop, methodSelector, fromIndex, PAGE_SIZE);
   }

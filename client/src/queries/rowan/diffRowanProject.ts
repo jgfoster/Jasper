@@ -46,15 +46,18 @@ ws contents`;
 
   const raw = execute(`diffRowanProject(${projectName})`, code);
   const trimmed = raw.trimStart();
-  if (trimmed.startsWith(NO_ROWAN)) return { ok: false, error: 'Rowan is not installed in this image.', operations: [] };
-  if (trimmed.startsWith(ERR_PREFIX)) return { ok: false, error: raw.trim().slice(ERR_PREFIX.length), operations: [] };
+  if (trimmed.startsWith(NO_ROWAN))
+    return { ok: false, error: 'Rowan is not installed in this image.', operations: [] };
+  if (trimmed.startsWith(ERR_PREFIX))
+    return { ok: false, error: raw.trim().slice(ERR_PREFIX.length), operations: [] };
 
   const operations: RowanDiffOp[] = [];
   for (const line of raw.split('\n')) {
     if (line.length === 0) continue;
     const parts = line.split('\t');
     if (parts.length < 3) continue;
-    const location: RowanDiffLocation = parts[0] === 'I' ? 'image' : parts[0] === 'D' ? 'disk' : 'changed';
+    const location: RowanDiffLocation =
+      parts[0] === 'I' ? 'image' : parts[0] === 'D' ? 'disk' : 'changed';
     operations.push({ location, package: parts[1], target: cleanTarget(parts[2]) });
   }
   return { ok: true, error: '', operations };
@@ -77,7 +80,8 @@ const LABEL: Record<RowanDiffLocation, string> = {
 export function formatRowanDiff(projectName: string, diff: RowanDiff): string {
   const header = `Rowan diff — ${projectName}  (image vs disk)`;
   if (!diff.ok) return `${header}\n\n${diff.error}\n`;
-  if (diff.operations.length === 0) return `${header}\n\nNo differences — the image matches the on-disk source.\n`;
+  if (diff.operations.length === 0)
+    return `${header}\n\nNo differences — the image matches the on-disk source.\n`;
 
   const byPackage = new Map<string, RowanDiffOp[]>();
   for (const op of diff.operations) {
@@ -93,9 +97,10 @@ export function formatRowanDiff(projectName: string, diff: RowanDiff): string {
   ];
   for (const pkg of [...byPackage.keys()].sort()) {
     lines.push('', pkg);
-    const ops = byPackage.get(pkg)!.slice().sort(
-      (a, b) => a.location.localeCompare(b.location) || a.target.localeCompare(b.target),
-    );
+    const ops = byPackage
+      .get(pkg)!
+      .slice()
+      .sort((a, b) => a.location.localeCompare(b.location) || a.target.localeCompare(b.target));
     for (const op of ops) lines.push(`  ${LABEL[op.location]}:  ${op.target}`);
   }
   return lines.join('\n') + '\n';

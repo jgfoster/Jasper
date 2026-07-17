@@ -7,13 +7,16 @@ function gemUri(path: string): Uri {
   return Uri.parse(`gemstone://1/${path}`);
 }
 
-function setGroups(groups: { viewColumn?: number; uris: (Uri | { original: Uri; modified: Uri })[] }[]): void {
-  window.tabGroups.all = groups.map(g => ({
+function setGroups(
+  groups: { viewColumn?: number; uris: (Uri | { original: Uri; modified: Uri })[] }[],
+): void {
+  window.tabGroups.all = groups.map((g) => ({
     viewColumn: g.viewColumn,
-    tabs: g.uris.map(u =>
+    tabs: g.uris.map((u) =>
       'modified' in u
         ? { input: new TabInputTextDiff(u.original, u.modified) }
-        : { input: new TabInputText(u) }),
+        : { input: new TabInputText(u) },
+    ),
   }));
 }
 
@@ -95,8 +98,11 @@ describe('SourceEditorPlacement', () => {
 
     it('reuses its least-full owned column once the cap is reached', () => {
       const placement = new SourceEditorPlacement();
-      const a = gemUri('A'), b = gemUri('B'), c = gemUri('C'), d = gemUri('D');
-      [a, b, c, d].forEach(u => placement.remember(u));
+      const a = gemUri('A'),
+        b = gemUri('B'),
+        c = gemUri('C'),
+        d = gemUri('D');
+      [a, b, c, d].forEach((u) => placement.remember(u));
       setGroups([
         { viewColumn: 1, uris: [a, b] },
         { viewColumn: 2, uris: [c] },
@@ -106,7 +112,7 @@ describe('SourceEditorPlacement', () => {
       expect(placement.balancedColumn(3)).toBe(2);
     });
 
-    it('does not count another browser\'s columns toward the balance', () => {
+    it("does not count another browser's columns toward the balance", () => {
       const placement = new SourceEditorPlacement();
       const mine = gemUri('mine');
       placement.remember(mine);

@@ -17,7 +17,9 @@ export interface RowanExportResult {
 // and without it the copy cannot be reloaded. `asDefinition` + `writeResolvedProject:`
 // have no image side effects (no dirty-flag changes, unlike `writeProjectNamed:`).
 export function exportRowanProject(
-  execute: QueryExecutor, projectName: string, targetDir: string,
+  execute: QueryExecutor,
+  projectName: string,
+  targetDir: string,
 ): RowanExportResult {
   const code = `| r lp def sep |
 sep := String with: Character tab.

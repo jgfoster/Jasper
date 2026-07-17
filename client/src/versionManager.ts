@@ -27,19 +27,23 @@ export class VersionManager {
     const versions: GemStoneVersion[] = [];
     const regex = new RegExp(
       `href="(GemStone64Bit([\\d.]+)-${platformKey.replace('.', '\\.')}\\.${ext})"[^>]*>.*?` +
-      `(\\d{2}-\\w{3}-\\d{4})\\s+\\d{2}:\\d{2}\\s+(\\d+)`,
+        `(\\d{2}-\\w{3}-\\d{4})\\s+\\d{2}:\\d{2}\\s+(\\d+)`,
       'g',
     );
 
     const hasLocalServer = this.storage.getPlatformKey() !== undefined;
-    const downloaded = hasLocalServer ? this.storage.getDownloadedFiles() : new Map<string, number>();
+    const downloaded = hasLocalServer
+      ? this.storage.getDownloadedFiles()
+      : new Map<string, number>();
     const extractedInfos = hasLocalServer ? this.storage.getExtractedVersionInfos() : [];
-    const extractedMap = new Map(extractedInfos.map(e => [e.version, e.isLocal]));
+    const extractedMap = new Map(extractedInfos.map((e) => [e.version, e.isLocal]));
     const clientExtracted = new Set(
       process.platform === 'win32' ? this.storage.getExtractedWindowsClientVersions() : [],
     );
     const bundled = new Set(
-      process.platform === 'win32' && bundledGciArchSupported() ? bundledWindowsClientVersions() : [],
+      process.platform === 'win32' && bundledGciArchSupported()
+        ? bundledWindowsClientVersions()
+        : [],
     );
 
     // Add local (symlinked) versions first
@@ -83,7 +87,9 @@ export class VersionManager {
 
     // Drop remote versions older than the minimum; local installs are always kept
     const supportedVersions = versions.filter(
-      version => version.local || compareGemStoneVersions(version.version, MINIMUM_SUPPORTED_GEMSTONE_VERSION) >= 0,
+      (version) =>
+        version.local ||
+        compareGemStoneVersions(version.version, MINIMUM_SUPPORTED_GEMSTONE_VERSION) >= 0,
     );
 
     // Sort newest first; local versions before remote at same version
@@ -92,7 +98,7 @@ export class VersionManager {
       if (comparison !== 0) return -comparison; // negate for newest first
       return (b.local ? 1 : 0) - (a.local ? 1 : 0);
     });
-    
+
     return supportedVersions;
   }
 
@@ -114,7 +120,11 @@ export class VersionManager {
 
         token.onCancellationRequested(() => {
           proc.kill();
-          try { wslExecSync(`rm -f "${targetPath}"`); } catch { /* ignore */ }
+          try {
+            wslExecSync(`rm -f "${targetPath}"`);
+          } catch {
+            /* ignore */
+          }
           reject(new Error('Download cancelled'));
         });
 
@@ -128,7 +138,11 @@ export class VersionManager {
 
         proc.on('close', (code) => {
           if (code !== 0) {
-            try { wslExecSync(`rm -f "${targetPath}"`); } catch { /* ignore */ }
+            try {
+              wslExecSync(`rm -f "${targetPath}"`);
+            } catch {
+              /* ignore */
+            }
             reject(new Error(`curl exited with code ${code}`));
           } else {
             resolve();
@@ -167,7 +181,12 @@ export class VersionManager {
         });
 
         const request = https.get(downloadUrl, (res) => {
-          if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          if (
+            res.statusCode &&
+            res.statusCode >= 300 &&
+            res.statusCode < 400 &&
+            res.headers.location
+          ) {
             file.close(() => {
               if (!cancelled) {
                 doDownload(res.headers.location!).then(resolve, reject);
@@ -228,9 +247,7 @@ export class VersionManager {
         await this.extractDmg(filePath, rootPath, progress);
       } else {
         // Linux and Windows (via WSL) both use zip
-        const rootPath = needsWsl()
-          ? this.storage.getWslRootPath()
-          : this.storage.getRootPath();
+        const rootPath = needsWsl() ? this.storage.getWslRootPath() : this.storage.getRootPath();
         const filePath = `${rootPath}/${version.fileName}`;
         await this.extractZip(filePath, rootPath, progress);
       }
@@ -259,7 +276,7 @@ export class VersionManager {
       progress.report({ message: 'Copying files...' });
       // Find the GemStone directory in the mount point
       const entries = fs.readdirSync(mountPoint);
-      const gsDir = entries.find(e => e.startsWith('GemStone64Bit'));
+      const gsDir = entries.find((e) => e.startsWith('GemStone64Bit'));
       if (!gsDir) {
         throw new Error(`No GemStone directory found in mounted DMG at ${mountPoint}`);
       }
@@ -295,7 +312,7 @@ export class VersionManager {
       if (unzip.code !== 127) {
         throw new Error(
           `unzip failed with exit code ${unzip.code}` +
-          (unzip.stderr ? `: ${unzip.stderr.trim().split('\n').slice(-3).join(' | ')}` : ''),
+            (unzip.stderr ? `: ${unzip.stderr.trim().split('\n').slice(-3).join(' | ')}` : ''),
         );
       }
       // Unlike `python3 -m zipfile -e`, this preserves the Unix mode bits
@@ -321,12 +338,12 @@ export class VersionManager {
       if (py.code === 127) {
         throw new Error(
           "Neither 'unzip' nor 'python3' is available in your WSL distro. " +
-          "Install one with: wsl -e sudo apt-get install -y unzip",
+            'Install one with: wsl -e sudo apt-get install -y unzip',
         );
       }
       throw new Error(
         `python3 zipfile extract failed with exit code ${py.code}` +
-        (py.stderr ? `: ${py.stderr.trim().split('\n').slice(-3).join(' | ')}` : ''),
+          (py.stderr ? `: ${py.stderr.trim().split('\n').slice(-3).join(' | ')}` : ''),
       );
     } else {
       const result = spawnSync('unzip', ['-o', zipPath, '-d', destDir], { stdio: 'ignore' });
@@ -340,14 +357,13 @@ export class VersionManager {
     appendSysadmin(`Extracted ${path.basename(zipPath)} to ${destDir}`);
   }
 
-  private runWslExtract(
-    cmd: string,
-    args: string[],
-  ): Promise<{ code: number; stderr: string }> {
+  private runWslExtract(cmd: string, args: string[]): Promise<{ code: number; stderr: string }> {
     return new Promise((resolve, reject) => {
       const proc = wslSpawn(cmd, args);
       let stderr = '';
-      proc.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+      proc.stderr?.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString();
+      });
       proc.on('close', (code) => resolve({ code: code ?? 1, stderr }));
       proc.on('error', reject);
     });
@@ -452,7 +468,11 @@ export class VersionManager {
       appendSysadmin(`Extracted Windows client: ${fileName}`);
     } finally {
       if (fs.existsSync(zipPath)) {
-        try { fs.unlinkSync(zipPath); } catch { /* best effort */ }
+        try {
+          fs.unlinkSync(zipPath);
+        } catch {
+          /* best effort */
+        }
       }
     }
   }
@@ -469,7 +489,12 @@ export class VersionManager {
   private fetchUrl(url: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const request = https.get(url, { timeout: 10000 }, (res) => {
-        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        if (
+          res.statusCode &&
+          res.statusCode >= 300 &&
+          res.statusCode < 400 &&
+          res.headers.location
+        ) {
           this.fetchUrl(res.headers.location).then(resolve, reject);
           return;
         }
@@ -478,7 +503,9 @@ export class VersionManager {
           return;
         }
         let data = '';
-        res.on('data', (chunk) => { data += chunk; });
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
         res.on('end', () => resolve(data));
         res.on('error', reject);
       });

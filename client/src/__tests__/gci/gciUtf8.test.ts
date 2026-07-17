@@ -45,19 +45,19 @@ describe('GCI session-free UTF-8 functions', () => {
     it('parses a 2-byte UTF-8 character', () => {
       const { bytes, codePoint } = gci.GciNextUtf8Character('\u00e9');
       expect(bytes).toBe(2);
-      expect(codePoint).toBe(0x00E9);
+      expect(codePoint).toBe(0x00e9);
     });
 
     it('parses a 3-byte UTF-8 character', () => {
       const { bytes, codePoint } = gci.GciNextUtf8Character('\u4e16');
       expect(bytes).toBe(3);
-      expect(codePoint).toBe(0x4E16);
+      expect(codePoint).toBe(0x4e16);
     });
 
     it('parses a 4-byte UTF-8 character (emoji)', () => {
       const { bytes, codePoint } = gci.GciNextUtf8Character('\u{1F600}');
       expect(bytes).toBe(4);
-      expect(codePoint).toBe(0x1F600);
+      expect(codePoint).toBe(0x1f600);
     });
   });
 });

@@ -28,21 +28,26 @@ export class InlineValuesCodeLensProvider implements vscode.CodeLensProvider {
     if (!DebuggerPanel.isLiveSourceUri(uri)) return [];
     const range = new vscode.Range(0, 0, 0, 0);
     const on = DebuggerPanel.isInlineValuesEnabledFor(uri);
-    const lenses = [new vscode.CodeLens(range, {
-      title: on ? '$(eye) Inline values: on' : '$(eye-closed) Inline values: off',
-      tooltip: 'Show each in-scope variable’s value inline in this source pane',
-      command: 'gemstone.toggleInlineValues',
-      arguments: [uri],
-    })];
+    const lenses = [
+      new vscode.CodeLens(range, {
+        title: on ? '$(eye) Inline values: on' : '$(eye-closed) Inline values: off',
+        tooltip: 'Show each in-scope variable’s value inline in this source pane',
+        command: 'gemstone.toggleInlineValues',
+        arguments: [uri],
+      }),
+    ];
     // The mode toggle only makes sense while the overlay is on.
     if (on) {
       const perLine = DebuggerPanel.isInlineValuesPerLineFor(uri);
-      lenses.push(new vscode.CodeLens(range, {
-        title: perLine ? '$(list-ordered) Every line: on' : '$(list-ordered) Every line: off',
-        tooltip: 'On: show a variable on every line that references it. Off: only at its first use.',
-        command: 'gemstone.toggleInlineValuesPerLine',
-        arguments: [uri],
-      }));
+      lenses.push(
+        new vscode.CodeLens(range, {
+          title: perLine ? '$(list-ordered) Every line: on' : '$(list-ordered) Every line: off',
+          tooltip:
+            'On: show a variable on every line that references it. Off: only at its first use.',
+          command: 'gemstone.toggleInlineValuesPerLine',
+          arguments: [uri],
+        }),
+      );
     }
     return lenses;
   }

@@ -18,10 +18,7 @@ import * as path from 'path';
  * These tests pin both the behavior and the client<->server wire contract.
  */
 
-const CLIENT_SRC = fs.readFileSync(
-  path.join(__dirname, '..', 'enhancedInspector.ts'),
-  'utf8',
-);
+const CLIENT_SRC = fs.readFileSync(path.join(__dirname, '..', 'enhancedInspector.ts'), 'utf8');
 const SERVER_PAYLOAD = fs.readFileSync(
   path.join(__dirname, '..', '..', '..', 'resources', 'enhancedInspector', 'gtoolkit-remote.gs'),
   'utf8',
@@ -115,7 +112,10 @@ describe('enhanced inspector run-based-text wire contract', () => {
     const serverMatch = SERVER_PAYLOAD.match(
       /classmethod:\s+GtPhlowRunBasedText\s*\n\s*typeLabel\b[\s\S]{0,40}?\^\s*'([^']+)'/,
     );
-    expect(serverMatch, 'GtPhlowRunBasedText>>typeLabel not found in gtoolkit-remote.gs').not.toBeNull();
+    expect(
+      serverMatch,
+      'GtPhlowRunBasedText>>typeLabel not found in gtoolkit-remote.gs',
+    ).not.toBeNull();
     const serverLabel = serverMatch![1];
 
     expect(clientLabel).toBe(serverLabel);

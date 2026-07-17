@@ -47,13 +47,20 @@ function matchCommand(line: string, commands: string[]): { command: string; rest
 
 function minAbbrev(cmd: string): number {
   switch (cmd) {
-    case 'run': return 3;
-    case 'doit': return 2;
-    case 'print': return 2;
-    case 'printit': return 7;
-    case 'method': return 3;
-    case 'classmethod': return 6;
-    default: return 3;
+    case 'run':
+      return 3;
+    case 'doit':
+      return 2;
+    case 'print':
+      return 2;
+    case 'printit':
+      return 7;
+    case 'method':
+      return 3;
+    case 'classmethod':
+      return 6;
+    default:
+      return 3;
   }
 }
 
@@ -222,7 +229,12 @@ export function fileInClass(
 
       try {
         queries.compileMethod(
-          session, className, isMeta, currentCategory, region.text, environmentId,
+          session,
+          className,
+          isMeta,
+          currentCategory,
+          region.text,
+          environmentId,
         );
         compiledMethods++;
       } catch (e: unknown) {
@@ -361,7 +373,12 @@ export function fileInChangedRegions(
     if (!oldMethod || oldMethod.text !== m.text || oldMethod.category !== m.category) {
       try {
         queries.compileMethod(
-          session, m.key.className, m.key.isMeta, m.category, m.text, environmentId,
+          session,
+          m.key.className,
+          m.key.isMeta,
+          m.category,
+          m.text,
+          environmentId,
         );
         compiledMethods++;
       } catch (e: unknown) {
@@ -382,7 +399,10 @@ export function fileInChangedRegions(
       if (!newMethodKeys.has(keyStr)) {
         try {
           queries.deleteMethod(
-            session, oldMethod.key.className, oldMethod.key.isMeta, oldMethod.key.selector,
+            session,
+            oldMethod.key.className,
+            oldMethod.key.isMeta,
+            oldMethod.key.selector,
           );
           deletedMethods++;
         } catch (e: unknown) {

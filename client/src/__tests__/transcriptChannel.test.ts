@@ -4,7 +4,10 @@ vi.mock('vscode', () => import('../__mocks__/vscode'));
 
 import { window } from 'vscode';
 import {
-  getTranscriptChannel, appendTranscript, appendTranscriptOutput, showTranscript,
+  getTranscriptChannel,
+  appendTranscript,
+  appendTranscriptOutput,
+  showTranscript,
   _resetTranscriptChannelForTests,
 } from '../transcriptChannel';
 

@@ -1,7 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  renderGrailStub, selectorKind, selectorArity, selectorToPyName,
-} from '../grailStub';
+import { renderGrailStub, selectorKind, selectorArity, selectorToPyName } from '../grailStub';
 import { GrailStubReflection } from '../queries/grailStubReflection';
 
 function reflection(overrides: Partial<GrailStubReflection> = {}): GrailStubReflection {
@@ -50,7 +48,10 @@ describe('selector to Python name', () => {
 describe('rendering a Grail stub', () => {
   it('emits the grail import and the smalltalk_class decorator for the class', () => {
     const out = renderGrailStub({
-      className: 'Account', dictionaryName: 'Finance', reflection: reflection(), wrapSelectors: [],
+      className: 'Account',
+      dictionaryName: 'Finance',
+      reflection: reflection(),
+      wrapSelectors: [],
     });
 
     expect(out).toContain('from grail import smalltalk, smalltalk_class');
@@ -60,8 +61,10 @@ describe('rendering a Grail stub', () => {
 
   it('lists the class comment as a docstring', () => {
     const out = renderGrailStub({
-      className: 'Account', dictionaryName: 'Finance',
-      reflection: reflection({ comment: 'An account.' }), wrapSelectors: [],
+      className: 'Account',
+      dictionaryName: 'Finance',
+      reflection: reflection({ comment: 'An account.' }),
+      wrapSelectors: [],
     });
 
     expect(out).toContain('    """An account."""');
@@ -69,11 +72,14 @@ describe('rendering a Grail stub', () => {
 
   it('renders own instance variables as an ordered slots tuple', () => {
     const out = renderGrailStub({
-      className: 'Account', dictionaryName: 'Finance',
-      reflection: reflection({ instVars: [
-        { name: 'balance', hasGetter: false, hasSetter: false },
-        { name: 'owner', hasGetter: false, hasSetter: false },
-      ] }),
+      className: 'Account',
+      dictionaryName: 'Finance',
+      reflection: reflection({
+        instVars: [
+          { name: 'balance', hasGetter: false, hasSetter: false },
+          { name: 'owner', hasGetter: false, hasSetter: false },
+        ],
+      }),
       wrapSelectors: [],
     });
 
@@ -82,7 +88,10 @@ describe('rendering a Grail stub', () => {
 
   it('uses an empty tuple when the class has no own instance variables', () => {
     const out = renderGrailStub({
-      className: 'Account', dictionaryName: 'Finance', reflection: reflection(), wrapSelectors: [],
+      className: 'Account',
+      dictionaryName: 'Finance',
+      reflection: reflection(),
+      wrapSelectors: [],
     });
 
     expect(out).toContain('    __slots__ = ()');
@@ -90,7 +99,8 @@ describe('rendering a Grail stub', () => {
 
   it('keeps a trailing comma for a single instance variable', () => {
     const out = renderGrailStub({
-      className: 'Box', dictionaryName: 'Toys',
+      className: 'Box',
+      dictionaryName: 'Toys',
       reflection: reflection({ instVars: [{ name: 'value', hasGetter: false, hasSetter: false }] }),
       wrapSelectors: [],
     });
@@ -100,7 +110,8 @@ describe('rendering a Grail stub', () => {
 
   it('wraps the accessor and mutator that the class actually understands', () => {
     const out = renderGrailStub({
-      className: 'Account', dictionaryName: 'Finance',
+      className: 'Account',
+      dictionaryName: 'Finance',
       reflection: reflection({ instVars: [{ name: 'balance', hasGetter: true, hasSetter: true }] }),
       wrapSelectors: [],
     });
@@ -113,7 +124,8 @@ describe('rendering a Grail stub', () => {
 
   it('omits the mutator wrapper for a read-only instance variable', () => {
     const out = renderGrailStub({
-      className: 'Account', dictionaryName: 'Finance',
+      className: 'Account',
+      dictionaryName: 'Finance',
       reflection: reflection({ instVars: [{ name: 'owner', hasGetter: true, hasSetter: false }] }),
       wrapSelectors: [],
     });
@@ -124,8 +136,11 @@ describe('rendering a Grail stub', () => {
 
   it('notes an instance variable with no accessor instead of wrapping it', () => {
     const out = renderGrailStub({
-      className: 'Account', dictionaryName: 'Finance',
-      reflection: reflection({ instVars: [{ name: 'history', hasGetter: false, hasSetter: false }] }),
+      className: 'Account',
+      dictionaryName: 'Finance',
+      reflection: reflection({
+        instVars: [{ name: 'history', hasGetter: false, hasSetter: false }],
+      }),
       wrapSelectors: [],
     });
 
@@ -135,7 +150,9 @@ describe('rendering a Grail stub', () => {
 
   it('scaffolds a keyword method wrapper with one argument per keyword part', () => {
     const out = renderGrailStub({
-      className: 'Account', dictionaryName: 'Finance', reflection: reflection(),
+      className: 'Account',
+      dictionaryName: 'Finance',
+      reflection: reflection(),
       wrapSelectors: [{ side: 'instance', selector: 'transferTo:amount:' }],
     });
 
@@ -145,7 +162,9 @@ describe('rendering a Grail stub', () => {
 
   it('scaffolds a class-side wrapper as a classmethod on the class', () => {
     const out = renderGrailStub({
-      className: 'Account', dictionaryName: 'Finance', reflection: reflection(),
+      className: 'Account',
+      dictionaryName: 'Finance',
+      reflection: reflection(),
       wrapSelectors: [{ side: 'class', selector: 'new' }],
     });
 
@@ -156,8 +175,11 @@ describe('rendering a Grail stub', () => {
 
   it('lists binary selectors as commented candidates rather than wrapping them', () => {
     const out = renderGrailStub({
-      className: 'Account', dictionaryName: 'Finance',
-      reflection: reflection({ methods: [{ side: 'instance', category: 'comparing', selector: '=' }] }),
+      className: 'Account',
+      dictionaryName: 'Finance',
+      reflection: reflection({
+        methods: [{ side: 'instance', category: 'comparing', selector: '=' }],
+      }),
       wrapSelectors: [],
     });
 
@@ -167,8 +189,11 @@ describe('rendering a Grail stub', () => {
 
   it('renames a wrapper whose name would collide with a slot', () => {
     const out = renderGrailStub({
-      className: 'Account', dictionaryName: 'Finance',
-      reflection: reflection({ instVars: [{ name: 'deposit', hasGetter: false, hasSetter: false }] }),
+      className: 'Account',
+      dictionaryName: 'Finance',
+      reflection: reflection({
+        instVars: [{ name: 'deposit', hasGetter: false, hasSetter: false }],
+      }),
       wrapSelectors: [{ side: 'instance', selector: 'deposit:' }],
     });
 
@@ -177,7 +202,9 @@ describe('rendering a Grail stub', () => {
 
   it('renames a wrapper whose name is a Python keyword', () => {
     const out = renderGrailStub({
-      className: 'Account', dictionaryName: 'Finance', reflection: reflection(),
+      className: 'Account',
+      dictionaryName: 'Finance',
+      reflection: reflection(),
       wrapSelectors: [{ side: 'instance', selector: 'class' }],
     });
 
@@ -186,7 +213,9 @@ describe('rendering a Grail stub', () => {
 
   it('replaces a keyword part that is a Python keyword with a positional name', () => {
     const out = renderGrailStub({
-      className: 'Account', dictionaryName: 'Finance', reflection: reflection(),
+      className: 'Account',
+      dictionaryName: 'Finance',
+      reflection: reflection(),
       wrapSelectors: [{ side: 'instance', selector: 'if:then:' }],
     });
 
@@ -195,13 +224,16 @@ describe('rendering a Grail stub', () => {
 
   it('indents the class body by four spaces', () => {
     const out = renderGrailStub({
-      className: 'Account', dictionaryName: 'Finance',
-      reflection: reflection({ instVars: [{ name: 'balance', hasGetter: true, hasSetter: false }] }),
+      className: 'Account',
+      dictionaryName: 'Finance',
+      reflection: reflection({
+        instVars: [{ name: 'balance', hasGetter: true, hasSetter: false }],
+      }),
       wrapSelectors: [],
     });
 
     const lines = out.split('\n');
     expect(lines).toContain("    @smalltalk('balance')");
-    expect(lines.some(l => l === "@smalltalk('balance')")).toBe(false);
+    expect(lines.some((l) => l === "@smalltalk('balance')")).toBe(false);
   });
 });

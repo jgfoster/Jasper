@@ -37,20 +37,19 @@ describe('running stone row inline button order', () => {
   it('offers an online extent backup ahead of the lifecycle stop action', () => {
     const order = inlineOrderFor('viewItem == gemstoneDbStoneRunning');
 
-    expect(order).toEqual([
-      'gemstone.onlineExtentBackup',
-      'gemstone.stopStone',
-    ]);
+    expect(order).toEqual(['gemstone.onlineExtentBackup', 'gemstone.stopStone']);
   });
 
   it('surfaces the online extent backup on the running stone, not on the session row', () => {
     const onSession = itemContext.some(
-      (m) => m.command === 'gemstone.onlineExtentBackup'
-        && (m.when ?? '').includes('viewItem == gemstoneSession'),
+      (m) =>
+        m.command === 'gemstone.onlineExtentBackup' &&
+        (m.when ?? '').includes('viewItem == gemstoneSession'),
     );
     const onRunningStone = itemContext.some(
-      (m) => m.command === 'gemstone.onlineExtentBackup'
-        && (m.when ?? '').includes('viewItem == gemstoneDbStoneRunning'),
+      (m) =>
+        m.command === 'gemstone.onlineExtentBackup' &&
+        (m.when ?? '').includes('viewItem == gemstoneDbStoneRunning'),
     );
 
     expect(onSession).toBe(false);

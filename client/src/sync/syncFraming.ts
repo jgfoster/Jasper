@@ -60,7 +60,9 @@ export interface ContentParseResult {
 // character (emoji, rare CJK) occupies two units for one code point. Counting by
 // code point keeps the framed length aligned with what the server measured.
 export function takeCodePoints(
-  s: string, start: number, count: number,
+  s: string,
+  start: number,
+  count: number,
 ): { end: number; text: string } {
   let i = start;
   let taken = 0;
@@ -104,7 +106,7 @@ export function parseManifest(payload: string): Manifest {
   // Attach each class's dictionary name (from its D line) so mirror keys survive
   // dictionary renames: a renamed dict yields new keys (old files pruned, new
   // ones fetched) without any special-casing downstream.
-  const classes: ClassHashEntry[] = rawClasses.map(c => ({
+  const classes: ClassHashEntry[] = rawClasses.map((c) => ({
     dictIndex: c.dictIndex,
     dictName: nameByIndex.get(c.dictIndex) ?? '',
     className: c.className,

@@ -1,4 +1,4 @@
-import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('vscode', () => import('../__mocks__/vscode'));
 
@@ -20,7 +20,13 @@ vi.mock('../sunitQueries', () => ({
   })),
   runTestClass: vi.fn(() => [
     { className: 'MyTestCase', selector: 'testAdd', status: 'passed', message: '', durationMs: 5 },
-    { className: 'MyTestCase', selector: 'testRemove', status: 'failed', message: 'Expected true', durationMs: 3 },
+    {
+      className: 'MyTestCase',
+      selector: 'testRemove',
+      status: 'failed',
+      message: 'Expected true',
+      durationMs: 3,
+    },
   ]),
   SunitQueryError: class SunitQueryError extends Error {
     gciErrorNumber: number;
@@ -41,7 +47,7 @@ function makeSessionManager(hasSession: boolean) {
     getSelectedSession: vi.fn(() =>
       hasSession
         ? { id: 1, gci: {}, handle: {}, login: { label: 'Test' }, stoneVersion: '3.7.2' }
-        : undefined
+        : undefined,
     ),
     onDidChangeSelection: vi.fn(() => ({ dispose: () => {} })),
   } as unknown as SessionManager;
@@ -55,14 +61,18 @@ describe('SunitTestController', () => {
   it('creates a TestController on construction', () => {
     const sm = makeSessionManager(true);
     const ctrl = new SunitTestController(sm);
-    expect(tests.createTestController).toHaveBeenCalledWith('gemstone-sunit', 'GemStone SUnit Tests');
+    expect(tests.createTestController).toHaveBeenCalledWith(
+      'gemstone-sunit',
+      'GemStone SUnit Tests',
+    );
     ctrl.dispose();
   });
 
   it('creates a Run profile', () => {
     const sm = makeSessionManager(true);
     const ctrl = new SunitTestController(sm);
-    const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock.results[0].value;
+    const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock.results[0]
+      .value;
     expect(mockController.createRunProfile).toHaveBeenCalledOnce();
     ctrl.dispose();
   });
@@ -78,7 +88,8 @@ describe('SunitTestController', () => {
     it('discovers test classes when resolveHandler is called with no item', async () => {
       const sm = makeSessionManager(true);
       const ctrl = new SunitTestController(sm);
-      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock.results[0].value;
+      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock
+        .results[0].value;
 
       // Call resolveHandler at root level
       await mockController.resolveHandler(undefined);
@@ -98,7 +109,8 @@ describe('SunitTestController', () => {
       ]);
       const sm = makeSessionManager(true);
       const ctrl = new SunitTestController(sm);
-      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock.results[0].value;
+      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock
+        .results[0].value;
 
       await mockController.resolveHandler(undefined);
 
@@ -123,7 +135,8 @@ describe('SunitTestController', () => {
       // both unique names — no brace qualifier, no dictionary anywhere.
       const sm = makeSessionManager(true);
       const ctrl = new SunitTestController(sm);
-      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock.results[0].value;
+      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock
+        .results[0].value;
 
       await mockController.resolveHandler(undefined);
 
@@ -141,7 +154,8 @@ describe('SunitTestController', () => {
       ]);
       const sm = makeSessionManager(true);
       const ctrl = new SunitTestController(sm);
-      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock.results[0].value;
+      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock
+        .results[0].value;
 
       await mockController.resolveHandler(undefined);
 
@@ -154,7 +168,8 @@ describe('SunitTestController', () => {
     it('returns empty when no session is active', async () => {
       const sm = makeSessionManager(false);
       const ctrl = new SunitTestController(sm);
-      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock.results[0].value;
+      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock
+        .results[0].value;
 
       await mockController.resolveHandler(undefined);
 
@@ -165,7 +180,8 @@ describe('SunitTestController', () => {
     it('discovers test methods when resolveHandler is called with a class item', async () => {
       const sm = makeSessionManager(true);
       const ctrl = new SunitTestController(sm);
-      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock.results[0].value;
+      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock
+        .results[0].value;
 
       // First discover classes
       await mockController.resolveHandler(undefined);
@@ -189,7 +205,8 @@ describe('SunitTestController', () => {
 
       const sm = makeSessionManager(true);
       const ctrl = new SunitTestController(sm);
-      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock.results[0].value;
+      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock
+        .results[0].value;
 
       await mockController.resolveHandler(undefined);
 
@@ -204,7 +221,8 @@ describe('SunitTestController', () => {
     it('clears items on refresh', async () => {
       const sm = makeSessionManager(true);
       const ctrl = new SunitTestController(sm);
-      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock.results[0].value;
+      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock
+        .results[0].value;
 
       // Discover first
       await mockController.resolveHandler(undefined);
@@ -224,7 +242,8 @@ describe('SunitTestController', () => {
     it('re-discovers tests when session changes', async () => {
       const sm = makeSessionManager(true);
       const ctrl = new SunitTestController(sm);
-      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock.results[0].value;
+      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock
+        .results[0].value;
 
       // Discover
       await mockController.resolveHandler(undefined);
@@ -245,7 +264,8 @@ describe('SunitTestController', () => {
     it('runs tests for a discovered class', async () => {
       const sm = makeSessionManager(true);
       const ctrl = new SunitTestController(sm);
-      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock.results[0].value;
+      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock
+        .results[0].value;
 
       // Discover
       await mockController.resolveHandler(undefined);
@@ -296,7 +316,7 @@ describe('SunitTestController', () => {
 
       await ctrl.runClassesByName('UserGlobals', ['MyTestCase', 'OtherTest']);
 
-      expect(sunit.runTestClass).toHaveBeenCalledTimes(2)
+      expect(sunit.runTestClass).toHaveBeenCalledTimes(2);
       expect(sunit.runTestClass).toHaveBeenNthCalledWith(
         1,
         expect.objectContaining({ id: 1 }),
@@ -335,23 +355,23 @@ describe('SunitTestController', () => {
 
       await ctrl.runClassesByName('UserGlobals', ['NoSuchTest']);
 
-      expect(sunit.runTestClass).not.toHaveBeenCalled()
+      expect(sunit.runTestClass).not.toHaveBeenCalled();
       ctrl.dispose();
     });
   });
 
   describe('runTestsByName', () => {
     let sunitTestController: SunitTestController;
-    
+
     beforeEach(() => {
       const sm = makeSessionManager(true);
       sunitTestController = new SunitTestController(sm);
-    })
-    
+    });
+
     afterEach(() => {
       sunitTestController.dispose();
-    })
-    
+    });
+
     it('runs a single test', async () => {
       await sunitTestController.runTestsByName('UserGlobals', 'MyTestCase', ['testAdd']);
 
@@ -368,16 +388,16 @@ describe('SunitTestController', () => {
       await sunitTestController.runTestsByName('UserGlobals', 'NoSuchClass', ['']);
 
       expect(window.showWarningMessage).toHaveBeenCalledWith(
-         sunitTestController.notATestClassErrorMessage('NoSuchClass')
+        sunitTestController.notATestClassErrorMessage('NoSuchClass'),
       );
       expect(sunit.runTestMethod).not.toHaveBeenCalled();
     });
-    
+
     it('does not run tests when no tests methods were found', async () => {
       await sunitTestController.runTestsByName('UserGlobals', 'MyTestCase', ['noSuchSelector']);
 
       expect(window.showWarningMessage).toHaveBeenCalledWith(
-         sunitTestController.noTestsFoundErrorMessage()
+        sunitTestController.noTestsFoundErrorMessage(),
       );
       expect(sunit.runTestMethod).not.toHaveBeenCalled();
     });
@@ -385,23 +405,33 @@ describe('SunitTestController', () => {
 
   describe('runMethodCategoryByName', () => {
     let ctrl: SunitTestController;
-    
+
     beforeEach(() => {
       const sm = makeSessionManager(true);
-      ctrl = new SunitTestController(sm)
-    })
-    
+      ctrl = new SunitTestController(sm);
+    });
+
     afterEach(() => {
       ctrl.dispose();
-    })
-    
+    });
+
     it('runs all methods in the given category', async () => {
       // 'testAdd' and 'testRemove' are both in 'unit tests' per the mock
       await ctrl.runMethodCategoryByName('UserGlobals', 'MyTestCase', 'unit tests');
 
       expect(sunit.runTestMethod).toHaveBeenCalledTimes(2);
-      expect(sunit.runTestMethod).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'MyTestCase', 'testAdd', 'UserGlobals');
-      expect(sunit.runTestMethod).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'MyTestCase', 'testRemove', 'UserGlobals');
+      expect(sunit.runTestMethod).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 1 }),
+        'MyTestCase',
+        'testAdd',
+        'UserGlobals',
+      );
+      expect(sunit.runTestMethod).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 1 }),
+        'MyTestCase',
+        'testRemove',
+        'UserGlobals',
+      );
     });
 
     it('does not run tests when a class is not a test class', async () => {
@@ -417,9 +447,7 @@ describe('SunitTestController', () => {
     it('does not run tests when no tests methods were found', async () => {
       await ctrl.runMethodCategoryByName('UserGlobals', 'MyTestCase', 'non-existent category');
 
-      expect(window.showWarningMessage).toHaveBeenCalledWith(
-        ctrl.noTestsFoundErrorMessage()
-      );
+      expect(window.showWarningMessage).toHaveBeenCalledWith(ctrl.noTestsFoundErrorMessage());
       expect(sunit.runTestMethod).not.toHaveBeenCalled();
       ctrl.dispose();
     });
@@ -434,7 +462,8 @@ describe('SunitTestController', () => {
       ]);
       const sm = makeSessionManager(true);
       const ctrl = new SunitTestController(sm);
-      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock.results[0].value;
+      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock
+        .results[0].value;
 
       // Discover both copies.
       await mockController.resolveHandler(undefined);
@@ -443,20 +472,25 @@ describe('SunitTestController', () => {
 
       // The Run profile is created as createRunProfile(name, kind, handler, isDefault);
       // grab the handler the Test Explorer invokes when you click "Run".
-      const runHandler = (mockController.createRunProfile as ReturnType<typeof vi.fn>).mock.calls[0][2];
+      const runHandler = (mockController.createRunProfile as ReturnType<typeof vi.fn>).mock
+        .calls[0][2];
       const cancellationToken = { isCancellationRequested: false };
 
       // Run the UserGlobals copy — must resolve against UserGlobals, not the
       // symbol-list winner.
       await runHandler({ include: [userGlobals], exclude: undefined }, cancellationToken);
       expect(sunit.runTestClass).toHaveBeenLastCalledWith(
-        expect.objectContaining({ id: 1 }), 'AnnouncerTest', 'UserGlobals',
+        expect.objectContaining({ id: 1 }),
+        'AnnouncerTest',
+        'UserGlobals',
       );
 
       // Run the Globals copy — must resolve against Globals.
       await runHandler({ include: [globals], exclude: undefined }, cancellationToken);
       expect(sunit.runTestClass).toHaveBeenLastCalledWith(
-        expect.objectContaining({ id: 1 }), 'AnnouncerTest', 'Globals',
+        expect.objectContaining({ id: 1 }),
+        'AnnouncerTest',
+        'Globals',
       );
 
       expect(sunit.runTestClass).toHaveBeenCalledTimes(2);
@@ -468,7 +502,8 @@ describe('SunitTestController', () => {
     it('disposes the controller', () => {
       const sm = makeSessionManager(true);
       const ctrl = new SunitTestController(sm);
-      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock.results[0].value;
+      const mockController = (tests.createTestController as ReturnType<typeof vi.fn>).mock
+        .results[0].value;
 
       ctrl.dispose();
 

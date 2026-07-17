@@ -62,8 +62,26 @@ vi.mock('fs', async () => {
 import * as fs from 'fs';
 
 import * as path from 'path';
-import { window, workspace, ViewColumn, commands, Uri, TabInputText, TabInputTextDiff, __setConfig, __resetConfig } from '../__mocks__/vscode';
-import { SystemBrowser, extractSelector, planDictionaryFileOut, isComputedMethodCategory, ALL_CLASSES_CATEGORY, ALL_METHODS_CATEGORY, SESSION_METHODS_CATEGORY } from '../systemBrowser';
+import {
+  window,
+  workspace,
+  ViewColumn,
+  commands,
+  Uri,
+  TabInputText,
+  TabInputTextDiff,
+  __setConfig,
+  __resetConfig,
+} from '../__mocks__/vscode';
+import {
+  SystemBrowser,
+  extractSelector,
+  planDictionaryFileOut,
+  isComputedMethodCategory,
+  ALL_CLASSES_CATEGORY,
+  ALL_METHODS_CATEGORY,
+  SESSION_METHODS_CATEGORY,
+} from '../systemBrowser';
 import * as queries from '../browserQueries';
 import { GlobalsBrowser } from '../globalsBrowser';
 import { ClassBrowser } from '../classBrowser';
@@ -187,8 +205,9 @@ describe('planDictionaryFileOut', () => {
   it('inputs each class file after the forward references, in order', () => {
     const plan = planDictionaryFileOut('Animals', ['Animal', 'Dog']);
     expect(plan.indexContent).toContain('input Animal.gs\ninput Dog.gs\n');
-    expect(plan.indexContent.indexOf('input Animal.gs'))
-      .toBeGreaterThan(plan.indexContent.indexOf("at: #'Dog' put: nil"));
+    expect(plan.indexContent.indexOf('input Animal.gs')).toBeGreaterThan(
+      plan.indexContent.indexOf("at: #'Dog' put: nil"),
+    );
   });
 
   it('forward-references the class name but inputs the deduped file name on a collision', () => {
@@ -214,7 +233,11 @@ describe('SystemBrowser', () => {
   let session: ActiveSession;
   let exportManager: ExportManager;
   let mockPanel: {
-    webview: { html: string; postMessage: ReturnType<typeof vi.fn>; onDidReceiveMessage: ReturnType<typeof vi.fn> };
+    webview: {
+      html: string;
+      postMessage: ReturnType<typeof vi.fn>;
+      onDidReceiveMessage: ReturnType<typeof vi.fn>;
+    };
     title: string;
     reveal: ReturnType<typeof vi.fn>;
     dispose: ReturnType<typeof vi.fn>;
@@ -228,7 +251,8 @@ describe('SystemBrowser', () => {
     (SystemBrowser as unknown as { panels: Map<number, unknown> }).panels = new Map();
     (SystemBrowser as unknown as { lastActive: Map<number, unknown> }).lastActive = new Map();
     (SystemBrowser as unknown as { sharedExportManager: unknown }).sharedExportManager = undefined;
-    (SystemBrowser as unknown as { pendingNavigation: Map<number, unknown> }).pendingNavigation = new Map();
+    (SystemBrowser as unknown as { pendingNavigation: Map<number, unknown> }).pendingNavigation =
+      new Map();
     window.visibleTextEditors = [];
     window.tabGroups.all = [];
 
@@ -490,16 +514,35 @@ describe('SystemBrowser', () => {
     });
 
     describe('method override bits', () => {
-      type LoadMethodsMsg = { command: string; items: string[]; methodOverrideBits: Record<string, number> };
+      type LoadMethodsMsg = {
+        command: string;
+        items: string[];
+        methodOverrideBits: Record<string, number>;
+      };
 
       beforeEach(() => {
         vi.mocked(queries.getClassEnvironments).mockReturnValue([
-          { isMeta: false, envId: 0, category: 'Accessing', selectors: ['name', 'name:'],
-            methodOverrideBits: { name: 1 } },
-          { isMeta: false, envId: 0, category: 'Comparing', selectors: ['=', 'hash'],
-            methodOverrideBits: { '=': 3 } },
-          { isMeta: true, envId: 0, category: 'Instance Creation', selectors: ['new', 'new:'],
-            methodOverrideBits: { new: 2 } },
+          {
+            isMeta: false,
+            envId: 0,
+            category: 'Accessing',
+            selectors: ['name', 'name:'],
+            methodOverrideBits: { name: 1 },
+          },
+          {
+            isMeta: false,
+            envId: 0,
+            category: 'Comparing',
+            selectors: ['=', 'hash'],
+            methodOverrideBits: { '=': 3 },
+          },
+          {
+            isMeta: true,
+            envId: 0,
+            category: 'Instance Creation',
+            selectors: ['new', 'new:'],
+            methodOverrideBits: { new: 2 },
+          },
         ]);
       });
 
@@ -512,9 +555,10 @@ describe('SystemBrowser', () => {
       }
 
       function lastLoadMethods(): LoadMethodsMsg {
-        const calls = vi.mocked(mockPanel.webview.postMessage).mock.calls
-          .map(c => c[0] as LoadMethodsMsg)
-          .filter(m => m.command === 'loadMethods');
+        const calls = vi
+          .mocked(mockPanel.webview.postMessage)
+          .mock.calls.map((c) => c[0] as LoadMethodsMsg)
+          .filter((m) => m.command === 'loadMethods');
         return calls[calls.length - 1];
       }
 
@@ -544,19 +588,41 @@ describe('SystemBrowser', () => {
     });
 
     describe('session methods', () => {
-      type LoadMethodsMsg = { command: string; items: string[]; sessionMethodBits: Record<string, number> };
+      type LoadMethodsMsg = {
+        command: string;
+        items: string[];
+        sessionMethodBits: Record<string, number>;
+      };
       type LoadCategoriesMsg = { command: string; items: string[] };
 
       beforeEach(() => {
         // Instance side carries session methods (an extension and an override
         // living in a *package category); the class side carries none.
         vi.mocked(queries.getClassEnvironments).mockReturnValue([
-          { isMeta: false, envId: 0, category: 'Accessing', selectors: ['name', 'name:'],
-            methodOverrideBits: {}, sessionMethodBits: {} },
-          { isMeta: false, envId: 0, category: '*mypkg', selectors: ['ext1', 'isVowel'],
-            methodOverrideBits: {}, sessionMethodBits: { ext1: 1, isVowel: 2 } },
-          { isMeta: true, envId: 0, category: 'Instance Creation', selectors: ['new'],
-            methodOverrideBits: {}, sessionMethodBits: {} },
+          {
+            isMeta: false,
+            envId: 0,
+            category: 'Accessing',
+            selectors: ['name', 'name:'],
+            methodOverrideBits: {},
+            sessionMethodBits: {},
+          },
+          {
+            isMeta: false,
+            envId: 0,
+            category: '*mypkg',
+            selectors: ['ext1', 'isVowel'],
+            methodOverrideBits: {},
+            sessionMethodBits: { ext1: 1, isVowel: 2 },
+          },
+          {
+            isMeta: true,
+            envId: 0,
+            category: 'Instance Creation',
+            selectors: ['new'],
+            methodOverrideBits: {},
+            sessionMethodBits: {},
+          },
         ]);
       });
 
@@ -569,24 +635,29 @@ describe('SystemBrowser', () => {
       }
 
       function lastCategories(): LoadCategoriesMsg {
-        const calls = vi.mocked(mockPanel.webview.postMessage).mock.calls
-          .map(c => c[0] as LoadCategoriesMsg)
-          .filter(m => m.command === 'loadMethodCategories');
+        const calls = vi
+          .mocked(mockPanel.webview.postMessage)
+          .mock.calls.map((c) => c[0] as LoadCategoriesMsg)
+          .filter((m) => m.command === 'loadMethodCategories');
         return calls[calls.length - 1];
       }
 
       function lastLoadMethods(): LoadMethodsMsg {
-        const calls = vi.mocked(mockPanel.webview.postMessage).mock.calls
-          .map(c => c[0] as LoadMethodsMsg)
-          .filter(m => m.command === 'loadMethods');
+        const calls = vi
+          .mocked(mockPanel.webview.postMessage)
+          .mock.calls.map((c) => c[0] as LoadMethodsMsg)
+          .filter((m) => m.command === 'loadMethods');
         return calls[calls.length - 1];
       }
 
       it('offers the computed Session Methods category at the head, right after ALL METHODS', () => {
         selectArray();
-        expect(lastCategories().items).toEqual(
-          [ALL_METHODS_CATEGORY, SESSION_METHODS_CATEGORY, '*mypkg', 'Accessing'],
-        );
+        expect(lastCategories().items).toEqual([
+          ALL_METHODS_CATEGORY,
+          SESSION_METHODS_CATEGORY,
+          '*mypkg',
+          'Accessing',
+        ]);
       });
 
       it('omits the Session Methods category on a side that has no session methods', () => {
@@ -616,24 +687,26 @@ describe('SystemBrowser', () => {
       });
 
       function lastDiffCall(): [string, Uri, Uri, string, unknown] | undefined {
-        return vi.mocked(commands.executeCommand).mock.calls
-          .filter(c => c[0] === 'vscode.diff')
+        return vi
+          .mocked(commands.executeCommand)
+          .mock.calls.filter((c) => c[0] === 'vscode.diff')
           .pop() as [string, Uri, Uri, string, unknown] | undefined;
       }
 
       function diffCallCount(): number {
-        return vi.mocked(commands.executeCommand).mock.calls.filter(c => c[0] === 'vscode.diff').length;
+        return vi.mocked(commands.executeCommand).mock.calls.filter((c) => c[0] === 'vscode.diff')
+          .length;
       }
 
       it('compares an override against its persistent base, labeling each pane', async () => {
         selectArray();
         messageHandler({ command: 'compareSessionOverride', selector: 'isVowel' });
-        await new Promise(resolve => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
 
         const call = lastDiffCall();
         expect(call).toBeDefined();
         const [, baseUri, overrideUri] = call!;
-        expect(baseUri.query).toContain('base=1');   // left = persistent base
+        expect(baseUri.query).toContain('base=1'); // left = persistent base
         expect(overrideUri.query).not.toContain('base=1'); // right = session view
         expect(decodeURIComponent(baseUri.path)).toContain('isVowel (base)');
         expect(decodeURIComponent(overrideUri.path)).toContain('isVowel (session override)');
@@ -642,19 +715,26 @@ describe('SystemBrowser', () => {
       it('toggles the diff off and reopens the plain session source when the same override is clicked again', async () => {
         selectArray();
         messageHandler({ command: 'compareSessionOverride', selector: 'isVowel' });
-        await new Promise(resolve => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
         const [, baseUri, overrideUri] = lastDiffCall()!;
         window.tabGroups.all = [{ tabs: [{ input: new TabInputTextDiff(baseUri, overrideUri) }] }];
         const before = diffCallCount();
         vi.mocked(workspace.openTextDocument).mockClear();
 
         messageHandler({ command: 'compareSessionOverride', selector: 'isVowel' });
-        await new Promise(resolve => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
 
         // Reopened the plain method source — no diff, no "(base)/(session override)" label.
-        const opened = vi.mocked(workspace.openTextDocument).mock.calls.map(c => decodeURIComponent(String(c[0])));
-        expect(opened.some(u => u.includes('isVowel') && !u.includes('(base)') && !u.includes('(session override)'))).toBe(true);
-        expect(diffCallCount()).toBe(before);              // no new diff opened
+        const opened = vi
+          .mocked(workspace.openTextDocument)
+          .mock.calls.map((c) => decodeURIComponent(String(c[0])));
+        expect(
+          opened.some(
+            (u) =>
+              u.includes('isVowel') && !u.includes('(base)') && !u.includes('(session override)'),
+          ),
+        ).toBe(true);
+        expect(diffCallCount()).toBe(before); // no new diff opened
         expect(window.tabGroups.close).toHaveBeenCalled(); // diff closed
         // Source opens BEFORE the diff closes, so the diff's group is reused
         // (closing first would strand a webview-only group → new split group).
@@ -668,19 +748,22 @@ describe('SystemBrowser', () => {
         selectArray();
         let releaseGroup: () => void = () => {};
         vi.mocked(commands.executeCommand).mockImplementation((cmd: string) => {
-          if (cmd === 'workbench.action.newGroupBelow') return new Promise<void>(r => { releaseGroup = r; });
+          if (cmd === 'workbench.action.newGroupBelow')
+            return new Promise<void>((r) => {
+              releaseGroup = r;
+            });
           return undefined as unknown as Thenable<unknown>;
         });
         try {
           // First click starts opening the diff and blocks awaiting the new group.
           messageHandler({ command: 'compareSessionOverride', selector: 'isVowel' });
-          await new Promise(resolve => setTimeout(resolve, 0));
+          await new Promise((resolve) => setTimeout(resolve, 0));
           // Second click lands mid-flight — the busy guard must drop it.
           messageHandler({ command: 'compareSessionOverride', selector: 'isVowel' });
-          await new Promise(resolve => setTimeout(resolve, 0));
+          await new Promise((resolve) => setTimeout(resolve, 0));
 
           releaseGroup();
-          await new Promise(resolve => setTimeout(resolve, 0));
+          await new Promise((resolve) => setTimeout(resolve, 0));
 
           expect(diffCallCount()).toBe(1); // only the first click opened a diff
         } finally {
@@ -691,13 +774,13 @@ describe('SystemBrowser', () => {
       it('closes the override diff when navigating to another method', async () => {
         selectArray();
         messageHandler({ command: 'compareSessionOverride', selector: 'isVowel' });
-        await new Promise(resolve => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
         const [, baseUri, overrideUri] = lastDiffCall()!;
         const diffTab = { input: new TabInputTextDiff(baseUri, overrideUri) };
         window.tabGroups.all = [{ tabs: [diffTab] }];
 
         messageHandler({ command: 'selectMethod', selector: 'name' });
-        await new Promise(resolve => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
 
         expect(window.tabGroups.close).toHaveBeenCalledWith(diffTab);
         window.tabGroups.all = [];
@@ -730,15 +813,19 @@ describe('SystemBrowser', () => {
         selectArray();
         messageHandler({ command: 'toggleSide', isMeta: true });
         messageHandler({ command: 'showHierarchyImpls', selector: 'new', direction: 'down' });
-        expect(commands.executeCommand).toHaveBeenCalledWith('gemstone.hierarchyImplementorsOf',
-          expect.objectContaining({ selector: 'new', isMeta: true, direction: 'down' }));
+        expect(commands.executeCommand).toHaveBeenCalledWith(
+          'gemstone.hierarchyImplementorsOf',
+          expect.objectContaining({ selector: 'new', isMeta: true, direction: 'down' }),
+        );
       });
 
       it('does nothing when no class is selected', () => {
         messageHandler({ command: 'ready' });
         messageHandler({ command: 'showHierarchyImpls', selector: 'name', direction: 'up' });
         expect(commands.executeCommand).not.toHaveBeenCalledWith(
-          'gemstone.hierarchyImplementorsOf', expect.anything());
+          'gemstone.hierarchyImplementorsOf',
+          expect.anything(),
+        );
       });
     });
 
@@ -846,7 +933,9 @@ describe('SystemBrowser', () => {
 
       messageHandler({ command: 'selectMethodCategory', name: 'accessing' });
       messageHandler({ command: 'selectMethod', selector: 'size' });
-      await vi.waitFor(() => { expect(workspace.openTextDocument).toHaveBeenCalled(); });
+      await vi.waitFor(() => {
+        expect(workspace.openTextDocument).toHaveBeenCalled();
+      });
 
       const uri = (workspace.openTextDocument as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(uri.path).toContain('accessing');
@@ -860,7 +949,9 @@ describe('SystemBrowser', () => {
 
       messageHandler({ command: 'selectMethodCategory', name: 'instance creation' });
       messageHandler({ command: 'selectMethod', selector: 'new' });
-      await vi.waitFor(() => { expect(workspace.openTextDocument).toHaveBeenCalled(); });
+      await vi.waitFor(() => {
+        expect(workspace.openTextDocument).toHaveBeenCalled();
+      });
 
       const uri = (workspace.openTextDocument as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(uri.path).toContain('/class/');
@@ -872,26 +963,30 @@ describe('SystemBrowser', () => {
       messageHandler({ command: 'selectClass', name: 'Array' });
       messageHandler({ command: 'selectMethodCategory', name: ALL_METHODS_CATEGORY });
       messageHandler({ command: 'selectMethod', selector: 'name' });
-      await vi.waitFor(() => { expect(workspace.openTextDocument).toHaveBeenCalled(); });
+      await vi.waitFor(() => {
+        expect(workspace.openTextDocument).toHaveBeenCalled();
+      });
 
       const uri = (workspace.openTextDocument as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(uri.path).toContain('Accessing');   // name's real category
+      expect(uri.path).toContain('Accessing'); // name's real category
       expect(uri.path).not.toContain('as yet unclassified');
       expect(uri.path).not.toContain('ALL METHODS');
     });
 
-    it('uses the class-side method\'s real category when ALL METHODS is selected', async () => {
+    it("uses the class-side method's real category when ALL METHODS is selected", async () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);
 
       messageHandler({ command: 'selectClass', name: 'Array' });
       messageHandler({ command: 'toggleSide', isMeta: true });
       messageHandler({ command: 'selectMethodCategory', name: ALL_METHODS_CATEGORY });
       messageHandler({ command: 'selectMethod', selector: 'new' });
-      await vi.waitFor(() => { expect(workspace.openTextDocument).toHaveBeenCalled(); });
+      await vi.waitFor(() => {
+        expect(workspace.openTextDocument).toHaveBeenCalled();
+      });
 
       const uri = (workspace.openTextDocument as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(uri.path).toContain('/class/');
-      expect(uri.path).toContain('Instance Creation');   // new's real category
+      expect(uri.path).toContain('Instance Creation'); // new's real category
       expect(uri.path).not.toContain('as yet unclassified');
     });
 
@@ -900,7 +995,9 @@ describe('SystemBrowser', () => {
 
       messageHandler({ command: 'selectClass', name: 'Array' });
       messageHandler({ command: 'selectMethod', selector: 'ghostMethod' });
-      await vi.waitFor(() => { expect(workspace.openTextDocument).toHaveBeenCalled(); });
+      await vi.waitFor(() => {
+        expect(workspace.openTextDocument).toHaveBeenCalled();
+      });
 
       const uri = (workspace.openTextDocument as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(uri.path).toContain('as yet unclassified');
@@ -912,7 +1009,9 @@ describe('SystemBrowser', () => {
       messageHandler({ command: 'selectClass', name: 'Array' });
 
       messageHandler({ command: 'selectMethod', selector: 'nonExistentMethod' });
-      await vi.waitFor(() => { expect(workspace.openTextDocument).toHaveBeenCalled(); });
+      await vi.waitFor(() => {
+        expect(workspace.openTextDocument).toHaveBeenCalled();
+      });
 
       const uri = (workspace.openTextDocument as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(uri.scheme).toBe('gemstone');
@@ -952,7 +1051,12 @@ describe('SystemBrowser', () => {
         items: [
           { className: 'Object', dictName: 'Globals', kind: 'superclass', indent: 0 },
           { className: 'Collection', dictName: 'Globals', kind: 'superclass', indent: 1 },
-          { className: 'SequenceableCollection', dictName: 'Globals', kind: 'superclass', indent: 2 },
+          {
+            className: 'SequenceableCollection',
+            dictName: 'Globals',
+            kind: 'superclass',
+            indent: 2,
+          },
           { className: 'Array', dictName: 'UserGlobals', kind: 'self', indent: 3 },
           { className: 'SmallArray', dictName: 'UserGlobals', kind: 'subclass', indent: 4 },
         ],
@@ -1076,7 +1180,10 @@ describe('SystemBrowser', () => {
       messageHandler({ command: 'selectHierarchyClass', className: 'Collection' });
 
       expect(ClassBrowser.showOrUpdate).toHaveBeenCalledWith(
-        session, expect.any(Array), expect.any(Number), 'Collection',
+        session,
+        expect.any(Array),
+        expect.any(Number),
+        'Collection',
       );
     });
 
@@ -1274,14 +1381,17 @@ describe('SystemBrowser', () => {
     it('does nothing when no dictionary is selected', () => {
       // Fresh browser — no dictionary selected
       SystemBrowser.show(session, exportManager);
-      const freshHandler = vi.mocked(window.createWebviewPanel).mock.results.at(-1)!.value
-        .webview.onDidReceiveMessage.mock.calls[0][0] as (m: unknown) => void;
+      const freshHandler = vi.mocked(window.createWebviewPanel).mock.results.at(-1)!.value.webview
+        .onDidReceiveMessage.mock.calls[0][0] as (m: unknown) => void;
       freshHandler({ command: 'ready' });
       vi.mocked(commands.executeCommand).mockClear();
 
       freshHandler({ command: 'ctxRunDictionaryTests' });
 
-      expect(commands.executeCommand).not.toHaveBeenCalledWith('gemstone.runSunitClasses', expect.anything());
+      expect(commands.executeCommand).not.toHaveBeenCalledWith(
+        'gemstone.runSunitClasses',
+        expect.anything(),
+      );
     });
   });
 
@@ -1299,9 +1409,9 @@ describe('SystemBrowser', () => {
       messageHandler({ command: 'ctxRunCategoryTests' });
 
       expect(commands.executeCommand).toHaveBeenCalledWith(
-          'gemstone.runSunitClasses',
-          'UserGlobals',
-          ['Array', 'Set'],
+        'gemstone.runSunitClasses',
+        'UserGlobals',
+        ['Array', 'Set'],
       );
     });
 
@@ -1310,10 +1420,13 @@ describe('SystemBrowser', () => {
 
       messageHandler({ command: 'ctxRunCategoryTests' });
 
-      expect(commands.executeCommand).not.toHaveBeenCalledWith('gemstone.runSunitClasses', expect.anything());
+      expect(commands.executeCommand).not.toHaveBeenCalledWith(
+        'gemstone.runSunitClasses',
+        expect.anything(),
+      );
     });
   });
-  
+
   describe('class context menu', () => {
     beforeEach(() => {
       SystemBrowser.show(session, exportManager);
@@ -1332,7 +1445,12 @@ describe('SystemBrowser', () => {
 
       expect(queries.deleteClass).toHaveBeenCalledWith(session, 1, 'Array');
       // The class's mirror file + persisted hash are dropped.
-      expect(exportManager.removeClassFile).toHaveBeenCalledWith(session, 1, 'UserGlobals', 'Array');
+      expect(exportManager.removeClassFile).toHaveBeenCalledWith(
+        session,
+        1,
+        'UserGlobals',
+        'Array',
+      );
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({ command: 'loadClasses' }),
       );
@@ -1358,12 +1476,11 @@ describe('SystemBrowser', () => {
 
     it('delegates run tests to command', () => {
       messageHandler({ command: 'ctxRunTests' });
-      expect(commands.executeCommand).toHaveBeenCalledWith(
-        'gemstone.runSunitClass',
-        { dictName: 'UserGlobals', className: 'Array' },
-      );
+      expect(commands.executeCommand).toHaveBeenCalledWith('gemstone.runSunitClass', {
+        dictName: 'UserGlobals',
+        className: 'Array',
+      });
     });
-
   });
 
   describe('file out', () => {
@@ -1413,7 +1530,11 @@ describe('SystemBrowser', () => {
     });
 
     it('writes one file per class plus a loader for a dictionary as many files', async () => {
-      vi.mocked(queries.getDictionaryClassFileOutOrder).mockReturnValue(['Object', 'Animal', 'Dog']);
+      vi.mocked(queries.getDictionaryClassFileOutOrder).mockReturnValue([
+        'Object',
+        'Animal',
+        'Dog',
+      ]);
       vi.mocked(queries.fileOutClass).mockImplementation(
         (_s, className) => `! ${className} file-out`,
       );
@@ -1424,22 +1545,30 @@ describe('SystemBrowser', () => {
       expect(fs.writeFileSync).toHaveBeenCalledWith('/out/Object.gs', '! Object file-out', 'utf8');
       expect(fs.writeFileSync).toHaveBeenCalledWith('/out/Animal.gs', '! Animal file-out', 'utf8');
       expect(fs.writeFileSync).toHaveBeenCalledWith('/out/Dog.gs', '! Dog file-out', 'utf8');
-      const loader = vi.mocked(fs.writeFileSync).mock.calls
-        .find((c) => c[0] === '/out/UserGlobals.gs')![1];
+      const loader = vi
+        .mocked(fs.writeFileSync)
+        .mock.calls.find((c) => c[0] === '/out/UserGlobals.gs')![1];
       expect(loader).toContain('input Object.gs\ninput Animal.gs\ninput Dog.gs\n');
     });
 
     it('files out classes in the order their superclasses require, after forward references', async () => {
-      vi.mocked(queries.getDictionaryClassFileOutOrder).mockReturnValue(['Object', 'Animal', 'Dog']);
+      vi.mocked(queries.getDictionaryClassFileOutOrder).mockReturnValue([
+        'Object',
+        'Animal',
+        'Dog',
+      ]);
       vi.mocked(queries.fileOutClass).mockImplementation((_s, className) => `! ${className}`);
       vi.mocked(window.showSaveDialog).mockResolvedValue(Uri.file('/out/UserGlobals.gs') as never);
 
       await messageHandler({ command: 'ctxFileOutDictionaryMany' });
 
-      const loader = vi.mocked(fs.writeFileSync).mock.calls
-        .find((c) => c[0] === '/out/UserGlobals.gs')![1] as string;
+      const loader = vi
+        .mocked(fs.writeFileSync)
+        .mock.calls.find((c) => c[0] === '/out/UserGlobals.gs')![1] as string;
       expect(loader).toContain("at: #'Dog' put: nil");
-      expect(loader.indexOf('input Object.gs')).toBeGreaterThan(loader.indexOf("at: #'Dog' put: nil"));
+      expect(loader.indexOf('input Object.gs')).toBeGreaterThan(
+        loader.indexOf("at: #'Dog' put: nil"),
+      );
       expect(loader).toContain('input Object.gs\ninput Animal.gs\ninput Dog.gs\n');
     });
 
@@ -1472,7 +1601,12 @@ describe('SystemBrowser', () => {
       await messageHandler({ command: 'ctxRenameCategory' });
 
       expect(queries.renameCategory).toHaveBeenCalledWith(
-        session, 'Array', false, 'Accessing', 'Getters', 1,
+        session,
+        'Array',
+        false,
+        'Accessing',
+        'Getters',
+        1,
       );
     });
 
@@ -1502,7 +1636,10 @@ describe('SystemBrowser', () => {
 
       messageHandler({ command: 'ctxRunMethodCategoryTests' });
 
-      expect(commands.executeCommand).not.toHaveBeenCalledWith('gemstone.runSunitMethodCategory', expect.anything());
+      expect(commands.executeCommand).not.toHaveBeenCalledWith(
+        'gemstone.runSunitMethodCategory',
+        expect.anything(),
+      );
     });
   });
 
@@ -1550,13 +1687,22 @@ describe('SystemBrowser', () => {
     });
 
     it('moves method to category', async () => {
-      vi.mocked(queries.getMethodCategories).mockReturnValue(['Accessing', 'Comparing', 'Printing']);
+      vi.mocked(queries.getMethodCategories).mockReturnValue([
+        'Accessing',
+        'Comparing',
+        'Printing',
+      ]);
       vi.mocked(window.showQuickPick).mockResolvedValue('Printing' as never);
 
       await messageHandler({ command: 'ctxMoveToCategory' });
 
       expect(queries.recategorizeMethod).toHaveBeenCalledWith(
-        session, 'Array', false, 'name', 'Printing', 1,
+        session,
+        'Array',
+        false,
+        'name',
+        'Printing',
+        1,
       );
     });
 
@@ -1579,34 +1725,37 @@ describe('SystemBrowser', () => {
 
       messageHandler({ command: 'ctxRunMethodTests' });
 
-      expect(commands.executeCommand).not.toHaveBeenCalledWith('gemstone.runSunitMethods', expect.anything());
+      expect(commands.executeCommand).not.toHaveBeenCalledWith(
+        'gemstone.runSunitMethods',
+        expect.anything(),
+      );
     });
 
     it('delegates senders to command', () => {
       messageHandler({ command: 'ctxSendersOf' });
-      expect(commands.executeCommand).toHaveBeenCalledWith(
-        'gemstone.sendersOfSelector',
-        { selector: 'name', sessionId: 1 },
-      );
+      expect(commands.executeCommand).toHaveBeenCalledWith('gemstone.sendersOfSelector', {
+        selector: 'name',
+        sessionId: 1,
+      });
     });
 
     it('delegates implementors to command', () => {
       messageHandler({ command: 'ctxImplementorsOf' });
-      expect(commands.executeCommand).toHaveBeenCalledWith(
-        'gemstone.implementorsOfSelector',
-        { selector: 'name', sessionId: 1 },
-      );
+      expect(commands.executeCommand).toHaveBeenCalledWith('gemstone.implementorsOfSelector', {
+        selector: 'name',
+        sessionId: 1,
+      });
     });
 
     it('delegates browse references to command', () => {
       messageHandler({ command: 'ctxBrowseReferences', name: 'Array' });
-      expect(commands.executeCommand).toHaveBeenCalledWith(
-        'gemstone.browseReferences',
-        { objectName: 'Array', sessionId: 1 },
-      );
+      expect(commands.executeCommand).toHaveBeenCalledWith('gemstone.browseReferences', {
+        objectName: 'Array',
+        sessionId: 1,
+      });
     });
 
-    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
     it('prompts for a selector and browses its senders', async () => {
       vi.mocked(window.showInputBox).mockResolvedValue('  printOn:  ');
@@ -1615,7 +1764,7 @@ describe('SystemBrowser', () => {
 
       expect(commands.executeCommand).toHaveBeenCalledWith(
         'gemstone.sendersOfSelector',
-        { selector: 'printOn:', sessionId: 1 },   // trimmed
+        { selector: 'printOn:', sessionId: 1 }, // trimmed
       );
     });
 
@@ -1624,10 +1773,10 @@ describe('SystemBrowser', () => {
       messageHandler({ command: 'ctxBrowseImplementorsOfString' });
       await flush();
 
-      expect(commands.executeCommand).toHaveBeenCalledWith(
-        'gemstone.implementorsOfSelector',
-        { selector: 'at:put:', sessionId: 1 },
-      );
+      expect(commands.executeCommand).toHaveBeenCalledWith('gemstone.implementorsOfSelector', {
+        selector: 'at:put:',
+        sessionId: 1,
+      });
     });
 
     it('prompts for a string and browses methods containing it', async () => {
@@ -1635,10 +1784,10 @@ describe('SystemBrowser', () => {
       messageHandler({ command: 'ctxBrowseMethodsContaining' });
       await flush();
 
-      expect(commands.executeCommand).toHaveBeenCalledWith(
-        'gemstone.searchMethodsFor',
-        { term: 'asString', sessionId: 1 },
-      );
+      expect(commands.executeCommand).toHaveBeenCalledWith('gemstone.searchMethodsFor', {
+        term: 'asString',
+        sessionId: 1,
+      });
     });
 
     it('does nothing when the browse prompt is cancelled', async () => {
@@ -1647,7 +1796,8 @@ describe('SystemBrowser', () => {
       await flush();
 
       expect(commands.executeCommand).not.toHaveBeenCalledWith(
-        'gemstone.sendersOfSelector', expect.anything(),
+        'gemstone.sendersOfSelector',
+        expect.anything(),
       );
     });
 
@@ -1656,9 +1806,14 @@ describe('SystemBrowser', () => {
       vi.mocked(window.showTextDocument).mockClear();
       vi.mocked(commands.executeCommand).mockClear();
       messageHandler({ command: 'ctxNewMethod' });
-      await vi.waitFor(() => { expect(workspace.openTextDocument).toHaveBeenCalled(); });
+      await vi.waitFor(() => {
+        expect(workspace.openTextDocument).toHaveBeenCalled();
+      });
 
-      const uri = vi.mocked(workspace.openTextDocument).mock.calls[0][0] as { scheme: string; path: string };
+      const uri = vi.mocked(workspace.openTextDocument).mock.calls[0][0] as {
+        scheme: string;
+        path: string;
+      };
       expect(uri.scheme).toBe('gemstone');
       expect(uri.path).toContain('/new-method');
       expect(commands.executeCommand).toHaveBeenCalledWith('workbench.action.newGroupBelow');
@@ -1672,7 +1827,9 @@ describe('SystemBrowser', () => {
       messageHandler({ command: 'selectMethodCategory', name: ALL_METHODS_CATEGORY });
       vi.mocked(workspace.openTextDocument).mockClear();
       messageHandler({ command: 'ctxNewMethod' });
-      await vi.waitFor(() => { expect(workspace.openTextDocument).toHaveBeenCalled(); });
+      await vi.waitFor(() => {
+        expect(workspace.openTextDocument).toHaveBeenCalled();
+      });
 
       const uri = vi.mocked(workspace.openTextDocument).mock.calls[0][0] as { path: string };
       expect(uri.path).toContain('as yet unclassified');
@@ -1681,7 +1838,7 @@ describe('SystemBrowser', () => {
   });
 
   describe('move class to category / copy method to class', () => {
-    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
     beforeEach(() => {
       SystemBrowser.show(session, exportManager);
@@ -1703,7 +1860,9 @@ describe('SystemBrowser', () => {
 
       expect(queries.recategorizeClass).toHaveBeenCalledWith(session, 'Array', 'Collections', 1);
       expect(exportManager.syncClass).toHaveBeenCalledWith(session, 'UserGlobals', 'Array');
-      expect(window.showInformationMessage).toHaveBeenCalledWith("Moved Array to category 'Collections'.");
+      expect(window.showInformationMessage).toHaveBeenCalledWith(
+        "Moved Array to category 'Collections'.",
+      );
     });
 
     it('offers the real class categories, excluding the "all classes" pseudo-entry', async () => {
@@ -1732,7 +1891,15 @@ describe('SystemBrowser', () => {
       messageHandler({ command: 'ctxCopyMethodToClass' });
       await flush();
 
-      expect(queries.copyMethodToClass).toHaveBeenCalledWith(session, 'Array', 'Set', false, 'name', 0, 1);
+      expect(queries.copyMethodToClass).toHaveBeenCalledWith(
+        session,
+        'Array',
+        'Set',
+        false,
+        'name',
+        0,
+        1,
+      );
       expect(exportManager.syncClass).toHaveBeenCalledWith(session, 'UserGlobals', 'Set');
       expect(window.showInformationMessage).toHaveBeenCalledWith('Copied #name to Set.');
     });
@@ -1770,13 +1937,18 @@ describe('SystemBrowser', () => {
 
     it('opens GlobalsBrowser when a dictionary is selected', () => {
       expect(vi.mocked(GlobalsBrowser.showOrUpdate)).toHaveBeenCalledWith(
-        session, 'UserGlobals', 1,
+        session,
+        'UserGlobals',
+        1,
       );
     });
 
     it('opens ClassBrowser with null className when a dictionary is selected', () => {
       expect(vi.mocked(ClassBrowser.showOrUpdate)).toHaveBeenCalledWith(
-        session, ['UserGlobals', 'Globals'], 1, null,
+        session,
+        ['UserGlobals', 'Globals'],
+        1,
+        null,
       );
     });
 
@@ -1794,7 +1966,10 @@ describe('SystemBrowser', () => {
       messageHandler({ command: 'selectClass', name: 'Array' });
 
       expect(vi.mocked(ClassBrowser.showOrUpdate)).toHaveBeenCalledWith(
-        session, ['UserGlobals', 'Globals'], 1, 'Array',
+        session,
+        ['UserGlobals', 'Globals'],
+        1,
+        'Array',
       );
     });
 
@@ -1806,13 +1981,18 @@ describe('SystemBrowser', () => {
 
       // The comment is opened only after the definition resolves, so its tab sits
       // to the right — let the ClassBrowser→CommentBrowser chain flush first.
-      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(vi.mocked(CommentBrowser.showOrUpdate)).toHaveBeenCalledWith(
-        session, 'UserGlobals', 1, 'Array', exportManager,
+        session,
+        'UserGlobals',
+        1,
+        'Array',
+        exportManager,
       );
-      expect(vi.mocked(ClassBrowser.showOrUpdate).mock.invocationCallOrder[0])
-        .toBeLessThan(vi.mocked(CommentBrowser.showOrUpdate).mock.invocationCallOrder[0]);
+      expect(vi.mocked(ClassBrowser.showOrUpdate).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(CommentBrowser.showOrUpdate).mock.invocationCallOrder[0],
+      );
     });
   });
 
@@ -1844,13 +2024,15 @@ describe('SystemBrowser', () => {
       __setConfig('gemstone', 'maxEnvironment', 0);
       (SystemBrowser as unknown as { panels: Map<number, unknown> }).panels = new Map();
       SystemBrowser.show(makeSession(2, 'other'), exportManager);
-      const otherHandler = vi.mocked(window.createWebviewPanel).mock.results.at(-1)!
-        .value.webview.onDidReceiveMessage.mock.calls[0][0];
+      const otherHandler = vi.mocked(window.createWebviewPanel).mock.results.at(-1)!.value.webview
+        .onDidReceiveMessage.mock.calls[0][0];
       otherHandler({ command: 'ready' });
 
-      const calls = vi.mocked(window.createWebviewPanel).mock.results.at(-1)!
-        .value.webview.postMessage.mock.calls;
-      expect(calls.some((c: unknown[]) => (c[0] as { command: string }).command === 'setMaxEnvironment')).toBe(false);
+      const calls = vi.mocked(window.createWebviewPanel).mock.results.at(-1)!.value.webview
+        .postMessage.mock.calls;
+      expect(
+        calls.some((c: unknown[]) => (c[0] as { command: string }).command === 'setMaxEnvironment'),
+      ).toBe(false);
     });
 
     it('passes maxEnvironment to getClassEnvironments', () => {
@@ -1916,14 +2098,17 @@ describe('SystemBrowser', () => {
       messageHandler({ command: 'toggleEnvironment', envId: 1 });
 
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ command: 'loadMethodCategories', selected: ALL_METHODS_CATEGORY }),
+        expect.objectContaining({
+          command: 'loadMethodCategories',
+          selected: ALL_METHODS_CATEGORY,
+        }),
       );
     });
 
     it('preserves selected method category when it exists in the target environment', () => {
       vi.mocked(queries.getClassEnvironments).mockReturnValue([
         { isMeta: false, envId: 0, category: 'Accessing', selectors: ['name', 'name:'] },
-        { isMeta: false, envId: 1, category: 'Accessing', selectors: ['rb_name'] }
+        { isMeta: false, envId: 1, category: 'Accessing', selectors: ['rb_name'] },
       ]);
       messageHandler({ command: 'selectDictionary', index: 1 });
       messageHandler({ command: 'selectCategory', name: ALL_CLASSES_CATEGORY });
@@ -1948,7 +2133,10 @@ describe('SystemBrowser', () => {
       messageHandler({ command: 'toggleEnvironment', envId: 1 });
 
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ command: 'loadMethodCategories', selected: ALL_METHODS_CATEGORY }),
+        expect.objectContaining({
+          command: 'loadMethodCategories',
+          selected: ALL_METHODS_CATEGORY,
+        }),
       );
     });
 
@@ -2119,13 +2307,17 @@ describe('SystemBrowser', () => {
       SystemBrowser.refresh(session.id);
 
       // Should not try to select a class that no longer exists
-      const calls = vi.mocked(mockPanel.webview.postMessage).mock.calls.map(c => c[0]);
-      const loadClassesCalls = calls.filter((c: Record<string, unknown>) => c.command === 'loadClasses');
+      const calls = vi.mocked(mockPanel.webview.postMessage).mock.calls.map((c) => c[0]);
+      const loadClassesCalls = calls.filter(
+        (c: Record<string, unknown>) => c.command === 'loadClasses',
+      );
       for (const call of loadClassesCalls) {
         expect((call as Record<string, unknown>).selected).toBeUndefined();
       }
       // Should not load method categories (no class selected)
-      const postRefreshCalls = calls.filter((c: Record<string, unknown>) => c.command === 'loadMethodCategories');
+      const postRefreshCalls = calls.filter(
+        (c: Record<string, unknown>) => c.command === 'loadMethodCategories',
+      );
       expect(postRefreshCalls).toHaveLength(0);
     });
   });
@@ -2233,10 +2425,11 @@ describe('SystemBrowser', () => {
     it("selects the method's own category, never a different one", () => {
       SystemBrowser.navigateTo(session.id, result);
 
-      const categorySelections = vi.mocked(mockPanel.webview.postMessage).mock.calls
-        .map(([msg]) => msg as { command: string; selected?: string })
-        .filter(m => m.command === 'loadMethodCategories')
-        .map(m => m.selected ?? null);
+      const categorySelections = vi
+        .mocked(mockPanel.webview.postMessage)
+        .mock.calls.map(([msg]) => msg as { command: string; selected?: string })
+        .filter((m) => m.command === 'loadMethodCategories')
+        .map((m) => m.selected ?? null);
       // FIXME: the leading `null` is a redundant render — applyClassSelection posts
       // the category list with no selection before the final post selects the
       // method's category. Fixing the double render is outside the scope of this
@@ -2254,7 +2447,10 @@ describe('SystemBrowser', () => {
     it('opens the method in a gemstone:// preview tab', async () => {
       SystemBrowser.navigateTo(session.id, result);
       await vi.waitFor(() => expect(workspace.openTextDocument).toHaveBeenCalled());
-      const uri = vi.mocked(workspace.openTextDocument).mock.calls[0][0] as { scheme: string; path: string };
+      const uri = vi.mocked(workspace.openTextDocument).mock.calls[0][0] as {
+        scheme: string;
+        path: string;
+      };
       expect(uri.scheme).toBe('gemstone');
       expect(uri.path).toContain('/Array/instance/');
       expect(uri.path).toContain('/name');
@@ -2276,7 +2472,8 @@ describe('SystemBrowser', () => {
       const firstPanel = mockPanel;
       // Open a second browser for the same session
       SystemBrowser.show(session, exportManager);
-      const secondPanel = vi.mocked(window.createWebviewPanel).mock.results[1].value as typeof mockPanel;
+      const secondPanel = vi.mocked(window.createWebviewPanel).mock.results[1]
+        .value as typeof mockPanel;
       messageHandler({ command: 'ready' });
 
       SystemBrowser.navigateTo(session.id, result);
@@ -2294,17 +2491,28 @@ describe('SystemBrowser', () => {
       vi.mocked(ClassBrowser.showOrUpdate).mockClear();
       SystemBrowser.navigateTo(session.id, result);
       expect(ClassBrowser.showOrUpdate).toHaveBeenCalledWith(
-        session, expect.any(Array), expect.any(Number), 'Array',
+        session,
+        expect.any(Array),
+        expect.any(Number),
+        'Array',
       );
     });
 
     it('splits its own group below rather than adopting a gemstone editor it did not open', async () => {
       // A gemstone editor exists (e.g. the GemStone Explorer opened one to the
       // side), but this browser never opened it — so it must not land there.
-      window.tabGroups.all = [{
-        viewColumn: ViewColumn.Two,
-        tabs: [{ input: new TabInputText(Uri.parse(`gemstone://${session.id}/Globals/Other/instance/x/y`)) }],
-      }];
+      window.tabGroups.all = [
+        {
+          viewColumn: ViewColumn.Two,
+          tabs: [
+            {
+              input: new TabInputText(
+                Uri.parse(`gemstone://${session.id}/Globals/Other/instance/x/y`),
+              ),
+            },
+          ],
+        },
+      ];
       vi.mocked(commands.executeCommand).mockClear();
       vi.mocked(window.showTextDocument).mockClear();
 
@@ -2335,10 +2543,12 @@ describe('SystemBrowser', () => {
       // Simulate VS Code having placed THAT editor (the one we just opened) in a
       // new group at ViewColumn.Two.
       const openedUri = vi.mocked(workspace.openTextDocument).mock.calls[0][0];
-      window.tabGroups.all = [{
-        viewColumn: ViewColumn.Two,
-        tabs: [{ input: new TabInputText(openedUri as never) }],
-      }];
+      window.tabGroups.all = [
+        {
+          viewColumn: ViewColumn.Two,
+          tabs: [{ input: new TabInputText(openedUri as never) }],
+        },
+      ];
       vi.mocked(commands.executeCommand).mockClear();
       vi.mocked(window.showTextDocument).mockClear();
 
@@ -2368,7 +2578,10 @@ describe('SystemBrowser', () => {
       SystemBrowser.navigateToClass(session.id, 'Globals', 'Array', 2);
 
       expect(ClassBrowser.showOrUpdate).toHaveBeenCalledWith(
-        session, ['UserGlobals', 'Globals'], 2, 'Array',
+        session,
+        ['UserGlobals', 'Globals'],
+        2,
+        'Array',
       );
     });
 
@@ -2376,7 +2589,10 @@ describe('SystemBrowser', () => {
       SystemBrowser.navigateToClass(session.id, 'UserGlobals', 'Array');
 
       expect(ClassBrowser.showOrUpdate).toHaveBeenCalledWith(
-        session, ['UserGlobals', 'Globals'], 1, 'Array',
+        session,
+        ['UserGlobals', 'Globals'],
+        1,
+        'Array',
       );
     });
 
@@ -2399,7 +2615,8 @@ describe('SystemBrowser', () => {
     });
 
     it('does nothing when no export manager has been set', () => {
-      (SystemBrowser as unknown as { sharedExportManager: unknown }).sharedExportManager = undefined;
+      (SystemBrowser as unknown as { sharedExportManager: unknown }).sharedExportManager =
+        undefined;
       SystemBrowser.navigateBeside(session, result);
       expect(window.createWebviewPanel).not.toHaveBeenCalled();
     });
@@ -2423,7 +2640,10 @@ describe('SystemBrowser', () => {
         expect.objectContaining({ command: 'loadMethods', selected: 'name' }),
       );
       // setEditorLayout reorganizes ALL editor groups globally — calling it would clobber the enhanced inspector panel
-      expect(commands.executeCommand).not.toHaveBeenCalledWith('vscode.setEditorLayout', expect.anything());
+      expect(commands.executeCommand).not.toHaveBeenCalledWith(
+        'vscode.setEditorLayout',
+        expect.anything(),
+      );
     });
 
     it('navigates an existing browser directly without opening a new panel', () => {
@@ -2484,7 +2704,11 @@ describe('SystemBrowser', () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
       SystemBrowser.navigateToClass(session.id, 'UserGlobals', 'Array');
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ command: 'loadMethods', items: ['=', 'hash', 'name', 'name:'], methodOverrideBits: {} }),
+        expect.objectContaining({
+          command: 'loadMethods',
+          items: ['=', 'hash', 'name', 'name:'],
+          methodOverrideBits: {},
+        }),
       );
     });
 
@@ -2492,24 +2716,40 @@ describe('SystemBrowser', () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
       SystemBrowser.navigateToClass(session.id, 'UserGlobals', 'Array');
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ command: 'loadMethodCategories', selected: ALL_METHODS_CATEGORY }),
+        expect.objectContaining({
+          command: 'loadMethodCategories',
+          selected: ALL_METHODS_CATEGORY,
+        }),
       );
     });
 
     it('keeps method override markers when navigating to a class', () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
       vi.mocked(queries.getClassEnvironments).mockReturnValue([
-        { isMeta: false, envId: 0, category: 'Accessing', selectors: ['name', 'name:'],
-          methodOverrideBits: { name: 1 } },
-        { isMeta: false, envId: 0, category: 'Comparing', selectors: ['=', 'hash'],
-          methodOverrideBits: { '=': 3 } },
+        {
+          isMeta: false,
+          envId: 0,
+          category: 'Accessing',
+          selectors: ['name', 'name:'],
+          methodOverrideBits: { name: 1 },
+        },
+        {
+          isMeta: false,
+          envId: 0,
+          category: 'Comparing',
+          selectors: ['=', 'hash'],
+          methodOverrideBits: { '=': 3 },
+        },
       ]);
 
       SystemBrowser.navigateToClass(session.id, 'UserGlobals', 'Array');
 
-      const calls = vi.mocked(mockPanel.webview.postMessage).mock.calls
-        .map(c => c[0] as { command: string; methodOverrideBits?: Record<string, number> })
-        .filter(m => m.command === 'loadMethods');
+      const calls = vi
+        .mocked(mockPanel.webview.postMessage)
+        .mock.calls.map(
+          (c) => c[0] as { command: string; methodOverrideBits?: Record<string, number> },
+        )
+        .filter((m) => m.command === 'loadMethods');
       const last = calls[calls.length - 1];
       expect(last.methodOverrideBits).toEqual({ name: 1, '=': 3 });
     });
@@ -2517,7 +2757,8 @@ describe('SystemBrowser', () => {
     it('navigates only the most recently active browser', () => {
       const firstPanel = mockPanel;
       SystemBrowser.show(session, exportManager);
-      const secondPanel = vi.mocked(window.createWebviewPanel).mock.results[1].value as typeof mockPanel;
+      const secondPanel = vi.mocked(window.createWebviewPanel).mock.results[1]
+        .value as typeof mockPanel;
       messageHandler({ command: 'ready' });
 
       vi.mocked(fs.existsSync).mockReturnValue(false);
@@ -2530,11 +2771,14 @@ describe('SystemBrowser', () => {
     it('switches target when onDidChangeViewState fires on another browser', () => {
       const firstPanel = mockPanel;
       SystemBrowser.show(session, exportManager);
-      const secondPanel = vi.mocked(window.createWebviewPanel).mock.results[1].value as typeof mockPanel;
+      const secondPanel = vi.mocked(window.createWebviewPanel).mock.results[1]
+        .value as typeof mockPanel;
       messageHandler({ command: 'ready' });
 
       // Simulate the second panel becoming active
-      const viewStateHandler = secondPanel.onDidChangeViewState.mock.calls[0][0] as (e: { webviewPanel: { active: boolean } }) => void;
+      const viewStateHandler = secondPanel.onDidChangeViewState.mock.calls[0][0] as (e: {
+        webviewPanel: { active: boolean };
+      }) => void;
       viewStateHandler({ webviewPanel: { active: true } });
 
       vi.mocked(fs.existsSync).mockReturnValue(false);
@@ -2573,7 +2817,9 @@ describe('SystemBrowser', () => {
       SystemBrowser.show(session, exportManager);
       messageHandler({ command: 'ready' });
       const closeHandler = vi.mocked(mockPanel.onDidDispose).mock.calls[0][0] as () => void;
-      const editorTab = { input: new TabInputText(Uri.parse(`gemstone://${session.id}/Globals/Array/definition`)) };
+      const editorTab = {
+        input: new TabInputText(Uri.parse(`gemstone://${session.id}/Globals/Array/definition`)),
+      };
       window.tabGroups.all = [{ tabs: [editorTab] }];
       vi.mocked(GlobalsBrowser.disposeForSession).mockClear();
       vi.mocked(CommentBrowser.disposeForSession).mockClear();
@@ -2602,5 +2848,4 @@ describe('SystemBrowser', () => {
       expect(CommentBrowser.disposeForSession).not.toHaveBeenCalled();
     });
   });
-
 });

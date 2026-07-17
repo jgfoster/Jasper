@@ -60,17 +60,17 @@ function tsFilesUnder(root: string): string[] {
   return fs
     .readdirSync(abs, { recursive: true })
     .map(String)
-    .filter(f => f.endsWith('.ts'))
-    .filter(f => !/(^|[\\/])__tests__[\\/]/.test(f))
-    .filter(f => !/(^|[\\/])__mocks__[\\/]/.test(f))
-    .filter(f => path.basename(f) !== 'gciLibrary.ts') // the bindings themselves
-    .map(f => path.join(abs, f));
+    .filter((f) => f.endsWith('.ts'))
+    .filter((f) => !/(^|[\\/])__tests__[\\/]/.test(f))
+    .filter((f) => !/(^|[\\/])__mocks__[\\/]/.test(f))
+    .filter((f) => path.basename(f) !== 'gciLibrary.ts') // the bindings themselves
+    .map((f) => path.join(abs, f));
 }
 
 /** Map of gated function name -> list of "relativePath:line" call sites. */
 function gatedUsages(gated: string[]): Record<string, string[]> {
   const usages: Record<string, string[]> = {};
-  const patterns = gated.map(name => ({ name, re: new RegExp(`\\.${name}\\s*\\(`) }));
+  const patterns = gated.map((name) => ({ name, re: new RegExp(`\\.${name}\\s*\\(`) }));
   for (const root of SCAN_ROOTS) {
     for (const file of tsFilesUnder(root)) {
       const lines = fs.readFileSync(file, 'utf-8').split('\n');
@@ -95,17 +95,19 @@ describe('GemStone 3.6.2 compatibility gate', () => {
 
   it('keeps the allowlist a subset of the gated functions (no stale entries)', () => {
     const gated = gatedFunctions();
-    const stale = ALLOWED_POST_362.filter(name => !gated.includes(name));
-    expect(stale, `ALLOWED_POST_362 names that are no longer gated: ${stale.join(', ')}`).toEqual([]);
+    const stale = ALLOWED_POST_362.filter((name) => !gated.includes(name));
+    expect(stale, `ALLOWED_POST_362 names that are no longer gated: ${stale.join(', ')}`).toEqual(
+      [],
+    );
   });
 
   it('does not use any post-3.6.2 GCI function outside the allowlist', () => {
     const gated = gatedFunctions();
     const usages = gatedUsages(gated);
-    const offenders = Object.keys(usages).filter(name => !ALLOWED_POST_362.includes(name));
+    const offenders = Object.keys(usages).filter((name) => !ALLOWED_POST_362.includes(name));
 
     const detail = offenders
-      .map(name => `  - ${name} (added after 3.6.2): ${usages[name].join(', ')}`)
+      .map((name) => `  - ${name} (added after 3.6.2): ${usages[name].join(', ')}`)
       .join('\n');
 
     expect(
@@ -113,9 +115,9 @@ describe('GemStone 3.6.2 compatibility gate', () => {
       offenders.length === 0
         ? ''
         : `Production code uses GCI function(s) that do NOT exist in GemStone 3.6.2:\n${detail}\n\n` +
-          `These will throw on a 3.6.2 server. If you intend to require GemStone 3.7+ for ` +
-          `this path, consciously add the name(s) to ALLOWED_POST_362 in ` +
-          `client/src/__tests__/gciVersionGated.test.ts.`,
+            `These will throw on a 3.6.2 server. If you intend to require GemStone 3.7+ for ` +
+            `this path, consciously add the name(s) to ALLOWED_POST_362 in ` +
+            `client/src/__tests__/gciVersionGated.test.ts.`,
     ).toEqual([]);
   });
 });

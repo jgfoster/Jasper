@@ -5,7 +5,11 @@ import { TokenType, createPosition } from '../lexer/tokens';
 import { findTokenAt, findSelectorAtPosition } from '../utils/astUtils';
 import { WorkspaceIndex } from '../utils/workspaceIndex';
 
-export function getDefinition(doc: ParsedDocument, position: Position, region?: ParsedRegion): Location | null {
+export function getDefinition(
+  doc: ParsedDocument,
+  position: Position,
+  region?: ParsedRegion,
+): Location | null {
   const ast = region?.ast ?? doc.ast;
   if (!ast) return null;
 
@@ -61,7 +65,7 @@ export function getWorkspaceDefinition(
   const implementors = index.findImplementors(selector);
   if (implementors.length === 0) return null;
 
-  return implementors.map(m => ({
+  return implementors.map((m) => ({
     uri: m.uri,
     range: {
       start: { line: m.startLine, character: 0 },
@@ -91,7 +95,7 @@ export function getWorkspaceReferences(
   const senders = index.findSenders(selector);
   if (senders.length === 0) return null;
 
-  return senders.map(m => ({
+  return senders.map((m) => ({
     uri: m.uri,
     range: {
       start: { line: m.startLine, character: 0 },

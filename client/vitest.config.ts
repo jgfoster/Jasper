@@ -6,9 +6,7 @@ import { BaseSequencer } from 'vitest/node';
 // here — in the main config, before any worker spawns — and pin it into both
 // projects so every worker shuffles identically. The seed is printed on each
 // run; re-run with `VITEST_SEED=<seed>` (e.g. in CI) to replay that exact order.
-const shuffleSeed = process.env.VITEST_SEED
-  ? Number(process.env.VITEST_SEED)
-  : Date.now();
+const shuffleSeed = process.env.VITEST_SEED ? Number(process.env.VITEST_SEED) : Date.now();
 console.log(
   `vitest: shuffling test order with seed ${shuffleSeed} — re-run with VITEST_SEED=${shuffleSeed} to reproduce this order`,
 );
@@ -74,7 +72,7 @@ export default defineConfig({
           setupFiles: [
             'src/__tests__/vitest.windowSetup.cjs',
             'src/__tests__/vitest.uriSetup.ts',
-             'src/__tests__/vitest.customErrorMatchers.ts',
+            'src/__tests__/vitest.customErrorMatchers.ts',
           ],
           sequence: {
             shuffle: true,

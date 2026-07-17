@@ -30,7 +30,12 @@ export function discoverTestMethods(session: ActiveSession, className: string, d
   return sharedDiscoverTestMethods(bind(session), className, dictName);
 }
 
-export function runTestMethod(session: ActiveSession, className: string, selector: string, dictName?: string) {
+export function runTestMethod(
+  session: ActiveSession,
+  className: string,
+  selector: string,
+  dictName?: string,
+) {
   return sharedRunTestMethod(bind(session), className, selector, dictName);
 }
 

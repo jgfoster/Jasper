@@ -88,13 +88,20 @@ function matchCommand(line: string, commands: string[]): { command: string; rest
  */
 function minAbbrev(cmd: string): number {
   switch (cmd) {
-    case 'run': return 3;
-    case 'doit': return 2;
-    case 'print': return 2;
-    case 'printit': return 7; // distinguish from 'print' and 'protect'
-    case 'method': return 3; // distinguish from 'me' being ambiguous
-    case 'classmethod': return 6; // 'classm' is enough
-    default: return 3;
+    case 'run':
+      return 3;
+    case 'doit':
+      return 2;
+    case 'print':
+      return 2;
+    case 'printit':
+      return 7; // distinguish from 'print' and 'protect'
+    case 'method':
+      return 3; // distinguish from 'me' being ambiguous
+    case 'classmethod':
+      return 6; // 'classm' is enough
+    default:
+      return 3;
   }
 }
 
@@ -204,7 +211,11 @@ export function findRegionAtLine(regions: TopazRegion[], line: number): TopazReg
 /**
  * Convert a document-level line/column to a region-relative line/column.
  */
-export function toRegionPosition(region: TopazRegion, line: number, character: number): { line: number; character: number } {
+export function toRegionPosition(
+  region: TopazRegion,
+  line: number,
+  character: number,
+): { line: number; character: number } {
   return {
     line: line - region.startLine,
     character,
@@ -214,7 +225,11 @@ export function toRegionPosition(region: TopazRegion, line: number, character: n
 /**
  * Convert a region-relative line/column back to document-level.
  */
-export function toDocumentPosition(region: TopazRegion, line: number, character: number): { line: number; character: number } {
+export function toDocumentPosition(
+  region: TopazRegion,
+  line: number,
+  character: number,
+): { line: number; character: number } {
   return {
     line: line + region.startLine,
     character,

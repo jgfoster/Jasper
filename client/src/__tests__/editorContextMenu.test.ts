@@ -33,37 +33,44 @@ describe('editor/context menu', () => {
   });
 
   it('shows "Display It" in gemstone documents when code execution is available', () => {
-    expect(getMenuItem('gemstone.displayIt')?.when)
-      .toBe(`editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing`);
+    expect(getMenuItem('gemstone.displayIt')?.when).toBe(
+      `editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing`,
+    );
   });
 
   it('shows "Inspect It" in gemstone documents when code execution is available', () => {
-    expect(getMenuItem('gemstone.inspectIt')?.when)
-      .toBe(`editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing`);
+    expect(getMenuItem('gemstone.inspectIt')?.when).toBe(
+      `editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing`,
+    );
   });
 
   it('shows "Execute It" in gemstone documents when code execution is available', () => {
-    expect(getMenuItem('gemstone.executeIt')?.when)
-      .toBe(`editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing`);
+    expect(getMenuItem('gemstone.executeIt')?.when).toBe(
+      `editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing`,
+    );
   });
 
   it('shows "Debug It" in gemstone documents when code execution is available', () => {
-    expect(getMenuItem('gemstone.debugIt')?.when)
-      .toBe(`editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing`);
+    expect(getMenuItem('gemstone.debugIt')?.when).toBe(
+      `editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing`,
+    );
   });
 
   it('shows "Senders Of..." in gemstone documents', () => {
-    expect(getMenuItem('gemstone.sendersOf')?.when)
-      .toBe(`editorTextFocus && resourceLangId == gemstone-smalltalk`);
+    expect(getMenuItem('gemstone.sendersOf')?.when).toBe(
+      `editorTextFocus && resourceLangId == gemstone-smalltalk`,
+    );
   });
 
   it('shows "Implementors Of..." in gemstone documents', () => {
-    expect(getMenuItem('gemstone.implementorsOf')?.when)
-      .toBe(`editorTextFocus && resourceLangId == gemstone-smalltalk`);
+    expect(getMenuItem('gemstone.implementorsOf')?.when).toBe(
+      `editorTextFocus && resourceLangId == gemstone-smalltalk`,
+    );
   });
 
   it('shows "Toggle Selector Breakpoint" in gemstone documents', () => {
-    expect(getMenuItem('gemstone.toggleSelectorBreakpoint')?.when)
-      .toBe(`editorTextFocus && resourceLangId == gemstone-smalltalk`);
+    expect(getMenuItem('gemstone.toggleSelectorBreakpoint')?.when).toBe(
+      `editorTextFocus && resourceLangId == gemstone-smalltalk`,
+    );
   });
 });

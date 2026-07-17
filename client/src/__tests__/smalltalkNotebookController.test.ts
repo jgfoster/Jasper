@@ -23,7 +23,10 @@ function makeGci(overrides: Record<string, unknown> = {}) {
   return {
     GciTsCallInProgress: vi.fn(() => ({ result: 0, err: { number: 0 } })),
     GciTsResolveSymbol: vi.fn(() => ({ result: 100n, err: { number: 0 } })),
-    GciTsNbExecute: vi.fn((..._args: unknown[]) => ({ success: true, err: { number: 0, message: '' } })),
+    GciTsNbExecute: vi.fn((..._args: unknown[]) => ({
+      success: true,
+      err: { number: 0, message: '' },
+    })),
     isAvailable: vi.fn(() => true),
     GciTsNbPoll: vi.fn(() => ({ result: 1, err: { number: 0 } })),
     GciTsNbResult: vi.fn(() => ({ result: 200n, err: { number: 0, message: '', context: 0x14n } })),
@@ -77,7 +80,9 @@ describe('SmalltalkNotebookController', () => {
   it('registers a controller for the jupyter-notebook type with smalltalk cells', () => {
     const ctrl = new SmalltalkNotebookController(makeSessionManager(makeSession()));
     expect(notebooks.createNotebookController).toHaveBeenCalledWith(
-      SMALLTALK_CONTROLLER_ID, GEMSTONE_NOTEBOOK_TYPE, SMALLTALK_CONTROLLER_LABEL,
+      SMALLTALK_CONTROLLER_ID,
+      GEMSTONE_NOTEBOOK_TYPE,
+      SMALLTALK_CONTROLLER_LABEL,
     );
     const mock = lastController();
     expect(mock.supportedLanguages).toEqual(['gemstone-smalltalk']);
@@ -115,10 +120,10 @@ describe('SmalltalkNotebookController', () => {
     await runCells([makeCell('3 + 4')]);
 
     const sinkCalls = gci.GciTsExecuteFetchBytes.mock.calls
-      .map(c => c[1] as string)
-      .filter(code => code.includes('jasperLive:'));
-    expect(sinkCalls.some(code => code.includes('jasperLive: true'))).toBe(true);
-    expect(sinkCalls.some(code => code.includes('jasperLive: false'))).toBe(true);
+      .map((c) => c[1] as string)
+      .filter((code) => code.includes('jasperLive:'));
+    expect(sinkCalls.some((code) => code.includes('jasperLive: true'))).toBe(true);
+    expect(sinkCalls.some((code) => code.includes('jasperLive: false'))).toBe(true);
     ctrl.dispose();
   });
 

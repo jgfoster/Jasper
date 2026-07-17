@@ -10,12 +10,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { ActiveSession } from './sessionManager';
 import { registerMcpTools } from './mcpTools';
 import { appendSysadmin } from './sysadminChannel';
-import {
-  defaultSidecarPath,
-  deleteOwnerSidecar,
-  writeOwnerSidecar,
-} from './mcpOwnerSidecar';
-import {extensionPathFrom} from "./extensionPath";
+import { defaultSidecarPath, deleteOwnerSidecar, writeOwnerSidecar } from './mcpOwnerSidecar';
+import { extensionPathFrom } from './extensionPath';
 
 /**
  * Single, user-scoped server name. Every MCP client (Claude Code, Claude
@@ -286,7 +282,13 @@ export function proxyScriptPath(extensionPath: string): string {
 export function claudeDesktopConfigPath(): string {
   const home = os.homedir();
   if (process.platform === 'darwin') {
-    return path.join(home, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json');
+    return path.join(
+      home,
+      'Library',
+      'Application Support',
+      'Claude',
+      'claude_desktop_config.json',
+    );
   }
   if (process.platform === 'win32') {
     const appData = process.env.APPDATA ?? path.join(home, 'AppData', 'Roaming');
@@ -350,10 +352,7 @@ export function isJasperProxyEntry(entry: unknown): boolean {
  * (only when it's still Jasper's own proxy — never a foreign `gemstone`).
  * Idempotent — only writes the file when something actually changes.
  */
-export function writeClaudeDesktopMcpConfig(
-  extensionPath: string,
-  socketPath: string,
-): string {
+export function writeClaudeDesktopMcpConfig(extensionPath: string, socketPath: string): string {
   const configPath = claudeDesktopConfigPath();
   const settings = readDesktopSettings(configPath);
 

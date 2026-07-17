@@ -10,7 +10,10 @@ import { renderGrailStub, selectorKind, WrapSelector } from './grailStub';
 // the user pick which methods to scaffold as @smalltalk wrappers, render the
 // module, and save it to a file they choose.
 export async function generateAndSaveGrailStub(
-  session: ActiveSession, className: string, dictName: string, dictIndex?: number,
+  session: ActiveSession,
+  className: string,
+  dictName: string,
+  dictIndex?: number,
 ): Promise<void> {
   const reflection = queries.getGrailStubReflection(session, className, dictIndex ?? dictName);
   if (!reflection.found) {
@@ -26,26 +29,38 @@ export async function generateAndSaveGrailStub(
     if (iv.hasGetter) accessorSelectors.add(iv.name);
     if (iv.hasSetter) accessorSelectors.add(`${iv.name}:`);
   }
-  const candidates = reflection.methods.filter(m =>
-    selectorKind(m.selector) !== 'binary'
-    && !(m.side === 'instance' && accessorSelectors.has(m.selector)));
+  const candidates = reflection.methods.filter(
+    (m) =>
+      selectorKind(m.selector) !== 'binary' &&
+      !(m.side === 'instance' && accessorSelectors.has(m.selector)),
+  );
 
   let wrapSelectors: WrapSelector[] = [];
   if (candidates.length) {
     const picked = await vscode.window.showQuickPick(
-      candidates.map(m => ({ label: m.selector, description: `${m.side} · ${m.category}`, method: m })),
+      candidates.map((m) => ({
+        label: m.selector,
+        description: `${m.side} · ${m.category}`,
+        method: m,
+      })),
       {
         canPickMany: true,
         matchOnDescription: true,
         title: `Wrap methods of ${className}`,
-        placeHolder: 'Select methods to scaffold as @smalltalk wrappers (none = slots + accessors only)',
+        placeHolder:
+          'Select methods to scaffold as @smalltalk wrappers (none = slots + accessors only)',
       },
     );
     if (picked === undefined) return; // dismissed
-    wrapSelectors = picked.map(p => ({ side: p.method.side, selector: p.method.selector }));
+    wrapSelectors = picked.map((p) => ({ side: p.method.side, selector: p.method.selector }));
   }
 
-  const source = renderGrailStub({ className, dictionaryName: dictName, reflection, wrapSelectors });
+  const source = renderGrailStub({
+    className,
+    dictionaryName: dictName,
+    reflection,
+    wrapSelectors,
+  });
 
   const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const uri = await vscode.window.showSaveDialog({

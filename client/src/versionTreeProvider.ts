@@ -55,7 +55,10 @@ export class VersionItem extends vscode.TreeItem {
       // Windows-no-WSL: icon reflects Windows-client state only.
       if (version.bundled) {
         // GCI ships with the extension — ready to use, no download needed.
-        this.iconPath = new vscode.ThemeIcon('package', new vscode.ThemeColor('testing.iconPassed'));
+        this.iconPath = new vscode.ThemeIcon(
+          'package',
+          new vscode.ThemeColor('testing.iconPassed'),
+        );
         tooltipBits.push('GCI bundled with the extension — ready to use');
       } else if (version.clientExtracted) {
         this.iconPath = new vscode.ThemeIcon('check', new vscode.ThemeColor('testing.iconPassed'));
@@ -129,6 +132,6 @@ export class VersionTreeProvider implements vscode.TreeDataProvider<VersionItem>
       this.loadVersions();
       return [];
     }
-    return this.versions.map(v => new VersionItem(v));
+    return this.versions.map((v) => new VersionItem(v));
   }
 }

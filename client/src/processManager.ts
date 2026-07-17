@@ -31,9 +31,11 @@ export interface ForceKillResult {
  *
  *  `psOutput` is the trimmed stdout from
  *  `ps -p <pid> -o command= 2>/dev/null || echo GONE`. */
-export function classifyPidOwnership(
-  psOutput: string,
-): { pidGone: boolean; isGemStoneServer: boolean; command: string } {
+export function classifyPidOwnership(psOutput: string): {
+  pidGone: boolean;
+  isGemStoneServer: boolean;
+  command: string;
+} {
   const command = psOutput.trim();
   if (command === '' || command === 'GONE') {
     return { pidGone: true, isGemStoneServer: false, command: '' };
@@ -215,7 +217,8 @@ export class ProcessManager {
     const gsPath = needsWsl()
       ? this.storage.getWslGemstonePath(db.config.version)
       : this.storage.getGemstonePath(db.config.version);
-    if (!gsPath) throw new Error(`GemStone ${db.config.version} not found. Please extract it first.`);
+    if (!gsPath)
+      throw new Error(`GemStone ${db.config.version} not found. Please extract it first.`);
     const dbPath = needsWsl() ? windowsPathToWsl(db.path) : db.path;
     const rootPath = needsWsl() ? this.storage.getWslRootPath() : this.storage.getRootPath();
     const env: Record<string, string> = {
@@ -349,7 +352,9 @@ export class ProcessManager {
         ? original.replace(match[0], line)
         : `${original.replace(/\n?$/, '\n')}${line}\n`;
       fs.writeFileSync(confFile, updated);
-      appendSysadmin(`Raised gem temp-object cache to ${ProcessManager.MIN_GEM_CACHE_KB} KB in ${confFile}`);
+      appendSysadmin(
+        `Raised gem temp-object cache to ${ProcessManager.MIN_GEM_CACHE_KB} KB in ${confFile}`,
+      );
     } catch {
       /* leave the conf untouched; the gem just keeps its current cache */
     }
@@ -361,9 +366,7 @@ export class ProcessManager {
     const gsPath = env.GEMSTONE;
     const dbPath = needsWsl() ? windowsPathToWsl(db.path) : db.path;
     const logPath = `${dbPath}/log/${db.config.ldiName}.log`;
-    const user = needsWsl()
-      ? wslExecSync('whoami').trim()
-      : os.userInfo().username;
+    const user = needsWsl() ? wslExecSync('whoami').trim() : os.userInfo().username;
     return this.runCommand(
       `${gsPath}/bin/startnetldi`,
       ['-a', user, '-g', '-l', logPath, db.config.ldiName],
@@ -489,14 +492,14 @@ export class ProcessManager {
    *  too (see versionsMatch). */
   isStoneRunning(stoneName: string, version: string): boolean {
     return this.cachedProcesses.some(
-      p => p.type === 'stone' && p.name === stoneName && versionsMatch(p.version, version),
+      (p) => p.type === 'stone' && p.name === stoneName && versionsMatch(p.version, version),
     );
   }
 
   /** Check if a netldi is running for the given version. See isStoneRunning. */
   isNetldiRunning(ldiName: string, version: string): boolean {
     return this.cachedProcesses.some(
-      p => p.type === 'netldi' && p.name === ldiName && versionsMatch(p.version, version),
+      (p) => p.type === 'netldi' && p.name === ldiName && versionsMatch(p.version, version),
     );
   }
 }

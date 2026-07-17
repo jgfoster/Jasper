@@ -4,7 +4,12 @@ import { DoubleClickDetector } from '../explorerDoubleClick';
 // A controllable clock so click timing is deterministic.
 function makeClock(start = 1000) {
   let now = start;
-  return { now: () => now, advance: (ms: number) => { now += ms; } };
+  return {
+    now: () => now,
+    advance: (ms: number) => {
+      now += ms;
+    },
+  };
 }
 
 describe('DoubleClickDetector', () => {

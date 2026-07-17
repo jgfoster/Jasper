@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import {extensionPathFrom} from "./extensionPath";
+import { extensionPathFrom } from './extensionPath';
 
 // Lives next to the MCP socket so every Jasper window can answer
 // "if not me, who owns the MCP server?" without IPC. Written by the owning

@@ -29,7 +29,10 @@ const GROUPS: { kind: OpenEditorKind; label: string; icon: string }[] = [
 ];
 
 class GroupItem extends vscode.TreeItem {
-  constructor(readonly kind: OpenEditorKind, label: string) {
+  constructor(
+    readonly kind: OpenEditorKind,
+    label: string,
+  ) {
     super(label, vscode.TreeItemCollapsibleState.Expanded);
     this.id = `group:${kind}`;
     this.contextValue = 'explorerOpenEditorGroup';
@@ -37,7 +40,11 @@ class GroupItem extends vscode.TreeItem {
 }
 
 class EditorItem extends vscode.TreeItem {
-  constructor(label: string, readonly uri: vscode.Uri, icon: string) {
+  constructor(
+    label: string,
+    readonly uri: vscode.Uri,
+    icon: string,
+  ) {
     super(label, vscode.TreeItemCollapsibleState.None);
     this.id = uri.toString();
     this.resourceUri = uri;
@@ -48,7 +55,11 @@ class EditorItem extends vscode.TreeItem {
   }
 }
 
-interface Entry { kind: OpenEditorKind; label: string; uri: vscode.Uri; }
+interface Entry {
+  kind: OpenEditorKind;
+  label: string;
+  uri: vscode.Uri;
+}
 
 // Every open gemstone:// source tab, classified and de-duplicated by URI (the
 // same document split across editor groups yields one row).
@@ -60,8 +71,11 @@ function openEntries(): Entry[] {
     if (seen.has(key)) continue;
     seen.add(key);
     let entry: { kind: OpenEditorKind; label: string } | undefined;
-    try { entry = classifyGemstoneUri(parseUri(uri)); }
-    catch { entry = undefined; }   // unrecognized URI shape → skip
+    try {
+      entry = classifyGemstoneUri(parseUri(uri));
+    } catch {
+      entry = undefined;
+    } // unrecognized URI shape → skip
     if (entry) out.push({ ...entry, uri });
   }
   return out;
@@ -70,16 +84,20 @@ function openEntries(): Entry[] {
 class OpenEditorsProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
-  refresh(): void { this._onDidChangeTreeData.fire(); }
-  getTreeItem(element: vscode.TreeItem): vscode.TreeItem { return element; }
+  refresh(): void {
+    this._onDidChangeTreeData.fire();
+  }
+  getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
+    return element;
+  }
 
   getChildren(element?: vscode.TreeItem): vscode.TreeItem[] {
     const entries = openEntries();
     if (!element) {
       // Top level: one header per non-empty group (Classes, then Methods).
-      return GROUPS
-        .filter((g) => entries.some((e) => e.kind === g.kind))
-        .map((g) => new GroupItem(g.kind, g.label));
+      return GROUPS.filter((g) => entries.some((e) => e.kind === g.kind)).map(
+        (g) => new GroupItem(g.kind, g.label),
+      );
     }
     if (element instanceof GroupItem) {
       const icon = GROUPS.find((g) => g.kind === element.kind)!.icon;
@@ -126,7 +144,9 @@ export class DirtyDecorationProvider implements vscode.FileDecorationProvider {
 // across editor groups).
 async function closeEditor(uri: vscode.Uri): Promise<void> {
   const key = uri.toString();
-  const tabs = listOpenGemstoneTabs().filter((t) => t.uri.toString() === key).map((t) => t.tab);
+  const tabs = listOpenGemstoneTabs()
+    .filter((t) => t.uri.toString() === key)
+    .map((t) => t.tab);
   if (tabs.length) await vscode.window.tabGroups.close(tabs);
 }
 

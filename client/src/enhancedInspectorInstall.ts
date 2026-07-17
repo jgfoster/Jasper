@@ -116,9 +116,9 @@ export function isEnhancedInspectorInstalled(session: ActiveSession): boolean {
     const result = executeFetchString(
       session,
       'verifyEnhancedInspector',
-      "[(GtRemotePhlowViewedObject notNil "
-        + "and: [Object includesSelector: #gtViewsInCurrentContext]) printString] "
-        + "on: Error do: [:e | 'false']",
+      '[(GtRemotePhlowViewedObject notNil ' +
+        'and: [Object includesSelector: #gtViewsInCurrentContext]) printString] ' +
+        "on: Error do: [:e | 'false']",
     );
     return result.trim() === 'true';
   } catch {
@@ -151,9 +151,7 @@ export async function installEnhancedInspectorSupport(
 
   // Fail fast (and clearly) if the gem can't read the payload — e.g. a remote
   // stone whose gem doesn't share this machine's filesystem.
-  const unreadable = ENHANCED_INSPECTOR_FILES.filter(
-    (f) => !gemCanRead(session, serverPath(f)),
-  );
+  const unreadable = ENHANCED_INSPECTOR_FILES.filter((f) => !gemCanRead(session, serverPath(f)));
   if (unreadable.length > 0) {
     return {
       success: false,
@@ -161,9 +159,9 @@ export async function installEnhancedInspectorSupport(
       verified: false,
       filedIn: [],
       message:
-        `The database's gem cannot read the payload files (${unreadable.join(', ')}) under `
-        + `${payloadDir}. Server-side install requires a local stone whose gem shares this `
-        + 'filesystem.',
+        `The database's gem cannot read the payload files (${unreadable.join(', ')}) under ` +
+        `${payloadDir}. Server-side install requires a local stone whose gem shares this ` +
+        'filesystem.',
     };
   }
 
@@ -224,8 +222,8 @@ export async function installEnhancedInspectorSupport(
     filedIn,
     message: verified
       ? 'Enhanced inspector support installed and verified.'
-      : 'Payload committed, but verification failed: the expected classes/methods '
-        + 'were not found. The install may be incomplete.',
+      : 'Payload committed, but verification failed: the expected classes/methods ' +
+        'were not found. The install may be incomplete.',
   };
 }
 
@@ -235,8 +233,8 @@ function gemCanRead(session: ActiveSession, serverPath: string): boolean {
     const r = executeFetchString(
       session,
       'gemCanRead',
-      `[(GsFile existsOnServer: ${gsStringLiteral(serverPath)}) printString] `
-        + "on: Error do: [:e | 'false']",
+      `[(GsFile existsOnServer: ${gsStringLiteral(serverPath)}) printString] ` +
+        "on: Error do: [:e | 'false']",
     );
     return r.trim() === 'true';
   } catch {

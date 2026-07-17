@@ -3,7 +3,9 @@ import { classLookupOrRaiseExpr, splitLines } from './util';
 import { TestRunResult } from './runTestMethod';
 
 export function runTestClass(
-  execute: QueryExecutor, className: string, dictName?: string,
+  execute: QueryExecutor,
+  className: string,
+  dictName?: string,
 ): TestRunResult[] {
   // Resolve the class dictionary-scoped (when dictName is given) rather than
   // by bare name. Two distinct TestCase subclasses can share a name across
@@ -60,7 +62,7 @@ result errors do: [:each |
   ws lf].
 ws contents encodeAsUTF8`;
   const data = execute(`runTestClass(${className})`, code);
-  return splitLines(data).map(line => {
+  return splitLines(data).map((line) => {
     const parts = line.split('\t');
     return {
       className: parts[0] || className,

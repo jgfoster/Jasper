@@ -19,10 +19,7 @@ describe('Browser Queries (integration)', () => {
 
   beforeAll(() => {
     gci = new GciLibrary(GCI_LIBRARY_PATH);
-    const login = gci.GciTsLogin(
-      STONE_NRS, null, null, false,
-      GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
-    );
+    const login = gci.GciTsLogin(STONE_NRS, null, null, false, GEM_NRS, GS_USER, GS_PASSWORD, 0, 0);
     expect(login.session).not.toBeNull();
 
     session = {
@@ -145,14 +142,16 @@ describe('Browser Queries (integration)', () => {
 
     beforeAll(() => {
       // Create a temporary class in UserGlobals that DataCurator owns
-      queries.compileClassDefinition(session,
+      queries.compileClassDefinition(
+        session,
         `Object subclass: '${testClass}'
   instVarNames: #()
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
   inDictionary: UserGlobals
-  options: #()`);
+  options: #()`,
+      );
     });
 
     afterAll(() => {
@@ -171,9 +170,7 @@ describe('Browser Queries (integration)', () => {
     });
 
     it('compiles a method, reads it back, then deletes it', () => {
-      const compiled = queries.compileMethod(
-        session, testClass, false, testCategory, testSource,
-      );
+      const compiled = queries.compileMethod(session, testClass, false, testCategory, testSource);
       expect(compiled).not.toBe(0n);
 
       const source = queries.getMethodSource(session, testClass, false, testSelector);

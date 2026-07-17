@@ -1,8 +1,6 @@
 import { Position } from 'vscode-languageserver';
 import { Token, TokenType, SourceRange } from '../lexer/tokens';
-import {
-  MethodNode, ExpressionNode, StatementNode, MessageNode, PrimaryNode,
-} from '../parser/ast';
+import { MethodNode, ExpressionNode, StatementNode, MessageNode, PrimaryNode } from '../parser/ast';
 
 // ── Token lookup ────────────────────────────────────────────
 
@@ -23,7 +21,8 @@ export function findTokenAt(tokens: Token[], position: Position): Token | null {
 
 export function rangeContains(outer: SourceRange, inner: SourceRange): boolean {
   if (inner.start.line < outer.start.line || inner.end.line > outer.end.line) return false;
-  if (inner.start.line === outer.start.line && inner.start.column < outer.start.column) return false;
+  if (inner.start.line === outer.start.line && inner.start.column < outer.start.column)
+    return false;
   if (inner.end.line === outer.end.line && inner.end.column > outer.end.column) return false;
   return true;
 }

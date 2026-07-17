@@ -54,6 +54,14 @@ Follow these steps in order after cloning the repo:
 
    > **Destructive:** re-running `test:server:start` stops any running stone, resets the database to a pristine state, and overwrites `.env.test`.
 
+6. **Ignore the Prettier reformat commit in `git blame`:**
+
+   ```sh
+   git config blame.ignoreRevsFile .git-blame-ignore-revs
+   ```
+
+   This skips the one-time "Format codebase with Prettier" commit when attributing lines (GitHub's blame view honors `.git-blame-ignore-revs` automatically, no config needed there).
+
 ## Supported VS Code & Node versions
 
 **Current floor:** VS Code `1.101.0` → bundled Node `22.15.1`.
@@ -71,11 +79,11 @@ See [docs/how-to/raising-the-version-floor.md](docs/how-to/raising-the-version-f
 
 Tests run in a random order on every run. The seed is printed at the top of the output — to reproduce a specific run, pass `--sequence.seed=<seed>` to that workspace's vitest directly (e.g. `cd client && npx vitest run --sequence.seed=<seed>`).
 
-Before pushing changes, ensure `npm run lint && npm run compile && npm test` passes locally.
+Before pushing changes, ensure `npm run lint && npm run format:check && npm run compile && npm test` passes locally.
 
 ### Optional local pre-commit hook
 
-If you'd like `eslint` to run on staged files automatically before each commit, install the [lefthook](https://github.com/evilmartians/lefthook) git hook:
+If you'd like `eslint` and `prettier --check` to run on staged files automatically before each commit, install the [lefthook](https://github.com/evilmartians/lefthook) git hook:
 
 ```sh
 npm run hooks:install    # opt in

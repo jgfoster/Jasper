@@ -4,7 +4,14 @@ import * as path from 'path';
 import { RowanRepoRegistry, TrackedRepo } from './rowanRepos';
 import { findRowanLoadSpecs } from './rowanLoad';
 import { ActiveSession } from './sessionManager';
-import { listRowanProjects, diffRowanProject, getGemCacheKB, RowanProject, RowanDiff, RowanDiffOp } from './browserQueries';
+import {
+  listRowanProjects,
+  diffRowanProject,
+  getGemCacheKB,
+  RowanProject,
+  RowanDiff,
+  RowanDiffOp,
+} from './browserQueries';
 import { loadedProjectUri, changeUri } from './rowanDecorations';
 
 // The "Rowan" sidebar view. Rowan is a package manager, so the view is about
@@ -82,12 +89,12 @@ export class RowanRepoItem extends vscode.TreeItem {
       underProvisionedMinKB
         ? `This stone's gem cache is too small to load this project — it needs about ${Math.round(underProvisionedMinKB / 1000)} MB. Raise GEM_TEMPOBJ_CACHE_SIZE and restart the stone.`
         : undefined,
-    ].filter(Boolean).join('\n');
+    ]
+      .filter(Boolean)
+      .join('\n');
     // A too-small gem cache gets the warning triangle even on a valid repo —
     // loading would overflow, so it's flagged before you try.
-    this.iconPath = new vscode.ThemeIcon(
-      missing || underProvisionedMinKB ? 'warning' : 'repo',
-    );
+    this.iconPath = new vscode.ThemeIcon(missing || underProvisionedMinKB ? 'warning' : 'repo');
     // Loadable only when the checkout exists and holds at least one spec.
     // A `Git` suffix marks a clone Jasper can update from its remote — the
     // package.json menus key the Load / Update / Stop-Tracking actions off
@@ -144,7 +151,8 @@ export class RowanBuiltinGroupItem extends vscode.TreeItem {
  */
 export class RowanMessageItem extends vscode.TreeItem {
   constructor(
-    public readonly kind: 'rowanEmpty' | 'rowanNoSession' | 'rowanNoRowan' | 'rowanSectionError' | 'rowanClean',
+    public readonly kind:
+      'rowanEmpty' | 'rowanNoSession' | 'rowanNoRowan' | 'rowanSectionError' | 'rowanClean',
     label: string,
     icon: string,
     command?: vscode.Command,
@@ -174,7 +182,10 @@ export class RowanChangesProjectItem extends vscode.TreeItem {
  * image), changed ≈ modified.
  */
 export class RowanChangeItem extends vscode.TreeItem {
-  constructor(public readonly projectName: string, public readonly op: RowanDiffOp) {
+  constructor(
+    public readonly projectName: string,
+    public readonly op: RowanDiffOp,
+  ) {
     super(op.target, vscode.TreeItemCollapsibleState.None);
     this.id = `rowan-change-${projectName}-${op.package}-${op.target}`;
     this.description = op.package;
@@ -183,11 +194,12 @@ export class RowanChangeItem extends vscode.TreeItem {
     this.iconPath = new vscode.ThemeIcon(
       op.target.includes('>>') ? 'symbol-method' : 'symbol-class',
     );
-    this.tooltip = op.location === 'image'
-      ? `${op.target} exists only in the image (not on disk)`
-      : op.location === 'disk'
-        ? `${op.target} exists only on disk (not in the image)`
-        : `${op.target} differs between image and disk`;
+    this.tooltip =
+      op.location === 'image'
+        ? `${op.target} exists only in the image (not on disk)`
+        : op.location === 'disk'
+          ? `${op.target} exists only on disk (not in the image)`
+          : `${op.target} differs between image and disk`;
     this.contextValue = 'rowanChange';
   }
 }
@@ -248,9 +260,12 @@ export class RowanTreeProvider implements vscode.TreeDataProvider<RowanTreeNode>
     }
     if (element instanceof RowanSectionItem) {
       switch (element.section) {
-        case 'repositories': return this.repositoryChildren();
-        case 'loaded': return this.loadedChildren();
-        case 'changes': return this.changesChildren();
+        case 'repositories':
+          return this.repositoryChildren();
+        case 'loaded':
+          return this.loadedChildren();
+        case 'changes':
+          return this.changesChildren();
       }
     }
     if (element instanceof RowanChangesProjectItem) {
@@ -260,9 +275,9 @@ export class RowanTreeProvider implements vscode.TreeDataProvider<RowanTreeNode>
       const q = this.queryLoaded();
       if (q.state !== 'ok' || !q.available) return [];
       return q.projects
-        .filter(p => p.isBuiltin)
+        .filter((p) => p.isBuiltin)
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map(p => new RowanLoadedProjectItem(p));
+        .map((p) => new RowanLoadedProjectItem(p));
     }
     return [];
   }
@@ -270,25 +285,23 @@ export class RowanTreeProvider implements vscode.TreeDataProvider<RowanTreeNode>
   private changesChildren(): RowanTreeNode[] {
     const q = this.queryLoaded();
     if (q.state === 'nosession') {
-      return [new RowanMessageItem(
-        'rowanNoSession', 'Not connected — log in to see changes', 'plug',
-      )];
+      return [
+        new RowanMessageItem('rowanNoSession', 'Not connected — log in to see changes', 'plug'),
+      ];
     }
     if (q.state === 'error') {
-      return [new RowanMessageItem(
-        'rowanSectionError', `Could not list projects: ${q.message}`, 'error',
-      )];
+      return [
+        new RowanMessageItem('rowanSectionError', `Could not list projects: ${q.message}`, 'error'),
+      ];
     }
     if (!q.available) {
-      return [new RowanMessageItem(
-        'rowanNoRowan', 'Rowan is not installed in this image', 'warning',
-      )];
+      return [
+        new RowanMessageItem('rowanNoRowan', 'Rowan is not installed in this image', 'warning'),
+      ];
     }
     // Built-ins live in the read-only $GEMSTONE tree; drift management is
     // about the user's own repositories.
-    return q.projects
-      .filter(p => !p.isBuiltin)
-      .map(p => new RowanChangesProjectItem(p.name));
+    return q.projects.filter((p) => !p.isBuiltin).map((p) => new RowanChangesProjectItem(p.name));
   }
 
   /** The diff rows for one project; runs the diff on first expansion. */
@@ -305,9 +318,7 @@ export class RowanTreeProvider implements vscode.TreeDataProvider<RowanTreeNode>
       this.diffCache.set(projectName, diff);
     }
     if (!diff.ok) {
-      return [new RowanMessageItem(
-        'rowanSectionError', `Diff failed: ${diff.error}`, 'error',
-      )];
+      return [new RowanMessageItem('rowanSectionError', `Diff failed: ${diff.error}`, 'error')];
     }
     if (diff.operations.length === 0) {
       return [new RowanMessageItem('rowanClean', 'No differences with disk', 'check')];
@@ -315,63 +326,65 @@ export class RowanTreeProvider implements vscode.TreeDataProvider<RowanTreeNode>
     return diff.operations
       .slice()
       .sort((a, b) => (a.package + a.target).localeCompare(b.package + b.target))
-      .map(op => new RowanChangeItem(projectName, op));
+      .map((op) => new RowanChangeItem(projectName, op));
   }
 
   // The registry persists globally, but FOR NOW the sidebar shows only repos
   // checked out inside the open workspace (matching where clones now land).
   // TODO: make the clone/track location configurable — see rowanCloneDest.
   private workspaceRepos(): TrackedRepo[] {
-    const roots = (vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath);
+    const roots = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
     if (roots.length === 0) return [];
-    return this.registry.list().filter(r =>
-      roots.some(root => r.path === root || r.path.startsWith(root + path.sep)),
-    );
+    return this.registry
+      .list()
+      .filter((r) => roots.some((root) => r.path === root || r.path.startsWith(root + path.sep)));
   }
 
   private repositoryChildren(): RowanTreeNode[] {
     const repos = this.workspaceRepos();
     if (repos.length === 0) {
-      const item = new RowanMessageItem(
-        'rowanEmpty', 'No repositories tracked — add one…', '',
-        { command: 'gemstone.rowanAddRepo', title: 'Add Rowan Repository' },
-      );
+      const item = new RowanMessageItem('rowanEmpty', 'No repositories tracked — add one…', '', {
+        command: 'gemstone.rowanAddRepo',
+        title: 'Add Rowan Repository',
+      });
       return [item];
     }
     const loadedNames = this.loadedProjectNames();
     return repos
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name))
-      .map(repo => this.describe(repo, loadedNames));
+      .map((repo) => this.describe(repo, loadedNames));
   }
 
   private loadedChildren(): RowanTreeNode[] {
     const q = this.queryLoaded();
     if (q.state === 'nosession') {
-      return [new RowanMessageItem(
-        'rowanNoSession', 'Not connected — log in to see loaded projects', 'plug',
-      )];
+      return [
+        new RowanMessageItem(
+          'rowanNoSession',
+          'Not connected — log in to see loaded projects',
+          'plug',
+        ),
+      ];
     }
     if (q.state === 'error') {
-      return [new RowanMessageItem(
-        'rowanSectionError', `Could not list projects: ${q.message}`, 'error',
-      )];
+      return [
+        new RowanMessageItem('rowanSectionError', `Could not list projects: ${q.message}`, 'error'),
+      ];
     }
     if (!q.available) {
       // The image has no Rowan at all. Surfacing this is deliberate: the
       // install-Rowan-into-a-bare-image action will hang off this row.
-      return [new RowanMessageItem(
-        'rowanNoRowan', 'Rowan is not installed in this image', 'warning',
-      )];
+      return [
+        new RowanMessageItem('rowanNoRowan', 'Rowan is not installed in this image', 'warning'),
+      ];
     }
     const user = q.projects
-      .filter(p => !p.isBuiltin)
+      .filter((p) => !p.isBuiltin)
       .sort((a, b) => a.name.localeCompare(b.name))
-      .map(p => new RowanLoadedProjectItem(p));
-    const builtins = q.projects.filter(p => p.isBuiltin);
-    return builtins.length > 0
-      ? [...user, new RowanBuiltinGroupItem(builtins.length)]
-      : user;
+      .map((p) => new RowanLoadedProjectItem(p));
+    const builtins = q.projects.filter((p) => p.isBuiltin);
+    return builtins.length > 0 ? [...user, new RowanBuiltinGroupItem(builtins.length)] : user;
   }
 
   private queryLoaded(): NonNullable<RowanTreeProvider['loadedQuery']> {
@@ -393,9 +406,7 @@ export class RowanTreeProvider implements vscode.TreeDataProvider<RowanTreeNode>
   /** Loaded project names, or empty when disconnected/unavailable/erroring. */
   private loadedProjectNames(): Set<string> {
     const q = this.queryLoaded();
-    return q.state === 'ok' && q.available
-      ? new Set(q.projects.map(p => p.name))
-      : new Set();
+    return q.state === 'ok' && q.available ? new Set(q.projects.map((p) => p.name)) : new Set();
   }
 
   private describe(repo: TrackedRepo, loadedNames: Set<string>): RowanRepoItem {
@@ -403,15 +414,13 @@ export class RowanTreeProvider implements vscode.TreeDataProvider<RowanTreeNode>
       return new RowanRepoItem(repo, [], true, false);
     }
     const specs = findRowanLoadSpecs(repo.path);
-    const specNames = specs.map(s => s.name);
-    const loaded = specNames.some(name => loadedNames.has(name));
+    const specNames = specs.map((s) => s.name);
+    const loaded = specNames.some((name) => loadedNames.has(name));
     // Warn when a spec declares a bigger gem cache than the connected gem has —
     // only meaningful while connected and after the gem-cache probe succeeds.
     const gemKB = this.queryGemCacheKB();
-    const declaredMin = Math.max(0, ...specs.map(s => s.minTempObjCacheKB ?? 0));
-    const underProvisioned = gemKB !== undefined && declaredMin > gemKB
-      ? declaredMin
-      : undefined;
+    const declaredMin = Math.max(0, ...specs.map((s) => s.minTempObjCacheKB ?? 0));
+    const underProvisioned = gemKB !== undefined && declaredMin > gemKB ? declaredMin : undefined;
     return new RowanRepoItem(repo, specNames, false, loaded, underProvisioned);
   }
 
@@ -422,7 +431,10 @@ export class RowanTreeProvider implements vscode.TreeDataProvider<RowanTreeNode>
   private queryGemCacheKB(): number | undefined {
     if (this.gemCacheKB !== undefined) return this.gemCacheKB ?? undefined;
     const session = this.sessions.getSession();
-    if (!session) { this.gemCacheKB = null; return undefined; }
+    if (!session) {
+      this.gemCacheKB = null;
+      return undefined;
+    }
     try {
       this.gemCacheKB = getGemCacheKB(session) ?? null;
     } catch {

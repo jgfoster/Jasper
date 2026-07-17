@@ -10,9 +10,22 @@ import { ActiveSession } from '../sessionManager';
 import { GemStoneLogin } from '../loginTypes';
 import { fetchPrintString, fetchFullPrintString } from '../debugQueries';
 
-const noErr = { number: 0, message: '', context: 0n, category: 0, fatal: false, argCount: 0, exceptionObj: 0n, args: [] };
+const noErr = {
+  number: 0,
+  message: '',
+  context: 0n,
+  category: 0,
+  fatal: false,
+  argCount: 0,
+  exceptionObj: 0n,
+  args: [],
+};
 
-function createPrintStringSession(data: string, bytesReturned?: number, errNumber = 0): ActiveSession {
+function createPrintStringSession(
+  data: string,
+  bytesReturned?: number,
+  errNumber = 0,
+): ActiveSession {
   const mockGci = {
     GciTsPerformFetchBytes: vi.fn(() => ({
       bytesReturned: bytesReturned ?? data.length,
@@ -33,11 +46,19 @@ function createFullPrintSession(data = '', resolveErrNumber = 0, execErrNumber =
   const mockGci = {
     GciTsResolveSymbol: vi.fn(() => ({
       result: resolveErrNumber === 0 ? 1000n : 0n,
-      err: { ...noErr, number: resolveErrNumber, message: resolveErrNumber === 0 ? '' : 'symbol not found' },
+      err: {
+        ...noErr,
+        number: resolveErrNumber,
+        message: resolveErrNumber === 0 ? '' : 'symbol not found',
+      },
     })),
     GciTsExecuteFetchBytes: vi.fn(() => ({
       data,
-      err: { ...noErr, number: execErrNumber, message: execErrNumber === 0 ? '' : 'execution failed' },
+      err: {
+        ...noErr,
+        number: execErrNumber,
+        message: execErrNumber === 0 ? '' : 'execution failed',
+      },
     })),
   };
   return {

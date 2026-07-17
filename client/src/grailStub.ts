@@ -20,20 +20,64 @@ export type SelectorKind = 'unary' | 'binary' | 'keyword';
 // Python 3 reserved words (plus the soft keywords match/case) — a wrapper whose
 // derived name collides with one of these gets a trailing underscore.
 const PY_KEYWORDS = new Set([
-  'False', 'None', 'True', 'and', 'as', 'assert', 'async', 'await', 'break',
-  'class', 'continue', 'def', 'del', 'elif', 'else', 'except', 'finally', 'for',
-  'from', 'global', 'if', 'import', 'in', 'is', 'lambda', 'nonlocal', 'not',
-  'or', 'pass', 'raise', 'return', 'try', 'while', 'with', 'yield', 'match', 'case',
+  'False',
+  'None',
+  'True',
+  'and',
+  'as',
+  'assert',
+  'async',
+  'await',
+  'break',
+  'class',
+  'continue',
+  'def',
+  'del',
+  'elif',
+  'else',
+  'except',
+  'finally',
+  'for',
+  'from',
+  'global',
+  'if',
+  'import',
+  'in',
+  'is',
+  'lambda',
+  'nonlocal',
+  'not',
+  'or',
+  'pass',
+  'raise',
+  'return',
+  'try',
+  'while',
+  'with',
+  'yield',
+  'match',
+  'case',
 ]);
 
 // Common Smalltalk binary selectors mapped to the Python dunder they'd most
 // naturally become. Binary selectors are never auto-wrapped (they need a chosen
 // Python name); these drive the "candidates" comment block instead.
 const BINARY_DUNDERS: Record<string, string> = {
-  '+': '__add__', '-': '__sub__', '*': '__mul__', '/': '__truediv__',
-  '//': '__floordiv__', '\\\\': '__mod__', '=': '__eq__', '==': '__eq__',
-  '~=': '__ne__', '<': '__lt__', '<=': '__le__', '>': '__gt__', '>=': '__ge__',
-  ',': '__add__', '@': '__matmul__',
+  '+': '__add__',
+  '-': '__sub__',
+  '*': '__mul__',
+  '/': '__truediv__',
+  '//': '__floordiv__',
+  '\\\\': '__mod__',
+  '=': '__eq__',
+  '==': '__eq__',
+  '~=': '__ne__',
+  '<': '__lt__',
+  '<=': '__le__',
+  '>': '__gt__',
+  '>=': '__ge__',
+  ',': '__add__',
+  '@': '__matmul__',
 };
 
 export function selectorKind(selector: string): SelectorKind {
@@ -44,9 +88,12 @@ export function selectorKind(selector: string): SelectorKind {
 
 export function selectorArity(selector: string): number {
   switch (selectorKind(selector)) {
-    case 'unary': return 0;
-    case 'binary': return 1;
-    case 'keyword': return (selector.match(/:/g) || []).length;
+    case 'unary':
+      return 0;
+    case 'binary':
+      return 1;
+    case 'keyword':
+      return (selector.match(/:/g) || []).length;
   }
 }
 
@@ -56,9 +103,15 @@ export function selectorArity(selector: string): number {
 // callers should not wrap them — a stable fallback is returned just in case.
 export function selectorToPyName(selector: string): string {
   switch (selectorKind(selector)) {
-    case 'unary': return selector;
-    case 'keyword': return selector.split(':').filter(s => s.length > 0).join('_');
-    case 'binary': return BINARY_DUNDERS[selector] ?? 'op';
+    case 'unary':
+      return selector;
+    case 'keyword':
+      return selector
+        .split(':')
+        .filter((s) => s.length > 0)
+        .join('_');
+    case 'binary':
+      return BINARY_DUNDERS[selector] ?? 'op';
   }
 }
 
@@ -66,7 +119,7 @@ export function selectorToPyName(selector: string): string {
 // (at:put: -> ['at','put']); parts colliding with a Python keyword or each
 // other are replaced/suffixed so the signature is always valid.
 function keywordArgNames(selector: string, reserved: Iterable<string> = []): string[] {
-  const parts = selector.split(':').filter(s => s.length > 0);
+  const parts = selector.split(':').filter((s) => s.length > 0);
   const used = new Set<string>(reserved);
   return parts.map((part, i) => {
     let name = PY_KEYWORDS.has(part) ? `arg${i + 1}` : part;
@@ -108,7 +161,7 @@ function renderDocstring(comment: string): string[] {
 function renderSlots(names: string[]): string {
   if (names.length === 0) return '__slots__ = ()';
   if (names.length === 1) return `__slots__ = ('${pyStr(names[0])}',)`;
-  return `__slots__ = (${names.map(n => `'${pyStr(n)}'`).join(', ')})`;
+  return `__slots__ = (${names.map((n) => `'${pyStr(n)}'`).join(', ')})`;
 }
 
 export interface WrapSelector {
@@ -127,8 +180,8 @@ export function renderGrailStub(opts: RenderStubOptions): string {
   const { className, dictionaryName, reflection, wrapSelectors } = opts;
 
   const header = [
-    `# Grail stub generated from Smalltalk class  ${dictionaryName} :: ${className}`
-      + (reflection.superclass ? `   (superclass: ${reflection.superclass})` : ''),
+    `# Grail stub generated from Smalltalk class  ${dictionaryName} :: ${className}` +
+      (reflection.superclass ? `   (superclass: ${reflection.superclass})` : ''),
     '# Loading this module installs the Python methods below onto the existing',
     "# Smalltalk class. __slots__ lists the class's OWN instance variables, in",
     '# order, and must match the class exactly or the load fails.',
@@ -140,17 +193,19 @@ export function renderGrailStub(opts: RenderStubOptions): string {
   ];
 
   const body: string[] = [];
-  const pushBlank = () => { if (body.length) body.push(''); };
+  const pushBlank = () => {
+    if (body.length) body.push('');
+  };
 
   const doc = renderDocstring(reflection.comment);
   if (doc.length) body.push(...doc);
 
   pushBlank();
-  body.push(renderSlots(reflection.instVars.map(v => v.name)));
+  body.push(renderSlots(reflection.instVars.map((v) => v.name)));
 
   // Names already claimed: the slots occupy the attribute namespace, so an
   // accessor/wrapper can never reuse a slot name.
-  const used = new Set<string>(reflection.instVars.map(v => v.name));
+  const used = new Set<string>(reflection.instVars.map((v) => v.name));
 
   // Accessors — one block per instVar.
   const accessorBlocks: string[][] = [];
@@ -165,8 +220,10 @@ export function renderGrailStub(opts: RenderStubOptions): string {
       block.push(`def ${uniquify(`set_${iv.name}`, used)}(self, value): ...`);
     }
     if (!iv.hasGetter && !iv.hasSetter) {
-      block.push(`# '${iv.name}': no Smalltalk accessor/mutator — `
-        + `self.${iv.name} won't work until you add one.`);
+      block.push(
+        `# '${iv.name}': no Smalltalk accessor/mutator — ` +
+          `self.${iv.name} won't work until you add one.`,
+      );
     }
     accessorBlocks.push(block);
   }
@@ -186,7 +243,8 @@ export function renderGrailStub(opts: RenderStubOptions): string {
     body.push('# Method wrappers — edit the bodies freely (the ellipsis forwards to Smalltalk).');
     for (const w of wrapSelectors) {
       const receiver = w.side === 'class' ? 'cls' : 'self';
-      const args = selectorKind(w.selector) === 'keyword' ? keywordArgNames(w.selector, [receiver]) : [];
+      const args =
+        selectorKind(w.selector) === 'keyword' ? keywordArgNames(w.selector, [receiver]) : [];
       const name = uniquify(selectorToPyName(w.selector), used);
       body.push('');
       if (w.side === 'class') body.push('@classmethod');
@@ -198,7 +256,11 @@ export function renderGrailStub(opts: RenderStubOptions): string {
   // Binary selectors: listed as commented candidates rather than wrapped, since
   // each needs a hand-chosen Python name.
   const binaries = Array.from(
-    new Set(reflection.methods.filter(m => selectorKind(m.selector) === 'binary').map(m => m.selector)),
+    new Set(
+      reflection.methods
+        .filter((m) => selectorKind(m.selector) === 'binary')
+        .map((m) => m.selector),
+    ),
   );
   if (binaries.length) {
     pushBlank();
@@ -210,6 +272,6 @@ export function renderGrailStub(opts: RenderStubOptions): string {
     }
   }
 
-  const indented = body.map(line => (line.length ? `    ${line}` : line));
+  const indented = body.map((line) => (line.length ? `    ${line}` : line));
   return [...header, ...indented, ''].join('\n');
 }

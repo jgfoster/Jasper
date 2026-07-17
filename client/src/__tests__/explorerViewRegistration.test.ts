@@ -17,8 +17,7 @@ import * as path from 'path';
 const pkgPath = path.resolve(__dirname, '..', '..', '..', 'package.json');
 const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
 
-const explorerViews: Array<{ id: string; when?: string }> =
-  pkg.contributes.views.gemstoneExplorer;
+const explorerViews: Array<{ id: string; when?: string }> = pkg.contributes.views.gemstoneExplorer;
 
 describe('GemStone Explorer views are registrable when created', () => {
   it('registers an Open Editors pane', () => {

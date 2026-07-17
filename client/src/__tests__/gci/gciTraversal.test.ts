@@ -12,10 +12,7 @@ describe('GCI Traversal Functions', () => {
   let OOP_CLASS_STRING: bigint;
 
   beforeAll(() => {
-    const login = gci.GciTsLogin(
-      STONE_NRS, null, null, false,
-      GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
-    );
+    const login = gci.GciTsLogin(STONE_NRS, null, null, false, GEM_NRS, GS_USER, GS_PASSWORD, 0, 0);
     expect(login.session).not.toBeNull();
     session = login.session;
 
@@ -35,9 +32,7 @@ describe('GCI Traversal Functions', () => {
       const strOop = gci.GciTsNewString(session, 'traverse-me');
       expect(strOop.result).not.toBe(OOP_ILLEGAL);
 
-      const { status, travBuf, err } = gci.GciTsFetchTraversal(
-        session, [strOop.result],
-      );
+      const { status, travBuf, err } = gci.GciTsFetchTraversal(session, [strOop.result]);
       console.log('FetchTraversal(String) - status:', status, 'err.number:', err.number);
       expect(err.number).toBe(0);
       expect(status).toBe(0); // 0 = traversal complete
@@ -60,14 +55,17 @@ describe('GCI Traversal Functions', () => {
 
     it('traverses an Array with level 1', () => {
       const { result: arrOop, err: execErr } = gci.GciTsExecute(
-        session, '#(10 20 30)', OOP_CLASS_STRING,
-        OOP_ILLEGAL, OOP_NIL, 0, 0,
+        session,
+        '#(10 20 30)',
+        OOP_CLASS_STRING,
+        OOP_ILLEGAL,
+        OOP_NIL,
+        0,
+        0,
       );
       expect(execErr.number).toBe(0);
 
-      const { status, travBuf, err } = gci.GciTsFetchTraversal(
-        session, [arrOop], 1,
-      );
+      const { status, travBuf, err } = gci.GciTsFetchTraversal(session, [arrOop], 1);
       console.log('FetchTraversal(Array) - status:', status, 'err.number:', err.number);
       expect(err.number).toBe(0);
       expect(status).toBe(0);
@@ -93,15 +91,30 @@ describe('GCI Traversal Functions', () => {
 
       // Use minimum legal buffer size (2048 bytes)
       const { status, err } = gci.GciTsFetchTraversal(
-        session, [strOop.result], 1, 0, OOP_NIL, 2048,
+        session,
+        [strOop.result],
+        1,
+        0,
+        OOP_NIL,
+        2048,
       );
-      console.log('FetchTraversal(small buf) - status:', status,
-        'err.number:', err.number, 'err.message:', err.message);
+      console.log(
+        'FetchTraversal(small buf) - status:',
+        status,
+        'err.number:',
+        err.number,
+        'err.message:',
+        err.message,
+      );
       expect(err.number).toBe(0);
 
       if (status === 1) {
         // More data available — fetch it
-        const { status: moreStatus, travBuf: moreBuf, err: moreErr } = gci.GciTsMoreTraversal(session);
+        const {
+          status: moreStatus,
+          travBuf: moreBuf,
+          err: moreErr,
+        } = gci.GciTsMoreTraversal(session);
         console.log('MoreTraversal - status:', moreStatus, 'err.number:', moreErr.number);
         expect(moreErr.number).toBe(0);
         // moreStatus: 1 = complete, 0 = still more
@@ -124,9 +137,9 @@ describe('GCI Traversal Functions', () => {
       expect(strOop.result).not.toBe(OOP_ILLEGAL);
 
       // Fetch the current representation
-      const { travBuf: fetchBuf, err: fetchErr } = gci.GciTsFetchTraversal(
-        session, [strOop.result],
-      );
+      const { travBuf: fetchBuf, err: fetchErr } = gci.GciTsFetchTraversal(session, [
+        strOop.result,
+      ]);
       expect(fetchErr.number).toBe(0);
 
       const reports = GciLibrary.parseTravBuffer(fetchBuf);
@@ -136,23 +149,37 @@ describe('GCI Traversal Functions', () => {
 
       // Build a store buffer that changes the bytes to 'BBBB'
       const newBody = Buffer.from('BBBB');
-      const storeBuf = GciLibrary.buildTravBuffer([{
-        objId: strOop.result,
-        oclass: origReport.oclass,
-        firstOffset: origReport.firstOffset,
-        body: newBody,
-        namedSize: origReport.namedSize,
-        objectSecurityPolicyId: origReport.objectSecurityPolicyId,
-        idxSizeBits: origReport.idxSizeBits,
-      }]);
+      const storeBuf = GciLibrary.buildTravBuffer([
+        {
+          objId: strOop.result,
+          oclass: origReport.oclass,
+          firstOffset: origReport.firstOffset,
+          body: newBody,
+          namedSize: origReport.namedSize,
+          objectSecurityPolicyId: origReport.objectSecurityPolicyId,
+          idxSizeBits: origReport.idxSizeBits,
+        },
+      ]);
 
       const { success, err: storeErr } = gci.GciTsStoreTrav(session, storeBuf);
-      console.log('StoreTrav - success:', success, 'err.number:', storeErr.number,
-        'err.message:', storeErr.message);
-      console.log('StoreTrav - origReport firstOffset:', origReport.firstOffset.toString(),
-        'idxSizeBits:', origReport.idxSizeBits.toString(16),
-        'namedSize:', origReport.namedSize,
-        'valueBuffSize:', origReport.valueBuffSize);
+      console.log(
+        'StoreTrav - success:',
+        success,
+        'err.number:',
+        storeErr.number,
+        'err.message:',
+        storeErr.message,
+      );
+      console.log(
+        'StoreTrav - origReport firstOffset:',
+        origReport.firstOffset.toString(),
+        'idxSizeBits:',
+        origReport.idxSizeBits.toString(16),
+        'namedSize:',
+        origReport.namedSize,
+        'valueBuffSize:',
+        origReport.valueBuffSize,
+      );
       expect(storeErr.number).toBe(0);
       expect(success).toBe(true);
 
@@ -195,11 +222,21 @@ describe('GCI Traversal Functions', () => {
       };
 
       const { status, resultOop, travBuf, err } = gci.GciTsStoreTravDoTravRefs(
-        session, null, null, stdArgs,
+        session,
+        null,
+        null,
+        stdArgs,
       );
-      console.log('StoreTravDoTravRefs - status:', status,
-        'resultOop:', resultOop.toString(16), 'err.number:', err.number,
-        'err.message:', err.message);
+      console.log(
+        'StoreTravDoTravRefs - status:',
+        status,
+        'resultOop:',
+        resultOop.toString(16),
+        'err.number:',
+        err.number,
+        'err.message:',
+        err.message,
+      );
       expect(err.number).toBe(0);
       expect(status).toBe(0); // traversal complete
 
@@ -209,7 +246,7 @@ describe('GCI Traversal Functions', () => {
       expect(reports.length).toBeGreaterThanOrEqual(1);
 
       // The result should be 'enotSmeG' (reversed)
-      const resultReport = reports.find(r => r.objId === resultOop);
+      const resultReport = reports.find((r) => r.objId === resultOop);
       if (resultReport) {
         const str = resultReport.body.toString('utf8', 0, resultReport.valueBuffSize);
         console.log('StoreTravDoTravRefs - result string:', str);

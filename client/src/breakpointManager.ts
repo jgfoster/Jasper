@@ -27,7 +27,7 @@ export class BreakpointManager {
 
   register(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
-      vscode.debug.onDidChangeBreakpoints(e => this.onBreakpointsChanged(e)),
+      vscode.debug.onDidChangeBreakpoints((e) => this.onBreakpointsChanged(e)),
     );
   }
 
@@ -47,9 +47,15 @@ export class BreakpointManager {
     try {
       // Clear existing breakpoints on this method
       queries.clearAllBreaks(
-        session, method.className, method.isMeta, method.selector, method.environmentId,
+        session,
+        method.className,
+        method.isMeta,
+        method.selector,
+        method.environmentId,
       );
-    } catch { /* method may not exist */ }
+    } catch {
+      /* method may not exist */
+    }
 
     if (lines.length === 0) {
       this.tracked.delete(uri.toString());
@@ -60,10 +66,18 @@ export class BreakpointManager {
     let sourceOffsets: number[];
     try {
       source = queries.getMethodSource(
-        session, method.className, method.isMeta, method.selector, method.environmentId,
+        session,
+        method.className,
+        method.isMeta,
+        method.selector,
+        method.environmentId,
       );
       sourceOffsets = queries.getSourceOffsets(
-        session, method.className, method.isMeta, method.selector, method.environmentId,
+        session,
+        method.className,
+        method.isMeta,
+        method.selector,
+        method.environmentId,
       );
     } catch {
       return lines.map(() => ({ stepPoint: 0, actualLine: 0, verified: false }));
@@ -78,10 +92,18 @@ export class BreakpointManager {
       if (result) {
         try {
           queries.setBreakAtStepPoint(
-            session, method.className, method.isMeta, method.selector,
-            result.stepPoint, method.environmentId,
+            session,
+            method.className,
+            method.isMeta,
+            method.selector,
+            result.stepPoint,
+            method.environmentId,
           );
-          results.push({ stepPoint: result.stepPoint, actualLine: result.actualLine, verified: true });
+          results.push({
+            stepPoint: result.stepPoint,
+            actualLine: result.actualLine,
+            verified: true,
+          });
           tracked.push({ stepPoint: result.stepPoint, actualLine: result.actualLine });
         } catch {
           results.push({ stepPoint: 0, actualLine: line, verified: false });
@@ -108,13 +130,12 @@ export class BreakpointManager {
 
     // Get current VS Code breakpoints for this URI
     const vsBps = vscode.debug.breakpoints.filter(
-      bp => bp instanceof vscode.SourceBreakpoint &&
-        bp.enabled &&
-        bp.location.uri.toString() === key,
+      (bp) =>
+        bp instanceof vscode.SourceBreakpoint && bp.enabled && bp.location.uri.toString() === key,
     ) as vscode.SourceBreakpoint[];
 
     if (vsBps.length > 0) {
-      const lines = vsBps.map(bp => bp.location.range.start.line + 1); // VS Code is 0-based
+      const lines = vsBps.map((bp) => bp.location.range.start.line + 1); // VS Code is 0-based
       this.setBreakpointsForSource(session, uri, lines);
     } else {
       this.tracked.delete(key);
@@ -153,12 +174,13 @@ export class BreakpointManager {
     for (const uriStr of affectedUris) {
       const uri = vscode.Uri.parse(uriStr);
       const allBps = vscode.debug.breakpoints.filter(
-        bp => bp instanceof vscode.SourceBreakpoint &&
+        (bp) =>
+          bp instanceof vscode.SourceBreakpoint &&
           bp.enabled &&
           bp.location.uri.toString() === uriStr,
       ) as vscode.SourceBreakpoint[];
 
-      const lines = allBps.map(bp => bp.location.range.start.line + 1); // 0-based → 1-based
+      const lines = allBps.map((bp) => bp.location.range.start.line + 1); // 0-based → 1-based
       this.setBreakpointsForSource(session, uri, lines);
     }
   }
@@ -257,9 +279,7 @@ export function mapLineToStepPoint(
   if (targetLine < 1 || targetLine >= lineOffsets.length) return null;
 
   const targetStart = lineOffsets[targetLine];
-  const targetEnd = targetLine + 1 < lineOffsets.length
-    ? lineOffsets[targetLine + 1]
-    : Infinity;
+  const targetEnd = targetLine + 1 < lineOffsets.length ? lineOffsets[targetLine + 1] : Infinity;
 
   // Find step points on the target line
   let bestOnLine: { stepPoint: number; offset: number } | null = null;

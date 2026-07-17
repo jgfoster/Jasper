@@ -9,12 +9,11 @@ export interface DictEntry {
 
 // Accepts a dictionary by 1-based index (Jasper's IDE) or by name (MCP
 // clients). With a name, returns [] if no dict by that name exists.
-export function getDictionaryEntries(
-  execute: QueryExecutor, dict: number | string,
-): DictEntry[] {
-  const dictExpr = typeof dict === 'number'
-    ? `System myUserProfile symbolList at: ${dict}`
-    : `System myUserProfile symbolList objectNamed: #'${escapeString(dict)}'`;
+export function getDictionaryEntries(execute: QueryExecutor, dict: number | string): DictEntry[] {
+  const dictExpr =
+    typeof dict === 'number'
+      ? `System myUserProfile symbolList at: ${dict}`
+      : `System myUserProfile symbolList objectNamed: #'${escapeString(dict)}'`;
   const code = `| ws dict |
 dict := ${dictExpr}.
 dict ifNil: [^ ''].
@@ -25,9 +24,10 @@ dict keysAndValuesDo: [:k :v |
     ifFalse: [ws nextPutAll: '0'; tab; tab; nextPutAll: k asString; lf]].
 ws contents`;
 
-  const label = typeof dict === 'number'
-    ? `getDictionaryEntries(dictIndex: ${dict})`
-    : `getDictionaryEntries(dictName: ${dict})`;
+  const label =
+    typeof dict === 'number'
+      ? `getDictionaryEntries(dictIndex: ${dict})`
+      : `getDictionaryEntries(dictName: ${dict})`;
   const raw = execute(label, code);
 
   const results: DictEntry[] = [];

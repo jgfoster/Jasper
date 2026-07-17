@@ -13,11 +13,14 @@ export function receiver(className: string, isMeta: boolean, dict?: number | str
 }
 
 export function splitLines(result: string): string[] {
-  return result.split('\n').filter(s => s.length > 0);
+  return result.split('\n').filter((s) => s.length > 0);
 }
 
 export function compiledMethodExpr(
-  className: string, isMeta: boolean, selector: string, environmentId: number,
+  className: string,
+  isMeta: boolean,
+  selector: string,
+  environmentId: number,
   dict?: number | string,
 ): string {
   return `(${receiver(className, isMeta, dict)} compiledMethodAt: #'${escapeString(selector)}' environmentId: ${environmentId})`;

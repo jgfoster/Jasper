@@ -12,10 +12,7 @@ describe('GciTsCompileMethod / ClassRemoveAllMethods / ProtectMethods', () => {
   let OOP_CLASS_STRING: bigint;
 
   beforeAll(() => {
-    const login = gci.GciTsLogin(
-      STONE_NRS, null, null, false,
-      GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
-    );
+    const login = gci.GciTsLogin(STONE_NRS, null, null, false, GEM_NRS, GS_USER, GS_PASSWORD, 0, 0);
     expect(login.session).not.toBeNull();
     session = login.session;
 
@@ -27,7 +24,11 @@ describe('GciTsCompileMethod / ClassRemoveAllMethods / ProtectMethods', () => {
     const { err: classErr } = gci.GciTsExecute(
       session,
       'Object subclass: #GciTestClass instVarNames: #() classVars: #() classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals',
-      OOP_CLASS_STRING, OOP_ILLEGAL, OOP_NIL, 0, 0,
+      OOP_CLASS_STRING,
+      OOP_ILLEGAL,
+      OOP_NIL,
+      0,
+      0,
     );
     expect(classErr.number).toBe(0);
   });
@@ -54,24 +55,40 @@ describe('GciTsCompileMethod / ClassRemoveAllMethods / ProtectMethods', () => {
         session,
         sourceOop.result,
         classOop,
-        OOP_NIL,       // category — nil means "as yet unclassified"
-        OOP_NIL,       // symbolList — nil uses default
-        OOP_NIL,       // overrideSelector — nil
-        0,             // compileFlags — 0 for instance method
-        0,             // environmentId
+        OOP_NIL, // category — nil means "as yet unclassified"
+        OOP_NIL, // symbolList — nil uses default
+        OOP_NIL, // overrideSelector — nil
+        0, // compileFlags — 0 for instance method
+        0, // environmentId
       );
-      console.log('CompileMethod(testMethod) - result:', result.toString(16), 'err.number:', err.number);
+      console.log(
+        'CompileMethod(testMethod) - result:',
+        result.toString(16),
+        'err.number:',
+        err.number,
+      );
       expect(err.number).toBe(0);
       // OOP_NIL means success, non-ILLEGAL non-NIL means warnings string
       expect(result).not.toBe(OOP_ILLEGAL);
 
       // Verify: send testMethod to a new instance
       const { result: instOop } = gci.GciTsExecute(
-        session, 'GciTestClass new', OOP_CLASS_STRING,
-        OOP_ILLEGAL, OOP_NIL, 0, 0,
+        session,
+        'GciTestClass new',
+        OOP_CLASS_STRING,
+        OOP_ILLEGAL,
+        OOP_NIL,
+        0,
+        0,
       );
       const { result: retOop, err: perfErr } = gci.GciTsPerform(
-        session, instOop, OOP_ILLEGAL, 'testMethod', [], 0, 0,
+        session,
+        instOop,
+        OOP_ILLEGAL,
+        'testMethod',
+        [],
+        0,
+        0,
       );
       expect(perfErr.number).toBe(0);
       const val = gci.GciTsOopToI64(session, retOop);
@@ -97,13 +114,22 @@ describe('GciTsCompileMethod / ClassRemoveAllMethods / ProtectMethods', () => {
         GCI_COMPILE_CLASS_METH,
         0,
       );
-      console.log('CompileMethod(class method) - result:', result.toString(16), 'err.number:', err.number);
+      console.log(
+        'CompileMethod(class method) - result:',
+        result.toString(16),
+        'err.number:',
+        err.number,
+      );
       expect(err.number).toBe(0);
       expect(result).not.toBe(OOP_ILLEGAL);
 
       // Verify: send classTestMethod to the class itself
       const { data, err: perfErr } = gci.GciTsPerformFetchBytes(
-        session, classOop, 'classTestMethod', [], 1024,
+        session,
+        classOop,
+        'classTestMethod',
+        [],
+        1024,
       );
       expect(perfErr.number).toBe(0);
       expect(data).toBe('classResult');
@@ -117,9 +143,20 @@ describe('GciTsCompileMethod / ClassRemoveAllMethods / ProtectMethods', () => {
         session,
         sourceOop.result,
         classOop,
-        OOP_NIL, OOP_NIL, OOP_NIL, 0, 0,
+        OOP_NIL,
+        OOP_NIL,
+        OOP_NIL,
+        0,
+        0,
       );
-      console.log('CompileMethod(invalid) - result:', result.toString(16), 'err.number:', err.number, 'err.message:', err.message);
+      console.log(
+        'CompileMethod(invalid) - result:',
+        result.toString(16),
+        'err.number:',
+        err.number,
+        'err.message:',
+        err.message,
+      );
       expect(result).toBe(OOP_ILLEGAL);
       expect(err.number).not.toBe(0);
     });
@@ -132,30 +169,43 @@ describe('GciTsCompileMethod / ClassRemoveAllMethods / ProtectMethods', () => {
       // Compile our own method so this test doesn't depend on another having
       // run first, then verify it exists before removing.
       const sourceOop = gci.GciTsNewString(session, 'testMethod\n  ^ 42');
-      gci.GciTsCompileMethod(
-        session, sourceOop.result, classOop, OOP_NIL, OOP_NIL, OOP_NIL, 0, 0,
-      );
+      gci.GciTsCompileMethod(session, sourceOop.result, classOop, OOP_NIL, OOP_NIL, OOP_NIL, 0, 0);
 
       const { result: instOop } = gci.GciTsExecute(
-        session, 'GciTestClass new', OOP_CLASS_STRING,
-        OOP_ILLEGAL, OOP_NIL, 0, 0,
+        session,
+        'GciTestClass new',
+        OOP_CLASS_STRING,
+        OOP_ILLEGAL,
+        OOP_NIL,
+        0,
+        0,
       );
       const { err: perfErr1 } = gci.GciTsPerform(
-        session, instOop, OOP_ILLEGAL, 'testMethod', [], 0, 0,
+        session,
+        instOop,
+        OOP_ILLEGAL,
+        'testMethod',
+        [],
+        0,
+        0,
       );
       expect(perfErr1.number).toBe(0);
 
       // Remove all methods (environmentId 0)
-      const { success, err } = gci.GciTsClassRemoveAllMethods(
-        session, classOop, 0,
-      );
+      const { success, err } = gci.GciTsClassRemoveAllMethods(session, classOop, 0);
       console.log('ClassRemoveAllMethods - success:', success, 'err.number:', err.number);
       expect(err.number).toBe(0);
       expect(success).toBe(true);
 
       // Verify: sending testMethod should now fail (MessageNotUnderstood)
       const { err: perfErr2 } = gci.GciTsPerform(
-        session, instOop, OOP_ILLEGAL, 'testMethod', [], 0, 0,
+        session,
+        instOop,
+        OOP_ILLEGAL,
+        'testMethod',
+        [],
+        0,
+        0,
       );
       expect(perfErr2.number).not.toBe(0);
       console.log('After remove - err.number:', perfErr2.number, 'err.message:', perfErr2.message);

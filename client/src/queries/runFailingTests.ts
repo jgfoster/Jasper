@@ -107,7 +107,7 @@ classes do: [:cls |
       nextPutAll: (captureMessage value: e); lf]].
 ws contents encodeAsUTF8`;
   const data = execute('runFailingTests', code);
-  return splitLines(data).map(line => {
+  return splitLines(data).map((line) => {
     const parts = line.split('\t');
     return {
       className: parts[0] || '',
@@ -154,7 +154,7 @@ list] value`;
 // resolves to nil (missing class) is filtered out before the suite runs.
 function buildExplicitClassList(classNames: string[]): string {
   const adds = classNames
-    .map(n => `add: (System myUserProfile symbolList objectNamed: #'${escapeString(n)}');`)
+    .map((n) => `add: (System myUserProfile symbolList objectNamed: #'${escapeString(n)}');`)
     .join('\n  ');
   return `((OrderedCollection new
   ${adds}
@@ -219,9 +219,15 @@ export function globToPatternArray(glob: string): string {
     }
   };
   for (const ch of glob) {
-    if (ch === '*') { flush(); parts.push('$*'); }
-    else if (ch === '?') { flush(); parts.push('$?'); }
-    else { buf += ch; }
+    if (ch === '*') {
+      flush();
+      parts.push('$*');
+    } else if (ch === '?') {
+      flush();
+      parts.push('$?');
+    } else {
+      buf += ch;
+    }
   }
   flush();
   return `#(${parts.join(' ')})`;

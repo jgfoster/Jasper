@@ -6,9 +6,7 @@ export interface GlobalEntry {
   value: string;
 }
 
-export function getGlobalsForDictionary(
-  execute: QueryExecutor, dictIndex: number,
-): GlobalEntry[] {
+export function getGlobalsForDictionary(execute: QueryExecutor, dictIndex: number): GlobalEntry[] {
   const code = `| ws dict |
 dict := System myUserProfile symbolList at: ${dictIndex}.
 ws := WriteStream on: Unicode7 new.

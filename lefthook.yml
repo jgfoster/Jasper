@@ -7,3 +7,6 @@ pre-commit:
     - name: eslint
       glob: '*.{ts,mts,cts,js,mjs,cjs}'
       run: npx eslint {staged_files}
+    - name: prettier
+      glob: '*.{ts,mts,cts,js,mjs,cjs}'
+      run: npx prettier --check {staged_files}

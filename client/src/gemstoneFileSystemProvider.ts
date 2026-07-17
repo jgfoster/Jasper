@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
-import {ActiveSession, SessionManager} from './sessionManager';
+import { ActiveSession, SessionManager } from './sessionManager';
 import * as queries from './browserQueries';
 import { BrowserQueryError } from './browserQueries';
 import { ExportManager } from './exportManager';
 import { logInfo } from './gciLog';
-import {receiver} from "./queries/util";
+import { receiver } from './queries/util';
 
 // A binary selector can contain '/', but a slash in a URI path segment (raw or
 // %2F-encoded) is collapsed by VS Code's path normalization, losing the
@@ -84,7 +84,8 @@ interface ParsedNewMethodUri {
   dictIndex?: number;
 }
 
-export type ParsedUri = ParsedMethodUri | ParsedDefinitionUri | ParsedCommentUri | ParsedNewClassUri | ParsedNewMethodUri;
+export type ParsedUri =
+  ParsedMethodUri | ParsedDefinitionUri | ParsedCommentUri | ParsedNewClassUri | ParsedNewMethodUri;
 
 export function parseUri(uri: vscode.Uri): ParsedUri {
   const sessionId = parseInt(uri.authority, 10);
@@ -152,8 +153,8 @@ export function parseUri(uri: vscode.Uri): ParsedUri {
       diffView: labelled != null,
       dictIndex,
     };
-   }
-   throw vscode.FileSystemError.FileNotFound(uri);
+  }
+  throw vscode.FileSystemError.FileNotFound(uri);
 }
 
 export function buildNewMethodUri(
@@ -165,11 +166,24 @@ export function buildNewMethodUri(
   environmentId: number,
   dictIndex?: number,
 ): vscode.Uri {
-  return buildMethodUri({ kind: 'method', sessionId, dictName, className, isMeta, category, selector: 'new-method', environmentId, dictIndex });
+  return buildMethodUri({
+    kind: 'method',
+    sessionId,
+    dictName,
+    className,
+    isMeta,
+    category,
+    selector: 'new-method',
+    environmentId,
+    dictIndex,
+  });
 }
 
 export function buildClassDefinitionUri(
-  sessionId: number, dictName: string, className: string, dictIndex?: number,
+  sessionId: number,
+  dictName: string,
+  className: string,
+  dictIndex?: number,
 ): vscode.Uri {
   assertIsValidUriPath('Dictionary name', dictName);
   assertIsValidUriPath('Class name', className);
@@ -230,11 +244,12 @@ export async function closeGemstoneTabsForSession(sessionId: number): Promise<vo
   for (const group of vscode.window.tabGroups.all) {
     for (const tab of group.tabs) {
       const input = tab.input;
-      const matches = input instanceof vscode.TabInputText
-        ? belongsToSession(input.uri)
-        : input instanceof vscode.TabInputTextDiff
-          ? (belongsToSession(input.original) || belongsToSession(input.modified))
-          : false;
+      const matches =
+        input instanceof vscode.TabInputText
+          ? belongsToSession(input.uri)
+          : input instanceof vscode.TabInputTextDiff
+            ? belongsToSession(input.original) || belongsToSession(input.modified)
+            : false;
       if (matches) tabs.push(tab);
     }
   }
@@ -291,19 +306,21 @@ export function installStaleGemstoneTabReaper(sessionManager: SessionManager): v
   // activation with it) if it is ever wired before sessionManager exists — a
   // missing manager simply means no session is live, so the tab is stale.
   const isStale = (uri: vscode.Uri | undefined): boolean =>
-    !!uri && uri.scheme === 'gemstone'
-    && sessionManager?.getSession(parseInt(uri.authority, 10)) === undefined;
+    !!uri &&
+    uri.scheme === 'gemstone' &&
+    sessionManager?.getSession(parseInt(uri.authority, 10)) === undefined;
 
   const reap = () => {
     const tabs: vscode.Tab[] = [];
     for (const group of vscode.window.tabGroups.all) {
       for (const tab of group.tabs) {
         const input = tab.input;
-        const stale = input instanceof vscode.TabInputText
-          ? isStale(input.uri)
-          : input instanceof vscode.TabInputTextDiff
-            ? (isStale(input.original) || isStale(input.modified))
-            : false;
+        const stale =
+          input instanceof vscode.TabInputText
+            ? isStale(input.uri)
+            : input instanceof vscode.TabInputTextDiff
+              ? isStale(input.original) || isStale(input.modified)
+              : false;
         if (stale) tabs.push(tab);
       }
     }
@@ -341,7 +358,7 @@ export function installStaleGemstoneTabReaper(sessionManager: SessionManager): v
   });
 }
 
-export interface MethodCompiledEvent{
+export interface MethodCompiledEvent {
   uri: vscode.Uri;
   previousUri: vscode.Uri;
   previousUriIsTemplate: boolean;
@@ -411,8 +428,7 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
 
     if (parsed.kind === 'new-class') {
       const categoryLine = parsed.category ? `\n  category: '${parsed.category}'` : '';
-      const template =
-`Object subclass: 'NameOfClass'
+      const template = `Object subclass: 'NameOfClass'
   instVarNames: #()
   classVars: #()
   classInstVars: #()
@@ -423,8 +439,7 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
     }
 
     if (parsed.kind === 'new-method') {
-      const template =
-`messageSelector
+      const template = `messageSelector
   "comment"
   | temporaries |
   statements`;
@@ -438,15 +453,37 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
       case 'method': {
         const dictRef = parsed.dictIndex ?? parsed.dictName;
         text = parsed.base
-          ? queries.getBaseMethodSource(session, parsed.className, parsed.isMeta, parsed.selector, parsed.environmentId, dictRef)
-          : queries.getMethodSource(session, parsed.className, parsed.isMeta, parsed.selector, parsed.environmentId, dictRef);
+          ? queries.getBaseMethodSource(
+              session,
+              parsed.className,
+              parsed.isMeta,
+              parsed.selector,
+              parsed.environmentId,
+              dictRef,
+            )
+          : queries.getMethodSource(
+              session,
+              parsed.className,
+              parsed.isMeta,
+              parsed.selector,
+              parsed.environmentId,
+              dictRef,
+            );
         break;
       }
       case 'definition':
-        text = queries.getClassDefinition(session, parsed.className, parsed.dictIndex ?? parsed.dictName);
+        text = queries.getClassDefinition(
+          session,
+          parsed.className,
+          parsed.dictIndex ?? parsed.dictName,
+        );
         break;
       case 'comment':
-        text = queries.getClassComment(session, parsed.className, parsed.dictIndex ?? parsed.dictName);
+        text = queries.getClassComment(
+          session,
+          parsed.className,
+          parsed.dictIndex ?? parsed.dictName,
+        );
         break;
     }
 
@@ -472,10 +509,13 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
           this.compileClassDefinition(uri, parsed, source, session);
           break;
         case 'comment':
-          queries.setClassComment(session, parsed.className, source, parsed.dictIndex ?? parsed.dictName);
-          vscode.window.showInformationMessage(
-            `Comment updated for ${parsed.className}`
+          queries.setClassComment(
+            session,
+            parsed.className,
+            source,
+            parsed.dictIndex ?? parsed.dictName,
           );
+          vscode.window.showInformationMessage(`Comment updated for ${parsed.className}`);
           void this.exportManager?.syncClass(session, parsed.dictName, parsed.className);
           break;
         case 'new-class':
@@ -511,10 +551,20 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
     }
   }
 
-  private compileMethod(uri: vscode.Uri, parsedMethodUri: ParsedNewMethodUri | ParsedMethodUri, sourceCode: string, session: ActiveSession) {
+  private compileMethod(
+    uri: vscode.Uri,
+    parsedMethodUri: ParsedNewMethodUri | ParsedMethodUri,
+    sourceCode: string,
+    session: ActiveSession,
+  ) {
     const result = queries.compileMethod(
-        session, parsedMethodUri.className, parsedMethodUri.isMeta, parsedMethodUri.category, sourceCode,
-        parsedMethodUri.environmentId, parsedMethodUri.dictIndex ?? parsedMethodUri.dictName,
+      session,
+      parsedMethodUri.className,
+      parsedMethodUri.isMeta,
+      parsedMethodUri.category,
+      sourceCode,
+      parsedMethodUri.environmentId,
+      parsedMethodUri.dictIndex ?? parsedMethodUri.dictName,
     );
     const selector = result.split('>> ')[1]?.trim();
 
@@ -523,7 +573,13 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
     }
 
     const recv = receiver(parsedMethodUri.className, parsedMethodUri.isMeta);
-    if (this.classIsWritable(session, parsedMethodUri.className, parsedMethodUri.dictIndex ?? parsedMethodUri.dictName)) {
+    if (
+      this.classIsWritable(
+        session,
+        parsedMethodUri.className,
+        parsedMethodUri.dictIndex ?? parsedMethodUri.dictName,
+      )
+    ) {
       vscode.window.showInformationMessage(`Compiled method ${recv}>>#${selector}`);
     } else {
       // A non-writable class compiles into the transient (session) method dict,
@@ -532,46 +588,60 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
       // a misleading "Compiled" toast (see the read-only editor policy).
       vscode.window.showWarningMessage(
         `${recv}>>#${selector} compiled as a transient session method — NOT persisted ` +
-        `(the class is not writable). The change will be lost when the session ends.`
+          `(the class is not writable). The change will be lost when the session ends.`,
       );
     }
 
-    void this.exportManager?.syncClass(session, parsedMethodUri.dictName, parsedMethodUri.className);
+    void this.exportManager?.syncClass(
+      session,
+      parsedMethodUri.dictName,
+      parsedMethodUri.className,
+    );
 
     const newMethodUri = buildMethodUri({
       ...parsedMethodUri,
       kind: 'method',
-      selector: selector
+      selector: selector,
     });
 
     // Defer the event to the next event-loop iteration so VS Code has time to
     // process the completed save and mark the document clean. Firing synchronously
     // here — before writeFile returns — means the tab is still dirty when
     // closeTextEditorOn runs, which triggers a "save before closing?" dialog.
-    setImmediate(() => this._onMethodCompiled.fire({
-      uri: newMethodUri,
-      previousUri: uri,
-      previousUriIsTemplate: parsedMethodUri.kind === 'new-method',
-    }));
+    setImmediate(() =>
+      this._onMethodCompiled.fire({
+        uri: newMethodUri,
+        previousUri: uri,
+        previousUriIsTemplate: parsedMethodUri.kind === 'new-method',
+      }),
+    );
   }
 
-  private compileClassDefinition(uri: vscode.Uri, parsed: ParsedNewClassUri | ParsedDefinitionUri, source: string, session: ActiveSession) {
+  private compileClassDefinition(
+    uri: vscode.Uri,
+    parsed: ParsedNewClassUri | ParsedDefinitionUri,
+    source: string,
+    session: ActiveSession,
+  ) {
     const className = queries.compileClassDefinition(session, source);
 
     // An existing but non-writable class recompiles transiently (like a session
     // method) without persisting, yet GemStone reports success — warn instead
     // of a misleading "updated" toast. A new class that couldn't be written to
     // its target dictionary would have thrown above, so it's always a success.
-    if (parsed.kind === 'definition'
-        && !this.classIsWritable(session, className, parsed.dictIndex ?? parsed.dictName)) {
+    if (
+      parsed.kind === 'definition' &&
+      !this.classIsWritable(session, className, parsed.dictIndex ?? parsed.dictName)
+    ) {
       vscode.window.showWarningMessage(
         `${className} recompiled transiently — NOT persisted (the class is not writable). ` +
-        `The change will be lost when the session ends.`
+          `The change will be lost when the session ends.`,
       );
     } else {
-      const message = parsed.kind === 'new-class'
-        ? `Class created: ${className}`
-        : `Class definition updated for ${className}`;
+      const message =
+        parsed.kind === 'new-class'
+          ? `Class created: ${className}`
+          : `Class definition updated for ${className}`;
       vscode.window.showInformationMessage(message);
     }
 
@@ -584,13 +654,20 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
     // reopened definition tab targets the same dictionary and matches the tab
     // being replaced.
     const dictIndex = parsed.kind === 'definition' ? parsed.dictIndex : undefined;
-    const definitionUri = buildClassDefinitionUri(parsed.sessionId, parsed.dictName, className, dictIndex);
+    const definitionUri = buildClassDefinitionUri(
+      parsed.sessionId,
+      parsed.dictName,
+      className,
+      dictIndex,
+    );
 
-    setImmediate(() => this._onClassDefinitionCompiled.fire({
-      uri: definitionUri,
-      previousUri: uri,
-      previousUriIsTemplate: parsed.kind === 'new-class',
-    }));
+    setImmediate(() =>
+      this._onClassDefinitionCompiled.fire({
+        uri: definitionUri,
+        previousUri: uri,
+        previousUriIsTemplate: parsed.kind === 'new-class',
+      }),
+    );
   }
 
   // Whether `className` lives in a writable repository segment. A false result
@@ -598,7 +675,11 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
   // reported as success but never persists. Defaults to true if the check
   // itself fails, so a transient query error never turns a real save into a
   // spurious "not persisted" warning.
-  private classIsWritable(session: ActiveSession, className: string, dict?: number | string): boolean {
+  private classIsWritable(
+    session: ActiveSession,
+    className: string,
+    dict?: number | string,
+  ): boolean {
     try {
       return queries.canClassBeWritten(session, className, dict);
     } catch {
@@ -626,7 +707,7 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
 
   private getSession(sessionId: number) {
     const sessions = this.sessionManager.getSessions();
-    const session = sessions.find(s => s.id === sessionId);
+    const session = sessions.find((s) => s.id === sessionId);
     if (!session) {
       // The tab is backed by a session that no longer exists — most commonly a
       // gemstone:// tab VS Code restored across a window/host reload, which
@@ -635,9 +716,7 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
       // mutate the tab model while VS Code is mid-open (and so the throw below
       // still surfaces if the close is somehow blocked).
       setImmediate(() => void closeGemstoneTabsForSession(sessionId));
-      throw vscode.FileSystemError.Unavailable(
-        `GemStone session ${sessionId} is no longer active`
-      );
+      throw vscode.FileSystemError.Unavailable(`GemStone session ${sessionId} is no longer active`);
     }
     return session;
   }

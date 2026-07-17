@@ -15,9 +15,7 @@ export class GemStoneCompletionProvider implements vscode.CompletionItemProvider
     this.instVarCache.clear();
   }
 
-  provideCompletionItems(
-    document: vscode.TextDocument,
-  ): vscode.CompletionItem[] {
+  provideCompletionItems(document: vscode.TextDocument): vscode.CompletionItem[] {
     const session = this.sessionManager.getSelectedSession();
     if (!session) return [];
 
@@ -36,7 +34,7 @@ export class GemStoneCompletionProvider implements vscode.CompletionItemProvider
 
   private extractClassName(uri: vscode.Uri): string | null {
     if (uri.scheme !== 'gemstone') return null;
-    const parts = uri.path.split('/').filter(s => s.length > 0);
+    const parts = uri.path.split('/').filter((s) => s.length > 0);
     // path: /{dictName}/{className}/{side}/{category}/{selector}
     if (parts.length < 2) return null;
     return decodeURIComponent(parts[1]);
@@ -53,9 +51,7 @@ export class GemStoneCompletionProvider implements vscode.CompletionItemProvider
       for (const e of entries) {
         if (seen.has(e.className)) continue;
         seen.add(e.className);
-        const item = new vscode.CompletionItem(
-          e.className, vscode.CompletionItemKind.Class,
-        );
+        const item = new vscode.CompletionItem(e.className, vscode.CompletionItemKind.Class);
         item.detail = e.dictName;
         items.push(item);
       }
@@ -73,10 +69,8 @@ export class GemStoneCompletionProvider implements vscode.CompletionItemProvider
 
     try {
       const names = queries.getInstVarNames(session, className);
-      const items = names.map(name => {
-        const item = new vscode.CompletionItem(
-          name, vscode.CompletionItemKind.Field,
-        );
+      const items = names.map((name) => {
+        const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Field);
         item.detail = `${className} inst var`;
         return item;
       });
@@ -94,9 +88,9 @@ export class GemStoneCompletionProvider implements vscode.CompletionItemProvider
 
     try {
       const selectors = queries.getAllSelectors(session, className);
-      const items = selectors.map(sel => new vscode.CompletionItem(
-        sel, vscode.CompletionItemKind.Method,
-      ));
+      const items = selectors.map(
+        (sel) => new vscode.CompletionItem(sel, vscode.CompletionItemKind.Method),
+      );
       this.selectorCache.set(key, items);
       return items;
     } catch {

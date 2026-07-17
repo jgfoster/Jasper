@@ -22,7 +22,8 @@ describe('openWorkspace', () => {
   it('sets the document language to gemstone-smalltalk', async () => {
     await openWorkspace();
     expect(languages.setTextDocumentLanguage).toHaveBeenCalledWith(
-      expect.anything(), 'gemstone-smalltalk',
+      expect.anything(),
+      'gemstone-smalltalk',
     );
   });
 

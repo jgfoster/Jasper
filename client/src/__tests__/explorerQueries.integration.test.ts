@@ -28,19 +28,26 @@ import type { ActiveSession } from '../sessionManager';
 describe('explorer queries (integration)', () => {
   let gci: GciLibrary;
   let handle: unknown;
-  useIntegrationTest((testContext) => { gci = testContext.gciLibrary; handle = testContext.session; });
+  useIntegrationTest((testContext) => {
+    gci = testContext.gciLibrary;
+    handle = testContext.session;
+  });
 
   const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
-  const exec = (code: string): string => q.executeFetchString(session(), 'explorerQueries-it', code);
+  const exec = (code: string): string =>
+    q.executeFetchString(session(), 'explorerQueries-it', code);
 
   const isSystemProfile = (): boolean =>
     exec('System myUserProfile isSystemProfile printString').trim() === 'true';
   const dictIndexOf = (name: string): number =>
-    parseInt(exec(
-      `| sl d | sl := System myUserProfile symbolList. ` +
-      `d := sl detect: [:x | x name = #'${name}'] ifNone: [nil]. ` +
-      `(d ifNil: [0] ifNotNil: [sl indexOf: d]) printString`,
-    ), 10);
+    parseInt(
+      exec(
+        `| sl d | sl := System myUserProfile symbolList. ` +
+          `d := sl detect: [:x | x name = #'${name}'] ifNone: [nil]. ` +
+          `(d ifNil: [0] ifNotNil: [sl indexOf: d]) printString`,
+      ),
+      10,
+    );
   const userIndex = (): number => dictIndexOf('UserGlobals');
 
   const WIDGET = 'JasperItWidget';
@@ -51,9 +58,11 @@ describe('explorer queries (integration)', () => {
   // variant only exists in images with certain packages loaded, not the bare
   // test stone — then tags the class-category in a separate step.
   const defineClass = (name: string, category = 'JasperIt-Core'): void => {
-    q.compileClassDefinition(session(),
+    q.compileClassDefinition(
+      session(),
       `Object subclass: '${name}' instVarNames: #() classVars: #() ` +
-      `classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals`);
+        `classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals`,
+    );
     exec(`(UserGlobals at: #'${name}') category: '${category}'. 'ok'`);
   };
 
@@ -65,10 +74,12 @@ describe('explorer queries (integration)', () => {
   };
 
   const categoryOf = (className: string): string | undefined =>
-    q.getClassesWithCategory(session(), userIndex()).find((e) => e.className === className)?.category;
+    q.getClassesWithCategory(session(), userIndex()).find((e) => e.className === className)
+      ?.category;
 
   const selectorsIn = (className: string, isMeta: boolean, category: string): string[] =>
-    q.getClassEnvironments(session(), userIndex(), className, 0)
+    q
+      .getClassEnvironments(session(), userIndex(), className, 0)
       .filter((l) => l.isMeta === isMeta && l.category === category)
       .flatMap((l) => l.selectors);
 
@@ -80,7 +91,9 @@ describe('explorer queries (integration)', () => {
     });
 
     it('includes Object among the superclasses, root-first', () => {
-      const supers = q.getClassHierarchy(session(), 'Integer').filter((e) => e.kind === 'superclass');
+      const supers = q
+        .getClassHierarchy(session(), 'Integer')
+        .filter((e) => e.kind === 'superclass');
 
       expect(supers.map((e) => e.className)).toContain('Object');
     });
@@ -92,9 +105,11 @@ describe('explorer queries (integration)', () => {
     // mutator, `owner` has neither — plus a plain method, a binary override, and
     // a class-side method, so the reflection exercises every branch.
     const defineGrailTarget = (): void => {
-      q.compileClassDefinition(session(),
-        `Object subclass: '${GRAILC}' instVarNames: #('balance' 'owner') classVars: #() `
-        + 'classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals');
+      q.compileClassDefinition(
+        session(),
+        `Object subclass: '${GRAILC}' instVarNames: #('balance' 'owner') classVars: #() ` +
+          'classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals',
+      );
       q.compileMethod(session(), GRAILC, false, 'accessing', 'balance ^balance');
       q.compileMethod(session(), GRAILC, false, 'accessing', 'balance: aValue balance := aValue');
       q.compileMethod(session(), GRAILC, false, 'ops', 'deposit: n balance := balance + n');
@@ -120,9 +135,21 @@ describe('explorer queries (integration)', () => {
       const refl = q.getGrailStubReflection(session(), GRAILC, userIndex());
 
       expect(refl.superclass).toBe('Object');
-      expect(refl.methods).toContainEqual({ side: 'instance', category: 'ops', selector: 'deposit:' });
-      expect(refl.methods).toContainEqual({ side: 'instance', category: 'comparing', selector: '=' });
-      expect(refl.methods).toContainEqual({ side: 'class', category: 'instance creation', selector: 'make' });
+      expect(refl.methods).toContainEqual({
+        side: 'instance',
+        category: 'ops',
+        selector: 'deposit:',
+      });
+      expect(refl.methods).toContainEqual({
+        side: 'instance',
+        category: 'comparing',
+        selector: '=',
+      });
+      expect(refl.methods).toContainEqual({
+        side: 'class',
+        category: 'instance creation',
+        selector: 'make',
+      });
     });
 
     it('reports an unknown class name as not found', () => {
@@ -155,7 +182,7 @@ describe('explorer queries (integration)', () => {
   });
 
   describe('getClassEnvironments', () => {
-    it('lists a class\'s own instance and class methods under their categories', () => {
+    it("lists a class's own instance and class methods under their categories", () => {
       defineWidget();
 
       expect(selectorsIn(WIDGET, false, 'accessing')).toContain('bar');
@@ -247,8 +274,12 @@ describe('explorer queries (integration)', () => {
       const result = q.moveClass(session(), userIndex(), dest, WIDGET);
 
       expect(result).toContain('Moved');
-      expect(q.getClassesWithCategory(session(), userIndex()).find((e) => e.className === WIDGET)).toBeUndefined();
-      expect(q.getClassesWithCategory(session(), dest).find((e) => e.className === WIDGET)).toBeDefined();
+      expect(
+        q.getClassesWithCategory(session(), userIndex()).find((e) => e.className === WIDGET),
+      ).toBeUndefined();
+      expect(
+        q.getClassesWithCategory(session(), dest).find((e) => e.className === WIDGET),
+      ).toBeDefined();
     });
   });
 

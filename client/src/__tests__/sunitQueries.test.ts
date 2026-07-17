@@ -10,7 +10,16 @@ import { ActiveSession } from '../sessionManager';
 import { GemStoneLogin } from '../loginTypes';
 import * as sunit from '../sunitQueries';
 
-const noErr = { number: 0, message: '', context: 0n, category: 0, fatal: false, argCount: 0, exceptionObj: 0n, args: [] };
+const noErr = {
+  number: 0,
+  message: '',
+  context: 0n,
+  category: 0,
+  fatal: false,
+  argCount: 0,
+  exceptionObj: 0n,
+  args: [],
+};
 
 function createMockSession(executeFetchData = ''): ActiveSession {
   const mockGci = {
@@ -34,14 +43,19 @@ describe('sunitQueries', () => {
       const session = createMockSession('UserGlobals\tMyTestCase\t7\nGlobals\tOtherTest\t19\n');
       const results = sunit.discoverTestClasses(session);
       expect(results).toHaveLength(2);
-      expect(results[0]).toEqual({ dictName: 'UserGlobals', className: 'MyTestCase', testCount: 7 });
+      expect(results[0]).toEqual({
+        dictName: 'UserGlobals',
+        className: 'MyTestCase',
+        testCount: 7,
+      });
       expect(results[1]).toEqual({ dictName: 'Globals', className: 'OtherTest', testCount: 19 });
     });
 
     it('emits the per-class test count from the query', () => {
       const session = createMockSession('');
       sunit.discoverTestClasses(session);
-      const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock
+        .calls[0][1];
       expect(code).toContain('testSelectors size');
     });
 
@@ -53,13 +67,13 @@ describe('sunitQueries', () => {
 
     it('parses a bad/missing/negative test count as null (never negative or NaN)', () => {
       const session = createMockSession(
-        'A\tMissing\t\n' +      // empty count field
-        'B\tNonNumeric\tabc\n' + // not a number
-        'C\tNegative\t-5\n' +    // negative (impossible for a real count)
-        'D\tFraction\t3.9\n',    // non-integer
+        'A\tMissing\t\n' + // empty count field
+          'B\tNonNumeric\tabc\n' + // not a number
+          'C\tNegative\t-5\n' + // negative (impossible for a real count)
+          'D\tFraction\t3.9\n', // non-integer
       );
       const results = sunit.discoverTestClasses(session);
-      expect(results.map(r => r.testCount)).toEqual([null, null, null, null]);
+      expect(results.map((r) => r.testCount)).toEqual([null, null, null, null]);
     });
 
     it('returns empty array when no test classes exist', () => {
@@ -70,7 +84,8 @@ describe('sunitQueries', () => {
     it('executes Smalltalk code that finds TestCase subclasses', () => {
       const session = createMockSession('');
       sunit.discoverTestClasses(session);
-      const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock
+        .calls[0][1];
       expect(code).toContain('TestCase');
       expect(code).toContain('isSubclassOf');
     });
@@ -105,7 +120,8 @@ describe('sunitQueries', () => {
       (dict) => {
         const session = createMockSession('');
         sunit.discoverTestMethods(session, 'AnnouncerTest', dict);
-        const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock.calls[0][1];
+        const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock
+          .calls[0][1];
         expect(code).toContain(`objectNamed: #'${dict}'`);
         expect(code).toContain("at: #'AnnouncerTest'");
         expect(code).toContain('cls isNil ifTrue:');
@@ -168,7 +184,8 @@ describe('sunitQueries', () => {
     it('captures live exception class + messageText (no testCase run framework)', () => {
       const session = createMockSession('');
       sunit.runTestMethod(session, 'MyTestCase', 'testBad');
-      const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock
+        .calls[0][1];
       expect(code).toContain('on: AbstractException');
       expect(code).toContain('testCase setUp');
       expect(code).toContain('testCase perform:');
@@ -188,7 +205,8 @@ describe('sunitQueries', () => {
       (dict) => {
         const session = createMockSession('passed\t\t1');
         sunit.runTestMethod(session, 'AnnouncerTest', 'testFoo', dict);
-        const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock.calls[0][1];
+        const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock
+          .calls[0][1];
         expect(code).toContain(`objectNamed: #'${dict}'`);
         expect(code).toContain("at: #'AnnouncerTest'");
         expect(code).toContain('cls isNil ifTrue:');
@@ -200,17 +218,36 @@ describe('sunitQueries', () => {
 
   describe('runTestClass', () => {
     it('parses multiple test results', () => {
-      const payload = [
-        'MyTestCase\ttestAdd\tpassed\t',
-        'MyTestCase\ttestRemove\tfailed\tAssert failed',
-        'MyTestCase\ttestBad\terror\tMessageNotUnderstood',
-      ].join('\n') + '\n';
+      const payload =
+        [
+          'MyTestCase\ttestAdd\tpassed\t',
+          'MyTestCase\ttestRemove\tfailed\tAssert failed',
+          'MyTestCase\ttestBad\terror\tMessageNotUnderstood',
+        ].join('\n') + '\n';
       const session = createMockSession(payload);
       const results = sunit.runTestClass(session, 'MyTestCase');
       expect(results).toHaveLength(3);
-      expect(results[0]).toEqual({ className: 'MyTestCase', selector: 'testAdd', status: 'passed', message: '', durationMs: 0 });
-      expect(results[1]).toEqual({ className: 'MyTestCase', selector: 'testRemove', status: 'failed', message: 'Assert failed', durationMs: 0 });
-      expect(results[2]).toEqual({ className: 'MyTestCase', selector: 'testBad', status: 'error', message: 'MessageNotUnderstood', durationMs: 0 });
+      expect(results[0]).toEqual({
+        className: 'MyTestCase',
+        selector: 'testAdd',
+        status: 'passed',
+        message: '',
+        durationMs: 0,
+      });
+      expect(results[1]).toEqual({
+        className: 'MyTestCase',
+        selector: 'testRemove',
+        status: 'failed',
+        message: 'Assert failed',
+        durationMs: 0,
+      });
+      expect(results[2]).toEqual({
+        className: 'MyTestCase',
+        selector: 'testBad',
+        status: 'error',
+        message: 'MessageNotUnderstood',
+        durationMs: 0,
+      });
     });
 
     it('returns empty array when no results', () => {
@@ -225,7 +262,8 @@ describe('sunitQueries', () => {
     it('does not send #testCase to failure/error wrappers', () => {
       const session = createMockSession('');
       sunit.runTestClass(session, 'MyTestCase');
-      const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock
+        .calls[0][1];
       expect(code).not.toMatch(/testCase\s+class\s+name/);
       expect(code).not.toMatch(/testCase\s+selector/);
     });
@@ -237,7 +275,8 @@ describe('sunitQueries', () => {
     it('captures live exception class + messageText for failures and errors via re-run', () => {
       const session = createMockSession('');
       sunit.runTestClass(session, 'MyTestCase');
-      const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock
+        .calls[0][1];
       expect(code).toContain('captureMessage');
       expect(code).toContain('on: AbstractException');
       expect(code).toContain('t setUp');
@@ -258,7 +297,8 @@ describe('sunitQueries', () => {
     it('runs the suite of the dictionary-scoped class, not a bare name', () => {
       const session = createMockSession('');
       sunit.runTestClass(session, 'AnnouncerTest', 'Globals');
-      const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock
+        .calls[0][1];
       expect(code).toContain("objectNamed: #'Globals'");
       expect(code).toContain("at: #'AnnouncerTest'");
       expect(code).toContain('suite := cls suite');
@@ -270,7 +310,8 @@ describe('sunitQueries', () => {
     it('falls back to bare-name lookup when no dictionary is given', () => {
       const session = createMockSession('');
       sunit.runTestClass(session, 'MyTestCase');
-      const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      const code = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock
+        .calls[0][1];
       expect(code).toContain("objectNamed: #'MyTestCase'");
     });
   });
@@ -279,13 +320,16 @@ describe('sunitQueries', () => {
     it('parses failed/errored tab-separated rows', () => {
       const session = createMockSession(
         'MyTestCase\ttestFails\tfailed\tTestFailure: nope\n' +
-        'MyTestCase\ttestBad\terror\tMessageNotUnderstood: boom\n',
+          'MyTestCase\ttestBad\terror\tMessageNotUnderstood: boom\n',
       );
       const results = sunit.runFailingTests(session);
       expect(results).toHaveLength(2);
       expect(results[0]).toEqual({
-        className: 'MyTestCase', selector: 'testFails',
-        status: 'failed', message: 'TestFailure: nope', durationMs: 0,
+        className: 'MyTestCase',
+        selector: 'testFails',
+        status: 'failed',
+        message: 'TestFailure: nope',
+        durationMs: 0,
       });
       expect(results[1].status).toBe('error');
     });

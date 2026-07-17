@@ -100,14 +100,16 @@ export class McpHttpServer {
     });
 
     // Catch-all express error handler for any unhandled errors.
-    app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-      appendSysadmin(`MCP HTTP unhandled error: ${err.message}\n${err.stack ?? ''}`);
-      if (!res.headersSent) {
-        res.status(500).send(`MCP unhandled error: ${err.message}`);
-      } else {
-        res.end();
-      }
-    });
+    app.use(
+      (err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+        appendSysadmin(`MCP HTTP unhandled error: ${err.message}\n${err.stack ?? ''}`);
+        if (!res.headersSent) {
+          res.status(500).send(`MCP unhandled error: ${err.message}`);
+        } else {
+          res.end();
+        }
+      },
+    );
 
     await new Promise<void>((resolve, reject) => {
       const server = https.createServer(

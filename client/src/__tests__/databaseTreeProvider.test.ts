@@ -56,7 +56,7 @@ describe('DatabaseTreeProvider', () => {
 
       const dbNode: DatabaseNode = { kind: 'database', db };
       const children = provider.getChildren(dbNode);
-      const kinds = children.map(c => c.kind);
+      const kinds = children.map((c) => c.kind);
 
       expect(kinds).toEqual(['stone', 'netldi', 'logs', 'config']);
     });

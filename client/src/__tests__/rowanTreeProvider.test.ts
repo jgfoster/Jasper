@@ -34,7 +34,9 @@ function fakeMemento(): vscode.Memento {
   return {
     get: <T>(key: string, defaultValue?: T) =>
       (store.has(key) ? store.get(key) : defaultValue) as T,
-    update: async (key: string, value: unknown) => { store.set(key, value); },
+    update: async (key: string, value: unknown) => {
+      store.set(key, value);
+    },
     keys: () => [...store.keys()],
   } as vscode.Memento;
 }
@@ -66,9 +68,12 @@ function makeProvider(registry: RowanRepoRegistry, session: ActiveSession | null
   return new RowanTreeProvider(registry, { getSession: () => session });
 }
 
-function sectionChildren(provider: RowanTreeProvider, section: 'repositories' | 'loaded' | 'changes') {
+function sectionChildren(
+  provider: RowanTreeProvider,
+  section: 'repositories' | 'loaded' | 'changes',
+) {
   const roots = provider.getChildren() as RowanSectionItem[];
-  const target = roots.find(r => r.section === section)!;
+  const target = roots.find((r) => r.section === section)!;
   return provider.getChildren(target);
 }
 
@@ -93,7 +98,7 @@ describe('RowanTreeProvider', () => {
 
     const roots = provider.getChildren() as RowanSectionItem[];
 
-    expect(roots.map(r => r.label)).toEqual(['Repositories', 'Loaded Projects', 'Changes']);
+    expect(roots.map((r) => r.label)).toEqual(['Repositories', 'Loaded Projects', 'Changes']);
   });
 
   it('yields no rows on a bare start so the welcome content (with its Add button) shows', () => {
@@ -230,8 +235,9 @@ describe('RowanTreeProvider', () => {
       await registry.add({ name: 'alpha', path: makeRepoDir(true) });
       const provider = makeProvider(registry, null);
 
-      const labels = (sectionChildren(provider, 'repositories') as RowanRepoItem[])
-        .map(i => i.label);
+      const labels = (sectionChildren(provider, 'repositories') as RowanRepoItem[]).map(
+        (i) => i.label,
+      );
 
       expect(labels).toEqual(['alpha', 'zeta']);
     });
@@ -249,8 +255,9 @@ describe('RowanTreeProvider', () => {
       await registry.add({ name: 'outside', path: makeRepoDir(true) });
       const provider = makeProvider(registry, null);
 
-      const labels = (sectionChildren(provider, 'repositories') as RowanRepoItem[])
-        .map(i => i.label);
+      const labels = (sectionChildren(provider, 'repositories') as RowanRepoItem[]).map(
+        (i) => i.label,
+      );
 
       expect(labels).toEqual(['inside']);
     });
@@ -289,7 +296,7 @@ describe('RowanTreeProvider', () => {
 
       const items = sectionChildren(provider, 'loaded') as RowanLoadedProjectItem[];
 
-      expect(items.map(i => i.label)).toEqual(['Seaside', 'STON']);
+      expect(items.map((i) => i.label)).toEqual(['Seaside', 'STON']);
       expect(items[0].resourceUri?.query).toBe('state=M');
       expect(items[1].resourceUri?.query).toBe('');
       expect(items[0].contextValue).toBe('rowanLoadedProject');
@@ -313,12 +320,14 @@ describe('RowanTreeProvider', () => {
       expect(group).toBeInstanceOf(RowanBuiltinGroupItem);
       expect(group.description).toBe('2');
       const builtins = provider.getChildren(group) as RowanLoadedProjectItem[];
-      expect(builtins.map(b => b.label)).toEqual(['Cypress', 'Rowan']);
+      expect(builtins.map((b) => b.label)).toEqual(['Cypress', 'Rowan']);
       expect(builtins[0].contextValue).toBe('rowanLoadedProjectBuiltin');
     });
 
     it('surfaces a query failure instead of an empty section', () => {
-      listRowanProjectsMock.mockImplementation(() => { throw new Error('session busy'); });
+      listRowanProjectsMock.mockImplementation(() => {
+        throw new Error('session busy');
+      });
       const provider = makeProvider(registry, fakeSession);
 
       const [item] = sectionChildren(provider, 'loaded') as RowanMessageItem[];
@@ -379,7 +388,11 @@ describe('RowanTreeProvider', () => {
         ok: true,
         error: '',
         operations: [
-          { location: 'changed', package: 'Seaside-Core', target: 'WAEncoder class>>initializeTable' },
+          {
+            location: 'changed',
+            package: 'Seaside-Core',
+            target: 'WAEncoder class>>initializeTable',
+          },
           { location: 'image', package: 'Seaside-Component', target: 'HelloJasper' },
         ],
       });
@@ -388,13 +401,10 @@ describe('RowanTreeProvider', () => {
 
       const rows = provider.getChildren(projectNode) as RowanChangeItem[];
 
-      expect(rows.map(r => r.label)).toEqual([
-        'HelloJasper',
-        'WAEncoder class>>initializeTable',
-      ]);
-      expect(rows.map(r => r.description)).toEqual(['Seaside-Component', 'Seaside-Core']);
+      expect(rows.map((r) => r.label)).toEqual(['HelloJasper', 'WAEncoder class>>initializeTable']);
+      expect(rows.map((r) => r.description)).toEqual(['Seaside-Component', 'Seaside-Core']);
       // Decorated in git vocabulary: image-only = A, changed = M.
-      expect(rows.map(r => r.resourceUri?.query)).toEqual(['state=A', 'state=M']);
+      expect(rows.map((r) => r.resourceUri?.query)).toEqual(['state=A', 'state=M']);
     });
 
     it('reports a clean project instead of showing nothing', () => {

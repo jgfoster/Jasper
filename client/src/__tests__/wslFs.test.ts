@@ -95,7 +95,9 @@ describe('wslFs', () => {
     beforeEach(() => vi.mocked(needsWsl).mockReturnValue(true));
 
     it('wslExistsSync returns false when test -e exits non-zero', () => {
-      vi.mocked(wslExecSync).mockImplementation(() => { throw new Error('exit 1'); });
+      vi.mocked(wslExecSync).mockImplementation(() => {
+        throw new Error('exit 1');
+      });
       expect(wslExistsSync(UNC)).toBe(false);
     });
 
@@ -121,7 +123,9 @@ describe('wslFs', () => {
 
     it('returns [] on error', () => {
       vi.mocked(needsWsl).mockReturnValue(true);
-      vi.mocked(wslExecSync).mockImplementation(() => { throw new Error(); });
+      vi.mocked(wslExecSync).mockImplementation(() => {
+        throw new Error();
+      });
       expect(wslReaddirSync(UNC)).toEqual([]);
     });
   });
@@ -188,7 +192,10 @@ describe('wslFs', () => {
     it('falls back to fs.copyFileSync on non-Windows hosts', () => {
       vi.mocked(needsWsl).mockReturnValue(false);
       wslImportFileSync('/seed/extent0.dbf', '/home/james/db-1/data/extent0.dbf');
-      expect(fs.copyFileSync).toHaveBeenCalledWith('/seed/extent0.dbf', '/home/james/db-1/data/extent0.dbf');
+      expect(fs.copyFileSync).toHaveBeenCalledWith(
+        '/seed/extent0.dbf',
+        '/home/james/db-1/data/extent0.dbf',
+      );
       expect(wslExecSync).not.toHaveBeenCalled();
     });
   });

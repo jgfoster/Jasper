@@ -51,8 +51,12 @@ function mockExecByCommand(table: Array<{ match: RegExp; stdout?: string; error?
   vi.mocked(exec).mockImplementation((cmd, _opts, cb) => {
     for (const row of table) {
       if (row.match.test(String(cmd))) {
-        if (row.error) { cb?.(new Error('fail'), '', ''); return {} as ChildProcess; }
-        cb?.(null, row.stdout ?? '', ''); return {} as ChildProcess;
+        if (row.error) {
+          cb?.(new Error('fail'), '', '');
+          return {} as ChildProcess;
+        }
+        cb?.(null, row.stdout ?? '', '');
+        return {} as ChildProcess;
       }
     }
     cb?.(new Error('no match'), '', '');
@@ -173,8 +177,11 @@ describe('refreshWslNetworkInfo', () => {
     setPlatform('linux');
     const info = await refreshWslNetworkInfo();
     expect(info).toEqual({
-      mirrored: false, ip: undefined, netldiHost: undefined,
-      wslCoreVersion: undefined, supportsMirrored: false,
+      mirrored: false,
+      ip: undefined,
+      netldiHost: undefined,
+      wslCoreVersion: undefined,
+      supportsMirrored: false,
     });
     expect(exec).not.toHaveBeenCalled();
   });
@@ -182,13 +189,14 @@ describe('refreshWslNetworkInfo', () => {
   it('on Windows with mirrored config skips the IP probe but still checks WSL core version', async () => {
     setPlatform('win32');
     vi.mocked(fs.readFileSync).mockReturnValue('[wsl2]\nnetworkingMode=mirrored\n');
-    mockExecByCommand([
-      { match: /--version/, stdout: 'WSL version: 2.0.9.0\n' },
-    ]);
+    mockExecByCommand([{ match: /--version/, stdout: 'WSL version: 2.0.9.0\n' }]);
     const info = await refreshWslNetworkInfo();
     expect(info).toEqual({
-      mirrored: true, ip: undefined, netldiHost: 'localhost',
-      wslCoreVersion: '2.0.9.0', supportsMirrored: true,
+      mirrored: true,
+      ip: undefined,
+      netldiHost: 'localhost',
+      wslCoreVersion: '2.0.9.0',
+      supportsMirrored: true,
     });
     // IP probe (hostname -I) should NOT run when mirrored is true.
     const calls = vi.mocked(exec).mock.calls;
@@ -204,8 +212,11 @@ describe('refreshWslNetworkInfo', () => {
     ]);
     const info = await refreshWslNetworkInfo();
     expect(info).toEqual({
-      mirrored: false, ip: '172.29.240.2', netldiHost: '172.29.240.2',
-      wslCoreVersion: '2.0.9.0', supportsMirrored: true,
+      mirrored: false,
+      ip: '172.29.240.2',
+      netldiHost: '172.29.240.2',
+      wslCoreVersion: '2.0.9.0',
+      supportsMirrored: true,
     });
   });
 
@@ -224,7 +235,9 @@ describe('refreshWslNetworkInfo', () => {
 
   it('on Windows with no .wslconfig (read throws) falls back to a non-mirrored IP probe', async () => {
     setPlatform('win32');
-    vi.mocked(fs.readFileSync).mockImplementation(() => { throw new Error('ENOENT'); });
+    vi.mocked(fs.readFileSync).mockImplementation(() => {
+      throw new Error('ENOENT');
+    });
     mockExecByCommand([
       { match: /hostname -I/, stdout: '10.0.0.5\n' },
       { match: /--version/, stdout: 'WSL version: 2.0.9.0\n' },
@@ -246,22 +259,20 @@ describe('refreshWslNetworkInfo', () => {
   it('caches the last result for getWslNetworkInfoCached', async () => {
     setPlatform('win32');
     vi.mocked(fs.readFileSync).mockReturnValue('[wsl2]\nnetworkingMode=mirrored\n');
-    mockExecByCommand([
-      { match: /--version/, stdout: 'WSL version: 2.0.9.0\n' },
-    ]);
+    mockExecByCommand([{ match: /--version/, stdout: 'WSL version: 2.0.9.0\n' }]);
     expect(getWslNetworkInfoCached()).toBeUndefined();
     await refreshWslNetworkInfo();
     expect(getWslNetworkInfoCached()).toMatchObject({
-      mirrored: true, netldiHost: 'localhost', supportsMirrored: true,
+      mirrored: true,
+      netldiHost: 'localhost',
+      supportsMirrored: true,
     });
   });
 
   it('invalidateWslNetworkCache resets the cache', async () => {
     setPlatform('win32');
     vi.mocked(fs.readFileSync).mockReturnValue('[wsl2]\nnetworkingMode=mirrored\n');
-    mockExecByCommand([
-      { match: /--version/, stdout: 'WSL version: 2.0.9.0\n' },
-    ]);
+    mockExecByCommand([{ match: /--version/, stdout: 'WSL version: 2.0.9.0\n' }]);
     await refreshWslNetworkInfo();
     expect(getWslNetworkInfoCached()).toBeDefined();
     invalidateWslNetworkCache();

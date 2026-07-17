@@ -51,9 +51,18 @@ test.describe('Rowan end to end', () => {
       while (Date.now() < deadline) {
         if (await session.count()) break;
         const parts = [
-          ...(await window.locator('.notifications-toasts').allInnerTexts().catch(() => [])),
-          ...(await window.locator('.quick-input-widget').allInnerTexts().catch(() => [])),
-          ...(await window.locator('.monaco-dialog-box').allInnerTexts().catch(() => [])),
+          ...(await window
+            .locator('.notifications-toasts')
+            .allInnerTexts()
+            .catch(() => [])),
+          ...(await window
+            .locator('.quick-input-widget')
+            .allInnerTexts()
+            .catch(() => [])),
+          ...(await window
+            .locator('.monaco-dialog-box')
+            .allInnerTexts()
+            .catch(() => [])),
         ].filter(Boolean);
         const joined = parts.join(' ||| ');
         if (joined && joined !== seen) {

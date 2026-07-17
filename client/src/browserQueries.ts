@@ -111,7 +111,10 @@ const MAX_RESULT = 256 * 1024;
 const classUtf8Cache = new Map<unknown, bigint>();
 
 export class BrowserQueryError extends Error {
-  constructor(message: string, public readonly gciErrorNumber: number = 0) {
+  constructor(
+    message: string,
+    public readonly gciErrorNumber: number = 0,
+  ) {
     super(message);
   }
 }
@@ -121,9 +124,7 @@ function resolveClassUtf8(session: ActiveSession): bigint {
   if (oop !== undefined) return oop;
   const { result, err } = session.gci.GciTsResolveSymbol(session.handle, 'Utf8', OOP_NIL);
   if (err.number !== 0) {
-    throw new BrowserQueryError(
-      err.message || `Cannot resolve Utf8 class`, err.number
-    );
+    throw new BrowserQueryError(err.message || `Cannot resolve Utf8 class`, err.number);
   }
   oop = result;
   classUtf8Cache.set(session.handle, oop);
@@ -193,7 +194,10 @@ export function executeFetchString(session: ActiveSession, label: string, code: 
 // must be a String, fetched verbatim (no printString quoting) for parity with
 // executeFetchString.
 export async function executeFetchStringNb(
-  session: ActiveSession, label: string, code: string, progressTitle?: string,
+  session: ActiveSession,
+  label: string,
+  code: string,
+  progressTitle?: string,
   suppressNotification = false,
 ): Promise<string> {
   logQuery(session.id, label, code);
@@ -209,9 +213,8 @@ export async function executeFetchStringNb(
 
   const data = await runNbCall(
     session,
-    () => session.gci.GciTsNbExecute(
-      session.handle, code, oopClassUtf8, OOP_ILLEGAL, OOP_NIL, 0, 0,
-    ),
+    () =>
+      session.gci.GciTsNbExecute(session.handle, code, oopClassUtf8, OOP_ILLEGAL, OOP_NIL, 0, 0),
     () => {
       const { result: resultOop, err } = session.gci.GciTsNbResult(session.handle);
       if (err.number !== 0) {
@@ -239,7 +242,10 @@ export async function executeFetchStringNb(
 // the default 256 KB cap, slicing on code-point boundaries so the UTF-8 decode
 // here is always lossless. Result data is not logged — chunks can be megabytes.
 export function executeFetchStringWithLimit(
-  session: ActiveSession, label: string, code: string, maxBytes: number,
+  session: ActiveSession,
+  label: string,
+  code: string,
+  maxBytes: number,
 ): string {
   logQuery(session.id, label, code);
 
@@ -281,7 +287,7 @@ export function checkEnhancedInspectorAvailable(session: ActiveSession): boolean
     const result = executeFetchString(
       session,
       'checkEnhancedInspectorAvailable',
-      '[GtRemotePhlowViewedObject notNil printString] on: Error do: [:e | \'false\']',
+      "[GtRemotePhlowViewedObject notNil printString] on: Error do: [:e | 'false']",
     );
     return result.trim() === 'true';
   } catch {
@@ -341,9 +347,7 @@ export function getRowanProjectDetail(session: ActiveSession, projectName: strin
   return sharedGetRowanProjectDetail(bind(session), projectName);
 }
 
-export function exportRowanProject(
-  session: ActiveSession, projectName: string, targetDir: string,
-) {
+export function exportRowanProject(session: ActiveSession, projectName: string, targetDir: string) {
   return sharedExportRowanProject(bind(session), projectName, targetDir);
 }
 
@@ -363,7 +367,10 @@ export function loadRowanProject(session: ActiveSession, specPath: string, diskP
 // executeFetchStringNb so a minutes-long load doesn't freeze the extension host
 // and the user gets a cancellable progress notification.
 export async function loadRowanProjectNb(
-  session: ActiveSession, specPath: string, diskPath: string, progressTitle: string,
+  session: ActiveSession,
+  specPath: string,
+  diskPath: string,
+  progressTitle: string,
 ): Promise<RowanLoadResult> {
   const raw = await executeFetchStringNb(
     session,
@@ -382,27 +389,25 @@ export function unloadRowanProject(session: ActiveSession, projectName: string) 
   return sharedUnloadRowanProject(bind(session), projectName);
 }
 
-export function getClassNames(
-  session: ActiveSession, dict: number | string,
-): string[] {
+export function getClassNames(session: ActiveSession, dict: number | string): string[] {
   return sharedGetClassNames(bind(session), dict);
 }
 
 export function getClassesWithCategory(
-  session: ActiveSession, dict: number | string,
+  session: ActiveSession,
+  dict: number | string,
 ): ClassCategoryEntry[] {
   return sharedGetClassesWithCategory(bind(session), dict);
 }
 
 export function getDictionaryClassFileOutOrder(
-  session: ActiveSession, dict: number | string,
+  session: ActiveSession,
+  dict: number | string,
 ): string[] {
   return sharedGetDictionaryClassFileOutOrder(bind(session), dict);
 }
 
-export function getDictionaryEntries(
-  session: ActiveSession, dict: number | string,
-) {
+export function getDictionaryEntries(session: ActiveSession, dict: number | string) {
   return sharedGetDictionaryEntries(bind(session), dict);
 }
 
@@ -411,58 +416,83 @@ export function getGlobalsForDictionary(session: ActiveSession, dictIndex: numbe
 }
 
 export function getMethodCategories(
-  session: ActiveSession, className: string, isMeta: boolean, dict?: number | string,
+  session: ActiveSession,
+  className: string,
+  isMeta: boolean,
+  dict?: number | string,
 ): string[] {
   return sharedGetMethodCategories(bind(session), className, isMeta, dict);
 }
 
 export function getMethodSelectors(
-  session: ActiveSession, className: string, isMeta: boolean, category: string,
+  session: ActiveSession,
+  className: string,
+  isMeta: boolean,
+  category: string,
   dict?: number | string,
 ): string[] {
   return sharedGetMethodSelectors(bind(session), className, isMeta, category, dict);
 }
 
 export function getClassEnvironments(
-  session: ActiveSession, dictIndex: number, className: string, maxEnv: number,
+  session: ActiveSession,
+  dictIndex: number,
+  className: string,
+  maxEnv: number,
 ) {
   return sharedGetClassEnvironments(bind(session), dictIndex, className, maxEnv);
 }
 
 export function getMethodSource(
-  session: ActiveSession, className: string, isMeta: boolean, selector: string,
-  environmentId: number = 0, dict?: number | string,
+  session: ActiveSession,
+  className: string,
+  isMeta: boolean,
+  selector: string,
+  environmentId: number = 0,
+  dict?: number | string,
 ): string {
   return sharedGetMethodSource(bind(session), className, isMeta, selector, environmentId, dict);
 }
 
 export function getBaseMethodSource(
-  session: ActiveSession, className: string, isMeta: boolean, selector: string,
-  environmentId: number = 0, dict?: number | string,
+  session: ActiveSession,
+  className: string,
+  isMeta: boolean,
+  selector: string,
+  environmentId: number = 0,
+  dict?: number | string,
 ): string {
   return sharedGetBaseMethodSource(bind(session), className, isMeta, selector, environmentId, dict);
 }
 
 export function getClassDefinition(
-  session: ActiveSession, className: string, dict?: number | string,
+  session: ActiveSession,
+  className: string,
+  dict?: number | string,
 ): string {
   return sharedGetClassDefinition(bind(session), className, dict);
 }
 
 export function getClassComment(
-  session: ActiveSession, className: string, dict?: number | string,
+  session: ActiveSession,
+  className: string,
+  dict?: number | string,
 ): string {
   return sharedGetClassComment(bind(session), className, dict);
 }
 
 export function getSuperclassDictName(
-  session: ActiveSession, dictIndex: number, className: string,
+  session: ActiveSession,
+  dictIndex: number,
+  className: string,
 ): string {
   return sharedGetSuperclassDictName(bind(session), dictIndex, className);
 }
 
 export function canClassBeWritten(
-  session: ActiveSession, className: string, dict?: number | string,
+  session: ActiveSession,
+  className: string,
+  dict?: number | string,
 ): boolean {
   return sharedCanClassBeWritten(bind(session), className, dict);
 }
@@ -476,19 +506,21 @@ export function getClassHierarchy(session: ActiveSession, className: string) {
 }
 
 export function fileOutClass(
-  session: ActiveSession, className: string, dict?: number | string,
+  session: ActiveSession,
+  className: string,
+  dict?: number | string,
 ): string {
   return sharedFileOutClass(bind(session), className, dict);
 }
 
-export function loadClassInfo(
-  session: ActiveSession, dictIndex: number, className: string,
-) {
+export function loadClassInfo(session: ActiveSession, dictIndex: number, className: string) {
   return sharedLoadClassInfo(bind(session), dictIndex, className);
 }
 
 export function describeClass(
-  session: ActiveSession, className: string, dict?: number | string,
+  session: ActiveSession,
+  className: string,
+  dict?: number | string,
 ): string {
   return sharedDescribeClass(bind(session), className, dict);
 }
@@ -502,13 +534,16 @@ export function getDefinedInstVarNames(session: ActiveSession, className: string
 }
 
 export function getDefinedInstVarCounts(
-  session: ActiveSession, dict: number | string,
+  session: ActiveSession,
+  dict: number | string,
 ): Map<string, number> {
   return sharedGetDefinedInstVarCounts(bind(session), dict);
 }
 
 export function getGrailStubReflection(
-  session: ActiveSession, className: string, dict?: number | string,
+  session: ActiveSession,
+  className: string,
+  dict?: number | string,
 ): GrailStubReflection {
   return sharedGetGrailStubReflection(bind(session), className, dict);
 }
@@ -523,7 +558,10 @@ export function getMethodList(session: ActiveSession, className: string) {
 
 export function getSourceOffsets(
   session: ActiveSession,
-  className: string, isMeta: boolean, selector: string, environmentId: number = 0,
+  className: string,
+  isMeta: boolean,
+  selector: string,
+  environmentId: number = 0,
   dict?: number | string,
 ): number[] {
   return sharedGetSourceOffsets(bind(session), className, isMeta, selector, environmentId, dict);
@@ -531,42 +569,62 @@ export function getSourceOffsets(
 
 export function getStepPointSelectorRanges(
   session: ActiveSession,
-  className: string, isMeta: boolean, selector: string, environmentId: number = 0,
+  className: string,
+  isMeta: boolean,
+  selector: string,
+  environmentId: number = 0,
   dict?: number | string,
 ) {
-  return sharedGetStepPointSelectorRanges(bind(session), className, isMeta, selector, environmentId, dict);
+  return sharedGetStepPointSelectorRanges(
+    bind(session),
+    className,
+    isMeta,
+    selector,
+    environmentId,
+    dict,
+  );
 }
 
-export function searchMethodSource(
-  session: ActiveSession, term: string, ignoreCase: boolean,
-) {
+export function searchMethodSource(session: ActiveSession, term: string, ignoreCase: boolean) {
   return sharedSearchMethodSource(bind(session), term, ignoreCase);
 }
 
-export function sendersOf(
-  session: ActiveSession, selector: string, environmentId: number = 0,
-) {
+export function sendersOf(session: ActiveSession, selector: string, environmentId: number = 0) {
   return sharedSendersOf(bind(session), selector, environmentId);
 }
 
 export function implementorsOf(
-  session: ActiveSession, selector: string, environmentId: number = 0,
+  session: ActiveSession,
+  selector: string,
+  environmentId: number = 0,
 ) {
   return sharedImplementorsOf(bind(session), selector, environmentId);
 }
 
 export function hierarchyImplementorsOf(
-  session: ActiveSession, dictIndex: number, className: string,
-  selector: string, isMeta: boolean, direction: 'up' | 'down',
+  session: ActiveSession,
+  dictIndex: number,
+  className: string,
+  selector: string,
+  isMeta: boolean,
+  direction: 'up' | 'down',
   environmentId: number = 0,
 ) {
   return sharedHierarchyImplementorsOf(
-    bind(session), dictIndex, className, selector, isMeta, direction, environmentId,
+    bind(session),
+    dictIndex,
+    className,
+    selector,
+    isMeta,
+    direction,
+    environmentId,
   );
 }
 
 export function referencesToObject(
-  session: ActiveSession, objectName: string, environmentId: number = 0,
+  session: ActiveSession,
+  objectName: string,
+  environmentId: number = 0,
 ) {
   return sharedReferencesToObject(bind(session), objectName, environmentId);
 }
@@ -574,9 +632,7 @@ export function referencesToObject(
 // ── Write-path queries (mutations) ─────────────────────────────────────────
 // All of these delegate to the shared layer. None auto-commit.
 
-export function compileClassDefinition(
-  session: ActiveSession, source: string,
-): string {
+export function compileClassDefinition(session: ActiveSession, source: string): string {
   return sharedCompileClassDefinition(bind(session), source);
 }
 
@@ -590,64 +646,108 @@ export function compileMethod(
   dict?: number | string,
 ): string {
   return sharedCompileMethod(
-    bind(session), className, isMeta, category, source, environmentId, dict,
+    bind(session),
+    className,
+    isMeta,
+    category,
+    source,
+    environmentId,
+    dict,
   );
 }
 
 export function setClassComment(
-  session: ActiveSession, className: string, comment: string, dict?: number | string,
+  session: ActiveSession,
+  className: string,
+  comment: string,
+  dict?: number | string,
 ): string {
   return sharedSetClassComment(bind(session), className, comment, dict);
 }
 
 export function recategorizeClass(
-  session: ActiveSession, className: string, newCategory: string, dict?: number | string,
+  session: ActiveSession,
+  className: string,
+  newCategory: string,
+  dict?: number | string,
 ): string {
   return sharedRecategorizeClass(bind(session), className, newCategory, dict);
 }
 
 export function copyMethodToClass(
-  session: ActiveSession, sourceClass: string, targetClass: string, isMeta: boolean,
-  selector: string, environmentId: number = 0, dict?: number | string,
+  session: ActiveSession,
+  sourceClass: string,
+  targetClass: string,
+  isMeta: boolean,
+  selector: string,
+  environmentId: number = 0,
+  dict?: number | string,
 ): string {
-  return sharedCopyMethodToClass(bind(session), sourceClass, targetClass, isMeta, selector, environmentId, dict);
+  return sharedCopyMethodToClass(
+    bind(session),
+    sourceClass,
+    targetClass,
+    isMeta,
+    selector,
+    environmentId,
+    dict,
+  );
 }
 
 export function deleteMethod(
-  session: ActiveSession, className: string, isMeta: boolean, selector: string,
+  session: ActiveSession,
+  className: string,
+  isMeta: boolean,
+  selector: string,
   dict?: number | string,
 ): string {
   return sharedDeleteMethod(bind(session), className, isMeta, selector, dict);
 }
 
 export function recategorizeMethod(
-  session: ActiveSession, className: string, isMeta: boolean,
-  selector: string, newCategory: string, dict?: number | string,
+  session: ActiveSession,
+  className: string,
+  isMeta: boolean,
+  selector: string,
+  newCategory: string,
+  dict?: number | string,
 ): string {
   return sharedRecategorizeMethod(bind(session), className, isMeta, selector, newCategory, dict);
 }
 
 export function renameCategory(
-  session: ActiveSession, className: string, isMeta: boolean,
-  oldCategory: string, newCategory: string, dict?: number | string,
+  session: ActiveSession,
+  className: string,
+  isMeta: boolean,
+  oldCategory: string,
+  newCategory: string,
+  dict?: number | string,
 ): string {
   return sharedRenameCategory(bind(session), className, isMeta, oldCategory, newCategory, dict);
 }
 
 export function deleteClass(
-  session: ActiveSession, dict: number | string, className: string,
+  session: ActiveSession,
+  dict: number | string,
+  className: string,
 ): string {
   return sharedDeleteClass(bind(session), dict, className);
 }
 
 export function moveClass(
-  session: ActiveSession, srcDictIndex: number, destDictIndex: number, className: string,
+  session: ActiveSession,
+  srcDictIndex: number,
+  destDictIndex: number,
+  className: string,
 ): string {
   return sharedMoveClass(bind(session), srcDictIndex, destDictIndex, className);
 }
 
 export function reclassifyClass(
-  session: ActiveSession, dictIndex: number, className: string, newCategory: string,
+  session: ActiveSession,
+  dictIndex: number,
+  className: string,
+  newCategory: string,
 ): string {
   return sharedReclassifyClass(bind(session), dictIndex, className, newCategory);
 }
@@ -656,9 +756,7 @@ export function addDictionary(session: ActiveSession, dictName: string): string 
   return sharedAddDictionary(bind(session), dictName);
 }
 
-export function removeDictionary(
-  session: ActiveSession, dict: number | string,
-): string {
+export function removeDictionary(session: ActiveSession, dict: number | string): string {
   return sharedRemoveDictionary(bind(session), dict);
 }
 
@@ -672,30 +770,51 @@ export function moveDictionaryDown(session: ActiveSession, dictIndex: number): s
 
 export function setBreakAtStepPoint(
   session: ActiveSession,
-  className: string, isMeta: boolean, selector: string,
-  stepPoint: number, environmentId: number = 0, dict?: number | string,
+  className: string,
+  isMeta: boolean,
+  selector: string,
+  stepPoint: number,
+  environmentId: number = 0,
+  dict?: number | string,
 ): string {
   return sharedSetBreakAtStepPoint(
-    bind(session), className, isMeta, selector, stepPoint, environmentId, dict,
+    bind(session),
+    className,
+    isMeta,
+    selector,
+    stepPoint,
+    environmentId,
+    dict,
   );
 }
 
 export function clearBreakAtStepPoint(
   session: ActiveSession,
-  className: string, isMeta: boolean, selector: string,
-  stepPoint: number, environmentId: number = 0, dict?: number | string,
+  className: string,
+  isMeta: boolean,
+  selector: string,
+  stepPoint: number,
+  environmentId: number = 0,
+  dict?: number | string,
 ): string {
   return sharedClearBreakAtStepPoint(
-    bind(session), className, isMeta, selector, stepPoint, environmentId, dict,
+    bind(session),
+    className,
+    isMeta,
+    selector,
+    stepPoint,
+    environmentId,
+    dict,
   );
 }
 
 export function clearAllBreaks(
   session: ActiveSession,
-  className: string, isMeta: boolean, selector: string, environmentId: number = 0,
+  className: string,
+  isMeta: boolean,
+  selector: string,
+  environmentId: number = 0,
   dict?: number | string,
 ): string {
-  return sharedClearAllBreaks(
-    bind(session), className, isMeta, selector, environmentId, dict,
-  );
+  return sharedClearAllBreaks(bind(session), className, isMeta, selector, environmentId, dict);
 }

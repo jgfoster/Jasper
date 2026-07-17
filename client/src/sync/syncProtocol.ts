@@ -70,9 +70,7 @@ export const MANIFEST_BUILD_EXPR = blockExpr(`
 // length) followed by the raw file-out. Lookup is dict-scoped so shadowed names
 // resolve correctly.
 export function contentBuildExpr(refs: ClassRef[]): string {
-  const literal = refs
-    .map(r => `(${r.dictIndex} '${escapeString(r.className)}')`)
-    .join(' ');
+  const literal = refs.map((r) => `(${r.dictIndex} '${escapeString(r.className)}')`).join(' ');
   return blockExpr(`
   | ws sl classCount methodCount |
   ws := WriteStream on: String new.

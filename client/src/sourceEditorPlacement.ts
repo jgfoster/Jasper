@@ -50,7 +50,8 @@ export class SourceEditorPlacement {
   async homeColumn(): Promise<vscode.ViewColumn> {
     const owned = this.ownedColumns();
     if (owned.size > 0) return [...owned.keys()].sort((a, b) => a - b)[0];
-    if (!this.createHome) throw new Error('SourceEditorPlacement.homeColumn needs a createHome strategy');
+    if (!this.createHome)
+      throw new Error('SourceEditorPlacement.homeColumn needs a createHome strategy');
     return this.createHome();
   }
 

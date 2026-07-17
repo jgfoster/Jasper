@@ -41,15 +41,16 @@ describe('executeFetchStringWithLimit', () => {
 
   it('throws when the session is busy', () => {
     const session = makeSession({ GciTsCallInProgress: vi.fn(() => ({ result: 1 })) });
-    expect(() => executeFetchStringWithLimit(session, 'l', 'C', 1024))
-      .toThrow(/busy/i);
+    expect(() => executeFetchStringWithLimit(session, 'l', 'C', 1024)).toThrow(/busy/i);
     expect(session.gci.GciTsExecuteFetchBytes).not.toHaveBeenCalled();
   });
 
   it('throws a BrowserQueryError carrying the GCI error number', () => {
     const session = makeSession({
       GciTsExecuteFetchBytes: vi.fn(() => ({
-        bytesReturned: -1, data: '', err: { number: 2010, message: 'boom' },
+        bytesReturned: -1,
+        data: '',
+        err: { number: 2010, message: 'boom' },
       })),
     });
     try {

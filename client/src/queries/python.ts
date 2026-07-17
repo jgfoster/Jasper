@@ -33,9 +33,7 @@ export function evalPython(execute: QueryExecutor, source: string): string {
 // dictionary is parked in SessionTemps under a per-scopeId registry (notebook
 // kernels use the notebook URI as scopeId, giving each notebook its own
 // module scope within the session).
-export function evalPythonInScope(
-  execute: QueryExecutor, source: string, scopeId: string,
-): string {
+export function evalPythonInScope(execute: QueryExecutor, source: string, scopeId: string): string {
   const escScope = escapeString(scopeId);
   const expr = `| scopes scope |
        scopes := SessionTemps current at: #'__vscGrailScopes' ifAbsent: [nil].

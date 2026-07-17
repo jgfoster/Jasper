@@ -33,7 +33,9 @@ export type OsConfigNode =
  *  inspects the Linux distro, not any Windows file of the same name. */
 function wslServicesHasGs64ldi(): boolean {
   try {
-    wslExecSync('grep -qE "^[[:space:]]*gs64ldi[[:space:]]+[0-9]+/tcp([[:space:]]|$)" /etc/services');
+    wslExecSync(
+      'grep -qE "^[[:space:]]*gs64ldi[[:space:]]+[0-9]+/tcp([[:space:]]|$)" /etc/services',
+    );
     return true;
   } catch {
     return false;
@@ -59,19 +61,25 @@ export function getSharedMemory(): Promise<{ shmmax: number; shmall: number } | 
     // On Windows the sysctl lives inside WSL; the parse format matches Linux.
     const linuxLike = process.platform === 'linux' || needsWsl();
     const cmd = linuxLike
-      ? (needsWsl()
-          ? 'wsl.exe -e sysctl kernel.shmmax kernel.shmall'
-          : 'sysctl kernel.shmmax kernel.shmall')
+      ? needsWsl()
+        ? 'wsl.exe -e sysctl kernel.shmmax kernel.shmall'
+        : 'sysctl kernel.shmmax kernel.shmall'
       : 'sysctl kern.sysv.shmmax kern.sysv.shmall';
     exec(cmd, { encoding: 'utf-8' }, (error, output) => {
-      if (error) { resolve(undefined); return; }
+      if (error) {
+        resolve(undefined);
+        return;
+      }
       const maxMatch = linuxLike
         ? output.match(/kernel\.shmmax\s*=\s*(\d+)/)
         : output.match(/kern\.sysv\.shmmax:\s*(\d+)/);
       const allMatch = linuxLike
         ? output.match(/kernel\.shmall\s*=\s*(\d+)/)
         : output.match(/kern\.sysv\.shmall:\s*(\d+)/);
-      if (!maxMatch || !allMatch) { resolve(undefined); return; }
+      if (!maxMatch || !allMatch) {
+        resolve(undefined);
+        return;
+      }
       resolve({
         shmmax: parseInt(maxMatch[1], 10),
         shmall: parseInt(allMatch[1], 10),
@@ -98,26 +106,45 @@ export class OsConfigTreeProvider implements vscode.TreeDataProvider<OsConfigNod
     const wsl = needsWsl();
     const readText = wsl
       ? (p: string): string | undefined => {
-          try { return wslExecSync(`cat ${shQuote(p)} 2>/dev/null`); } catch { return undefined; }
+          try {
+            return wslExecSync(`cat ${shQuote(p)} 2>/dev/null`);
+          } catch {
+            return undefined;
+          }
         }
       : (p: string): string | undefined => {
-          try { return fs.readFileSync(p, 'utf-8'); } catch { return undefined; }
+          try {
+            return fs.readFileSync(p, 'utf-8');
+          } catch {
+            return undefined;
+          }
         };
     const listConfs = wsl
       ? (dir: string): string[] => {
           try {
             return wslExecSync(`ls -A1 ${shQuote(dir)} 2>/dev/null`)
-              .split('\n').map(s => s.trim()).filter(Boolean);
-          } catch { return []; }
+              .split('\n')
+              .map((s) => s.trim())
+              .filter(Boolean);
+          } catch {
+            return [];
+          }
         }
       : (dir: string): string[] => {
-          try { return fs.existsSync(dir) ? fs.readdirSync(dir) : []; } catch { return []; }
+          try {
+            return fs.existsSync(dir) ? fs.readdirSync(dir) : [];
+          } catch {
+            return [];
+          }
         };
 
     const dropInDir = '/etc/systemd/logind.conf.d';
     const files = [
       '/etc/systemd/logind.conf',
-      ...listConfs(dropInDir).filter(f => f.endsWith('.conf')).sort().map(f => `${dropInDir}/${f}`),
+      ...listConfs(dropInDir)
+        .filter((f) => f.endsWith('.conf'))
+        .sort()
+        .map((f) => `${dropInDir}/${f}`),
     ];
 
     let removeIpc: boolean | undefined;
@@ -134,7 +161,10 @@ export class OsConfigTreeProvider implements vscode.TreeDataProvider<OsConfigNod
 
   getTreeItem(node: OsConfigNode): vscode.TreeItem {
     if (node.kind === 'loading') {
-      const item = new vscode.TreeItem('Checking OS configuration…', vscode.TreeItemCollapsibleState.None);
+      const item = new vscode.TreeItem(
+        'Checking OS configuration…',
+        vscode.TreeItemCollapsibleState.None,
+      );
       item.iconPath = new vscode.ThemeIcon('loading~spin');
       return item;
     }
@@ -150,7 +180,9 @@ export class OsConfigTreeProvider implements vscode.TreeDataProvider<OsConfigNod
       );
       item.iconPath = new vscode.ThemeIcon(
         node.configured ? 'check' : 'warning',
-        new vscode.ThemeColor(node.configured ? 'testing.iconPassed' : 'problemsWarningIcon.foreground'),
+        new vscode.ThemeColor(
+          node.configured ? 'testing.iconPassed' : 'problemsWarningIcon.foreground',
+        ),
       );
       if (!node.configured) {
         item.tooltip = 'GemStone requires at least 1 GB shared memory.';
@@ -174,9 +206,10 @@ export class OsConfigTreeProvider implements vscode.TreeDataProvider<OsConfigNod
         new vscode.ThemeColor(ok ? 'testing.iconPassed' : 'problemsWarningIcon.foreground'),
       );
       if (!ok) {
-        item.tooltip = node.wslVersion === 1
-          ? 'GemStone requires WSL 2. Run: wsl --set-version ' + node.distro + ' 2'
-          : 'Could not determine WSL version for ' + node.distro + '.';
+        item.tooltip =
+          node.wslVersion === 1
+            ? 'GemStone requires WSL 2. Run: wsl --set-version ' + node.distro + ' 2'
+            : 'Could not determine WSL version for ' + node.distro + '.';
       }
       return item;
     }
@@ -214,14 +247,15 @@ export class OsConfigTreeProvider implements vscode.TreeDataProvider<OsConfigNod
 
     if (node.kind === 'wslServicesStatus') {
       const configured = node.windowsHas && node.wslHas;
-      const missingLabel = !node.windowsHas && !node.wslHas
-        ? 'Windows and WSL'
-        : !node.windowsHas ? 'Windows' : 'WSL';
+      const missingLabel =
+        !node.windowsHas && !node.wslHas ? 'Windows and WSL' : !node.windowsHas ? 'Windows' : 'WSL';
       const item = new vscode.TreeItem(
         configured
           ? 'Services: gs64ldi 50377/tcp (configured)'
           : `Services: gs64ldi not in ${missingLabel} /etc/services`,
-        configured ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Expanded,
+        configured
+          ? vscode.TreeItemCollapsibleState.None
+          : vscode.TreeItemCollapsibleState.Expanded,
       );
       item.iconPath = new vscode.ThemeIcon(
         configured ? 'check' : 'warning',
@@ -243,7 +277,9 @@ export class OsConfigTreeProvider implements vscode.TreeDataProvider<OsConfigNod
       );
       item.iconPath = new vscode.ThemeIcon(
         node.configured ? 'check' : 'warning',
-        new vscode.ThemeColor(node.configured ? 'testing.iconPassed' : 'problemsWarningIcon.foreground'),
+        new vscode.ThemeColor(
+          node.configured ? 'testing.iconPassed' : 'problemsWarningIcon.foreground',
+        ),
       );
       if (!node.configured) {
         item.tooltip =
@@ -274,13 +310,15 @@ export class OsConfigTreeProvider implements vscode.TreeDataProvider<OsConfigNod
       } else if (node.command === 'gemstone.updateWslCore') {
         item.tooltip = 'Open a terminal and run: wsl --update (requires elevation).';
       } else if (node.command === 'gemstone.writeWslHostsEntry') {
-        item.tooltip = 'Write "<wsl-ip> wsl-linux" to C:\\Windows\\System32\\drivers\\etc\\hosts. Re-run after WSL restart.';
+        item.tooltip =
+          'Write "<wsl-ip> wsl-linux" to C:\\Windows\\System32\\drivers\\etc\\hosts. Re-run after WSL restart.';
       } else if (node.command === 'gemstone.writeServicesWindows') {
         item.tooltip = 'Write "gs64ldi 50377/tcp" to the Windows services file.';
       } else if (node.command === 'gemstone.writeServicesWsl') {
         item.tooltip = 'Write "gs64ldi 50377/tcp" to /etc/services inside WSL.';
       } else {
-        item.tooltip = 'Open a terminal and run the setup script with sudo. Changes take effect immediately; no restart required.';
+        item.tooltip =
+          'Open a terminal and run the setup script with sudo. Changes take effect immediately; no restart required.';
       }
     } else if (node.command === 'gemstone.enableMirroredNetworking') {
       item.iconPath = new vscode.ThemeIcon('edit');
@@ -306,28 +344,29 @@ export class OsConfigTreeProvider implements vscode.TreeDataProvider<OsConfigNod
     }
 
     if (node.kind === 'wslStatus' && node.wslVersion !== 2) {
-      return [
-        { kind: 'action', text: 'Upgrade to WSL 2', command: 'gemstone.upgradeWsl2' },
-      ];
+      return [{ kind: 'action', text: 'Upgrade to WSL 2', command: 'gemstone.upgradeWsl2' }];
     }
 
     if (node.kind === 'wslNetworkingStatus' && !node.info.mirrored) {
       const actions: OsConfigNode[] = [];
       if (node.info.supportsMirrored) {
         actions.push({
-          kind: 'action', text: 'Enable mirrored networking',
+          kind: 'action',
+          text: 'Enable mirrored networking',
           command: 'gemstone.enableMirroredNetworking',
         });
       } else {
         actions.push({
-          kind: 'action', text: 'Update WSL (wsl --update)',
+          kind: 'action',
+          text: 'Update WSL (wsl --update)',
           command: 'gemstone.updateWslCore',
         });
       }
       // Hosts-file workaround is useful for anyone stuck on NAT — gives
       // them a stable name (`wsl-linux`) even across WSL restarts.
       actions.push({
-        kind: 'action', text: 'Write hosts file entry (wsl-linux, requires admin)',
+        kind: 'action',
+        text: 'Write hosts file entry (wsl-linux, requires admin)',
         command: 'gemstone.writeWslHostsEntry',
       });
       return actions;
@@ -337,13 +376,15 @@ export class OsConfigTreeProvider implements vscode.TreeDataProvider<OsConfigNod
       const actions: OsConfigNode[] = [];
       if (!node.windowsHas) {
         actions.push({
-          kind: 'action', text: 'Write Windows services entry (requires admin)',
+          kind: 'action',
+          text: 'Write Windows services entry (requires admin)',
           command: 'gemstone.writeServicesWindows',
         });
       }
       if (!node.wslHas) {
         actions.push({
-          kind: 'action', text: 'Write WSL /etc/services entry (requires sudo)',
+          kind: 'action',
+          text: 'Write WSL /etc/services entry (requires sudo)',
           command: 'gemstone.writeServicesWsl',
         });
       }
@@ -352,18 +393,25 @@ export class OsConfigTreeProvider implements vscode.TreeDataProvider<OsConfigNod
 
     if (node.kind === 'sharedMemoryStatus' && !node.configured) {
       // Windows+WSL uses the Linux script (executed inside WSL).
-      const command = (process.platform === 'linux' || needsWsl())
-        ? 'gemstone.runSetSharedMemoryLinux'
-        : 'gemstone.runSetSharedMemory';
-      return [
-        { kind: 'action', text: 'Run setup script (requires sudo)', command },
-      ];
+      const command =
+        process.platform === 'linux' || needsWsl()
+          ? 'gemstone.runSetSharedMemoryLinux'
+          : 'gemstone.runSetSharedMemory';
+      return [{ kind: 'action', text: 'Run setup script (requires sudo)', command }];
     }
 
     if (node.kind === 'removeIpcStatus' && !node.configured) {
       return [
-        { kind: 'action', text: 'Run setup script (requires sudo)', command: 'gemstone.runSetRemoveIPC' },
-        { kind: 'action', text: 'Restart computer or restart systemd-logind', command: 'gemstone.removeIpcInfo' },
+        {
+          kind: 'action',
+          text: 'Run setup script (requires sudo)',
+          command: 'gemstone.runSetRemoveIPC',
+        },
+        {
+          kind: 'action',
+          text: 'Restart computer or restart systemd-logind',
+          command: 'gemstone.removeIpcInfo',
+        },
       ];
     }
 
@@ -475,7 +523,11 @@ export class OsConfigTreeProvider implements vscode.TreeDataProvider<OsConfigNod
         terminal.show();
         terminal.sendText(`wsl --set-version ${distro} 2 && exit`);
         const disposable = vscode.window.onDidCloseTerminal((closed) => {
-          if (closed === terminal) { disposable.dispose(); invalidateWslCache(); this.refresh(); }
+          if (closed === terminal) {
+            disposable.dispose();
+            invalidateWslCache();
+            this.refresh();
+          }
         });
       }),
       vscode.commands.registerCommand('gemstone.runSetSharedMemory', () => {
@@ -484,21 +536,30 @@ export class OsConfigTreeProvider implements vscode.TreeDataProvider<OsConfigNod
         terminal.show();
         terminal.sendText(`sudo "${scriptPath}" && exit`);
         const disposable = vscode.window.onDidCloseTerminal((closed) => {
-          if (closed === terminal) { disposable.dispose(); this.refresh(); }
+          if (closed === terminal) {
+            disposable.dispose();
+            this.refresh();
+          }
         });
       }),
       vscode.commands.registerCommand('gemstone.runSetSharedMemoryLinux', () => {
         const scriptPath = path.join(this.extensionPath, 'resources', 'setSharedMemoryLinux.sh');
         const terminal = this.createSetupTerminal('GemStone: Shared Memory Setup', scriptPath);
         const disposable = vscode.window.onDidCloseTerminal((closed) => {
-          if (closed === terminal) { disposable.dispose(); this.refresh(); }
+          if (closed === terminal) {
+            disposable.dispose();
+            this.refresh();
+          }
         });
       }),
       vscode.commands.registerCommand('gemstone.runSetRemoveIPC', () => {
         const scriptPath = path.join(this.extensionPath, 'resources', 'setRemoveIPC.sh');
         const terminal = this.createSetupTerminal('GemStone: RemoveIPC Setup', scriptPath);
         const disposable = vscode.window.onDidCloseTerminal((closed) => {
-          if (closed === terminal) { disposable.dispose(); this.refresh(); }
+          if (closed === terminal) {
+            disposable.dispose();
+            this.refresh();
+          }
         });
       }),
       vscode.commands.registerCommand('gemstone.sharedMemoryInfo', () => {
@@ -511,7 +572,9 @@ export class OsConfigTreeProvider implements vscode.TreeDataProvider<OsConfigNod
           'To apply: restart your computer, or run: sudo systemctl restart systemd-logind',
         );
       }),
-      vscode.commands.registerCommand('gemstone.enableMirroredNetworking', () => this.enableMirroredNetworking()),
+      vscode.commands.registerCommand('gemstone.enableMirroredNetworking', () =>
+        this.enableMirroredNetworking(),
+      ),
       vscode.commands.registerCommand('gemstone.writeWslHostsEntry', () => {
         const scriptPath = path.join(this.extensionPath, 'resources', 'setWslHostsEntry.ps1');
         this.runPowerShellSetup('GemStone: Windows Hosts Setup', scriptPath);
@@ -524,7 +587,10 @@ export class OsConfigTreeProvider implements vscode.TreeDataProvider<OsConfigNod
         const scriptPath = path.join(this.extensionPath, 'resources', 'setServicesLinux.sh');
         const terminal = this.createSetupTerminal('GemStone: WSL Services Setup', scriptPath);
         const disposable = vscode.window.onDidCloseTerminal((closed) => {
-          if (closed === terminal) { disposable.dispose(); this.refresh(); }
+          if (closed === terminal) {
+            disposable.dispose();
+            this.refresh();
+          }
         });
       }),
       vscode.commands.registerCommand('gemstone.updateWslCore', () => {
@@ -554,11 +620,15 @@ export class OsConfigTreeProvider implements vscode.TreeDataProvider<OsConfigNod
   private async enableMirroredNetworking(): Promise<void> {
     const configPath = path.join(os.homedir(), '.wslconfig');
     let current = '';
-    try { current = fs.readFileSync(configPath, 'utf-8'); } catch { /* file may not exist */ }
+    try {
+      current = fs.readFileSync(configPath, 'utf-8');
+    } catch {
+      /* file may not exist */
+    }
     const updated = updateWslConfigMirrored(current);
     if (updated === current) {
       vscode.window.showInformationMessage(
-        '.wslconfig already sets networkingMode=mirrored. If localhost still doesn\'t reach WSL, run: wsl --shutdown',
+        ".wslconfig already sets networkingMode=mirrored. If localhost still doesn't reach WSL, run: wsl --shutdown",
       );
     } else {
       try {

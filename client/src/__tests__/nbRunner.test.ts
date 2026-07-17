@@ -19,7 +19,7 @@ function makeSession(pollResults: { result: number; err?: unknown }[]): ActiveSe
     GciTsNbPoll: vi.fn(() => {
       const r = pollResults[Math.min(i, pollResults.length - 1)];
       i++;
-      return { result: r.result, err: (r.err ?? noErr) };
+      return { result: r.result, err: r.err ?? noErr };
     }),
     GciTsBreak: vi.fn(() => ({ result: 0, err: noErr })),
     GciTsSocket: vi.fn(() => ({ fd: 3, err: noErr })),
@@ -32,7 +32,11 @@ describe('runNbCall', () => {
     const session = makeSession([{ result: 1 }]);
     const onReady = vi.fn();
     await expect(
-      runNbCall(session, () => ({ success: false, err: { number: 5, message: 'boom' } as never }), onReady),
+      runNbCall(
+        session,
+        () => ({ success: false, err: { number: 5, message: 'boom' } as never }),
+        onReady,
+      ),
     ).rejects.toThrow('boom');
     expect(onReady).not.toHaveBeenCalled();
   });
@@ -50,7 +54,11 @@ describe('runNbCall', () => {
   it('rejects when polling reports an error (-1)', async () => {
     const session = makeSession([{ result: -1, err: { number: 7, message: 'pollbad' } }]);
     await expect(
-      runNbCall(session, () => ({ success: true, err: noErr as never }), () => 'unused'),
+      runNbCall(
+        session,
+        () => ({ success: true, err: noErr as never }),
+        () => 'unused',
+      ),
     ).rejects.toThrow('pollbad');
   });
 
@@ -68,7 +76,13 @@ describe('runNbCall', () => {
   it('propagates an error thrown by onReady (e.g. a fetch failure)', async () => {
     const session = makeSession([{ result: 1 }]);
     await expect(
-      runNbCall(session, () => ({ success: true, err: noErr as never }), () => { throw new Error('fetch failed'); }),
+      runNbCall(
+        session,
+        () => ({ success: true, err: noErr as never }),
+        () => {
+          throw new Error('fetch failed');
+        },
+      ),
     ).rejects.toThrow('fetch failed');
   });
 });
@@ -102,11 +116,20 @@ describe('runNbCall — cancellation', () => {
       const reportSpy = vi.fn();
       let cancelHandler: (() => void) | undefined;
       vi.mocked(vscode.window.withProgress).mockImplementation((_opts: unknown, task: unknown) => {
-        const token = { onCancellationRequested: (cb: () => void) => { cancelHandler = cb; return { dispose() {} }; } };
+        const token = {
+          onCancellationRequested: (cb: () => void) => {
+            cancelHandler = cb;
+            return { dispose() {} };
+          },
+        };
         return (task as (p: unknown, t: unknown) => Promise<unknown>)({ report: reportSpy }, token);
       });
 
-      const p = runNbCall(session, () => ({ success: true, err: noErr as never }), () => 'unused');
+      const p = runNbCall(
+        session,
+        () => ({ success: true, err: noErr as never }),
+        () => 'unused',
+      );
       // Advance past PROGRESS_THRESHOLD_MS (2000) so the progress block runs and
       // registers the cancellation handler.
       await vi.advanceTimersByTimeAsync(3000);
@@ -114,7 +137,9 @@ describe('runNbCall — cancellation', () => {
 
       cancelHandler!(); // first cancel → soft break + acknowledgement
       expect(session.gci.GciTsBreak).toHaveBeenCalledWith(session.handle, false);
-      expect(reportSpy).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringMatching(/break/i) }));
+      expect(reportSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringMatching(/break/i) }),
+      );
 
       cancelHandler!(); // second cancel → hard break + reject
       expect(session.gci.GciTsBreak).toHaveBeenCalledWith(session.handle, true);
@@ -138,7 +163,11 @@ describe('runNbCall — cancellation', () => {
         session,
         () => ({ success: true, err: noErr as never }),
         () => 'unused',
-        { onStart: (c) => { cancel = c; } },
+        {
+          onStart: (c) => {
+            cancel = c;
+          },
+        },
       );
 
       expect(cancel).toBeTypeOf('function');
@@ -164,7 +193,9 @@ describe('runNbCall — notification suppression', () => {
     try {
       const session = makeSession([{ result: 0 }]); // pending forever
       const p = runNbCall(
-        session, () => ({ success: true, err: noErr as never }), () => 'x',
+        session,
+        () => ({ success: true, err: noErr as never }),
+        () => 'x',
         { suppressNotification: true },
       );
       p.catch(() => {}); // we abandon the call; swallow the (never-fired) rejection
@@ -185,7 +216,9 @@ describe('runNbCall — notification suppression', () => {
     try {
       const session = makeSession([{ result: 0 }]);
       const p = runNbCall(
-        session, () => ({ success: true, err: noErr as never }), () => 'x',
+        session,
+        () => ({ success: true, err: noErr as never }),
+        () => 'x',
         { title: 'GemStone: working…' },
       );
       p.catch(() => {});

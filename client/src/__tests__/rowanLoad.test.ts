@@ -30,7 +30,7 @@ function write(rel: string, content: string): void {
 describe('findRowanLoadSpecs', () => {
   it('finds a load spec by its content signature, in any layout', () => {
     write('rowan/specs/LoadMe.ston', LOAD_SPEC('LoadMe'));
-    write('rowan/project.ston', 'RwProjectSpecificationV2 { #specName : \'project\' }');
+    write('rowan/project.ston', "RwProjectSpecificationV2 { #specName : 'project' }");
 
     const specs = findRowanLoadSpecs(root);
 
@@ -41,11 +41,11 @@ describe('findRowanLoadSpecs', () => {
 
   it('ignores .ston files that are not load specs', () => {
     write('specsV2/Real.ston', LOAD_SPEC('Real'));
-    write('componentsV2/Core.ston', 'RwSimpleProjectLoadComponentV2 { #name : \'Core\' }');
+    write('componentsV2/Core.ston', "RwSimpleProjectLoadComponentV2 { #name : 'Core' }");
 
     const specs = findRowanLoadSpecs(root);
 
-    expect(specs.map(s => s.name)).toEqual(['Real']);
+    expect(specs.map((s) => s.name)).toEqual(['Real']);
   });
 
   it('returns all load specs sorted, for the caller to disambiguate', () => {
@@ -54,7 +54,7 @@ describe('findRowanLoadSpecs', () => {
 
     const specs = findRowanLoadSpecs(root);
 
-    expect(specs.map(s => s.name)).toEqual(['Alpha', 'Zeta']);
+    expect(specs.map((s) => s.name)).toEqual(['Alpha', 'Zeta']);
   });
 
   it('returns nothing for a directory with no load specs', () => {
@@ -69,8 +69,12 @@ describe('normalizeGitUrl', () => {
     expect(normalizeGitUrl('https://github.com/o/repo')).toBe('https://github.com/o/repo.git');
     expect(normalizeGitUrl('https://github.com/o/repo.git')).toBe('https://github.com/o/repo.git');
     expect(normalizeGitUrl('https://github.com/o/repo/')).toBe('https://github.com/o/repo.git');
-    expect(normalizeGitUrl('https://github.com/o/repo/tree/main')).toBe('https://github.com/o/repo.git');
-    expect(normalizeGitUrl('https://github.com/o/repo?tab=readme')).toBe('https://github.com/o/repo.git');
+    expect(normalizeGitUrl('https://github.com/o/repo/tree/main')).toBe(
+      'https://github.com/o/repo.git',
+    );
+    expect(normalizeGitUrl('https://github.com/o/repo?tab=readme')).toBe(
+      'https://github.com/o/repo.git',
+    );
     expect(normalizeGitUrl('  https://github.com/o/repo  ')).toBe('https://github.com/o/repo.git');
   });
 
@@ -106,7 +110,7 @@ describe('deriveRepoName', () => {
 
     const specs = findRowanLoadSpecs(root);
 
-    expect(specs.map(s => s.minTempObjCacheKB)).toEqual([500000, 500000]);
+    expect(specs.map((s) => s.minTempObjCacheKB)).toEqual([500000, 500000]);
   });
 
   it('reads the minimum even when gemstone.ston is walked after the spec', () => {

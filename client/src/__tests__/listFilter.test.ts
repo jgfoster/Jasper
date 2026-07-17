@@ -15,7 +15,7 @@ beforeAll(() => {
 // ── Types ─────────────────────────────────────────────────────
 
 type ListFilterClass = {
-  new(): ListFilterInstance;
+  new (): ListFilterInstance;
   clearAllFilters(): void;
   refreshFilterOf(listElement: HTMLElement): void;
 };
@@ -119,7 +119,7 @@ describe('ListFilter', () => {
       filter.applyFilter();
 
       const items = document.querySelectorAll('#items .item');
-      items.forEach(item => {
+      items.forEach((item) => {
         expect(item.querySelector('.match-highlight')).toBeNull();
         expect(item.textContent).toBe((item as HTMLElement).dataset.value);
       });
@@ -227,7 +227,7 @@ describe('ListFilter', () => {
       filter.applyFilter();
 
       const items = document.querySelectorAll('#items .item');
-      const bag = Array.from(items).find(el => (el as HTMLElement).dataset.value === 'Bag')!;
+      const bag = Array.from(items).find((el) => (el as HTMLElement).dataset.value === 'Bag')!;
       expect(bag.textContent).toBe('Bag');
       expect(bag.querySelector('.match-highlight')).toBeNull();
     });
@@ -256,7 +256,7 @@ describe('ListFilter', () => {
       filter.applyFilter();
 
       const items = [...document.querySelectorAll('#items .item')] as HTMLElement[];
-      const shown = items.filter(el => !isHidden(el)).map(el => el.dataset.value);
+      const shown = items.filter((el) => !isHidden(el)).map((el) => el.dataset.value);
       expect(shown).toEqual(['Array']);
     });
 
@@ -268,7 +268,7 @@ describe('ListFilter', () => {
       filter.applyFilter();
 
       const items = [...document.querySelectorAll('#items .item')] as HTMLElement[];
-      const shown = items.filter(el => !isHidden(el)).map(el => el.dataset.value);
+      const shown = items.filter((el) => !isHidden(el)).map((el) => el.dataset.value);
       expect(shown).toEqual(['Bag', 'Barcode']);
     });
 
@@ -281,7 +281,7 @@ describe('ListFilter', () => {
       filter.clearFilter();
 
       const items = [...document.querySelectorAll('#items .item')];
-      expect(items.every(el => !isHidden(el))).toBe(true);
+      expect(items.every((el) => !isHidden(el))).toBe(true);
     });
 
     it('re-reveals an item when a later query matches it after an earlier one hid it', () => {
@@ -291,7 +291,8 @@ describe('ListFilter', () => {
       filter.searchBox.value = 'arr';
       filter.applyFilter();
       const bag = [...document.querySelectorAll('#items .item')].find(
-        el => (el as HTMLElement).dataset.value === 'Bag')!;
+        (el) => (el as HTMLElement).dataset.value === 'Bag',
+      )!;
       expect(isHidden(bag)).toBe(true);
 
       filter.searchBox.value = 'ba';
@@ -458,7 +459,10 @@ describe('ListFilter', () => {
       getListFilterClass().refreshFilterOf(list);
 
       expect(filter.matchedItems).toHaveLength(2);
-      expect(filter.matchedItems.map(el => (el as HTMLElement).dataset.value)).toEqual(['Array', 'Barrage']);
+      expect(filter.matchedItems.map((el) => (el as HTMLElement).dataset.value)).toEqual([
+        'Array',
+        'Barrage',
+      ]);
     });
 
     it('picks up a changed query when called after searchBox value changes', () => {
@@ -485,12 +489,15 @@ describe('ListFilter', () => {
       list.innerHTML = '';
       makeList('items-tmp', ['Array', 'Bag', 'Barrage'])
         .querySelectorAll('.item')
-        .forEach(el => list.appendChild(el));
+        .forEach((el) => list.appendChild(el));
 
       getListFilterClass().refreshFilterOf(list);
 
       expect(filter.matchedItems).toHaveLength(2);
-      expect(filter.matchedItems.map(el => (el as HTMLElement).dataset.value)).toEqual(['Array', 'Barrage']);
+      expect(filter.matchedItems.map((el) => (el as HTMLElement).dataset.value)).toEqual([
+        'Array',
+        'Barrage',
+      ]);
     });
 
     it('does nothing when no filter is associated with the list element', () => {
@@ -516,7 +523,9 @@ describe('ListFilter', () => {
       makeFilter('items');
       makeFilter('items');
 
-      expect(() => getListFilterClass().refreshFilterOf(list)).toThrow('Found 2 list-filter elements for #items — only one filter per list is supported.');
+      expect(() => getListFilterClass().refreshFilterOf(list)).toThrow(
+        'Found 2 list-filter elements for #items — only one filter per list is supported.',
+      );
     });
 
     it('finds the filter when the list id contains a double quote', () => {
@@ -608,7 +617,8 @@ describe('ListFilter', () => {
   // must preserve those arrows rather than wipe them.
   describe('override-arrow preservation', () => {
     function makeListWithArrows(
-      id: string, specs: Array<{ selector: string; dirs: Array<'up' | 'down'> }>,
+      id: string,
+      specs: Array<{ selector: string; dirs: Array<'up' | 'down'> }>,
     ): HTMLDivElement {
       const list = document.createElement('div');
       list.id = id;
@@ -665,7 +675,7 @@ describe('ListFilter', () => {
       filter.applyFilter();
 
       const arrows = document.querySelectorAll('#items .item .override-arrow');
-      expect([...arrows].map(a => a.textContent)).toEqual(['▲', '▼']);
+      expect([...arrows].map((a) => a.textContent)).toEqual(['▲', '▼']);
       expect((document.querySelector('#items .item') as HTMLElement).textContent).toBe('▲▼new');
     });
   });
@@ -674,7 +684,8 @@ describe('ListFilter', () => {
   // child, the same way override arrows do. ListFilter must preserve it too.
   describe('session-glyph preservation', () => {
     function makeListWithSession(
-      id: string, specs: Array<{ selector: string; glyph: string; arrow?: boolean }>,
+      id: string,
+      specs: Array<{ selector: string; glyph: string; arrow?: boolean }>,
     ): HTMLDivElement {
       const list = document.createElement('div');
       list.id = id;
@@ -731,7 +742,7 @@ describe('ListFilter', () => {
       filter.applyFilter();
 
       const item = document.querySelector('#items .item') as HTMLElement;
-      const leading = [...item.children].map(c => c.className);
+      const leading = [...item.children].map((c) => c.className);
       expect(leading).toEqual(['override-arrow up', 'session-indicator']);
       expect(item.textContent).toBe('▲+printOn:');
     });

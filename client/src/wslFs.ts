@@ -37,7 +37,11 @@ export function wslExistsSync(p: string): boolean {
 
 export function wslIsDirectory(p: string): boolean {
   if (!shouldRoute(p)) {
-    try { return fs.statSync(p).isDirectory(); } catch { return false; }
+    try {
+      return fs.statSync(p).isDirectory();
+    } catch {
+      return false;
+    }
   }
   try {
     wslExecSync(`test -d ${shellQuote(windowsPathToWsl(p))}`);
@@ -49,7 +53,11 @@ export function wslIsDirectory(p: string): boolean {
 
 export function wslIsFile(p: string): boolean {
   if (!shouldRoute(p)) {
-    try { return fs.statSync(p).isFile(); } catch { return false; }
+    try {
+      return fs.statSync(p).isFile();
+    } catch {
+      return false;
+    }
   }
   try {
     wslExecSync(`test -f ${shellQuote(windowsPathToWsl(p))}`);
@@ -61,7 +69,11 @@ export function wslIsFile(p: string): boolean {
 
 export function wslIsSymlink(p: string): boolean {
   if (!shouldRoute(p)) {
-    try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; }
+    try {
+      return fs.lstatSync(p).isSymbolicLink();
+    } catch {
+      return false;
+    }
   }
   try {
     wslExecSync(`test -L ${shellQuote(windowsPathToWsl(p))}`);
@@ -73,7 +85,11 @@ export function wslIsSymlink(p: string): boolean {
 
 export function wslFileSize(p: string): number {
   if (!shouldRoute(p)) {
-    try { return fs.statSync(p).size; } catch { return -1; }
+    try {
+      return fs.statSync(p).size;
+    } catch {
+      return -1;
+    }
   }
   try {
     const out = wslExecSync(`stat -c %s ${shellQuote(windowsPathToWsl(p))}`).trim();
@@ -86,12 +102,19 @@ export function wslFileSize(p: string): number {
 
 export function wslReaddirSync(p: string): string[] {
   if (!shouldRoute(p)) {
-    try { return fs.readdirSync(p); } catch { return []; }
+    try {
+      return fs.readdirSync(p);
+    } catch {
+      return [];
+    }
   }
   try {
     // -A includes dotfiles except . and ..; -1 one-per-line; -- ends options
     const out = wslExecSync(`ls -A1 -- ${shellQuote(windowsPathToWsl(p))}`);
-    return out.split('\n').map(s => s.trim()).filter(Boolean);
+    return out
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
   } catch {
     return [];
   }
@@ -99,7 +122,11 @@ export function wslReaddirSync(p: string): string[] {
 
 export function wslReadFileSync(p: string): string | undefined {
   if (!shouldRoute(p)) {
-    try { return fs.readFileSync(p, 'utf-8'); } catch { return undefined; }
+    try {
+      return fs.readFileSync(p, 'utf-8');
+    } catch {
+      return undefined;
+    }
   }
   try {
     return wslExecSync(`cat ${shellQuote(windowsPathToWsl(p))}`);
@@ -127,11 +154,11 @@ export function wslWriteFileSync(p: string, content: string): void {
     return;
   }
   const wslPath = windowsPathToWsl(p);
-  const result = spawnSync(
-    'wsl.exe',
-    ['-e', 'sh', '-c', `cat > ${shellQuote(wslPath)}`],
-    { input: content, encoding: 'utf-8', env: process.env },
-  );
+  const result = spawnSync('wsl.exe', ['-e', 'sh', '-c', `cat > ${shellQuote(wslPath)}`], {
+    input: content,
+    encoding: 'utf-8',
+    env: process.env,
+  });
   if (result.error) throw result.error;
   if (result.status !== 0) {
     throw new Error(
@@ -157,9 +184,7 @@ export function wslCopyFileSync(src: string, dst: string): void {
       `wslCopyFileSync: cannot copy between Windows and WSL filesystems (src=${src}, dst=${dst})`,
     );
   }
-  wslExecSync(
-    `cp -p ${shellQuote(windowsPathToWsl(src))} ${shellQuote(windowsPathToWsl(dst))}`,
-  );
+  wslExecSync(`cp -p ${shellQuote(windowsPathToWsl(src))} ${shellQuote(windowsPathToWsl(dst))}`);
 }
 
 /**
@@ -191,10 +216,7 @@ export function wslRmSync(p: string, options?: { recursive?: boolean; force?: bo
     fs.rmSync(p, options);
     return;
   }
-  const flags = [
-    options?.recursive ? 'r' : '',
-    options?.force ? 'f' : '',
-  ].join('');
+  const flags = [options?.recursive ? 'r' : '', options?.force ? 'f' : ''].join('');
   const arg = flags ? `-${flags}` : '';
   wslExecSync(`rm ${arg} ${shellQuote(windowsPathToWsl(p))}`.trim());
 }
@@ -223,9 +245,7 @@ export function wslSymlinkSync(target: string, linkPath: string): void {
     fs.symlinkSync(target, linkPath);
     return;
   }
-  wslExecSync(
-    `ln -s ${shellQuote(toWslPath(target))} ${shellQuote(windowsPathToWsl(linkPath))}`,
-  );
+  wslExecSync(`ln -s ${shellQuote(toWslPath(target))} ${shellQuote(windowsPathToWsl(linkPath))}`);
 }
 
 export function wslChmodSync(p: string, mode: number | string): void {

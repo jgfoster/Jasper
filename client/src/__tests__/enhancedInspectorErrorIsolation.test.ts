@@ -34,7 +34,9 @@ describe('enhancedInspectorExecute error isolation', () => {
 
   it('returns null when execute throws a JavaScript error', () => {
     expect.assertions(1);
-    const execute = vi.fn(() => { throw new Error('GCI connection lost'); });
+    const execute = vi.fn(() => {
+      throw new Error('GCI connection lost');
+    });
     expect(fetchObjectMeta(execute, 1000n)).toBeNull();
   });
 });

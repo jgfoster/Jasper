@@ -1,5 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fetchEnhancedInspectorListTotal, fetchEnhancedInspectorListData, fetchEnhancedInspectorTextData, fetchEnhancedInspectorPrintTabData, fetchEnhancedInspectorForwardListData, fetchEnhancedInspectorForwardListTotal, fetchEnhancedInspectorTreeChildren } from '../queries/getEnhancedInspectorViewSpecs';
+import {
+  fetchEnhancedInspectorListTotal,
+  fetchEnhancedInspectorListData,
+  fetchEnhancedInspectorTextData,
+  fetchEnhancedInspectorPrintTabData,
+  fetchEnhancedInspectorForwardListData,
+  fetchEnhancedInspectorForwardListTotal,
+  fetchEnhancedInspectorTreeChildren,
+} from '../queries/getEnhancedInspectorViewSpecs';
 
 describe('fetchEnhancedInspectorListTotal', () => {
   it('returns count as a number on happy path', () => {
@@ -70,7 +78,9 @@ describe('fetchEnhancedInspectorListData', () => {
 
   it('returns null when execute throws', () => {
     expect.assertions(1);
-    const execute = vi.fn(() => { throw new Error('connection lost'); });
+    const execute = vi.fn(() => {
+      throw new Error('connection lost');
+    });
     expect(fetchEnhancedInspectorListData(execute, 1000n, 'gtItemsFor:', 1, 100)).toBeNull();
   });
 
@@ -130,7 +140,9 @@ describe('fetchEnhancedInspectorListData', () => {
   it('passes through very large count — no upper bound validation', () => {
     expect.assertions(1);
     const execute = vi.fn(() => '[]');
-    expect(fetchEnhancedInspectorListData(execute, 1000n, 'gtItemsFor:', 1, Number.MAX_SAFE_INTEGER)).not.toBeNull();
+    expect(
+      fetchEnhancedInspectorListData(execute, 1000n, 'gtItemsFor:', 1, Number.MAX_SAFE_INTEGER),
+    ).not.toBeNull();
   });
 });
 
@@ -150,7 +162,9 @@ describe('fetchEnhancedInspectorTextData', () => {
 
   it('returns null when execute throws', () => {
     expect.assertions(1);
-    const execute = vi.fn(() => { throw new Error('connection lost'); });
+    const execute = vi.fn(() => {
+      throw new Error('connection lost');
+    });
     expect(fetchEnhancedInspectorTextData(execute, 1000n, 'gtTextFor:')).toBeNull();
   });
 
@@ -208,7 +222,9 @@ describe('fetchEnhancedInspectorPrintTabData', () => {
 
   it('returns null data and truncated:false when execute throws', () => {
     expect.assertions(2);
-    const execute = vi.fn(() => { throw new Error('connection lost'); });
+    const execute = vi.fn(() => {
+      throw new Error('connection lost');
+    });
     const result = fetchEnhancedInspectorPrintTabData(execute, 1000n, 'gtPrintTabFor:');
     expect(result.data).toBeNull();
     expect(result.truncated).toBe(false);
@@ -237,43 +253,59 @@ describe('fetchEnhancedInspectorForwardListData', () => {
     expect.assertions(1);
     const json = '[{"col1":"foo"},{"col1":"bar"}]';
     const execute = vi.fn(() => json);
-    expect(fetchEnhancedInspectorForwardListData(execute, 1000n, 'gtForwardFor:', 1, 100)).toBe(json);
+    expect(fetchEnhancedInspectorForwardListData(execute, 1000n, 'gtForwardFor:', 1, 100)).toBe(
+      json,
+    );
   });
 
   it('returns null when execute returns a EIError string', () => {
     expect.assertions(1);
     const execute = vi.fn(() => 'EIError:does not understand #gtForwardFor:');
-    expect(fetchEnhancedInspectorForwardListData(execute, 1000n, 'gtForwardFor:', 1, 100)).toBeNull();
+    expect(
+      fetchEnhancedInspectorForwardListData(execute, 1000n, 'gtForwardFor:', 1, 100),
+    ).toBeNull();
   });
 
   it('returns null when execute throws', () => {
     expect.assertions(1);
-    const execute = vi.fn(() => { throw new Error('connection lost'); });
-    expect(fetchEnhancedInspectorForwardListData(execute, 1000n, 'gtForwardFor:', 1, 100)).toBeNull();
+    const execute = vi.fn(() => {
+      throw new Error('connection lost');
+    });
+    expect(
+      fetchEnhancedInspectorForwardListData(execute, 1000n, 'gtForwardFor:', 1, 100),
+    ).toBeNull();
   });
 
   it('returns null when forwardSelector is invalid', () => {
     expect.assertions(1);
     const execute = vi.fn(() => '[]');
-    expect(fetchEnhancedInspectorForwardListData(execute, 1000n, 'bad selector!', 1, 100)).toBeNull();
+    expect(
+      fetchEnhancedInspectorForwardListData(execute, 1000n, 'bad selector!', 1, 100),
+    ).toBeNull();
   });
 
   it('returns null when fromIndex is 0', () => {
     expect.assertions(1);
     const execute = vi.fn(() => '[]');
-    expect(fetchEnhancedInspectorForwardListData(execute, 1000n, 'gtForwardFor:', 0, 100)).toBeNull();
+    expect(
+      fetchEnhancedInspectorForwardListData(execute, 1000n, 'gtForwardFor:', 0, 100),
+    ).toBeNull();
   });
 
   it('returns null when fromIndex is negative', () => {
     expect.assertions(1);
     const execute = vi.fn(() => '[]');
-    expect(fetchEnhancedInspectorForwardListData(execute, 1000n, 'gtForwardFor:', -1, 100)).toBeNull();
+    expect(
+      fetchEnhancedInspectorForwardListData(execute, 1000n, 'gtForwardFor:', -1, 100),
+    ).toBeNull();
   });
 
   it('returns null when fromIndex is a float', () => {
     expect.assertions(1);
     const execute = vi.fn(() => '[]');
-    expect(fetchEnhancedInspectorForwardListData(execute, 1000n, 'gtForwardFor:', 1.5, 100)).toBeNull();
+    expect(
+      fetchEnhancedInspectorForwardListData(execute, 1000n, 'gtForwardFor:', 1.5, 100),
+    ).toBeNull();
   });
 
   it('returns null when count is 0', () => {
@@ -285,13 +317,17 @@ describe('fetchEnhancedInspectorForwardListData', () => {
   it('returns null when count is negative', () => {
     expect.assertions(1);
     const execute = vi.fn(() => '[]');
-    expect(fetchEnhancedInspectorForwardListData(execute, 1000n, 'gtForwardFor:', 1, -1)).toBeNull();
+    expect(
+      fetchEnhancedInspectorForwardListData(execute, 1000n, 'gtForwardFor:', 1, -1),
+    ).toBeNull();
   });
 
   it('returns null when count is a float', () => {
     expect.assertions(1);
     const execute = vi.fn(() => '[]');
-    expect(fetchEnhancedInspectorForwardListData(execute, 1000n, 'gtForwardFor:', 1, 1.5)).toBeNull();
+    expect(
+      fetchEnhancedInspectorForwardListData(execute, 1000n, 'gtForwardFor:', 1, 1.5),
+    ).toBeNull();
   });
 
   it('embeds oop, forwardSelector, fromIndex, and count in emitted Smalltalk', () => {
@@ -375,7 +411,9 @@ describe('fetchEnhancedInspectorTreeChildren', () => {
 
   it('returns null when execute throws', () => {
     expect.assertions(1);
-    const execute = vi.fn(() => { throw new Error('connection lost'); });
+    const execute = vi.fn(() => {
+      throw new Error('connection lost');
+    });
     expect(fetchEnhancedInspectorTreeChildren(execute, 1000n, 'gtTreeFor:', [1])).toBeNull();
   });
 
