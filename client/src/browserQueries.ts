@@ -50,6 +50,11 @@ import {
 import { diffRowanProject as sharedDiffRowanProject } from './queries/rowan/diffRowanProject';
 import { unloadRowanProject as sharedUnloadRowanProject } from './queries/rowan/unloadRowanProject';
 import {
+  canForkGem as sharedCanForkGem,
+  forkGemRunning as sharedForkGemRunning,
+} from './queries/forkGem';
+import { gemNrsFor } from './loginTypes';
+import {
   searchMethodSource as sharedSearchMethodSource,
   sendersOf as sharedSendersOf,
   implementorsOf as sharedImplementorsOf,
@@ -351,6 +356,24 @@ export function diffRowanProject(session: ActiveSession, projectName: string) {
 
 export function unloadRowanProject(session: ActiveSession, projectName: string) {
   return sharedUnloadRowanProject(defaultQueryExecutorUsing(session), projectName);
+}
+
+/**
+ * Run `expression` in a gem of its own, as this session's user, and answer the
+ * new gem's stone session id. The NetLDI comes from the session's own login —
+ * GemStone's default name is wrong for most stones.
+ */
+/** Whether this stone's version can fork a gem at all (3.6.2 cannot). */
+export function canForkGem(session: ActiveSession) {
+  return sharedCanForkGem(defaultQueryExecutorUsing(session));
+}
+
+export function forkGemRunning(session: ActiveSession, expression: string) {
+  return sharedForkGemRunning(
+    defaultQueryExecutorUsing(session),
+    expression,
+    gemNrsFor(session.login),
+  );
 }
 
 export function getClassNames(session: ActiveSession, dict: number | string): string[] {

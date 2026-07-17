@@ -1800,6 +1800,46 @@ export function activate(context: vscode.ExtensionContext) {
       await codeExecutor.debugIt();
     }),
 
+    // Some expressions never return — a web server's listen loop, say — so they
+    // can't run on this session without wedging it. Give them a gem of their own.
+    vscode.commands.registerCommand('gemstone.runInNewGem', async () => {
+      const session = await sessionManager.resolveSession();
+      if (!session) return;
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showErrorMessage('No active text editor.');
+        return;
+      }
+      const selection = editor.selection.isEmpty
+        ? editor.document.lineAt(editor.selection.active.line).range
+        : editor.selection;
+      const code = editor.document.getText(selection).trim();
+      if (!code) {
+        vscode.window.showWarningMessage('No code to run.');
+        return;
+      }
+
+      try {
+        if (!queries.canForkGem(session)) {
+          vscode.window.showErrorMessage(
+            `This database (GemStone ${session.stoneVersion}) cannot start a gem this way — ` +
+              'it needs one-time password logins, which arrived in a later release.',
+          );
+          return;
+        }
+        const gemSession = queries.forkGemRunning(session, code);
+        // Say plainly that it is now unmanaged: nothing lists or stops a gem
+        // started this way, so the id is all the user has to go on.
+        vscode.window.showInformationMessage(
+          `Running in gem session ${gemSession}. It keeps running until the database stops — Jasper cannot stop it for you yet.`,
+        );
+      } catch (e: unknown) {
+        vscode.window.showErrorMessage(
+          `Could not start a gem: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+    }),
+
     vscode.commands.registerCommand('gemstone.copyDisplayItResult', () => {
       // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       codeExecutor.copyLastResult();

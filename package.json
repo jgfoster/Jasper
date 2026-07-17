@@ -770,6 +770,12 @@
         "icon": "$(debug-alt)"
       },
       {
+        "command": "gemstone.runInNewGem",
+        "title": "Run in a New Gem",
+        "category": "GemStone",
+        "icon": "$(server-process)"
+      },
+      {
         "command": "gemstone.toggleInlineValues",
         "title": "Toggle Inline Variable Values",
         "category": "GemStone",
@@ -1905,6 +1911,11 @@
           "command": "gemstone.debugIt",
           "when": "editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing",
           "group": "1_gemstone@4"
+        },
+        {
+          "command": "gemstone.runInNewGem",
+          "when": "editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing",
+          "group": "1_gemstone@5"
         },
         {
           "command": "gemstone.sendersOf",

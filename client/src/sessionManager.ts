@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { GciLibrary, GciError } from './gciLibrary';
 import { OOP_NIL } from './gciConstants';
-import { GemStoneLogin, loginLabel } from './loginTypes';
+import { GemStoneLogin, gemNrsFor, loginLabel } from './loginTypes';
 import { logInfo } from './gciLog';
 import { wrapWithEnhancedInspectorPerfProxy } from './enhancedInspectorPerfTracker';
 import { installTranscriptSink } from './transcriptSink';
@@ -193,7 +193,7 @@ export class SessionManager {
 
     const gci = this.getGciLibrary(libraryPath);
     const stoneNrs = `!tcp@${login.gem_host}#server!${login.stone}`;
-    const gemNrs = `!tcp@${login.gem_host}#netldi:${login.netldi}#task!gemnetobject`;
+    const gemNrs = gemNrsFor(login);
     return { gci, stoneNrs, gemNrs };
   }
 
@@ -332,7 +332,7 @@ export class SessionManager {
     gci: GciLibrary,
   ): { session: ActiveSession; logout: () => void } {
     const stoneNrs = `!tcp@${login.gem_host}#server!${login.stone}`;
-    const gemNrs = `!tcp@${login.gem_host}#netldi:${login.netldi}#task!gemnetobject`;
+    const gemNrs = gemNrsFor(login);
 
     const result = gci.GciTsLogin(
       stoneNrs,

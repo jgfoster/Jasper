@@ -18,6 +18,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { ActiveSession, SessionManager } from './sessionManager';
+import { gemNrsFor } from './loginTypes';
 import { sessionNeedsCommit } from './browserQueries';
 import { refreshEnhancedInspectorAvailable } from './enhancedInspectorAvailability';
 import {
@@ -71,7 +72,7 @@ const PAYLOAD_SUBDIR = path.join('resources', 'enhancedInspector');
 function loginAsSystemUser(base: ActiveSession, password: string): ActiveSession {
   const { login } = base;
   const stoneNrs = `!tcp@${login.gem_host}#server!${login.stone}`;
-  const gemNrs = `!tcp@${login.gem_host}#netldi:${login.netldi}#task!gemnetobject`;
+  const gemNrs = gemNrsFor(login);
   const result = base.gci.GciTsLogin(
     stoneNrs,
     login.host_user || null,
