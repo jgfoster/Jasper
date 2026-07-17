@@ -117,7 +117,7 @@
             "type": "integer",
             "default": 0,
             "minimum": 0,
-            "description": "Maximum method dictionary environment to show in the browser (0 = standard Smalltalk only, 2 = show environments 0\u20132)"
+            "description": "Maximum method dictionary environment to show in the browser (0 = standard Smalltalk only, 2 = show environments 0–2)"
           },
           "gemstone.sessionMode": {
             "type": "string",
@@ -126,12 +126,12 @@
               "multiple"
             ],
             "default": "single",
-            "description": "Number of concurrent GemStone sessions allowed. 'single' (default) keeps one session at a time for a clearer mental model \u2014 the connected login shows an inline Logout action and the Sessions panel is hidden. 'multiple' (beta) re-enables concurrent sessions and the Sessions panel."
+            "description": "Number of concurrent GemStone sessions allowed. 'single' (default) keeps one session at a time for a clearer mental model — the connected login shows an inline Logout action and the Sessions panel is hidden. 'multiple' (beta) re-enables concurrent sessions and the Sessions panel."
           },
           "gemstone.exportPath": {
             "type": "string",
             "default": "",
-            "description": "Root path for the local class mirror (read-only .gs files used by Find in Files / Go to Definition). Variables: {workspaceRoot}, {session}, {host}, {stone}, {user}, {index}, {dictName}. Defaults to {workspaceRoot}/.gemstone/{host}/{stone}/{user}/{index}-{dictName} \u2014 keyed by connection target so it is shared across that target's sessions and kept (and re-synced incrementally) across logout."
+            "description": "Root path for the local class mirror (read-only .gs files used by Find in Files / Go to Definition). Variables: {workspaceRoot}, {session}, {host}, {stone}, {user}, {index}, {dictName}. Defaults to {workspaceRoot}/.gemstone/{host}/{stone}/{user}/{index}-{dictName} — keyed by connection target so it is shared across that target's sessions and kept (and re-synced incrementally) across logout."
           },
           "gemstone.classSync.readOnlyMirror": {
             "type": "boolean",
@@ -153,7 +153,7 @@
             "default": 27101,
             "minimum": 1024,
             "maximum": 65535,
-            "description": "Port on 127.0.0.1 where Jasper serves the MCP HTTPS/SSE surface. The URL to paste into connector UIs (e.g. Claude Desktop's 'Add custom connector') is https://127.0.0.1:<port>/sse. Jasper generates a self-signed TLS certificate on first run and stores it in the extension's global storage directory; trust it once via the 'GemStone: Install MCP TLS Certificate' command. First-come-first-served across VS Code windows \u2014 override this per-workspace in .vscode/settings.json to run multiple windows simultaneously."
+            "description": "Port on 127.0.0.1 where Jasper serves the MCP HTTPS/SSE surface. The URL to paste into connector UIs (e.g. Claude Desktop's 'Add custom connector') is https://127.0.0.1:<port>/sse. Jasper generates a self-signed TLS certificate on first run and stores it in the extension's global storage directory; trust it once via the 'GemStone: Install MCP TLS Certificate' command. First-come-first-served across VS Code windows — override this per-workspace in .vscode/settings.json to run multiple windows simultaneously."
           },
           "gemstone.logins": {
             "type": "array",
@@ -518,7 +518,7 @@
           {
             "id": "enhancedInspector",
             "title": "Try the enhanced inspector",
-            "description": "Get richer, object-specific views in the Inspector. Requires GemStone 3.7.5 or later. Choose how Jasper installs it when you connect.\n[Enhanced Inspector Auto-Install\u2026](command:gemstone.configureEnhancedInspectorAutoInstall)",
+            "description": "Get richer, object-specific views in the Inspector. Requires GemStone 3.7.5 or later. Choose how Jasper installs it when you connect.\n[Enhanced Inspector Auto-Install…](command:gemstone.configureEnhancedInspectorAutoInstall)",
             "media": {
               "markdown": "resources/walkthrough/enhancedInspector.md"
             },
@@ -529,7 +529,7 @@
           {
             "id": "reopen",
             "title": "Reopen this walkthrough later",
-            "description": "Closed this? Reopen it anytime from Help \u2192 Welcome, or the Command Palette.\n[Open Walkthrough...](command:welcome.showAllWalkthroughs)",
+            "description": "Closed this? Reopen it anytime from Help → Welcome, or the Command Palette.\n[Open Walkthrough...](command:welcome.showAllWalkthroughs)",
             "media": {
               "markdown": "resources/walkthrough/reopen.md"
             }
@@ -674,7 +674,7 @@
       },
       {
         "command": "gemstone.configureEnhancedInspectorAutoInstall",
-        "title": "Enhanced Inspector Auto-Install\u2026",
+        "title": "Enhanced Inspector Auto-Install…",
         "category": "GemStone"
       },
       {
@@ -769,7 +769,7 @@
       },
       {
         "command": "gemstone.rowanAddRepo",
-        "title": "Add Rowan Repository\u2026",
+        "title": "Add Rowan Repository…",
         "category": "GemStone",
         "icon": "$(add)"
       },
@@ -792,7 +792,7 @@
       },
       {
         "command": "gemstone.rowanExportProject",
-        "title": "Export Copy\u2026",
+        "title": "Export Copy…",
         "category": "GemStone"
       },
       {
@@ -819,17 +819,17 @@
       },
       {
         "command": "gemstone.loadRowanProject",
-        "title": "Load Rowan Project\u2026",
+        "title": "Load Rowan Project…",
         "category": "GemStone"
       },
       {
         "command": "gemstone.loadRowanProjectFromGit",
-        "title": "Load Rowan Project from Git\u2026",
+        "title": "Load Rowan Project from Git…",
         "category": "GemStone"
       },
       {
         "command": "gemstone.unloadRowanProject",
-        "title": "Unload Rowan Project\u2026",
+        "title": "Unload Rowan Project…",
         "category": "GemStone"
       },
       {
@@ -868,7 +868,7 @@
       },
       {
         "command": "gemstone.findClass",
-        "title": "Find Class\u2026",
+        "title": "Find Class…",
         "category": "GemStone",
         "icon": "$(search)"
       },
@@ -1089,7 +1089,7 @@
       },
       {
         "command": "gemstone.registerLocalVersion",
-        "title": "Register Local Version\u2026",
+        "title": "Register Local Version…",
         "category": "GemStone Admin",
         "icon": "$(add)"
       },
@@ -1959,6 +1959,11 @@
     "dev:fresh": "bash scripts/dev-fresh.sh",
     "serve:seaside": "bash scripts/serve-seaside.sh",
     "lint:github:workflows": "bash scripts/lint-workflow-timeouts.sh",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "//hooks:install": "Opt-in: installs local git pre-commit hooks (lefthook.yml) that lint staged files before each commit. Not run automatically by `npm install` — CI is the gate regardless of whether a dev installs these.",
+    "hooks:install": "lefthook install",
+    "hooks:uninstall": "lefthook uninstall",
     "test": "npm run test --workspaces",
     "test:server:start": "npm run test:server:start --workspace client",
     "test:server:stop": "npm run test:server:stop --workspace client",
@@ -1980,13 +1985,19 @@
     "publish:ovsx": "ovsx publish"
   },
   "devDependencies": {
+    "@eslint-community/eslint-plugin-eslint-comments": "^4.7.2",
+    "@eslint/js": "^9.19.0",
     "@playwright/test": "^1.61.1",
     "@types/node": "^22.15",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.7.1",
     "esbuild": "^0.28.1",
+    "eslint": "^10.0.0",
+    "globals": "^16.0.0",
+    "lefthook": "^2.1.10",
     "ovsx": "^0.10.5",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.20.0"
   },
   "dependencies": {
     "@vscode/debugadapter": "^1.68.0",

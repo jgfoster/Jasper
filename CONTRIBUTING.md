@@ -49,6 +49,7 @@ See [docs/how-to/raising-the-version-floor.md](docs/how-to/raising-the-version-f
 
 ## Build and test
 
+- Lint: `npm run lint`
 - Build: `npm run compile`
 - Watch: `npm run watch`
 - Test: `npm test`
@@ -56,7 +57,18 @@ See [docs/how-to/raising-the-version-floor.md](docs/how-to/raising-the-version-f
 
 Tests run in a random order on every run. The seed is printed at the top of the output — to reproduce a specific run, pass `--sequence.seed=<seed>` to that workspace's vitest directly (e.g. `cd client && npx vitest run --sequence.seed=<seed>`).
 
-Before pushing changes, ensure `npm run compile && npm test` passes locally.
+Before pushing changes, ensure `npm run lint && npm run compile && npm test` passes locally.
+
+### Optional local pre-commit hook
+
+If you'd like `eslint` to run on staged files automatically before each commit, install the [lefthook](https://github.com/evilmartians/lefthook) git hook:
+
+```sh
+npm run hooks:install    # opt in
+npm run hooks:uninstall  # opt out
+```
+
+This is entirely optional and not run by `npm install` — CI's `lint` job is the real gate regardless.
 
 ## Running integration tests against a custom GemStone instance
 
