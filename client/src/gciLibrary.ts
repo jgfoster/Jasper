@@ -2608,6 +2608,16 @@ export class GciLibrary {
    * `GciTsFetchBytes` -- see that method's comment for why
    * `GciTsFetchUtf8Bytes` itself isn't used for the fetch either.
    *
+   * The `encodeAsUTF8` send happens as its own {@link performAndRelease}
+   * call on the already-evaluated result oop, rather than being appended to
+   * `code`'s source (e.g. `[ ${code} ] value encodeAsUTF8`). Appending it to
+   * the source is unsafe: a non-local return (`^`) inside `code` exits the
+   * whole doit immediately, so a trailing `encodeAsUTF8` send would never
+   * run and the raw, un-encoded result would reach {@link fetchUtf8String}
+   * instead. The extra round-trip this costs is a deliberate trade-off for
+   * that correctness, not an oversight -- do not collapse the two sends
+   * back into one to save a round-trip.
+   *
    * @param session - The GemStone session to operate in.
    * @param code - Smalltalk source to evaluate.
    * @returns The evaluated result, decoded as a UTF-8 JS string.
@@ -2618,8 +2628,12 @@ export class GciLibrary {
   public executeAndFetchString(session: unknown, code: string) : string {
     return this.executeAndRelease(
         session,
-        `[ ${code} ] value encodeAsUTF8`,
-        stringOop => this.fetchUtf8String(session, stringOop, GciLibrary.FETCH_STRING_PAGE_SIZE_BYTES));
+        code,
+        resultOop => this.performAndRelease(
+            session,
+            resultOop,
+            'encodeAsUTF8',
+            utf8StringOop => this.fetchUtf8String(session, utf8StringOop, GciLibrary.FETCH_STRING_PAGE_SIZE_BYTES)));
   }
 
   /** The page size, in bytes, used by {@link fetchUtf8String} to page a string's contents out of GemStone. */

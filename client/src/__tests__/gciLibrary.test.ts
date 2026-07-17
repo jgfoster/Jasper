@@ -600,6 +600,10 @@ describe('GciLibrary', () => {
             });
         });
 
+        it('returns the result of code that uses a non-local return', () => {
+            expectEvaluatedStringToBe(`^ 'a' encodeAsUTF16`, 'a');
+        });
+
     })
 
     describe('UserGlobals management', () => {
