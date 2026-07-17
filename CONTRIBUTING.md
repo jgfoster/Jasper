@@ -20,7 +20,20 @@ Follow these steps in order after cloning the repo:
    npm install
    ```
 
-4. **Start the GemStone test server** (integration tests are part of `npm test` and require a running GemStone instance):
+4. **Install the recommended extensions** (VS Code will prompt you, or install manually): the
+   Prettier extension (`esbenp.prettier-vscode`) formats TS/JS files on save, matching
+   `npm run format` / `npm run format:check`. `.vscode/settings.json` is gitignored (personal
+   editor prefs aren't shared), so add this yourself to get format-on-save:
+
+   ```json
+   {
+     "editor.formatOnSave": true,
+     "[typescript]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+     "[javascript]": { "editor.defaultFormatter": "esbenp.prettier-vscode" }
+   }
+   ```
+
+5. **Start the GemStone test server** (integration tests are part of `npm test` and require a running GemStone instance):
 
    ```sh
    npm run test:server:start
@@ -49,6 +62,8 @@ See [docs/how-to/raising-the-version-floor.md](docs/how-to/raising-the-version-f
 
 ## Build and test
 
+- Lint: `npm run lint`
+- Format: `npm run format` (writes changes), `npm run format:check` (verifies only)
 - Build: `npm run compile`
 - Watch: `npm run watch`
 - Test: `npm test`
@@ -56,7 +71,18 @@ See [docs/how-to/raising-the-version-floor.md](docs/how-to/raising-the-version-f
 
 Tests run in a random order on every run. The seed is printed at the top of the output — to reproduce a specific run, pass `--sequence.seed=<seed>` to that workspace's vitest directly (e.g. `cd client && npx vitest run --sequence.seed=<seed>`).
 
-Before pushing changes, ensure `npm run compile && npm test` passes locally.
+Before pushing changes, ensure `npm run lint && npm run compile && npm test` passes locally.
+
+### Optional local pre-commit hook
+
+If you'd like `eslint` to run on staged files automatically before each commit, install the [lefthook](https://github.com/evilmartians/lefthook) git hook:
+
+```sh
+npm run hooks:install    # opt in
+npm run hooks:uninstall  # opt out
+```
+
+This is entirely optional and not run by `npm install` — CI's `lint` job is the real gate regardless.
 
 ## Running integration tests against a custom GemStone instance
 

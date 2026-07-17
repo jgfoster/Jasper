@@ -4,7 +4,6 @@ out/
 *.vsix
 .vscode-test/
 .vscode/settings.json
-.vscode/extensions.json
 gemstone
 .gemstone/
 tsconfig.tsbuildinfo
