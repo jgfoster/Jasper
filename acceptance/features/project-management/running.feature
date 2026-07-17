@@ -1,9 +1,9 @@
-Feature: Serving a web page from the database
+Feature: Running project code
 
-  The whole point of putting code in a database is to run it. This is a Rowan
-  project that depends on WebGS, GemStone's web-server engine: declare the
-  dependency, load the project — which fetches WebGS too — then start the app
-  in a gem of its own and look at it in the editor's own browser.
+  The whole point of putting code in a database is to run it. This project
+  depends on WebGS, GemStone's web-server engine: declare the dependency, load
+  the project — which fetches WebGS too — then start the app in a gem of its own
+  and look at it in the editor's own browser.
 
   The page prints today's date, and the test asserts on today's date, so it
   cannot pass against a stale image or a cached page.
@@ -12,7 +12,7 @@ Feature: Serving a web page from the database
   minutes and is skipped unless JASPER_ONLINE_SPECS is set.
 
   @fixture:web-demo @online
-  Scenario: A hello world, served from its own gem
+  Scenario: Serve a web page from its own gem
     Given the web-demo Rowan project is open
     And I am logged in to a database
     When I open the This Project view

@@ -2083,8 +2083,6 @@
     "test:acceptance": "bddgen -c acceptance/playwright.config.ts && playwright test -c acceptance/playwright.config.ts",
     "test:acceptance:report": "playwright show-report acceptance/playwright-report",
     "test:acceptance:docker": "bash acceptance/docker-test.sh",
-    "test:acceptance:rowan": "bash acceptance/docker-test-rowan.sh",
-    "test:acceptance:seaside": "bash acceptance/docker-test-seaside.sh",
     "package": "vsce package",
     "publish": "npm run publish:vsce && npm run publish:ovsx",
     "publish:vsce": "vsce publish",

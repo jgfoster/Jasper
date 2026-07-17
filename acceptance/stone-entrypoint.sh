@@ -20,8 +20,8 @@ cp "$GEMSTONE/bin/extent0.rowan3.dbf" "$GEMSTONE_DATA_DIR/extent0.dbf"
 chmod 600 "$GEMSTONE_DATA_DIR/extent0.dbf"
 
 # A Rowan project load overflows the default 50 MB gem cache; give the RPC gems
-# the 500 MB the seaside-rowan project declares. NetLDI passes GEMSTONE_EXE_CONF
-# through to the gems it spawns.
+# 500 MB, enough for the projects these specs load. NetLDI passes
+# GEMSTONE_EXE_CONF through to the gems it spawns.
 mkdir -p /app/gemconf
 printf 'GEM_TEMPOBJ_CACHE_SIZE = 500000;\n' > /app/gemconf/gem.conf
 export GEMSTONE_EXE_CONF=/app/gemconf
