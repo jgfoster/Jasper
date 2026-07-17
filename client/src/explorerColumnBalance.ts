@@ -7,13 +7,17 @@
 // gemstone column with the fewest tabs is reused (leftmost wins ties). Pure, so
 // the balancing rule can be unit-tested without the vscode window API.
 export function pickBalancedColumn(
-  gemColumns: Map<number, number>, maxColumns = 3,
+  gemColumns: Map<number, number>,
+  maxColumns = 3,
 ): number | 'new' {
   if (gemColumns.size < maxColumns) return 'new';
   let best = -1;
   let bestCount = Infinity;
   for (const [column, count] of [...gemColumns].sort((a, b) => a[0] - b[0])) {
-    if (count < bestCount) { best = column; bestCount = count; }
+    if (count < bestCount) {
+      best = column;
+      bestCount = count;
+    }
   }
   return best;
 }

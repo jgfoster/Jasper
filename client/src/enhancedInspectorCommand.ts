@@ -80,7 +80,8 @@ function loginAsSystemUser(base: ActiveSession, password: string): ActiveSession
     gemNrs,
     'SystemUser',
     password,
-    0, 0,
+    0,
+    0,
   );
   if (!result.session) {
     throw new Error(result.err.message || `SystemUser login failed (error ${result.err.number})`);
@@ -197,9 +198,7 @@ async function performInstall(
   interactive: boolean,
 ): Promise<void> {
   const payloadDir = path.join(extensionPath, PAYLOAD_SUBDIR);
-  const missing = ENHANCED_INSPECTOR_FILES.filter(
-    (f) => !fs.existsSync(path.join(payloadDir, f)),
-  );
+  const missing = ENHANCED_INSPECTOR_FILES.filter((f) => !fs.existsSync(path.join(payloadDir, f)));
   if (missing.length > 0) {
     vscode.window.showErrorMessage(
       `Enhanced inspector payload not found in ${payloadDir} (missing: ${missing.join(', ')}).`,
@@ -216,8 +215,8 @@ async function performInstall(
     // manually rather than failing silently.
     if (!interactive) {
       vscode.window.showWarningMessage(
-        'Enhanced inspector support was not auto-installed: the SystemUser default password was '
-          + 'not accepted. Run "GemStone: Install Enhanced Inspector Support" to install it.',
+        'Enhanced inspector support was not auto-installed: the SystemUser default password was ' +
+          'not accepted. Run "GemStone: Install Enhanced Inspector Support" to install it.',
       );
     }
     return;
@@ -270,8 +269,8 @@ export async function runInstallEnhancedInspector(
   }
   if (!supportsEnhancedInspector(base.stoneVersion)) {
     vscode.window.showErrorMessage(
-      `Enhanced inspector support requires GemStone ${ENHANCED_INSPECTOR_MIN_VERSION} or later. `
-        + `The stone "${base.login.stone}" is ${base.stoneVersion}.`,
+      `Enhanced inspector support requires GemStone ${ENHANCED_INSPECTOR_MIN_VERSION} or later. ` +
+        `The stone "${base.login.stone}" is ${base.stoneVersion}.`,
     );
     return;
   }
@@ -315,11 +314,11 @@ export async function maybeOfferEnhancedInspectorInstall(
     {
       modal: true,
       detail:
-        'Brings a Smalltalk-style inspector to Jasper — rich, object-specific views instead '
-        + 'of a plain list of instance variables, so you can explore more deeply.\n\n'
-        + 'Installing requires a SystemUser login and commits the supporting classes to the '
-        + 'database.\n'
-        + 'Choose "Always" or "Never" to remember your choice for stones without it.',
+        'Brings a Smalltalk-style inspector to Jasper — rich, object-specific views instead ' +
+        'of a plain list of instance variables, so you can explore more deeply.\n\n' +
+        'Installing requires a SystemUser login and commits the supporting classes to the ' +
+        'database.\n' +
+        'Choose "Always" or "Never" to remember your choice for stones without it.',
     },
     INSTALL,
     ALWAYS,
@@ -349,9 +348,9 @@ const AUTO_INSTALL_MODES: { mode: AutoInstallMode; label: string; detail: string
     mode: 'always',
     label: 'Always install',
     detail:
-      'Install automatically on connect when a stone lacks it. Uses the SystemUser '
-      + 'default password; if that has been changed, use "Ask" or the install command '
-      + 'so you can enter it.',
+      'Install automatically on connect when a stone lacks it. Uses the SystemUser ' +
+      'default password; if that has been changed, use "Ask" or the install command ' +
+      'so you can enter it.',
   },
   {
     mode: 'never',

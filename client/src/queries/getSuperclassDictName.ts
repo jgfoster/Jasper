@@ -2,7 +2,9 @@ import { QueryExecutor } from './types';
 import { escapeString } from './util';
 
 export function getSuperclassDictName(
-  execute: QueryExecutor, dictIndex: number, className: string,
+  execute: QueryExecutor,
+  dictIndex: number,
+  className: string,
 ): string {
   const code = `| cls sc result |
 cls := (System myUserProfile symbolList at: ${dictIndex}) at: #'${escapeString(className)}'.

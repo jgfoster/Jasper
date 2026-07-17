@@ -52,13 +52,22 @@ describe('indexFile', () => {
 
   it('indexes multiple methods in one file', () => {
     const source = [
-      'method: Foo', 'alpha', '  ^1', '%',
-      'method: Foo', 'beta', '  ^2', '%',
-      'method: Bar', 'gamma', '  ^3', '%',
+      'method: Foo',
+      'alpha',
+      '  ^1',
+      '%',
+      'method: Foo',
+      'beta',
+      '  ^2',
+      '%',
+      'method: Bar',
+      'gamma',
+      '  ^3',
+      '%',
     ].join('\n');
     const methods = indexFile('file:///a.gs', source);
     expect(methods).toHaveLength(3);
-    expect(methods.map(m => m.selector)).toEqual(['alpha', 'beta', 'gamma']);
+    expect(methods.map((m) => m.selector)).toEqual(['alpha', 'beta', 'gamma']);
     expect(methods[2].className).toBe('Bar');
   });
 
@@ -105,7 +114,10 @@ describe('collectSentSelectors (via indexFile)', () => {
   });
 
   it('collects sends from cascades', () => {
-    const methods = indexFile('file:///a.gs', 'method: Foo\nbar\n  self add: 1; add: 2; yourself\n%');
+    const methods = indexFile(
+      'file:///a.gs',
+      'method: Foo\nbar\n  self add: 1; add: 2; yourself\n%',
+    );
     expect(methods[0].sentSelectors).toContain('add:');
     expect(methods[0].sentSelectors).toContain('yourself');
   });
@@ -146,8 +158,8 @@ describe('WorkspaceIndex', () => {
       );
       const impls = idx.findImplementors('bar');
       expect(impls).toHaveLength(2);
-      expect(impls.map(m => m.className)).toContain('Foo');
-      expect(impls.map(m => m.className)).toContain('Baz');
+      expect(impls.map((m) => m.className)).toContain('Foo');
+      expect(impls.map((m) => m.className)).toContain('Baz');
     });
 
     it('distinguishes at: from at:put:', () => {
@@ -178,9 +190,7 @@ describe('WorkspaceIndex', () => {
     });
 
     it('finds senders of keyword selectors', () => {
-      const idx = makeIndex(
-        ['file:///a.gs', 'method: Foo\nbar\n  self at: 1 put: 2\n%'],
-      );
+      const idx = makeIndex(['file:///a.gs', 'method: Foo\nbar\n  self at: 1 put: 2\n%']);
       expect(idx.findSenders('at:put:')).toHaveLength(1);
       expect(idx.findSenders('at:')).toHaveLength(0);
     });
@@ -199,9 +209,7 @@ describe('WorkspaceIndex', () => {
     });
 
     it('removeFile cleans up all indexes', () => {
-      const idx = makeIndex(
-        ['file:///a.gs', 'method: Foo\nbar\n  self size\n%'],
-      );
+      const idx = makeIndex(['file:///a.gs', 'method: Foo\nbar\n  self size\n%']);
       expect(idx.findImplementors('bar')).toHaveLength(1);
       expect(idx.findSenders('size')).toHaveLength(1);
 
@@ -241,16 +249,12 @@ describe('WorkspaceIndex', () => {
     });
 
     it('matches case-insensitively', () => {
-      const idx = makeIndex(
-        ['file:///a.gs', 'method: Foo\nbar\n  ^1\n%'],
-      );
+      const idx = makeIndex(['file:///a.gs', 'method: Foo\nbar\n  ^1\n%']);
       expect(idx.searchMethods('FOO')).toHaveLength(1);
     });
 
     it('matches partial "ClassName >> selector"', () => {
-      const idx = makeIndex(
-        ['file:///a.gs', 'method: Foo\nbar\n  ^1\n%'],
-      );
+      const idx = makeIndex(['file:///a.gs', 'method: Foo\nbar\n  ^1\n%']);
       expect(idx.searchMethods('Foo >> bar')).toHaveLength(1);
     });
   });

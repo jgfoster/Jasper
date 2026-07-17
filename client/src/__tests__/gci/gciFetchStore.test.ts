@@ -15,19 +15,21 @@ describe('GCI Fetch/Store Bytes and OOPs', () => {
   let OOP_CLASS_BYTE_ARRAY: bigint;
 
   beforeAll(() => {
-    const login = gci.GciTsLogin(
-      STONE_NRS, null, null, false,
-      GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
-    );
+    const login = gci.GciTsLogin(STONE_NRS, null, null, false, GEM_NRS, GS_USER, GS_PASSWORD, 0, 0);
     expect(login.session).not.toBeNull();
     session = login.session;
 
     OOP_CLASS_ARRAY = gci.GciTsResolveSymbol(session, 'Array', OOP_NIL).result;
     OOP_CLASS_STRING = gci.GciTsResolveSymbol(session, 'String', OOP_NIL).result;
     OOP_CLASS_BYTE_ARRAY = gci.GciTsResolveSymbol(session, 'ByteArray', OOP_NIL).result;
-    console.log('Class OOPs - Array:', OOP_CLASS_ARRAY.toString(),
-      'String:', OOP_CLASS_STRING.toString(),
-      'ByteArray:', OOP_CLASS_BYTE_ARRAY.toString());
+    console.log(
+      'Class OOPs - Array:',
+      OOP_CLASS_ARRAY.toString(),
+      'String:',
+      OOP_CLASS_STRING.toString(),
+      'ByteArray:',
+      OOP_CLASS_BYTE_ARRAY.toString(),
+    );
   });
 
   afterAll(() => {
@@ -42,10 +44,13 @@ describe('GCI Fetch/Store Bytes and OOPs', () => {
       const strOop = gci.GciTsNewString(session, 'Hello GCI');
       expect(strOop.result).not.toBe(OOP_ILLEGAL);
 
-      const { bytesReturned, data, err } = gci.GciTsFetchBytes(
-        session, strOop.result, 1n, 9,
+      const { bytesReturned, data, err } = gci.GciTsFetchBytes(session, strOop.result, 1n, 9);
+      console.log(
+        'FetchBytes - bytesReturned:',
+        bytesReturned.toString(),
+        'data:',
+        data.toString('utf8', 0, Number(bytesReturned)),
       );
-      console.log('FetchBytes - bytesReturned:', bytesReturned.toString(), 'data:', data.toString('utf8', 0, Number(bytesReturned)));
       expect(err.number).toBe(0);
       expect(bytesReturned).toBe(9n);
       expect(data.toString('utf8', 0, 9)).toBe('Hello GCI');
@@ -56,29 +61,25 @@ describe('GCI Fetch/Store Bytes and OOPs', () => {
       expect(strOop.result).not.toBe(OOP_ILLEGAL);
 
       // Fetch 3 bytes starting at index 4 (Smalltalk 1-based: 'd', 'e', 'f')
-      const { bytesReturned, data, err } = gci.GciTsFetchBytes(
-        session, strOop.result, 4n, 3,
-      );
+      const { bytesReturned, data, err } = gci.GciTsFetchBytes(session, strOop.result, 4n, 3);
       expect(err.number).toBe(0);
       expect(bytesReturned).toBe(3n);
       expect(data.toString('utf8', 0, 3)).toBe('def');
     });
 
     it('fetches bytes from a ByteArray', () => {
-      const bytes = Buffer.from([0x01, 0x02, 0xFF, 0x00, 0xAB]);
+      const bytes = Buffer.from([0x01, 0x02, 0xff, 0x00, 0xab]);
       const baOop = gci.GciTsNewByteArray(session, bytes);
       expect(baOop.result).not.toBe(OOP_ILLEGAL);
 
-      const { bytesReturned, data, err } = gci.GciTsFetchBytes(
-        session, baOop.result, 1n, 5,
-      );
+      const { bytesReturned, data, err } = gci.GciTsFetchBytes(session, baOop.result, 1n, 5);
       expect(err.number).toBe(0);
       expect(bytesReturned).toBe(5n);
       expect(data[0]).toBe(0x01);
       expect(data[1]).toBe(0x02);
-      expect(data[2]).toBe(0xFF);
+      expect(data[2]).toBe(0xff);
       expect(data[3]).toBe(0x00);
-      expect(data[4]).toBe(0xAB);
+      expect(data[4]).toBe(0xab);
     });
   });
 
@@ -87,9 +88,7 @@ describe('GCI Fetch/Store Bytes and OOPs', () => {
       const strOop = gci.GciTsNewString(session, 'GemStone');
       expect(strOop.result).not.toBe(OOP_ILLEGAL);
 
-      const { bytesReturned, data, err } = gci.GciTsFetchChars(
-        session, strOop.result, 1n, 1024,
-      );
+      const { bytesReturned, data, err } = gci.GciTsFetchChars(session, strOop.result, 1n, 1024);
       console.log('FetchChars - bytesReturned:', bytesReturned.toString(), 'data:', data);
       expect(err.number).toBe(0);
       expect(bytesReturned).toBe(8n);
@@ -101,9 +100,7 @@ describe('GCI Fetch/Store Bytes and OOPs', () => {
       expect(strOop.result).not.toBe(OOP_ILLEGAL);
 
       // maxSize=6 means at most 5 bytes fetched + null terminator
-      const { bytesReturned, data, err } = gci.GciTsFetchChars(
-        session, strOop.result, 1n, 6,
-      );
+      const { bytesReturned, data, err } = gci.GciTsFetchChars(session, strOop.result, 1n, 6);
       expect(err.number).toBe(0);
       expect(bytesReturned).toBe(5n);
       expect(data).toBe('Hello');
@@ -116,7 +113,10 @@ describe('GCI Fetch/Store Bytes and OOPs', () => {
       expect(strOop.result).not.toBe(OOP_ILLEGAL);
 
       const { bytesReturned, data, err } = gci.GciTsFetchUtf8Bytes(
-        session, strOop.result, 1n, 1024,
+        session,
+        strOop.result,
+        1n,
+        1024,
       );
       console.log('FetchUtf8Bytes - bytesReturned:', bytesReturned.toString());
       expect(err.number).toBe(0);
@@ -132,7 +132,11 @@ describe('GCI Fetch/Store Bytes and OOPs', () => {
 
       const newBytes = Buffer.from('XYZ', 'utf8');
       const { success, err } = gci.GciTsStoreBytes(
-        session, strOop.result, 2n, newBytes, OOP_CLASS_STRING,
+        session,
+        strOop.result,
+        2n,
+        newBytes,
+        OOP_CLASS_STRING,
       );
       console.log('StoreBytes - success:', success, 'err.number:', err.number);
       expect(err.number).toBe(0);
@@ -148,9 +152,13 @@ describe('GCI Fetch/Store Bytes and OOPs', () => {
       const baOop = gci.GciTsNewByteArray(session, bytes);
       expect(baOop.result).not.toBe(OOP_ILLEGAL);
 
-      const newBytes = Buffer.from([0xDE, 0xAD]);
+      const newBytes = Buffer.from([0xde, 0xad]);
       const { success, err } = gci.GciTsStoreBytes(
-        session, baOop.result, 2n, newBytes, OOP_CLASS_BYTE_ARRAY,
+        session,
+        baOop.result,
+        2n,
+        newBytes,
+        OOP_CLASS_BYTE_ARRAY,
       );
       expect(err.number).toBe(0);
       expect(success).toBe(true);
@@ -158,8 +166,8 @@ describe('GCI Fetch/Store Bytes and OOPs', () => {
       // Verify: should now be [0x00, 0xDE, 0xAD, 0x00]
       const fetched = gci.GciTsFetchBytes(session, baOop.result, 1n, 4);
       expect(fetched.data[0]).toBe(0x00);
-      expect(fetched.data[1]).toBe(0xDE);
-      expect(fetched.data[2]).toBe(0xAD);
+      expect(fetched.data[1]).toBe(0xde);
+      expect(fetched.data[2]).toBe(0xad);
       expect(fetched.data[3]).toBe(0x00);
     });
   });
@@ -168,14 +176,17 @@ describe('GCI Fetch/Store Bytes and OOPs', () => {
     it('fetches all elements of an Array', () => {
       // Create Array with 3 elements: execute "Array with: 10 with: 20 with: 30"
       const { result: arrOop, err: execErr } = gci.GciTsExecute(
-        session, 'Array with: 10 with: 20 with: 30', OOP_CLASS_STRING,
-        OOP_ILLEGAL, OOP_NIL, 0, 0,
+        session,
+        'Array with: 10 with: 20 with: 30',
+        OOP_CLASS_STRING,
+        OOP_ILLEGAL,
+        OOP_NIL,
+        0,
+        0,
       );
       expect(execErr.number).toBe(0);
 
-      const { result, oops, err } = gci.GciTsFetchOops(
-        session, arrOop, 1n, 3,
-      );
+      const { result, oops, err } = gci.GciTsFetchOops(session, arrOop, 1n, 3);
       console.log('FetchOops - result:', result, 'oops count:', oops.length);
       expect(err.number).toBe(0);
       expect(result).toBe(3);
@@ -192,14 +203,17 @@ describe('GCI Fetch/Store Bytes and OOPs', () => {
 
     it('fetches a subset with startIndex', () => {
       const { result: arrOop } = gci.GciTsExecute(
-        session, '#(100 200 300 400 500)', OOP_CLASS_STRING,
-        OOP_ILLEGAL, OOP_NIL, 0, 0,
+        session,
+        '#(100 200 300 400 500)',
+        OOP_CLASS_STRING,
+        OOP_ILLEGAL,
+        OOP_NIL,
+        0,
+        0,
       );
 
       // Fetch 2 elements starting at index 3 (Smalltalk 1-based: 300, 400)
-      const { result, oops, err } = gci.GciTsFetchOops(
-        session, arrOop, 3n, 2,
-      );
+      const { result, oops, err } = gci.GciTsFetchOops(session, arrOop, 3n, 2);
       expect(err.number).toBe(0);
       expect(result).toBe(2);
 
@@ -214,15 +228,23 @@ describe('GCI Fetch/Store Bytes and OOPs', () => {
     it('fetches named inst vars from an Association', () => {
       // Association has named instVars: key, value
       const { result: assocOop, err: execErr } = gci.GciTsExecute(
-        session, 'Association new key: #myKey value: 42', OOP_CLASS_STRING,
-        OOP_ILLEGAL, OOP_NIL, 0, 0,
+        session,
+        'Association new key: #myKey value: 42',
+        OOP_CLASS_STRING,
+        OOP_ILLEGAL,
+        OOP_NIL,
+        0,
+        0,
       );
       expect(execErr.number).toBe(0);
 
-      const { result, oops, err } = gci.GciTsFetchNamedOops(
-        session, assocOop, 1n, 2,
+      const { result, oops, err } = gci.GciTsFetchNamedOops(session, assocOop, 1n, 2);
+      console.log(
+        'FetchNamedOops - result:',
+        result,
+        'oops:',
+        oops.map((o) => o.toString()),
       );
-      console.log('FetchNamedOops - result:', result, 'oops:', oops.map(o => o.toString()));
       expect(err.number).toBe(0);
       expect(result).toBe(2);
 
@@ -235,18 +257,21 @@ describe('GCI Fetch/Store Bytes and OOPs', () => {
   describe('GciTsFetchVaryingOops', () => {
     it('fetches varying elements from an Array', () => {
       const { result: arrOop } = gci.GciTsExecute(
-        session, '#(7 8 9)', OOP_CLASS_STRING,
-        OOP_ILLEGAL, OOP_NIL, 0, 0,
+        session,
+        '#(7 8 9)',
+        OOP_CLASS_STRING,
+        OOP_ILLEGAL,
+        OOP_NIL,
+        0,
+        0,
       );
 
-      const { result, oops, err } = gci.GciTsFetchVaryingOops(
-        session, arrOop, 1n, 3,
-      );
+      const { result, oops, err } = gci.GciTsFetchVaryingOops(session, arrOop, 1n, 3);
       console.log('FetchVaryingOops - result:', result);
       expect(err.number).toBe(0);
       expect(result).toBe(3);
 
-      const vals = oops.map(o => gci.GciTsOopToI64(session, o).value);
+      const vals = oops.map((o) => gci.GciTsOopToI64(session, o).value);
       expect(vals).toEqual([7n, 8n, 9n]);
     });
   });
@@ -255,8 +280,13 @@ describe('GCI Fetch/Store Bytes and OOPs', () => {
     it('stores OOPs into an Array', () => {
       // Create Array new: 3
       const { result: arrOop } = gci.GciTsExecute(
-        session, 'Array new: 3', OOP_CLASS_STRING,
-        OOP_ILLEGAL, OOP_NIL, 0, 0,
+        session,
+        'Array new: 3',
+        OOP_CLASS_STRING,
+        OOP_ILLEGAL,
+        OOP_NIL,
+        0,
+        0,
       );
 
       // Store SmallIntegers 100, 200, 300
@@ -264,47 +294,43 @@ describe('GCI Fetch/Store Bytes and OOPs', () => {
       const oop200 = gci.GciTsI64ToOop(session, 200n).result;
       const oop300 = gci.GciTsI64ToOop(session, 300n).result;
 
-      const { success, err } = gci.GciTsStoreOops(
-        session, arrOop, 1n, [oop100, oop200, oop300],
-      );
+      const { success, err } = gci.GciTsStoreOops(session, arrOop, 1n, [oop100, oop200, oop300]);
       console.log('StoreOops - success:', success, 'err.number:', err.number);
       expect(err.number).toBe(0);
       expect(success).toBe(true);
 
       // Verify
       const fetched = gci.GciTsFetchOops(session, arrOop, 1n, 3);
-      const vals = fetched.oops.map(o => gci.GciTsOopToI64(session, o).value);
+      const vals = fetched.oops.map((o) => gci.GciTsOopToI64(session, o).value);
       expect(vals).toEqual([100n, 200n, 300n]);
     });
-
   });
 
   describe('GciTsStoreNamedOops', () => {
     it('stores into named inst vars of an Association', () => {
       const { result: assocOop } = gci.GciTsExecute(
-        session, 'Association new', OOP_CLASS_STRING,
-        OOP_ILLEGAL, OOP_NIL, 0, 0,
+        session,
+        'Association new',
+        OOP_CLASS_STRING,
+        OOP_ILLEGAL,
+        OOP_NIL,
+        0,
+        0,
       );
 
       const keyOop = gci.GciTsNewSymbol(session, 'testKey').result;
       const valOop = gci.GciTsI64ToOop(session, 77n).result;
 
-      const { success, err } = gci.GciTsStoreNamedOops(
-        session, assocOop, 1n, [keyOop, valOop],
-      );
+      const { success, err } = gci.GciTsStoreNamedOops(session, assocOop, 1n, [keyOop, valOop]);
       console.log('StoreNamedOops - success:', success, 'err.number:', err.number);
       expect(err.number).toBe(0);
       expect(success).toBe(true);
 
       // Verify via perform
-      const { data: keyData } = gci.GciTsPerformFetchBytes(
-        session, assocOop, 'key', [], 1024,
-      );
+      const { data: keyData } = gci.GciTsPerformFetchBytes(session, assocOop, 'key', [], 1024);
       expect(keyData).toBe('testKey');
 
-      const valResult = gci.GciTsPerform(
-        session, assocOop, OOP_ILLEGAL, 'value', [], 0, 0,
-      );
+      const valResult = gci.GciTsPerform(session, assocOop, OOP_ILLEGAL, 'value', [], 0, 0);
       const valInt = gci.GciTsOopToI64(session, valResult.result);
       expect(valInt.value).toBe(77n);
     });
@@ -313,17 +339,20 @@ describe('GCI Fetch/Store Bytes and OOPs', () => {
   describe('GciTsStoreIdxOops', () => {
     it('stores into varying (indexed) slots of an Array', () => {
       const { result: arrOop } = gci.GciTsExecute(
-        session, 'Array new: 4', OOP_CLASS_STRING,
-        OOP_ILLEGAL, OOP_NIL, 0, 0,
+        session,
+        'Array new: 4',
+        OOP_CLASS_STRING,
+        OOP_ILLEGAL,
+        OOP_NIL,
+        0,
+        0,
       );
 
       const oop10 = gci.GciTsI64ToOop(session, 10n).result;
       const oop20 = gci.GciTsI64ToOop(session, 20n).result;
 
       // Store at varying index 2 and 3
-      const { success, err } = gci.GciTsStoreIdxOops(
-        session, arrOop, 2n, [oop10, oop20],
-      );
+      const { success, err } = gci.GciTsStoreIdxOops(session, arrOop, 2n, [oop10, oop20]);
       console.log('StoreIdxOops - success:', success, 'err.number:', err.number);
       expect(err.number).toBe(0);
       expect(success).toBe(true);

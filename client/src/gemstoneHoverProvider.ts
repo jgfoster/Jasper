@@ -20,17 +20,14 @@ export class GemStoneHoverProvider implements vscode.HoverProvider {
     let selector: string | null = null;
     if (this.selectorResolver) {
       try {
-        selector = await this.selectorResolver.getSelector(
-          document.uri.toString(),
-          position,
-        );
-      } catch { /* LSP not ready */ }
+        selector = await this.selectorResolver.getSelector(document.uri.toString(), position);
+      } catch {
+        /* LSP not ready */
+      }
     }
 
     if (selector) {
-      const env = vscode.workspace
-        .getConfiguration('gemstone')
-        .get<number>('maxEnvironment', 0);
+      const env = vscode.workspace.getConfiguration('gemstone').get<number>('maxEnvironment', 0);
       const results = queries.implementorsOf(session, selector, env);
       if (results.length === 0) return null;
 
@@ -57,8 +54,7 @@ export class GemStoneHoverProvider implements vscode.HoverProvider {
       return null;
     }
 
-    const classEntries = queries.getAllClassNames(session)
-      .filter(e => e.className === word);
+    const classEntries = queries.getAllClassNames(session).filter((e) => e.className === word);
     if (classEntries.length === 0) return null;
 
     const entry = classEntries[0];
@@ -67,12 +63,12 @@ export class GemStoneHoverProvider implements vscode.HoverProvider {
     try {
       const comment = queries.getClassComment(session, word);
       if (comment) {
-        const preview = comment.length > 500
-          ? comment.substring(0, 500) + '...'
-          : comment;
+        const preview = comment.length > 500 ? comment.substring(0, 500) + '...' : comment;
         md.appendMarkdown(preview);
       }
-    } catch { /* class not found */ }
+    } catch {
+      /* class not found */
+    }
     return new vscode.Hover(md);
   }
 }

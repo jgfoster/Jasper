@@ -9,8 +9,9 @@ import { RESTORE_NO_LOGOUT_MARKER } from '../queries/restore';
 // `showQuickPick` is overloaded; production passes a `string[]`, but `vi.mocked`
 // types the mock via the (last) `QuickPickItem` overload. Narrow to the string
 // overload once so impls/return values type-check without `any`.
-const mockShowQuickPick = vi.mocked(vscode.window.showQuickPick) as unknown as
-  Mock<(items: readonly string[]) => Promise<string | undefined>>;
+const mockShowQuickPick = vi.mocked(vscode.window.showQuickPick) as unknown as Mock<
+  (items: readonly string[]) => Promise<string | undefined>
+>;
 
 // A fake restore session. By default the restoreFromBackup: call raises the 4046
 // auto-logout (the full-logging success path); commitRestore answers 'OK'.
@@ -26,7 +27,10 @@ function makeSession(opts?: { restoreReturnsNormally?: boolean }) {
     if (code.includes('commitRestore')) return 'OK';
     return '';
   });
-  return { run, logout } as RestoreSession & { run: ReturnType<typeof vi.fn>; logout: ReturnType<typeof vi.fn> };
+  return { run, logout } as RestoreSession & {
+    run: ReturnType<typeof vi.fn>;
+    logout: ReturnType<typeof vi.fn>;
+  };
 }
 
 function makeDeps(overrides?: Partial<LogicalRestoreDeps>) {
@@ -53,7 +57,9 @@ describe('runLogicalRestore', () => {
     vi.clearAllMocks();
     // Default: user picks the fresh-extent option, confirms the destructive modal.
     mockShowQuickPick.mockImplementation(async (items) => items[0]);
-    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Restore' as unknown as vscode.MessageItem);
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(
+      'Restore' as unknown as vscode.MessageItem,
+    );
     vi.mocked(vscode.window.showOpenDialog).mockResolvedValue([
       vscode.Uri.file('/root/db-1/backups/backup.dbf'),
     ]);
@@ -63,17 +69,29 @@ describe('runLogicalRestore', () => {
   it('runs the stop, safety-copy, swap, start, restore, and commit steps in order for a fresh extent', async () => {
     const { deps, session } = makeDeps();
     const order: string[] = [];
-    vi.mocked(deps.closeCurrentSession).mockImplementation(async () => { order.push('close'); });
-    vi.mocked(deps.stopStone).mockImplementation(async () => { order.push('stop'); });
-    vi.mocked(deps.copyCurrentExtentAside).mockImplementation(async () => { order.push('copy'); });
-    vi.mocked(deps.swapInFreshExtent).mockImplementation(async () => { order.push('swap'); });
-    vi.mocked(deps.startStone).mockImplementation(async () => { order.push('start'); });
+    vi.mocked(deps.closeCurrentSession).mockImplementation(async () => {
+      order.push('close');
+    });
+    vi.mocked(deps.stopStone).mockImplementation(async () => {
+      order.push('stop');
+    });
+    vi.mocked(deps.copyCurrentExtentAside).mockImplementation(async () => {
+      order.push('copy');
+    });
+    vi.mocked(deps.swapInFreshExtent).mockImplementation(async () => {
+      order.push('swap');
+    });
+    vi.mocked(deps.startStone).mockImplementation(async () => {
+      order.push('start');
+    });
 
     const ok = await runLogicalRestore(deps);
 
     expect(ok).toBe(true);
     expect(order).toEqual(['close', 'stop', 'copy', 'swap', 'start']);
-    expect(session.run.mock.calls.some(([, code]) => code.includes('restoreFromBackup'))).toBe(true);
+    expect(session.run.mock.calls.some(([, code]) => code.includes('restoreFromBackup'))).toBe(
+      true,
+    );
     expect(session.run.mock.calls.some(([, code]) => code.includes('commitRestore'))).toBe(true);
   });
 
@@ -135,17 +153,25 @@ describe('runLogicalRestore', () => {
     const ok = await runLogicalRestore(deps);
 
     expect(ok).toBe(false);
-    expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining('FileControl'));
+    expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+      expect.stringContaining('FileControl'),
+    );
     expect(deps.stopStone).not.toHaveBeenCalled();
   });
 
   it('reports a failure when the privilege check itself errors', async () => {
-    const { deps } = makeDeps({ hasFileControl: vi.fn(() => { throw new Error('gci down'); }) });
+    const { deps } = makeDeps({
+      hasFileControl: vi.fn(() => {
+        throw new Error('gci down');
+      }),
+    });
 
     const ok = await runLogicalRestore(deps);
 
     expect(ok).toBe(false);
-    expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining('privileges'));
+    expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+      expect.stringContaining('privileges'),
+    );
     expect(deps.stopStone).not.toHaveBeenCalled();
   });
 
@@ -191,7 +217,9 @@ describe('runLogicalRestore', () => {
 
   it('surfaces a mid-restore failure and points the user at the saved-aside extent', async () => {
     const { deps } = makeDeps({
-      startStone: vi.fn(async () => { throw new Error('startstone failed'); }),
+      startStone: vi.fn(async () => {
+        throw new Error('startstone failed');
+      }),
     });
 
     const ok = await runLogicalRestore(deps);
@@ -212,8 +240,8 @@ describe('runLogicalRestore', () => {
       }
       if (code.includes('commitRestore')) {
         throw new Error(
-          'commitRestore not immediately preceeded by restoreFromCurrentLogs. '
-          + 'WARNING: Some transactions may not be restored.',
+          'commitRestore not immediately preceeded by restoreFromCurrentLogs. ' +
+            'WARNING: Some transactions may not be restored.',
         );
       }
       return '';
@@ -241,7 +269,9 @@ describe('runLogicalRestore', () => {
     const ok = await runLogicalRestore(deps);
 
     expect(ok).toBe(false);
-    expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining('file not found'));
+    expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+      expect.stringContaining('file not found'),
+    );
   });
 
   it('ends on a green success status-bar item', async () => {

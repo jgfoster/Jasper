@@ -1,7 +1,14 @@
 import { FoldingRange, FoldingRangeKind } from 'vscode-languageserver';
 import { ParsedDocument } from '../utils/documentManager';
 import { TokenType } from '../lexer/tokens';
-import { MethodNode, BlockNode, StatementNode, ExpressionNode, PrimaryNode, MessageNode } from '../parser/ast';
+import {
+  MethodNode,
+  BlockNode,
+  StatementNode,
+  ExpressionNode,
+  PrimaryNode,
+  MessageNode,
+} from '../parser/ast';
 
 export function getFoldingRanges(doc: ParsedDocument): FoldingRange[] {
   const ranges: FoldingRange[] = [];
@@ -79,7 +86,11 @@ function collectBlockFolds(method: MethodNode, ranges: FoldingRange[], lineOffse
   walkStatementsForFolds(method.body.statements, ranges, lineOffset);
 }
 
-function walkStatementsForFolds(statements: StatementNode[], ranges: FoldingRange[], off: number): void {
+function walkStatementsForFolds(
+  statements: StatementNode[],
+  ranges: FoldingRange[],
+  off: number,
+): void {
   for (const stmt of statements) {
     walkStatementForFolds(stmt, ranges, off);
   }

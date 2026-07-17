@@ -11,7 +11,12 @@ function makeDatabase(): GemStoneDatabase {
   return {
     dirName: 'db-1',
     path: '/root/db-1',
-    config: { version: '3.7.5', stoneName: 'gs64stone', ldiName: 'gs64ldi', baseExtent: 'extent0.dbf' },
+    config: {
+      version: '3.7.5',
+      stoneName: 'gs64stone',
+      ldiName: 'gs64ldi',
+      baseExtent: 'extent0.dbf',
+    },
   };
 }
 
@@ -37,7 +42,9 @@ describe('DatabaseTreeProvider backups node', () => {
   it('hides the Backups node when the backups folder does not exist', () => {
     vi.mocked(wslExistsSync).mockReturnValue(false);
 
-    const kinds = makeProvider().getChildren(dbNode).map(c => c.kind);
+    const kinds = makeProvider()
+      .getChildren(dbNode)
+      .map((c) => c.kind);
 
     expect(kinds).toEqual(['stone', 'netldi', 'logs', 'config']);
   });
@@ -46,7 +53,9 @@ describe('DatabaseTreeProvider backups node', () => {
     vi.mocked(wslExistsSync).mockReturnValue(true);
     vi.mocked(wslReaddirSync).mockReturnValue(['README.txt']);
 
-    const kinds = makeProvider().getChildren(dbNode).map(c => c.kind);
+    const kinds = makeProvider()
+      .getChildren(dbNode)
+      .map((c) => c.kind);
 
     expect(kinds).not.toContain('backups');
   });
@@ -55,7 +64,9 @@ describe('DatabaseTreeProvider backups node', () => {
     vi.mocked(wslExistsSync).mockReturnValue(true);
     vi.mocked(wslReaddirSync).mockReturnValue(['gs64stone_2026-07-10_20-00-00.dbf']);
 
-    const kinds = makeProvider().getChildren(dbNode).map(c => c.kind);
+    const kinds = makeProvider()
+      .getChildren(dbNode)
+      .map((c) => c.kind);
 
     expect(kinds).toContain('backups');
   });
@@ -70,7 +81,7 @@ describe('DatabaseTreeProvider backups node', () => {
 
     const children = makeProvider().getChildren({ kind: 'backups', db });
 
-    expect(children.map(c => c.kind === 'backupFile' && c.filePath)).toEqual([
+    expect(children.map((c) => c.kind === 'backupFile' && c.filePath)).toEqual([
       '/root/db-1/backups/gs64stone_2026-03-01_00-00-00.dbf',
       '/root/db-1/backups/gs64stone_2026-01-01_00-00-00.dbf',
     ]);

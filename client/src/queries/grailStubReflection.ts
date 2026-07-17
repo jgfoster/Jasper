@@ -35,7 +35,9 @@ export interface GrailStubReflection {
 }
 
 export function getGrailStubReflection(
-  execute: QueryExecutor, className: string, dict?: number | string,
+  execute: QueryExecutor,
+  className: string,
+  dict?: number | string,
 ): GrailStubReflection {
   // Output is line-oriented and tab-delimited, with the (possibly multi-line)
   // class comment last after a sentinel so its newlines don't confuse parsing:

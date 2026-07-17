@@ -8,7 +8,11 @@ vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
   return {
     ...actual,
-    promises: { ...actual.promises, writeFile: vi.fn(async () => {}), mkdir: vi.fn(async () => {}) },
+    promises: {
+      ...actual.promises,
+      writeFile: vi.fn(async () => {}),
+      mkdir: vi.fn(async () => {}),
+    },
   };
 });
 
@@ -37,7 +41,8 @@ vi.mock('../debugQueries', () => ({
     return { className: 'JasperDebugDemo', selector: 'accumulateFrom:to:' };
   }),
   getObjectClassName: vi.fn((_s: unknown, receiverOop: bigint) =>
-    receiverOop === 200n ? 'SmallInteger' : 'JasperDebugDemo'),
+    receiverOop === 200n ? 'SmallInteger' : 'JasperDebugDemo',
+  ),
   getLineForIp: vi.fn(() => 12),
   getStepPoint: vi.fn(() => 2),
   // Source offsets fetched straight from a method OOP (read-only doit / non-
@@ -74,31 +79,49 @@ vi.mock('../debugQueries', () => ({
   getDoesNotUnderstandInfo: vi.fn(() => undefined),
   // Implement-in-receiver (override): the receiver's inheritance chain (default
   // is a single class → no QuickPick; tests override it for the multi-class case).
-  getReceiverClassChain: vi.fn(() => [{ className: 'SmallInteger', isMeta: false, dictName: 'Globals' }]),
+  getReceiverClassChain: vi.fn(() => [
+    { className: 'SmallInteger', isMeta: false, dictName: 'Globals' },
+  ]),
   // "Browse" frame: where the running selector is defined (defining class + home
   // dict + category). Default = a resolvable, symbol-list target.
   getBrowseTarget: vi.fn(() => ({
-    className: 'JasperDebugDemo', isMeta: false, dictName: 'UserGlobals', category: 'running',
+    className: 'JasperDebugDemo',
+    isMeta: false,
+    dictName: 'UserGlobals',
+    category: 'running',
   })),
   // Whole-stack dump (#10/#11): one batched call. Default = a Receiver row per
   // frame whose printString/oop mirror the per-frame receiverOop (level * 100).
-  fetchStackDump: vi.fn(() => [1, 2, 3, 4, 5].map(l => ({
-    serverLevel: l, group: 'receiver' as const, name: 'self',
-    value: `<print ${l * 100}>`, oop: `${l * 100}`,
-  }))),
+  fetchStackDump: vi.fn(() =>
+    [1, 2, 3, 4, 5].map((l) => ({
+      serverLevel: l,
+      group: 'receiver' as const,
+      name: 'self',
+      value: `<print ${l * 100}>`,
+      oop: `${l * 100}`,
+    })),
+  ),
   // Single-frame variables in one round trip (drives the Variables pane + inline
   // overlay). Default = just the receiver row (self oop = level*100), matching the
   // old getFrameInfo default; tests override per level for instVars/temps. The
   // server doit already filters __vsc glue, classifies .tN stack temps, and emits
   // each editable slot's 1-based write index, so rows arrive grouped + indexed.
   fetchFrameVariables: vi.fn((_s: unknown, _p: unknown, level: number) => [
-    { group: 'receiver' as const, name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 },
+    {
+      group: 'receiver' as const,
+      name: 'self',
+      value: `<print ${level * 100}>`,
+      oop: `${level * 100}`,
+      index: 0,
+    },
   ]),
 }));
 
 // Clicking a variable row opens an enhanced inspector — stub the static entry point.
 // create() returns a closable handle so the debugger can close it on dispose.
-vi.mock('../enhancedInspector', () => ({ EnhancedInspector: { create: vi.fn(() => ({ close: vi.fn() })) } }));
+vi.mock('../enhancedInspector', () => ({
+  EnhancedInspector: { create: vi.fn(() => ({ close: vi.fn() })) },
+}));
 
 // "Browse" a frame opens a System Browser — stub the static entry point so the
 // test doesn't pull in the whole browser module (and its many dependencies).
@@ -120,12 +143,28 @@ import * as path from 'path';
 import * as debug from '../debugQueries';
 import * as queries from '../browserQueries';
 import {
-  DebuggerPanel, formatFrameLabel, formatFramePosition, buildMethodStub, selectorArgCount,
-  formatFrameForClipboard, buildMethodSourceUri,
-  filterStack, isExceptionMachinery, RawFrame,
-  flattenLayoutLeaves, sourceRatioFromLayout, setSourceRatioInLayout, EditorGroupLayout,
-  formatDetailedStack, stackDumpFileName, stackDumpTimestamp, DetailedStackFrame,
-  computeInlineValueLines, shortenInlineValue, maskCommentsAndStrings, InlineVar,
+  DebuggerPanel,
+  formatFrameLabel,
+  formatFramePosition,
+  buildMethodStub,
+  selectorArgCount,
+  formatFrameForClipboard,
+  buildMethodSourceUri,
+  filterStack,
+  isExceptionMachinery,
+  RawFrame,
+  flattenLayoutLeaves,
+  sourceRatioFromLayout,
+  setSourceRatioInLayout,
+  EditorGroupLayout,
+  formatDetailedStack,
+  stackDumpFileName,
+  stackDumpTimestamp,
+  DetailedStackFrame,
+  computeInlineValueLines,
+  shortenInlineValue,
+  maskCommentsAndStrings,
+  InlineVar,
   inlineHoverMarkdown,
 } from '../debuggerPanel';
 import { InlineValuesCodeLensProvider } from '../inlineValuesCodeLens';
@@ -158,12 +197,13 @@ const stepPointDecorationOptions = vi
 // which vi.clearAllMocks() does NOT undo, so an override would otherwise leak
 // into every later test. The beforeEach below re-applies these snapshots so each
 // test starts from the factory defaults regardless of run order (sequence.shuffle).
-const debugDefaults: Array<[string, ((...args: unknown[]) => unknown) | undefined]> =
-  Object.keys(debug).map((k) => {
-    const fn = (debug as Record<string, unknown>)[k];
-    const impl = vi.isMockFunction(fn) ? fn.getMockImplementation() : undefined;
-    return [k, impl as ((...args: unknown[]) => unknown) | undefined];
-  });
+const debugDefaults: Array<[string, ((...args: unknown[]) => unknown) | undefined]> = Object.keys(
+  debug,
+).map((k) => {
+  const fn = (debug as Record<string, unknown>)[k];
+  const impl = vi.isMockFunction(fn) ? fn.getMockImplementation() : undefined;
+  return [k, impl as ((...args: unknown[]) => unknown) | undefined];
+});
 
 function restoreDebugDefaults(): void {
   for (const [k, impl] of debugDefaults) {
@@ -181,7 +221,10 @@ function makeSession(): ActiveSession {
     id: 1,
     handle: { h: 1 },
     login: {
-      label: 'Test', gs_user: 'DataCurator', stone: 'gs64stone', gem_host: 'devhost',
+      label: 'Test',
+      gs_user: 'DataCurator',
+      stone: 'gs64stone',
+      gem_host: 'devhost',
     } as GemStoneLogin,
     stoneVersion: '3.7.2',
     enhancedInspectorAvailable: true,
@@ -213,8 +256,9 @@ function closePanel(panel: ReturnType<typeof lastPanel>) {
 
 /** The `init` payload the panel posts back to the webview after `ready`. */
 function initPayload(panel: ReturnType<typeof lastPanel>) {
-  const call = panel.webview.postMessage.mock.calls
-    .find((c: unknown[]) => (c[0] as { command: string }).command === 'init');
+  const call = panel.webview.postMessage.mock.calls.find(
+    (c: unknown[]) => (c[0] as { command: string }).command === 'init',
+  );
   return call?.[0];
 }
 
@@ -231,8 +275,9 @@ function posted(panel: ReturnType<typeof lastPanel>, command: string) {
  * are an untyped IPC union that assertions index into ad-hoc.
  */
 function lastPosted(panel: ReturnType<typeof lastPanel>, command: string) {
-  const all = panel.webview.postMessage.mock.calls
-    .filter((c: unknown[]) => (c[0] as { command: string }).command === command);
+  const all = panel.webview.postMessage.mock.calls.filter(
+    (c: unknown[]) => (c[0] as { command: string }).command === command,
+  );
   return all[all.length - 1]?.[0];
 }
 
@@ -242,41 +287,61 @@ function lastPosted(panel: ReturnType<typeof lastPanel>, command: string) {
  * settle before assertions. The mocked Nb fns resolve immediately, so one tick
  * is enough.
  */
-const tick = (): Promise<void> => new Promise<void>(resolve => setTimeout(resolve, 0));
+const tick = (): Promise<void> => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe('formatFrameLabel', () => {
   it('names a plain frame `Class>>#selector` when receiver matches the defining class', () => {
-    expect(formatFrameLabel({
-      isBlock: false, definingClass: 'JasperDebugDemo', selector: 'finish',
-      receiverClass: 'JasperDebugDemo',
-    })).toBe('JasperDebugDemo>>#finish');
+    expect(
+      formatFrameLabel({
+        isBlock: false,
+        definingClass: 'JasperDebugDemo',
+        selector: 'finish',
+        receiverClass: 'JasperDebugDemo',
+      }),
+    ).toBe('JasperDebugDemo>>#finish');
   });
 
   it('disambiguates an inherited method as `Receiver (Defining)>>#selector`', () => {
-    expect(formatFrameLabel({
-      isBlock: false, definingClass: 'Object', selector: 'printString',
-      receiverClass: 'Array',
-    })).toBe('Array (Object)>>#printString');
+    expect(
+      formatFrameLabel({
+        isBlock: false,
+        definingClass: 'Object',
+        selector: 'printString',
+        receiverClass: 'Array',
+      }),
+    ).toBe('Array (Object)>>#printString');
   });
 
   it('omits disambiguation when the receiver class is unavailable', () => {
-    expect(formatFrameLabel({
-      isBlock: false, definingClass: 'Object', selector: 'printString',
-    })).toBe('Object>>#printString');
+    expect(
+      formatFrameLabel({
+        isBlock: false,
+        definingClass: 'Object',
+        selector: 'printString',
+      }),
+    ).toBe('Object>>#printString');
   });
 
   it('prefixes a block frame with `[] in ` and never disambiguates the receiver', () => {
-    expect(formatFrameLabel({
-      isBlock: true, definingClass: 'JasperDebugDemo', selector: 'finish',
-      receiverClass: 'SomethingElse',
-    })).toBe('[] in JasperDebugDemo>>#finish');
+    expect(
+      formatFrameLabel({
+        isBlock: true,
+        definingClass: 'JasperDebugDemo',
+        selector: 'finish',
+        receiverClass: 'SomethingElse',
+      }),
+    ).toBe('[] in JasperDebugDemo>>#finish');
   });
 
   it('handles inherited class-side methods (metaclass names already include " class")', () => {
-    expect(formatFrameLabel({
-      isBlock: false, definingClass: 'Object class', selector: 'new',
-      receiverClass: 'JasperDebugDemo class',
-    })).toBe('JasperDebugDemo class (Object class)>>#new');
+    expect(
+      formatFrameLabel({
+        isBlock: false,
+        definingClass: 'Object class',
+        selector: 'new',
+        receiverClass: 'JasperDebugDemo class',
+      }),
+    ).toBe('JasperDebugDemo class (Object class)>>#new');
   });
 });
 
@@ -342,8 +407,13 @@ describe('selectorArgCount', () => {
 
 describe('formatFrameForClipboard', () => {
   it('renders `<label>  <position>` with no leading frame number', () => {
-    expect(formatFrameForClipboard({ level: 2, label: 'SmallInteger (Object)>>#halt', position: '@2 line 12' }))
-      .toBe('SmallInteger (Object)>>#halt  @2 line 12');
+    expect(
+      formatFrameForClipboard({
+        level: 2,
+        label: 'SmallInteger (Object)>>#halt',
+        position: '@2 line 12',
+      }),
+    ).toBe('SmallInteger (Object)>>#halt  @2 line 12');
   });
 
   it('omits the position when the frame has none', () => {
@@ -354,17 +424,37 @@ describe('formatFrameForClipboard', () => {
 describe('formatDetailedStack (#10)', () => {
   const frames: DetailedStackFrame[] = [
     {
-      level: 1, label: 'JasperFoo>>#bar', position: '@2 line 3',
+      level: 1,
+      label: 'JasperFoo>>#bar',
+      position: '@2 line 3',
       groups: [
-        { title: 'Receiver', kind: 'receiver', vars: [{ name: 'self', value: 'a JasperFoo', oop: '100' }] },
-        { title: 'Instance variables', kind: 'instvars', vars: [{ name: 'count', value: '7', oop: '14', edit: { kind: 'instvar', index: 1 } }] },
-        { title: 'Arguments & Temps', kind: 'argtemps', vars: [{ name: 'x', value: 'nil', oop: '20', edit: { kind: 'temp', index: 1 } }] },
+        {
+          title: 'Receiver',
+          kind: 'receiver',
+          vars: [{ name: 'self', value: 'a JasperFoo', oop: '100' }],
+        },
+        {
+          title: 'Instance variables',
+          kind: 'instvars',
+          vars: [{ name: 'count', value: '7', oop: '14', edit: { kind: 'instvar', index: 1 } }],
+        },
+        {
+          title: 'Arguments & Temps',
+          kind: 'argtemps',
+          vars: [{ name: 'x', value: 'nil', oop: '20', edit: { kind: 'temp', index: 1 } }],
+        },
       ],
     },
     {
-      level: 2, label: 'JasperFoo>>#run', position: '',
+      level: 2,
+      label: 'JasperFoo>>#run',
+      position: '',
       groups: [
-        { title: 'Receiver', kind: 'receiver', vars: [{ name: 'self', value: 'a JasperFoo', oop: '100' }] },
+        {
+          title: 'Receiver',
+          kind: 'receiver',
+          vars: [{ name: 'self', value: 'a JasperFoo', oop: '100' }],
+        },
       ],
     },
   ];
@@ -373,7 +463,10 @@ describe('formatDetailedStack (#10)', () => {
     const out = formatDetailedStack('boom', frames).split('\n');
     // Header (error) then the SHORT stack — both frames — before any detail.
     expect(out.slice(0, 4)).toEqual([
-      'GemStone error: boom', '', '[1] JasperFoo>>#bar  @2 line 3', '[2] JasperFoo>>#run',
+      'GemStone error: boom',
+      '',
+      '[1] JasperFoo>>#bar  @2 line 3',
+      '[2] JasperFoo>>#run',
     ]);
     // A separator + repeated heading introduces each detail block.
     expect(out).toContain('---------------------------------');
@@ -393,7 +486,12 @@ describe('formatDetailedStack (#10)', () => {
 
   it('shows "(none)" for a group with no rows, and an optional header line', () => {
     const empty: DetailedStackFrame[] = [
-      { level: 1, label: 'A>>#x', position: '', groups: [{ title: 'Instance variables', kind: 'instvars', vars: [] }] },
+      {
+        level: 1,
+        label: 'A>>#x',
+        position: '',
+        groups: [{ title: 'Instance variables', kind: 'instvars', vars: [] }],
+      },
     ];
     const out = formatDetailedStack('', empty, 'Jasper Debugger stack dump — For me');
     expect(out.startsWith('Jasper Debugger stack dump — For me\n')).toBe(true);
@@ -409,26 +507,28 @@ describe('formatDetailedStack (#10)', () => {
   // Golden, byte-exact rendering — locks the whole layout (spacing, separators,
   // group order) so a stray format change can't slip through the toContain checks.
   it('renders the exact GBS-style layout (golden)', () => {
-    expect(formatDetailedStack('a Error', frames)).toBe([
-      'GemStone error: a Error',
-      '',
-      '[1] JasperFoo>>#bar  @2 line 3',
-      '[2] JasperFoo>>#run',
-      '',
-      '-'.repeat(33),
-      '[1] JasperFoo>>#bar  @2 line 3',
-      'Receiver:',
-      '    self = a JasperFoo   {100}',
-      'Instance variables:',
-      '    count = 7   {14}',
-      'Arguments & Temps:',
-      '    x = nil   {20}',
-      '',
-      '-'.repeat(33),
-      '[2] JasperFoo>>#run',
-      'Receiver:',
-      '    self = a JasperFoo   {100}',
-    ].join('\n'));
+    expect(formatDetailedStack('a Error', frames)).toBe(
+      [
+        'GemStone error: a Error',
+        '',
+        '[1] JasperFoo>>#bar  @2 line 3',
+        '[2] JasperFoo>>#run',
+        '',
+        '-'.repeat(33),
+        '[1] JasperFoo>>#bar  @2 line 3',
+        'Receiver:',
+        '    self = a JasperFoo   {100}',
+        'Instance variables:',
+        '    count = 7   {14}',
+        'Arguments & Temps:',
+        '    x = nil   {20}',
+        '',
+        '-'.repeat(33),
+        '[2] JasperFoo>>#run',
+        'Receiver:',
+        '    self = a JasperFoo   {100}',
+      ].join('\n'),
+    );
   });
 });
 
@@ -440,8 +540,9 @@ describe('stackDumpFileName / stackDumpTimestamp (#11)', () => {
   });
 
   it('leads with the timestamp, then the frame token (block prefix dropped)', () => {
-    expect(stackDumpFileName('[] in JasperFoo>>#bar', when))
-      .toBe('20260625_153012_JasperFoo-bar.txt');
+    expect(stackDumpFileName('[] in JasperFoo>>#bar', when)).toBe(
+      '20260625_153012_JasperFoo-bar.txt',
+    );
   });
 
   it('collapses non-alphanumerics and falls back to "stack" for an empty label', () => {
@@ -479,8 +580,8 @@ describe('DebuggerPanel', () => {
     DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
 
     const call = vi.mocked(vscode.window.createWebviewPanel).mock.calls[0];
-    expect(call[1]).toBe('Jasper Debugger');           // tab title
-    expect(call[2]).toBe(vscode.ViewColumn.Beside);    // to the right of the active group
+    expect(call[1]).toBe('Jasper Debugger'); // tab title
+    expect(call[2]).toBe(vscode.ViewColumn.Beside); // to the right of the active group
     expect(call[3]).toMatchObject({ enableScripts: true });
   });
 
@@ -517,7 +618,10 @@ describe('DebuggerPanel', () => {
 
   it('HTML-escapes session text so it cannot inject markup into the page', () => {
     session.login = {
-      label: 'T', gs_user: '<img src=x>', stone: 's&s', gem_host: 'h"h',
+      label: 'T',
+      gs_user: '<img src=x>',
+      stone: 's&s',
+      gem_host: 'h"h',
     } as GemStoneLogin;
     DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
     const html = lastPanel().webview.html;
@@ -525,7 +629,7 @@ describe('DebuggerPanel', () => {
     expect(html).toContain(
       '<span class="subtitle">For &lt;img src=x&gt; on s&amp;s @ h&quot;h</span>',
     );
-    expect(html).not.toContain('<img src=x>');   // raw, unescaped tag must not appear
+    expect(html).not.toContain('<img src=x>'); // raw, unescaped tag must not appear
   });
 
   it('builds a partial subtitle when some login fields are missing', () => {
@@ -563,12 +667,12 @@ describe('DebuggerPanel', () => {
       DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
       const html = lastPanel().webview.html;
 
-      expect(html).toContain('id="copyBtn"');                    // Copy Stack button
+      expect(html).toContain('id="copyBtn"'); // Copy Stack button
       expect(html).toContain('Copy Stack');
-      expect(html).toContain('id="copyFrameItem"');              // Copy Frame popup item
+      expect(html).toContain('id="copyFrameItem"'); // Copy Frame popup item
       expect(html).toContain('Copy Frame');
-      expect(html).toContain('copyFrame');                       // per-frame copy wiring
-      expect(html).toContain('id="browseFrameItem"');            // Browse popup item
+      expect(html).toContain('copyFrame'); // per-frame copy wiring
+      expect(html).toContain('id="browseFrameItem"'); // Browse popup item
       expect(html).toMatch(/addEventListener\(\s*'contextmenu'/); // default menu suppressed + custom menu
       expect(html).toContain('preventDefault');
     });
@@ -577,10 +681,10 @@ describe('DebuggerPanel', () => {
       DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
       const html = lastPanel().webview.html;
 
-      expect(html).toContain('>Call Stack<');     // pane title
-      expect(html).toContain('>Variables<');       // pane title
-      expect(html).toContain('id="splitter"');     // draggable column divider
-      expect(html).toContain('id="hsplitter"');     // draggable panes-vs-eval divider
+      expect(html).toContain('>Call Stack<'); // pane title
+      expect(html).toContain('>Variables<'); // pane title
+      expect(html).toContain('id="splitter"'); // draggable column divider
+      expect(html).toContain('id="hsplitter"'); // draggable panes-vs-eval divider
       expect(html).toMatch(/--stack-basis:\s*60%/); // default split, injected from the saved static
       expect(html).toMatch(/--eval-height:\s*4rem/); // default eval-bar height, injected from the saved static
     });
@@ -590,7 +694,15 @@ describe('DebuggerPanel', () => {
       const html = lastPanel().webview.html;
 
       // Each control keeps its data-cmd (wiring) but now carries an inline SVG glyph.
-      for (const cmd of ['resume', 'runToCursor', 'stepOver', 'stepInto', 'stepThrough', 'restartFrame', 'terminate']) {
+      for (const cmd of [
+        'resume',
+        'runToCursor',
+        'stepOver',
+        'stepInto',
+        'stepThrough',
+        'restartFrame',
+        'terminate',
+      ]) {
         expect(html).toMatch(new RegExp(`data-cmd="${cmd}"[^>]*>\\s*<svg`));
       }
       // Run to Cursor starts disabled (enabled only when a breakable frame is selected).
@@ -603,7 +715,7 @@ describe('DebuggerPanel', () => {
     it('#10 copyStack: copies the FULL stack — short stack on top, then per-frame values', () => {
       DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
       const panel = lastPanel();
-      sendReady(panel);            // fetches + caches the stack
+      sendReady(panel); // fetches + caches the stack
       sendMessage(panel, { command: 'copyStack' });
 
       const text = vi.mocked(vscode.env.clipboard.writeText).mock.calls[0][0] as string;
@@ -624,8 +736,9 @@ describe('DebuggerPanel', () => {
       sendReady(panel);
       sendMessage(panel, { command: 'copyFrame', level: 2 });
 
-      expect(vscode.env.clipboard.writeText)
-        .toHaveBeenCalledWith('SmallInteger (Object)>>#halt  @2 line 12');
+      expect(vscode.env.clipboard.writeText).toHaveBeenCalledWith(
+        'SmallInteger (Object)>>#halt  @2 line 12',
+      );
     });
 
     it('ignores copyFrame for an unknown level without writing the clipboard', () => {
@@ -643,7 +756,7 @@ describe('DebuggerPanel', () => {
       sendReady(panel);
 
       const stack = initPayload(panel).stack as Array<{ browsable?: boolean }>;
-      expect(stack.every(f => f.browsable === true)).toBe(true);
+      expect(stack.every((f) => f.browsable === true)).toBe(true);
     });
 
     it('opens a browser on the running method’s defining class beside the debugger', () => {
@@ -656,8 +769,11 @@ describe('DebuggerPanel', () => {
       expect(SystemBrowser.openAndNavigate).toHaveBeenCalledWith(
         session,
         {
-          dictName: 'UserGlobals', className: 'JasperDebugDemo', isMeta: false,
-          selector: 'halt', category: 'running',
+          dictName: 'UserGlobals',
+          className: 'JasperDebugDemo',
+          isMeta: false,
+          selector: 'halt',
+          category: 'running',
         },
         vscode.ViewColumn.Beside,
       );
@@ -687,7 +803,10 @@ describe('DebuggerPanel', () => {
 
     it('shows a message instead of opening a browser when the class is outside the symbol list', () => {
       vi.mocked(debug.getBrowseTarget).mockReturnValueOnce({
-        className: 'Loner', isMeta: false, dictName: '', category: '',
+        className: 'Loner',
+        isMeta: false,
+        dictName: '',
+        category: '',
       });
       DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
       const panel = lastPanel();
@@ -738,9 +857,14 @@ describe('DebuggerPanel', () => {
 
       // Directory ensured + file written with the detailed text.
       expect(vi.mocked(fs.promises.mkdir)).toHaveBeenCalledWith(
-        expect.stringContaining(`${path.sep}.jasper${path.sep}stacks`), { recursive: true },
+        expect.stringContaining(`${path.sep}.jasper${path.sep}stacks`),
+        { recursive: true },
       );
-      const [filePath, content, enc] = vi.mocked(fs.promises.writeFile).mock.calls[0] as [string, string, string];
+      const [filePath, content, enc] = vi.mocked(fs.promises.writeFile).mock.calls[0] as [
+        string,
+        string,
+        string,
+      ];
       // Timestamp-first name (YYYYMMDD_HHMMSS_<frame>.txt) under ~/.jasper/stacks.
       expect(filePath).toMatch(/[/\\]\.jasper[/\\]stacks[/\\]\d{8}_\d{6}_.*\.txt$/);
       expect(enc).toBe('utf-8');
@@ -792,10 +916,13 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'openDumpFile', path: '/Users/me/.jasper/stacks/x.txt' });
       await tick();
 
-      const opened = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
+      const opened = vi
+        .mocked(vscode.workspace.openTextDocument)
+        .mock.calls.at(-1)![0] as vscode.Uri;
       expect(opened.fsPath).toBe('/Users/me/.jasper/stacks/x.txt');
       expect(vscode.window.showTextDocument).toHaveBeenCalledWith(
-        expect.anything(), expect.objectContaining({ preview: false }),
+        expect.anything(),
+        expect.objectContaining({ preview: false }),
       );
     });
 
@@ -874,7 +1001,11 @@ describe('DebuggerPanel', () => {
       const panel = lastPanel();
       sendReady(panel);
 
-      expect(initPayload(panel).stack[0]).toMatchObject({ level: 1, label: '<frame 1>', position: '' });
+      expect(initPayload(panel).stack[0]).toMatchObject({
+        level: 1,
+        label: '<frame 1>',
+        position: '',
+      });
     });
 
     // An "unprintable" / unresolvable receiver: getObjectClassName throws. The
@@ -894,7 +1025,10 @@ describe('DebuggerPanel', () => {
       // just the plain defining-class label, and the frame isn't overridable
       // (we can't tell the receiver inherited the method).
       expect(initPayload(panel).stack[1]).toMatchObject({
-        level: 2, label: 'Object>>#halt', position: '@2 line 12', overridable: false,
+        level: 2,
+        label: 'Object>>#halt',
+        position: '@2 line 12',
+        overridable: false,
       });
     });
 
@@ -915,11 +1049,14 @@ describe('DebuggerPanel', () => {
 
   describe('source pane', () => {
     // Let revealFrameSource's awaited openTextDocument/showTextDocument settle.
-    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
     const URI_INFO = {
-      dictName: 'UserGlobals', className: 'JasperDebugDemo', isMeta: false,
-      category: 'accessing', selector: 'accumulateFrom:to:',
+      dictName: 'UserGlobals',
+      className: 'JasperDebugDemo',
+      isMeta: false,
+      category: 'accessing',
+      selector: 'accumulateFrom:to:',
     };
 
     // The editor showTextDocument resolved to on the most recent call.
@@ -940,13 +1077,15 @@ describe('DebuggerPanel', () => {
     }
 
     it('builds a gemstone:// URI of the form scheme/dict/class/side/category/selector', () => {
-      expect(buildMethodSourceUri(7, URI_INFO))
-        .toBe('gemstone://7/UserGlobals/JasperDebugDemo/instance/accessing/accumulateFrom%3Ato%3A');
+      expect(buildMethodSourceUri(7, URI_INFO)).toBe(
+        'gemstone://7/UserGlobals/JasperDebugDemo/instance/accessing/accumulateFrom%3Ato%3A',
+      );
     });
 
     it('uses the "class" side for metaclass methods', () => {
-      expect(buildMethodSourceUri(7, { ...URI_INFO, isMeta: true }))
-        .toContain('/JasperDebugDemo/class/');
+      expect(buildMethodSourceUri(7, { ...URI_INFO, isMeta: true })).toContain(
+        '/JasperDebugDemo/class/',
+      );
     });
 
     it('opens the method source (gemstone://) in a group BELOW the panel, keeping focus', async () => {
@@ -964,7 +1103,9 @@ describe('DebuggerPanel', () => {
       expect(vscode.commands.executeCommand).toHaveBeenCalledWith('workbench.action.newGroupBelow');
       // …then shrink that 50/50 source group toward ~1/3 (item #2). Guards the
       // resize from being silently dropped — exact ratio is tuned by step count.
-      expect(vscode.commands.executeCommand).toHaveBeenCalledWith('workbench.action.decreaseViewHeight');
+      expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+        'workbench.action.decreaseViewHeight',
+      );
 
       expect(vscode.window.showTextDocument).toHaveBeenCalledWith(
         expect.anything(),
@@ -984,7 +1125,7 @@ describe('DebuggerPanel', () => {
       // No word range in the mock → a one-character marker, NOT the whole line.
       const range = vi.mocked(editor.setDecorations).mock.calls[0][1][0] as vscode.Range;
       expect(range.start.line).toBe(0);
-      expect(range.start.character).toBe(7);          // 8 (1-based) - 1, NOT 8
+      expect(range.start.character).toBe(7); // 8 (1-based) - 1, NOT 8
       expect(range.end.character - range.start.character).toBe(1);
       expect(editor.revealRange).toHaveBeenCalled();
     });
@@ -994,7 +1135,9 @@ describe('DebuggerPanel', () => {
       // A true doit frame: no class>>selector at all (getMethodUriInfo AND
       // getMethodInfo both fail to resolve a home class). Doits run the user's
       // raw code, so the stored source IS the displayed source.
-      vi.mocked(debug.getMethodInfo).mockImplementationOnce(() => { throw new Error('doit: nil inClass'); });
+      vi.mocked(debug.getMethodInfo).mockImplementationOnce(() => {
+        throw new Error('doit: nil inClass');
+      });
       vi.mocked(debug.getMethodSource).mockReturnValueOnce('JasperDebugDemo new run');
       sendMessage(panel, { command: 'selectFrame', level: 3 });
       await flush();
@@ -1051,7 +1194,10 @@ describe('DebuggerPanel', () => {
       // line. Source AND offsets must come from the home method. Here the block's
       // method (frame 3 → 3n) differs from its home (999n).
       const panel = openPanelWithStack();
-      vi.mocked(debug.getMethodBlockInfo).mockReturnValueOnce({ isBlock: true, homeMethodOop: 999n });
+      vi.mocked(debug.getMethodBlockInfo).mockReturnValueOnce({
+        isBlock: true,
+        homeMethodOop: 999n,
+      });
       sendMessage(panel, { command: 'selectFrame', level: 3 });
       await flush();
 
@@ -1068,13 +1214,21 @@ describe('DebuggerPanel', () => {
       // These overrides leak past clearAllMocks — restore the factory defaults.
       afterEach(() => {
         vi.mocked(debug.getStackDepth).mockImplementation(() => 5);
-        vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
-          methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100),
-          argAndTempNames: [], argAndTempOops: [],
-        }));
-        vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => ({
-          isBlock: methodOop === 1n, homeMethodOop: methodOop,
-        }));
+        vi.mocked(debug.getFrameInfo).mockImplementation(
+          (_s: unknown, _p: unknown, level: number) => ({
+            methodOop: BigInt(level),
+            ipOffset: 5,
+            receiverOop: BigInt(level * 100),
+            argAndTempNames: [],
+            argAndTempOops: [],
+          }),
+        );
+        vi.mocked(debug.getMethodBlockInfo).mockImplementation(
+          (_s: unknown, methodOop: bigint) => ({
+            isBlock: methodOop === 1n,
+            homeMethodOop: methodOop,
+          }),
+        );
         vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
           if (oop === 1n) return { className: 'JasperDebugDemo', selector: 'finish' };
           if (oop === 2n) return { className: 'Object', selector: 'halt' };
@@ -1091,28 +1245,37 @@ describe('DebuggerPanel', () => {
         //   level 2 — outer wrapper block
         //   level 3 — the doit home (step point 5, out in the wrapper glue)
         vi.mocked(debug.getStackDepth).mockImplementation(() => 3);
-        vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
-          methodOop: BigInt(level), ipOffset: 5, receiverOop: 100n,
-          argAndTempNames: [], argAndTempOops: [],
-        }));
+        vi.mocked(debug.getFrameInfo).mockImplementation(
+          (_s: unknown, _p: unknown, level: number) => ({
+            methodOop: BigInt(level),
+            ipOffset: 5,
+            receiverOop: 100n,
+            argAndTempNames: [],
+            argAndTempOops: [],
+          }),
+        );
         // All three resolve to the same doit home (30n) → collapse to one frame.
-        vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => ({
-          isBlock: methodOop !== 3n, homeMethodOop: 30n,
-        }));
+        vi.mocked(debug.getMethodBlockInfo).mockImplementation(
+          (_s: unknown, methodOop: bigint) => ({
+            isBlock: methodOop !== 3n,
+            homeMethodOop: 30n,
+          }),
+        );
         // No symbol-list entry and no resolvable class → executed code (a doit).
-        vi.mocked(debug.getMethodInfo).mockImplementation(() => { throw new Error('doit'); });
+        vi.mocked(debug.getMethodInfo).mockImplementation(() => {
+          throw new Error('doit');
+        });
         vi.mocked(debug.getMethodSource).mockImplementation(
           () => '[Array new add: 1; halt; add: 2] value',
         );
         // Step point differs by frame: the stop frame (level 1) is at the halt;
         // the collapsed doit (level 3) is at the trailing `value` send.
-        vi.mocked(debug.getStepPoint).mockImplementation((_s: unknown, _p: unknown, level: number) =>
-          level === 1 ? 2 : 5);
+        vi.mocked(debug.getStepPoint).mockImplementation(
+          (_s: unknown, _p: unknown, level: number) => (level === 1 ? 2 : 5),
+        );
         // Home-method offsets (1-based): sp 2 → 8 → col 7 (the halt);
         // sp 5 → 40 → col 39 (the `value` send).
-        vi.mocked(debug.getSourceOffsetsForMethod).mockImplementation(
-          () => [1, 8, 15, 22, 40],
-        );
+        vi.mocked(debug.getSourceOffsetsForMethod).mockImplementation(() => [1, 8, 15, 22, 40]);
 
         DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
         const panel = lastPanel();
@@ -1135,8 +1298,8 @@ describe('DebuggerPanel', () => {
     it('clears the highlight (no reveal) when there is no step point and no source line', async () => {
       const panel = openPanelWithStack();
       vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce(URI_INFO);
-      vi.mocked(debug.getStepPoint).mockReturnValueOnce(0);   // no step point (reveal)
-      vi.mocked(debug.getLineForIp).mockReturnValueOnce(0);   // unmapped IP   (reveal)
+      vi.mocked(debug.getStepPoint).mockReturnValueOnce(0); // no step point (reveal)
+      vi.mocked(debug.getLineForIp).mockReturnValueOnce(0); // unmapped IP   (reveal)
       sendMessage(panel, { command: 'selectFrame', level: 3 });
       await flush();
 
@@ -1183,12 +1346,20 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'selectFrame', level: 3 });
       await flush();
 
-      const uri = (vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri).toString();
+      const uri = (
+        vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri
+      ).toString();
       // Same method also open in the user's System Browser (column 1) — must NOT
       // close. `label` only distinguishes the (structurally identical) tabs here.
       const sourceTab = { label: 'source', input: new vscode.TabInputText(vscode.Uri.parse(uri)) };
-      const browserTab = { label: 'browser', input: new vscode.TabInputText(vscode.Uri.parse(uri)) };
-      const groups = vscode.window.tabGroups.all as unknown as { viewColumn: number; tabs: unknown[] }[];
+      const browserTab = {
+        label: 'browser',
+        input: new vscode.TabInputText(vscode.Uri.parse(uri)),
+      };
+      const groups = vscode.window.tabGroups.all as unknown as {
+        viewColumn: number;
+        tabs: unknown[];
+      }[];
       groups.push({ viewColumn: 1, tabs: [browserTab] }, { viewColumn: 9, tabs: [sourceTab] });
 
       closePanel(panel);
@@ -1201,8 +1372,14 @@ describe('DebuggerPanel', () => {
       DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
       const panel = lastPanel();
       sendReady(panel); // no frame selected → no source opened
-      const groups = vscode.window.tabGroups.all as unknown as { viewColumn: number; tabs: unknown[] }[];
-      groups.push({ viewColumn: 9, tabs: [{ input: new vscode.TabInputText(vscode.Uri.parse('gemstone://1/x')) }] });
+      const groups = vscode.window.tabGroups.all as unknown as {
+        viewColumn: number;
+        tabs: unknown[];
+      }[];
+      groups.push({
+        viewColumn: 9,
+        tabs: [{ input: new vscode.TabInputText(vscode.Uri.parse('gemstone://1/x')) }],
+      });
 
       closePanel(panel);
 
@@ -1217,10 +1394,13 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'selectFrame', level: 3 });
       await flush();
 
-      const uri = (vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri);
+      const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
       expect(uri.scheme).toBe('gemstone-debug');
       const tab = { input: new vscode.TabInputText(vscode.Uri.parse(uri.toString())) };
-      const groups = vscode.window.tabGroups.all as unknown as { viewColumn: number; tabs: unknown[] }[];
+      const groups = vscode.window.tabGroups.all as unknown as {
+        viewColumn: number;
+        tabs: unknown[];
+      }[];
       groups.push({ viewColumn: 1, tabs: [tab] });
 
       closePanel(panel);
@@ -1239,13 +1419,19 @@ describe('DebuggerPanel', () => {
       // Inspect two variables → two inspectors, each a closable handle.
       sendMessage(panel, { command: 'inspectVariable', oop: '300', name: 'self' });
       sendMessage(panel, { command: 'inspectVariable', oop: '901', name: 'total' });
-      const inspectorCloses = vi.mocked(EnhancedInspector.create).mock.results
-        .map((r) => (r.value as { close: ReturnType<typeof vi.fn> }).close);
+      const inspectorCloses = vi
+        .mocked(EnhancedInspector.create)
+        .mock.results.map((r) => (r.value as { close: ReturnType<typeof vi.fn> }).close);
       expect(inspectorCloses).toHaveLength(2);
 
-      const uri = (vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri).toString();
+      const uri = (
+        vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri
+      ).toString();
       const sourceTab = { label: 'source', input: new vscode.TabInputText(vscode.Uri.parse(uri)) };
-      const groups = vscode.window.tabGroups.all as unknown as { viewColumn: number; tabs: unknown[] }[];
+      const groups = vscode.window.tabGroups.all as unknown as {
+        viewColumn: number;
+        tabs: unknown[];
+      }[];
       groups.push({ viewColumn: 9, tabs: [sourceTab] });
 
       closePanel(panel);
@@ -1259,11 +1445,16 @@ describe('DebuggerPanel', () => {
     it('sizes the new source group via setEditorLayout to the saved/default ratio (#3)', async () => {
       // getEditorLayout reports code(1) | debugger(2) / source(3). The source
       // editor opens in column 3, so it maps to the 99-tall leaf.
-      const layout = { orientation: 0, groups: [{ size: 636 }, { size: 877, groups: [{ size: 749 }, { size: 99 }] }] };
+      const layout = {
+        orientation: 0,
+        groups: [{ size: 636 }, { size: 877, groups: [{ size: 749 }, { size: 99 }] }],
+      };
       // Route getEditorLayout to our sample; everything else returns undefined.
       // mockImplementation persists past clearAllMocks, so restore it in finally.
-      vi.mocked(vscode.commands.executeCommand).mockImplementation((cmd: string) =>
-        Promise.resolve(cmd === 'vscode.getEditorLayout' ? layout : undefined) as never);
+      vi.mocked(vscode.commands.executeCommand).mockImplementation(
+        (cmd: string) =>
+          Promise.resolve(cmd === 'vscode.getEditorLayout' ? layout : undefined) as never,
+      );
       try {
         const panel = openPanelWithStack();
         vi.mocked(vscode.window.showTextDocument).mockResolvedValueOnce(columnedEditor(3) as never);
@@ -1272,8 +1463,13 @@ describe('DebuggerPanel', () => {
         await flush();
 
         // Used the precise layout API, not the imprecise step-based fallback.
-        expect(vscode.commands.executeCommand).toHaveBeenCalledWith('vscode.setEditorLayout', layout);
-        expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith('workbench.action.decreaseViewHeight');
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+          'vscode.setEditorLayout',
+          layout,
+        );
+        expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
+          'workbench.action.decreaseViewHeight',
+        );
         // Source (col 3) resized to ~1/3 of its 848-tall column; sibling gets the rest.
         const column = layout.groups[1].groups!;
         expect(column[1].size).toBe(Math.round(848 * 0.33));
@@ -1295,7 +1491,8 @@ describe('DebuggerPanel', () => {
       return {
         get: (key: string, def?: unknown) => (store.has(key) ? store.get(key) : def),
         update: (key: string, val: unknown) => {
-          if (val === undefined) store.delete(key); else store.set(key, val);
+          if (val === undefined) store.delete(key);
+          else store.set(key, val);
           return Promise.resolve();
         },
         keys: () => Array.from(store.keys()),
@@ -1307,8 +1504,15 @@ describe('DebuggerPanel', () => {
       const memento = fakeMemento({ [ORPHAN_KEY]: [orphan] });
       const orphanTab = { input: new vscode.TabInputText(vscode.Uri.parse(orphan)) };
       // An unrelated tab the user opened independently (e.g. System Browser) — never ours.
-      const otherTab = { input: new vscode.TabInputText(vscode.Uri.parse('gemstone://1/UserGlobals/Foo/instance/x/bar')) };
-      const groups = vscode.window.tabGroups.all as unknown as { viewColumn: number; tabs: unknown[] }[];
+      const otherTab = {
+        input: new vscode.TabInputText(
+          vscode.Uri.parse('gemstone://1/UserGlobals/Foo/instance/x/bar'),
+        ),
+      };
+      const groups = vscode.window.tabGroups.all as unknown as {
+        viewColumn: number;
+        tabs: unknown[];
+      }[];
       groups.push({ viewColumn: 1, tabs: [orphanTab, otherTab] });
 
       DebuggerPanel.initSourceTabCleanup(memento);
@@ -1324,13 +1528,18 @@ describe('DebuggerPanel', () => {
       DebuggerPanel.initSourceTabCleanup(memento);
       const panel = openPanelWithStack();
       vi.mocked(vscode.window.showTextDocument).mockResolvedValueOnce(columnedEditor(9) as never);
-      vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce({ ...URI_INFO, selector: 'orphanProbeA' });
+      vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce({
+        ...URI_INFO,
+        selector: 'orphanProbeA',
+      });
       sendMessage(panel, { command: 'selectFrame', level: 3 });
       await flush();
 
-      const uri = (vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri).toString();
-      expect(uri).toContain('orphanProbeA');                       // our just-opened source…
-      expect(memento.get(ORPHAN_KEY) as string[]).toContain(uri);  // …is now tracked for reaping.
+      const uri = (
+        vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri
+      ).toString();
+      expect(uri).toContain('orphanProbeA'); // our just-opened source…
+      expect(memento.get(ORPHAN_KEY) as string[]).toContain(uri); // …is now tracked for reaping.
     });
 
     it('drops the URI from the tracked set on a clean panel close (nothing to reap)', async () => {
@@ -1338,10 +1547,15 @@ describe('DebuggerPanel', () => {
       DebuggerPanel.initSourceTabCleanup(memento);
       const panel = openPanelWithStack();
       vi.mocked(vscode.window.showTextDocument).mockResolvedValueOnce(columnedEditor(9) as never);
-      vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce({ ...URI_INFO, selector: 'orphanProbeB' });
+      vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce({
+        ...URI_INFO,
+        selector: 'orphanProbeB',
+      });
       sendMessage(panel, { command: 'selectFrame', level: 3 });
       await flush();
-      const uri = (vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri).toString();
+      const uri = (
+        vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri
+      ).toString();
       expect(memento.get(ORPHAN_KEY) as string[]).toContain(uri); // tracked while open…
 
       closePanel(panel);
@@ -1364,7 +1578,7 @@ describe('DebuggerPanel', () => {
         inlineEditableByName: Map<string, { kind: 'instvar' | 'temp'; index: number }>;
       } {
         const panels = (DebuggerPanel as unknown as { panels: Map<number, Set<unknown>> }).panels;
-        const all = [...panels.values()].flatMap(s => [...s]);
+        const all = [...panels.values()].flatMap((s) => [...s]);
         return all[all.length - 1] as never;
       }
 
@@ -1395,7 +1609,10 @@ describe('DebuggerPanel', () => {
 
       // A mouse selection event. empty:false (default) = a double-click word
       // selection; empty:true = a single-click cursor.
-      function select(editor: unknown, over: { kind?: number; empty?: boolean; editor?: unknown } = {}) {
+      function select(
+        editor: unknown,
+        over: { kind?: number; empty?: boolean; editor?: unknown } = {},
+      ) {
         return {
           kind: over.kind ?? vscode.TextEditorSelectionChangeKind.Mouse,
           textEditor: 'editor' in over ? over.editor : editor,
@@ -1440,13 +1657,17 @@ describe('DebuggerPanel', () => {
       it('surfaces a rejected expression as an error message', async () => {
         const { handler, editor } = setup();
         vi.mocked(vscode.window.showInputBox).mockResolvedValueOnce('bogus +');
-        vi.mocked(debug.evaluateInFrameToOop).mockImplementationOnce(() => { throw new Error('a parse error'); });
+        vi.mocked(debug.evaluateInFrameToOop).mockImplementationOnce(() => {
+          throw new Error('a parse error');
+        });
 
         handler(select(editor));
         await tick();
 
         expect(debug.setFrameTemp).not.toHaveBeenCalled();
-        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining('a parse error'));
+        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+          expect.stringContaining('a parse error'),
+        );
       });
 
       it('refuses (no prompt) while a non-blocking step holds the session', async () => {
@@ -1498,8 +1719,11 @@ describe('DebuggerPanel', () => {
       it('ignores selections in an editor other than the source pane', async () => {
         const { handler } = setup();
 
-        handler(select(undefined,
-          { editor: editorWithWord('year', 'gemstone-debug://1/Acct/instance/x/somethingElse') }));
+        handler(
+          select(undefined, {
+            editor: editorWithWord('year', 'gemstone-debug://1/Acct/instance/x/somethingElse'),
+          }),
+        );
         await tick();
 
         expect(vscode.window.showInputBox).not.toHaveBeenCalled();
@@ -1523,7 +1747,7 @@ describe('DebuggerPanel', () => {
       inlineHoverLevel: number | undefined;
     } {
       const panels = (DebuggerPanel as unknown as { panels: Map<number, Set<unknown>> }).panels;
-      const all = [...panels.values()].flatMap(s => [...s]);
+      const all = [...panels.values()].flatMap((s) => [...s]);
       return all[all.length - 1] as never;
     }
 
@@ -1532,13 +1756,17 @@ describe('DebuggerPanel', () => {
     // static registry). Returns the URI to hover. `sourceTag` overrides the panel's
     // CURRENT source (to exercise the stale-document guard).
     function seedOverlay(
-      tag: string, vars: InlineVar[], opts: { enabled?: boolean; sourceTag?: string } = {},
+      tag: string,
+      vars: InlineVar[],
+      opts: { enabled?: boolean; sourceTag?: string } = {},
     ): string {
       DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
       const uri = `gemstone-debug://1/Acct/instance/accessing/${tag}`;
       const inst = liveInstance();
       inst.shownSourceUris.add(uri);
-      const sourceUri = opts.sourceTag ? `gemstone-debug://1/Acct/instance/accessing/${opts.sourceTag}` : uri;
+      const sourceUri = opts.sourceTag
+        ? `gemstone-debug://1/Acct/instance/accessing/${opts.sourceTag}`
+        : uri;
       inst.sourceEditor = { document: { uri: vscode.Uri.parse(sourceUri) } };
       inst.inlineValuesEnabled = opts.enabled ?? true;
       inst.inlineHoverLevel = 3;
@@ -1547,8 +1775,9 @@ describe('DebuggerPanel', () => {
     }
 
     it('serves the value and a double-click-to-edit hint for an annotated line of the live source', () => {
-      const uri = seedOverlay('serve',
-        [{ name: 'year', value: '2021', full: '2021', edit: { kind: 'temp', index: 2 } }]);
+      const uri = seedOverlay('serve', [
+        { name: 'year', value: '2021', full: '2021', edit: { kind: 'temp', index: 2 } },
+      ]);
 
       const md = DebuggerPanel.provideInlineHover(uri, 7);
 
@@ -1566,16 +1795,19 @@ describe('DebuggerPanel', () => {
     });
 
     it('returns nothing when the inline overlay is off', () => {
-      const uri = seedOverlay('off',
+      const uri = seedOverlay(
+        'off',
         [{ name: 'year', value: '2021', full: '2021', edit: { kind: 'temp', index: 2 } }],
-        { enabled: false });
+        { enabled: false },
+      );
 
       expect(DebuggerPanel.provideInlineHover(uri, 7)).toBeUndefined();
     });
 
     it('returns nothing for a line with no annotated variable', () => {
-      const uri = seedOverlay('noVar',
-        [{ name: 'year', value: '2021', full: '2021', edit: { kind: 'temp', index: 2 } }]);
+      const uri = seedOverlay('noVar', [
+        { name: 'year', value: '2021', full: '2021', edit: { kind: 'temp', index: 2 } },
+      ]);
 
       expect(DebuggerPanel.provideInlineHover(uri, 99)).toBeUndefined();
     });
@@ -1583,9 +1815,11 @@ describe('DebuggerPanel', () => {
     it('returns nothing when the hovered document is not the panel’s live source', () => {
       // The overlay was computed for this URI, but the panel now shows a different
       // source — a stale map must not mislabel the other document.
-      const uri = seedOverlay('hovered',
+      const uri = seedOverlay(
+        'hovered',
         [{ name: 'year', value: '2021', full: '2021', edit: { kind: 'temp', index: 2 } }],
-        { sourceTag: 'nowShowingOther' });
+        { sourceTag: 'nowShowingOther' },
+      );
 
       expect(DebuggerPanel.provideInlineHover(uri, 7)).toBeUndefined();
     });
@@ -1594,16 +1828,28 @@ describe('DebuggerPanel', () => {
     // REAL updateInlineValues against a source editor so the population path itself
     // (frame vars → editable-by-name + per-line hover + decoration) is covered.
     it('updateInlineValues fills the editable + hover maps from the frame’s variables', () => {
-      vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
-        level === 3
-          ? [
-            { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
-            { group: 'argtemps', name: 'year', value: '<print 2021>', oop: '2021', index: 1 },
-          ]
-          : [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
+      vi.mocked(debug.fetchFrameVariables).mockImplementation(
+        (_s: unknown, _p: unknown, level: number) =>
+          level === 3
+            ? [
+                { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
+                { group: 'argtemps', name: 'year', value: '<print 2021>', oop: '2021', index: 1 },
+              ]
+            : [
+                {
+                  group: 'receiver',
+                  name: 'self',
+                  value: `<print ${level * 100}>`,
+                  oop: `${level * 100}`,
+                  index: 0,
+                },
+              ],
+      );
       DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
       const inst = liveInstance() as never as {
-        shownSourceUris: Set<string>; sourceEditor: unknown; inlineValuesEnabled: boolean;
+        shownSourceUris: Set<string>;
+        sourceEditor: unknown;
+        inlineValuesEnabled: boolean;
         inlineEditableByName: Map<string, { kind: string; index: number }>;
         updateInlineValues(editor: unknown, level: number): void;
       };
@@ -1647,10 +1893,15 @@ describe('DebuggerPanel', () => {
     // clearAllMocks() doesn't reset return values/implementations, so restore the
     // base getFrameInfo each test (a test that overrides it would otherwise leak).
     beforeEach(() => {
-      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
-        methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100),
-        argAndTempNames: [], argAndTempOops: [],
-      }));
+      vi.mocked(debug.getFrameInfo).mockImplementation(
+        (_s: unknown, _p: unknown, level: number) => ({
+          methodOop: BigInt(level),
+          ipOffset: 5,
+          receiverOop: BigInt(level * 100),
+          argAndTempNames: [],
+          argAndTempOops: [],
+        }),
+      );
     });
 
     function openPanel() {
@@ -1662,14 +1913,24 @@ describe('DebuggerPanel', () => {
 
     it('posts the selected frame variables, grouped (Receiver + Arguments & Temps with oops) on selectFrame', () => {
       // The one-trip query returns grouped rows; only level 2 carries temps.
-      vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
-        level === 2
-          ? [
-            { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
-            { group: 'argtemps', name: 'amount', value: '<print 11>', oop: '11', index: 1 },
-            { group: 'argtemps', name: 'total', value: '<print 22>', oop: '22', index: 2 },
-          ]
-          : [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
+      vi.mocked(debug.fetchFrameVariables).mockImplementation(
+        (_s: unknown, _p: unknown, level: number) =>
+          level === 2
+            ? [
+                { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
+                { group: 'argtemps', name: 'amount', value: '<print 11>', oop: '11', index: 1 },
+                { group: 'argtemps', name: 'total', value: '<print 22>', oop: '22', index: 2 },
+              ]
+            : [
+                {
+                  group: 'receiver',
+                  name: 'self',
+                  value: `<print ${level * 100}>`,
+                  oop: `${level * 100}`,
+                  index: 0,
+                },
+              ],
+      );
       const panel = openPanel();
       sendMessage(panel, { command: 'selectFrame', level: 2 });
 
@@ -1686,16 +1947,26 @@ describe('DebuggerPanel', () => {
     it('alphabetizes instVars and named args/temps while preserving each slot write index', () => {
       // Rows arrive in deliberately NON-alphabetical order to prove the client
       // sorts them for display while each keeps its server-assigned write index.
-      vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
-        level === 2
-          ? [
-            { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
-            { group: 'instvars', name: 'zebra', value: '<print 71>', oop: '71', index: 1 },
-            { group: 'instvars', name: 'apple', value: '<print 72>', oop: '72', index: 2 },
-            { group: 'argtemps', name: 'total', value: '<print 22>', oop: '22', index: 1 },
-            { group: 'argtemps', name: 'amount', value: '<print 11>', oop: '11', index: 2 },
-          ]
-          : [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
+      vi.mocked(debug.fetchFrameVariables).mockImplementation(
+        (_s: unknown, _p: unknown, level: number) =>
+          level === 2
+            ? [
+                { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
+                { group: 'instvars', name: 'zebra', value: '<print 71>', oop: '71', index: 1 },
+                { group: 'instvars', name: 'apple', value: '<print 72>', oop: '72', index: 2 },
+                { group: 'argtemps', name: 'total', value: '<print 22>', oop: '22', index: 1 },
+                { group: 'argtemps', name: 'amount', value: '<print 11>', oop: '11', index: 2 },
+              ]
+            : [
+                {
+                  group: 'receiver',
+                  name: 'self',
+                  value: `<print ${level * 100}>`,
+                  oop: `${level * 100}`,
+                  index: 0,
+                },
+              ],
+      );
       const panel = openPanel();
       sendMessage(panel, { command: 'selectFrame', level: 2 });
 
@@ -1714,20 +1985,31 @@ describe('DebuggerPanel', () => {
 
     it('splits named temps from the synthetic .tN eval-stack temps into a separate group', () => {
       // The server classifies `.tN` as group 'stacktemps' (read-only — no index).
-      vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
-        level === 2
-          ? [
-            { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
-            { group: 'argtemps', name: 'amount', value: '<print 11>', oop: '11', index: 1 },
-            { group: 'stacktemps', name: '.t1', value: '<print 99>', oop: '99', index: 0 },
-          ]
-          : [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
+      vi.mocked(debug.fetchFrameVariables).mockImplementation(
+        (_s: unknown, _p: unknown, level: number) =>
+          level === 2
+            ? [
+                { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
+                { group: 'argtemps', name: 'amount', value: '<print 11>', oop: '11', index: 1 },
+                { group: 'stacktemps', name: '.t1', value: '<print 99>', oop: '99', index: 0 },
+              ]
+            : [
+                {
+                  group: 'receiver',
+                  name: 'self',
+                  value: `<print ${level * 100}>`,
+                  oop: `${level * 100}`,
+                  index: 0,
+                },
+              ],
+      );
       const panel = openPanel();
       sendMessage(panel, { command: 'selectFrame', level: 2 });
 
       const groups = lastPosted(panel, 'variables').groups;
-      expect(groups.find((g: { kind: string }) => g.kind === 'argtemps').vars)
-        .toEqual([{ name: 'amount', value: '<print 11>', oop: '11', edit: { kind: 'temp', index: 1 } }]);
+      expect(groups.find((g: { kind: string }) => g.kind === 'argtemps').vars).toEqual([
+        { name: 'amount', value: '<print 11>', oop: '11', edit: { kind: 'temp', index: 1 } },
+      ]);
       const stack = groups.find((g: { kind: string }) => g.kind === 'stacktemps');
       expect(stack.collapsed).toBe(true);
       // Stack temps are NOT editable — the client leaves their edit metadata off.
@@ -1736,14 +2018,24 @@ describe('DebuggerPanel', () => {
     });
 
     it('includes the receiver instance variables as their own group', () => {
-      vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
-        level === 3
-          ? [
-            { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
-            { group: 'instvars', name: 'count', value: '<print 7>', oop: '7', index: 1 },
-            { group: 'instvars', name: 'sum', value: '<print 8>', oop: '8', index: 2 },
-          ]
-          : [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
+      vi.mocked(debug.fetchFrameVariables).mockImplementation(
+        (_s: unknown, _p: unknown, level: number) =>
+          level === 3
+            ? [
+                { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
+                { group: 'instvars', name: 'count', value: '<print 7>', oop: '7', index: 1 },
+                { group: 'instvars', name: 'sum', value: '<print 8>', oop: '8', index: 2 },
+              ]
+            : [
+                {
+                  group: 'receiver',
+                  name: 'self',
+                  value: `<print ${level * 100}>`,
+                  oop: `${level * 100}`,
+                  index: 0,
+                },
+              ],
+      );
       const panel = openPanel();
       sendMessage(panel, { command: 'selectFrame', level: 3 });
 
@@ -1768,7 +2060,7 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'selectFrame', level: 3 });
       vi.mocked(debug.fetchFrameVariables).mockClear();
       sendMessage(panel, { command: 'stepOver', level: 3 });
-      await new Promise(r => setTimeout(r, 0)); // let the non-blocking step settle
+      await new Promise((r) => setTimeout(r, 0)); // let the non-blocking step settle
       sendMessage(panel, { command: 'selectFrame', level: 3 });
       expect(vi.mocked(debug.fetchFrameVariables)).toHaveBeenCalled();
     });
@@ -1782,7 +2074,9 @@ describe('DebuggerPanel', () => {
     it('falls back to the sidebar Inspector for a clicked variable when the session has no enhanced inspector', () => {
       session.enhancedInspectorAvailable = false;
       const addRoot = vi.fn();
-      DebuggerPanel.inspectorProvider = { addRoot } as unknown as typeof DebuggerPanel.inspectorProvider;
+      DebuggerPanel.inspectorProvider = {
+        addRoot,
+      } as unknown as typeof DebuggerPanel.inspectorProvider;
       const panel = openPanel();
 
       sendMessage(panel, { command: 'inspectVariable', oop: '300', name: 'self' });
@@ -1795,35 +2089,74 @@ describe('DebuggerPanel', () => {
       vi.mocked(debug.evaluateInFrameToOop).mockReturnValueOnce(777n);
       const panel = openPanel();
       const before = posted(panel, 'variables').length;
-      sendMessage(panel, { command: 'setVariable', level: 3, kind: 'instvar', index: 2, expr: '99' });
+      sendMessage(panel, {
+        command: 'setVariable',
+        level: 3,
+        kind: 'instvar',
+        index: 2,
+        expr: '99',
+      });
 
-      expect(debug.evaluateInFrameToOop).toHaveBeenCalledWith(session, GS_PROCESS, '99', expect.any(Number));
+      expect(debug.evaluateInFrameToOop).toHaveBeenCalledWith(
+        session,
+        GS_PROCESS,
+        '99',
+        expect.any(Number),
+      );
       expect(debug.setInstVar).toHaveBeenCalledWith(session, expect.any(BigInt), 2, 777n);
       // Re-fetched variables so every row's printString + OOP reflect the new object.
       expect(posted(panel, 'variables').length).toBe(before + 1);
-      expect(lastPosted(panel, 'setVariableResult')).toEqual({ command: 'setVariableResult', ok: true });
+      expect(lastPosted(panel, 'setVariableResult')).toEqual({
+        command: 'setVariableResult',
+        ok: true,
+      });
     });
 
     it('setVariable (temp) writes via _frameAt:tempAt:put:, refreshes, and reports ok', () => {
       vi.mocked(debug.evaluateInFrameToOop).mockReturnValueOnce(555n);
       const panel = openPanel();
       const before = posted(panel, 'variables').length;
-      sendMessage(panel, { command: 'setVariable', level: 3, kind: 'temp', index: 4, expr: 'self' });
+      sendMessage(panel, {
+        command: 'setVariable',
+        level: 3,
+        kind: 'temp',
+        index: 4,
+        expr: 'self',
+      });
 
-      expect(debug.setFrameTemp).toHaveBeenCalledWith(session, GS_PROCESS, expect.any(Number), 4, 555n);
+      expect(debug.setFrameTemp).toHaveBeenCalledWith(
+        session,
+        GS_PROCESS,
+        expect.any(Number),
+        4,
+        555n,
+      );
       expect(debug.setInstVar).not.toHaveBeenCalled(); // a temp write must NOT touch instVars
       expect(posted(panel, 'variables').length).toBe(before + 1);
-      expect(lastPosted(panel, 'setVariableResult')).toEqual({ command: 'setVariableResult', ok: true });
+      expect(lastPosted(panel, 'setVariableResult')).toEqual({
+        command: 'setVariableResult',
+        ok: true,
+      });
     });
 
     it('setVariable refuses (and reports !ok) while a non-blocking step is in flight', async () => {
       let release: (r: debug.StepResult) => void = () => {};
-      vi.mocked(debug.stepOverNb).mockReturnValueOnce(new Promise<debug.StepResult>(res => { release = res; }));
+      vi.mocked(debug.stepOverNb).mockReturnValueOnce(
+        new Promise<debug.StepResult>((res) => {
+          release = res;
+        }),
+      );
       const panel = openPanel();
       sendMessage(panel, { command: 'stepOver', level: 3 }); // holds the session's single GCI call
       await tick();
 
-      sendMessage(panel, { command: 'setVariable', level: 3, kind: 'instvar', index: 1, expr: '99' });
+      sendMessage(panel, {
+        command: 'setVariable',
+        level: 3,
+        kind: 'instvar',
+        index: 1,
+        expr: '99',
+      });
       // A blocking frame write can't share the session with an in-flight step.
       expect(debug.evaluateInFrameToOop).not.toHaveBeenCalled();
       expect(debug.setInstVar).not.toHaveBeenCalled();
@@ -1834,10 +2167,18 @@ describe('DebuggerPanel', () => {
     });
 
     it('setVariable reports a compile/runtime error (and does NOT refresh) so the editor stays open', () => {
-      vi.mocked(debug.evaluateInFrameToOop).mockImplementationOnce(() => { throw new Error('a parse error'); });
+      vi.mocked(debug.evaluateInFrameToOop).mockImplementationOnce(() => {
+        throw new Error('a parse error');
+      });
       const panel = openPanel();
       const before = posted(panel, 'variables').length;
-      sendMessage(panel, { command: 'setVariable', level: 3, kind: 'instvar', index: 1, expr: 'bogus +' });
+      sendMessage(panel, {
+        command: 'setVariable',
+        level: 3,
+        kind: 'instvar',
+        index: 1,
+        expr: 'bogus +',
+      });
 
       expect(debug.setInstVar).not.toHaveBeenCalled();
       expect(posted(panel, 'variables').length).toBe(before); // no refresh on failure
@@ -1853,19 +2194,43 @@ describe('DebuggerPanel', () => {
       beforeEach(() => {
         // The WRITE path still uses getFrameInfo (receiverOop) + getInstVarOop
         // (capture original); the PANE display now comes from fetchFrameVariables.
-        vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) =>
-          level === 2
-            ? { methodOop: 2n, ipOffset: 5, receiverOop: 300n, argAndTempNames: ['amount'], argAndTempOops: [11n] }
-            : { methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [] });
+        vi.mocked(debug.getFrameInfo).mockImplementation(
+          (_s: unknown, _p: unknown, level: number) =>
+            level === 2
+              ? {
+                  methodOop: 2n,
+                  ipOffset: 5,
+                  receiverOop: 300n,
+                  argAndTempNames: ['amount'],
+                  argAndTempOops: [11n],
+                }
+              : {
+                  methodOop: BigInt(level),
+                  ipOffset: 5,
+                  receiverOop: BigInt(level * 100),
+                  argAndTempNames: [],
+                  argAndTempOops: [],
+                },
+        );
         vi.mocked(debug.getInstVarOop).mockReturnValue(700n);
-        vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
-          level === 2
-            ? [
-              { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
-              { group: 'instvars', name: 'count', value: '<print 700>', oop: '700', index: 1 },
-              { group: 'argtemps', name: 'amount', value: '<print 11>', oop: '11', index: 1 },
-            ]
-            : [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
+        vi.mocked(debug.fetchFrameVariables).mockImplementation(
+          (_s: unknown, _p: unknown, level: number) =>
+            level === 2
+              ? [
+                  { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
+                  { group: 'instvars', name: 'count', value: '<print 700>', oop: '700', index: 1 },
+                  { group: 'argtemps', name: 'amount', value: '<print 11>', oop: '11', index: 1 },
+                ]
+              : [
+                  {
+                    group: 'receiver',
+                    name: 'self',
+                    value: `<print ${level * 100}>`,
+                    oop: `${level * 100}`,
+                    index: 0,
+                  },
+                ],
+        );
       });
 
       // mockReturnValue is sticky past clearAllMocks; restore factory defaults so
@@ -1876,8 +2241,17 @@ describe('DebuggerPanel', () => {
         vi.mocked(debug.isSpecialOop).mockReturnValue(false);
         vi.mocked(debug.evaluateInFrameToOop).mockReturnValue(999n);
         vi.mocked(debug.continueExecution).mockReturnValue({ completed: true });
-        vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
-          [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
+        vi.mocked(debug.fetchFrameVariables).mockImplementation(
+          (_s: unknown, _p: unknown, level: number) => [
+            {
+              group: 'receiver',
+              name: 'self',
+              value: `<print ${level * 100}>`,
+              oop: `${level * 100}`,
+              index: 0,
+            },
+          ],
+        );
       });
 
       const editInstVar = (panel: ReturnType<typeof lastPanel>, expr = '99') =>
@@ -1889,9 +2263,9 @@ describe('DebuggerPanel', () => {
         editInstVar(panel, '99');
         editInstVar(panel, '123');
 
-        expect(debug.getInstVarOop).toHaveBeenCalledTimes(1);          // captured once
-        expect(debug.saveObjs).toHaveBeenCalledTimes(1);               // pinned once
-        expect(debug.saveObjs).toHaveBeenCalledWith(session, [700n]);  // the original oop
+        expect(debug.getInstVarOop).toHaveBeenCalledTimes(1); // captured once
+        expect(debug.saveObjs).toHaveBeenCalledTimes(1); // pinned once
+        expect(debug.saveObjs).toHaveBeenCalledWith(session, [700n]); // the original oop
       });
 
       it('does NOT pin an immediate (special) original', () => {
@@ -1919,8 +2293,9 @@ describe('DebuggerPanel', () => {
 
         // The LAST instVar write restores the original (700), not the edit (999).
         expect(debug.setInstVar).toHaveBeenLastCalledWith(session, 300n, 1, 700n);
-        const count = lastPosted(panel, 'variables').groups
-          .find((g: { kind: string }) => g.kind === 'instvars').vars[0];
+        const count = lastPosted(panel, 'variables').groups.find(
+          (g: { kind: string }) => g.kind === 'instvars',
+        ).vars[0];
         expect(count.revertible).toBeUndefined(); // icon gone after revert
       });
 
@@ -1933,15 +2308,30 @@ describe('DebuggerPanel', () => {
       it('reverts a frame temp via the original oop', () => {
         vi.mocked(debug.evaluateInFrameToOop).mockReturnValue(999n);
         const panel = openPanel();
-        sendMessage(panel, { command: 'setVariable', level: 2, kind: 'temp', index: 1, expr: '99' });
+        sendMessage(panel, {
+          command: 'setVariable',
+          level: 2,
+          kind: 'temp',
+          index: 1,
+          expr: '99',
+        });
         sendMessage(panel, { command: 'revertVariable', level: 2, kind: 'temp', index: 1 });
 
         // Original temp value (oop 11, from argAndTempOops[0]) written back.
-        expect(debug.setFrameTemp).toHaveBeenLastCalledWith(session, GS_PROCESS, expect.any(Number), 1, 11n);
+        expect(debug.setFrameTemp).toHaveBeenLastCalledWith(
+          session,
+          GS_PROCESS,
+          expect.any(Number),
+          1,
+          11n,
+        );
       });
 
       it('releases pinned originals on Resume (leaving the halt)', () => {
-        vi.mocked(debug.continueExecution).mockReturnValue({ completed: false, errorMessage: 'next halt' });
+        vi.mocked(debug.continueExecution).mockReturnValue({
+          completed: false,
+          errorMessage: 'next halt',
+        });
         const panel = openPanel();
         editInstVar(panel); // pins 700
         sendMessage(panel, { command: 'resume' });
@@ -1951,7 +2341,7 @@ describe('DebuggerPanel', () => {
       it('releases pinned originals when the debugger is CLOSED (no export-set leak)', () => {
         const panel = openPanel();
         editInstVar(panel); // pins 700
-        closePanel(panel);  // user closes the debugger window
+        closePanel(panel); // user closes the debugger window
         expect(debug.releaseObjs).toHaveBeenCalledWith(session, [700n]);
       });
 
@@ -1971,7 +2361,11 @@ describe('DebuggerPanel', () => {
       await tick();
 
       expect(debug.evaluateInFrameNb).toHaveBeenCalledWith(
-        session, GS_PROCESS, '42 * 42', 3, expect.objectContaining({ onStart: expect.any(Function) }),
+        session,
+        GS_PROCESS,
+        '42 * 42',
+        3,
+        expect.objectContaining({ onStart: expect.any(Function) }),
       );
       expect(lastPosted(panel, 'evalResult')).toMatchObject({ value: '1764', isError: false });
     });
@@ -1990,8 +2384,10 @@ describe('DebuggerPanel', () => {
       let release: (v: string) => void = () => {};
       vi.mocked(debug.evaluateInFrameNb).mockImplementationOnce((...args: unknown[]) => {
         const opts = args[4] as { onStart?: (c: () => void) => void };
-        opts.onStart?.(() => {});                       // the nb call begins → cancellable
-        return new Promise<string>(res => { release = res; });
+        opts.onStart?.(() => {}); // the nb call begins → cancellable
+        return new Promise<string>((res) => {
+          release = res;
+        });
       });
       const panel = openPanel();
       sendMessage(panel, { command: 'evalInFrame', level: 3, expr: '(1 to: 9e9) size' });
@@ -2008,7 +2404,7 @@ describe('DebuggerPanel', () => {
       const cancelSpy = vi.fn();
       vi.mocked(debug.evaluateInFrameNb).mockImplementationOnce((...args: unknown[]) => {
         const opts = args[4] as { onStart?: (c: () => void) => void };
-        opts.onStart?.(cancelSpy);            // the nb runner hands the panel its cancel fn
+        opts.onStart?.(cancelSpy); // the nb runner hands the panel its cancel fn
         return new Promise<string>(() => {}); // never settles — the op stays "running"
       });
       const panel = openPanel();
@@ -2025,14 +2421,16 @@ describe('DebuggerPanel', () => {
       vi.mocked(debug.evaluateInFrameNb).mockImplementationOnce((...args: unknown[]) => {
         const opts = args[4] as { onStart?: (c: () => void) => void };
         opts.onStart?.(() => {});
-        return new Promise<string>((_res, rej) => { rejectEval = rej; });
+        return new Promise<string>((_res, rej) => {
+          rejectEval = rej;
+        });
       });
       const panel = openPanel();
       sendMessage(panel, { command: 'evalInFrame', level: 3, expr: '[true] whileTrue' });
       await tick();
 
-      sendMessage(panel, { command: 'cancelOp' });                    // one click → soft break
-      rejectEval(new Error('the operation was interrupted'));         // gem stops with an interrupt
+      sendMessage(panel, { command: 'cancelOp' }); // one click → soft break
+      rejectEval(new Error('the operation was interrupted')); // gem stops with an interrupt
       await tick();
 
       const res = lastPosted(panel, 'evalResult');
@@ -2047,7 +2445,9 @@ describe('DebuggerPanel', () => {
       vi.mocked(debug.evaluateInFrameNb).mockImplementationOnce((...args: unknown[]) => {
         const opts = args[4] as { onStart?: (c: () => void) => void };
         opts.onStart?.(() => {});
-        return new Promise<string>((_res, rej) => { rejectEval = rej; });
+        return new Promise<string>((_res, rej) => {
+          rejectEval = rej;
+        });
       });
       const panel = openPanel();
       sendMessage(panel, { command: 'evalInFrame', level: 3, expr: '[true] whileTrue' });
@@ -2103,19 +2503,23 @@ describe('DebuggerPanel', () => {
       vi.mocked(debug.evaluateInFrameNb).mockImplementationOnce((...args: unknown[]) => {
         const opts = args[4] as { onStart?: (c: () => void) => void };
         opts.onStart?.(() => {});
-        return new Promise<string>((_res, rej) => { rejectFirst = rej; });
+        return new Promise<string>((_res, rej) => {
+          rejectFirst = rej;
+        });
       });
       const panel = openPanel();
       sendMessage(panel, { command: 'evalInFrame', level: 3, expr: 'first' });
       await tick();
-      sendMessage(panel, { command: 'cancelOp' });          // cancelClicks → 1
+      sendMessage(panel, { command: 'cancelOp' }); // cancelClicks → 1
       rejectFirst(new Error('interrupted'));
       await tick();
 
       // Second eval whose blocking SETUP fails before polling starts → onStart never
       // fires, so cancelClicks isn't reset there. The reset-at-entry guard must keep
       // the stale 1 from mislabeling this real error as a cancellation.
-      vi.mocked(debug.evaluateInFrameNb).mockRejectedValueOnce(new Error('cannot create expression string'));
+      vi.mocked(debug.evaluateInFrameNb).mockRejectedValueOnce(
+        new Error('cannot create expression string'),
+      );
       sendMessage(panel, { command: 'evalInFrame', level: 3, expr: 'second' });
       await tick();
 
@@ -2134,7 +2538,10 @@ describe('DebuggerPanel', () => {
     });
 
     it('Resume refreshes with the new error when it hits another stop', () => {
-      vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: false, errorMessage: 'next error' });
+      vi.mocked(debug.continueExecution).mockReturnValueOnce({
+        completed: false,
+        errorMessage: 'next error',
+      });
       const panel = openPanel();
       const before = posted(panel, 'init').length;
       sendMessage(panel, { command: 'resume' });
@@ -2150,10 +2557,13 @@ describe('DebuggerPanel', () => {
     // a break there. Non-breakable frames fall back to a plain Resume + flash.
     describe('Run to Cursor (#2)', () => {
       const RT_URI_INFO = {
-        dictName: 'UserGlobals', className: 'JasperDebugDemo', isMeta: false,
-        category: 'accessing', selector: 'accumulateFrom:to:',
+        dictName: 'UserGlobals',
+        className: 'JasperDebugDemo',
+        isMeta: false,
+        category: 'accessing',
+        selector: 'accumulateFrom:to:',
       };
-      const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+      const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
       beforeEach(() => {
         // No user breakpoints unless a test adds one (the mock array is shared).
@@ -2165,8 +2575,10 @@ describe('DebuggerPanel', () => {
       // cursorChar0) (both 0-based). `source`/`offsets` default to a 3-line method
       // whose step points are at 1-based source offsets [3, 9, 14].
       async function openWithCursor(
-        cursorLine0: number, cursorChar0 = 0,
-        source = 'line1\nline2\nline3', offsets = [3, 9, 14],
+        cursorLine0: number,
+        cursorChar0 = 0,
+        source = 'line1\nline2\nline3',
+        offsets = [3, 9, 14],
       ) {
         vi.mocked(debug.getMethodUriInfo).mockReturnValue(RT_URI_INFO); // every frame breakable + editable
         vi.mocked(debug.getMethodSource).mockReturnValue(source);
@@ -2178,9 +2590,12 @@ describe('DebuggerPanel', () => {
         const editor = await results[results.length - 1].value;
         // The mock doesn't wire the editor's uri to the opened doc — do it so the
         // "is the source pane showing this frame?" guard sees a match.
-        editor.document.uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
+        editor.document.uri = vi
+          .mocked(vscode.workspace.openTextDocument)
+          .mock.calls.at(-1)![0] as vscode.Uri;
         editor.selection = new vscode.Selection(
-          new vscode.Position(cursorLine0, cursorChar0), new vscode.Position(cursorLine0, cursorChar0),
+          new vscode.Position(cursorLine0, cursorChar0),
+          new vscode.Position(cursorLine0, cursorChar0),
         );
         return panel;
       }
@@ -2190,23 +2605,41 @@ describe('DebuggerPanel', () => {
         const panel = await openWithCursor(1); // line 2 → step point 2 (offset 9)
         sendMessage(panel, { command: 'runToCursor', level: 3 });
 
-        expect(queries.setBreakAtStepPoint)
-          .toHaveBeenCalledWith(session, 'JasperDebugDemo', false, 'accumulateFrom:to:', 2);
+        expect(queries.setBreakAtStepPoint).toHaveBeenCalledWith(
+          session,
+          'JasperDebugDemo',
+          false,
+          'accumulateFrom:to:',
+          2,
+        );
         expect(debug.continueExecution).toHaveBeenCalledWith(session, GS_PROCESS);
         // Cleared afterward (so it never lingers on the method) — same step point.
-        expect(queries.clearBreakAtStepPoint)
-          .toHaveBeenCalledWith(session, 'JasperDebugDemo', false, 'accumulateFrom:to:', 2);
+        expect(queries.clearBreakAtStepPoint).toHaveBeenCalledWith(
+          session,
+          'JasperDebugDemo',
+          false,
+          'accumulateFrom:to:',
+          2,
+        );
         expect(panel.dispose).toHaveBeenCalled(); // completed → closed
       });
 
       it('refreshes (stack/variables update) when the run re-halts at the cursor', async () => {
-        vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: false, errorMessage: '' });
+        vi.mocked(debug.continueExecution).mockReturnValueOnce({
+          completed: false,
+          errorMessage: '',
+        });
         const panel = await openWithCursor(0); // line 1 → step point 1 (offset 3)
         const before = posted(panel, 'init').length;
         sendMessage(panel, { command: 'runToCursor', level: 3 });
 
-        expect(queries.setBreakAtStepPoint)
-          .toHaveBeenCalledWith(session, 'JasperDebugDemo', false, 'accumulateFrom:to:', 1);
+        expect(queries.setBreakAtStepPoint).toHaveBeenCalledWith(
+          session,
+          'JasperDebugDemo',
+          false,
+          'accumulateFrom:to:',
+          1,
+        );
         expect(queries.clearBreakAtStepPoint).toHaveBeenCalled();
         expect(panel.dispose).not.toHaveBeenCalled();
         expect(posted(panel, 'init').length).toBe(before + 1); // refreshed → variables re-fetch
@@ -2215,9 +2648,14 @@ describe('DebuggerPanel', () => {
       it("does NOT clear a break the user already set at the cursor's step point", async () => {
         vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true });
         const panel = await openWithCursor(1); // line 2 → actualLine 2 (0-based line 1)
-        const openUri = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
+        const openUri = vi
+          .mocked(vscode.workspace.openTextDocument)
+          .mock.calls.at(-1)![0] as vscode.Uri;
         (vscode.debug as unknown as { breakpoints: unknown[] }).breakpoints = [
-          new vscode.SourceBreakpoint(new vscode.Location(openUri, new vscode.Range(1, 0, 1, 0)), true),
+          new vscode.SourceBreakpoint(
+            new vscode.Location(openUri, new vscode.Range(1, 0, 1, 0)),
+            true,
+          ),
         ];
         sendMessage(panel, { command: 'runToCursor', level: 3 });
 
@@ -2245,11 +2683,17 @@ describe('DebuggerPanel', () => {
         // is "Executed Code"; source is shown read-only (gemstone-debug:), 1:1.
         vi.mocked(debug.getStackDepth).mockReturnValue(1);
         vi.mocked(debug.getFrameInfo).mockReturnValue({
-          methodOop: 50n, ipOffset: 5, receiverOop: 0n, argAndTempNames: [], argAndTempOops: [],
+          methodOop: 50n,
+          ipOffset: 5,
+          receiverOop: 0n,
+          argAndTempNames: [],
+          argAndTempOops: [],
         });
         vi.mocked(debug.getMethodBlockInfo).mockReturnValue({ isBlock: false, homeMethodOop: 50n });
         vi.mocked(debug.getMethodUriInfo).mockReturnValue(undefined);
-        vi.mocked(debug.getMethodInfo).mockImplementation(() => { throw new Error('doit: nil inClass'); });
+        vi.mocked(debug.getMethodInfo).mockImplementation(() => {
+          throw new Error('doit: nil inClass');
+        });
         // Not wrapped → shift 0; offsets [3, 9, 14] like the editable case.
         vi.mocked(debug.getMethodSource).mockReturnValue('line1\nline2\nline3');
         vi.mocked(debug.getSourceOffsetsForMethod).mockReturnValue([3, 9, 14]);
@@ -2259,8 +2703,13 @@ describe('DebuggerPanel', () => {
         await flush();
         const results = vi.mocked(vscode.window.showTextDocument).mock.results;
         const editor = await results[results.length - 1].value;
-        editor.document.uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
-        editor.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(1, 0)); // line 2 → sp2
+        editor.document.uri = vi
+          .mocked(vscode.workspace.openTextDocument)
+          .mock.calls.at(-1)![0] as vscode.Uri;
+        editor.selection = new vscode.Selection(
+          new vscode.Position(1, 0),
+          new vscode.Position(1, 0),
+        ); // line 2 → sp2
 
         sendMessage(panel, { command: 'runToCursor', level: 1 });
 
@@ -2281,8 +2730,13 @@ describe('DebuggerPanel', () => {
         const panel = await openWithCursor(1, 15, 'hdr\nself do: [:e | body ]', [5, 10, 20]);
         sendMessage(panel, { command: 'runToCursor', level: 3 });
 
-        expect(queries.setBreakAtStepPoint)
-          .toHaveBeenCalledWith(session, 'JasperDebugDemo', false, 'accumulateFrom:to:', 3);
+        expect(queries.setBreakAtStepPoint).toHaveBeenCalledWith(
+          session,
+          'JasperDebugDemo',
+          false,
+          'accumulateFrom:to:',
+          3,
+        );
       });
 
       // The `minute := (...) asInteger` report: cursor on `asInteger` (late on the
@@ -2294,8 +2748,13 @@ describe('DebuggerPanel', () => {
         const panel = await openWithCursor(0, 7, 'x := a asInteger', [1, 6, 8]);
         sendMessage(panel, { command: 'runToCursor', level: 3 });
 
-        expect(queries.setBreakAtStepPoint)
-          .toHaveBeenCalledWith(session, 'JasperDebugDemo', false, 'accumulateFrom:to:', 3);
+        expect(queries.setBreakAtStepPoint).toHaveBeenCalledWith(
+          session,
+          'JasperDebugDemo',
+          false,
+          'accumulateFrom:to:',
+          3,
+        );
       });
 
       // A BLOCK frame: its own method (1n) differs from its HOME method (99n). The
@@ -2305,13 +2764,18 @@ describe('DebuggerPanel', () => {
         vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: true });
         vi.mocked(debug.getStackDepth).mockReturnValue(1);
         vi.mocked(debug.getFrameInfo).mockReturnValue({
-          methodOop: 1n, ipOffset: 5, receiverOop: 300n, argAndTempNames: [], argAndTempOops: [],
+          methodOop: 1n,
+          ipOffset: 5,
+          receiverOop: 300n,
+          argAndTempNames: [],
+          argAndTempOops: [],
         });
         // isBlock, with the enclosing (home) method a DIFFERENT oop (99n).
         vi.mocked(debug.getMethodBlockInfo).mockReturnValue({ isBlock: true, homeMethodOop: 99n });
         // Only the HOME method (99n) is an editable symbol-list method.
         vi.mocked(debug.getMethodUriInfo).mockImplementation((_s: unknown, oop: bigint) =>
-          oop === 99n ? RT_URI_INFO : undefined);
+          oop === 99n ? RT_URI_INFO : undefined,
+        );
         vi.mocked(debug.getMethodSource).mockReturnValue('line1\nline2\nline3');
         vi.mocked(debug.getSourceOffsetsForMethod).mockReturnValue([3, 9, 14]);
 
@@ -2320,16 +2784,26 @@ describe('DebuggerPanel', () => {
         await flush();
         const results = vi.mocked(vscode.window.showTextDocument).mock.results;
         const editor = await results[results.length - 1].value;
-        editor.document.uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
-        editor.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(1, 0)); // line 2 → sp2
+        editor.document.uri = vi
+          .mocked(vscode.workspace.openTextDocument)
+          .mock.calls.at(-1)![0] as vscode.Uri;
+        editor.selection = new vscode.Selection(
+          new vscode.Position(1, 0),
+          new vscode.Position(1, 0),
+        ); // line 2 → sp2
 
         sendMessage(panel, { command: 'runToCursor', level: 1 });
 
         // Resolved via the HOME method (99n): source/offsets fetched for 99n and the
         // break set by the home's class>>selector (a block-method break would be by OOP).
         expect(debug.getSourceOffsetsForMethod).toHaveBeenCalledWith(session, 99n);
-        expect(queries.setBreakAtStepPoint)
-          .toHaveBeenCalledWith(session, 'JasperDebugDemo', false, 'accumulateFrom:to:', 2);
+        expect(queries.setBreakAtStepPoint).toHaveBeenCalledWith(
+          session,
+          'JasperDebugDemo',
+          false,
+          'accumulateFrom:to:',
+          2,
+        );
         expect(debug.setBreakAtStepPointByOop).not.toHaveBeenCalled();
       });
     });
@@ -2354,9 +2828,12 @@ describe('DebuggerPanel', () => {
       // These overrides leak past clearAllMocks — restore the factory defaults.
       afterEach(() => {
         vi.mocked(debug.getStackDepth).mockImplementation(() => 5);
-        vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => ({
-          isBlock: methodOop === 1n, homeMethodOop: methodOop,
-        }));
+        vi.mocked(debug.getMethodBlockInfo).mockImplementation(
+          (_s: unknown, methodOop: bigint) => ({
+            isBlock: methodOop === 1n,
+            homeMethodOop: methodOop,
+          }),
+        );
         vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
           if (oop === 1n) return { className: 'JasperDebugDemo', selector: 'finish' };
           if (oop === 2n) return { className: 'Object', selector: 'halt' };
@@ -2369,14 +2846,24 @@ describe('DebuggerPanel', () => {
       // stopped in the top wrapper block (serverLevel 1, the user's halt).
       function setUpWrappedDoit() {
         vi.mocked(debug.getStackDepth).mockImplementation(() => 3);
-        vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
-          methodOop: BigInt(level), ipOffset: 5, receiverOop: 100n,
-          argAndTempNames: [], argAndTempOops: [],
-        }));
-        vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => ({
-          isBlock: methodOop !== 3n, homeMethodOop: 30n,
-        }));
-        vi.mocked(debug.getMethodInfo).mockImplementation(() => { throw new Error('doit'); });
+        vi.mocked(debug.getFrameInfo).mockImplementation(
+          (_s: unknown, _p: unknown, level: number) => ({
+            methodOop: BigInt(level),
+            ipOffset: 5,
+            receiverOop: 100n,
+            argAndTempNames: [],
+            argAndTempOops: [],
+          }),
+        );
+        vi.mocked(debug.getMethodBlockInfo).mockImplementation(
+          (_s: unknown, methodOop: bigint) => ({
+            isBlock: methodOop !== 3n,
+            homeMethodOop: 30n,
+          }),
+        );
+        vi.mocked(debug.getMethodInfo).mockImplementation(() => {
+          throw new Error('doit');
+        });
       }
 
       it('Step Over redirects from the collapsed doit (server level 3) to the stop frame (level 1)', async () => {
@@ -2410,7 +2897,8 @@ describe('DebuggerPanel', () => {
     it('surfaces a clear message when a step hits native-code (error 6014), without disposing', async () => {
       vi.mocked(debug.stepOverNb).mockResolvedValueOnce({
         completed: false,
-        errorMessage: 'a ImproperOperation occurred (error 6014), Breakpoint and single-step not supported in native code',
+        errorMessage:
+          'a ImproperOperation occurred (error 6014), Breakpoint and single-step not supported in native code',
       });
       const panel = openPanel();
       sendMessage(panel, { command: 'stepOver', level: 1 });
@@ -2442,7 +2930,9 @@ describe('DebuggerPanel', () => {
 
     it('once uncontinuable (6011), refuses a later Resume and Step with NO further GCI call (no growing message)', async () => {
       vi.mocked(debug.stepOverNb).mockResolvedValueOnce({
-        completed: false, errorNumber: 6011, errorMessage: 'a UncontinuableError occurred (error 6011)',
+        completed: false,
+        errorNumber: 6011,
+        errorMessage: 'a UncontinuableError occurred (error 6011)',
       });
       const panel = openPanel();
       sendMessage(panel, { command: 'stepOver', level: 1 }); // sets the uncontinuable flag
@@ -2464,7 +2954,9 @@ describe('DebuggerPanel', () => {
 
     it('Resume that hits 6011 shows the Terminate-only banner without refreshing', () => {
       vi.mocked(debug.continueExecution).mockReturnValueOnce({
-        completed: false, errorNumber: 6011, errorMessage: 'a UncontinuableError occurred (error 6011)',
+        completed: false,
+        errorNumber: 6011,
+        errorMessage: 'a UncontinuableError occurred (error 6011)',
       });
       const panel = openPanel();
       const before = posted(panel, 'init').length;
@@ -2477,7 +2969,9 @@ describe('DebuggerPanel', () => {
 
     it('re-enables Resume after an uncontinuable (6011) once a deeper frame is restarted', async () => {
       vi.mocked(debug.stepOverNb).mockResolvedValueOnce({
-        completed: false, errorNumber: 6011, errorMessage: 'a UncontinuableError occurred (error 6011)',
+        completed: false,
+        errorNumber: 6011,
+        errorMessage: 'a UncontinuableError occurred (error 6011)',
       });
       const panel = openPanel();
       sendMessage(panel, { command: 'stepOver', level: 1 }); // → uncontinuable
@@ -2487,7 +2981,12 @@ describe('DebuggerPanel', () => {
       vi.mocked(debug.continueExecution).mockClear();
       sendMessage(panel, { command: 'resume' });
 
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 2, expect.anything());
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(
+        session,
+        GS_PROCESS,
+        2,
+        expect.anything(),
+      );
       expect(debug.continueExecution).toHaveBeenCalled(); // no longer guarded
     });
 
@@ -2522,7 +3021,12 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'restartFrame', level: 2 });
       await tick();
 
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 2, expect.anything());
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(
+        session,
+        GS_PROCESS,
+        2,
+        expect.anything(),
+      );
       expect(posted(panel, 'init').length).toBe(before + 1);
     });
 
@@ -2532,7 +3036,10 @@ describe('DebuggerPanel', () => {
       await tick();
 
       expect(debug.stepOverNb).toHaveBeenCalledWith(
-        session, GS_PROCESS, 3, expect.objectContaining({ suppressNotification: true }),
+        session,
+        GS_PROCESS,
+        3,
+        expect.objectContaining({ suppressNotification: true }),
       );
     });
 
@@ -2540,8 +3047,8 @@ describe('DebuggerPanel', () => {
       const cancelSpy = vi.fn();
       vi.mocked(debug.stepOverNb).mockImplementationOnce((...args: unknown[]) => {
         const opts = args[3] as { onStart?: (c: () => void) => void };
-        opts.onStart?.(cancelSpy);             // the nb step begins polling → cancellable
-        return new Promise(() => {});          // never settles — the step "runs"
+        opts.onStart?.(cancelSpy); // the nb step begins polling → cancellable
+        return new Promise(() => {}); // never settles — the step "runs"
       });
       const panel = openPanel();
       sendMessage(panel, { command: 'stepOver', level: 3 });
@@ -2571,7 +3078,8 @@ describe('DebuggerPanel', () => {
     it('Restart Frame on an Executed Code (doit) frame shows a notice and does not trim (kernel cannot reset a classless frame)', async () => {
       vi.mocked(debug.getStackDepth).mockImplementation(() => 2);
       vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => ({
-        isBlock: false, homeMethodOop: methodOop,
+        isBlock: false,
+        homeMethodOop: methodOop,
       }));
       // Top frame is a real method; the deeper frame is a doit (its method can't be
       // resolved → Executed Code), like `<expr> halt` stepped into a real method.
@@ -2622,7 +3130,10 @@ describe('DebuggerPanel', () => {
     });
 
     it('does NOT call onComplete when Resume hits another error (refreshes instead)', () => {
-      vi.mocked(debug.continueExecution).mockReturnValueOnce({ completed: false, errorMessage: 'boom2' });
+      vi.mocked(debug.continueExecution).mockReturnValueOnce({
+        completed: false,
+        errorMessage: 'boom2',
+      });
       const onComplete = vi.fn();
       DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG, onComplete);
       const panel = lastPanel();
@@ -2635,7 +3146,11 @@ describe('DebuggerPanel', () => {
 
     it('does NOT silently drop a second op while one is in flight — it posts a busy notice', async () => {
       let release: (r: debug.StepResult) => void = () => {};
-      vi.mocked(debug.stepOverNb).mockReturnValueOnce(new Promise<debug.StepResult>(res => { release = res; }));
+      vi.mocked(debug.stepOverNb).mockReturnValueOnce(
+        new Promise<debug.StepResult>((res) => {
+          release = res;
+        }),
+      );
       const panel = openPanel();
       sendMessage(panel, { command: 'stepOver', level: 3 }); // starts, stays pending
       await tick();
@@ -2643,7 +3158,7 @@ describe('DebuggerPanel', () => {
 
       sendMessage(panel, { command: 'stepOver', level: 3 }); // while the first is in flight
       await tick();
-      expect(debug.stepOverNb).toHaveBeenCalledTimes(1);                 // not started again
+      expect(debug.stepOverNb).toHaveBeenCalledTimes(1); // not started again
       expect(lastPosted(panel, 'init').errorMessage).toMatch(/still running/i); // user is told
 
       release({ completed: false }); // let the first finish so the panel settles
@@ -2666,19 +3181,27 @@ describe('DebuggerPanel', () => {
   describe('edit-and-continue (save companion source)', () => {
     // Let revealFrameSource's awaited openTextDocument/showTextDocument settle so
     // editableSourceUri is set before we fire the save.
-    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
     const URI_INFO = {
-      dictName: 'UserGlobals', className: 'JasperDebugDemo', isMeta: false,
-      category: 'accessing', selector: 'accumulateFrom:to:',
+      dictName: 'UserGlobals',
+      className: 'JasperDebugDemo',
+      isMeta: false,
+      category: 'accessing',
+      selector: 'accumulateFrom:to:',
     };
 
     beforeEach(() => {
       // Restore the base getFrameInfo (mockImplementation leaks past clearAllMocks).
-      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
-        methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100),
-        argAndTempNames: [], argAndTempOops: [],
-      }));
+      vi.mocked(debug.getFrameInfo).mockImplementation(
+        (_s: unknown, _p: unknown, level: number) => ({
+          methodOop: BigInt(level),
+          ipOffset: 5,
+          receiverOop: BigInt(level * 100),
+          argAndTempNames: [],
+          argAndTempOops: [],
+        }),
+      );
     });
 
     /** The save listener the panel registered in its constructor. */
@@ -2718,9 +3241,9 @@ describe('DebuggerPanel', () => {
       const { panel, uri } = await openWithEditableFrame(3);
       // getDiagnostics is overloaded ([Uri, Diagnostic[]][] | Diagnostic[]); cast
       // past the union to the single-URI Diagnostic[] shape the panel calls with.
-      vi.mocked(vscode.languages.getDiagnostics).mockReturnValueOnce(
-        [{ severity: vscode.DiagnosticSeverity.Error }] as never,
-      );
+      vi.mocked(vscode.languages.getDiagnostics).mockReturnValueOnce([
+        { severity: vscode.DiagnosticSeverity.Error },
+      ] as never);
       const before = posted(panel, 'init').length;
       saveListener()({ uri } as vscode.TextDocument);
       await tick();
@@ -2732,7 +3255,9 @@ describe('DebuggerPanel', () => {
     it('ignores a save of some OTHER document (not the selected frame source)', async () => {
       const { panel } = await openWithEditableFrame(3);
       const before = posted(panel, 'init').length;
-      saveListener()({ uri: vscode.Uri.parse('gemstone://1/Other/Foo/instance/x/bar') } as vscode.TextDocument);
+      saveListener()({
+        uri: vscode.Uri.parse('gemstone://1/Other/Foo/instance/x/bar'),
+      } as vscode.TextDocument);
       await tick();
 
       expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();
@@ -2787,14 +3312,19 @@ describe('DebuggerPanel', () => {
 
     it('re-enables Resume once a deeper frame is restarted (the trim discards the stale activation)', async () => {
       const { panel, uri } = await openWithEditableFrame(1);
-      saveListener()({ uri } as vscode.TextDocument);        // stale top activation (sync guard)
+      saveListener()({ uri } as vscode.TextDocument); // stale top activation (sync guard)
       await tick();
       sendMessage(panel, { command: 'restartFrame', level: 2 }); // deeper trim clears it
-      await tick();                                              // let the async trim settle
+      await tick(); // let the async trim settle
       vi.mocked(debug.continueExecution).mockClear();
       sendMessage(panel, { command: 'resume' });
 
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 2, expect.anything());
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(
+        session,
+        GS_PROCESS,
+        2,
+        expect.anything(),
+      );
       expect(debug.continueExecution).toHaveBeenCalled(); // no longer blocked
     });
   });
@@ -2808,21 +3338,30 @@ describe('DebuggerPanel', () => {
   //   server 3 — `JasperDebugDemo>>finish`        (the block's HOME method; oop 10n)
   //   server 4 — `JasperDebugDemo>>run`           (the caller)
   describe('block-frame home method (navigate / restart / re-enter)', () => {
-    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
     const URI_INFO = {
-      dictName: 'UserGlobals', className: 'JasperDebugDemo', isMeta: false,
-      category: 'running', selector: 'finish',
+      dictName: 'UserGlobals',
+      className: 'JasperDebugDemo',
+      isMeta: false,
+      category: 'running',
+      selector: 'finish',
     };
 
     // mockImplementation leaks past clearAllMocks — restore the factory defaults.
     afterEach(() => {
       vi.mocked(debug.getStackDepth).mockImplementation(() => 5);
-      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
-        methodOop: BigInt(level), ipOffset: 5, receiverOop: BigInt(level * 100),
-        argAndTempNames: [], argAndTempOops: [],
-      }));
+      vi.mocked(debug.getFrameInfo).mockImplementation(
+        (_s: unknown, _p: unknown, level: number) => ({
+          methodOop: BigInt(level),
+          ipOffset: 5,
+          receiverOop: BigInt(level * 100),
+          argAndTempNames: [],
+          argAndTempOops: [],
+        }),
+      );
       vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => ({
-        isBlock: methodOop === 1n, homeMethodOop: methodOop,
+        isBlock: methodOop === 1n,
+        homeMethodOop: methodOop,
       }));
       vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
         if (oop === 1n) return { className: 'JasperDebugDemo', selector: 'finish' };
@@ -2839,10 +3378,15 @@ describe('DebuggerPanel', () => {
      */
     function openBlockStack(blockHomeOop = 10n) {
       vi.mocked(debug.getStackDepth).mockImplementation(() => 4);
-      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
-        methodOop: level === 3 ? 10n : BigInt(level), // the home method's own activation
-        ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [],
-      }));
+      vi.mocked(debug.getFrameInfo).mockImplementation(
+        (_s: unknown, _p: unknown, level: number) => ({
+          methodOop: level === 3 ? 10n : BigInt(level), // the home method's own activation
+          ipOffset: 5,
+          receiverOop: BigInt(level * 100),
+          argAndTempNames: [],
+          argAndTempOops: [],
+        }),
+      );
       vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => ({
         isBlock: methodOop === 1n,
         homeMethodOop: methodOop === 1n ? blockHomeOop : methodOop,
@@ -2871,7 +3415,7 @@ describe('DebuggerPanel', () => {
       expect(stack[3].homeDisplayLevel).toBeUndefined();
     });
 
-    it('offers no home navigation when the block\'s home method has already returned', () => {
+    it("offers no home navigation when the block's home method has already returned", () => {
       const panel = openBlockStack(99n); // home oop not present on the stack
       expect(initPayload(panel).stack[0].homeDisplayLevel).toBeUndefined();
     });
@@ -2883,7 +3427,12 @@ describe('DebuggerPanel', () => {
 
       // Retargeted from the block (server 1) to its home method (server 3) — so it
       // trims there, NOT refusing as it would for a genuine top frame.
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3, expect.anything());
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(
+        session,
+        GS_PROCESS,
+        3,
+        expect.anything(),
+      );
       expect(lastPosted(panel, 'init').errorMessage).not.toMatch(/top frame/i);
     });
 
@@ -2897,7 +3446,7 @@ describe('DebuggerPanel', () => {
       expect(lastPosted(panel, 'init').errorMessage).toMatch(/top frame/i);
     });
 
-    it('Saving a block frame\'s (home-method) source re-enters at the home activation', async () => {
+    it("Saving a block frame's (home-method) source re-enters at the home activation", async () => {
       const panel = openBlockStack();
       vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce(URI_INFO); // the reveal → editable
       sendMessage(panel, { command: 'selectFrame', level: 1 }); // select the block frame
@@ -2927,10 +3476,15 @@ describe('DebuggerPanel', () => {
     function openNestedBlockStack() {
       const HOME = 100n;
       vi.mocked(debug.getStackDepth).mockImplementation(() => 7);
-      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
-        methodOop: level === 7 ? HOME : BigInt(level), // the home method's own activation
-        ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [],
-      }));
+      vi.mocked(debug.getFrameInfo).mockImplementation(
+        (_s: unknown, _p: unknown, level: number) => ({
+          methodOop: level === 7 ? HOME : BigInt(level), // the home method's own activation
+          ipOffset: 5,
+          receiverOop: BigInt(level * 100),
+          argAndTempNames: [],
+          argAndTempOops: [],
+        }),
+      );
       // Odd levels 1/3/5 are the nested blocks; all share the one home method.
       vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => {
         const isBlock = methodOop === 1n || methodOop === 3n || methodOop === 5n;
@@ -2968,7 +3522,12 @@ describe('DebuggerPanel', () => {
 
       // The whole home method re-runs from the top — the inner AND outer blocks
       // above the home frame are all discarded by the trim.
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 7, expect.anything());
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(
+        session,
+        GS_PROCESS,
+        7,
+        expect.anything(),
+      );
       expect(lastPosted(panel, 'init').errorMessage).not.toMatch(/top frame/i);
     });
 
@@ -2979,7 +3538,12 @@ describe('DebuggerPanel', () => {
 
       // homeMethodFrameLevel skips the deeper kernel frame and lands on `foo` (7),
       // never on the still-deeper nothing — there's exactly one home activation.
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 7, expect.anything());
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(
+        session,
+        GS_PROCESS,
+        7,
+        expect.anything(),
+      );
     });
 
     it('Saving from a nested block re-enters the shared home method (trims to 7)', async () => {
@@ -3004,10 +3568,15 @@ describe('DebuggerPanel', () => {
     //   server 4 — `JasperDebugDemo>>foo` (the block's HOME method; oop 10n)
     function openMidBlockStack() {
       vi.mocked(debug.getStackDepth).mockImplementation(() => 4);
-      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
-        methodOop: level === 4 ? 10n : BigInt(level), // home activation is server 4
-        ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [],
-      }));
+      vi.mocked(debug.getFrameInfo).mockImplementation(
+        (_s: unknown, _p: unknown, level: number) => ({
+          methodOop: level === 4 ? 10n : BigInt(level), // home activation is server 4
+          ipOffset: 5,
+          receiverOop: BigInt(level * 100),
+          argAndTempNames: [],
+          argAndTempOops: [],
+        }),
+      );
       vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => ({
         isBlock: methodOop === 2n, // only the mid frame is a block
         homeMethodOop: methodOop === 2n ? 10n : methodOop,
@@ -3031,7 +3600,12 @@ describe('DebuggerPanel', () => {
       // Retargets DOWN to the home method (server 4) — NOT a trim to the block's
       // own level (2), which would merely restart the block in place (the old
       // behaviour, before block frames retargeted to their home method).
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 4, expect.anything());
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(
+        session,
+        GS_PROCESS,
+        4,
+        expect.anything(),
+      );
       expect(debug.trimStackToLevelNb).not.toHaveBeenCalledWith(session, GS_PROCESS, 2);
     });
 
@@ -3049,10 +3623,15 @@ describe('DebuggerPanel', () => {
     function openRecursiveBlockStack() {
       const HOME = 100n;
       vi.mocked(debug.getStackDepth).mockImplementation(() => 6);
-      vi.mocked(debug.getFrameInfo).mockImplementation((_s: unknown, _p: unknown, level: number) => ({
-        methodOop: (level === 3 || level === 6) ? HOME : BigInt(level), // two `foo` activations
-        ipOffset: 5, receiverOop: BigInt(level * 100), argAndTempNames: [], argAndTempOops: [],
-      }));
+      vi.mocked(debug.getFrameInfo).mockImplementation(
+        (_s: unknown, _p: unknown, level: number) => ({
+          methodOop: level === 3 || level === 6 ? HOME : BigInt(level), // two `foo` activations
+          ipOffset: 5,
+          receiverOop: BigInt(level * 100),
+          argAndTempNames: [],
+          argAndTempOops: [],
+        }),
+      );
       vi.mocked(debug.getMethodBlockInfo).mockImplementation((_s: unknown, methodOop: bigint) => {
         const isBlock = methodOop === 1n || methodOop === 4n;
         return { isBlock, homeMethodOop: isBlock ? HOME : methodOop };
@@ -3082,17 +3661,25 @@ describe('DebuggerPanel', () => {
 
       // Trims to the inner foo (server 3), NOT the deeper outer foo (server 6) —
       // restarting the inner recursion level, not unwinding an extra one.
-      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(session, GS_PROCESS, 3, expect.anything());
+      expect(debug.trimStackToLevelNb).toHaveBeenCalledWith(
+        session,
+        GS_PROCESS,
+        3,
+        expect.anything(),
+      );
       expect(debug.trimStackToLevelNb).not.toHaveBeenCalledWith(session, GS_PROCESS, 6);
     });
   });
 
   describe('create-method-from-DNU', () => {
-    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
     const DNU = {
-      className: 'JasperDebugDemo', isMeta: false, dictName: 'UserGlobals',
-      selector: 'fourtyTwo:bar:', argCount: 2,
+      className: 'JasperDebugDemo',
+      isMeta: false,
+      dictName: 'UserGlobals',
+      selector: 'fourtyTwo:bar:',
+      argCount: 2,
     };
 
     // getDoesNotUnderstandInfo's mockReturnValue persists past clearAllMocks, so
@@ -3132,7 +3719,9 @@ describe('DebuggerPanel', () => {
     it('includes the DNU info in the init payload when parked on a doesNotUnderstand:', () => {
       const panel = openWithDnu();
       expect(initPayload(panel).dnu).toEqual({
-        selector: 'fourtyTwo:bar:', className: 'JasperDebugDemo', isMeta: false,
+        selector: 'fourtyTwo:bar:',
+        className: 'JasperDebugDemo',
+        isMeta: false,
       });
     });
 
@@ -3194,11 +3783,15 @@ describe('DebuggerPanel', () => {
       // must match THIS form; buildMethodSourceUri's %3A encoding would not, and the
       // tab would linger ("stuck around"). Guards that regression.
       const compiledUri = vscode.Uri.from({
-        scheme: 'gemstone', authority: '1',
+        scheme: 'gemstone',
+        authority: '1',
         path: '/UserGlobals/JasperDebugDemo/instance/as yet unclassified/fourtyTwo:bar:',
       });
       const methodTab = { label: 'fourtyTwo:bar:', input: new vscode.TabInputText(compiledUri) };
-      const groups = vscode.window.tabGroups.all as unknown as { viewColumn: number; tabs: unknown[] }[];
+      const groups = vscode.window.tabGroups.all as unknown as {
+        viewColumn: number;
+        tabs: unknown[];
+      }[];
       groups.push({ viewColumn: 9, tabs: [methodTab] });
 
       closePanel(panel);
@@ -3212,9 +3805,9 @@ describe('DebuggerPanel', () => {
       await flush();
       const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
 
-      vi.mocked(vscode.languages.getDiagnostics).mockReturnValueOnce(
-        [{ severity: vscode.DiagnosticSeverity.Error }] as never,
-      );
+      vi.mocked(vscode.languages.getDiagnostics).mockReturnValueOnce([
+        { severity: vscode.DiagnosticSeverity.Error },
+      ] as never);
       saveListener()({ uri } as vscode.TextDocument);
       await tick();
       expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();
@@ -3229,7 +3822,9 @@ describe('DebuggerPanel', () => {
       // All frames resolve as Executed Code (no class) → the sender can't be
       // re-entered (kernel trim sends compiledMethodAt: to nil); never attempt it.
       vi.mocked(debug.getDoesNotUnderstandInfo).mockReturnValue(DNU);
-      vi.mocked(debug.getMethodInfo).mockImplementation(() => { throw new Error('doit: no class'); });
+      vi.mocked(debug.getMethodInfo).mockImplementation(() => {
+        throw new Error('doit: no class');
+      });
       DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
       const panel = lastPanel();
       sendReady(panel);
@@ -3272,7 +3867,7 @@ describe('DebuggerPanel', () => {
   });
 
   describe('implement in receiver (override)', () => {
-    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
     // getMethodInfo overrides (in the doit-sender test) leak past clearAllMocks —
     // restore the base so later tests see the standard 5-frame stack.
@@ -3298,14 +3893,17 @@ describe('DebuggerPanel', () => {
     }
 
     it('marks an inherited-method frame overridable, carrying the receiver class', () => {
-      const overridable = initPayload(openPanel()).stack.find((f: { overridable?: boolean }) => f.overridable);
-      expect(overridable.receiverClass).toBe('SmallInteger');   // the receiver's class…
-      expect(overridable.label).toContain('Object');            // …while the method lives in Object
+      const overridable = initPayload(openPanel()).stack.find(
+        (f: { overridable?: boolean }) => f.overridable,
+      );
+      expect(overridable.receiverClass).toBe('SmallInteger'); // the receiver's class…
+      expect(overridable.label).toContain('Object'); // …while the method lives in Object
     });
 
     it('does NOT mark a frame overridable when the receiver IS the defining class', () => {
-      const selfFrames = initPayload(openPanel()).stack
-        .filter((f: { receiverClass?: string }) => f.receiverClass === 'JasperDebugDemo');
+      const selfFrames = initPayload(openPanel()).stack.filter(
+        (f: { receiverClass?: string }) => f.receiverClass === 'JasperDebugDemo',
+      );
       expect(selfFrames.length).toBeGreaterThan(0);
       for (const f of selfFrames) expect(f.overridable).toBeFalsy();
     });
@@ -3350,13 +3948,17 @@ describe('DebuggerPanel', () => {
       await flush();
       const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] as vscode.Uri;
 
-      vi.mocked(vscode.languages.getDiagnostics).mockReturnValueOnce(
-        [{ severity: vscode.DiagnosticSeverity.Error }] as never,
-      );
+      vi.mocked(vscode.languages.getDiagnostics).mockReturnValueOnce([
+        { severity: vscode.DiagnosticSeverity.Error },
+      ] as never);
       saveListener()({ uri } as vscode.TextDocument);
       await tick();
       // Bad compile → finish not run yet (no "saved" message).
-      expect(posted(panel, 'init').some((m: { errorMessage?: string }) => /used on the next/i.test(m.errorMessage ?? ''))).toBe(false);
+      expect(
+        posted(panel, 'init').some((m: { errorMessage?: string }) =>
+          /used on the next/i.test(m.errorMessage ?? ''),
+        ),
+      ).toBe(false);
 
       saveListener()({ uri } as vscode.TextDocument); // re-save after fixing → pending survived
       await tick();
@@ -3364,9 +3966,9 @@ describe('DebuggerPanel', () => {
     });
 
     it('refuses to implement when the receiver class has no home dictionary', async () => {
-      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce(
-        [{ className: 'SmallInteger', isMeta: false, dictName: '' }],
-      );
+      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce([
+        { className: 'SmallInteger', isMeta: false, dictName: '' },
+      ]);
       const panel = openPanel();
       vi.mocked(vscode.workspace.openTextDocument).mockClear();
       sendMessage(panel, { command: 'implementInReceiver', level: 2 });
@@ -3380,7 +3982,12 @@ describe('DebuggerPanel', () => {
     // then the class that already implements it (Collection) and Object.
     const CHAIN = [
       { className: 'Interval', isMeta: false, dictName: 'Globals', implementsSelector: false },
-      { className: 'SequenceableCollection', isMeta: false, dictName: 'Kernel', implementsSelector: false },
+      {
+        className: 'SequenceableCollection',
+        isMeta: false,
+        dictName: 'Kernel',
+        implementsSelector: false,
+      },
       { className: 'Collection', isMeta: false, dictName: 'Kernel', implementsSelector: true },
       { className: 'Object', isMeta: false, dictName: 'Kernel', implementsSelector: true },
     ];
@@ -3389,7 +3996,8 @@ describe('DebuggerPanel', () => {
       vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce(CHAIN);
       // Choose SequenceableCollection (index 1) — a superclass override target.
       vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
-        async (items: unknown) => (items as { index: number }[])[1] as never);
+        async (items: unknown) => (items as { index: number }[])[1] as never,
+      );
       const panel = openPanel();
       vi.mocked(vscode.workspace.openTextDocument).mockClear();
       sendMessage(panel, { command: 'implementInReceiver', level: 2 });
@@ -3397,9 +4005,16 @@ describe('DebuggerPanel', () => {
 
       // The picker offered the whole chain, receiver first; classes that already
       // implement the selector are marked as edit (not override) targets.
-      const items = vi.mocked(vscode.window.showQuickPick).mock.calls.at(-1)![0] as
-        { label: string; description: string }[];
-      expect(items.map(i => i.label)).toEqual(['Interval', 'SequenceableCollection', 'Collection', 'Object']);
+      const items = vi.mocked(vscode.window.showQuickPick).mock.calls.at(-1)![0] as {
+        label: string;
+        description: string;
+      }[];
+      expect(items.map((i) => i.label)).toEqual([
+        'Interval',
+        'SequenceableCollection',
+        'Collection',
+        'Object',
+      ]);
       expect(items[0].description).toMatch(/implement here/i);
       expect(items[2].description).toMatch(/already implements/i);
       // A stub template for the chosen (non-implementing) superclass.
@@ -3411,7 +4026,8 @@ describe('DebuggerPanel', () => {
     it('opens the EXISTING source (no stub) when the chosen class already implements it', async () => {
       vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce(CHAIN);
       vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
-        async (items: unknown) => (items as { index: number }[])[2] as never); // Collection (implements it)
+        async (items: unknown) => (items as { index: number }[])[2] as never,
+      ); // Collection (implements it)
       const panel = openPanel();
       vi.mocked(vscode.workspace.openTextDocument).mockClear();
       sendMessage(panel, { command: 'implementInReceiver', level: 2 });
@@ -3427,16 +4043,24 @@ describe('DebuggerPanel', () => {
 
     it('warns that a subclass implementation shadows an override placed higher up', async () => {
       vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce([
-        { className: 'Interval', isMeta: false, dictName: 'Globals', implementsSelector: true },  // active impl
-        { className: 'SequenceableCollection', isMeta: false, dictName: 'Kernel', implementsSelector: false },
+        { className: 'Interval', isMeta: false, dictName: 'Globals', implementsSelector: true }, // active impl
+        {
+          className: 'SequenceableCollection',
+          isMeta: false,
+          dictName: 'Kernel',
+          implementsSelector: false,
+        },
       ]);
       vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
-        async (items: unknown) => (items as { index: number }[])[1] as never); // implement in the superclass
+        async (items: unknown) => (items as { index: number }[])[1] as never,
+      ); // implement in the superclass
       const panel = openPanel();
       sendMessage(panel, { command: 'implementInReceiver', level: 2 });
       await flush();
       // Save → the message explains Interval still shadows it (no trim — option B).
-      saveListener()({ uri: vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0] } as vscode.TextDocument);
+      saveListener()({
+        uri: vi.mocked(vscode.workspace.openTextDocument).mock.calls.at(-1)![0],
+      } as vscode.TextDocument);
       await tick();
       expect(debug.trimStackToLevelNb).not.toHaveBeenCalled();
       expect(lastPosted(panel, 'init').errorMessage).toMatch(/Interval already implements/i);
@@ -3463,7 +4087,7 @@ describe('DebuggerPanel', () => {
   });
 
   describe('implement subclassResponsibility (implement an abstract method)', () => {
-    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
     // A subclassResponsibility stop: the `subclassResponsibility` marker frame on
     // top, the abstract method (`Integer>>foo`, receiver LargeNegativeInteger)
@@ -3498,7 +4122,12 @@ describe('DebuggerPanel', () => {
     // definer (which "implements" #foo only as the subclassResponsibility stub),
     // then classes ABOVE the definer — which the implement action must trim away.
     const SR_CHAIN = [
-      { className: 'LargeNegativeInteger', isMeta: false, dictName: 'Globals', implementsSelector: false },
+      {
+        className: 'LargeNegativeInteger',
+        isMeta: false,
+        dictName: 'Globals',
+        implementsSelector: false,
+      },
       { className: 'LargeInteger', isMeta: false, dictName: 'Globals', implementsSelector: false },
       { className: 'Integer', isMeta: false, dictName: 'Globals', implementsSelector: true },
       { className: 'Number', isMeta: false, dictName: 'Kernel', implementsSelector: false },
@@ -3521,7 +4150,9 @@ describe('DebuggerPanel', () => {
       const stack = initPayload(openPanel()).stack;
       // The marker frame is trimmed; the abstract method `Integer>>foo` is the top.
       expect(stack[0].label).toContain('foo');
-      expect(stack.some((f: { label: string }) => /subclassResponsibility/.test(f.label))).toBe(false);
+      expect(stack.some((f: { label: string }) => /subclassResponsibility/.test(f.label))).toBe(
+        false,
+      );
     });
 
     it('offers the "Implement #sel" action when parked on a subclassResponsibility', () => {
@@ -3531,8 +4162,13 @@ describe('DebuggerPanel', () => {
 
     it('does NOT offer the implement action when a doesNotUnderstand: is also parked (DNU wins)', () => {
       setUpSubclassRespStack();
-      vi.mocked(debug.getDoesNotUnderstandInfo).mockReturnValue(
-        { className: 'Foo', isMeta: false, dictName: 'Globals', selector: 'bar', argCount: 0 });
+      vi.mocked(debug.getDoesNotUnderstandInfo).mockReturnValue({
+        className: 'Foo',
+        isMeta: false,
+        dictName: 'Globals',
+        selector: 'bar',
+        argCount: 0,
+      });
       const payload = initPayload(openPanel());
       expect(payload.subclassResp).toBeUndefined();
       expect(payload.dnu).toBeTruthy();
@@ -3542,15 +4178,22 @@ describe('DebuggerPanel', () => {
       setUpSubclassRespStack();
       vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce(SR_CHAIN);
       vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
-        async (items: unknown) => (items as { index: number }[])[0] as never); // LargeNegativeInteger
+        async (items: unknown) => (items as { index: number }[])[0] as never,
+      ); // LargeNegativeInteger
       const panel = openPanel();
       vi.mocked(vscode.workspace.openTextDocument).mockClear();
       sendMessage(panel, { command: 'implementSubclassResponsibility' });
       await flush();
 
       // Bounded at Integer (the definer) — Number/Object above it are dropped.
-      const items = vi.mocked(vscode.window.showQuickPick).mock.calls.at(-1)![0] as { label: string }[];
-      expect(items.map(i => i.label)).toEqual(['LargeNegativeInteger', 'LargeInteger', 'Integer']);
+      const items = vi.mocked(vscode.window.showQuickPick).mock.calls.at(-1)![0] as {
+        label: string;
+      }[];
+      expect(items.map((i) => i.label)).toEqual([
+        'LargeNegativeInteger',
+        'LargeInteger',
+        'Integer',
+      ]);
       const uri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
       expect(uri.toString()).toContain('/Globals/LargeNegativeInteger/instance/');
       expect(uri.toString()).toContain('new-method');
@@ -3560,7 +4203,8 @@ describe('DebuggerPanel', () => {
       setUpSubclassRespStack(); // caller (level 3) is a re-enterable method frame
       vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce(SR_CHAIN);
       vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
-        async (items: unknown) => (items as { index: number }[])[0] as never);
+        async (items: unknown) => (items as { index: number }[])[0] as never,
+      );
       const panel = openPanel();
       sendMessage(panel, { command: 'implementSubclassResponsibility' });
       await flush();
@@ -3576,7 +4220,8 @@ describe('DebuggerPanel', () => {
       setUpSubclassRespStack(true); // caller is a doit → not re-enterable
       vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce(SR_CHAIN);
       vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
-        async (items: unknown) => (items as { index: number }[])[0] as never);
+        async (items: unknown) => (items as { index: number }[])[0] as never,
+      );
       const panel = openPanel();
       sendMessage(panel, { command: 'implementSubclassResponsibility' });
       await flush();
@@ -3592,7 +4237,8 @@ describe('DebuggerPanel', () => {
       setUpSubclassRespStack(true);
       vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce(SR_CHAIN);
       vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
-        async (items: unknown) => (items as { index: number }[])[0] as never);
+        async (items: unknown) => (items as { index: number }[])[0] as never,
+      );
       const panel = openPanel();
       expect(initPayload(panel).subclassResp).toEqual({ selector: 'foo' }); // offered at first
       sendMessage(panel, { command: 'implementSubclassResponsibility' });
@@ -3625,14 +4271,15 @@ describe('DebuggerPanel', () => {
   // than `/instance/`. Mirrors the hardening item-A live verification
   // (JasperMaker* / JasperClassSideDemo).
   describe('class-side coverage (metaclass receivers)', () => {
-    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
     // getMethodInfo / getObjectClassName / getDoesNotUnderstandInfo / getStackDepth
     // mockImplementations leak past clearAllMocks — restore the base 5-frame stack.
     afterEach(() => {
       vi.mocked(debug.getStackDepth).mockImplementation(() => 5);
       vi.mocked(debug.getObjectClassName).mockImplementation((_s: unknown, receiverOop: bigint) =>
-        receiverOop === 200n ? 'SmallInteger' : 'JasperDebugDemo');
+        receiverOop === 200n ? 'SmallInteger' : 'JasperDebugDemo',
+      );
       vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
         if (oop === 1n) return { className: 'JasperDebugDemo', selector: 'finish' };
         if (oop === 2n) return { className: 'Object', selector: 'halt' };
@@ -3652,7 +4299,8 @@ describe('DebuggerPanel', () => {
     // inherited from JasperMakerBase, run with `receiverClassName` as the receiver.
     function classSideInheritedAtLevel2(receiverClassName: string) {
       vi.mocked(debug.getObjectClassName).mockImplementation((_s: unknown, receiverOop: bigint) =>
-        receiverOop === 200n ? receiverClassName : 'JasperDebugDemo');
+        receiverOop === 200n ? receiverClassName : 'JasperDebugDemo',
+      );
       vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
         if (oop === 1n) return { className: 'JasperDebugDemo', selector: 'finish' };
         if (oop === 2n) return { className: 'JasperMakerBase', selector: 'buildIt' };
@@ -3664,25 +4312,29 @@ describe('DebuggerPanel', () => {
 
     it('marks an inherited CLASS-SIDE frame overridable, carrying the receiver metaclass', () => {
       classSideInheritedAtLevel2('JasperMakerLeaf class');
-      const overridable = initPayload(openPanel()).stack.find((f: { overridable?: boolean }) => f.overridable);
+      const overridable = initPayload(openPanel()).stack.find(
+        (f: { overridable?: boolean }) => f.overridable,
+      );
       expect(overridable.receiverClass).toBe('JasperMakerLeaf class'); // the receiver's metaclass…
-      expect(overridable.label).toContain('JasperMakerBase');          // …while the method lives in the superclass
+      expect(overridable.label).toContain('JasperMakerBase'); // …while the method lives in the superclass
     });
 
     it('does NOT mark a CLASS-SIDE frame overridable when the receiver IS the defining class', () => {
       // Receiver is JasperMakerBase itself → "JasperMakerBase class"; the
       // `receiverClass !== definingClassName + " class"` guard must suppress it.
       classSideInheritedAtLevel2('JasperMakerBase class');
-      const selfFrames = initPayload(openPanel()).stack
-        .filter((f: { receiverClass?: string }) => f.receiverClass === 'JasperMakerBase class');
+      const selfFrames = initPayload(openPanel()).stack.filter(
+        (f: { receiverClass?: string }) => f.receiverClass === 'JasperMakerBase class',
+      );
       expect(selfFrames.length).toBeGreaterThan(0);
       for (const f of selfFrames) expect(f.overridable).toBeFalsy();
     });
 
     it('implementInReceiver opens a CLASS-side new-method template for a metaclass receiver', async () => {
       classSideInheritedAtLevel2('JasperMakerLeaf class');
-      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce(
-        [{ className: 'JasperMakerLeaf', isMeta: true, dictName: 'UserGlobals' }]);
+      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce([
+        { className: 'JasperMakerLeaf', isMeta: true, dictName: 'UserGlobals' },
+      ]);
       const panel = openPanel();
       vi.mocked(vscode.workspace.openTextDocument).mockClear();
       sendMessage(panel, { command: 'implementInReceiver', level: 2 });
@@ -3705,11 +4357,22 @@ describe('DebuggerPanel', () => {
       });
       // Class-side receiver chain, bounded at the abstract definer (isMeta throughout).
       vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce([
-        { className: 'JasperConcreteMaker', isMeta: true, dictName: 'UserGlobals', implementsSelector: false },
-        { className: 'JasperAbstractMaker', isMeta: true, dictName: 'UserGlobals', implementsSelector: true },
+        {
+          className: 'JasperConcreteMaker',
+          isMeta: true,
+          dictName: 'UserGlobals',
+          implementsSelector: false,
+        },
+        {
+          className: 'JasperAbstractMaker',
+          isMeta: true,
+          dictName: 'UserGlobals',
+          implementsSelector: true,
+        },
       ]);
       vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
-        async (items: unknown) => (items as { index: number }[])[0] as never); // JasperConcreteMaker class
+        async (items: unknown) => (items as { index: number }[])[0] as never,
+      ); // JasperConcreteMaker class
       const panel = openPanel();
       expect(initPayload(panel).subclassResp).toEqual({ selector: 'defaultInstance' });
       vi.mocked(vscode.workspace.openTextDocument).mockClear();
@@ -3724,8 +4387,11 @@ describe('DebuggerPanel', () => {
     // --- DNU (create-method), class side: receiver IS a class ---
 
     const DNU_META = {
-      className: 'JasperClassSideDemo', isMeta: true, dictName: 'UserGlobals',
-      selector: 'makeFancyThing:', argCount: 1,
+      className: 'JasperClassSideDemo',
+      isMeta: true,
+      dictName: 'UserGlobals',
+      selector: 'makeFancyThing:',
+      argCount: 1,
     };
 
     function openWithClassDnu() {
@@ -3744,7 +4410,9 @@ describe('DebuggerPanel', () => {
     it('carries isMeta in the DNU init payload when the receiver is a class', () => {
       const panel = openWithClassDnu();
       expect(initPayload(panel).dnu).toEqual({
-        selector: 'makeFancyThing:', className: 'JasperClassSideDemo', isMeta: true,
+        selector: 'makeFancyThing:',
+        className: 'JasperClassSideDemo',
+        isMeta: true,
       });
     });
 
@@ -3765,15 +4433,26 @@ describe('DebuggerPanel', () => {
       // Frame at level 3 (receiverOop 300) has a class receiver; its named
       // instVars are the class-instance variables (e.g. `registry`).
       vi.mocked(debug.getObjectClassName).mockImplementation((_s: unknown, receiverOop: bigint) =>
-        receiverOop === 300n ? 'JasperClassSideDemo class' : 'JasperDebugDemo');
+        receiverOop === 300n ? 'JasperClassSideDemo class' : 'JasperDebugDemo',
+      );
       // The one-trip query returns the class-instance var as an instvars row.
-      vi.mocked(debug.fetchFrameVariables).mockImplementation((_s: unknown, _p: unknown, level: number) =>
-        level === 3
-          ? [
-            { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
-            { group: 'instvars', name: 'registry', value: '<print 7>', oop: '7', index: 1 },
-          ]
-          : [{ group: 'receiver', name: 'self', value: `<print ${level * 100}>`, oop: `${level * 100}`, index: 0 }]);
+      vi.mocked(debug.fetchFrameVariables).mockImplementation(
+        (_s: unknown, _p: unknown, level: number) =>
+          level === 3
+            ? [
+                { group: 'receiver', name: 'self', value: '<print 300>', oop: '300', index: 0 },
+                { group: 'instvars', name: 'registry', value: '<print 7>', oop: '7', index: 1 },
+              ]
+            : [
+                {
+                  group: 'receiver',
+                  name: 'self',
+                  value: `<print ${level * 100}>`,
+                  oop: `${level * 100}`,
+                  index: 0,
+                },
+              ],
+      );
       vi.mocked(debug.evaluateInFrameToOop).mockReturnValueOnce(777n);
       const panel = openPanel();
       sendMessage(panel, { command: 'selectFrame', level: 3 });
@@ -3784,9 +4463,18 @@ describe('DebuggerPanel', () => {
         { name: 'registry', value: '<print 7>', oop: '7', edit: { kind: 'instvar', index: 1 } },
       ]);
       // Writing it routes through the same instVarAt:put: primitive, class receiver.
-      sendMessage(panel, { command: 'setVariable', level: 3, kind: 'instvar', index: 1, expr: 'Array new' });
+      sendMessage(panel, {
+        command: 'setVariable',
+        level: 3,
+        kind: 'instvar',
+        index: 1,
+        expr: 'Array new',
+      });
       expect(debug.setInstVar).toHaveBeenCalledWith(session, expect.any(BigInt), 1, 777n);
-      expect(lastPosted(panel, 'setVariableResult')).toEqual({ command: 'setVariableResult', ok: true });
+      expect(lastPosted(panel, 'setVariableResult')).toEqual({
+        command: 'setVariableResult',
+        ok: true,
+      });
     });
   });
 
@@ -3818,7 +4506,9 @@ describe('DebuggerPanel', () => {
       DebuggerPanel.create(session, GS_PROCESS, ERROR_MSG);
       await tick(); // the widen runs in a fire-and-forget async IIFE
       // Best-effort nudge; guards the resize from being silently dropped.
-      expect(vscode.commands.executeCommand).toHaveBeenCalledWith('workbench.action.increaseViewWidth');
+      expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+        'workbench.action.increaseViewWidth',
+      );
     });
   });
 });
@@ -3831,27 +4521,102 @@ const DOIT = 999n;
 
 function raw(p: Partial<RawFrame> & { serverLevel: number; label: string }): RawFrame {
   return {
-    methodOop: BigInt(p.serverLevel), homeMethodOop: BigInt(p.serverLevel),
-    isBlock: false, definingClassName: '', selector: '', isExecutedCode: false, breakable: false,
+    methodOop: BigInt(p.serverLevel),
+    homeMethodOop: BigInt(p.serverLevel),
+    isBlock: false,
+    definingClassName: '',
+    selector: '',
+    isExecutedCode: false,
+    breakable: false,
     ...p,
   };
 }
 
 // level 1 = top.
 const HALT_STACK: RawFrame[] = [
-  raw({ serverLevel: 1, label: 'AbstractException>>#_signalToDebugger', definingClassName: 'AbstractException', selector: '_signalToDebugger' }),
-  raw({ serverLevel: 2, label: 'AbstractException>>#_signal', definingClassName: 'AbstractException', selector: '_signal' }),
-  raw({ serverLevel: 3, label: 'AbstractException class>>#signal', definingClassName: 'AbstractException', selector: 'signal' }),
-  raw({ serverLevel: 4, label: 'SmallInteger (Object)>>#halt', definingClassName: 'Object', selector: 'halt' }),
-  raw({ serverLevel: 5, label: '[] in JasperDebugDemo>>#finish', definingClassName: 'JasperDebugDemo', selector: 'finish', isBlock: true, homeMethodOop: 10n }),
-  raw({ serverLevel: 6, label: 'Array (Collection)>>#do:', definingClassName: 'Collection', selector: 'do:' }),
-  raw({ serverLevel: 7, label: 'JasperDebugDemo>>#finish', definingClassName: 'JasperDebugDemo', selector: 'finish' }),
-  raw({ serverLevel: 8, label: 'JasperDebugDemo>>#accumulateFrom:to:', definingClassName: 'JasperDebugDemo', selector: 'accumulateFrom:to:' }),
-  raw({ serverLevel: 9, label: 'JasperDebugDemo>>#run', definingClassName: 'JasperDebugDemo', selector: 'run' }),
-  raw({ serverLevel: 10, label: 'Executed Code', isBlock: true, homeMethodOop: DOIT, isExecutedCode: true }),
-  raw({ serverLevel: 11, label: 'ExecBlock0 (ExecBlock)>>#ensure:', definingClassName: 'ExecBlock', selector: 'ensure:' }),
-  raw({ serverLevel: 12, label: 'Executed Code', isBlock: true, homeMethodOop: DOIT, isExecutedCode: true }),
-  raw({ serverLevel: 13, label: 'Executed Code', methodOop: DOIT, homeMethodOop: DOIT, isExecutedCode: true }),
+  raw({
+    serverLevel: 1,
+    label: 'AbstractException>>#_signalToDebugger',
+    definingClassName: 'AbstractException',
+    selector: '_signalToDebugger',
+  }),
+  raw({
+    serverLevel: 2,
+    label: 'AbstractException>>#_signal',
+    definingClassName: 'AbstractException',
+    selector: '_signal',
+  }),
+  raw({
+    serverLevel: 3,
+    label: 'AbstractException class>>#signal',
+    definingClassName: 'AbstractException',
+    selector: 'signal',
+  }),
+  raw({
+    serverLevel: 4,
+    label: 'SmallInteger (Object)>>#halt',
+    definingClassName: 'Object',
+    selector: 'halt',
+  }),
+  raw({
+    serverLevel: 5,
+    label: '[] in JasperDebugDemo>>#finish',
+    definingClassName: 'JasperDebugDemo',
+    selector: 'finish',
+    isBlock: true,
+    homeMethodOop: 10n,
+  }),
+  raw({
+    serverLevel: 6,
+    label: 'Array (Collection)>>#do:',
+    definingClassName: 'Collection',
+    selector: 'do:',
+  }),
+  raw({
+    serverLevel: 7,
+    label: 'JasperDebugDemo>>#finish',
+    definingClassName: 'JasperDebugDemo',
+    selector: 'finish',
+  }),
+  raw({
+    serverLevel: 8,
+    label: 'JasperDebugDemo>>#accumulateFrom:to:',
+    definingClassName: 'JasperDebugDemo',
+    selector: 'accumulateFrom:to:',
+  }),
+  raw({
+    serverLevel: 9,
+    label: 'JasperDebugDemo>>#run',
+    definingClassName: 'JasperDebugDemo',
+    selector: 'run',
+  }),
+  raw({
+    serverLevel: 10,
+    label: 'Executed Code',
+    isBlock: true,
+    homeMethodOop: DOIT,
+    isExecutedCode: true,
+  }),
+  raw({
+    serverLevel: 11,
+    label: 'ExecBlock0 (ExecBlock)>>#ensure:',
+    definingClassName: 'ExecBlock',
+    selector: 'ensure:',
+  }),
+  raw({
+    serverLevel: 12,
+    label: 'Executed Code',
+    isBlock: true,
+    homeMethodOop: DOIT,
+    isExecutedCode: true,
+  }),
+  raw({
+    serverLevel: 13,
+    label: 'Executed Code',
+    methodOop: DOIT,
+    homeMethodOop: DOIT,
+    isExecutedCode: true,
+  }),
   // GemStone leaves a <Reenter marker> BELOW the doit; getFrameInfo can't resolve
   // it so buildFrame yields a `<frame N>` (not executed-code). It must not block
   // the bottom collapse (the original bug) and must itself be dropped.
@@ -3864,23 +4629,23 @@ describe('filterStack', () => {
     // Top = the user block where halt was sent; bottom = the doit (kept); the
     // signal frames, the wrapper frames (10, 11, 12) AND the reenter marker (14)
     // are gone. Exactly ONE "Executed Code" frame survives.
-    expect(kept.map(f => f.serverLevel)).toEqual([5, 6, 7, 8, 9, 13]);
+    expect(kept.map((f) => f.serverLevel)).toEqual([5, 6, 7, 8, 9, 13]);
     expect(kept[0].label).toBe('[] in JasperDebugDemo>>#finish');
     expect(kept[kept.length - 1].label).toBe('Executed Code');
-    expect(kept.filter(f => f.label === 'Executed Code')).toHaveLength(1);
-    expect(kept.some(f => f.serverLevel === 14)).toBe(false); // reenter marker dropped
+    expect(kept.filter((f) => f.label === 'Executed Code')).toHaveLength(1);
+    expect(kept.some((f) => f.serverLevel === 14)).toBe(false); // reenter marker dropped
   });
 
   it('collapses the wrapper even when a non-executed-code frame sits below the doit', () => {
     // Regression: the <Reenter marker> at the very bottom used to make the trim
     // gate ("deepest frame is the doit") fail, leaving all the glue frames.
     const kept = filterStack(HALT_STACK);
-    expect(kept.filter(f => f.isExecutedCode)).toHaveLength(1);
+    expect(kept.filter((f) => f.isExecutedCode)).toHaveLength(1);
   });
 
   it('keeps mid-stack kernel frames (only trims contiguously from each end)', () => {
     // Array>>do: (level 6) sits between user frames and must survive.
-    expect(filterStack(HALT_STACK).map(f => f.serverLevel)).toContain(6);
+    expect(filterStack(HALT_STACK).map((f) => f.serverLevel)).toContain(6);
   });
 
   it('leaves a clean stack untouched (no machinery, no doit)', () => {
@@ -3891,13 +4656,13 @@ describe('filterStack', () => {
   it('never trims the whole stack, even if every frame looks like machinery', () => {
     const allMachinery = HALT_STACK.slice(0, 4); // the 4 signal/halt frames
     const kept = filterStack(allMachinery);
-    expect(kept.length).toBe(1);            // keeps the last as a floor
+    expect(kept.length).toBe(1); // keeps the last as a floor
     expect(kept[0].serverLevel).toBe(4);
   });
 
   it('does not trim the bottom when the deepest frame is not a doit', () => {
     const noDoit = HALT_STACK.slice(4, 9); // ends at run, not Executed Code
-    expect(filterStack(noDoit).map(f => f.serverLevel)).toEqual([5, 6, 7, 8, 9]);
+    expect(filterStack(noDoit).map((f) => f.serverLevel)).toEqual([5, 6, 7, 8, 9]);
   });
 
   it('returns short stacks unchanged', () => {
@@ -3910,18 +4675,54 @@ describe('filterStack', () => {
   // MessageNotUnderstood>>defaultAction (NOT signal) — which must still be trimmed
   // so the debugger opens on the user's frame (here, Executed Code).
   const DNU_STACK: RawFrame[] = [
-    raw({ serverLevel: 1, label: 'MessageNotUnderstood>>#defaultAction', definingClassName: 'MessageNotUnderstood', selector: 'defaultAction' }),
-    raw({ serverLevel: 2, label: 'MessageNotUnderstood (AbstractException)>>#_defaultAction', definingClassName: 'AbstractException', selector: '_defaultAction' }),
-    raw({ serverLevel: 3, label: 'MessageNotUnderstood (AbstractException)>>#_signal', definingClassName: 'AbstractException', selector: '_signal' }),
-    raw({ serverLevel: 4, label: 'MessageNotUnderstood (AbstractException)>>#signal', definingClassName: 'AbstractException', selector: 'signal' }),
-    raw({ serverLevel: 5, label: 'SmallInteger (Object)>>#doesNotUnderstand:', definingClassName: 'Object', selector: 'doesNotUnderstand:' }),
-    raw({ serverLevel: 6, label: 'SmallInteger (Object)>>#_doesNotUnderstand:args:envId:reason:', definingClassName: 'Object', selector: '_doesNotUnderstand:args:envId:reason:' }),
-    raw({ serverLevel: 7, label: 'Executed Code', methodOop: DOIT, homeMethodOop: DOIT, isExecutedCode: true }),
+    raw({
+      serverLevel: 1,
+      label: 'MessageNotUnderstood>>#defaultAction',
+      definingClassName: 'MessageNotUnderstood',
+      selector: 'defaultAction',
+    }),
+    raw({
+      serverLevel: 2,
+      label: 'MessageNotUnderstood (AbstractException)>>#_defaultAction',
+      definingClassName: 'AbstractException',
+      selector: '_defaultAction',
+    }),
+    raw({
+      serverLevel: 3,
+      label: 'MessageNotUnderstood (AbstractException)>>#_signal',
+      definingClassName: 'AbstractException',
+      selector: '_signal',
+    }),
+    raw({
+      serverLevel: 4,
+      label: 'MessageNotUnderstood (AbstractException)>>#signal',
+      definingClassName: 'AbstractException',
+      selector: 'signal',
+    }),
+    raw({
+      serverLevel: 5,
+      label: 'SmallInteger (Object)>>#doesNotUnderstand:',
+      definingClassName: 'Object',
+      selector: 'doesNotUnderstand:',
+    }),
+    raw({
+      serverLevel: 6,
+      label: 'SmallInteger (Object)>>#_doesNotUnderstand:args:envId:reason:',
+      definingClassName: 'Object',
+      selector: '_doesNotUnderstand:args:envId:reason:',
+    }),
+    raw({
+      serverLevel: 7,
+      label: 'Executed Code',
+      methodOop: DOIT,
+      homeMethodOop: DOIT,
+      isExecutedCode: true,
+    }),
   ];
 
   it('trims the doesNotUnderstand: machinery (incl. defaultAction) down to the user frame', () => {
     const kept = filterStack(DNU_STACK);
-    expect(kept.map(f => f.serverLevel)).toEqual([7]); // just the Executed Code sender
+    expect(kept.map((f) => f.serverLevel)).toEqual([7]); // just the Executed Code sender
     expect(kept[0].label).toBe('Executed Code');
   });
 
@@ -3929,29 +4730,57 @@ describe('filterStack', () => {
   // signal machinery. All of it is trimmed (incl. the marker) so the debugger opens
   // on the abstract method itself — the method the implement action offers to fill in.
   const SUBCLASS_RESP_STACK: RawFrame[] = [
-    raw({ serverLevel: 1, label: 'AbstractException class>>#signal', definingClassName: 'AbstractException', selector: 'signal' }),
-    raw({ serverLevel: 2, label: 'LargeNegativeInteger (Object)>>#error:', definingClassName: 'Object', selector: 'error:' }),
-    raw({ serverLevel: 3, label: 'LargeNegativeInteger (Object)>>#subclassResponsibility', definingClassName: 'Object', selector: 'subclassResponsibility' }),
-    raw({ serverLevel: 4, label: 'LargeNegativeInteger (Integer)>>#foo', definingClassName: 'Integer', selector: 'foo' }),
-    raw({ serverLevel: 5, label: 'Executed Code', methodOop: DOIT, homeMethodOop: DOIT, isExecutedCode: true }),
+    raw({
+      serverLevel: 1,
+      label: 'AbstractException class>>#signal',
+      definingClassName: 'AbstractException',
+      selector: 'signal',
+    }),
+    raw({
+      serverLevel: 2,
+      label: 'LargeNegativeInteger (Object)>>#error:',
+      definingClassName: 'Object',
+      selector: 'error:',
+    }),
+    raw({
+      serverLevel: 3,
+      label: 'LargeNegativeInteger (Object)>>#subclassResponsibility',
+      definingClassName: 'Object',
+      selector: 'subclassResponsibility',
+    }),
+    raw({
+      serverLevel: 4,
+      label: 'LargeNegativeInteger (Integer)>>#foo',
+      definingClassName: 'Integer',
+      selector: 'foo',
+    }),
+    raw({
+      serverLevel: 5,
+      label: 'Executed Code',
+      methodOop: DOIT,
+      homeMethodOop: DOIT,
+      isExecutedCode: true,
+    }),
   ];
 
   it('trims the subclassResponsibility machinery down to the abstract method', () => {
     const kept = filterStack(SUBCLASS_RESP_STACK);
     // The signal/error:/subclassResponsibility marker frames are gone; the abstract
     // method `foo` (level 4) is the top frame, the doit sender below it.
-    expect(kept.map(f => f.serverLevel)).toEqual([4, 5]);
+    expect(kept.map((f) => f.serverLevel)).toEqual([4, 5]);
     expect(kept[0].label).toContain('foo');
-    expect(kept.some(f => /subclassResponsibility/.test(f.selector))).toBe(false);
+    expect(kept.some((f) => /subclassResponsibility/.test(f.selector))).toBe(false);
   });
 });
 
 describe('isExceptionMachinery', () => {
   it('flags AbstractException frames and halt/DNU/signal selectors', () => {
-    expect(isExceptionMachinery(HALT_STACK[0])).toBe(true);  // _signalToDebugger
-    expect(isExceptionMachinery(HALT_STACK[2])).toBe(true);  // class>>signal
-    expect(isExceptionMachinery(HALT_STACK[3])).toBe(true);  // Object>>halt
-    expect(isExceptionMachinery(raw({ serverLevel: 1, label: 'x', selector: 'doesNotUnderstand:' }))).toBe(true);
+    expect(isExceptionMachinery(HALT_STACK[0])).toBe(true); // _signalToDebugger
+    expect(isExceptionMachinery(HALT_STACK[2])).toBe(true); // class>>signal
+    expect(isExceptionMachinery(HALT_STACK[3])).toBe(true); // Object>>halt
+    expect(
+      isExceptionMachinery(raw({ serverLevel: 1, label: 'x', selector: 'doesNotUnderstand:' })),
+    ).toBe(true);
   });
 
   it('does not flag ordinary user/kernel frames', () => {
@@ -3966,15 +4795,12 @@ describe('source-pane layout persistence (#3)', () => {
   // Leaf order = ViewColumn order, so code=1, debugger=2, source=3.
   const sample = (): EditorGroupLayout => ({
     orientation: 0,
-    groups: [
-      { size: 636 },
-      { size: 877, groups: [{ size: 749 }, { size: 99 }] },
-    ],
+    groups: [{ size: 636 }, { size: 877, groups: [{ size: 749 }, { size: 99 }] }],
   });
 
   it('flattens leaves in ViewColumn order (depth-first, left-to-right)', () => {
     const leaves = flattenLayoutLeaves(sample());
-    expect(leaves.map(l => l.node.size)).toEqual([636, 749, 99]);
+    expect(leaves.map((l) => l.node.size)).toEqual([636, 749, 99]);
   });
 
   it('reads the source group ratio from its containing column', () => {
@@ -4012,7 +4838,7 @@ describe('source-pane layout persistence (#3)', () => {
     };
     // Leaves: code=1, then 300=2, 300=3, 200=4 → source col 4's parent has 3 kids.
     expect(setSourceRatioInLayout(threeWay, 4, 0.33)).toBe(false);
-    expect(threeWay.groups[1].groups!.map(g => g.size)).toEqual([300, 300, 200]); // untouched
+    expect(threeWay.groups[1].groups!.map((g) => g.size)).toEqual([300, 300, 200]); // untouched
   });
 });
 
@@ -4034,7 +4860,9 @@ describe('step-point highlight decoration', () => {
     expect(typeof light?.borderColor).toBe('string');
     expect(light?.borderColor).not.toBeInstanceOf(vscode.ThemeColor);
     // The fill must be appreciably opaque (the faint default sits near ~0.2 alpha).
-    const alpha = Number(/rgba?\([^)]*,\s*([\d.]+)\s*\)$/.exec(String(light?.backgroundColor))?.[1] ?? '1');
+    const alpha = Number(
+      /rgba?\([^)]*,\s*([\d.]+)\s*\)$/.exec(String(light?.backgroundColor))?.[1] ?? '1',
+    );
     expect(alpha).toBeGreaterThanOrEqual(0.4);
   });
 });
@@ -4055,8 +4883,9 @@ describe('shortenInlineValue', () => {
   });
 
   it('keeps wide collection values short by default', () => {
-    expect(shortenInlineValue('an OrderedCollection(3 7 2 9 4 100 200 300 400 500)').length)
-      .toBeLessThanOrEqual(40);
+    expect(
+      shortenInlineValue('an OrderedCollection(3 7 2 9 4 100 200 300 400 500)').length,
+    ).toBeLessThanOrEqual(40);
   });
 });
 
@@ -4077,7 +4906,7 @@ describe('computeInlineValueLines', () => {
     ];
     const overlay = computeInlineValueLines(lines, vars);
     // amount → line 0 (first use); balance → line 2 (first use); never repeated.
-    expect(overlay.map(o => o.line)).toEqual([0, 2]);
+    expect(overlay.map((o) => o.line)).toEqual([0, 2]);
     expect(overlay[0].label).toBe('amount = 75');
     expect(overlay[1].label).toBe('balance = 200');
   });
@@ -4096,7 +4925,7 @@ describe('computeInlineValueLines', () => {
     ];
     const overlay = computeInlineValueLines(lines, v);
     // Nothing on the declaration line; each var at its first assignment/use.
-    expect(overlay.map(o => o.line)).toEqual([1, 2, 3]);
+    expect(overlay.map((o) => o.line)).toEqual([1, 2, 3]);
     expect(overlay[0].label).toBe('numbers = anOC…');
     expect(overlay[1].label).toBe('sum = 55');
     expect(overlay[2].label).toBe('evens = anOC…');
@@ -4131,7 +4960,7 @@ describe('computeInlineValueLines', () => {
 
   it('lets a later (shadowing) entry win on a name clash', () => {
     const shadowing: InlineVar[] = [
-      { name: 'x', value: 'IV', full: 'IV' },   // instVar
+      { name: 'x', value: 'IV', full: 'IV' }, // instVar
       { name: 'x', value: 'TEMP', full: 'TEMP' }, // arg/temp shadows it
     ];
     const overlay = computeInlineValueLines(['^x'], shadowing);
@@ -4139,7 +4968,9 @@ describe('computeInlineValueLines', () => {
   });
 
   it('carries full (un-truncated) values for the hover', () => {
-    const long: InlineVar[] = [{ name: 'c', value: 'an Ord…', full: 'an OrderedCollection(1 2 3 4 5)' }];
+    const long: InlineVar[] = [
+      { name: 'c', value: 'an Ord…', full: 'an OrderedCollection(1 2 3 4 5)' },
+    ];
     const overlay = computeInlineValueLines(['^c'], long);
     expect(overlay[0].vars[0].full).toBe('an OrderedCollection(1 2 3 4 5)');
     expect(overlay[0].label).toBe('c = an Ord…');
@@ -4177,14 +5008,16 @@ describe('computeInlineValueLines', () => {
     ];
     const overlay = computeInlineValueLines(lines, v, { signatureLine: true });
     // Not on the signature (line 0) nor the temp decl (line 1); aStream at line 2.
-    expect(overlay.map(o => o.line)).toEqual([2, 3]);
+    expect(overlay.map((o) => o.line)).toEqual([2, 3]);
     expect(overlay[0].label).toBe('aStream = aStream…');
     expect(overlay[1].label).toBe('bc = nil');
   });
 
   it('skips a block-argument declaration (:x) but annotates its use', () => {
-    const overlay = computeInlineValueLines(['nums do: [:x | x squared]'],
-      [{ name: 'x', value: '7', full: '7' }]);
+    const overlay = computeInlineValueLines(
+      ['nums do: [:x | x squared]'],
+      [{ name: 'x', value: '7', full: '7' }],
+    );
     expect(overlay).toHaveLength(1);
     // The `:x` binding is skipped; the `x` in `x squared` is the annotated use.
     expect(overlay[0].label).toBe('x = 7');
@@ -4194,8 +5027,8 @@ describe('computeInlineValueLines', () => {
     const lines = ['total := 0.', 'total := total + 1.', '^total'];
     const v: InlineVar[] = [{ name: 'total', value: '25', full: '25' }];
     const overlay = computeInlineValueLines(lines, v, { perLine: true });
-    expect(overlay.map(o => o.line)).toEqual([0, 1, 2]);
-    expect(overlay.every(o => o.label === 'total = 25')).toBe(true);
+    expect(overlay.map((o) => o.line)).toEqual([0, 1, 2]);
+    expect(overlay.every((o) => o.label === 'total = 25')).toBe(true);
   });
 
   it('does not match an identifier that appears only in a comment', () => {
@@ -4203,37 +5036,37 @@ describe('computeInlineValueLines', () => {
     const v: InlineVar[] = [{ name: 'aString', value: "'50'", full: "'50'" }];
     const overlay = computeInlineValueLines(lines, v, { perLine: true });
     // Only the real use on line 1, never the comment on line 0.
-    expect(overlay.map(o => o.line)).toEqual([1]);
+    expect(overlay.map((o) => o.line)).toEqual([1]);
   });
 
   it('does not match an identifier inside a multi-line comment', () => {
     const lines = ['foo', '"a comment', ' mentioning total again', ' total total"', '^total'];
     const v: InlineVar[] = [{ name: 'total', value: '7', full: '7' }];
     const overlay = computeInlineValueLines(lines, v, { perLine: true });
-    expect(overlay.map(o => o.line)).toEqual([4]);
+    expect(overlay.map((o) => o.line)).toEqual([4]);
   });
 
   it('does not match an identifier inside a string literal', () => {
     const lines = ["x := 'the value is amount'.", '^amount'];
     const v: InlineVar[] = [{ name: 'amount', value: '9', full: '9' }];
     const overlay = computeInlineValueLines(lines, v, { perLine: true });
-    expect(overlay.map(o => o.line)).toEqual([1]);
+    expect(overlay.map((o) => o.line)).toEqual([1]);
   });
 });
 
 describe('inlineHoverMarkdown (#5 Phase 2 — the inline-value hover)', () => {
   it('shows each variable as a bold name and its full (un-truncated) value', () => {
-    const md = inlineHoverMarkdown(
-      [{ name: 'balance', value: 'an Ord…', full: 'an OrderedCollection(1 2 3)' }],
-    );
+    const md = inlineHoverMarkdown([
+      { name: 'balance', value: 'an Ord…', full: 'an OrderedCollection(1 2 3)' },
+    ]);
     expect(md).toContain('**balance**');
     expect(md).toContain('= an OrderedCollection(1 2 3)'); // the full value, not the truncated one
   });
 
   it('hints that an editable variable is set by double-clicking its name', () => {
-    const md = inlineHoverMarkdown(
-      [{ name: 'amount', value: '75', full: '75', edit: { kind: 'temp', index: 2 } }],
-    );
+    const md = inlineHoverMarkdown([
+      { name: 'amount', value: '75', full: '75', edit: { kind: 'temp', index: 2 } },
+    ]);
     expect(md).toContain('**amount** = 75');
     expect(md).toContain('Double-click the variable name'); // the double-click-to-edit hint
   });
@@ -4268,7 +5101,7 @@ describe('maskCommentsAndStrings', () => {
   });
 
   it('keeps a $" / $\' character literal as code (not a delimiter)', () => {
-    const src = "c := $\". d := $'. e := 1.";
+    const src = 'c := $". d := $\'. e := 1.';
     // No real comment/string opens, so nothing past the char literals is blanked.
     expect(maskCommentsAndStrings(src)).toBe(src);
   });

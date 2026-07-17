@@ -7,8 +7,14 @@ import eslintConfigPrettier from 'eslint-config-prettier';
 export default tseslint.config(
   {
     ignores: [
-      '**/out/**', '**/node_modules/**', '**/*.d.ts', '**/*.vsix',
-      'resources/**', '.gemstone/**', 'client/tmp/**', 'acceptance/test-results/**',
+      '**/out/**',
+      '**/node_modules/**',
+      '**/*.d.ts',
+      '**/*.vsix',
+      'resources/**',
+      '.gemstone/**',
+      'client/tmp/**',
+      'acceptance/test-results/**',
     ],
   },
   // `eslint .` only auto-targets extensions it has a language for by default;
@@ -34,9 +40,14 @@ export default tseslint.config(
       // intentionally-unused params/locals/catch bindings (required by a
       // signature or destructure) opt out by prefixing with `_`, instead of
       // disabling the rule outright.
-      '@typescript-eslint/no-unused-vars': ['error', {
-        argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_',
-      }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
     },
   },
   // Plain (non-TS) sources split by runtime so `no-undef` reflects the globals
@@ -53,7 +64,10 @@ export default tseslint.config(
     // CJS module `require()`'d directly by client/bin/gemstone-integration-versions.js
     // (see that file's header) so it can't depend on compiled TS output.
     files: [
-      '**/*.mjs', '**/*.cjs', 'client/bin/**/*.js', '**/*.config.{ts,js,mjs}',
+      '**/*.mjs',
+      '**/*.cjs',
+      'client/bin/**/*.js',
+      '**/*.config.{ts,js,mjs}',
       'client/src/gemStoneVersion.js',
     ],
     languageOptions: { globals: { ...globals.node } },

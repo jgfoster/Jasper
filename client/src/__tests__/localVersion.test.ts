@@ -272,66 +272,72 @@ describe('VersionManager.fetchAvailableVersions', () => {
     expect(versions[0].buildDescription).toContain('private build');
   });
 
-  itUnlessWin32('does not mark remote versions as extracted when a local symlink has the same version', async () => {
-    const storage = new SysadminStorage();
-    const manager = new VersionManager(storage);
-    const suffix = storage.getPlatformSuffix();
-    const platformKey = storage.getPlatformKey();
-    const ext = storage.getDownloadExtension();
+  itUnlessWin32(
+    'does not mark remote versions as extracted when a local symlink has the same version',
+    async () => {
+      const storage = new SysadminStorage();
+      const manager = new VersionManager(storage);
+      const suffix = storage.getPlatformSuffix();
+      const platformKey = storage.getPlatformKey();
+      const ext = storage.getDownloadExtension();
 
-    // Create a symlinked local version
-    const productDir = path.join(tmpDir, 'product');
-    fs.mkdirSync(productDir);
-    writeVersionTxt(productDir, SAMPLE_VERSION_TXT);
-    fs.symlinkSync(productDir, path.join(tmpDir, `GemStone64Bit3.7.6${suffix}`));
+      // Create a symlinked local version
+      const productDir = path.join(tmpDir, 'product');
+      fs.mkdirSync(productDir);
+      writeVersionTxt(productDir, SAMPLE_VERSION_TXT);
+      fs.symlinkSync(productDir, path.join(tmpDir, `GemStone64Bit3.7.6${suffix}`));
 
-    // Mock fetch to return a remote version with the same version number
-    const html = `<a href="GemStone64Bit3.7.6-${platformKey}.${ext}">GemStone64Bit3.7.6-${platformKey}.${ext}</a>  24-Mar-2026 12:00  200000000`;
-    vi.spyOn(manager as unknown as FetchUrlHost, 'fetchUrl').mockResolvedValue(html);
+      // Mock fetch to return a remote version with the same version number
+      const html = `<a href="GemStone64Bit3.7.6-${platformKey}.${ext}">GemStone64Bit3.7.6-${platformKey}.${ext}</a>  24-Mar-2026 12:00  200000000`;
+      vi.spyOn(manager as unknown as FetchUrlHost, 'fetchUrl').mockResolvedValue(html);
 
-    const versions = await manager.fetchAvailableVersions();
+      const versions = await manager.fetchAvailableVersions();
 
-    const local = versions.find(v => v.local);
-    const remote = versions.find(v => !v.local);
+      const local = versions.find((v) => v.local);
+      const remote = versions.find((v) => !v.local);
 
-    expect(local).toBeDefined();
-    expect(local!.version).toBe('3.7.6');
-    expect(local!.local).toBe(true);
+      expect(local).toBeDefined();
+      expect(local!.version).toBe('3.7.6');
+      expect(local!.local).toBe(true);
 
-    expect(remote).toBeDefined();
-    expect(remote!.version).toBe('3.7.6');
-    expect(remote!.extracted).toBe(false); // should NOT show as extracted
+      expect(remote).toBeDefined();
+      expect(remote!.version).toBe('3.7.6');
+      expect(remote!.extracted).toBe(false); // should NOT show as extracted
 
-    // Local version should sort before remote at the same version
-    expect(versions[0].local).toBe(true);
-    expect(versions[1].local).toBeUndefined();
-  });
+      // Local version should sort before remote at the same version
+      expect(versions[0].local).toBe(true);
+      expect(versions[1].local).toBeUndefined();
+    },
+  );
 
-  itUnlessWin32('sorts versions newest-first with local versions interleaved correctly', async () => {
-    const storage = new SysadminStorage();
-    const manager = new VersionManager(storage);
-    const suffix = storage.getPlatformSuffix();
-    const platformKey = storage.getPlatformKey();
-    const ext = storage.getDownloadExtension();
+  itUnlessWin32(
+    'sorts versions newest-first with local versions interleaved correctly',
+    async () => {
+      const storage = new SysadminStorage();
+      const manager = new VersionManager(storage);
+      const suffix = storage.getPlatformSuffix();
+      const platformKey = storage.getPlatformKey();
+      const ext = storage.getDownloadExtension();
 
-    // Create a local version at 3.7.6
-    const productDir = path.join(tmpDir, 'product');
-    fs.mkdirSync(productDir);
-    writeVersionTxt(productDir, SAMPLE_VERSION_TXT);
-    fs.symlinkSync(productDir, path.join(tmpDir, `GemStone64Bit3.7.6${suffix}`));
+      // Create a local version at 3.7.6
+      const productDir = path.join(tmpDir, 'product');
+      fs.mkdirSync(productDir);
+      writeVersionTxt(productDir, SAMPLE_VERSION_TXT);
+      fs.symlinkSync(productDir, path.join(tmpDir, `GemStone64Bit3.7.6${suffix}`));
 
-    // Mock fetch to return remote versions older and newer than the local one
-    const html = [
-      `<a href="GemStone64Bit3.6.4-${platformKey}.${ext}">file</a>  06-Jun-2022 12:00  169000000`,
-      `<a href="GemStone64Bit3.8.0-${platformKey}.${ext}">file</a>  01-Jan-2027 12:00  200000000`,
-    ].join('\n');
-    vi.spyOn(manager as unknown as FetchUrlHost, 'fetchUrl').mockResolvedValue(html);
+      // Mock fetch to return remote versions older and newer than the local one
+      const html = [
+        `<a href="GemStone64Bit3.6.4-${platformKey}.${ext}">file</a>  06-Jun-2022 12:00  169000000`,
+        `<a href="GemStone64Bit3.8.0-${platformKey}.${ext}">file</a>  01-Jan-2027 12:00  200000000`,
+      ].join('\n');
+      vi.spyOn(manager as unknown as FetchUrlHost, 'fetchUrl').mockResolvedValue(html);
 
-    const versions = await manager.fetchAvailableVersions();
+      const versions = await manager.fetchAvailableVersions();
 
-    const versionStrings = versions.map(v => `${v.version}${v.local ? ' (local)' : ''}`);
-    expect(versionStrings).toEqual(['3.8.0', '3.7.6 (local)', '3.6.4']);
-  });
+      const versionStrings = versions.map((v) => `${v.version}${v.local ? ' (local)' : ''}`);
+      expect(versionStrings).toEqual(['3.8.0', '3.7.6 (local)', '3.6.4']);
+    },
+  );
 
   it('excludes remote versions older than the minimum supported gemstone version', async () => {
     const storage = new SysadminStorage();
@@ -349,7 +355,7 @@ describe('VersionManager.fetchAvailableVersions', () => {
 
     const versions = await manager.fetchAvailableVersions();
 
-    expect(versions.map(v => v.version)).toEqual(['3.7.0', '3.6.2']);
+    expect(versions.map((v) => v.version)).toEqual(['3.7.0', '3.6.2']);
   });
 
   it('keeps a local version even when it is older than 3.6.2', async () => {
@@ -375,7 +381,8 @@ describe('VersionManager.fetchAvailableVersions', () => {
 // ── GCI library auto-detection ───────────────────────────────
 
 describe('GCI library auto-detection', () => {
-  const libExt = process.platform === 'win32' ? 'dll' : process.platform === 'darwin' ? 'dylib' : 'so';
+  const libExt =
+    process.platform === 'win32' ? 'dll' : process.platform === 'darwin' ? 'dylib' : 'so';
 
   it('finds GCI library in extracted version lib/ directory', () => {
     const storage = new SysadminStorage();

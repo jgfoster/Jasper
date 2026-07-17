@@ -42,7 +42,9 @@ export function parseRowanLoadResult(raw: string): RowanLoadResult {
 }
 
 export function loadRowanProject(
-  execute: QueryExecutor, specPath: string, diskPath: string,
+  execute: QueryExecutor,
+  specPath: string,
+  diskPath: string,
 ): RowanLoadResult {
   const raw = execute(
     `loadRowanProject(${specPath})`,

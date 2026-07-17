@@ -28,14 +28,21 @@ import type { EnvCategoryLine } from '../queries/getClassEnvironments';
 describe('session methods (integration)', () => {
   let gci: GciLibrary;
   let handle: unknown;
-  useIntegrationTest((testContext) => { gci = testContext.gciLibrary; handle = testContext.session; });
+  useIntegrationTest((testContext) => {
+    gci = testContext.gciLibrary;
+    handle = testContext.session;
+  });
 
   const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
-  const exec = (code: string): string => browserQueries.executeFetchString(session(), 'sessionMethods-it', code);
+  const exec = (code: string): string =>
+    browserQueries.executeFetchString(session(), 'sessionMethods-it', code);
 
-  const isSystemProfile = (): boolean => exec('System myUserProfile isSystemProfile printString').trim() === 'true';
+  const isSystemProfile = (): boolean =>
+    exec('System myUserProfile isSystemProfile printString').trim() === 'true';
   const enablePolicy = (): void => {
-    exec("GsPackagePolicy current homeSymbolDict: UserGlobals; externalSymbolList: { Globals }; enable. 'ok'");
+    exec(
+      "GsPackagePolicy current homeSymbolDict: UserGlobals; externalSymbolList: { Globals }; enable. 'ok'",
+    );
   };
 
   // Compile `source` into `receiver` ('Character' or 'Character class') as a
@@ -45,20 +52,25 @@ describe('session methods (integration)', () => {
     const escaped = source.replace(/'/g, "''"); // double quotes for the Smalltalk string literal
     exec(
       `${receiver} compileMethod: '${escaped}' ` +
-      `dictionaries: GsCurrentSession currentSession symbolList ` +
-      `category: '*jasper-it' environmentId: 0. 'ok'`,
+        `dictionaries: GsCurrentSession currentSession symbolList ` +
+        `category: '*jasper-it' environmentId: 0. 'ok'`,
     );
   };
 
   const linesOf = (className: string): EnvCategoryLine[] => {
-    const globalsIndex = parseInt(exec('(System myUserProfile symbolList indexOf: Globals) printString'), 10);
+    const globalsIndex = parseInt(
+      exec('(System myUserProfile symbolList indexOf: Globals) printString'),
+      10,
+    );
     return browserQueries.getClassEnvironments(session(), globalsIndex, className, 0);
   };
 
   // Merge a per-selector map (sessionMethodBits | methodOverrideBits) across all
   // lines on one side (instance or class) of a class.
   const bitsFor = (
-    className: string, isMeta: boolean, field: 'sessionMethodBits' | 'methodOverrideBits',
+    className: string,
+    isMeta: boolean,
+    field: 'sessionMethodBits' | 'methodOverrideBits',
   ): Record<string, number> => {
     const out: Record<string, number> = {};
     for (const line of linesOf(className)) {
@@ -71,20 +83,24 @@ describe('session methods (integration)', () => {
     // Idempotent even if a test never enabled the policy; the harness then
     // aborts the transaction, rolling back the (uncommitted) package/policy.
     try {
-      exec("GsPackagePolicy current disable. GsPackagePolicy current refreshSessionMethodDictionary. 'ok'");
-    } catch { /* session already gone / never enabled */ }
+      exec(
+        "GsPackagePolicy current disable. GsPackagePolicy current refreshSessionMethodDictionary. 'ok'",
+      );
+    } catch {
+      /* session already gone / never enabled */
+    }
   });
 
   it('flags a session extension as 1 and a session override as 2 on the instance side', () => {
     if (isSystemProfile()) return;
     enablePolicy();
-    compileSessionMethod('Character', 'jasperItSessionExt ^42');                     // new selector -> extension
+    compileSessionMethod('Character', 'jasperItSessionExt ^42'); // new selector -> extension
     compileSessionMethod('Character', "isVowel ^'aeiou' includes: self asLowercase"); // shadows kernel isVowel -> override
 
     const bits = bitsFor('Character', false, 'sessionMethodBits');
 
     expect(bits.jasperItSessionExt).toBe(1); // transient only -> extension
-    expect(bits.isVowel).toBe(2);            // transient + persistent -> override
+    expect(bits.isVowel).toBe(2); // transient + persistent -> override
   });
 
   it('does not flag anything once the policy is disabled', () => {
@@ -93,7 +109,9 @@ describe('session methods (integration)', () => {
     compileSessionMethod('Character', "isVowel ^'aeiou' includes: self asLowercase");
     expect(bitsFor('Character', false, 'sessionMethodBits').isVowel).toBe(2);
 
-    exec("GsPackagePolicy current disable. GsPackagePolicy current refreshSessionMethodDictionary. 'ok'");
+    exec(
+      "GsPackagePolicy current disable. GsPackagePolicy current refreshSessionMethodDictionary. 'ok'",
+    );
 
     // isVowel is back to the plain persistent method — no session flag.
     expect(bitsFor('Character', false, 'sessionMethodBits').isVowel).toBeUndefined();
@@ -124,14 +142,32 @@ describe('session methods (integration)', () => {
     compileSessionMethod('Character', 'jasperItSessionExt ^42');
     compileSessionMethod('Character', "isVowel ^'aeiou' includes: self asLowercase");
 
-    const overrideSource = browserQueries.getMethodSource(session(), 'Character', false, 'isVowel', 0);
-    const baseSource = browserQueries.getBaseMethodSource(session(), 'Character', false, 'isVowel', 0);
+    const overrideSource = browserQueries.getMethodSource(
+      session(),
+      'Character',
+      false,
+      'isVowel',
+      0,
+    );
+    const baseSource = browserQueries.getBaseMethodSource(
+      session(),
+      'Character',
+      false,
+      'isVowel',
+      0,
+    );
     expect(overrideSource).toContain('aeiou'); // session view = our override
     expect(baseSource).not.toContain('aeiou'); // untouched kernel method
     expect(baseSource).not.toBe(overrideSource);
 
     // An extension has no persistent method to fall back to.
-    const extBase = browserQueries.getBaseMethodSource(session(), 'Character', false, 'jasperItSessionExt', 0);
+    const extBase = browserQueries.getBaseMethodSource(
+      session(),
+      'Character',
+      false,
+      'jasperItSessionExt',
+      0,
+    );
     expect(extBase).toContain('no base method');
   });
 

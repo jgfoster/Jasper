@@ -1,7 +1,7 @@
 import koffi from 'koffi';
 import * as path from 'path';
-import {OOP_FALSE, OOP_ILLEGAL, OOP_NIL, OOP_TRUE} from "./gciConstants";
-import {GciLibraryError} from "./gciLibraryError";
+import { OOP_FALSE, OOP_ILLEGAL, OOP_NIL, OOP_TRUE } from './gciConstants';
+import { GciLibraryError } from './gciLibraryError';
 
 // OopType is uint64_t in C; koffi maps this to BigInt in JS
 const OopType = 'uint64';
@@ -11,15 +11,15 @@ const GCI_ERR_STR_SIZE = 1024;
 const GCI_MAX_ERR_ARGS = 10;
 
 koffi.struct('GciErrSType', {
-  category:     OopType,
-  context:      OopType,
+  category: OopType,
+  context: OopType,
   exceptionObj: OopType,
-  args:         koffi.array(OopType, GCI_MAX_ERR_ARGS),
-  number:       'int',
-  argCount:     'int',
-  fatal:        'uchar',
-  message:      koffi.array('char', GCI_ERR_STR_SIZE + 1),
-  reason:       koffi.array('char', GCI_ERR_STR_SIZE + 1),
+  args: koffi.array(OopType, GCI_MAX_ERR_ARGS),
+  number: 'int',
+  argCount: 'int',
+  fatal: 'uchar',
+  message: koffi.array('char', GCI_ERR_STR_SIZE + 1),
+  reason: koffi.array('char', GCI_ERR_STR_SIZE + 1),
 });
 
 // GciSession is typedef void* in gcits.hf
@@ -28,26 +28,26 @@ koffi.pointer('GciSessionPtr', GciSessionOpaque);
 
 // GciTsObjInfo struct (from gcits.ht)
 koffi.struct('GciTsObjInfo', {
-  objId:                  OopType,
-  objClass:               OopType,
-  objSize:                'int64',
-  namedSize:              'int',
-  access:                 'uint',
+  objId: OopType,
+  objClass: OopType,
+  objSize: 'int64',
+  namedSize: 'int',
+  access: 'uint',
   objectSecurityPolicyId: 'ushort',
-  _bits:                  'ushort',
+  _bits: 'ushort',
 });
 
 // GciTsGbjInfo struct — extends GciTsObjInfo with extraBits and bytesReturned
 koffi.struct('GciTsGbjInfo', {
-  objId:                  OopType,
-  objClass:               OopType,
-  objSize:                'int64',
-  namedSize:              'int',
-  access:                 'uint',
+  objId: OopType,
+  objClass: OopType,
+  objSize: 'int64',
+  namedSize: 'int',
+  access: 'uint',
   objectSecurityPolicyId: 'ushort',
-  _bits:                  'ushort',
-  extraBits:              'uint64',
-  bytesReturned:          'int64',
+  _bits: 'ushort',
+  extraBits: 'uint64',
+  bytesReturned: 'int64',
 });
 
 export interface GciObjInfo {
@@ -67,55 +67,55 @@ export interface GciGbjInfo extends GciObjInfo {
 
 // GciClampedTravArgsSType — travBuff is an opaque pointer to a raw Buffer
 koffi.struct('GciClampedTravArgsSType', {
-  clampSpec:      OopType,
-  resultOop:      OopType,
-  travBuff:       'void *',
-  level:          'int',
+  clampSpec: OopType,
+  resultOop: OopType,
+  travBuff: 'void *',
+  level: 'int',
   retrievalFlags: 'int',
-  isRpc:          'int',
+  isRpc: 'int',
 });
 
 // StoreTrav union variants for GciTsStoreTravDoTravRefs
 const StoreTravPerformArgs = koffi.struct('StoreTravPerformArgs', {
-  receiver:      OopType,
-  _pad:          koffi.array('char', 24),
-  selector:      'const char *',
-  args:          'void *',
-  numArgs:       'int',
+  receiver: OopType,
+  _pad: koffi.array('char', 24),
+  selector: 'const char *',
+  args: 'void *',
+  numArgs: 'int',
   environmentId: 'ushort',
 });
 
 const StoreTravExecStrArgs = koffi.struct('StoreTravExecStrArgs', {
   contextObject: OopType,
-  sourceClass:   OopType,
-  symbolList:    OopType,
-  sourceSize:    'int64',
-  source:        'const char *',
-  args:          'void *',
-  numArgs:       'int',
+  sourceClass: OopType,
+  symbolList: OopType,
+  sourceSize: 'int64',
+  source: 'const char *',
+  args: 'void *',
+  numArgs: 'int',
   environmentId: 'ushort',
 });
 
 const StoreTravContinueArgs = koffi.struct('StoreTravContinueArgs', {
-  process:           OopType,
+  process: OopType,
   replaceTopOfStack: OopType,
 });
 
 const StoreTravDoUnion = koffi.union('StoreTravDoUnion', {
-  perform:      StoreTravPerformArgs,
-  executestr:   StoreTravExecStrArgs,
+  perform: StoreTravPerformArgs,
+  executestr: StoreTravExecStrArgs,
   continueArgs: StoreTravContinueArgs,
 });
 
 koffi.struct('GciStoreTravDoArgsSType', {
-  doPerform:        'int',
-  doFlags:          'int',
-  alteredNumOops:   'int',
+  doPerform: 'int',
+  doFlags: 'int',
+  alteredNumOops: 'int',
   alteredCompleted: 'int',
-  u:                StoreTravDoUnion,
-  storeTravBuff:    'void *',
-  alteredTheOops:   'void *',
-  storeTravFlags:   'int',
+  u: StoreTravDoUnion,
+  storeTravBuff: 'void *',
+  alteredTheOops: 'void *',
+  storeTravFlags: 'int',
 });
 
 // Object report header size (GciObjRepHdrSType): 40 bytes
@@ -349,46 +349,62 @@ export class GciLibrary {
       this._netldiLib = koffi.load(netldiPath, { global: true });
     }
     this.lib = koffi.load(libraryPath);
-    this._GciTsVersion = this.lib.func(`unsigned int GciTsVersion(_Out_ char *buf, size_t bufSize)`);
+    this._GciTsVersion = this.lib.func(
+      `unsigned int GciTsVersion(_Out_ char *buf, size_t bufSize)`,
+    );
     this._GciTsOopIsSpecial = this.lib.func(`int GciTsOopIsSpecial(${OopType} oop)`);
-    this._GciTsFetchSpecialClass = this.lib.func(`${OopType} GciTsFetchSpecialClass(${OopType} oop)`);
+    this._GciTsFetchSpecialClass = this.lib.func(
+      `${OopType} GciTsFetchSpecialClass(${OopType} oop)`,
+    );
     this._GciTsOopToChar = this.lib.func(`int GciTsOopToChar(${OopType} oop)`);
     this._GciTsCharToOop = this.lib.func(`${OopType} GciTsCharToOop(unsigned int ch)`);
-    this._GciTsDoubleToSmallDouble = this.lib.func(`${OopType} GciTsDoubleToSmallDouble(double aFloat)`);
+    this._GciTsDoubleToSmallDouble = this.lib.func(
+      `${OopType} GciTsDoubleToSmallDouble(double aFloat)`,
+    );
     // Optional: not exported by older libraries (e.g. 3.4.5). No production
     // code path calls these; they are bound optionally so loading an older
     // library never fails at construction over a function we never use.
     this._GciI32ToOop = this.optionalFunc('GciI32ToOop', `${OopType} GciI32ToOop(int arg)`);
     this._GciTsI32ToOop = this.optionalFunc('GciTsI32ToOop', `${OopType} GciTsI32ToOop(int arg)`);
-    this._GciUtf8To8bit = this.lib.func(`int GciUtf8To8bit(const char *src, _Out_ char *dest, intptr destSize)`);
-    this._GciNextUtf8Character = this.lib.func(`intptr GciNextUtf8Character(const char *src, size_t len, _Out_ unsigned int *chOut)`);
+    this._GciUtf8To8bit = this.lib.func(
+      `int GciUtf8To8bit(const char *src, _Out_ char *dest, intptr destSize)`,
+    );
+    this._GciNextUtf8Character = this.lib.func(
+      `intptr GciNextUtf8Character(const char *src, size_t len, _Out_ unsigned int *chOut)`,
+    );
     this._GciShutdown = this.lib.func(`void GciShutdown()`);
     this._GciMalloc = this.lib.func(`void* GciMalloc(size_t length, int lineNum)`);
     this._GciFree = this.lib.func(`void GciFree(void* ptr)`);
     this._GciHostCallDebuggerMsg = this.lib.func(`int GciHostCallDebuggerMsg(const char* msg)`);
     this._GciHostFtime = this.lib.func(`void GciHostFtime(_Out_ long *sec, _Out_ ushort *millitm)`);
     this._GciHostMilliSleep = this.lib.func(`void GciHostMilliSleep(unsigned int milliSeconds)`);
-    this._GciTimeStampMsStr = this.lib.func(`void GciTimeStampMsStr(long seconds, ushort milliSeconds, _Out_ char *result, size_t resultSize)`);
+    this._GciTimeStampMsStr = this.lib.func(
+      `void GciTimeStampMsStr(long seconds, ushort milliSeconds, _Out_ char *result, size_t resultSize)`,
+    );
     this._GciTsLogin = this.lib.func(
-      `GciSessionPtr GciTsLogin(const char *, const char *, const char *, int, const char *, const char *, const char *, unsigned int, int, _Out_ int *, _Out_ GciErrSType *)`
+      `GciSessionPtr GciTsLogin(const char *, const char *, const char *, int, const char *, const char *, const char *, unsigned int, int, _Out_ int *, _Out_ GciErrSType *)`,
     );
     this._GciTsLogout = this.lib.func(`int GciTsLogout(GciSessionPtr, _Out_ GciErrSType *)`);
     // Optional: not exported by 3.6.2 and earlier. The login path uses GciTsLogin.
-    this._GciTsLogin_ = this.optionalFunc('GciTsLogin_',
-      `GciSessionPtr GciTsLogin_(const char *, const char *, const char *, int, const char *, const char *, const char *, const char *, unsigned int, int, _Out_ int *, _Out_ GciErrSType *)`
+    this._GciTsLogin_ = this.optionalFunc(
+      'GciTsLogin_',
+      `GciSessionPtr GciTsLogin_(const char *, const char *, const char *, int, const char *, const char *, const char *, const char *, unsigned int, int, _Out_ int *, _Out_ GciErrSType *)`,
     );
     // Non-blocking login functions are not available in the Windows client DLL.
     // (These two DO exist in 3.6.2 — only GciTsNbLogin_ below is post-3.6.2.)
     try {
       this._GciTsNbLogin = this.lib.func(
-        `GciSessionPtr GciTsNbLogin(const char *, const char *, const char *, int, const char *, const char *, const char *, unsigned int, int, _Out_ int *)`
+        `GciSessionPtr GciTsNbLogin(const char *, const char *, const char *, int, const char *, const char *, const char *, unsigned int, int, _Out_ int *)`,
       );
       this._GciTsNbLoginFinished = this.lib.func(
-        `int GciTsNbLoginFinished(GciSessionPtr, _Out_ int *, _Out_ GciErrSType *)`
+        `int GciTsNbLoginFinished(GciSessionPtr, _Out_ int *, _Out_ GciErrSType *)`,
       );
-    } catch { /* optional: not present in Windows client distributions */ }
-    this._GciTsNbLogin_ = this.optionalFunc('GciTsNbLogin_',
-      `GciSessionPtr GciTsNbLogin_(const char *, const char *, const char *, int, const char *, const char *, const char *, const char *, unsigned int, int, _Out_ int *)`
+    } catch {
+      /* optional: not present in Windows client distributions */
+    }
+    this._GciTsNbLogin_ = this.optionalFunc(
+      'GciTsNbLogin_',
+      `GciSessionPtr GciTsNbLogin_(const char *, const char *, const char *, int, const char *, const char *, const char *, const char *, unsigned int, int, _Out_ int *)`,
     );
     this._GciTsNbLogout = this.lib.func(`int GciTsNbLogout(GciSessionPtr, _Out_ GciErrSType *)`);
     this._GciTsSessionIsRemote = this.lib.func(`int GciTsSessionIsRemote(GciSessionPtr)`);
@@ -397,230 +413,238 @@ export class GciLibrary {
     this._GciTsBegin = this.lib.func(`int GciTsBegin(GciSessionPtr, _Out_ GciErrSType *)`);
     this._GciTsCommit = this.lib.func(`int GciTsCommit(GciSessionPtr, _Out_ GciErrSType *)`);
     this._GciTsContinueWith = this.lib.func(
-      `${OopType} GciTsContinueWith(GciSessionPtr, ${OopType}, ${OopType}, const GciErrSType *, int, _Out_ GciErrSType *)`
+      `${OopType} GciTsContinueWith(GciSessionPtr, ${OopType}, ${OopType}, const GciErrSType *, int, _Out_ GciErrSType *)`,
     );
     this._GciTsDoubleToOop = this.lib.func(
-      `${OopType} GciTsDoubleToOop(GciSessionPtr, double, _Out_ GciErrSType *)`
+      `${OopType} GciTsDoubleToOop(GciSessionPtr, double, _Out_ GciErrSType *)`,
     );
     this._GciTsOopToDouble = this.lib.func(
-      `int GciTsOopToDouble(GciSessionPtr, ${OopType}, _Out_ double *, _Out_ GciErrSType *)`
+      `int GciTsOopToDouble(GciSessionPtr, ${OopType}, _Out_ double *, _Out_ GciErrSType *)`,
     );
     this._GciTsI64ToOop = this.lib.func(
-      `${OopType} GciTsI64ToOop(GciSessionPtr, int64, _Out_ GciErrSType *)`
+      `${OopType} GciTsI64ToOop(GciSessionPtr, int64, _Out_ GciErrSType *)`,
     );
     this._GciTsOopToI64 = this.lib.func(
-      `int GciTsOopToI64(GciSessionPtr, ${OopType}, _Out_ int64 *, _Out_ GciErrSType *)`
+      `int GciTsOopToI64(GciSessionPtr, ${OopType}, _Out_ int64 *, _Out_ GciErrSType *)`,
     );
     this._GciTsNewObj = this.lib.func(
-      `${OopType} GciTsNewObj(GciSessionPtr, ${OopType}, _Out_ GciErrSType *)`
+      `${OopType} GciTsNewObj(GciSessionPtr, ${OopType}, _Out_ GciErrSType *)`,
     );
     this._GciTsNewByteArray = this.lib.func(
-      `${OopType} GciTsNewByteArray(GciSessionPtr, const uchar *, size_t, _Out_ GciErrSType *)`
+      `${OopType} GciTsNewByteArray(GciSessionPtr, const uchar *, size_t, _Out_ GciErrSType *)`,
     );
     this._GciTsNewString_ = this.lib.func(
-      `${OopType} GciTsNewString_(GciSessionPtr, const char *, size_t, _Out_ GciErrSType *)`
+      `${OopType} GciTsNewString_(GciSessionPtr, const char *, size_t, _Out_ GciErrSType *)`,
     );
     this._GciTsNewString = this.lib.func(
-      `${OopType} GciTsNewString(GciSessionPtr, const char *, _Out_ GciErrSType *)`
+      `${OopType} GciTsNewString(GciSessionPtr, const char *, _Out_ GciErrSType *)`,
     );
     this._GciTsNewSymbol = this.lib.func(
-      `${OopType} GciTsNewSymbol(GciSessionPtr, const char *, _Out_ GciErrSType *)`
+      `${OopType} GciTsNewSymbol(GciSessionPtr, const char *, _Out_ GciErrSType *)`,
     );
     this._GciTsNewUnicodeString_ = this.lib.func(
-      `${OopType} GciTsNewUnicodeString_(GciSessionPtr, const ushort *, size_t, _Out_ GciErrSType *)`
+      `${OopType} GciTsNewUnicodeString_(GciSessionPtr, const ushort *, size_t, _Out_ GciErrSType *)`,
     );
     this._GciTsNewUnicodeString = this.lib.func(
-      `${OopType} GciTsNewUnicodeString(GciSessionPtr, const ushort *, _Out_ GciErrSType *)`
+      `${OopType} GciTsNewUnicodeString(GciSessionPtr, const ushort *, _Out_ GciErrSType *)`,
     );
     this._GciTsNewUtf8String = this.lib.func(
-      `${OopType} GciTsNewUtf8String(GciSessionPtr, const char *, int, _Out_ GciErrSType *)`
+      `${OopType} GciTsNewUtf8String(GciSessionPtr, const char *, int, _Out_ GciErrSType *)`,
     );
     this._GciTsNewUtf8String_ = this.lib.func(
-      `${OopType} GciTsNewUtf8String_(GciSessionPtr, const char *, size_t, int, _Out_ GciErrSType *)`
+      `${OopType} GciTsNewUtf8String_(GciSessionPtr, const char *, size_t, int, _Out_ GciErrSType *)`,
     );
     this._GciTsFetchUnicode = this.lib.func(
-      `int64 GciTsFetchUnicode(GciSessionPtr, ${OopType}, _Out_ ushort *, int64, _Out_ int64 *, _Out_ GciErrSType *)`
+      `int64 GciTsFetchUnicode(GciSessionPtr, ${OopType}, _Out_ ushort *, int64, _Out_ int64 *, _Out_ GciErrSType *)`,
     );
     this._GciTsFetchUtf8 = this.lib.func(
-      `int64 GciTsFetchUtf8(GciSessionPtr, ${OopType}, _Out_ uchar *, int64, _Out_ int64 *, _Out_ GciErrSType *)`
+      `int64 GciTsFetchUtf8(GciSessionPtr, ${OopType}, _Out_ uchar *, int64, _Out_ int64 *, _Out_ GciErrSType *)`,
     );
     this._GciTsFetchObjInfo = this.lib.func(
-      `int64 GciTsFetchObjInfo(GciSessionPtr, ${OopType}, int, _Out_ GciTsObjInfo *, _Out_ uchar *, size_t, _Out_ GciErrSType *)`
+      `int64 GciTsFetchObjInfo(GciSessionPtr, ${OopType}, int, _Out_ GciTsObjInfo *, _Out_ uchar *, size_t, _Out_ GciErrSType *)`,
     );
     this._GciTsFetchSize = this.lib.func(
-      `int64 GciTsFetchSize(GciSessionPtr, ${OopType}, _Out_ GciErrSType *)`
+      `int64 GciTsFetchSize(GciSessionPtr, ${OopType}, _Out_ GciErrSType *)`,
     );
     this._GciTsFetchVaryingSize = this.lib.func(
-      `int64 GciTsFetchVaryingSize(GciSessionPtr, ${OopType}, _Out_ GciErrSType *)`
+      `int64 GciTsFetchVaryingSize(GciSessionPtr, ${OopType}, _Out_ GciErrSType *)`,
     );
     this._GciTsFetchClass = this.lib.func(
-      `${OopType} GciTsFetchClass(GciSessionPtr, ${OopType}, _Out_ GciErrSType *)`
+      `${OopType} GciTsFetchClass(GciSessionPtr, ${OopType}, _Out_ GciErrSType *)`,
     );
     this._GciTsIsKindOf = this.lib.func(
-      `int GciTsIsKindOf(GciSessionPtr, ${OopType}, ${OopType}, _Out_ GciErrSType *)`
+      `int GciTsIsKindOf(GciSessionPtr, ${OopType}, ${OopType}, _Out_ GciErrSType *)`,
     );
     this._GciTsIsSubclassOf = this.lib.func(
-      `int GciTsIsSubclassOf(GciSessionPtr, ${OopType}, ${OopType}, _Out_ GciErrSType *)`
+      `int GciTsIsSubclassOf(GciSessionPtr, ${OopType}, ${OopType}, _Out_ GciErrSType *)`,
     );
     this._GciTsIsKindOfClass = this.lib.func(
-      `int GciTsIsKindOfClass(GciSessionPtr, ${OopType}, ${OopType}, _Out_ GciErrSType *)`
+      `int GciTsIsKindOfClass(GciSessionPtr, ${OopType}, ${OopType}, _Out_ GciErrSType *)`,
     );
     this._GciTsIsSubclassOfClass = this.lib.func(
-      `int GciTsIsSubclassOfClass(GciSessionPtr, ${OopType}, ${OopType}, _Out_ GciErrSType *)`
+      `int GciTsIsSubclassOfClass(GciSessionPtr, ${OopType}, ${OopType}, _Out_ GciErrSType *)`,
     );
-    this._GciTsObjExists = this.lib.func(
-      `int GciTsObjExists(GciSessionPtr, ${OopType})`
-    );
+    this._GciTsObjExists = this.lib.func(`int GciTsObjExists(GciSessionPtr, ${OopType})`);
     this._GciTsResolveSymbol = this.lib.func(
-      `${OopType} GciTsResolveSymbol(GciSessionPtr, const char *, ${OopType}, _Out_ GciErrSType *)`
+      `${OopType} GciTsResolveSymbol(GciSessionPtr, const char *, ${OopType}, _Out_ GciErrSType *)`,
     );
     this._GciTsResolveSymbolObj = this.lib.func(
-      `${OopType} GciTsResolveSymbolObj(GciSessionPtr, ${OopType}, ${OopType}, _Out_ GciErrSType *)`
+      `${OopType} GciTsResolveSymbolObj(GciSessionPtr, ${OopType}, ${OopType}, _Out_ GciErrSType *)`,
     );
     this._GciTsExecute = this.lib.func(
-      `${OopType} GciTsExecute(GciSessionPtr, const char *, ${OopType}, ${OopType}, ${OopType}, int, ushort, _Out_ GciErrSType *)`
+      `${OopType} GciTsExecute(GciSessionPtr, const char *, ${OopType}, ${OopType}, ${OopType}, int, ushort, _Out_ GciErrSType *)`,
     );
     this._GciTsExecute_ = this.lib.func(
-      `${OopType} GciTsExecute_(GciSessionPtr, const char *, intptr, ${OopType}, ${OopType}, ${OopType}, int, ushort, _Out_ GciErrSType *)`
+      `${OopType} GciTsExecute_(GciSessionPtr, const char *, intptr, ${OopType}, ${OopType}, ${OopType}, int, ushort, _Out_ GciErrSType *)`,
     );
     this._GciTsExecuteFetchBytes = this.lib.func(
-      `intptr GciTsExecuteFetchBytes(GciSessionPtr, const char *, intptr, ${OopType}, ${OopType}, ${OopType}, _Out_ uchar *, intptr, _Out_ GciErrSType *)`
+      `intptr GciTsExecuteFetchBytes(GciSessionPtr, const char *, intptr, ${OopType}, ${OopType}, ${OopType}, _Out_ uchar *, intptr, _Out_ GciErrSType *)`,
     );
     this._GciTsPerform = this.lib.func(
-      `${OopType} GciTsPerform(GciSessionPtr, ${OopType}, ${OopType}, const char *, const ${OopType} *, int, int, ushort, _Out_ GciErrSType *)`
+      `${OopType} GciTsPerform(GciSessionPtr, ${OopType}, ${OopType}, const char *, const ${OopType} *, int, int, ushort, _Out_ GciErrSType *)`,
     );
     this._GciTsPerformFetchBytes = this.lib.func(
-      `intptr GciTsPerformFetchBytes(GciSessionPtr, ${OopType}, const char *, const ${OopType} *, int, _Out_ uchar *, intptr, _Out_ GciErrSType *)`
+      `intptr GciTsPerformFetchBytes(GciSessionPtr, ${OopType}, const char *, const ${OopType} *, int, _Out_ uchar *, intptr, _Out_ GciErrSType *)`,
     );
     this._GciTsFetchBytes = this.lib.func(
-      `int64 GciTsFetchBytes(GciSessionPtr, ${OopType}, int64, _Out_ uchar *, int64, _Out_ GciErrSType *)`
+      `int64 GciTsFetchBytes(GciSessionPtr, ${OopType}, int64, _Out_ uchar *, int64, _Out_ GciErrSType *)`,
     );
     this._GciTsFetchChars = this.lib.func(
-      `int64 GciTsFetchChars(GciSessionPtr, ${OopType}, int64, _Out_ char *, int64, _Out_ GciErrSType *)`
+      `int64 GciTsFetchChars(GciSessionPtr, ${OopType}, int64, _Out_ char *, int64, _Out_ GciErrSType *)`,
     );
     this._GciTsFetchUtf8Bytes = this.lib.func(
-      `int64 GciTsFetchUtf8Bytes(GciSessionPtr, ${OopType}, int64, _Out_ uchar *, int64, _Inout_ ${OopType} *, _Out_ GciErrSType *, int)`
+      `int64 GciTsFetchUtf8Bytes(GciSessionPtr, ${OopType}, int64, _Out_ uchar *, int64, _Inout_ ${OopType} *, _Out_ GciErrSType *, int)`,
     );
     this._GciTsStoreBytes = this.lib.func(
-      `int GciTsStoreBytes(GciSessionPtr, ${OopType}, int64, const uchar *, int64, ${OopType}, _Out_ GciErrSType *)`
+      `int GciTsStoreBytes(GciSessionPtr, ${OopType}, int64, const uchar *, int64, ${OopType}, _Out_ GciErrSType *)`,
     );
     this._GciTsFetchOops = this.lib.func(
-      `int GciTsFetchOops(GciSessionPtr, ${OopType}, int64, _Out_ ${OopType} *, int, _Out_ GciErrSType *)`
+      `int GciTsFetchOops(GciSessionPtr, ${OopType}, int64, _Out_ ${OopType} *, int, _Out_ GciErrSType *)`,
     );
-    this._GciTsFetchNamedOops = this.optionalFunc('GciTsFetchNamedOops',
-      `int GciTsFetchNamedOops(GciSessionPtr, ${OopType}, int64, _Out_ ${OopType} *, int, _Out_ GciErrSType *)`
+    this._GciTsFetchNamedOops = this.optionalFunc(
+      'GciTsFetchNamedOops',
+      `int GciTsFetchNamedOops(GciSessionPtr, ${OopType}, int64, _Out_ ${OopType} *, int, _Out_ GciErrSType *)`,
     );
-    this._GciTsFetchVaryingOops = this.optionalFunc('GciTsFetchVaryingOops',
-      `int GciTsFetchVaryingOops(GciSessionPtr, ${OopType}, int64, _Out_ ${OopType} *, int, _Out_ GciErrSType *)`
+    this._GciTsFetchVaryingOops = this.optionalFunc(
+      'GciTsFetchVaryingOops',
+      `int GciTsFetchVaryingOops(GciSessionPtr, ${OopType}, int64, _Out_ ${OopType} *, int, _Out_ GciErrSType *)`,
     );
     this._GciTsStoreOops = this.lib.func(
-      `int GciTsStoreOops(GciSessionPtr, ${OopType}, int64, const ${OopType} *, int, _Out_ GciErrSType *, int)`
+      `int GciTsStoreOops(GciSessionPtr, ${OopType}, int64, const ${OopType} *, int, _Out_ GciErrSType *, int)`,
     );
-    this._GciTsStoreNamedOops = this.optionalFunc('GciTsStoreNamedOops',
-      `int GciTsStoreNamedOops(GciSessionPtr, ${OopType}, int64, const ${OopType} *, int, _Out_ GciErrSType *, int)`
+    this._GciTsStoreNamedOops = this.optionalFunc(
+      'GciTsStoreNamedOops',
+      `int GciTsStoreNamedOops(GciSessionPtr, ${OopType}, int64, const ${OopType} *, int, _Out_ GciErrSType *, int)`,
     );
-    this._GciTsStoreIdxOops = this.optionalFunc('GciTsStoreIdxOops',
-      `int GciTsStoreIdxOops(GciSessionPtr, ${OopType}, int64, const ${OopType} *, int, _Out_ GciErrSType *)`
+    this._GciTsStoreIdxOops = this.optionalFunc(
+      'GciTsStoreIdxOops',
+      `int GciTsStoreIdxOops(GciSessionPtr, ${OopType}, int64, const ${OopType} *, int, _Out_ GciErrSType *)`,
     );
     this._GciTsCompileMethod = this.lib.func(
-      `${OopType} GciTsCompileMethod(GciSessionPtr, ${OopType}, ${OopType}, ${OopType}, ${OopType}, ${OopType}, int, ushort, _Out_ GciErrSType *)`
+      `${OopType} GciTsCompileMethod(GciSessionPtr, ${OopType}, ${OopType}, ${OopType}, ${OopType}, ${OopType}, int, ushort, _Out_ GciErrSType *)`,
     );
     this._GciTsClassRemoveAllMethods = this.lib.func(
-      `int GciTsClassRemoveAllMethods(GciSessionPtr, ${OopType}, ushort, _Out_ GciErrSType *)`
+      `int GciTsClassRemoveAllMethods(GciSessionPtr, ${OopType}, ushort, _Out_ GciErrSType *)`,
     );
     this._GciTsProtectMethods = this.lib.func(
-      `int GciTsProtectMethods(GciSessionPtr, int, _Out_ GciErrSType *)`
+      `int GciTsProtectMethods(GciSessionPtr, int, _Out_ GciErrSType *)`,
     );
-    this._GciTsBreak = this.lib.func(
-      `int GciTsBreak(GciSessionPtr, int, _Out_ GciErrSType *)`
-    );
+    this._GciTsBreak = this.lib.func(`int GciTsBreak(GciSessionPtr, int, _Out_ GciErrSType *)`);
     this._GciTsCallInProgress = this.lib.func(
-      `int GciTsCallInProgress(GciSessionPtr, _Out_ GciErrSType *)`
+      `int GciTsCallInProgress(GciSessionPtr, _Out_ GciErrSType *)`,
     );
     this._GciTsClearStack = this.lib.func(
-      `int GciTsClearStack(GciSessionPtr, ${OopType}, _Out_ GciErrSType *)`
+      `int GciTsClearStack(GciSessionPtr, ${OopType}, _Out_ GciErrSType *)`,
     );
     this._GciTsGemTrace = this.lib.func(
-      `int GciTsGemTrace(GciSessionPtr, int, _Out_ GciErrSType *)`
+      `int GciTsGemTrace(GciSessionPtr, int, _Out_ GciErrSType *)`,
     );
     this._GciTsNbExecute = this.lib.func(
-      `int GciTsNbExecute(GciSessionPtr, const char *, ${OopType}, ${OopType}, ${OopType}, int, ushort, _Out_ GciErrSType *)`
+      `int GciTsNbExecute(GciSessionPtr, const char *, ${OopType}, ${OopType}, ${OopType}, int, ushort, _Out_ GciErrSType *)`,
     );
     this._GciTsNbPerform = this.lib.func(
-      `int GciTsNbPerform(GciSessionPtr, ${OopType}, ${OopType}, const char *, const ${OopType} *, int, int, ushort, _Out_ GciErrSType *)`
+      `int GciTsNbPerform(GciSessionPtr, ${OopType}, ${OopType}, const char *, const ${OopType} *, int, int, ushort, _Out_ GciErrSType *)`,
     );
     this._GciTsNbResult = this.lib.func(
-      `${OopType} GciTsNbResult(GciSessionPtr, _Out_ GciErrSType *)`
+      `${OopType} GciTsNbResult(GciSessionPtr, _Out_ GciErrSType *)`,
     );
-    this._GciTsNbPoll = this.optionalFunc('GciTsNbPoll',
-      `int GciTsNbPoll(GciSessionPtr, int, _Out_ GciErrSType *)`
+    this._GciTsNbPoll = this.optionalFunc(
+      'GciTsNbPoll',
+      `int GciTsNbPoll(GciSessionPtr, int, _Out_ GciErrSType *)`,
     );
-    this._GciTsSocket = this.lib.func(
-      `int GciTsSocket(GciSessionPtr, _Out_ GciErrSType *)`
-    );
+    this._GciTsSocket = this.lib.func(`int GciTsSocket(GciSessionPtr, _Out_ GciErrSType *)`);
     this._GciTsGetFreeOops = this.lib.func(
-      `int GciTsGetFreeOops(GciSessionPtr, _Out_ ${OopType} *, int, _Out_ GciErrSType *)`
+      `int GciTsGetFreeOops(GciSessionPtr, _Out_ ${OopType} *, int, _Out_ GciErrSType *)`,
     );
     this._GciTsSaveObjs = this.lib.func(
-      `int GciTsSaveObjs(GciSessionPtr, const ${OopType} *, int, _Out_ GciErrSType *)`
+      `int GciTsSaveObjs(GciSessionPtr, const ${OopType} *, int, _Out_ GciErrSType *)`,
     );
     this._GciTsReleaseObjs = this.lib.func(
-      `int GciTsReleaseObjs(GciSessionPtr, const ${OopType} *, int, _Out_ GciErrSType *)`
+      `int GciTsReleaseObjs(GciSessionPtr, const ${OopType} *, int, _Out_ GciErrSType *)`,
     );
     this._GciTsReleaseAllObjs = this.lib.func(
-      `int GciTsReleaseAllObjs(GciSessionPtr, _Out_ GciErrSType *)`
+      `int GciTsReleaseAllObjs(GciSessionPtr, _Out_ GciErrSType *)`,
     );
-    this._GciTsAddOopsToNsc = this.optionalFunc('GciTsAddOopsToNsc',
-      `int GciTsAddOopsToNsc(GciSessionPtr, ${OopType}, const ${OopType} *, int, _Out_ GciErrSType *)`
+    this._GciTsAddOopsToNsc = this.optionalFunc(
+      'GciTsAddOopsToNsc',
+      `int GciTsAddOopsToNsc(GciSessionPtr, ${OopType}, const ${OopType} *, int, _Out_ GciErrSType *)`,
     );
     this._GciTsRemoveOopsFromNsc = this.lib.func(
-      `int GciTsRemoveOopsFromNsc(GciSessionPtr, ${OopType}, const ${OopType} *, int, _Out_ GciErrSType *)`
+      `int GciTsRemoveOopsFromNsc(GciSessionPtr, ${OopType}, const ${OopType} *, int, _Out_ GciErrSType *)`,
     );
-    this._GciTsPerformFetchOops = this.optionalFunc('GciTsPerformFetchOops',
-      `int GciTsPerformFetchOops(GciSessionPtr, ${OopType}, const char *, const ${OopType} *, int, _Out_ ${OopType} *, int, _Out_ GciErrSType *)`
+    this._GciTsPerformFetchOops = this.optionalFunc(
+      'GciTsPerformFetchOops',
+      `int GciTsPerformFetchOops(GciSessionPtr, ${OopType}, const char *, const ${OopType} *, int, _Out_ ${OopType} *, int, _Out_ GciErrSType *)`,
     );
-    this._GciTsFetchGbjInfo = this.optionalFunc('GciTsFetchGbjInfo',
-      `int64 GciTsFetchGbjInfo(GciSessionPtr, ${OopType}, int, _Out_ GciTsGbjInfo *, _Out_ uchar *, size_t, _Out_ GciErrSType *)`
+    this._GciTsFetchGbjInfo = this.optionalFunc(
+      'GciTsFetchGbjInfo',
+      `int64 GciTsFetchGbjInfo(GciSessionPtr, ${OopType}, int, _Out_ GciTsGbjInfo *, _Out_ uchar *, size_t, _Out_ GciErrSType *)`,
     );
-    this._GciTsNewStringFromUtf16 = this.optionalFunc('GciTsNewStringFromUtf16',
-      `${OopType} GciTsNewStringFromUtf16(GciSessionPtr, const ushort *, int64, int, _Out_ GciErrSType *)`
+    this._GciTsNewStringFromUtf16 = this.optionalFunc(
+      'GciTsNewStringFromUtf16',
+      `${OopType} GciTsNewStringFromUtf16(GciSessionPtr, const ushort *, int64, int, _Out_ GciErrSType *)`,
     );
     this._GciTsDirtyObjsInit = this.lib.func(
-      `int GciTsDirtyObjsInit(GciSessionPtr, _Out_ GciErrSType *)`
+      `int GciTsDirtyObjsInit(GciSessionPtr, _Out_ GciErrSType *)`,
     );
     this._GciTsWaitForEvent = this.lib.func(
-      `int GciTsWaitForEvent(GciSessionPtr, int, _Out_ int *, _Out_ GciErrSType *)`
+      `int GciTsWaitForEvent(GciSessionPtr, int, _Out_ int *, _Out_ GciErrSType *)`,
     );
     this._GciTsCancelWaitForEvent = this.lib.func(
-      `int GciTsCancelWaitForEvent(GciSessionPtr, _Out_ GciErrSType *)`
+      `int GciTsCancelWaitForEvent(GciSessionPtr, _Out_ GciErrSType *)`,
     );
-    this._GciTsDirtyExportedObjs = this.optionalFunc('GciTsDirtyExportedObjs',
-      `int GciTsDirtyExportedObjs(GciSessionPtr, _Out_ ${OopType} *, _Inout_ int *, _Out_ GciErrSType *)`
+    this._GciTsDirtyExportedObjs = this.optionalFunc(
+      'GciTsDirtyExportedObjs',
+      `int GciTsDirtyExportedObjs(GciSessionPtr, _Out_ ${OopType} *, _Inout_ int *, _Out_ GciErrSType *)`,
     );
-    this._GciTsKeepAliveCount = this.optionalFunc('GciTsKeepAliveCount',
-      `int64 GciTsKeepAliveCount(GciSessionPtr, _Out_ GciErrSType *)`
+    this._GciTsKeepAliveCount = this.optionalFunc(
+      'GciTsKeepAliveCount',
+      `int64 GciTsKeepAliveCount(GciSessionPtr, _Out_ GciErrSType *)`,
     );
-    this._GciTsKeyfilePermissions = this.optionalFunc('GciTsKeyfilePermissions',
-      `int64 GciTsKeyfilePermissions(GciSessionPtr, _Out_ GciErrSType *)`
+    this._GciTsKeyfilePermissions = this.optionalFunc(
+      'GciTsKeyfilePermissions',
+      `int64 GciTsKeyfilePermissions(GciSessionPtr, _Out_ GciErrSType *)`,
     );
     // Debug functions are post-3.6.2 and also absent from the Windows client DLL.
-    this._GciTsDebugConnectToGem = this.optionalFunc('GciTsDebugConnectToGem',
-      `GciSessionPtr GciTsDebugConnectToGem(int, _Out_ GciErrSType *)`
+    this._GciTsDebugConnectToGem = this.optionalFunc(
+      'GciTsDebugConnectToGem',
+      `GciSessionPtr GciTsDebugConnectToGem(int, _Out_ GciErrSType *)`,
     );
-    this._GciTsDebugStartDebugService = this.optionalFunc('GciTsDebugStartDebugService',
-      `int GciTsDebugStartDebugService(GciSessionPtr, uint64, _Out_ GciErrSType *)`
+    this._GciTsDebugStartDebugService = this.optionalFunc(
+      'GciTsDebugStartDebugService',
+      `int GciTsDebugStartDebugService(GciSessionPtr, uint64, _Out_ GciErrSType *)`,
     );
     this._GciTsFetchTraversal = this.lib.func(
-      `int GciTsFetchTraversal(GciSessionPtr, const ${OopType} *, int, _Inout_ GciClampedTravArgsSType *, _Out_ GciErrSType *)`
+      `int GciTsFetchTraversal(GciSessionPtr, const ${OopType} *, int, _Inout_ GciClampedTravArgsSType *, _Out_ GciErrSType *)`,
     );
     this._GciTsStoreTrav = this.lib.func(
-      `int GciTsStoreTrav(GciSessionPtr, void *, int, _Out_ GciErrSType *)`
+      `int GciTsStoreTrav(GciSessionPtr, void *, int, _Out_ GciErrSType *)`,
     );
     this._GciTsMoreTraversal = this.lib.func(
-      `int GciTsMoreTraversal(GciSessionPtr, void *, _Out_ GciErrSType *)`
+      `int GciTsMoreTraversal(GciSessionPtr, void *, _Out_ GciErrSType *)`,
     );
     this._GciTsStoreTravDoTravRefs = this.lib.func(
-      `int GciTsStoreTravDoTravRefs(GciSessionPtr, const ${OopType} *, int, const ${OopType} *, int, _Inout_ GciStoreTravDoArgsSType *, _Inout_ GciClampedTravArgsSType *, _Out_ GciErrSType *)`
+      `int GciTsStoreTravDoTravRefs(GciSessionPtr, const ${OopType} *, int, const ${OopType} *, int, _Inout_ GciStoreTravDoArgsSType *, _Inout_ GciClampedTravArgsSType *, _Out_ GciErrSType *)`,
     );
   }
 
@@ -733,11 +757,17 @@ export class GciLibrary {
     const executedSessionInit = [0];
     const err: Record<string, unknown> = {};
     const session = this._GciTsLogin(
-      stoneNrs, hostUserId, hostPassword,
+      stoneNrs,
+      hostUserId,
+      hostPassword,
       hostPwIsEncrypted ? 1 : 0,
-      gemServiceNrs, gemstoneUsername, gemstonePassword,
-      loginFlags, haltOnErrNum,
-      executedSessionInit, err,
+      gemServiceNrs,
+      gemstoneUsername,
+      gemstonePassword,
+      loginFlags,
+      haltOnErrNum,
+      executedSessionInit,
+      err,
     );
     return {
       session,
@@ -761,11 +791,18 @@ export class GciLibrary {
     const executedSessionInit = [0];
     const err: Record<string, unknown> = {};
     const session = this._GciTsLogin_(
-      stoneNrs, hostUserId, hostPassword,
+      stoneNrs,
+      hostUserId,
+      hostPassword,
       hostPwIsEncrypted ? 1 : 0,
-      gemServiceNrs, gemstoneUsername, gemstonePassword,
-      netldiName, loginFlags, haltOnErrNum,
-      executedSessionInit, err,
+      gemServiceNrs,
+      gemstoneUsername,
+      gemstonePassword,
+      netldiName,
+      loginFlags,
+      haltOnErrNum,
+      executedSessionInit,
+      err,
     );
     return {
       session,
@@ -788,10 +825,15 @@ export class GciLibrary {
     if (!this._GciTsNbLogin) throw new Error('GciTsNbLogin is not available in this GCI library');
     const loginPollSocket = [0];
     const session = this._GciTsNbLogin(
-      stoneNrs, hostUserId, hostPassword,
+      stoneNrs,
+      hostUserId,
+      hostPassword,
       hostPwIsEncrypted ? 1 : 0,
-      gemServiceNrs, gemstoneUsername, gemstonePassword,
-      loginFlags, haltOnErrNum,
+      gemServiceNrs,
+      gemstoneUsername,
+      gemstonePassword,
+      loginFlags,
+      haltOnErrNum,
       loginPollSocket,
     );
     return { session, loginPollSocket: loginPollSocket[0] };
@@ -811,17 +853,28 @@ export class GciLibrary {
   ): { session: unknown; loginPollSocket: number } {
     const loginPollSocket = [0];
     const session = this._GciTsNbLogin_(
-      stoneNrs, hostUserId, hostPassword,
+      stoneNrs,
+      hostUserId,
+      hostPassword,
       hostPwIsEncrypted ? 1 : 0,
-      gemServiceNrs, gemstoneUsername, gemstonePassword,
-      netldiName, loginFlags, haltOnErrNum,
+      gemServiceNrs,
+      gemstoneUsername,
+      gemstonePassword,
+      netldiName,
+      loginFlags,
+      haltOnErrNum,
       loginPollSocket,
     );
     return { session, loginPollSocket: loginPollSocket[0] };
   }
 
-  GciTsNbLoginFinished(session: unknown): { result: number; executedSessionInit: boolean; err: GciError } {
-    if (!this._GciTsNbLoginFinished) throw new Error('GciTsNbLoginFinished is not available in this GCI library');
+  GciTsNbLoginFinished(session: unknown): {
+    result: number;
+    executedSessionInit: boolean;
+    err: GciError;
+  } {
+    if (!this._GciTsNbLoginFinished)
+      throw new Error('GciTsNbLoginFinished is not available in this GCI library');
     const executedSessionInit = [0];
     const err: Record<string, unknown> = {};
     const result = this._GciTsNbLoginFinished(session, executedSessionInit, err);
@@ -903,8 +956,12 @@ export class GciLibrary {
   ): { result: bigint; err: GciError } {
     const err: Record<string, unknown> = {};
     const raw = this._GciTsContinueWith(
-      session, gsProcess, replaceTopOfStack,
-      continueWithError, flags, err,
+      session,
+      gsProcess,
+      replaceTopOfStack,
+      continueWithError,
+      flags,
+      err,
     );
     return {
       result: toBigInt(raw),
@@ -931,8 +988,12 @@ export class GciLibrary {
     const err: Record<string, unknown> = {};
     return new Promise((resolve, reject) => {
       this._GciTsContinueWith.async(
-        session, gsProcess, replaceTopOfStack,
-        continueWithError, flags, err,
+        session,
+        gsProcess,
+        replaceTopOfStack,
+        continueWithError,
+        flags,
+        err,
         (asyncErr: unknown, raw: number | bigint) => {
           if (asyncErr) {
             reject(asyncErr instanceof Error ? asyncErr : new Error(String(asyncErr)));
@@ -953,7 +1014,10 @@ export class GciLibrary {
     };
   }
 
-  GciTsOopToDouble(session: unknown, oop: bigint): { success: boolean; value: number; err: GciError } {
+  GciTsOopToDouble(
+    session: unknown,
+    oop: bigint,
+  ): { success: boolean; value: number; err: GciError } {
     const result = [0.0];
     const err: Record<string, unknown> = {};
     const success = this._GciTsOopToDouble(session, oop, result, err);
@@ -996,7 +1060,11 @@ export class GciLibrary {
     return { result: toBigInt(raw), err: err as unknown as GciError };
   }
 
-  GciTsNewString_(session: unknown, cString: string, nBytes: number): { result: bigint; err: GciError } {
+  GciTsNewString_(
+    session: unknown,
+    cString: string,
+    nBytes: number,
+  ): { result: bigint; err: GciError } {
     const err: Record<string, unknown> = {};
     const raw = this._GciTsNewString_(session, cString, nBytes, err);
     return { result: toBigInt(raw), err: err as unknown as GciError };
@@ -1014,7 +1082,11 @@ export class GciLibrary {
     return { result: toBigInt(raw), err: err as unknown as GciError };
   }
 
-  GciTsNewUnicodeString_(session: unknown, str: Buffer, numShorts: number): { result: bigint; err: GciError } {
+  GciTsNewUnicodeString_(
+    session: unknown,
+    str: Buffer,
+    numShorts: number,
+  ): { result: bigint; err: GciError } {
     const err: Record<string, unknown> = {};
     const raw = this._GciTsNewUnicodeString_(session, str, numShorts, err);
     return { result: toBigInt(raw), err: err as unknown as GciError };
@@ -1026,23 +1098,43 @@ export class GciLibrary {
     return { result: toBigInt(raw), err: err as unknown as GciError };
   }
 
-  GciTsNewUtf8String(session: unknown, utf8data: string, convertToUnicode: boolean): { result: bigint; err: GciError } {
+  GciTsNewUtf8String(
+    session: unknown,
+    utf8data: string,
+    convertToUnicode: boolean,
+  ): { result: bigint; err: GciError } {
     const err: Record<string, unknown> = {};
     const raw = this._GciTsNewUtf8String(session, utf8data, convertToUnicode ? 1 : 0, err);
     return { result: toBigInt(raw), err: err as unknown as GciError };
   }
 
-  GciTsNewUtf8String_(session: unknown, utf8data: string, nBytes: number, convertToUnicode: boolean): { result: bigint; err: GciError } {
+  GciTsNewUtf8String_(
+    session: unknown,
+    utf8data: string,
+    nBytes: number,
+    convertToUnicode: boolean,
+  ): { result: bigint; err: GciError } {
     const err: Record<string, unknown> = {};
     const raw = this._GciTsNewUtf8String_(session, utf8data, nBytes, convertToUnicode ? 1 : 0, err);
     return { result: toBigInt(raw), err: err as unknown as GciError };
   }
 
-  GciTsFetchUnicode(session: unknown, obj: bigint, destShorts: number): { bytesReturned: bigint; requiredSize: bigint; data: Buffer; err: GciError } {
+  GciTsFetchUnicode(
+    session: unknown,
+    obj: bigint,
+    destShorts: number,
+  ): { bytesReturned: bigint; requiredSize: bigint; data: Buffer; err: GciError } {
     const dest = Buffer.alloc(destShorts * 2);
     const requiredSize = [0n];
     const err: Record<string, unknown> = {};
-    const bytesReturned = this._GciTsFetchUnicode(session, obj, dest, destShorts, requiredSize, err);
+    const bytesReturned = this._GciTsFetchUnicode(
+      session,
+      obj,
+      dest,
+      destShorts,
+      requiredSize,
+      err,
+    );
     return {
       bytesReturned: toBigInt(bytesReturned),
       requiredSize: toBigInt(requiredSize[0]),
@@ -1051,7 +1143,11 @@ export class GciLibrary {
     };
   }
 
-  GciTsFetchUtf8(session: unknown, obj: bigint, destSize: number): { bytesReturned: bigint; requiredSize: bigint; data: string; err: GciError } {
+  GciTsFetchUtf8(
+    session: unknown,
+    obj: bigint,
+    destSize: number,
+  ): { bytesReturned: bigint; requiredSize: bigint; data: string; err: GciError } {
     const dest = Buffer.alloc(destSize);
     const requiredSize = [0n];
     const err: Record<string, unknown> = {};
@@ -1066,11 +1162,24 @@ export class GciLibrary {
     };
   }
 
-  GciTsFetchObjInfo(session: unknown, objId: bigint, addToExportSet: boolean, bufSize: number): { result: bigint; info: GciObjInfo; buffer: Buffer; err: GciError } {
+  GciTsFetchObjInfo(
+    session: unknown,
+    objId: bigint,
+    addToExportSet: boolean,
+    bufSize: number,
+  ): { result: bigint; info: GciObjInfo; buffer: Buffer; err: GciError } {
     const info: Record<string, unknown> = {};
     const buffer = Buffer.alloc(bufSize);
     const err: Record<string, unknown> = {};
-    const result = this._GciTsFetchObjInfo(session, objId, addToExportSet ? 1 : 0, info, buffer, bufSize, err);
+    const result = this._GciTsFetchObjInfo(
+      session,
+      objId,
+      addToExportSet ? 1 : 0,
+      info,
+      buffer,
+      bufSize,
+      err,
+    );
     // Normalize OopType fields from Number to BigInt
     if (info.objId !== undefined) info.objId = toBigInt(info.objId as number | bigint);
     if (info.objClass !== undefined) info.objClass = toBigInt(info.objClass as number | bigint);
@@ -1107,19 +1216,31 @@ export class GciLibrary {
     return { result, err: err as unknown as GciError };
   }
 
-  GciTsIsSubclassOf(session: unknown, cls: bigint, aClass: bigint): { result: number; err: GciError } {
+  GciTsIsSubclassOf(
+    session: unknown,
+    cls: bigint,
+    aClass: bigint,
+  ): { result: number; err: GciError } {
     const err: Record<string, unknown> = {};
     const result = this._GciTsIsSubclassOf(session, cls, aClass, err);
     return { result, err: err as unknown as GciError };
   }
 
-  GciTsIsKindOfClass(session: unknown, obj: bigint, aClass: bigint): { result: number; err: GciError } {
+  GciTsIsKindOfClass(
+    session: unknown,
+    obj: bigint,
+    aClass: bigint,
+  ): { result: number; err: GciError } {
     const err: Record<string, unknown> = {};
     const result = this._GciTsIsKindOfClass(session, obj, aClass, err);
     return { result, err: err as unknown as GciError };
   }
 
-  GciTsIsSubclassOfClass(session: unknown, cls: bigint, aClass: bigint): { result: number; err: GciError } {
+  GciTsIsSubclassOfClass(
+    session: unknown,
+    cls: bigint,
+    aClass: bigint,
+  ): { result: number; err: GciError } {
     const err: Record<string, unknown> = {};
     const result = this._GciTsIsSubclassOfClass(session, cls, aClass, err);
     return { result, err: err as unknown as GciError };
@@ -1129,13 +1250,21 @@ export class GciLibrary {
     return this._GciTsObjExists(session, obj) !== 0;
   }
 
-  GciTsResolveSymbol(session: unknown, str: string, symbolList: bigint): { result: bigint; err: GciError } {
+  GciTsResolveSymbol(
+    session: unknown,
+    str: string,
+    symbolList: bigint,
+  ): { result: bigint; err: GciError } {
     const err: Record<string, unknown> = {};
     const raw = this._GciTsResolveSymbol(session, str, symbolList, err);
     return { result: toBigInt(raw), err: err as unknown as GciError };
   }
 
-  GciTsResolveSymbolObj(session: unknown, str: bigint, symbolList: bigint): { result: bigint; err: GciError } {
+  GciTsResolveSymbolObj(
+    session: unknown,
+    str: bigint,
+    symbolList: bigint,
+  ): { result: bigint; err: GciError } {
     const err: Record<string, unknown> = {};
     const raw = this._GciTsResolveSymbolObj(session, str, symbolList, err);
     return { result: toBigInt(raw), err: err as unknown as GciError };
@@ -1152,8 +1281,14 @@ export class GciLibrary {
   ): { result: bigint; err: GciError } {
     const err: Record<string, unknown> = {};
     const raw = this._GciTsExecute(
-      session, sourceStr, sourceOop, contextObject, symbolList,
-      flags, environmentId, err,
+      session,
+      sourceStr,
+      sourceOop,
+      contextObject,
+      symbolList,
+      flags,
+      environmentId,
+      err,
     );
     return { result: toBigInt(raw), err: err as unknown as GciError };
   }
@@ -1170,12 +1305,18 @@ export class GciLibrary {
   ): { result: bigint; err: GciError } {
     const err: Record<string, unknown> = {};
     // The -1 sentinel (use strlen) doesn't work over RPC; compute actual byte length
-    const actualSize = sourceSize === -1 && sourceStr !== null
-      ? Buffer.byteLength(sourceStr, 'utf8')
-      : sourceSize;
+    const actualSize =
+      sourceSize === -1 && sourceStr !== null ? Buffer.byteLength(sourceStr, 'utf8') : sourceSize;
     const raw = this._GciTsExecute_(
-      session, sourceStr, actualSize, sourceOop, contextObject, symbolList,
-      flags, environmentId, err,
+      session,
+      sourceStr,
+      actualSize,
+      sourceOop,
+      contextObject,
+      symbolList,
+      flags,
+      environmentId,
+      err,
     );
     return { result: toBigInt(raw), err: err as unknown as GciError };
   }
@@ -1192,12 +1333,18 @@ export class GciLibrary {
     const result = Buffer.alloc(maxResultSize);
     const err: Record<string, unknown> = {};
     // The -1 sentinel (use strlen) doesn't work over RPC; compute actual byte length
-    const actualSize = sourceSize === -1 && sourceStr !== null
-      ? Buffer.byteLength(sourceStr, 'utf8')
-      : sourceSize;
+    const actualSize =
+      sourceSize === -1 && sourceStr !== null ? Buffer.byteLength(sourceStr, 'utf8') : sourceSize;
     const bytesReturned = this._GciTsExecuteFetchBytes(
-      session, sourceStr, actualSize, sourceOop, contextObject, symbolList,
-      result, maxResultSize, err,
+      session,
+      sourceStr,
+      actualSize,
+      sourceOop,
+      contextObject,
+      symbolList,
+      result,
+      maxResultSize,
+      err,
     );
     const str = bytesReturned >= 0 ? result.toString('utf8', 0, bytesReturned) : '';
     return { bytesReturned, data: str, err: err as unknown as GciError };
@@ -1214,9 +1361,15 @@ export class GciLibrary {
   ): { result: bigint; err: GciError } {
     const err: Record<string, unknown> = {};
     const raw = this._GciTsPerform(
-      session, receiver, selector, selectorStr,
-      args.length > 0 ? args : null, args.length,
-      flags, environmentId, err,
+      session,
+      receiver,
+      selector,
+      selectorStr,
+      args.length > 0 ? args : null,
+      args.length,
+      flags,
+      environmentId,
+      err,
     );
     return { result: toBigInt(raw), err: err as unknown as GciError };
   }
@@ -1231,9 +1384,14 @@ export class GciLibrary {
     const result = Buffer.alloc(maxResultSize);
     const err: Record<string, unknown> = {};
     const bytesReturned = this._GciTsPerformFetchBytes(
-        session, receiver, selectorStr,
-        args.length > 0 ? args : null, args.length,
-      result, maxResultSize, err,
+      session,
+      receiver,
+      selectorStr,
+      args.length > 0 ? args : null,
+      args.length,
+      result,
+      maxResultSize,
+      err,
     );
     const str = bytesReturned >= 0 ? result.toString('utf8', 0, bytesReturned) : '';
     return { bytesReturned, data: str, err: err as unknown as GciError };
@@ -1277,8 +1435,14 @@ export class GciLibrary {
     const utf8StringArr = [aString];
     const err: Record<string, unknown> = {};
     const raw = this._GciTsFetchUtf8Bytes(
-      session, aString, startIndex, dest, bufSize,
-      utf8StringArr, err, flags,
+      session,
+      aString,
+      startIndex,
+      dest,
+      bufSize,
+      utf8StringArr,
+      err,
+      flags,
     );
     const bytesReturned = toBigInt(raw);
     return {
@@ -1298,7 +1462,13 @@ export class GciLibrary {
   ): { success: boolean; err: GciError } {
     const err: Record<string, unknown> = {};
     const result = this._GciTsStoreBytes(
-      session, theObject, startIndex, theBytes, theBytes.length, ofClass, err,
+      session,
+      theObject,
+      startIndex,
+      theBytes,
+      theBytes.length,
+      ofClass,
+      err,
     );
     return { success: result !== 0, err: err as unknown as GciError };
   }
@@ -1312,7 +1482,7 @@ export class GciLibrary {
     const oopsBuf = new Array<bigint>(numOops).fill(0n);
     const err: Record<string, unknown> = {};
     const result = this._GciTsFetchOops(session, theObject, startIndex, oopsBuf, numOops, err);
-    const oops = result >= 0 ? oopsBuf.slice(0, result).map(v => toBigInt(v)) : [];
+    const oops = result >= 0 ? oopsBuf.slice(0, result).map((v) => toBigInt(v)) : [];
     return { result, oops, err: err as unknown as GciError };
   }
 
@@ -1325,7 +1495,7 @@ export class GciLibrary {
     const oopsBuf = new Array<bigint>(numOops).fill(0n);
     const err: Record<string, unknown> = {};
     const result = this._GciTsFetchNamedOops(session, theObject, startIndex, oopsBuf, numOops, err);
-    const oops = result >= 0 ? oopsBuf.slice(0, result).map(v => toBigInt(v)) : [];
+    const oops = result >= 0 ? oopsBuf.slice(0, result).map((v) => toBigInt(v)) : [];
     return { result, oops, err: err as unknown as GciError };
   }
 
@@ -1337,8 +1507,15 @@ export class GciLibrary {
   ): { result: number; oops: bigint[]; err: GciError } {
     const oopsBuf = new Array<bigint>(numOops).fill(0n);
     const err: Record<string, unknown> = {};
-    const result = this._GciTsFetchVaryingOops(session, theObject, startIndex, oopsBuf, numOops, err);
-    const oops = result >= 0 ? oopsBuf.slice(0, result).map(v => toBigInt(v)) : [];
+    const result = this._GciTsFetchVaryingOops(
+      session,
+      theObject,
+      startIndex,
+      oopsBuf,
+      numOops,
+      err,
+    );
+    const oops = result >= 0 ? oopsBuf.slice(0, result).map((v) => toBigInt(v)) : [];
     return { result, oops, err: err as unknown as GciError };
   }
 
@@ -1351,8 +1528,13 @@ export class GciLibrary {
   ): { success: boolean; err: GciError } {
     const err: Record<string, unknown> = {};
     const result = this._GciTsStoreOops(
-      session, theObject, startIndex, theOops, theOops.length,
-      err, overlay ? 1 : 0,
+      session,
+      theObject,
+      startIndex,
+      theOops,
+      theOops.length,
+      err,
+      overlay ? 1 : 0,
     );
     return { success: result !== 0, err: err as unknown as GciError };
   }
@@ -1366,8 +1548,13 @@ export class GciLibrary {
   ): { success: boolean; err: GciError } {
     const err: Record<string, unknown> = {};
     const result = this._GciTsStoreNamedOops(
-      session, theObject, startIndex, theOops, theOops.length,
-      err, overlay ? 1 : 0,
+      session,
+      theObject,
+      startIndex,
+      theOops,
+      theOops.length,
+      err,
+      overlay ? 1 : 0,
     );
     return { success: result !== 0, err: err as unknown as GciError };
   }
@@ -1380,7 +1567,12 @@ export class GciLibrary {
   ): { success: boolean; err: GciError } {
     const err: Record<string, unknown> = {};
     const result = this._GciTsStoreIdxOops(
-      session, theObject, startIndex, theOops, theOops.length, err,
+      session,
+      theObject,
+      startIndex,
+      theOops,
+      theOops.length,
+      err,
     );
     return { success: result !== 0, err: err as unknown as GciError };
   }
@@ -1397,8 +1589,15 @@ export class GciLibrary {
   ): { result: bigint; err: GciError } {
     const err: Record<string, unknown> = {};
     const raw = this._GciTsCompileMethod(
-      session, source, aClass, category, symbolList,
-      overrideSelector, compileFlags, environmentId, err,
+      session,
+      source,
+      aClass,
+      category,
+      symbolList,
+      overrideSelector,
+      compileFlags,
+      environmentId,
+      err,
     );
     return { result: toBigInt(raw), err: err as unknown as GciError };
   }
@@ -1409,51 +1608,35 @@ export class GciLibrary {
     environmentId: number,
   ): { success: boolean; err: GciError } {
     const err: Record<string, unknown> = {};
-    const result = this._GciTsClassRemoveAllMethods(
-      session, aClass, environmentId, err,
-    );
+    const result = this._GciTsClassRemoveAllMethods(session, aClass, environmentId, err);
     return { success: result !== 0, err: err as unknown as GciError };
   }
 
-  GciTsProtectMethods(
-    session: unknown,
-    mode: boolean,
-  ): { success: boolean; err: GciError } {
+  GciTsProtectMethods(session: unknown, mode: boolean): { success: boolean; err: GciError } {
     const err: Record<string, unknown> = {};
     const result = this._GciTsProtectMethods(session, mode ? 1 : 0, err);
     return { success: result !== 0, err: err as unknown as GciError };
   }
 
-  GciTsBreak(
-    session: unknown,
-    hard: boolean,
-  ): { success: boolean; err: GciError } {
+  GciTsBreak(session: unknown, hard: boolean): { success: boolean; err: GciError } {
     const err: Record<string, unknown> = {};
     const result = this._GciTsBreak(session, hard ? 1 : 0, err);
     return { success: result !== 0, err: err as unknown as GciError };
   }
 
-  GciTsCallInProgress(
-    session: unknown,
-  ): { result: number; err: GciError } {
+  GciTsCallInProgress(session: unknown): { result: number; err: GciError } {
     const err: Record<string, unknown> = {};
     const result = this._GciTsCallInProgress(session, err);
     return { result, err: err as unknown as GciError };
   }
 
-  GciTsClearStack(
-    session: unknown,
-    gsProcess: bigint,
-  ): { success: boolean; err: GciError } {
+  GciTsClearStack(session: unknown, gsProcess: bigint): { success: boolean; err: GciError } {
     const err: Record<string, unknown> = {};
     const result = this._GciTsClearStack(session, gsProcess, err);
     return { success: result !== 0, err: err as unknown as GciError };
   }
 
-  GciTsGemTrace(
-    session: unknown,
-    enable: number,
-  ): { previousLevel: number; err: GciError } {
+  GciTsGemTrace(session: unknown, enable: number): { previousLevel: number; err: GciError } {
     const err: Record<string, unknown> = {};
     const previousLevel = this._GciTsGemTrace(session, enable, err);
     return { previousLevel, err: err as unknown as GciError };
@@ -1470,8 +1653,14 @@ export class GciLibrary {
   ): { success: boolean; err: GciError } {
     const err: Record<string, unknown> = {};
     const result = this._GciTsNbExecute(
-      session, sourceStr, sourceOop, contextObject, symbolList,
-      flags, environmentId, err,
+      session,
+      sourceStr,
+      sourceOop,
+      contextObject,
+      symbolList,
+      flags,
+      environmentId,
+      err,
     );
     return { success: result !== 0, err: err as unknown as GciError };
   }
@@ -1487,33 +1676,32 @@ export class GciLibrary {
   ): { success: boolean; err: GciError } {
     const err: Record<string, unknown> = {};
     const result = this._GciTsNbPerform(
-      session, receiver, selector, selectorStr,
-      args.length > 0 ? args : null, args.length,
-      flags, environmentId, err,
+      session,
+      receiver,
+      selector,
+      selectorStr,
+      args.length > 0 ? args : null,
+      args.length,
+      flags,
+      environmentId,
+      err,
     );
     return { success: result !== 0, err: err as unknown as GciError };
   }
 
-  GciTsNbResult(
-    session: unknown,
-  ): { result: bigint; err: GciError } {
+  GciTsNbResult(session: unknown): { result: bigint; err: GciError } {
     const err: Record<string, unknown> = {};
     const raw = this._GciTsNbResult(session, err);
     return { result: toBigInt(raw), err: err as unknown as GciError };
   }
 
-  GciTsNbPoll(
-    session: unknown,
-    timeoutMs: number,
-  ): { result: number; err: GciError } {
+  GciTsNbPoll(session: unknown, timeoutMs: number): { result: number; err: GciError } {
     const err: Record<string, unknown> = {};
     const result = this._GciTsNbPoll(session, timeoutMs, err);
     return { result, err: err as unknown as GciError };
   }
 
-  GciTsSocket(
-    session: unknown,
-  ): { fd: number; err: GciError } {
+  GciTsSocket(session: unknown): { fd: number; err: GciError } {
     const err: Record<string, unknown> = {};
     const fd = this._GciTsSocket(session, err);
     return { fd, err: err as unknown as GciError };
@@ -1526,31 +1714,23 @@ export class GciLibrary {
     const buf = new Array<bigint>(numOopsRequested).fill(0n);
     const err: Record<string, unknown> = {};
     const result = this._GciTsGetFreeOops(session, buf, numOopsRequested, err);
-    const oops = result > 0 ? buf.slice(0, result).map(v => toBigInt(v)) : [];
+    const oops = result > 0 ? buf.slice(0, result).map((v) => toBigInt(v)) : [];
     return { result, oops, err: err as unknown as GciError };
   }
 
-  GciTsSaveObjs(
-    session: unknown,
-    oops: bigint[],
-  ): { success: boolean; err: GciError } {
+  GciTsSaveObjs(session: unknown, oops: bigint[]): { success: boolean; err: GciError } {
     const err: Record<string, unknown> = {};
     const result = this._GciTsSaveObjs(session, oops, oops.length, err);
     return { success: result !== 0, err: err as unknown as GciError };
   }
 
-  GciTsReleaseObjs(
-    session: unknown,
-    oops: bigint[],
-  ): { success: boolean; err: GciError } {
+  GciTsReleaseObjs(session: unknown, oops: bigint[]): { success: boolean; err: GciError } {
     const err: Record<string, unknown> = {};
     const result = this._GciTsReleaseObjs(session, oops, oops.length, err);
     return { success: result !== 0, err: err as unknown as GciError };
   }
 
-  GciTsReleaseAllObjs(
-    session: unknown,
-  ): { success: boolean; err: GciError } {
+  GciTsReleaseAllObjs(session: unknown): { success: boolean; err: GciError } {
     const err: Record<string, unknown> = {};
     const result = this._GciTsReleaseAllObjs(session, err);
     return { success: result !== 0, err: err as unknown as GciError };
@@ -1562,9 +1742,7 @@ export class GciLibrary {
     theOops: bigint[],
   ): { success: boolean; err: GciError } {
     const err: Record<string, unknown> = {};
-    const result = this._GciTsAddOopsToNsc(
-      session, theObject, theOops, theOops.length, err,
-    );
+    const result = this._GciTsAddOopsToNsc(session, theObject, theOops, theOops.length, err);
     return { success: result !== 0, err: err as unknown as GciError };
   }
 
@@ -1574,9 +1752,7 @@ export class GciLibrary {
     theOops: bigint[],
   ): { result: number; err: GciError } {
     const err: Record<string, unknown> = {};
-    const result = this._GciTsRemoveOopsFromNsc(
-      session, theNsc, theOops, theOops.length, err,
-    );
+    const result = this._GciTsRemoveOopsFromNsc(session, theNsc, theOops, theOops.length, err);
     return { result, err: err as unknown as GciError };
   }
 
@@ -1590,11 +1766,16 @@ export class GciLibrary {
     const buf = new Array<bigint>(maxResultSize).fill(0n);
     const err: Record<string, unknown> = {};
     const result = this._GciTsPerformFetchOops(
-      session, receiver, selectorStr,
-      args.length > 0 ? args : null, args.length,
-      buf, maxResultSize, err,
+      session,
+      receiver,
+      selectorStr,
+      args.length > 0 ? args : null,
+      args.length,
+      buf,
+      maxResultSize,
+      err,
     );
-    const oops = result > 0 ? buf.slice(0, result).map(v => toBigInt(v)) : [];
+    const oops = result > 0 ? buf.slice(0, result).map((v) => toBigInt(v)) : [];
     return { result, oops, err: err as unknown as GciError };
   }
 
@@ -1608,14 +1789,21 @@ export class GciLibrary {
     const buffer = Buffer.alloc(bufSize);
     const err: Record<string, unknown> = {};
     const raw = this._GciTsFetchGbjInfo(
-      session, objId, addToExportSet ? 1 : 0, info, buffer, bufSize, err,
+      session,
+      objId,
+      addToExportSet ? 1 : 0,
+      info,
+      buffer,
+      bufSize,
+      err,
     );
     // Normalize OopType and int64 fields from Number to BigInt
     if (info.objId !== undefined) info.objId = toBigInt(info.objId as number | bigint);
     if (info.objClass !== undefined) info.objClass = toBigInt(info.objClass as number | bigint);
     if (info.objSize !== undefined) info.objSize = toBigInt(info.objSize as number | bigint);
     if (info.extraBits !== undefined) info.extraBits = toBigInt(info.extraBits as number | bigint);
-    if (info.bytesReturned !== undefined) info.bytesReturned = toBigInt(info.bytesReturned as number | bigint);
+    if (info.bytesReturned !== undefined)
+      info.bytesReturned = toBigInt(info.bytesReturned as number | bigint);
     return {
       result: toBigInt(raw),
       info: info as unknown as GciGbjInfo,
@@ -1631,14 +1819,16 @@ export class GciLibrary {
   ): { result: bigint; err: GciError } {
     const err: Record<string, unknown> = {};
     const raw = this._GciTsNewStringFromUtf16(
-      session, words, BigInt(words.length), unicodeKind, err,
+      session,
+      words,
+      BigInt(words.length),
+      unicodeKind,
+      err,
     );
     return { result: toBigInt(raw), err: err as unknown as GciError };
   }
 
-  GciTsDirtyObjsInit(
-    session: unknown,
-  ): { success: boolean; err: GciError } {
+  GciTsDirtyObjsInit(session: unknown): { success: boolean; err: GciError } {
     const err: Record<string, unknown> = {};
     const result = this._GciTsDirtyObjsInit(session, err);
     return { success: result !== 0, err: err as unknown as GciError };
@@ -1647,7 +1837,7 @@ export class GciLibrary {
   static createTravBuf(bodySize: number = 65536): Buffer {
     const buf = Buffer.alloc(8 + bodySize);
     buf.writeUInt32LE(bodySize, 0); // allocatedBytes
-    buf.writeUInt32LE(0, 4);        // usedBytes
+    buf.writeUInt32LE(0, 4); // usedBytes
     return buf;
   }
 
@@ -1669,8 +1859,14 @@ export class GciLibrary {
       const body = Buffer.from(travBuf.subarray(bodyStart, bodyEnd));
 
       reports.push({
-        objId, oclass, firstOffset, namedSize, objectSecurityPolicyId,
-        valueBuffSize, idxSizeBits, body,
+        objId,
+        oclass,
+        firstOffset,
+        namedSize,
+        objectSecurityPolicyId,
+        valueBuffSize,
+        idxSizeBits,
+        body,
       });
 
       // Next report: header + pad8(valueBuffSize)
@@ -1679,12 +1875,17 @@ export class GciLibrary {
     return reports;
   }
 
-  static buildTravBuffer(reports: {
-    objId: bigint; oclass: bigint; firstOffset: bigint;
-    body: Buffer | Uint8Array;
-    namedSize?: number; objectSecurityPolicyId?: number;
-    idxSizeBits?: bigint;
-  }[]): Buffer {
+  static buildTravBuffer(
+    reports: {
+      objId: bigint;
+      oclass: bigint;
+      firstOffset: bigint;
+      body: Buffer | Uint8Array;
+      namedSize?: number;
+      objectSecurityPolicyId?: number;
+      idxSizeBits?: bigint;
+    }[],
+  ): Buffer {
     let totalBodySize = 0;
     for (const r of reports) {
       totalBodySize += OBJ_REP_HDR_SIZE + ((r.body.length + 7) & ~7);
@@ -1695,13 +1896,13 @@ export class GciLibrary {
 
     let offset = 8;
     for (const r of reports) {
-      buf.writeInt32LE(r.body.length, offset);                     // valueBuffSize
-      buf.writeInt16LE(r.namedSize ?? 0, offset + 4);              // namedSize
+      buf.writeInt32LE(r.body.length, offset); // valueBuffSize
+      buf.writeInt16LE(r.namedSize ?? 0, offset + 4); // namedSize
       buf.writeUInt16LE(r.objectSecurityPolicyId ?? 0, offset + 6); // objectSecurityPolicyId
-      buf.writeBigUInt64LE(r.objId, offset + 8);                   // objId
-      buf.writeBigUInt64LE(r.oclass, offset + 16);                 // oclass
-      buf.writeBigInt64LE(r.firstOffset, offset + 24);             // firstOffset
-      buf.writeBigUInt64LE(r.idxSizeBits ?? 0n, offset + 32);     // _idxSizeBits
+      buf.writeBigUInt64LE(r.objId, offset + 8); // objId
+      buf.writeBigUInt64LE(r.oclass, offset + 16); // oclass
+      buf.writeBigInt64LE(r.firstOffset, offset + 24); // firstOffset
+      buf.writeBigUInt64LE(r.idxSizeBits ?? 0n, offset + 32); // _idxSizeBits
       Buffer.from(r.body).copy(buf, offset + OBJ_REP_HDR_SIZE);
       offset += OBJ_REP_HDR_SIZE + ((r.body.length + 7) & ~7);
     }
@@ -1727,7 +1928,11 @@ export class GciLibrary {
     };
     const err: Record<string, unknown> = {};
     const status = this._GciTsFetchTraversal(
-      session, oops.length > 0 ? oops : null, oops.length, ctArgs, err,
+      session,
+      oops.length > 0 ? oops : null,
+      oops.length,
+      ctArgs,
+      err,
     );
     return {
       status,
@@ -1766,7 +1971,13 @@ export class GciLibrary {
     retrievalFlags: number = 0,
     clampSpec: bigint = 0x14n,
     bufSize: number = 65536,
-  ): { status: number; resultOop: bigint; travBuf: Buffer; stdArgs: Record<string, unknown>; err: GciError } {
+  ): {
+    status: number;
+    resultOop: bigint;
+    travBuf: Buffer;
+    stdArgs: Record<string, unknown>;
+    err: GciError;
+  } {
     const travBuf = GciLibrary.createTravBuf(bufSize);
     const ctArgs: Record<string, unknown> = {
       clampSpec,
@@ -1779,9 +1990,13 @@ export class GciLibrary {
     const err: Record<string, unknown> = {};
     const status = this._GciTsStoreTravDoTravRefs(
       session,
-      oopsNoLongerReplicated, oopsNoLongerReplicated?.length ?? 0,
-      oopsGcedOnClient, oopsGcedOnClient?.length ?? 0,
-      stdArgs, ctArgs, err,
+      oopsNoLongerReplicated,
+      oopsNoLongerReplicated?.length ?? 0,
+      oopsGcedOnClient,
+      oopsGcedOnClient?.length ?? 0,
+      stdArgs,
+      ctArgs,
+      err,
     );
     return {
       status,
@@ -1802,9 +2017,7 @@ export class GciLibrary {
     return { result, event: evOut[0], err: err as unknown as GciError };
   }
 
-  GciTsCancelWaitForEvent(
-    session: unknown,
-  ): { success: boolean; err: GciError } {
+  GciTsCancelWaitForEvent(session: unknown): { success: boolean; err: GciError } {
     const err: Record<string, unknown> = {};
     const result = this._GciTsCancelWaitForEvent(session, err);
     return { success: result !== 0, err: err as unknown as GciError };
@@ -1818,29 +2031,23 @@ export class GciLibrary {
     const numOops = [maxOops];
     const err: Record<string, unknown> = {};
     const result = this._GciTsDirtyExportedObjs(session, buf, numOops, err);
-    const oops = numOops[0] > 0 ? buf.slice(0, numOops[0]).map(v => toBigInt(v)) : [];
+    const oops = numOops[0] > 0 ? buf.slice(0, numOops[0]).map((v) => toBigInt(v)) : [];
     return { success: result !== 0, oops, err: err as unknown as GciError };
   }
 
-  GciTsKeepAliveCount(
-    session: unknown,
-  ): { result: bigint; err: GciError } {
+  GciTsKeepAliveCount(session: unknown): { result: bigint; err: GciError } {
     const err: Record<string, unknown> = {};
     const raw = this._GciTsKeepAliveCount(session, err);
     return { result: toBigInt(raw), err: err as unknown as GciError };
   }
 
-  GciTsKeyfilePermissions(
-    session: unknown,
-  ): { result: bigint; err: GciError } {
+  GciTsKeyfilePermissions(session: unknown): { result: bigint; err: GciError } {
     const err: Record<string, unknown> = {};
     const raw = this._GciTsKeyfilePermissions(session, err);
     return { result: toBigInt(raw), err: err as unknown as GciError };
   }
 
-  GciTsDebugConnectToGem(
-    gemPid: number,
-  ): { session: unknown; err: GciError } {
+  GciTsDebugConnectToGem(gemPid: number): { session: unknown; err: GciError } {
     const err: Record<string, unknown> = {};
     const session = this._GciTsDebugConnectToGem(gemPid, err);
     return { session, err: err as unknown as GciError };
@@ -1880,21 +2087,26 @@ export class GciLibrary {
    *   successful login that still carries a non-fatal warning is logged via
    *   `console.warn` rather than thrown.
    */
-  public login(stoneNrs: string, gemServiceNrs: string, gemstoneUsername: string, gemstonePassword: string) {
-    const {session, err} = this.GciTsLogin(
-        stoneNrs,
-        null,
-        null,
-        false,
-        gemServiceNrs,
-        gemstoneUsername,
-        gemstonePassword,
-        0,
-        0,
+  public login(
+    stoneNrs: string,
+    gemServiceNrs: string,
+    gemstoneUsername: string,
+    gemstonePassword: string,
+  ) {
+    const { session, err } = this.GciTsLogin(
+      stoneNrs,
+      null,
+      null,
+      false,
+      gemServiceNrs,
+      gemstoneUsername,
+      gemstonePassword,
+      0,
+      0,
     );
 
     this.throwUnless(session !== null, err);
-    
+
     // A non-NULL session means login succeeded, but *err may still carry a
     // non-fatal warning (per GciTsLogin in gcits.hf) — log it, don't fail.
     if (err.number !== 0) {
@@ -1912,11 +2124,10 @@ export class GciLibrary {
    * @param session - The GemStone session to log out.
    */
   public logout(session: unknown) {
-    const {success, err} = this.GciTsLogout(session);
+    const { success, err } = this.GciTsLogout(session);
     // Warn rather than throw — the session is gone regardless, and a
     // teardown error would obscure real test failures above it.
     if (!success) console.warn(`GciTsLogout failed [${err.number}]: ${err.message}`);
-
   }
 
   /**
@@ -1926,7 +2137,7 @@ export class GciLibrary {
    * @throws {GciLibraryError} If the underlying GCI call fails.
    */
   public beginTransaction(session: unknown) {
-    const {success, err} = this.GciTsBegin(session);
+    const { success, err } = this.GciTsBegin(session);
 
     this.throwUnless(success, err);
   }
@@ -1967,13 +2178,19 @@ export class GciLibrary {
    *   the underlying GCI call fails.
    */
   public execute(session: unknown, code: string) {
-      const { result, err } = this.GciTsExecute(
-          session, code, this.utf8ClassOop(session), OOP_ILLEGAL, this.nilOop(), 0, 0,
-      );
+    const { result, err } = this.GciTsExecute(
+      session,
+      code,
+      this.utf8ClassOop(session),
+      OOP_ILLEGAL,
+      this.nilOop(),
+      0,
+      0,
+    );
 
-      this.throwOnIllegalOop(result, err);
+    this.throwOnIllegalOop(result, err);
 
-      return result;
+    return result;
   }
 
   /**
@@ -2020,7 +2237,11 @@ export class GciLibrary {
    * @throws Whatever `callback` itself throws, unchanged -- not necessarily
    *   a {@link GciLibraryError}.
    */
-  public executeAndRelease<T>(session: unknown, code: string, callback: (oop: bigint) => NotPromise<T>) : T {
+  public executeAndRelease<T>(
+    session: unknown,
+    code: string,
+    callback: (oop: bigint) => NotPromise<T>,
+  ): T {
     return this.releaseAfterUse(session, this.execute(session, code), callback);
   }
 
@@ -2043,7 +2264,15 @@ export class GciLibrary {
    *   method signals an error, or the underlying GCI call fails.
    */
   public perform(session: unknown, receiverOop: bigint, selector: string) {
-    const {result, err} = this.GciTsPerform(session, receiverOop, OOP_ILLEGAL, selector, [], 0, 0);
+    const { result, err } = this.GciTsPerform(
+      session,
+      receiverOop,
+      OOP_ILLEGAL,
+      selector,
+      [],
+      0,
+      0,
+    );
 
     this.throwOnIllegalOop(result, err);
 
@@ -2074,7 +2303,12 @@ export class GciLibrary {
    * @throws Whatever `callback` itself throws, unchanged, not necessarily a
    *   {@link GciLibraryError}.
    */
-  public performAndRelease<T>(session: unknown, receiverOop: bigint, selector: string, callback: (oop: bigint) => NotPromise<T>) : T {
+  public performAndRelease<T>(
+    session: unknown,
+    receiverOop: bigint,
+    selector: string,
+    callback: (oop: bigint) => NotPromise<T>,
+  ): T {
     return this.releaseAfterUse(session, this.perform(session, receiverOop, selector), callback);
   }
 
@@ -2128,8 +2362,8 @@ export class GciLibrary {
   public resolveSymbol(session: unknown, symbolName: string) {
     const symbolNameOop = this.createString(session, symbolName);
 
-    return this.releaseAfterUse(session, symbolNameOop, oop => {
-      const {result, err} = this.GciTsResolveSymbolObj(session, oop, this.nilOop());
+    return this.releaseAfterUse(session, symbolNameOop, (oop) => {
+      const { result, err } = this.GciTsResolveSymbolObj(session, oop, this.nilOop());
 
       this.throwOnIllegalOop(result, err);
 
@@ -2145,8 +2379,8 @@ export class GciLibrary {
    * @returns The OOP of the newly created String object.
    * @throws {GciLibraryError} If the underlying GCI call fails.
    */
-  public createString(session: unknown, contents: string){
-    const {result, err} = this.GciTsNewString(session, contents);
+  public createString(session: unknown, contents: string) {
+    const { result, err } = this.GciTsNewString(session, contents);
 
     this.throwOnIllegalOop(result, err);
 
@@ -2191,7 +2425,7 @@ export class GciLibrary {
    * @throws {GciLibraryError} If the underlying GCI call fails.
    */
   public releaseObject(session: unknown, oop: bigint) {
-    const {success, err} = this.GciTsReleaseObjs(session, [oop]);
+    const { success, err } = this.GciTsReleaseObjs(session, [oop]);
 
     this.throwUnless(success, err);
   }
@@ -2224,7 +2458,11 @@ export class GciLibrary {
    * @returns Whatever `consumer` returns.
    * @throws Whatever `consumer` itself throws, unchanged.
    */
-  private releaseAfterUse<T>(session: unknown, oopToUse: bigint, consumer: (oopToUse: bigint) => NotPromise<T>): T {
+  private releaseAfterUse<T>(
+    session: unknown,
+    oopToUse: bigint,
+    consumer: (oopToUse: bigint) => NotPromise<T>,
+  ): T {
     try {
       return consumer(oopToUse);
     } finally {
@@ -2239,7 +2477,7 @@ export class GciLibrary {
    * @throws {GciLibraryError} If the underlying GCI call fails.
    */
   public releaseAllObjects(session: unknown) {
-    const {success, err} = this.GciTsReleaseAllObjs(session);
+    const { success, err } = this.GciTsReleaseAllObjs(session);
 
     this.throwUnless(success, err);
   }
@@ -2268,14 +2506,17 @@ export class GciLibrary {
    *   `expectedOopsProvider` declared, `false` otherwise.
    * @throws {GciLibraryError} If the underlying GCI calls fail.
    */
-  public didPureExportSetGainOnlyOopsProvidedBy(session: unknown, expectedOopsProvider: (snapshotName: string) => bigint[]) {
+  public didPureExportSetGainOnlyOopsProvidedBy(
+    session: unknown,
+    expectedOopsProvider: (snapshotName: string) => bigint[],
+  ) {
     return this.checkAgainstPureExportSetSnapshot(
-        session,
-        (previousSnapshotName, currentSnapshotName, expectedAddedOops) => {
-          const expectedAddedObjectsExpression = `{ ${expectedAddedOops.map(oop => `Object objectForOop: ${oop}`).join('. ')} }`;
-          return `(${previousSnapshotName}, ${expectedAddedObjectsExpression}) asIdentityBag = ${currentSnapshotName} asIdentityBag`;
-        },
-        expectedOopsProvider
+      session,
+      (previousSnapshotName, currentSnapshotName, expectedAddedOops) => {
+        const expectedAddedObjectsExpression = `{ ${expectedAddedOops.map((oop) => `Object objectForOop: ${oop}`).join('. ')} }`;
+        return `(${previousSnapshotName}, ${expectedAddedObjectsExpression}) asIdentityBag = ${currentSnapshotName} asIdentityBag`;
+      },
+      expectedOopsProvider,
     );
   }
 
@@ -2295,11 +2536,11 @@ export class GciLibrary {
    */
   public didPureExportSetGrow(session: unknown, callback: (snapshotName: string) => unknown) {
     return this.checkAgainstPureExportSetSnapshot(
-        session,
-        (previousSnapshotName, currentSnapshotName) => `
+      session,
+      (previousSnapshotName, currentSnapshotName) => `
           (${currentSnapshotName} asIdentitySet - ${previousSnapshotName} asIdentitySet) isEmpty not
         `,
-        callback
+      callback,
     );
   }
 
@@ -2320,11 +2561,21 @@ export class GciLibrary {
    * @throws {GciLibraryError} If either of the snapshot expressions signals a
    *   GCI error.
    */
-  private checkAgainstPureExportSetSnapshot<T>(session: unknown,
-                    buildComparisonExpression: (previousSnapshotName: string, currentSnapshotName: string, callbackResult: T) => string,
-                    callback: (snapshotName: string) => T) {
-    const takePureExportSetSnapshotExpression = '(GsBitmap newForHiddenSet: #PureExportSet) asArray';
-    const snapshotName = this.storeInUniqueUserGlobalsKey(session, takePureExportSetSnapshotExpression);
+  private checkAgainstPureExportSetSnapshot<T>(
+    session: unknown,
+    buildComparisonExpression: (
+      previousSnapshotName: string,
+      currentSnapshotName: string,
+      callbackResult: T,
+    ) => string,
+    callback: (snapshotName: string) => T,
+  ) {
+    const takePureExportSetSnapshotExpression =
+      '(GsBitmap newForHiddenSet: #PureExportSet) asArray';
+    const snapshotName = this.storeInUniqueUserGlobalsKey(
+      session,
+      takePureExportSetSnapshotExpression,
+    );
 
     let callbackResult: T;
     try {
@@ -2338,7 +2589,10 @@ export class GciLibrary {
       try {
         this.removeKeyFromUserGlobals(session, snapshotName);
       } catch (cleanupError) {
-        console.warn(`Failed to clean up UserGlobals key '${snapshotName}' after callback error:`, cleanupError);
+        console.warn(
+          `Failed to clean up UserGlobals key '${snapshotName}' after callback error:`,
+          cleanupError,
+        );
       }
       throw error;
     }
@@ -2347,7 +2601,9 @@ export class GciLibrary {
     // statement, so by the time anything here could fail, the snapshot key
     // is already gone -- either removed successfully, or the removeKey:
     // itself is what's failing, meaning there was never anything to clean up.
-    const comparisonResult = this.execute(session, `
+    const comparisonResult = this.execute(
+      session,
+      `
         | previousSnapshot currentSnapshot |
 
         "Grab the 'before' snapshot we stashed in UserGlobals, and remove it
@@ -2358,7 +2614,8 @@ export class GciLibrary {
         currentSnapshot := ${takePureExportSetSnapshotExpression}.
 
         ${buildComparisonExpression('previousSnapshot', 'currentSnapshot', callbackResult)}
-    `);
+    `,
+    );
 
     return this.isTrueOop(comparisonResult);
   }
@@ -2373,10 +2630,13 @@ export class GciLibrary {
    */
   public isOopIncludedInPureExportSet(session: unknown, oop: bigint) {
     return this.isTrueOop(
-        this.execute(session, `
+      this.execute(
+        session,
+        `
           (GsBitmap newForHiddenSet: #PureExportSet) asArray
             anySatisfy: [ :referencedObject | referencedObject asOop = ${oop} ]
-        `)
+        `,
+      ),
     );
   }
 
@@ -2406,9 +2666,7 @@ export class GciLibrary {
    * @throws {GciLibraryError} If the underlying GCI call fails.
    */
   public isIncludedInUserGlobals(session: unknown, keyExpression: string) {
-    return this.isTrueOop(
-        this.execute(session, `UserGlobals includesKey: ${keyExpression}`)
-    );
+    return this.isTrueOop(this.execute(session, `UserGlobals includesKey: ${keyExpression}`));
   }
 
   /**
@@ -2425,12 +2683,15 @@ export class GciLibrary {
   public storeInUniqueUserGlobalsKey(session: unknown, valueExpression: string) {
     const keyExpression = this.nextKey();
 
-    this.executeDiscardingResult(session, `
+    this.executeDiscardingResult(
+      session,
+      `
       (UserGlobals includesKey: ${keyExpression})
         ifTrue: [ self error: 'Key is not unique' ].
 
       UserGlobals at: ${keyExpression} put: ${valueExpression}
-    `);
+    `,
+    );
 
     return keyExpression;
   }
@@ -2487,7 +2748,10 @@ export class GciLibrary {
   public storeInUniqueSessionTempsKey(session: unknown, valueExpression: string) {
     const key = this.nextKey();
 
-    this.executeDiscardingResult(session, `SessionTemps current at: ${key} put: ${valueExpression}`);
+    this.executeDiscardingResult(
+      session,
+      `SessionTemps current at: ${key} put: ${valueExpression}`,
+    );
 
     return key;
   }
@@ -2499,9 +2763,7 @@ export class GciLibrary {
    * @throws {GciLibraryError} If the underlying GCI call fails.
    */
   public isSessionTempsEmpty(session: unknown) {
-    return this.isTrueOop(
-        this.execute(session, 'SessionTemps current isEmpty')
-    )
+    return this.isTrueOop(this.execute(session, 'SessionTemps current isEmpty'));
   }
 
   /**
@@ -2515,7 +2777,7 @@ export class GciLibrary {
    * @throws {GciLibraryError} If the underlying GCI call fails.
    */
   public valueOfSessionTempsKey(session: unknown, keyExpression: string) {
-    return this.execute(session, `SessionTemps current at: ${keyExpression}`)
+    return this.execute(session, `SessionTemps current at: ${keyExpression}`);
   }
 
   // ---------------------------------------------------------------------
@@ -2632,15 +2894,12 @@ export class GciLibrary {
    *   result cannot be sent `encodeAsUTF8`, or if the underlying GCI calls
    *   fail.
    */
-  public executeAndFetchString(session: unknown, code: string) : string {
-    return this.executeAndRelease(
-        session,
-        code,
-        resultOop => this.performAndRelease(
-            session,
-            resultOop,
-            'encodeAsUTF8',
-            utf8StringOop => this.fetchUtf8String(session, utf8StringOop, GciLibrary.FETCH_STRING_PAGE_SIZE_BYTES)));
+  public executeAndFetchString(session: unknown, code: string): string {
+    return this.executeAndRelease(session, code, (resultOop) =>
+      this.performAndRelease(session, resultOop, 'encodeAsUTF8', (utf8StringOop) =>
+        this.fetchUtf8String(session, utf8StringOop, GciLibrary.FETCH_STRING_PAGE_SIZE_BYTES),
+      ),
+    );
   }
 
   /** The page size, in bytes, used by {@link fetchUtf8String} to page a string's contents out of GemStone. */
@@ -2674,7 +2933,10 @@ export class GciLibrary {
 
     for (;;) {
       const { bytesReturned, data, err } = this.GciTsFetchBytes(
-          session, stringOop, startIndex, pageSize,
+        session,
+        stringOop,
+        startIndex,
+        pageSize,
       );
 
       this.throwUnless(bytesReturned >= 0, err);
@@ -2690,4 +2952,3 @@ export class GciLibrary {
     return Buffer.concat(chunks).toString('utf8');
   }
 }
-

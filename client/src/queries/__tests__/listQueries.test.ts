@@ -90,7 +90,12 @@ describe('getDictionaryClassFileOutOrder', () => {
   });
 
   it('returns [] for an unknown dictionary', () => {
-    expect(getDictionaryClassFileOutOrder(vi.fn<QueryExecutor>(() => ''), 'NoSuchDict')).toEqual([]);
+    expect(
+      getDictionaryClassFileOutOrder(
+        vi.fn<QueryExecutor>(() => ''),
+        'NoSuchDict',
+      ),
+    ).toEqual([]);
   });
 });
 

@@ -10,7 +10,10 @@ export interface TestRunResult {
 }
 
 export function runTestMethod(
-  execute: QueryExecutor, className: string, selector: string, dictName?: string,
+  execute: QueryExecutor,
+  className: string,
+  selector: string,
+  dictName?: string,
 ): TestRunResult {
   const sel = escapeString(selector);
   // Resolve dictionary-scoped (see runTestClass for the rationale): a bare

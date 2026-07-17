@@ -17,7 +17,11 @@ const SPECIAL_LITERAL_DOCS: Record<string, string> = {
   _remoteNil: '**_remoteNil** — Remote nil marker',
 };
 
-export function getHover(doc: ParsedDocument, position: Position, region?: ParsedRegion): Hover | null {
+export function getHover(
+  doc: ParsedDocument,
+  position: Position,
+  region?: ParsedRegion,
+): Hover | null {
   const tokens = region?.tokens ?? doc.tokens;
   const token = findTokenAt(tokens, position);
   if (!token) return null;
@@ -57,7 +61,10 @@ export function getHover(doc: ParsedDocument, position: Position, region?: Parse
     const pos = createPosition(0, position.line - lineOffset, position.character);
     const varInfo = analyzer.findVariableAt(root, token.text, pos);
     if (varInfo) {
-      const kindLabel = varInfo.kind.replace(/([A-Z])/g, ' $1').toLowerCase().trim();
+      const kindLabel = varInfo.kind
+        .replace(/([A-Z])/g, ' $1')
+        .toLowerCase()
+        .trim();
       const docLine = varInfo.definitionRange.start.line + lineOffset + 1;
       return {
         contents: {
@@ -105,7 +112,11 @@ export function getHover(doc: ParsedDocument, position: Position, region?: Parse
   }
 
   // Numbers - show interpretation
-  if (token.type === TokenType.Integer || token.type === TokenType.Float || token.type === TokenType.ScaledDecimal) {
+  if (
+    token.type === TokenType.Integer ||
+    token.type === TokenType.Float ||
+    token.type === TokenType.ScaledDecimal
+  ) {
     const interpretation = interpretNumber(token.text);
     if (interpretation) {
       return {

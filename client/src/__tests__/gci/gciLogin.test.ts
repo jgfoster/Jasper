@@ -1,6 +1,13 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { GciLibrary } from '../../gciLibrary';
-import { GCI_LIBRARY_PATH, STONE_NRS, GEM_NRS, GS_USER, GS_PASSWORD, NETLDI_NAME } from './gciTestConfig';
+import {
+  GCI_LIBRARY_PATH,
+  STONE_NRS,
+  GEM_NRS,
+  GS_USER,
+  GS_PASSWORD,
+  NETLDI_NAME,
+} from './gciTestConfig';
 
 function bigIntReplacer(_key: string, value: unknown): unknown {
   return typeof value === 'bigint' ? value.toString() + 'n' : value;
@@ -16,8 +23,15 @@ describe('GciTsLogin / GciTsLogout', () => {
   describe('successful login and logout', () => {
     it('logs in and returns a non-null session, then logs out', () => {
       const { session, executedSessionInit, err } = gci.GciTsLogin(
-        STONE_NRS, null, null, false,
-        GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
+        STONE_NRS,
+        null,
+        null,
+        false,
+        GEM_NRS,
+        GS_USER,
+        GS_PASSWORD,
+        0,
+        0,
       );
 
       console.log('Login success - executedSessionInit:', executedSessionInit);
@@ -36,9 +50,16 @@ describe('GciTsLogin / GciTsLogout', () => {
   describe('blocking login with netldiName (GciTsLogin_)', () => {
     it('logs in and returns a non-null session, then logs out', () => {
       const { session, executedSessionInit, err } = gci.GciTsLogin_(
-        STONE_NRS, null, null, false,
-        GEM_NRS, GS_USER, GS_PASSWORD,
-        NETLDI_NAME, 0, 0,
+        STONE_NRS,
+        null,
+        null,
+        false,
+        GEM_NRS,
+        GS_USER,
+        GS_PASSWORD,
+        NETLDI_NAME,
+        0,
+        0,
       );
 
       console.log('Login_ - executedSessionInit:', executedSessionInit);
@@ -54,8 +75,15 @@ describe('GciTsLogin / GciTsLogout', () => {
   describe('non-blocking login (GciTsNbLogin)', () => {
     it('starts login, polls for completion, then logs out', () => {
       const { session, loginPollSocket } = gci.GciTsNbLogin(
-        STONE_NRS, null, null, false,
-        GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
+        STONE_NRS,
+        null,
+        null,
+        false,
+        GEM_NRS,
+        GS_USER,
+        GS_PASSWORD,
+        0,
+        0,
       );
 
       console.log('NbLogin - session:', session);
@@ -81,9 +109,16 @@ describe('GciTsLogin / GciTsLogout', () => {
   describe('non-blocking login with netldiName (GciTsNbLogin_)', () => {
     it('starts login, polls for completion, then logs out', () => {
       const { session, loginPollSocket } = gci.GciTsNbLogin_(
-        STONE_NRS, null, null, false,
-        GEM_NRS, GS_USER, GS_PASSWORD,
-        NETLDI_NAME, 0, 0,
+        STONE_NRS,
+        null,
+        null,
+        false,
+        GEM_NRS,
+        GS_USER,
+        GS_PASSWORD,
+        NETLDI_NAME,
+        0,
+        0,
       );
 
       console.log('NbLogin_ - session:', session);
@@ -134,9 +169,15 @@ describe('GciTsLogin / GciTsLogout', () => {
 
       const GCI_LOGIN_PW_ENCRYPTED = 1;
       const { session, err } = gci.GciTsLogin(
-        STONE_NRS, null, null, false,
-        GEM_NRS, GS_USER, encrypted!,
-        GCI_LOGIN_PW_ENCRYPTED, 0,
+        STONE_NRS,
+        null,
+        null,
+        false,
+        GEM_NRS,
+        GS_USER,
+        encrypted!,
+        GCI_LOGIN_PW_ENCRYPTED,
+        0,
       );
 
       console.log('Encrypted login - err:', JSON.stringify(err, bigIntReplacer, 2));
@@ -151,8 +192,15 @@ describe('GciTsLogin / GciTsLogout', () => {
   describe('GciTsSessionIsRemote', () => {
     it('returns 1 (RPC) for an active session', () => {
       const { session } = gci.GciTsLogin(
-        STONE_NRS, null, null, false,
-        GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
+        STONE_NRS,
+        null,
+        null,
+        false,
+        GEM_NRS,
+        GS_USER,
+        GS_PASSWORD,
+        0,
+        0,
       );
 
       expect(session).not.toBeNull();
@@ -163,8 +211,15 @@ describe('GciTsLogin / GciTsLogout', () => {
 
     it('returns -1 for a logged-out session', () => {
       const { session } = gci.GciTsLogin(
-        STONE_NRS, null, null, false,
-        GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
+        STONE_NRS,
+        null,
+        null,
+        false,
+        GEM_NRS,
+        GS_USER,
+        GS_PASSWORD,
+        0,
+        0,
       );
 
       expect(session).not.toBeNull();
@@ -177,8 +232,15 @@ describe('GciTsLogin / GciTsLogout', () => {
   describe('non-blocking logout (GciTsNbLogout)', () => {
     it('logs in then performs a non-blocking logout', () => {
       const { session } = gci.GciTsLogin(
-        STONE_NRS, null, null, false,
-        GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
+        STONE_NRS,
+        null,
+        null,
+        false,
+        GEM_NRS,
+        GS_USER,
+        GS_PASSWORD,
+        0,
+        0,
       );
 
       expect(session).not.toBeNull();
@@ -194,8 +256,15 @@ describe('GciTsLogin / GciTsLogout', () => {
   describe('GciTsAbort / GciTsBegin / GciTsCommit / GciTsContinueWith', () => {
     it('abort succeeds on a clean session', () => {
       const { session } = gci.GciTsLogin(
-        STONE_NRS, null, null, false,
-        GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
+        STONE_NRS,
+        null,
+        null,
+        false,
+        GEM_NRS,
+        GS_USER,
+        GS_PASSWORD,
+        0,
+        0,
       );
       expect(session).not.toBeNull();
 
@@ -209,8 +278,15 @@ describe('GciTsLogin / GciTsLogout', () => {
 
     it('begin succeeds on a clean session', () => {
       const { session } = gci.GciTsLogin(
-        STONE_NRS, null, null, false,
-        GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
+        STONE_NRS,
+        null,
+        null,
+        false,
+        GEM_NRS,
+        GS_USER,
+        GS_PASSWORD,
+        0,
+        0,
       );
       expect(session).not.toBeNull();
 
@@ -224,8 +300,15 @@ describe('GciTsLogin / GciTsLogout', () => {
 
     it('commit succeeds on a clean session', () => {
       const { session } = gci.GciTsLogin(
-        STONE_NRS, null, null, false,
-        GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
+        STONE_NRS,
+        null,
+        null,
+        false,
+        GEM_NRS,
+        GS_USER,
+        GS_PASSWORD,
+        0,
+        0,
       );
       expect(session).not.toBeNull();
 
@@ -239,8 +322,15 @@ describe('GciTsLogin / GciTsLogout', () => {
 
     it('continueWith returns OOP_ILLEGAL with no active process', () => {
       const { session } = gci.GciTsLogin(
-        STONE_NRS, null, null, false,
-        GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
+        STONE_NRS,
+        null,
+        null,
+        false,
+        GEM_NRS,
+        GS_USER,
+        GS_PASSWORD,
+        0,
+        0,
       );
       expect(session).not.toBeNull();
 
@@ -260,8 +350,14 @@ describe('GciTsLogin / GciTsLogout', () => {
     it('returns null session and populates err', () => {
       const { session, err } = gci.GciTsLogin(
         '!tcp@localhost#server!nonExistentStone',
-        null, null, false,
-        GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
+        null,
+        null,
+        false,
+        GEM_NRS,
+        GS_USER,
+        GS_PASSWORD,
+        0,
+        0,
       );
 
       console.log('Wrong stone NRS - err:', JSON.stringify(err, bigIntReplacer, 2));
@@ -274,8 +370,15 @@ describe('GciTsLogin / GciTsLogout', () => {
   describe('login with wrong password', () => {
     it('returns null session and populates err', () => {
       const { session, err } = gci.GciTsLogin(
-        STONE_NRS, null, null, false,
-        GEM_NRS, GS_USER, 'wrongPassword', 0, 0,
+        STONE_NRS,
+        null,
+        null,
+        false,
+        GEM_NRS,
+        GS_USER,
+        'wrongPassword',
+        0,
+        0,
       );
 
       console.log('Wrong password - err:', JSON.stringify(err, bigIntReplacer, 2));
@@ -288,9 +391,15 @@ describe('GciTsLogin / GciTsLogout', () => {
   describe('login with wrong gem NRS', () => {
     it('returns null session and populates err', () => {
       const { session, err } = gci.GciTsLogin(
-        STONE_NRS, null, null, false,
+        STONE_NRS,
+        null,
+        null,
+        false,
         '!tcp@localhost#netldi:99999#task!gemnetobject',
-        GS_USER, GS_PASSWORD, 0, 0,
+        GS_USER,
+        GS_PASSWORD,
+        0,
+        0,
       );
 
       console.log('Wrong gem NRS - err:', JSON.stringify(err, bigIntReplacer, 2));

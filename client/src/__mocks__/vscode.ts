@@ -176,9 +176,14 @@ function createMockPanel() {
 function createMockTextEditor() {
   return {
     document: {
-      uri: Uri.file(''), languageId: '', getText: vi.fn(() => ''), lineCount: 0,
+      uri: Uri.file(''),
+      languageId: '',
+      getText: vi.fn(() => ''),
+      lineCount: 0,
       lineAt: vi.fn((line: number) => ({
-        lineNumber: line, text: '', firstNonWhitespaceCharacterIndex: 0,
+        lineNumber: line,
+        text: '',
+        firstNonWhitespaceCharacterIndex: 0,
         range: new Range(line, 0, line, 0),
       })),
       positionAt: vi.fn((offset: number) => new Position(0, offset)),
@@ -189,10 +194,14 @@ function createMockTextEditor() {
     viewColumn: undefined as number | undefined,
     setDecorations: vi.fn(),
     revealRange: vi.fn(),
-    edit: vi.fn(async (cb: (b: { replace: typeof vi.fn; insert: typeof vi.fn; delete: typeof vi.fn }) => void) => {
-      cb({ replace: vi.fn(), insert: vi.fn(), delete: vi.fn() } as never);
-      return true;
-    }),
+    edit: vi.fn(
+      async (
+        cb: (b: { replace: typeof vi.fn; insert: typeof vi.fn; delete: typeof vi.fn }) => void,
+      ) => {
+        cb({ replace: vi.fn(), insert: vi.fn(), delete: vi.fn() } as never);
+        return true;
+      },
+    ),
   };
 }
 
@@ -223,13 +232,22 @@ export const window = {
   showWarningMessage: vi.fn(),
   createTreeView: vi.fn(() => ({ dispose: () => {} })),
   registerFileDecorationProvider: vi.fn(() => ({ dispose: () => {} })),
-  createOutputChannel: vi.fn(() => ({ append: vi.fn(), appendLine: vi.fn(), show: vi.fn(), dispose: vi.fn() })),
+  createOutputChannel: vi.fn(() => ({
+    append: vi.fn(),
+    appendLine: vi.fn(),
+    show: vi.fn(),
+    dispose: vi.fn(),
+  })),
   createTextEditorDecorationType: vi.fn(() => ({ dispose: vi.fn() })),
   visibleTextEditors: [] as unknown[],
   onDidChangeActiveTextEditor: vi.fn(() => ({ dispose: () => {} })),
   onDidChangeTextEditorSelection: vi.fn(() => ({ dispose: () => {} })),
   onDidChangeVisibleTextEditors: vi.fn(() => ({ dispose: () => {} })),
-  createTerminal: vi.fn((_nameOrOptions: string | { name?: string }) => ({ show: vi.fn(), sendText: vi.fn(), dispose: vi.fn() })),
+  createTerminal: vi.fn((_nameOrOptions: string | { name?: string }) => ({
+    show: vi.fn(),
+    sendText: vi.fn(),
+    dispose: vi.fn(),
+  })),
   onDidCloseTerminal: vi.fn((_handler: (terminal: unknown) => void) => ({ dispose: vi.fn() })),
   setStatusBarMessage: vi.fn(),
   createStatusBarItem: vi.fn(() => ({
@@ -296,11 +314,13 @@ export const window = {
     close: vi.fn(),
     onDidChangeTabs: vi.fn(() => ({ dispose: vi.fn() })),
   },
-  withProgress: vi.fn(async (_opts: unknown, task: (progress: unknown, token: unknown) => Promise<unknown>) => {
-    const progress = { report: vi.fn() };
-    const token = { isCancellationRequested: false };
-    return task(progress, token);
-  }),
+  withProgress: vi.fn(
+    async (_opts: unknown, task: (progress: unknown, token: unknown) => Promise<unknown>) => {
+      const progress = { report: vi.fn() };
+      const token = { isCancellationRequested: false };
+      return task(progress, token);
+    },
+  ),
 };
 
 export const env = {
@@ -319,7 +339,10 @@ export const TextDocumentSaveReason = {
 };
 
 export class TextEdit {
-  constructor(public range: Range, public newText: string) {}
+  constructor(
+    public range: Range,
+    public newText: string,
+  ) {}
   static replace(range: Range, newText: string): TextEdit {
     return new TextEdit(range, newText);
   }
@@ -355,8 +378,15 @@ export const workspace = {
   onDidOpenTextDocument: vi.fn(() => ({ dispose: () => {} })),
   registerTextDocumentContentProvider: vi.fn(() => ({ dispose: () => {} })),
   registerFileSystemProvider: vi.fn(() => ({ dispose: () => {} })),
-  openTextDocument: vi.fn(async (_uri: unknown) => ({ uri: _uri, getText: vi.fn(() => ''), isDirty: false })),
-  openNotebookDocument: vi.fn(async (notebookType: string, data?: unknown) => ({ notebookType, data })),
+  openTextDocument: vi.fn(async (_uri: unknown) => ({
+    uri: _uri,
+    getText: vi.fn(() => ''),
+    isDirty: false,
+  })),
+  openNotebookDocument: vi.fn(async (notebookType: string, data?: unknown) => ({
+    notebookType,
+    data,
+  })),
   applyEdit: vi.fn(async () => true),
   textDocuments: [] as unknown[],
   workspaceFolders: undefined as { uri: { fsPath: string; path: string } }[] | undefined,
@@ -381,7 +411,10 @@ export class TabInputText {
 }
 
 export class TabInputTextDiff {
-  constructor(public readonly original: Uri, public readonly modified: Uri) {}
+  constructor(
+    public readonly original: Uri,
+    public readonly modified: Uri,
+  ) {}
 }
 
 // ── FileSystemError mock ──────────────────────────────────
@@ -428,7 +461,10 @@ export const FilePermission = {
 // ── Position & Location mock ──────────────────────────────
 
 export class Position {
-  constructor(public readonly line: number, public readonly character: number) {}
+  constructor(
+    public readonly line: number,
+    public readonly character: number,
+  ) {}
   translate(lineDelta = 0, charDelta = 0): Position {
     return new Position(this.line + lineDelta, this.character + charDelta);
   }
@@ -437,7 +473,12 @@ export class Position {
 export class Range {
   public readonly start: Position;
   public readonly end: Position;
-  constructor(startOrLine: Position | number, endOrChar: Position | number, endLine?: number, endChar?: number) {
+  constructor(
+    startOrLine: Position | number,
+    endOrChar: Position | number,
+    endLine?: number,
+    endChar?: number,
+  ) {
     if (typeof startOrLine === 'number') {
       this.start = new Position(startOrLine, endOrChar as number);
       this.end = new Position(endLine ?? startOrLine, endChar ?? (endOrChar as number));
@@ -450,7 +491,10 @@ export class Range {
 
 export class CodeLens {
   command?: { title: string; command: string; arguments?: unknown[] };
-  constructor(public readonly range: Range, command?: { title: string; command: string; arguments?: unknown[] }) {
+  constructor(
+    public readonly range: Range,
+    command?: { title: string; command: string; arguments?: unknown[] },
+  ) {
     this.command = command;
   }
   get isResolved(): boolean {
@@ -472,7 +516,10 @@ export class Selection extends Range {
 }
 
 export class Location {
-  constructor(public readonly uri: Uri, public readonly range: Position | Range) {}
+  constructor(
+    public readonly uri: Uri,
+    public readonly range: Position | Range,
+  ) {}
 }
 
 // ── SymbolInformation mock ───────────────────────────────
@@ -596,7 +643,10 @@ export class CompletionItem {
   detail?: string;
   documentation?: string;
   sortText?: string;
-  constructor(public label: string, public kind?: number) {}
+  constructor(
+    public label: string,
+    public kind?: number,
+  ) {}
 }
 
 export const CompletionItemKind = {
@@ -627,7 +677,10 @@ export class Breakpoint {
 }
 
 export class SourceBreakpoint extends Breakpoint {
-  constructor(public location: Location, enabled = true) {
+  constructor(
+    public location: Location,
+    enabled = true,
+  ) {
     super();
     this.enabled = enabled;
   }
@@ -654,13 +707,19 @@ function createMockTestItem(id: string, label: string, uri?: Uri) {
     uri,
     canResolveChildren: false,
     children: {
-      get size() { return children.size; },
+      get size() {
+        return children.size;
+      },
       replace(items: Array<{ id: string }>) {
         children.clear();
         for (const item of items) children.set(item.id, item);
       },
-      forEach(cb: (item: unknown) => void) { children.forEach(cb); },
-      get(key: string) { return children.get(key); },
+      forEach(cb: (item: unknown) => void) {
+        children.forEach(cb);
+      },
+      get(key: string) {
+        return children.get(key);
+      },
     },
     description: undefined as string | undefined,
     error: undefined as unknown,
@@ -687,17 +746,25 @@ function createMockTestController() {
     label: 'GemStone SUnit Tests',
     resolveHandler: undefined as ((item?: unknown) => Promise<void>) | undefined,
     refreshHandler: undefined as (() => Promise<void>) | undefined,
-    createTestItem: vi.fn((id: string, label: string, uri?: Uri) => createMockTestItem(id, label, uri)),
+    createTestItem: vi.fn((id: string, label: string, uri?: Uri) =>
+      createMockTestItem(id, label, uri),
+    ),
     createRunProfile: vi.fn(),
     createTestRun: vi.fn(() => createMockTestRun()),
     items: {
-      get size() { return items.size; },
+      get size() {
+        return items.size;
+      },
       replace(newItems: Array<{ id: string }>) {
         items.clear();
         for (const item of newItems) items.set(item.id, item);
       },
-      forEach(cb: (item: unknown) => void) { items.forEach(cb); },
-      get(key: string) { return items.get(key); },
+      forEach(cb: (item: unknown) => void) {
+        items.forEach(cb);
+      },
+      get(key: string) {
+        return items.get(key);
+      },
     },
     dispose: vi.fn(),
   };
@@ -711,7 +778,10 @@ export const tests = {
 // ── Notebook API mock ─────────────────────────────────────
 
 export class NotebookCellOutputItem {
-  constructor(public readonly data: Uint8Array, public readonly mime: string) {}
+  constructor(
+    public readonly data: Uint8Array,
+    public readonly mime: string,
+  ) {}
 
   static text(value: string, mime = 'text/plain'): NotebookCellOutputItem {
     return new NotebookCellOutputItem(new TextEncoder().encode(value), mime);
@@ -780,15 +850,20 @@ function createMockNotebookController(id: string, notebookType: string, label: s
 
 export const notebooks = {
   createNotebookController: vi.fn((id: string, notebookType: string, label: string) =>
-    createMockNotebookController(id, notebookType, label)),
+    createMockNotebookController(id, notebookType, label),
+  ),
 };
 
 // ── DataTransfer mock ─────────────────────────────────────
 
 export class DataTransferItem {
   constructor(public readonly value: unknown) {}
-  asString(): Thenable<string> { return Promise.resolve(String(this.value)); }
-  asFile(): undefined { return undefined; }
+  asString(): Thenable<string> {
+    return Promise.resolve(String(this.value));
+  }
+  asFile(): undefined {
+    return undefined;
+  }
 }
 
 export class DataTransfer {
@@ -802,7 +877,10 @@ export class DataTransfer {
     this.items.set(mimeType, value);
   }
 
-  forEach(callbackfn: (item: DataTransferItem, mimeType: string, dataTransfer: DataTransfer) => void, thisArg?: unknown): void {
+  forEach(
+    callbackfn: (item: DataTransferItem, mimeType: string, dataTransfer: DataTransfer) => void,
+    thisArg?: unknown,
+  ): void {
     this.items.forEach((item, mime) => callbackfn.call(thisArg, item, mime, this));
   }
 

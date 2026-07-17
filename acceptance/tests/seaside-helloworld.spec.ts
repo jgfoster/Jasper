@@ -37,7 +37,9 @@ test.describe('Seaside Hello World in the integrated browser', () => {
     },
   });
 
-  test('installs Seaside + Hello World via Jasper and serves it in the browser', async ({ window }) => {
+  test('installs Seaside + Hello World via Jasper and serves it in the browser', async ({
+    window,
+  }) => {
     await test.step('connect', async () => {
       await connectToStone(window);
     });

@@ -4,11 +4,7 @@ vi.mock('vscode', () => import('../__mocks__/vscode'));
 
 import { __resetConfig, __setConfig, TreeItemCollapsibleState } from '../__mocks__/vscode';
 import { LoginStorage } from '../loginStorage';
-import {
-  LoginTreeProvider,
-  GemStoneLoginItem,
-  GemStoneSessionItem,
-} from '../loginTreeProvider';
+import { LoginTreeProvider, GemStoneLoginItem, GemStoneSessionItem } from '../loginTreeProvider';
 import { DEFAULT_LOGIN, GemStoneLogin } from '../loginTypes';
 import type { ActiveSession, SessionManager } from '../sessionManager';
 
@@ -22,7 +18,10 @@ function makeSession(login: GemStoneLogin, id: number): ActiveSession {
 
 // Minimal SessionManager stub: the provider reads getSessions()/selectedId and
 // subscribes to onDidChangeSelection.
-function stubSessionManager(sessions: ActiveSession[] = [], selectedId: number | null = null): SessionManager {
+function stubSessionManager(
+  sessions: ActiveSession[] = [],
+  selectedId: number | null = null,
+): SessionManager {
   return {
     onDidChangeSelection: vi.fn(),
     getSessions: () => sessions,
@@ -46,7 +45,10 @@ describe('LoginTreeProvider', () => {
     });
 
     it('returns a GemStoneLoginItem for each login', () => {
-      __setConfig('gemstone', 'logins', [makeLogin({ label: 'Dev' }), makeLogin({ label: 'Prod' })]);
+      __setConfig('gemstone', 'logins', [
+        makeLogin({ label: 'Dev' }),
+        makeLogin({ label: 'Prod' }),
+      ]);
       const items = provider.getChildren();
       expect(items).toHaveLength(2);
       expect(items[0]).toBeInstanceOf(GemStoneLoginItem);
@@ -127,7 +129,9 @@ describe('LoginTreeProvider', () => {
 
 describe('GemStoneLoginItem', () => {
   it('sets label from login fields', () => {
-    const item = new GemStoneLoginItem(makeLogin({ gs_user: 'Admin', stone: 'prod', gem_host: 'db.example.com' }));
+    const item = new GemStoneLoginItem(
+      makeLogin({ gs_user: 'Admin', stone: 'prod', gem_host: 'db.example.com' }),
+    );
     expect(item.label).toBe('Admin on prod (db.example.com)');
   });
 

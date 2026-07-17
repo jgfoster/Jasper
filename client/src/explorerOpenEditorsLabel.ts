@@ -18,7 +18,7 @@ export interface OpenEditorEntry {
 export function classifyGemstoneUri(parsed: ParsedUri): OpenEditorEntry | undefined {
   switch (parsed.kind) {
     case 'method': {
-      if (parsed.diffView) return undefined;   // read-only comparison view
+      if (parsed.diffView) return undefined; // read-only comparison view
       const receiver = parsed.isMeta ? `${parsed.className} (class)` : parsed.className;
       const suffix = parsed.base ? ' (base)' : '';
       return { kind: 'method', label: `${receiver}>>${parsed.selector}${suffix}` };

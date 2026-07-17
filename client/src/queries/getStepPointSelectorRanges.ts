@@ -10,7 +10,10 @@ export interface StepPointSelectorInfo {
 
 export function getStepPointSelectorRanges(
   execute: QueryExecutor,
-  className: string, isMeta: boolean, selector: string, environmentId: number = 0,
+  className: string,
+  isMeta: boolean,
+  selector: string,
+  environmentId: number = 0,
   dict?: number | string,
 ): StepPointSelectorInfo[] {
   const method = compiledMethodExpr(className, isMeta, selector, environmentId, dict);
@@ -39,7 +42,8 @@ ws := WriteStream on: String new.
 ws contents`;
 
   const raw = execute(
-    `getStepPointSelectorRanges(${receiver(className, isMeta)}>>#${selector})`, code,
+    `getStepPointSelectorRanges(${receiver(className, isMeta)}>>#${selector})`,
+    code,
   );
 
   const results: StepPointSelectorInfo[] = [];

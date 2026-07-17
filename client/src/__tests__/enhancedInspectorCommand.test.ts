@@ -17,7 +17,8 @@ const mocks = vi.hoisted(() => {
     return Promise.resolve();
   });
   const showInformationMessage = vi.fn((message: string) => {
-    if (message.includes('Install enhanced inspector support')) return Promise.resolve(state.offerChoice);
+    if (message.includes('Install enhanced inspector support'))
+      return Promise.resolve(state.offerChoice);
     if (message.includes('Refresh this session')) return Promise.resolve(state.refreshChoice);
     return Promise.resolve(undefined);
   });
@@ -65,7 +66,13 @@ const mocks = vi.hoisted(() => {
     showErrorMessage: vi.fn(() => Promise.resolve(undefined)),
     executeCommand: vi.fn(() => Promise.resolve(undefined)),
     installSupport: vi.fn(() =>
-      Promise.resolve({ success: true, committed: true, verified: true, filedIn: [], message: 'ok' }),
+      Promise.resolve({
+        success: true,
+        committed: true,
+        verified: true,
+        filedIn: [],
+        message: 'ok',
+      }),
     ),
     // executeFetchString no longer backs the needsCommit probe (that moved to
     // sessionNeedsCommit) but stays mocked for any other importer of the module.
@@ -81,7 +88,8 @@ const mocks = vi.hoisted(() => {
 vi.mock('vscode', () => ({
   workspace: {
     getConfiguration: () => ({
-      get: (key: string, def: unknown) => (key in mocks.state.config ? mocks.state.config[key] : def),
+      get: (key: string, def: unknown) =>
+        key in mocks.state.config ? mocks.state.config[key] : def,
       update: mocks.updateSpy,
     }),
   },
@@ -129,10 +137,7 @@ import {
 
 const AUTO_INSTALL_KEY = 'enhancedInspector.autoInstall';
 
-function createBaseSession(
-  systemUserLoginSucceeds = true,
-  stoneVersion = '3.7.5',
-): ActiveSession {
+function createBaseSession(systemUserLoginSucceeds = true, stoneVersion = '3.7.5'): ActiveSession {
   return {
     id: 1,
     login: { stone: 'demo', gem_host: 'localhost', netldi: 'netldi' },
@@ -264,13 +269,16 @@ describe('maybeOfferEnhancedInspectorInstall', () => {
     expect(wasOffered()).toBe(true);
   });
 
-  it.each(SUPPORTED_VERSIONS)('auto-installs on a supported %s stone when set to "always"', async (version) => {
-    mocks.state.config[AUTO_INSTALL_KEY] = 'always';
+  it.each(SUPPORTED_VERSIONS)(
+    'auto-installs on a supported %s stone when set to "always"',
+    async (version) => {
+      mocks.state.config[AUTO_INSTALL_KEY] = 'always';
 
-    await offer(createBaseSession(true, version));
+      await offer(createBaseSession(true, version));
 
-    expect(mocks.installSupport).toHaveBeenCalledTimes(1);
-  });
+      expect(mocks.installSupport).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('persists "never" and skips installing when the user declines for good', async () => {
     mocks.state.config[AUTO_INSTALL_KEY] = 'ask';
@@ -448,7 +456,9 @@ describe('configureEnhancedInspectorAutoInstall', () => {
   });
 
   it('surfaces an error and closes when saving the setting fails', async () => {
-    mocks.updateSpy.mockImplementationOnce(() => Promise.reject(new Error('settings are read-only')));
+    mocks.updateSpy.mockImplementationOnce(() =>
+      Promise.reject(new Error('settings are read-only')),
+    );
     const done = configureEnhancedInspectorAutoInstall();
     const qp = picker();
     qp.selectedItems = [{ mode: 'always', label: 'Always install' }];

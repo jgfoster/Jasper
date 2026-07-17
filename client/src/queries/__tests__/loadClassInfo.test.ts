@@ -21,7 +21,7 @@ describe('loadClassInfo', () => {
   });
 
   it('handles empty comment', () => {
-    const raw = 'Globals\tfalse\nObject subclass: \'X\'\n===COMMENT===\n';
+    const raw = "Globals\tfalse\nObject subclass: 'X'\n===COMMENT===\n";
     const execute = vi.fn<QueryExecutor>(() => raw);
     const info = loadClassInfo(execute, 1, 'X');
 
@@ -57,6 +57,6 @@ describe('loadClassInfo', () => {
     const execute = vi.fn<QueryExecutor>(() => '\tfalse\nDef\n===COMMENT===\n');
     loadClassInfo(execute, 1, 'X');
     const code = execute.mock.calls[0][1];
-    expect(code).toContain("on: Error do:");
+    expect(code).toContain('on: Error do:');
   });
 });

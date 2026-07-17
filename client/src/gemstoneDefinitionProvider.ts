@@ -3,10 +3,7 @@ import { SessionManager } from './sessionManager';
 import * as queries from './browserQueries';
 
 export interface SelectorResolver {
-  getSelector(
-    uri: string,
-    position: vscode.Position,
-  ): Promise<string | null>;
+  getSelector(uri: string, position: vscode.Position): Promise<string | null>;
 }
 
 export class GemStoneDefinitionProvider implements vscode.DefinitionProvider {
@@ -26,27 +23,24 @@ export class GemStoneDefinitionProvider implements vscode.DefinitionProvider {
     let selector: string | null = null;
     if (this.selectorResolver) {
       try {
-        selector = await this.selectorResolver.getSelector(
-          document.uri.toString(),
-          position,
-        );
-      } catch { /* LSP not ready */ }
+        selector = await this.selectorResolver.getSelector(document.uri.toString(), position);
+      } catch {
+        /* LSP not ready */
+      }
     }
 
     if (selector) {
-      const env = vscode.workspace
-        .getConfiguration('gemstone')
-        .get<number>('maxEnvironment', 0);
+      const env = vscode.workspace.getConfiguration('gemstone').get<number>('maxEnvironment', 0);
       const results = queries.implementorsOf(session, selector, env);
-      return results.map(r => {
+      return results.map((r) => {
         const side = r.isMeta ? 'class' : 'instance';
         const uri = vscode.Uri.parse(
           `gemstone://${session.id}` +
-          `/${encodeURIComponent(r.dictName)}` +
-          `/${encodeURIComponent(r.className)}` +
-          `/${side}` +
-          `/${encodeURIComponent(r.category)}` +
-          `/${encodeURIComponent(r.selector)}`
+            `/${encodeURIComponent(r.dictName)}` +
+            `/${encodeURIComponent(r.className)}` +
+            `/${side}` +
+            `/${encodeURIComponent(r.category)}` +
+            `/${encodeURIComponent(r.selector)}`,
         );
         return new vscode.Location(uri, new vscode.Position(0, 0));
       });
@@ -60,14 +54,13 @@ export class GemStoneDefinitionProvider implements vscode.DefinitionProvider {
       return [];
     }
 
-    const classEntries = queries.getAllClassNames(session)
-      .filter(e => e.className === word);
-    return classEntries.map(e => {
+    const classEntries = queries.getAllClassNames(session).filter((e) => e.className === word);
+    return classEntries.map((e) => {
       const uri = vscode.Uri.parse(
         `gemstone://${session.id}` +
-        `/${encodeURIComponent(e.dictName)}` +
-        `/${encodeURIComponent(e.className)}` +
-        `/definition`
+          `/${encodeURIComponent(e.dictName)}` +
+          `/${encodeURIComponent(e.className)}` +
+          `/definition`,
       );
       return new vscode.Location(uri, new vscode.Position(0, 0));
     });

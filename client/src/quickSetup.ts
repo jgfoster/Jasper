@@ -37,9 +37,14 @@ export interface QuickSetupDeps {
 
 export async function runQuickSetup(deps: QuickSetupDeps): Promise<void> {
   const {
-    sysadminStorage, versionManager, databaseManager,
-    processManager, loginStorage,
-    refreshAdminViews, refreshVersions, refreshLogins,
+    sysadminStorage,
+    versionManager,
+    databaseManager,
+    processManager,
+    loginStorage,
+    refreshAdminViews,
+    refreshVersions,
+    refreshLogins,
   } = deps;
 
   // ── Step 1: Check shared memory ─────────────────────────
@@ -71,11 +76,16 @@ export async function runQuickSetup(deps: QuickSetupDeps): Promise<void> {
   let versions: GemStoneVersion[];
   try {
     versions = await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: 'Quick Setup: Fetching available versions...' },
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'Quick Setup: Fetching available versions...',
+      },
       () => versionManager.fetchAvailableVersions(),
     );
   } catch (e) {
-    vscode.window.showErrorMessage(`Failed to fetch versions: ${e instanceof Error ? e.message : e}`);
+    vscode.window.showErrorMessage(
+      `Failed to fetch versions: ${e instanceof Error ? e.message : e}`,
+    );
     return;
   }
   if (versions.length === 0) {
@@ -85,7 +95,7 @@ export async function runQuickSetup(deps: QuickSetupDeps): Promise<void> {
 
   // ── Step 3: Pick version ────────────────────────────────
   const latest = versions[0];
-  const items = versions.map(v => ({
+  const items = versions.map((v) => ({
     label: v.version,
     description: v.extracted ? 'extracted' : v.downloaded ? 'downloaded' : '',
     version: v,
@@ -145,13 +155,20 @@ export async function runQuickSetup(deps: QuickSetupDeps): Promise<void> {
         location: vscode.ProgressLocation.Notification,
         title: 'Quick Setup: Creating database...',
       },
-      (progress) => databaseManager.createDatabaseDirect(
-        version.version, baseExtent, stoneName, ldiName, progress,
-      ),
+      (progress) =>
+        databaseManager.createDatabaseDirect(
+          version.version,
+          baseExtent,
+          stoneName,
+          ldiName,
+          progress,
+        ),
     );
     refreshAdminViews();
   } catch (e) {
-    vscode.window.showErrorMessage(`Database creation failed: ${e instanceof Error ? e.message : e}`);
+    vscode.window.showErrorMessage(
+      `Database creation failed: ${e instanceof Error ? e.message : e}`,
+    );
     return;
   }
 

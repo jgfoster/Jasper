@@ -3,7 +3,10 @@ import { SessionManager, ActiveSession } from './sessionManager';
 import * as queries from './browserQueries';
 import { ALL_METHODS_CATEGORY, SESSION_METHODS_CATEGORY } from './systemBrowser';
 import {
-  escapeSelectorSlashes, unescapeSelectorSlashes, buildClassDefinitionUri, buildNewMethodUri,
+  escapeSelectorSlashes,
+  unescapeSelectorSlashes,
+  buildClassDefinitionUri,
+  buildNewMethodUri,
   buildMethodUri,
 } from './gemstoneFileSystemProvider';
 import { filterMatches } from './explorerFilter';
@@ -27,11 +30,15 @@ const EXPLORER_VIEWS = [VIEW_DICTS, VIEW_CATEGORIES, VIEW_CLASSES, VIEW_METHODS]
 // balancing to editors this Explorer opened, so it doesn't invade the System
 // Browser's group (see sourceEditorPlacement.ts).
 async function openGemstoneDocument(
-  doc: vscode.TextDocument, toSide: boolean, placement: SourceEditorPlacement,
+  doc: vscode.TextDocument,
+  toSide: boolean,
+  placement: SourceEditorPlacement,
 ): Promise<void> {
   if (!toSide) {
     await vscode.window.showTextDocument(doc, {
-      viewColumn: vscode.ViewColumn.Active, preview: true, preserveFocus: true,
+      viewColumn: vscode.ViewColumn.Active,
+      preview: true,
+      preserveFocus: true,
     });
     placement.remember(doc.uri);
     return;
@@ -43,11 +50,15 @@ async function openGemstoneDocument(
     // "beside the active group", which isn't reliably the rightmost.)
     await vscode.commands.executeCommand('workbench.action.focusLastEditorGroup');
     await vscode.window.showTextDocument(doc, {
-      viewColumn: vscode.ViewColumn.Beside, preview: false, preserveFocus: false,
+      viewColumn: vscode.ViewColumn.Beside,
+      preview: false,
+      preserveFocus: false,
     });
   } else {
     await vscode.window.showTextDocument(doc, {
-      viewColumn: target, preview: false, preserveFocus: false,
+      viewColumn: target,
+      preview: false,
+      preserveFocus: false,
     });
   }
   placement.remember(doc.uri);
@@ -68,10 +79,10 @@ async function openGemstoneDocument(
 
 interface ExplorerState {
   dictName?: string;
-  dictIndex?: number;             // 1-based symbolList position
-  classCategory?: string;         // undefined = show all classes in dict
+  dictIndex?: number; // 1-based symbolList position
+  classCategory?: string; // undefined = show all classes in dict
   className?: string;
-  selectedSelector?: string;      // last method opened (kept for reference)
+  selectedSelector?: string; // last method opened (kept for reference)
   // Context recorded from the Methods pane so New Method / New Method Category
   // land on the right side/category even without a method currently selected.
   selectedIsMeta?: boolean;
@@ -81,15 +92,18 @@ interface ExplorerState {
 // Per-selector metadata derived from the class's environment data.
 interface SelectorInfo {
   selector: string;
-  category: string;               // real method category (for the source URI)
-  overrideBits: number;           // 1 = overrides super, 2 = overridden below
-  sessionBit: number;             // 0 = none, 1 = extension, 2 = override
+  category: string; // real method category (for the source URI)
+  overrideBits: number; // 1 = overrides super, 2 = overridden below
+  sessionBit: number; // 0 = none, 1 = extension, 2 = override
 }
 
 // ── Tree item payload classes ───────────────────────────────────────────────
 
 class DictItem extends vscode.TreeItem {
-  constructor(public readonly dictName: string, public readonly dictIndex: number) {
+  constructor(
+    public readonly dictName: string,
+    public readonly dictIndex: number,
+  ) {
     super(dictName, vscode.TreeItemCollapsibleState.None);
     // Stable id so TreeView.reveal (used by Find Class) can locate this row.
     this.id = `d:${dictIndex}:${dictName}`;
@@ -107,9 +121,12 @@ class ClassCategoryItem extends vscode.TreeItem {
     public readonly fullPath: string,
     hasChildren: boolean,
   ) {
-    super(segment, hasChildren
-      ? vscode.TreeItemCollapsibleState.Collapsed
-      : vscode.TreeItemCollapsibleState.None);
+    super(
+      segment,
+      hasChildren
+        ? vscode.TreeItemCollapsibleState.Collapsed
+        : vscode.TreeItemCollapsibleState.None,
+    );
     this.id = `c:${fullPath}`;
     this.contextValue = 'explorerCategory';
     this.iconPath = new vscode.ThemeIcon('symbol-folder');
@@ -121,10 +138,14 @@ class ClassItem extends vscode.TreeItem {
   // `hasIvars` drives the expansion caret: a class with locally-defined instance
   // variables opens to reveal its ivar sub-tree; one without stays flat. It never
   // affects the stable `id`, so TreeView.reveal still matches regardless.
-  constructor(public readonly className: string, hasIvars = false) {
-    super(className, hasIvars
-      ? vscode.TreeItemCollapsibleState.Collapsed
-      : vscode.TreeItemCollapsibleState.None);
+  constructor(
+    public readonly className: string,
+    hasIvars = false,
+  ) {
+    super(
+      className,
+      hasIvars ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
+    );
     this.id = `k:${className}`;
     this.contextValue = 'explorerClass';
     this.iconPath = new vscode.ThemeIcon('symbol-class');
@@ -141,7 +162,10 @@ class ClassItem extends vscode.TreeItem {
 // A locally-defined instance variable, shown as a child of its ClassItem. The
 // pencil (inline) action renames it; selecting the row does not navigate.
 class IvarItem extends vscode.TreeItem {
-  constructor(public readonly className: string, public readonly ivarName: string) {
+  constructor(
+    public readonly className: string,
+    public readonly ivarName: string,
+  ) {
     super(ivarName, vscode.TreeItemCollapsibleState.None);
     this.id = `k:${className}/iv:${ivarName}`;
     this.contextValue = 'explorerIvar';
@@ -159,9 +183,7 @@ class MethodSideItem extends vscode.TreeItem {
     // class side starts collapsed to keep the default view focused.
     super(
       isMeta ? 'class' : 'instance',
-      isMeta
-        ? vscode.TreeItemCollapsibleState.Collapsed
-        : vscode.TreeItemCollapsibleState.Expanded,
+      isMeta ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.Expanded,
     );
     this.id = `mside:${isMeta}`;
     // Both instance/class side headers use the class icon — distinct from the
@@ -204,10 +226,11 @@ class MethodItem extends vscode.TreeItem {
     // offer superclass/subclass-implementation browsing only where an override
     // arrow is actually present (▲ overrides super, ▼ overridden below). Base
     // Senders/Implementors are always offered on the plain `explorerMethod` token.
-    this.contextValue = 'explorerMethod'
-      + (info.overrideBits & 1 ? '.up' : '')
-      + (info.overrideBits & 2 ? '.down' : '')
-      + (info.sessionBit ? '.session' : '');
+    this.contextValue =
+      'explorerMethod' +
+      (info.overrideBits & 1 ? '.up' : '') +
+      (info.overrideBits & 2 ? '.down' : '') +
+      (info.sessionBit ? '.session' : '');
 
     // Indicators (tree items can't render italics, so we surface override/
     // session state via a compact glyph description + an explanatory tooltip).
@@ -227,7 +250,9 @@ class MethodItem extends vscode.TreeItem {
     const lines = ['Click to open · $(split-horizontal) opens to the side'];
     lines.push(`[Implementors](${cmd('implementorsOf')}) · [Senders](${cmd('sendersOf')})`);
     if (info.overrideBits & 1) {
-      lines.push(`[▲ Superclass implementors](${cmd('superImplementors')}) — overrides a superclass method`);
+      lines.push(
+        `[▲ Superclass implementors](${cmd('superImplementors')}) — overrides a superclass method`,
+      );
     }
     if (info.overrideBits & 2) {
       lines.push(`[▼ Subclass overrides](${cmd('subOverrides')}) — overridden in a subclass`);
@@ -264,17 +289,21 @@ class HierarchyItem extends vscode.TreeItem {
     public readonly chainIndex: number,
     hasChildren: boolean,
   ) {
-    super(className, hasChildren
-      ? vscode.TreeItemCollapsibleState.Expanded
-      : vscode.TreeItemCollapsibleState.None);
+    super(
+      className,
+      hasChildren ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None,
+    );
     this.id = `h:${role}:${chainIndex}:${className}`;
     this.contextValue = 'explorerHierClass';
     // The current class is shown by keeping it *selected* in this pane (synced
     // with the Classes pane), so no extra "current" label is needed; up/down
     // arrows distinguish superclasses from subclasses.
     this.iconPath = new vscode.ThemeIcon(
-      role === 'self' ? 'symbol-class'
-        : role === 'ancestor' ? 'arrow-small-up' : 'arrow-small-down',
+      role === 'self'
+        ? 'symbol-class'
+        : role === 'ancestor'
+          ? 'arrow-small-up'
+          : 'arrow-small-down',
     );
   }
 }
@@ -296,7 +325,8 @@ const METHOD_MIME = 'application/vnd.gemstone.explorermethod';
 type MethodCommandArg = MethodItem | { selector: string; isMeta: boolean } | undefined;
 function methodArg(arg: MethodCommandArg): { selector: string; isMeta: boolean } | undefined {
   if (arg instanceof MethodItem) return { selector: arg.info.selector, isMeta: arg.isMeta };
-  if (arg && typeof arg.selector === 'string') return { selector: arg.selector, isMeta: !!arg.isMeta };
+  if (arg && typeof arg.selector === 'string')
+    return { selector: arg.selector, isMeta: !!arg.isMeta };
   return undefined;
 }
 
@@ -406,10 +436,14 @@ class ExplorerController {
 
   private providerFor(viewId: string): RefreshableProvider<unknown> {
     switch (viewId) {
-      case VIEW_DICTS: return this.dictProvider as RefreshableProvider<unknown>;
-      case VIEW_CATEGORIES: return this.categoryProvider as RefreshableProvider<unknown>;
-      case VIEW_CLASSES: return this.classProvider as RefreshableProvider<unknown>;
-      default: return this.methodProvider as RefreshableProvider<unknown>;
+      case VIEW_DICTS:
+        return this.dictProvider as RefreshableProvider<unknown>;
+      case VIEW_CATEGORIES:
+        return this.categoryProvider as RefreshableProvider<unknown>;
+      case VIEW_CLASSES:
+        return this.classProvider as RefreshableProvider<unknown>;
+      default:
+        return this.methodProvider as RefreshableProvider<unknown>;
     }
   }
 
@@ -420,7 +454,9 @@ class ExplorerController {
     if (pattern) this.filters.set(viewId, pattern);
     else this.filters.delete(viewId);
     void vscode.commands.executeCommand(
-      'setContext', `gemstone.explorerFiltered.${viewId}`, !!pattern,
+      'setContext',
+      `gemstone.explorerFiltered.${viewId}`,
+      !!pattern,
     );
     this.providerFor(viewId).refresh();
     this.syncTitles();
@@ -500,8 +536,8 @@ class ExplorerController {
     const session = this.session();
     const { dictName, dictIndex, className } = this.state;
     // Remember the method row currently selected so it can be re-revealed.
-    const selectedMethod = this.views?.method.selection
-      .find((n) => n instanceof MethodItem) as MethodItem | undefined;
+    const selectedMethod = this.views?.method.selection.find((n) => n instanceof MethodItem) as
+      MethodItem | undefined;
     const revealMethod = selectedMethod
       ? { selector: selectedMethod.info.selector, isMeta: selectedMethod.isMeta }
       : undefined;
@@ -518,12 +554,16 @@ class ExplorerController {
     // fetch rather than blanking the tree out from under the user.
     try {
       this.classCategoryEntries = queries.getClassesWithCategory(session, dictIndex);
-    } catch { /* keep stale on failure */ }
+    } catch {
+      /* keep stale on failure */
+    }
     this.loadDefinedIvarCounts();
     if (className !== undefined) {
       try {
         this.envLines = queries.getClassEnvironments(session, dictIndex, className, this.maxEnv());
-      } catch { /* keep stale on failure */ }
+      } catch {
+        /* keep stale on failure */
+      }
       this.loadHierarchy();
     }
 
@@ -540,41 +580,53 @@ class ExplorerController {
   // Re-highlight the retained dict/category/class/method rows after a refresh.
   // reveal() rejects when a row isn't in the (rebuilt) tree; treat each as a
   // best-effort highlight, exactly like revealClass does.
-  private async revealRetainedSelection(
-    revealMethod?: { selector: string; isMeta: boolean },
-  ): Promise<void> {
+  private async revealRetainedSelection(revealMethod?: {
+    selector: string;
+    isMeta: boolean;
+  }): Promise<void> {
     const { dictName, dictIndex, classCategory, className } = this.state;
     if (dictName !== undefined && dictIndex !== undefined) {
       try {
         await this.views?.dict.reveal(new DictItem(dictName, dictIndex), { select: true });
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
     if (classCategory) {
       const segment = classCategory.split('-').pop() ?? classCategory;
       try {
-        await this.views?.category.reveal(
-          new ClassCategoryItem(segment, classCategory, false), { select: true, expand: true },
-        );
-      } catch { /* ignore */ }
+        await this.views?.category.reveal(new ClassCategoryItem(segment, classCategory, false), {
+          select: true,
+          expand: true,
+        });
+      } catch {
+        /* ignore */
+      }
     }
     if (className !== undefined) {
       try {
         await this.views?.klass.reveal(
-          new ClassItem(className, this.classHasDefinedIvars(className)), { select: true },
+          new ClassItem(className, this.classHasDefinedIvars(className)),
+          { select: true },
         );
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
     void this.revealHierarchySelf();
     if (revealMethod) {
-      const info = this.selectorsFor(revealMethod.isMeta, ALL_METHODS_CATEGORY)
-        .find((i) => i.selector === revealMethod.selector);
+      const info = this.selectorsFor(revealMethod.isMeta, ALL_METHODS_CATEGORY).find(
+        (i) => i.selector === revealMethod.selector,
+      );
       if (info) {
         try {
           await this.views?.method.reveal(
             new MethodItem(revealMethod.isMeta, info, ALL_METHODS_CATEGORY),
             { select: true, focus: false, expand: true },
           );
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
     }
   }
@@ -646,9 +698,10 @@ class ExplorerController {
     this.newMethodCategories.meta.clear();
     this.clearFilters(VIEW_METHODS);
     const session = this.session();
-    this.envLines = session && this.state.dictIndex !== undefined
-      ? queries.getClassEnvironments(session, this.state.dictIndex, item.className, this.maxEnv())
-      : [];
+    this.envLines =
+      session && this.state.dictIndex !== undefined
+        ? queries.getClassEnvironments(session, this.state.dictIndex, item.className, this.maxEnv())
+        : [];
     this.loadHierarchy();
     this.methodProvider.refresh();
     this.hierarchyProvider.refresh();
@@ -662,7 +715,8 @@ class ExplorerController {
   // Resolve a class's dictionary (name + 1-based index). Prefers the given dict
   // name; falls back to a full class-name lookup when it's blank/unresolvable.
   private resolveClassDict(
-    className: string, dictName?: string,
+    className: string,
+    dictName?: string,
   ): { dictName: string; dictIndex: number } | undefined {
     const session = this.session();
     if (!session) return undefined;
@@ -680,8 +734,11 @@ class ExplorerController {
   // in the neighbouring editor group so several definitions can be compared.
   async openClassDefinition(item?: ClassItem, toSide = false): Promise<void> {
     const className = item?.className ?? this.state.className;
-    if (this.state.dictName === undefined
-      || className === undefined || this.state.dictIndex === undefined) {
+    if (
+      this.state.dictName === undefined ||
+      className === undefined ||
+      this.state.dictIndex === undefined
+    ) {
       return;
     }
     await this.openDefinitionFor(className, this.state.dictName, this.state.dictIndex, toSide);
@@ -742,11 +799,15 @@ class ExplorerController {
       return undefined;
     }
     const picked = await vscode.window.showQuickPick(
-      classes.map(c => ({ label: c.className, description: c.dictName, entry: c })),
+      classes.map((c) => ({ label: c.className, description: c.dictName, entry: c })),
       { placeHolder: 'Select a class to generate a Grail .py stub for', matchOnDescription: true },
     );
     return picked
-      ? { className: picked.entry.className, dictName: picked.entry.dictName, dictIndex: picked.entry.dictIndex }
+      ? {
+          className: picked.entry.className,
+          dictName: picked.entry.dictName,
+          dictIndex: picked.entry.dictIndex,
+        }
       : undefined;
   }
 
@@ -763,7 +824,10 @@ class ExplorerController {
   }
 
   private async openDefinitionFor(
-    className: string, dictName: string, dictIndex: number, toSide: boolean,
+    className: string,
+    dictName: string,
+    dictIndex: number,
+    toSide: boolean,
   ): Promise<void> {
     const session = this.session();
     if (!session) return;
@@ -818,13 +882,21 @@ class ExplorerController {
       const e = this.hierChain[i];
       const isSelf = i === lastIdx;
       const hasChildren = !isSelf || this.hierSubs.length > 0;
-      return new HierarchyItem(e.className, e.dictName, isSelf ? 'self' : 'ancestor', i, hasChildren);
+      return new HierarchyItem(
+        e.className,
+        e.dictName,
+        isSelf ? 'self' : 'ancestor',
+        i,
+        hasChildren,
+      );
     };
     if (!element) return [chainItem(0)];
     if (element.role === 'subclass') return [];
     if (element.chainIndex < lastIdx) return [chainItem(element.chainIndex + 1)];
     // element is the current class → list its subclasses.
-    return this.hierSubs.map((s) => new HierarchyItem(s.className, s.dictName, 'subclass', -1, false));
+    return this.hierSubs.map(
+      (s) => new HierarchyItem(s.className, s.dictName, 'subclass', -1, false),
+    );
   }
 
   // Select the current class's node in the Hierarchy pane so its selection stays
@@ -833,10 +905,18 @@ class ExplorerController {
     if (this.hierChain.length === 0) return;
     const lastIdx = this.hierChain.length - 1;
     const e = this.hierChain[lastIdx];
-    const self = new HierarchyItem(e.className, e.dictName, 'self', lastIdx, this.hierSubs.length > 0);
+    const self = new HierarchyItem(
+      e.className,
+      e.dictName,
+      'self',
+      lastIdx,
+      this.hierSubs.length > 0,
+    );
     try {
       await this.views?.hierarchy.reveal(self, { select: true, focus: false });
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   hierarchyParent(element: HierarchyItem): HierarchyItem | undefined {
@@ -883,13 +963,16 @@ class ExplorerController {
   }
   filteredCategoryPaths(): string[] {
     return this.applyFilter(
-      this.allCategoryPaths().sort((a, b) => a.localeCompare(b)), VIEW_CATEGORIES,
+      this.allCategoryPaths().sort((a, b) => a.localeCompare(b)),
+      VIEW_CATEGORIES,
     );
   }
 
   // Direct child category-nodes under `parentPath` (undefined = top level),
   // built from the '-' segments of every category path (see explorerCategories).
-  categoryChildren(parentPath?: string): { segment: string; fullPath: string; hasChildren: boolean }[] {
+  categoryChildren(
+    parentPath?: string,
+  ): { segment: string; fullPath: string; hasChildren: boolean }[] {
     return categoryChildNodes(this.allCategoryPaths(), parentPath);
   }
 
@@ -909,7 +992,8 @@ class ExplorerController {
       .filter((e) => categoryMatches(e.category, classCategory))
       .map((e) => e.className);
     return this.applyFilter(
-      [...new Set(names)].sort((a, b) => a.localeCompare(b)), VIEW_CLASSES,
+      [...new Set(names)].sort((a, b) => a.localeCompare(b)),
+      VIEW_CLASSES,
     );
   }
 
@@ -947,7 +1031,9 @@ class ExplorerController {
     if (session) {
       try {
         names = queries.getDefinedInstVarNames(session, className);
-      } catch { /* leave empty — the row simply shows no children */ }
+      } catch {
+        /* leave empty — the row simply shows no children */
+      }
     }
     this.definedIvarNamesCache.set(className, names);
     return names;
@@ -960,8 +1046,9 @@ class ExplorerController {
   async renameInstVar(item: IvarItem): Promise<void> {
     const entered = await vscode.window.showInputBox({
       title: 'Rename Instance Variable — not available yet',
-      prompt: `'${item.ivarName}' in ${item.className}. `
-        + 'Renaming is not implemented yet; accepting will not change anything.',
+      prompt:
+        `'${item.ivarName}' in ${item.className}. ` +
+        'Renaming is not implemented yet; accepting will not change anything.',
       value: item.ivarName,
       valueSelection: [0, item.ivarName.length],
     });
@@ -969,9 +1056,9 @@ class ExplorerController {
     // they changed the name or just pressed Enter — surfaces the not-yet message.
     if (entered === undefined) return;
     void vscode.window.showInformationMessage(
-      `Renaming instance variables isn't available yet — '${item.ivarName}' in `
-      + `${item.className} was left unchanged. The refactoring engine wiring lands `
-      + 'in the next stage.',
+      `Renaming instance variables isn't available yet — '${item.ivarName}' in ` +
+        `${item.className} was left unchanged. The refactoring engine wiring lands ` +
+        'in the next stage.',
     );
   }
 
@@ -980,8 +1067,9 @@ class ExplorerController {
   methodCategories(isMeta: boolean): MethodCategoryItem[] {
     const lines = this.envLines.filter((l) => l.isMeta === isMeta);
     const real = [...new Set(lines.map((l) => l.category).filter((c) => c && c.length))];
-    const fresh = [...this.newMethodCategories[isMeta ? 'meta' : 'instance']]
-      .filter((c) => !real.includes(c));
+    const fresh = [...this.newMethodCategories[isMeta ? 'meta' : 'instance']].filter(
+      (c) => !real.includes(c),
+    );
     const combined = [...real, ...fresh].sort((a, b) => a.localeCompare(b));
     if (lines.length === 0 && combined.length === 0) return [];
     const hasSession = lines.some(
@@ -1091,8 +1179,9 @@ class ExplorerController {
     if (name && name.trim()) {
       const trimmed = name.trim();
       const lower = trimmed.toLowerCase();
-      chosen = entries.find((e) => e.className === trimmed)
-        ?? entries.find((e) => e.className.toLowerCase() === lower);
+      chosen =
+        entries.find((e) => e.className === trimmed) ??
+        entries.find((e) => e.className.toLowerCase() === lower);
       if (!chosen) {
         void vscode.window.showWarningMessage(`No class matching "${trimmed}".`);
         return;
@@ -1113,7 +1202,9 @@ class ExplorerController {
   // Never opens the class-definition editor — that's an explicit action now (the
   // class-row button / menu). `opts.revealMethod` reveals+selects a method row.
   private async revealClass(
-    dictName: string, dictIndex: number, className: string,
+    dictName: string,
+    dictIndex: number,
+    className: string,
     opts: { revealMethod?: { selector: string; isMeta: boolean } } = {},
   ): Promise<void> {
     const session = this.session();
@@ -1162,25 +1253,33 @@ class ExplorerController {
     // already correct from state, so treat reveal purely as a highlight nicety.
     try {
       await this.views?.dict.reveal(new DictItem(dictName, dictIndex), { select: true });
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     if (this.state.classCategory) {
       const path = this.state.classCategory;
       const segment = path.split('-').pop() ?? path;
       try {
-        await this.views?.category.reveal(
-          new ClassCategoryItem(segment, path, false), { select: true, expand: true },
-        );
-      } catch { /* ignore */ }
+        await this.views?.category.reveal(new ClassCategoryItem(segment, path, false), {
+          select: true,
+          expand: true,
+        });
+      } catch {
+        /* ignore */
+      }
     }
     const focusClass = opts.revealMethod === undefined;
     try {
       await this.views?.klass.reveal(new ClassItem(className), { select: true, focus: focusClass });
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     if (opts.revealMethod) {
       // Reveal under the always-expanded ALL METHODS node (displayCategory).
-      const info = this.selectorsFor(opts.revealMethod.isMeta, ALL_METHODS_CATEGORY)
-        .find((i) => i.selector === opts.revealMethod!.selector);
+      const info = this.selectorsFor(opts.revealMethod.isMeta, ALL_METHODS_CATEGORY).find(
+        (i) => i.selector === opts.revealMethod!.selector,
+      );
       if (info) {
         try {
           await this.views?.method.reveal(
@@ -1188,7 +1287,9 @@ class ExplorerController {
             { select: true, focus: false, expand: true },
           );
           this.syncTitles();
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
     }
   }
@@ -1227,8 +1328,9 @@ class ExplorerController {
     // Already showing this class: just (re)reveal the method row / refresh title.
     if (this.state.className === className && this.state.dictName === dictName) {
       if (revealMethod) {
-        const info = this.selectorsFor(revealMethod.isMeta, ALL_METHODS_CATEGORY)
-          .find((i) => i.selector === revealMethod!.selector);
+        const info = this.selectorsFor(revealMethod.isMeta, ALL_METHODS_CATEGORY).find(
+          (i) => i.selector === revealMethod!.selector,
+        );
         if (info) {
           try {
             await this.views?.method.reveal(
@@ -1236,7 +1338,9 @@ class ExplorerController {
               { select: true, focus: false, expand: true },
             );
             this.syncTitles();
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
       }
       return;
@@ -1252,9 +1356,12 @@ class ExplorerController {
   async newDictionary(): Promise<void> {
     const session = this.session();
     if (!session) return;
-    const name = (await vscode.window.showInputBox({
-      prompt: 'New dictionary name', placeHolder: 'e.g. MyProject',
-    }))?.trim();
+    const name = (
+      await vscode.window.showInputBox({
+        prompt: 'New dictionary name',
+        placeHolder: 'e.g. MyProject',
+      })
+    )?.trim();
     if (!name) return;
     queries.addDictionary(session, name);
     this.dictProvider.refresh();
@@ -1267,7 +1374,9 @@ class ExplorerController {
       this.selectDict(item);
       try {
         await this.views?.dict.reveal(item, { select: true, focus: true });
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
   }
 
@@ -1276,9 +1385,12 @@ class ExplorerController {
       void vscode.window.showWarningMessage('Select a dictionary first.');
       return;
     }
-    const name = (await vscode.window.showInputBox({
-      prompt: 'New class category name', placeHolder: 'e.g. Model',
-    }))?.trim();
+    const name = (
+      await vscode.window.showInputBox({
+        prompt: 'New class category name',
+        placeHolder: 'e.g. Model',
+      })
+    )?.trim();
     if (!name) return;
     // Class categories in GemStone exist only implicitly (a class names one), so
     // hold the new name locally until a class is filed into it, then select it.
@@ -1292,10 +1404,13 @@ class ExplorerController {
     this.syncTitles();
     const segment = name.split('-').pop() ?? name;
     try {
-      await this.views?.category.reveal(
-        new ClassCategoryItem(segment, name, false), { select: true, expand: true },
-      );
-    } catch { /* ignore */ }
+      await this.views?.category.reveal(new ClassCategoryItem(segment, name, false), {
+        select: true,
+        expand: true,
+      });
+    } catch {
+      /* ignore */
+    }
   }
 
   newClass(): void {
@@ -1317,9 +1432,12 @@ class ExplorerController {
       void vscode.window.showWarningMessage('Select a class first.');
       return;
     }
-    const name = (await vscode.window.showInputBox({
-      prompt: 'New method category name', placeHolder: 'e.g. accessing',
-    }))?.trim();
+    const name = (
+      await vscode.window.showInputBox({
+        prompt: 'New method category name',
+        placeHolder: 'e.g. accessing',
+      })
+    )?.trim();
     if (!name) return;
     const isMeta = this.state.selectedIsMeta ?? false;
     this.newMethodCategories[isMeta ? 'meta' : 'instance'].add(name);
@@ -1330,8 +1448,12 @@ class ExplorerController {
 
   async newMethod(): Promise<void> {
     const session = this.session();
-    if (!session || this.state.dictName === undefined
-      || this.state.className === undefined || this.state.dictIndex === undefined) {
+    if (
+      !session ||
+      this.state.dictName === undefined ||
+      this.state.className === undefined ||
+      this.state.dictIndex === undefined
+    ) {
       void vscode.window.showWarningMessage('Select a class first.');
       return;
     }
@@ -1341,7 +1463,9 @@ class ExplorerController {
     let writable = true;
     try {
       writable = queries.canClassBeWritten(session, this.state.className, this.state.dictIndex);
-    } catch { /* session busy — let the compile itself report any failure */ }
+    } catch {
+      /* session busy — let the compile itself report any failure */
+    }
     if (!writable) {
       void vscode.window.showWarningMessage(
         `${this.state.className} is not writable in this repository — cannot add a method.`,
@@ -1365,10 +1489,17 @@ class ExplorerController {
       if (!pick) return;
       isMeta = pick.meta;
     }
-    const category = (this.state.selectedIsMeta === isMeta && this.state.selectedMethodCategory)
-      ? this.state.selectedMethodCategory : 'as yet unclassified';
+    const category =
+      this.state.selectedIsMeta === isMeta && this.state.selectedMethodCategory
+        ? this.state.selectedMethodCategory
+        : 'as yet unclassified';
     const uri = buildNewMethodUri(
-      session.id, this.state.dictName, this.state.className, isMeta, category, 0,
+      session.id,
+      this.state.dictName,
+      this.state.className,
+      isMeta,
+      category,
+      0,
       this.state.dictIndex,
     );
     const doc = await vscode.workspace.openTextDocument(uri);
@@ -1385,8 +1516,11 @@ class ExplorerController {
   // dictionary, so state.dictIndex scopes every lookup.
 
   dragPayload(item: MethodItem): MethodDragPayload | undefined {
-    if (this.state.className === undefined || this.state.dictName === undefined
-      || this.state.dictIndex === undefined) {
+    if (
+      this.state.className === undefined ||
+      this.state.dictName === undefined ||
+      this.state.dictIndex === undefined
+    ) {
       return undefined;
     }
     return {
@@ -1406,7 +1540,9 @@ class ExplorerController {
     try {
       queries.recategorizeMethod(session, p.className, p.isMeta, p.selector, category, p.dictIndex);
     } catch (e) {
-      void vscode.window.showErrorMessage(`Move failed: ${e instanceof Error ? e.message : String(e)}`);
+      void vscode.window.showErrorMessage(
+        `Move failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
       return;
     }
     this.reloadIfCurrent(p.className, p.dictIndex);
@@ -1419,10 +1555,18 @@ class ExplorerController {
     if (!session || targetClass === p.className) return;
     try {
       queries.copyMethodToClass(
-        session, p.className, targetClass, p.isMeta, p.selector, 0, p.dictIndex,
+        session,
+        p.className,
+        targetClass,
+        p.isMeta,
+        p.selector,
+        0,
+        p.dictIndex,
       );
     } catch (e) {
-      void vscode.window.showErrorMessage(`Copy failed: ${e instanceof Error ? e.message : String(e)}`);
+      void vscode.window.showErrorMessage(
+        `Copy failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
       return;
     }
     this.reloadIfCurrent(targetClass, p.dictIndex);
@@ -1432,7 +1576,8 @@ class ExplorerController {
   // Reload the method list when the class just mutated is the one on screen.
   private reloadIfCurrent(className: string, dictIndex: number): void {
     const session = this.session();
-    if (!session || this.state.className !== className || this.state.dictIndex !== dictIndex) return;
+    if (!session || this.state.className !== className || this.state.dictIndex !== dictIndex)
+      return;
     this.envLines = queries.getClassEnvironments(session, dictIndex, className, this.maxEnv());
     this.methodProvider.refresh();
     this.syncTitles();
@@ -1460,8 +1605,11 @@ class ExplorerController {
   // ▼ arrow: overrides of this selector down in the subclasses.
   private hierarchy(selector: string, isMeta: boolean, direction: 'up' | 'down'): void {
     const sessionId = this.sessionId();
-    if (sessionId === undefined || this.state.className === undefined
-      || this.state.dictIndex === undefined) {
+    if (
+      sessionId === undefined ||
+      this.state.className === undefined ||
+      this.state.dictIndex === undefined
+    ) {
       return;
     }
     void vscode.commands.executeCommand('gemstone.hierarchyImplementorsOf', {
@@ -1489,12 +1637,19 @@ class ExplorerController {
 
   onExternalMethodCompiled(sessionId: number, className: string): void {
     const session = this.session();
-    if (!session || session.id !== sessionId || this.state.className !== className
-      || this.state.dictIndex === undefined) {
+    if (
+      !session ||
+      session.id !== sessionId ||
+      this.state.className !== className ||
+      this.state.dictIndex === undefined
+    ) {
       return;
     }
     this.envLines = queries.getClassEnvironments(
-      session, this.state.dictIndex, className, this.maxEnv(),
+      session,
+      this.state.dictIndex,
+      className,
+      this.maxEnv(),
     );
     this.methodProvider.refresh();
     this.syncTitles();
@@ -1509,8 +1664,10 @@ class ExplorerController {
     this.classProvider.refresh();
     // If the compiled class lives in the current dictionary, select it so the
     // freshly-created class is highlighted and its methods load.
-    if (this.classCategoryEntries.some((e) => e.className === className)
-      && this.state.dictName !== undefined) {
+    if (
+      this.classCategoryEntries.some((e) => e.className === className) &&
+      this.state.dictName !== undefined
+    ) {
       void this.revealClass(this.state.dictName, this.state.dictIndex, className);
     } else {
       this.syncTitles();
@@ -1580,13 +1737,12 @@ class ClassProvider extends RefreshableProvider<ClassNode> {
   getChildren(element?: ClassNode): ClassNode[] {
     if (this.ctl.state.dictName === undefined) return [];
     if (!element) {
-      return this.ctl.classNames().map(
-        (n) => new ClassItem(n, this.ctl.classHasDefinedIvars(n)),
-      );
+      return this.ctl.classNames().map((n) => new ClassItem(n, this.ctl.classHasDefinedIvars(n)));
     }
     // Expand a class to its locally-defined instance variables; ivar rows are leaves.
     if (element instanceof ClassItem) {
-      return this.ctl.definedIvarNames(element.className)
+      return this.ctl
+        .definedIvarNames(element.className)
         .map((iv) => new IvarItem(element.className, iv));
     }
     return [];
@@ -1615,8 +1771,9 @@ class MethodProvider extends RefreshableProvider<MethodNode> {
   getParent(element: MethodNode): MethodNode | undefined {
     if (element instanceof MethodItem) {
       if (element.displayCategory === undefined) return new MethodSideItem(element.isMeta);
-      const computed = element.displayCategory === ALL_METHODS_CATEGORY
-        || element.displayCategory === SESSION_METHODS_CATEGORY;
+      const computed =
+        element.displayCategory === ALL_METHODS_CATEGORY ||
+        element.displayCategory === SESSION_METHODS_CATEGORY;
       return new MethodCategoryItem(element.isMeta, element.displayCategory, computed);
     }
     if (element instanceof MethodCategoryItem) return new MethodSideItem(element.isMeta);
@@ -1663,7 +1820,10 @@ class MethodDragAndDrop implements vscode.TreeDragAndDropController<MethodNode> 
     if (payload) dataTransfer.set(METHOD_MIME, new vscode.DataTransferItem(payload));
   }
 
-  async handleDrop(target: MethodNode | undefined, dataTransfer: vscode.DataTransfer): Promise<void> {
+  async handleDrop(
+    target: MethodNode | undefined,
+    dataTransfer: vscode.DataTransfer,
+  ): Promise<void> {
     const raw = dataTransfer.get(METHOD_MIME);
     if (!raw) return;
     const payload = raw.value as MethodDragPayload;
@@ -1682,9 +1842,14 @@ class ClassDropController implements vscode.TreeDragAndDropController<ClassNode>
   readonly dropMimeTypes = [METHOD_MIME];
   constructor(private readonly ctl: ExplorerController) {}
 
-  handleDrag(): void { /* classes aren't draggable */ }
+  handleDrag(): void {
+    /* classes aren't draggable */
+  }
 
-  async handleDrop(target: ClassNode | undefined, dataTransfer: vscode.DataTransfer): Promise<void> {
+  async handleDrop(
+    target: ClassNode | undefined,
+    dataTransfer: vscode.DataTransfer,
+  ): Promise<void> {
     if (!(target instanceof ClassItem)) return;
     const raw = dataTransfer.get(METHOD_MIME);
     if (!raw) return;
@@ -1743,8 +1908,11 @@ export function registerGemStoneExplorer(
     dragAndDropController: new MethodDragAndDrop(ctl),
   });
   ctl.setViews({
-    dict: dictView, category: categoryView, klass: classView,
-    hierarchy: hierarchyView, method: methodView,
+    dict: dictView,
+    category: categoryView,
+    klass: classView,
+    hierarchy: hierarchyView,
+    method: methodView,
   });
 
   dictView.onDidChangeSelection((e) => {
@@ -1787,7 +1955,10 @@ export function registerGemStoneExplorer(
     }),
     // The manual Refresh button reloads in place, keeping the user's selection
     // (a full reset only happens on a session switch, below).
-    vscode.commands.registerCommand('gemstone.explorer.refresh', () => void ctl.refreshRetainingSelection()),
+    vscode.commands.registerCommand(
+      'gemstone.explorer.refresh',
+      () => void ctl.refreshRetainingSelection(),
+    ),
     // Per-pane filter buttons: open a live filter input (prefix match, '*'
     // wildcard) that filters the pane in place — works regardless of where
     // focus currently sits (e.g. the editor).
@@ -1799,67 +1970,67 @@ export function registerGemStoneExplorer(
     ...EXPLORER_VIEWS.map((viewId) =>
       vscode.commands.registerCommand(`${viewId}.clearFilter`, () => ctl.clearFilter(viewId)),
     ),
-    vscode.commands.registerCommand(
-      'gemstone.explorer.openMethodToSide',
-      (node: MethodItem) => {
-        if (node instanceof MethodItem) void ctl.openMethod(node, true);
-      },
-    ),
+    vscode.commands.registerCommand('gemstone.explorer.openMethodToSide', (node: MethodItem) => {
+      if (node instanceof MethodItem) void ctl.openMethod(node, true);
+    }),
     // Ctrl/Cmd+Enter in the Methods pane: open the selected method in a new
     // source editor to the side (same as the row's ↗ button). Keybindings don't
     // pass the tree selection, so read it from the view here.
-    vscode.commands.registerCommand(
-      'gemstone.explorer.openSelectedMethodToSide',
-      () => {
-        const node = methodView.selection[0];
-        if (node instanceof MethodItem) void ctl.openMethod(node, true);
-      },
-    ),
+    vscode.commands.registerCommand('gemstone.explorer.openSelectedMethodToSide', () => {
+      const node = methodView.selection[0];
+      if (node instanceof MethodItem) void ctl.openMethod(node, true);
+    }),
     // Find Class: cascade the panes to a class by name (from the Classes pane
     // title button or the command palette).
-    vscode.commands.registerCommand(
-      'gemstone.explorer.findClass',
-      (name?: string) => ctl.findClass(typeof name === 'string' ? name : undefined),
+    vscode.commands.registerCommand('gemstone.explorer.findClass', (name?: string) =>
+      ctl.findClass(typeof name === 'string' ? name : undefined),
     ),
     // Open a class's definition editor (inline button / menu on the class row —
     // a plain class click no longer auto-opens it; a double-click does).
     vscode.commands.registerCommand(
       'gemstone.explorer.openDefinition',
-      (item?: ClassItem) => void ctl.openClassDefinition(item instanceof ClassItem ? item : undefined),
+      (item?: ClassItem) =>
+        void ctl.openClassDefinition(item instanceof ClassItem ? item : undefined),
     ),
     vscode.commands.registerCommand(
       'gemstone.explorer.openDefinitionToSide',
-      (item?: ClassItem) => void ctl.openClassDefinition(item instanceof ClassItem ? item : undefined, true),
+      (item?: ClassItem) =>
+        void ctl.openClassDefinition(item instanceof ClassItem ? item : undefined, true),
     ),
     // Same button on a Hierarchy node — opens that class's definition to the side
     // (resolving its own dictionary), without navigating the panels.
     vscode.commands.registerCommand(
       'gemstone.explorer.openHierarchyDefinition',
-      (item?: HierarchyItem) => { if (item instanceof HierarchyItem) void ctl.openHierarchyDefinition(item); },
+      (item?: HierarchyItem) => {
+        if (item instanceof HierarchyItem) void ctl.openHierarchyDefinition(item);
+      },
     ),
     // Per-click hook powering double-click-to-open-definition.
-    vscode.commands.registerCommand(
-      'gemstone.explorer.classClicked',
-      (className?: string) => { if (typeof className === 'string') ctl.handleClassClick(className); },
-    ),
+    vscode.commands.registerCommand('gemstone.explorer.classClicked', (className?: string) => {
+      if (typeof className === 'string') ctl.handleClassClick(className);
+    }),
     // Generate a Grail (.py) stub for a class — Classes/Hierarchy menus and the
     // Command Palette all route here.
     vscode.commands.registerCommand(
       'gemstone.generateGrailStub',
-      (item?: ClassItem | HierarchyItem) => void ctl.generateGrailStub(
-        item instanceof ClassItem || item instanceof HierarchyItem ? item : undefined,
-      ),
+      (item?: ClassItem | HierarchyItem) =>
+        void ctl.generateGrailStub(
+          item instanceof ClassItem || item instanceof HierarchyItem ? item : undefined,
+        ),
     ),
     // Rename a locally-defined instance variable (pencil on the ivar row).
-    vscode.commands.registerCommand(
-      'gemstone.explorer.renameIvar',
-      (item?: IvarItem) => { if (item instanceof IvarItem) void ctl.renameInstVar(item); },
-    ),
+    vscode.commands.registerCommand('gemstone.explorer.renameIvar', (item?: IvarItem) => {
+      if (item instanceof IvarItem) void ctl.renameInstVar(item);
+    }),
     // New (+) actions, one per pane.
     vscode.commands.registerCommand('gemstone.explorer.newDictionary', () => ctl.newDictionary()),
-    vscode.commands.registerCommand('gemstone.explorer.newClassCategory', () => ctl.newClassCategory()),
+    vscode.commands.registerCommand('gemstone.explorer.newClassCategory', () =>
+      ctl.newClassCategory(),
+    ),
     vscode.commands.registerCommand('gemstone.explorer.newClass', () => ctl.newClass()),
-    vscode.commands.registerCommand('gemstone.explorer.newMethodCategory', () => ctl.newMethodCategory()),
+    vscode.commands.registerCommand('gemstone.explorer.newMethodCategory', () =>
+      ctl.newMethodCategory(),
+    ),
     vscode.commands.registerCommand('gemstone.explorer.newMethod', () => ctl.newMethod()),
     // Indicator / method actions: browse implementors, senders, and the
     // superclass (▲) / subclass (▼) implementations behind the override arrows.
@@ -1873,10 +2044,13 @@ export function registerGemStoneExplorer(
       const sel = methodArg(arg);
       if (sel) ctl.sendersOf(sel.selector);
     }),
-    vscode.commands.registerCommand('gemstone.explorer.superImplementors', (arg: MethodCommandArg) => {
-      const sel = methodArg(arg);
-      if (sel) ctl.superImplementors(sel.selector, sel.isMeta);
-    }),
+    vscode.commands.registerCommand(
+      'gemstone.explorer.superImplementors',
+      (arg: MethodCommandArg) => {
+        const sel = methodArg(arg);
+        if (sel) ctl.superImplementors(sel.selector, sel.isMeta);
+      },
+    ),
     vscode.commands.registerCommand('gemstone.explorer.subOverrides', (arg: MethodCommandArg) => {
       const sel = methodArg(arg);
       if (sel) ctl.subOverrides(sel.selector, sel.isMeta);

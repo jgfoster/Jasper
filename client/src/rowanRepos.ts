@@ -30,7 +30,7 @@ export class RowanRepoRegistry {
    * path updates its name/gitUrl in place rather than duplicating the entry.
    */
   async add(repo: TrackedRepo): Promise<void> {
-    const repos = this.list().filter(r => r.path !== repo.path);
+    const repos = this.list().filter((r) => r.path !== repo.path);
     repos.push(repo);
     await this.storage.update(STORAGE_KEY, repos);
   }
@@ -38,7 +38,7 @@ export class RowanRepoRegistry {
   /** Stop tracking (does not touch the files on disk). */
   async remove(path: string): Promise<boolean> {
     const repos = this.list();
-    const remaining = repos.filter(r => r.path !== path);
+    const remaining = repos.filter((r) => r.path !== path);
     if (remaining.length === repos.length) return false;
     await this.storage.update(STORAGE_KEY, remaining);
     return true;

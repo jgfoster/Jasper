@@ -33,10 +33,10 @@ export class SelectorBreakpointManager {
 
   register(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
-      vscode.window.onDidChangeActiveTextEditor(editor => {
+      vscode.window.onDidChangeActiveTextEditor((editor) => {
         if (editor) this.refreshDecorations(editor);
       }),
-      vscode.window.onDidChangeVisibleTextEditors(editors => {
+      vscode.window.onDidChangeVisibleTextEditors((editors) => {
         for (const editor of editors) this.refreshDecorations(editor);
       }),
     );
@@ -67,22 +67,30 @@ export class SelectorBreakpointManager {
     if (!target) return;
 
     // Use the primary (first) entry for this step point for tracking
-    const primary = infos.find(i => i.stepPoint === target.stepPoint) ?? target;
+    const primary = infos.find((i) => i.stepPoint === target.stepPoint) ?? target;
 
     const tracked = this.breakpoints.get(uriKey) ?? [];
-    const existingIdx = tracked.findIndex(bp => bp.stepPoint === target.stepPoint);
+    const existingIdx = tracked.findIndex((bp) => bp.stepPoint === target.stepPoint);
 
     try {
       if (existingIdx >= 0) {
         queries.clearBreakAtStepPoint(
-          session, method.className, method.isMeta, method.selector,
-          target.stepPoint, method.environmentId,
+          session,
+          method.className,
+          method.isMeta,
+          method.selector,
+          target.stepPoint,
+          method.environmentId,
         );
         tracked.splice(existingIdx, 1);
       } else {
         queries.setBreakAtStepPoint(
-          session, method.className, method.isMeta, method.selector,
-          target.stepPoint, method.environmentId,
+          session,
+          method.className,
+          method.isMeta,
+          method.selector,
+          target.stepPoint,
+          method.environmentId,
         );
         tracked.push({
           stepPoint: primary.stepPoint,
@@ -119,18 +127,22 @@ export class SelectorBreakpointManager {
         // Highlight all keyword parts (e.g., both assert: and equals:)
         for (const info of cached) {
           if (info.stepPoint === bp.stepPoint) {
-            ranges.push(new vscode.Range(
-              editor.document.positionAt(info.selectorOffset),
-              editor.document.positionAt(info.selectorOffset + info.selectorLength),
-            ));
+            ranges.push(
+              new vscode.Range(
+                editor.document.positionAt(info.selectorOffset),
+                editor.document.positionAt(info.selectorOffset + info.selectorLength),
+              ),
+            );
           }
         }
       } else {
         // Fallback: use the tracked entry's own range
-        ranges.push(new vscode.Range(
-          editor.document.positionAt(bp.selectorOffset),
-          editor.document.positionAt(bp.selectorOffset + bp.selectorLength),
-        ));
+        ranges.push(
+          new vscode.Range(
+            editor.document.positionAt(bp.selectorOffset),
+            editor.document.positionAt(bp.selectorOffset + bp.selectorLength),
+          ),
+        );
       }
     }
     editor.setDecorations(decorationType, ranges);
@@ -163,7 +175,10 @@ export class SelectorBreakpointManager {
   }
 
   private getSelectorInfos(
-    session: ActiveSession, uri: vscode.Uri, method: MethodRef, source?: string,
+    session: ActiveSession,
+    uri: vscode.Uri,
+    method: MethodRef,
+    source?: string,
   ): StepPointSelectorInfo[] | null {
     const uriKey = uri.toString();
     const cached = this.selectorInfoCache.get(uriKey);
@@ -171,7 +186,11 @@ export class SelectorBreakpointManager {
 
     try {
       const rawInfos = queries.getStepPointSelectorRanges(
-        session, method.className, method.isMeta, method.selector, method.environmentId,
+        session,
+        method.className,
+        method.isMeta,
+        method.selector,
+        method.environmentId,
       );
       const infos = source ? expandKeywordParts(source, rawInfos) : rawInfos;
       this.selectorInfoCache.set(uriKey, infos);
@@ -219,8 +238,10 @@ export function findNearestStepPoint(
 
   // First: exact containment — cursor is within a selector token
   for (const info of infos) {
-    if (cursorOffset >= info.selectorOffset &&
-        cursorOffset <= info.selectorOffset + info.selectorLength) {
+    if (
+      cursorOffset >= info.selectorOffset &&
+      cursorOffset <= info.selectorOffset + info.selectorLength
+    ) {
       return info;
     }
   }
@@ -268,15 +289,27 @@ export function expandKeywordParts(
     while (pos < source.length && depth >= 0) {
       const ch = source[pos];
 
-      if (ch === '(' || ch === '[' || ch === '{') { depth++; pos++; continue; }
-      if (ch === ')' || ch === ']' || ch === '}') { depth--; if (depth < 0) break; pos++; continue; }
+      if (ch === '(' || ch === '[' || ch === '{') {
+        depth++;
+        pos++;
+        continue;
+      }
+      if (ch === ')' || ch === ']' || ch === '}') {
+        depth--;
+        if (depth < 0) break;
+        pos++;
+        continue;
+      }
       if (ch === '.' || ch === ';') break;
 
       // Skip string literals (handle embedded '' quotes)
       if (ch === "'") {
         pos++;
         while (pos < source.length) {
-          if (source[pos] === "'") { pos++; if (pos >= source.length || source[pos] !== "'") break; }
+          if (source[pos] === "'") {
+            pos++;
+            if (pos >= source.length || source[pos] !== "'") break;
+          }
           pos++;
         }
         continue;

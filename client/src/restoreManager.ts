@@ -99,15 +99,19 @@ function gciErrorNumberOf(e: unknown): number | undefined {
 function timestamp(): string {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-    + `_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`
+  );
 }
 
 // Where the current extent is preserved before the restore overwrites it: a
 // smart, sortable name under <dbPath>/backups/backupExtents. Exported for tests.
 export function preRestoreExtentPath(dbPath: string, stoneName: string): string {
   return path.join(
-    dbPath, 'backups', 'backupExtents',
+    dbPath,
+    'backups',
+    'backupExtents',
     `extent0_preRestore_${stoneName}_${timestamp()}.dbf`,
   );
 }
@@ -129,7 +133,11 @@ async function runRestoreCall(session: RestoreSession, backupFile: string): Prom
     throw e;
   } finally {
     // The session is already gone on the 4046 path; log out best-effort otherwise.
-    try { session.logout(); } catch { /* already logged out */ }
+    try {
+      session.logout();
+    } catch {
+      /* already logged out */
+    }
   }
 }
 
@@ -145,8 +153,8 @@ export async function runLogicalRestore(deps: LogicalRestoreDeps): Promise<boole
   }
   if (!hasPrivilege) {
     vscode.window.showErrorMessage(
-      'A full logical restore requires the FileControl privilege. Connect as a user that has it '
-      + '(for example DataCurator or SystemUser) and try again.',
+      'A full logical restore requires the FileControl privilege. Connect as a user that has it ' +
+        '(for example DataCurator or SystemUser) and try again.',
     );
     return false;
   }
@@ -176,10 +184,10 @@ export async function runLogicalRestore(deps: LogicalRestoreDeps): Promise<boole
 
   // Point of no return: name the stone and spell out what is lost.
   const proceed = await vscode.window.showWarningMessage(
-    `Restore "${deps.stoneName}" from ${backupFile}? This REPLACES the entire repository. `
-    + 'Everything committed since this backup was taken will be permanently lost. '
-    + 'The current extent is saved aside first'
-    + (freshExtent ? ', then replaced with a fresh extent.' : '.'),
+    `Restore "${deps.stoneName}" from ${backupFile}? This REPLACES the entire repository. ` +
+      'Everything committed since this backup was taken will be permanently lost. ' +
+      'The current extent is saved aside first' +
+      (freshExtent ? ', then replaced with a fresh extent.' : '.'),
     { modal: true },
     'Restore',
   );
@@ -240,7 +248,11 @@ export async function runLogicalRestore(deps: LogicalRestoreDeps): Promise<boole
           throw e;
         }
       } finally {
-        try { admin.logout(); } catch { /* ignore */ }
+        try {
+          admin.logout();
+        } catch {
+          /* ignore */
+        }
       }
     }
   } catch (e) {
@@ -248,8 +260,8 @@ export async function runLogicalRestore(deps: LogicalRestoreDeps): Promise<boole
     status.color = new vscode.ThemeColor(FAILURE_COLOR);
     setTimeout(() => status.dispose(), STATUS_SUCCESS_MS);
     vscode.window.showErrorMessage(
-      `Full logical restore failed: ${errorMessage(e)}. The current extent was saved under `
-      + `${path.join(deps.dbPath, 'backups', 'backupExtents')}.`,
+      `Full logical restore failed: ${errorMessage(e)}. The current extent was saved under ` +
+        `${path.join(deps.dbPath, 'backups', 'backupExtents')}.`,
     );
     return false;
   }

@@ -25,14 +25,14 @@ export async function findMethodInClass(sessionManager: SessionManager): Promise
 
   // createQuickPick (not showQuickPick) so the selected class can be
   // pre-highlighted via activeItems without also filtering the list.
-  const pickedClass = await new Promise<ClassPickItem | undefined>(resolve => {
+  const pickedClass = await new Promise<ClassPickItem | undefined>((resolve) => {
     const qp = vscode.window.createQuickPick<ClassPickItem>();
     qp.items = classItems;
     qp.matchOnDescription = true;
     qp.placeholder = 'Type to find a class…';
     if (current) {
       const preselected = classItems.find(
-        i => i.entry.className === current.className && i.entry.dictIndex === current.dictIndex,
+        (i) => i.entry.className === current.className && i.entry.dictIndex === current.dictIndex,
       );
       if (preselected) qp.activeItems = [preselected];
     }
@@ -62,7 +62,7 @@ export async function findMethodInClass(sessionManager: SessionManager): Promise
     return;
   }
 
-  const items = methods.map(m => ({
+  const items = methods.map((m) => ({
     label: `${m.isMeta ? '(class) ' : ''}${m.selector}`,
     description: m.category,
     method: m,
@@ -77,7 +77,12 @@ export async function findMethodInClass(sessionManager: SessionManager): Promise
   const result: queries.MethodSearchResult = { dictName, className, ...picked.method };
 
   if (!SystemBrowser.navigateTo(session.id, result)) {
-    const uri = buildMethodUri({ kind: 'method', sessionId: session.id, ...result, environmentId: 0 });
+    const uri = buildMethodUri({
+      kind: 'method',
+      sessionId: session.id,
+      ...result,
+      environmentId: 0,
+    });
     vscode.commands.executeCommand('gemstone.openDocument', uri);
   }
 }

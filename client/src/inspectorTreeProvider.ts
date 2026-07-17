@@ -39,7 +39,7 @@ export class InspectorTreeProvider implements vscode.TreeDataProvider<InspectorN
   }
 
   findRootByLabel(label: string): InspectorNode | undefined {
-    return this.roots.find(r => r.label === label);
+    return this.roots.find((r) => r.label === label);
   }
 
   addRoot(sessionId: number, oop: bigint, label: string): void {
@@ -80,7 +80,7 @@ export class InspectorTreeProvider implements vscode.TreeDataProvider<InspectorN
 
   removeSessionItems(sessionId: number): void {
     const before = this.roots.length;
-    this.roots = this.roots.filter(r => r.sessionId !== sessionId);
+    this.roots = this.roots.filter((r) => r.sessionId !== sessionId);
     if (this.roots.length !== before) {
       this._onDidChangeTreeData.fire(undefined);
     }
@@ -168,7 +168,7 @@ export class InspectorTreeProvider implements vscode.TreeDataProvider<InspectorN
     const className = debug.getObjectClassName(session, node.oop);
     if (className === 'SymbolDictionary') {
       const entries = debug.getDictionaryEntries(session, node.oop);
-      return entries.map(e => ({
+      return entries.map((e) => ({
         sessionId: node.sessionId,
         oop: e.valueOop,
         label: e.key,

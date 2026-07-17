@@ -42,26 +42,23 @@ export async function ensureSelfSignedCert(storageDir: string): Promise<TlsMater
   const now = new Date();
   const tenYearsFromNow = new Date(now);
   tenYearsFromNow.setFullYear(tenYearsFromNow.getFullYear() + 10);
-  const pem = await generateCert(
-    [{ name: 'commonName', value: '127.0.0.1' }],
-    {
-      notBeforeDate: now,
-      notAfterDate: tenYearsFromNow,
-      keySize: 2048,
-      extensions: [
-        {
-          name: 'subjectAltName',
-          altNames: [
-            { type: 7, ip: '127.0.0.1' },
-            { type: 2, value: 'localhost' },
-          ],
-        },
-        { name: 'basicConstraints', cA: false },
-        { name: 'keyUsage', digitalSignature: true, keyEncipherment: true },
-        { name: 'extKeyUsage', serverAuth: true },
-      ],
-    },
-  );
+  const pem = await generateCert([{ name: 'commonName', value: '127.0.0.1' }], {
+    notBeforeDate: now,
+    notAfterDate: tenYearsFromNow,
+    keySize: 2048,
+    extensions: [
+      {
+        name: 'subjectAltName',
+        altNames: [
+          { type: 7, ip: '127.0.0.1' },
+          { type: 2, value: 'localhost' },
+        ],
+      },
+      { name: 'basicConstraints', cA: false },
+      { name: 'keyUsage', digitalSignature: true, keyEncipherment: true },
+      { name: 'extKeyUsage', serverAuth: true },
+    ],
+  });
 
   fs.writeFileSync(certPath, pem.cert, { mode: 0o600 });
   fs.writeFileSync(keyPath, pem.private, { mode: 0o600 });

@@ -1,8 +1,16 @@
 import { Token, TokenType, SourceRange } from '../lexer/tokens';
 import {
-  MethodNode, ExpressionNode, StatementNode, MessageNode,
-  PrimaryNode, BlockNode, LiteralNode, VariableNode,
-  KeywordMessageNode, BinaryMessageNode, SelectionBlockNode,
+  MethodNode,
+  ExpressionNode,
+  StatementNode,
+  MessageNode,
+  PrimaryNode,
+  BlockNode,
+  LiteralNode,
+  VariableNode,
+  KeywordMessageNode,
+  BinaryMessageNode,
+  SelectionBlockNode,
 } from '../parser/ast';
 import { ScopeAnalyzer, ScopeNode } from '../utils/scopeAnalyzer';
 import { isVariableInAST } from '../utils/astUtils';
@@ -10,20 +18,20 @@ import { isVariableInAST } from '../utils/astUtils';
 // ── Token Legend ────────────────────────────────────────────
 
 export const SEMANTIC_TOKEN_TYPES = [
-  'variable',   // 0 — local temps, block temps
-  'parameter',  // 1 — method arguments, block parameters
-  'property',   // 2 — instance variables (not in method scope)
-  'keyword',    // 3 — pseudo-variables: self, super, thisContext
-  'number',     // 4 — NumberLiteral
-  'string',     // 5 — StringLiteral, CharacterLiteral
-  'type',       // 6 — SpecialLiteral (true, false, nil)
-  'method',     // 7 — message selectors
-  'namespace',  // 8 — SymbolLiteral
+  'variable', // 0 — local temps, block temps
+  'parameter', // 1 — method arguments, block parameters
+  'property', // 2 — instance variables (not in method scope)
+  'keyword', // 3 — pseudo-variables: self, super, thisContext
+  'number', // 4 — NumberLiteral
+  'string', // 5 — StringLiteral, CharacterLiteral
+  'type', // 6 — SpecialLiteral (true, false, nil)
+  'method', // 7 — message selectors
+  'namespace', // 8 — SymbolLiteral
 ];
 
 export const SEMANTIC_TOKEN_MODIFIERS = [
   'declaration', // bit 0
-  'readonly',    // bit 1
+  'readonly', // bit 1
 ];
 
 const MOD_DECLARATION = 1 << 0;
@@ -55,13 +63,15 @@ export function collectSemanticTokens(
 
   function push(range: SourceRange, tokenType: number, modifiers: number = 0): void {
     // For multi-line tokens, just use the first line
-    const length = range.start.line === range.end.line
-      ? range.end.column - range.start.column
-      : range.end.column; // approximate for multi-line (rare)
+    const length =
+      range.start.line === range.end.line
+        ? range.end.column - range.start.column
+        : range.end.column; // approximate for multi-line (rare)
     if (length <= 0) return;
     result.push({
       line: range.start.line + lineOffset,
-      startChar: range.start.line === 0 ? range.start.column + selectorColumnOffset : range.start.column,
+      startChar:
+        range.start.line === 0 ? range.start.column + selectorColumnOffset : range.start.column,
       length,
       tokenType,
       modifiers,
@@ -82,8 +92,17 @@ export function collectSemanticTokens(
   // Convert an AST-local range to document-level for token lookup
   function toDocRange(range: SourceRange): SourceRange {
     return {
-      start: { ...range.start, line: range.start.line + lineOffset, column: range.start.line === 0 ? range.start.column + selectorColumnOffset : range.start.column },
-      end: { ...range.end, line: range.end.line + lineOffset, column: range.end.line === 0 ? range.end.column + selectorColumnOffset : range.end.column },
+      start: {
+        ...range.start,
+        line: range.start.line + lineOffset,
+        column:
+          range.start.line === 0 ? range.start.column + selectorColumnOffset : range.start.column,
+      },
+      end: {
+        ...range.end,
+        line: range.end.line + lineOffset,
+        column: range.end.line === 0 ? range.end.column + selectorColumnOffset : range.end.column,
+      },
     };
   }
 
@@ -99,7 +118,10 @@ export function collectSemanticTokens(
     if (pattern.range.start.line === selectorEnd.line) {
       result.push({
         line: pattern.range.start.line + lineOffset,
-        startChar: pattern.range.start.line === 0 ? pattern.range.start.column + selectorColumnOffset : pattern.range.start.column,
+        startChar:
+          pattern.range.start.line === 0
+            ? pattern.range.start.column + selectorColumnOffset
+            : pattern.range.start.column,
         length: pattern.selector.length,
         tokenType: 7,
         modifiers: MOD_DECLARATION,
@@ -316,20 +338,29 @@ export function encodeSemanticTokens(rawTokens: RawSemanticToken[]): number[] {
 function isInRange(inner: SourceRange, outer: SourceRange): boolean {
   if (inner.start.line < outer.start.line) return false;
   if (inner.end.line > outer.end.line) return false;
-  if (inner.start.line === outer.start.line && inner.start.column < outer.start.column) return false;
+  if (inner.start.line === outer.start.line && inner.start.column < outer.start.column)
+    return false;
   if (inner.end.line === outer.end.line && inner.end.column > outer.end.column) return false;
   return true;
 }
 
 function isLiteral(kind: string): boolean {
-  return kind === 'NumberLiteral' || kind === 'StringLiteral' ||
-    kind === 'SymbolLiteral' || kind === 'CharacterLiteral' ||
-    kind === 'SpecialLiteral' || kind === 'ArrayLiteral' ||
-    kind === 'ByteArrayLiteral';
+  return (
+    kind === 'NumberLiteral' ||
+    kind === 'StringLiteral' ||
+    kind === 'SymbolLiteral' ||
+    kind === 'CharacterLiteral' ||
+    kind === 'SpecialLiteral' ||
+    kind === 'ArrayLiteral' ||
+    kind === 'ByteArrayLiteral'
+  );
 }
 
 function findTokenInRange(
-  tokens: Token[], range: SourceRange, type: TokenType, text: string,
+  tokens: Token[],
+  range: SourceRange,
+  type: TokenType,
+  text: string,
 ): Token | null {
   for (const token of tokens) {
     if (token.type === type && token.text === text && isInRange(token.range, range)) {
@@ -340,14 +371,22 @@ function findTokenInRange(
 }
 
 function findBinarySelectorToken(
-  tokens: Token[], range: SourceRange, selector: string,
+  tokens: Token[],
+  range: SourceRange,
+  selector: string,
 ): Token | null {
   const binaryTypes = [
-    TokenType.BinarySelector, TokenType.Minus,
-    TokenType.LessThan, TokenType.GreaterThan,
+    TokenType.BinarySelector,
+    TokenType.Minus,
+    TokenType.LessThan,
+    TokenType.GreaterThan,
   ];
   for (const token of tokens) {
-    if (binaryTypes.includes(token.type) && token.text === selector && isInRange(token.range, range)) {
+    if (
+      binaryTypes.includes(token.type) &&
+      token.text === selector &&
+      isInRange(token.range, range)
+    ) {
       return token;
     }
   }

@@ -2,11 +2,25 @@ import { TextEdit } from 'vscode-languageserver';
 import { Token, TokenType } from '../lexer/tokens';
 import { ParsedDocument, ParsedRegion } from '../utils/documentManager';
 import {
-  MethodNode, MethodBodyNode, MessagePatternNode,
-  StatementNode, AssignmentNode, ReturnNode, ExpressionNode,
-  MessageNode, UnaryMessageNode, BinaryMessageNode, KeywordMessageNode,
-  PrimaryNode, BlockNode, SelectionBlockNode, ParenExpressionNode,
-  CurlyArrayBuilderNode, ArrayLiteralNode, ArrayItemNode, ByteArrayLiteralNode,
+  MethodNode,
+  MethodBodyNode,
+  MessagePatternNode,
+  StatementNode,
+  AssignmentNode,
+  ReturnNode,
+  ExpressionNode,
+  MessageNode,
+  UnaryMessageNode,
+  BinaryMessageNode,
+  KeywordMessageNode,
+  PrimaryNode,
+  BlockNode,
+  SelectionBlockNode,
+  ParenExpressionNode,
+  CurlyArrayBuilderNode,
+  ArrayLiteralNode,
+  ArrayItemNode,
+  ByteArrayLiteralNode,
   PragmaNode,
 } from '../parser/ast';
 import { FormatterSettings, DEFAULT_SETTINGS } from './formatterSettings';
@@ -65,13 +79,15 @@ export function formatDocument(
 
   const lastLine = lines.length - 1;
   const lastChar = lines[lastLine].length;
-  return [{
-    range: {
-      start: { line: 0, character: 0 },
-      end: { line: lastLine, character: lastChar },
+  return [
+    {
+      range: {
+        start: { line: 0, character: 0 },
+        end: { line: lastLine, character: lastChar },
+      },
+      newText,
     },
-    newText,
-  }];
+  ];
 }
 
 function makeIndent(settings: FormatterSettings): string {
@@ -92,7 +108,10 @@ function formatRegion(parsed: ParsedRegion, settings: FormatterSettings): string
 // ── Method ──────────────────────────────────────────────────
 
 function formatMethod(
-  method: MethodNode, indent: string, tokens: Token[], settings: FormatterSettings,
+  method: MethodNode,
+  indent: string,
+  tokens: Token[],
+  settings: FormatterSettings,
 ): string {
   const INDENT = makeIndent(settings);
   const parts: string[] = [];
@@ -134,14 +153,15 @@ function formatPattern(pattern: MessagePatternNode): string {
     case 'BinaryPattern':
       return `${pattern.selector} ${pattern.parameter.name}`;
     case 'KeywordPattern':
-      return pattern.keywords
-        .map((kw, i) => `${kw} ${pattern.parameters[i].name}`)
-        .join(' ');
+      return pattern.keywords.map((kw, i) => `${kw} ${pattern.parameters[i].name}`).join(' ');
   }
 }
 
 function formatBodyWithStatements(
-  body: MethodBodyNode, stmts: StatementNode[], indent: string, settings: FormatterSettings,
+  body: MethodBodyNode,
+  stmts: StatementNode[],
+  indent: string,
+  settings: FormatterSettings,
 ): string {
   const INDENT = makeIndent(settings);
   const parts: string[] = [];
@@ -165,7 +185,9 @@ function formatBodyWithStatements(
 // ── Statements ──────────────────────────────────────────────
 
 function formatStatements(
-  stmts: StatementNode[], indent: string, settings: FormatterSettings,
+  stmts: StatementNode[],
+  indent: string,
+  settings: FormatterSettings,
 ): string {
   const lines: string[] = [];
   for (const stmt of stmts) {
@@ -179,9 +201,7 @@ function formatStatements(
   return lines.join('\n');
 }
 
-function formatStatement(
-  stmt: StatementNode, indent: string, settings: FormatterSettings,
-): string {
+function formatStatement(stmt: StatementNode, indent: string, settings: FormatterSettings): string {
   switch (stmt.kind) {
     case 'Assignment':
       return formatAssignment(stmt, indent, settings);
@@ -193,7 +213,9 @@ function formatStatement(
 }
 
 function formatAssignment(
-  node: AssignmentNode, indent: string, settings: FormatterSettings,
+  node: AssignmentNode,
+  indent: string,
+  settings: FormatterSettings,
 ): string {
   const value = formatStatement(node.value, indent, settings);
   if (settings.spacesAroundAssignment) {
@@ -202,9 +224,7 @@ function formatAssignment(
   return `${node.variable.name}:=${value}`;
 }
 
-function formatReturn(
-  node: ReturnNode, indent: string, settings: FormatterSettings,
-): string {
+function formatReturn(node: ReturnNode, indent: string, settings: FormatterSettings): string {
   const expr = formatExpression(node.expression, indent, settings);
   if (settings.spaceAfterCaret) {
     return `^ ${expr}`;
@@ -217,15 +237,19 @@ function formatReturn(
 type ExpressionContext = 'standalone' | 'binary-arg' | 'keyword-arg';
 
 function formatExpression(
-  expr: ExpressionNode, indent: string, settings: FormatterSettings,
+  expr: ExpressionNode,
+  indent: string,
+  settings: FormatterSettings,
   context: ExpressionContext = 'standalone',
 ): string {
   const INDENT = makeIndent(settings);
 
   let receiver: string;
-  if (settings.removeUnnecessaryParens &&
-      expr.receiver.kind === 'ParenExpression' &&
-      canRemoveParens(expr.receiver, expr.messages, context)) {
+  if (
+    settings.removeUnnecessaryParens &&
+    expr.receiver.kind === 'ParenExpression' &&
+    canRemoveParens(expr.receiver, expr.messages, context)
+  ) {
     receiver = formatStatement(expr.receiver.expression, indent, settings);
   } else {
     receiver = formatPrimary(expr.receiver, indent, settings);
@@ -245,7 +269,10 @@ function formatExpression(
 }
 
 function formatWithMessages(
-  receiver: string, messages: MessageNode[], indent: string, settings: FormatterSettings,
+  receiver: string,
+  messages: MessageNode[],
+  indent: string,
+  settings: FormatterSettings,
 ): string {
   let result = receiver;
   for (const msg of messages) {
@@ -265,7 +292,9 @@ function formatWithMessages(
 }
 
 function formatSingleMessage(
-  msg: MessageNode, indent: string, settings: FormatterSettings,
+  msg: MessageNode,
+  indent: string,
+  settings: FormatterSettings,
 ): string {
   switch (msg.kind) {
     case 'UnaryMessage':
@@ -283,7 +312,9 @@ function formatUnaryMessage(msg: UnaryMessageNode): string {
 }
 
 function formatBinaryMessage(
-  msg: BinaryMessageNode, indent: string, settings: FormatterSettings,
+  msg: BinaryMessageNode,
+  indent: string,
+  settings: FormatterSettings,
 ): string {
   const env = msg.envSpecifier ? msg.envSpecifier : '';
   const arg = formatExpression(msg.argument, indent, settings, 'binary-arg');
@@ -294,13 +325,16 @@ function formatBinaryMessage(
 }
 
 function formatKeywordMessage(
-  receiver: string, msg: KeywordMessageNode, indent: string, settings: FormatterSettings,
+  receiver: string,
+  msg: KeywordMessageNode,
+  indent: string,
+  settings: FormatterSettings,
 ): string {
   const env = msg.envSpecifier ? msg.envSpecifier : '';
 
   // Check if all arguments are blocks
-  const blocks = msg.parts.map(part => getBlockFromExpression(part.value));
-  const allBlockArgs = blocks.every(b => b !== null);
+  const blocks = msg.parts.map((part) => getBlockFromExpression(part.value));
+  const allBlockArgs = blocks.every((b) => b !== null);
 
   if (allBlockArgs && msg.parts.length >= 2) {
     const blockList = blocks as BlockNode[];
@@ -319,10 +353,10 @@ function formatKeywordMessage(
     // → each keyword on its own line with inline block
     if (blockList.every(isSingleStatementBlock)) {
       const contIndent = indent + ' '.repeat(settings.continuationIndent);
-      const inlineBlocks = blockList.map(b => formatBlockInline(b, contIndent, settings));
+      const inlineBlocks = blockList.map((b) => formatBlockInline(b, contIndent, settings));
 
       // Only use tier 2 if all blocks format to a single line
-      if (inlineBlocks.every(s => !s.includes('\n'))) {
+      if (inlineBlocks.every((s) => !s.includes('\n'))) {
         const lines = [receiver];
         for (let i = 0; i < msg.parts.length; i++) {
           lines.push(`${contIndent}${env}${msg.parts[i].keyword} ${inlineBlocks[i]}`);
@@ -404,8 +438,12 @@ function formatBlockOpener(block: BlockNode): string {
 }
 
 function formatBracketFlowMessage(
-  receiver: string, msg: KeywordMessageNode, blocks: BlockNode[],
-  indent: string, env: string, settings: FormatterSettings,
+  receiver: string,
+  msg: KeywordMessageNode,
+  blocks: BlockNode[],
+  indent: string,
+  env: string,
+  settings: FormatterSettings,
 ): string {
   const INDENT = makeIndent(settings);
   const bodyIndent = indent + INDENT;
@@ -433,9 +471,7 @@ function formatBracketFlowMessage(
 
 // ── Primary ─────────────────────────────────────────────────
 
-function formatPrimary(
-  node: PrimaryNode, indent: string, settings: FormatterSettings,
-): string {
+function formatPrimary(node: PrimaryNode, indent: string, settings: FormatterSettings): string {
   switch (node.kind) {
     case 'Variable':
       return node.name;
@@ -497,19 +533,23 @@ function formatByteArrayLiteral(node: ByteArrayLiteralNode): string {
 
 // ── Block ───────────────────────────────────────────────────
 
-function formatBlock(
-  block: BlockNode, indent: string, settings: FormatterSettings,
-): string {
+function formatBlock(block: BlockNode, indent: string, settings: FormatterSettings): string {
   const INDENT = makeIndent(settings);
 
-  if (block.parameters.length === 0 && block.temporaries.length === 0 && block.statements.length === 0) {
+  if (
+    block.parameters.length === 0 &&
+    block.temporaries.length === 0 &&
+    block.statements.length === 0
+  ) {
     return '[]';
   }
 
   // Single simple statement with no params/temps — keep inline
   if (
-    block.parameters.length === 0 && block.temporaries.length === 0 &&
-    block.statements.length === 1 && isSimpleStatement(block.statements[0])
+    block.parameters.length === 0 &&
+    block.temporaries.length === 0 &&
+    block.statements.length === 1 &&
+    isSimpleStatement(block.statements[0])
   ) {
     const stmt = formatStatement(block.statements[0], indent, settings);
     if (settings.spacesInsideBrackets) {
@@ -546,14 +586,21 @@ function isSimpleStatement(stmt: StatementNode): boolean {
 }
 
 function isSimplePrimary(node: PrimaryNode): boolean {
-  return node.kind === 'Variable' || node.kind === 'NumberLiteral' ||
-    node.kind === 'StringLiteral' || node.kind === 'SymbolLiteral' ||
-    node.kind === 'CharacterLiteral' || node.kind === 'SpecialLiteral' ||
-    node.kind === 'Path';
+  return (
+    node.kind === 'Variable' ||
+    node.kind === 'NumberLiteral' ||
+    node.kind === 'StringLiteral' ||
+    node.kind === 'SymbolLiteral' ||
+    node.kind === 'CharacterLiteral' ||
+    node.kind === 'SpecialLiteral' ||
+    node.kind === 'Path'
+  );
 }
 
 function formatSelectionBlock(
-  node: SelectionBlockNode, indent: string, settings: FormatterSettings,
+  node: SelectionBlockNode,
+  indent: string,
+  settings: FormatterSettings,
 ): string {
   const pred = formatExpression(node.predicate, indent, settings);
   if (settings.spacesInsideBraces) {
@@ -563,7 +610,9 @@ function formatSelectionBlock(
 }
 
 function formatParenExpression(
-  node: ParenExpressionNode, indent: string, settings: FormatterSettings,
+  node: ParenExpressionNode,
+  indent: string,
+  settings: FormatterSettings,
 ): string {
   const inner = formatStatement(node.expression, indent, settings);
   if (settings.spacesInsideParens) {
@@ -575,7 +624,9 @@ function formatParenExpression(
 // ── Paren removal helpers ───────────────────────────────────
 
 function canRemoveParens(
-  paren: ParenExpressionNode, outerMessages: MessageNode[], context: ExpressionContext,
+  paren: ParenExpressionNode,
+  outerMessages: MessageNode[],
+  context: ExpressionContext,
 ): boolean {
   const inner = paren.expression;
   if (inner.kind !== 'Expression') return false;
@@ -586,16 +637,22 @@ function canRemoveParens(
   if (outerMessages.length > 0) {
     const firstMsg = outerMessages[0];
     switch (firstMsg.kind) {
-      case 'UnaryMessage': return level <= 1;
-      case 'BinaryMessage': return level <= 2;
-      case 'KeywordMessage': return level <= 2;
+      case 'UnaryMessage':
+        return level <= 1;
+      case 'BinaryMessage':
+        return level <= 2;
+      case 'KeywordMessage':
+        return level <= 2;
     }
   }
 
   switch (context) {
-    case 'standalone': return true;
-    case 'binary-arg': return level <= 1;
-    case 'keyword-arg': return level <= 2;
+    case 'standalone':
+      return true;
+    case 'binary-arg':
+      return level <= 1;
+    case 'keyword-arg':
+      return level <= 2;
   }
 }
 
@@ -620,7 +677,9 @@ function expressionLevel(expr: ExpressionNode): number {
 }
 
 function formatCurlyArray(
-  node: CurlyArrayBuilderNode, indent: string, settings: FormatterSettings,
+  node: CurlyArrayBuilderNode,
+  indent: string,
+  settings: FormatterSettings,
 ): string {
   if (node.expressions.length === 0) return '{}';
   const items = node.expressions.map((e) => formatExpression(e, indent, settings));

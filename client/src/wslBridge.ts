@@ -62,7 +62,13 @@ export function needsWsl(): boolean {
 export function getWslInfo(): WslInfo {
   if (cachedWslInfo) return cachedWslInfo;
   if (!isWindows()) {
-    cachedWslInfo = { available: false, defaultDistro: undefined, homeDir: undefined, arch: undefined, wslVersion: undefined };
+    cachedWslInfo = {
+      available: false,
+      defaultDistro: undefined,
+      homeDir: undefined,
+      arch: undefined,
+      wslVersion: undefined,
+    };
     return cachedWslInfo;
   }
   try {
@@ -83,8 +89,8 @@ export function getWslInfo(): WslInfo {
       const lines = listOutput
         .replace(/\0/g, '')
         .split('\n')
-        .map(l => l.trim())
-        .filter(l => l.length > 0);
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
       // Find the line marked with '*' (default distro)
       // Format: "* Ubuntu   Running   2"  or  "  Debian   Stopped  1"
       for (const line of lines) {
@@ -131,7 +137,13 @@ export function getWslInfo(): WslInfo {
     };
   } catch (err) {
     console.error('[wslBridge] getWslInfo failed:', err);
-    cachedWslInfo = { available: false, defaultDistro: undefined, homeDir: undefined, arch: undefined, wslVersion: undefined };
+    cachedWslInfo = {
+      available: false,
+      defaultDistro: undefined,
+      homeDir: undefined,
+      arch: undefined,
+      wslVersion: undefined,
+    };
   }
   return cachedWslInfo;
 }
@@ -259,8 +271,11 @@ export async function getWslCoreVersionAsync(): Promise<string | undefined> {
 export async function refreshWslNetworkInfo(): Promise<WslNetworkInfo> {
   if (!isWindows()) {
     cachedWslNetworkInfo = {
-      mirrored: false, ip: undefined, netldiHost: undefined,
-      wslCoreVersion: undefined, supportsMirrored: false,
+      mirrored: false,
+      ip: undefined,
+      netldiHost: undefined,
+      wslCoreVersion: undefined,
+      supportsMirrored: false,
     };
     return cachedWslNetworkInfo;
   }
@@ -271,8 +286,11 @@ export async function refreshWslNetworkInfo(): Promise<WslNetworkInfo> {
   ]);
   const netldiHost = mirrored ? 'localhost' : ip;
   cachedWslNetworkInfo = {
-    mirrored, ip, netldiHost,
-    wslCoreVersion, supportsMirrored: isMirroredCapable(wslCoreVersion),
+    mirrored,
+    ip,
+    netldiHost,
+    wslCoreVersion,
+    supportsMirrored: isMirroredCapable(wslCoreVersion),
   };
   return cachedWslNetworkInfo;
 }
@@ -301,14 +319,19 @@ export function updateWslConfigMirrored(content: string): string {
     const trimmed = lines[i].trim();
     const section = trimmed.match(/^\[([^\]]+)\]$/);
     if (section) {
-      if (wsl2Start !== -1) { break; }
+      if (wsl2Start !== -1) {
+        break;
+      }
       if (section[1].trim().toLowerCase() === 'wsl2') wsl2Start = i;
       continue;
     }
     if (wsl2Start !== -1) {
       if (trimmed.startsWith('#') || trimmed.startsWith(';') || trimmed === '') continue;
       const kv = trimmed.match(/^([A-Za-z0-9_.-]+)\s*=\s*.+$/);
-      if (kv && kv[1].toLowerCase() === 'networkingmode') { existingIdx = i; break; }
+      if (kv && kv[1].toLowerCase() === 'networkingmode') {
+        existingIdx = i;
+        break;
+      }
     }
   }
 
@@ -338,8 +361,8 @@ function parseWslListOutput(output: string): { distro?: string; version?: number
   const lines = output
     .replace(/\0/g, '')
     .split('\n')
-    .map(l => l.trim())
-    .filter(l => l.length > 0);
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
   for (const line of lines) {
     const match = line.match(/^\*\s+(\S+)\s+\S+\s+(\d+)/);
     if (match) return { distro: match[1], version: parseInt(match[2], 10) };
@@ -368,14 +391,20 @@ function normalizeArch(raw: string): string | undefined {
 export async function getWslInfoAsync(): Promise<WslInfo> {
   if (cachedWslInfo) return cachedWslInfo;
   if (!isWindows()) {
-    cachedWslInfo = { available: false, defaultDistro: undefined, homeDir: undefined, arch: undefined, wslVersion: undefined };
+    cachedWslInfo = {
+      available: false,
+      defaultDistro: undefined,
+      homeDir: undefined,
+      arch: undefined,
+      wslVersion: undefined,
+    };
     return cachedWslInfo;
   }
   try {
-    const { stdout: homeStdout } = await execAsync(
-      'wsl.exe -e sh -c "echo $HOME"',
-      { timeout: 15000, encoding: 'utf-8' },
-    );
+    const { stdout: homeStdout } = await execAsync('wsl.exe -e sh -c "echo $HOME"', {
+      timeout: 15000,
+      encoding: 'utf-8',
+    });
     const homeDir = String(homeStdout).trim() || undefined;
 
     let defaultDistro: string | undefined;
@@ -394,10 +423,10 @@ export async function getWslInfoAsync(): Promise<WslInfo> {
 
     let arch: string | undefined;
     try {
-      const { stdout: archStdout } = await execAsync(
-        'wsl.exe -e sh -c "uname -m"',
-        { timeout: 10000, encoding: 'utf-8' },
-      );
+      const { stdout: archStdout } = await execAsync('wsl.exe -e sh -c "uname -m"', {
+        timeout: 10000,
+        encoding: 'utf-8',
+      });
       arch = normalizeArch(String(archStdout));
     } catch {
       // Fall back to undefined; caller will default to x86_64
@@ -412,7 +441,13 @@ export async function getWslInfoAsync(): Promise<WslInfo> {
     };
   } catch (err) {
     console.error('[wslBridge] getWslInfoAsync failed:', err);
-    cachedWslInfo = { available: false, defaultDistro: undefined, homeDir: undefined, arch: undefined, wslVersion: undefined };
+    cachedWslInfo = {
+      available: false,
+      defaultDistro: undefined,
+      homeDir: undefined,
+      arch: undefined,
+      wslVersion: undefined,
+    };
   }
   return cachedWslInfo;
 }
@@ -446,21 +481,17 @@ export function windowsPathToWsl(windowsPath: string): string {
  * shared page cache size calculations.
  * Environment variables are passed via the `env` command inside WSL.
  */
-export function wslSpawn(
-  cmd: string,
-  args: string[],
-  env?: Record<string, string>,
-): ChildProcess {
+export function wslSpawn(cmd: string, args: string[], env?: Record<string, string>): ChildProcess {
   if (needsWsl()) {
-    const envPairs = env
-      ? Object.entries(env).map(([k, v]) => `${k}=${v}`)
-      : [];
+    const envPairs = env ? Object.entries(env).map(([k, v]) => `${k}=${v}`) : [];
     const wslArgs = ['-e', 'env', ...envPairs, cmd, ...args];
     return spawn('wsl.exe', wslArgs, { env: process.env });
   }
   const mergedEnv = { ...process.env, ...env };
   if (process.platform === 'linux') {
-    return spawn('/bin/bash', ['-c', 'ulimit -n 1024; exec "$@"', '--', cmd, ...args], { env: mergedEnv });
+    return spawn('/bin/bash', ['-c', 'ulimit -n 1024; exec "$@"', '--', cmd, ...args], {
+      env: mergedEnv,
+    });
   }
   return spawn(cmd, args, { env: mergedEnv });
 }
@@ -481,7 +512,9 @@ export function wslExecSync(
     });
   }
   const envPrefix = env
-    ? Object.entries(env).map(([k, v]) => `${k}='${v}'`).join(' ') + ' '
+    ? Object.entries(env)
+        .map(([k, v]) => `${k}='${v}'`)
+        .join(' ') + ' '
     : '';
   return execSync(`wsl.exe -e sh -c "${envPrefix}${cmd.replace(/"/g, '\\"')}"`, {
     encoding: 'utf-8',

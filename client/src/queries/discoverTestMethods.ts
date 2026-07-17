@@ -7,7 +7,9 @@ export interface TestMethodInfo {
 }
 
 export function discoverTestMethods(
-  execute: QueryExecutor, className: string, dictName?: string,
+  execute: QueryExecutor,
+  className: string,
+  dictName?: string,
 ): TestMethodInfo[] {
   // Resolve dictionary-scoped so we list the methods of the specific class
   // the caller means, not whichever same-named class wins bare-name lookup.
@@ -21,7 +23,7 @@ cls testSelectors asSortedCollection do: [:each |
     lf].
 ws contents`;
   const data = execute(`discoverTestMethods(${className})`, code);
-  return splitLines(data).map(line => {
+  return splitLines(data).map((line) => {
     const [selector, category] = line.split('\t');
     return { selector, category: category || '' };
   });

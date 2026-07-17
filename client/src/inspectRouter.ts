@@ -10,7 +10,9 @@ import { InspectorTreeProvider } from './inspectorTreeProvider';
  * routing point behind every "Inspect" surface: editor, global, and debugger.
  */
 export function routeInspect(
-  session: ActiveSession, oop: bigint, label: string,
+  session: ActiveSession,
+  oop: bigint,
+  label: string,
   inspectorProvider: InspectorTreeProvider,
 ): EnhancedInspector | undefined {
   if (session.enhancedInspectorAvailable) {

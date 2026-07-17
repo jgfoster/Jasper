@@ -13,9 +13,7 @@ export interface CategoryNode {
 // Direct child category-nodes under `parentPath` (undefined = top level), built
 // from the '-' segments of every category path in `allPaths`. Siblings are
 // de-duplicated and sorted by segment.
-export function categoryChildNodes(
-  allPaths: string[], parentPath?: string,
-): CategoryNode[] {
+export function categoryChildNodes(allPaths: string[], parentPath?: string): CategoryNode[] {
   const depth = parentPath ? parentPath.split('-').length : 0;
   const prefix = parentPath ? `${parentPath}-` : '';
   const nodes = new Map<string, CategoryNode>();
@@ -26,8 +24,9 @@ export function categoryChildNodes(
     const fullPath = parts.slice(0, depth + 1).join('-');
     const node = nodes.get(fullPath);
     const childDeeper = parts.length > depth + 1;
-    if (node) { node.hasChildren = node.hasChildren || childDeeper; }
-    else nodes.set(fullPath, { segment: parts[depth], fullPath, hasChildren: childDeeper });
+    if (node) {
+      node.hasChildren = node.hasChildren || childDeeper;
+    } else nodes.set(fullPath, { segment: parts[depth], fullPath, hasChildren: childDeeper });
   }
   return [...nodes.values()].sort((a, b) => a.segment.localeCompare(b.segment));
 }
@@ -46,7 +45,7 @@ export function categoryParentPath(
 // category `selected` (undefined = no selection = everything): the category
 // itself, or any sub-category beneath it.
 export function categoryMatches(entryCategory: string, selected?: string): boolean {
-  return selected === undefined
-    || entryCategory === selected
-    || entryCategory.startsWith(`${selected}-`);
+  return (
+    selected === undefined || entryCategory === selected || entryCategory.startsWith(`${selected}-`)
+  );
 }

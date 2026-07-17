@@ -18,7 +18,10 @@ describe('openMcpInspector', () => {
     const s = state();
     openMcpInspector('https://127.0.0.1:27101/sse', s);
 
-    expect(vscode.window.createTerminal).toHaveBeenCalledWith({ name: 'MCP Inspector', env: undefined });
+    expect(vscode.window.createTerminal).toHaveBeenCalledWith({
+      name: 'MCP Inspector',
+      env: undefined,
+    });
     const terminal = vi.mocked(vscode.window.createTerminal).mock.results[0].value;
     expect(terminal.show).toHaveBeenCalled();
     const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';

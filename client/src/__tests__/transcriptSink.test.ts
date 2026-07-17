@@ -43,12 +43,16 @@ function makeGci(overrides: Record<string, unknown> = {}) {
   return {
     // args[1] (0x11n) → clientObject 2; args[2] (0x12n) → #nextPutAll:;
     // args[3] (0x13n) → the argument Array whose first element is the text.
-    GciTsOopToI64: vi.fn(() => ({ success: true, value: BigInt(TRANSCRIPT_CLIENT_OBJECT), err: { number: 0 } })),
-    GciTsFetchUtf8: vi.fn((_h: unknown, oop: bigint) => (
+    GciTsOopToI64: vi.fn(() => ({
+      success: true,
+      value: BigInt(TRANSCRIPT_CLIENT_OBJECT),
+      err: { number: 0 },
+    })),
+    GciTsFetchUtf8: vi.fn((_h: unknown, oop: bigint) =>
       oop === 0x12n
         ? { data: 'nextPutAll:', err: { number: 0 } }
-        : { data: 'hello world', err: { number: 0 } }
-    )),
+        : { data: 'hello world', err: { number: 0 } },
+    ),
     GciTsFetchOops: vi.fn(() => ({ result: 1, oops: [0x77n], err: { number: 0 } })),
     GciTsExecuteFetchBytes: vi.fn(() => ({ data: '', err: { number: 0 } })),
     GciTsNbResult: vi.fn(() => ({ result: 42n, err: { number: 0, context: 0n } })),
@@ -71,7 +75,7 @@ describe('transcriptSink', () => {
   describe('install code', () => {
     it('replaces the kernel session stream and registers the sink under its own key', () => {
       expect(TRANSCRIPT_SINK_INSTALL_CODE).toContain(
-        "tmps at: #TranscriptStream_SessionStream put: sink",
+        'tmps at: #TranscriptStream_SessionStream put: sink',
       );
       expect(TRANSCRIPT_SINK_INSTALL_CODE).toContain('tmps at: #JasperTranscriptSink put: sink');
     });
@@ -94,7 +98,7 @@ describe('transcriptSink', () => {
 
     it('is idempotent within a session', () => {
       expect(TRANSCRIPT_SINK_INSTALL_CODE).toContain(
-        "(tmps at: #JasperTranscriptSink otherwise: nil) ifNotNil:",
+        '(tmps at: #JasperTranscriptSink otherwise: nil) ifNotNil:',
       );
     });
   });
@@ -118,7 +122,9 @@ describe('transcriptSink', () => {
 
     it('is non-fatal when the GCI call throws', () => {
       const gci = makeGci({
-        GciTsExecuteFetchBytes: vi.fn(() => { throw new Error('socket closed'); }),
+        GciTsExecuteFetchBytes: vi.fn(() => {
+          throw new Error('socket closed');
+        }),
       });
 
       expect(installTranscriptSink(makeSession(gci))).toBe(false);
@@ -141,8 +147,9 @@ describe('transcriptSink', () => {
       setTranscriptLive(session, true);
       setTranscriptLive(session, false);
 
-      const codes = (gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock.calls
-        .map(c => c[1] as string);
+      const codes = (gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c) => c[1] as string,
+      );
       expect(codes[0]).toContain('jasperLive: true');
       expect(codes[1]).toContain('jasperLive: false');
     });
@@ -151,7 +158,8 @@ describe('transcriptSink', () => {
       const gci = makeGci();
 
       expect(drainTranscript(makeSession(gci))).toBe('');
-      const code = (gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock.calls[0][1] as string;
+      const code = (gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock
+        .calls[0][1] as string;
       expect(code).toContain('jasperDrain');
     });
 
@@ -220,7 +228,8 @@ describe('transcriptSink', () => {
     it('displays each transcript send and resumes until the real result arrives', async () => {
       const gci = makeGci({
         GciTsNbResult: vi.fn(() => ({ result: OOP_ILLEGAL, err: forwarderError() })),
-        GciTsContinueWithAsync: vi.fn()
+        GciTsContinueWithAsync: vi
+          .fn()
           .mockResolvedValueOnce({ result: OOP_ILLEGAL, err: forwarderError() })
           .mockResolvedValueOnce({ result: 42n, err: { number: 0, context: 0n } }),
       });
@@ -235,7 +244,9 @@ describe('transcriptSink', () => {
       expect(onTranscript).toHaveBeenCalledWith('hello world');
       expect(gci.GciTsContinueWithAsync).toHaveBeenCalledTimes(2);
       // Resumes the suspended GsProcess from the error's context.
-      expect((gci.GciTsContinueWithAsync as ReturnType<typeof vi.fn>).mock.calls[0][1]).toBe(0x999n);
+      expect((gci.GciTsContinueWithAsync as ReturnType<typeof vi.fn>).mock.calls[0][1]).toBe(
+        0x999n,
+      );
     });
 
     it('still resumes a foreign forwarder send without displaying it', async () => {
@@ -243,7 +254,10 @@ describe('transcriptSink', () => {
         // clientObject decodes to something other than the Transcript id.
         GciTsOopToI64: vi.fn(() => ({ success: true, value: 7n, err: { number: 0 } })),
         GciTsNbResult: vi.fn(() => ({ result: OOP_ILLEGAL, err: forwarderError() })),
-        GciTsContinueWithAsync: vi.fn(async () => ({ result: 42n, err: { number: 0, context: 0n } })),
+        GciTsContinueWithAsync: vi.fn(async () => ({
+          result: 42n,
+          err: { number: 0, context: 0n },
+        })),
       });
       const onTranscript = vi.fn();
 

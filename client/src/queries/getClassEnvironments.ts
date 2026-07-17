@@ -19,7 +19,10 @@ export interface EnvCategoryLine {
 }
 
 export function getClassEnvironments(
-  execute: QueryExecutor, dictIndex: number, className: string, maxEnv: number,
+  execute: QueryExecutor,
+  dictIndex: number,
+  className: string,
+  maxEnv: number,
 ): EnvCategoryLine[] {
   // Each emitted selector token is prefixed with a fixed 2-digit flag byte
   // (00..15) so the indicators ride along on the existing method-list round
@@ -84,24 +87,27 @@ stream contents`;
   const results: EnvCategoryLine[] = [];
   for (const line of raw.split('\n')) {
     if (line.length === 0) continue;
-    const parts = line.split('\t').filter(s => s.length > 0);
+    const parts = line.split('\t').filter((s) => s.length > 0);
     if (parts.length < 3) continue;
     const receiverName = parts[0];
     const envId = parseInt(parts[1], 10);
     const category = parts[2];
     const methodOverrideBits: Record<string, number> = {};
     const sessionMethodBits: Record<string, number> = {};
-    const selectors = parts.slice(3).map((tok) => {
-      // Leading 2 digits are the flag byte: bit 1 = overrides super, bit 2 =
-      // overridden in subclass, bit 4 = session method, bit 8 = session
-      // override (also in persistent dict).
-      const flag = Number(tok.slice(0, 2));
-      const sel = tok.slice(2);
-      const overrideBits = flag & 3;
-      if (overrideBits) methodOverrideBits[sel] = overrideBits;
-      if (flag & 4) sessionMethodBits[sel] = (flag & 8) ? 2 : 1;
-      return sel;
-    }).sort();
+    const selectors = parts
+      .slice(3)
+      .map((tok) => {
+        // Leading 2 digits are the flag byte: bit 1 = overrides super, bit 2 =
+        // overridden in subclass, bit 4 = session method, bit 8 = session
+        // override (also in persistent dict).
+        const flag = Number(tok.slice(0, 2));
+        const sel = tok.slice(2);
+        const overrideBits = flag & 3;
+        if (overrideBits) methodOverrideBits[sel] = overrideBits;
+        if (flag & 4) sessionMethodBits[sel] = flag & 8 ? 2 : 1;
+        return sel;
+      })
+      .sort();
     const isMeta = receiverName.endsWith(' class');
     results.push({ isMeta, envId, category, selectors, methodOverrideBits, sessionMethodBits });
   }

@@ -11,7 +11,16 @@ import { ActiveSession } from '../sessionManager';
 import { GemStoneLogin } from '../loginTypes';
 import * as debug from '../debugQueries';
 
-const noErr = { number: 0, message: '', context: 0n, category: 0, fatal: false, argCount: 0, exceptionObj: 0n, args: [] };
+const noErr = {
+  number: 0,
+  message: '',
+  context: 0n,
+  category: 0,
+  fatal: false,
+  argCount: 0,
+  exceptionObj: 0n,
+  args: [],
+};
 const METHOD_OOP = 5000n;
 const CLASS_OOP = 6000n;
 const RECEIVER_OOP = 7000n;
@@ -27,11 +36,21 @@ const RECEIVER_OOP = 7000n;
 function createMockSession(): ActiveSession {
   const mockGci = {
     GciTsPerform: vi.fn(
-      (handle: unknown, receiver: bigint, selectorOop: bigint, selectorStr: string | null, _args: bigint[]) => {
+      (
+        handle: unknown,
+        receiver: bigint,
+        selectorOop: bigint,
+        selectorStr: string | null,
+        _args: bigint[],
+      ) => {
         if (selectorStr && selectorStr.includes(' ')) {
           return {
             result: 0n,
-            err: { ...noErr, number: 2010, message: `a ${receiverClassName(receiver)} does not understand #'${selectorStr}'` },
+            err: {
+              ...noErr,
+              number: 2010,
+              message: `a ${receiverClassName(receiver)} does not understand #'${selectorStr}'`,
+            },
           };
         }
         if (selectorStr === 'inClass' && receiver === METHOD_OOP) {
@@ -51,7 +70,11 @@ function createMockSession(): ActiveSession {
         if (selector.includes(' ')) {
           return {
             data: '',
-            err: { ...noErr, number: 2010, message: `a ${receiverClassName(receiver)} does not understand #'${selector}'` },
+            err: {
+              ...noErr,
+              number: 2010,
+              message: `a ${receiverClassName(receiver)} does not understand #'${selector}'`,
+            },
           };
         }
         if (selector === 'name' && receiver === CLASS_OOP) {
@@ -89,8 +112,8 @@ function receiverClassName(oop: bigint): string {
 describe('debugQueries', () => {
   describe('getStepPoint', () => {
     const GS_PROCESS = 9000n;
-    const LEVEL_OOP = 0xAAn;
-    const STEP_POINT_OOP = 0xBBn;
+    const LEVEL_OOP = 0xaan;
+    const STEP_POINT_OOP = 0xbbn;
 
     function stepPointSession(stepPointResultOop: bigint) {
       return {
@@ -112,9 +135,9 @@ describe('debugQueries', () => {
 
       expect(result).toBe(2);
       const performCalls = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls;
-      expect(performCalls[0][1]).toBe(GS_PROCESS);      // receiver is the process
-      expect(performCalls[0][3]).toBe('_stepPointAt:');  // selector
-      expect(performCalls[0][4]).toEqual([LEVEL_OOP]);   // level arg
+      expect(performCalls[0][1]).toBe(GS_PROCESS); // receiver is the process
+      expect(performCalls[0][3]).toBe('_stepPointAt:'); // selector
+      expect(performCalls[0][4]).toEqual([LEVEL_OOP]); // level arg
     });
 
     it('returns undefined (without converting) when the step point is nil', () => {
@@ -137,19 +160,17 @@ describe('debugQueries', () => {
         login: { label: 'T' } as GemStoneLogin,
         stoneVersion: '3.7.2',
         gci: {
-          GciTsPerform: vi.fn(
-            (_h: unknown, _r: bigint, _s: bigint, selector: string) => {
-              if (selector === 'isMethodForBlock') return { result: isBlockOop, err: { ...noErr } };
-              if (selector === 'homeMethod') return { result: homeOop, err: { ...noErr } };
-              return { result: 0n, err: { ...noErr } };
-            },
-          ),
+          GciTsPerform: vi.fn((_h: unknown, _r: bigint, _s: bigint, selector: string) => {
+            if (selector === 'isMethodForBlock') return { result: isBlockOop, err: { ...noErr } };
+            if (selector === 'homeMethod') return { result: homeOop, err: { ...noErr } };
+            return { result: 0n, err: { ...noErr } };
+          }),
         } as unknown as ActiveSession['gci'],
       } as ActiveSession;
     }
 
     it('reports a block method and its distinct home method', () => {
-      const session = blockSession(0x10Cn /* OOP_TRUE */, HOME_METHOD_OOP);
+      const session = blockSession(0x10cn /* OOP_TRUE */, HOME_METHOD_OOP);
       const result = debug.getMethodBlockInfo(session, BLOCK_METHOD_OOP);
 
       expect(result.isBlock).toBe(true);
@@ -157,7 +178,7 @@ describe('debugQueries', () => {
     });
 
     it('reports a non-block method with homeMethod returning self', () => {
-      const session = blockSession(0x0Cn /* OOP_FALSE */, BLOCK_METHOD_OOP);
+      const session = blockSession(0x0cn /* OOP_FALSE */, BLOCK_METHOD_OOP);
       const result = debug.getMethodBlockInfo(session, BLOCK_METHOD_OOP);
 
       expect(result.isBlock).toBe(false);
@@ -178,7 +199,8 @@ describe('debugQueries', () => {
       const session = createMockSession();
       debug.getMethodInfo(session, METHOD_OOP);
 
-      const fetchBytesCalls = (session.gci.GciTsPerformFetchBytes as ReturnType<typeof vi.fn>).mock.calls;
+      const fetchBytesCalls = (session.gci.GciTsPerformFetchBytes as ReturnType<typeof vi.fn>).mock
+        .calls;
       for (const call of fetchBytesCalls) {
         const selector = call[2] as string;
         expect(selector).not.toContain(' ');
@@ -204,7 +226,8 @@ describe('debugQueries', () => {
         if (selectorStr) expect(selectorStr).not.toContain(' ');
       }
 
-      const fetchBytesCalls = (session.gci.GciTsPerformFetchBytes as ReturnType<typeof vi.fn>).mock.calls;
+      const fetchBytesCalls = (session.gci.GciTsPerformFetchBytes as ReturnType<typeof vi.fn>).mock
+        .calls;
       for (const call of fetchBytesCalls) {
         const selector = call[2] as string;
         expect(selector).not.toContain(' ');
@@ -217,7 +240,8 @@ describe('debugQueries', () => {
       const session = createMockSession();
       // Mock GciTsResolveSymbol for Utf8 class
       (session.gci as unknown as Record<string, unknown>).GciTsResolveSymbol = vi.fn(() => ({
-        result: 9000n, err: { ...noErr },
+        result: 9000n,
+        err: { ...noErr },
       }));
       // Mock GciTsExecuteFetchBytes to return tab-separated URI info
       (session.gci as unknown as Record<string, unknown>).GciTsExecuteFetchBytes = vi.fn(() => ({
@@ -240,7 +264,8 @@ describe('debugQueries', () => {
     it('returns undefined when GciTsResolveSymbol fails', () => {
       const session = createMockSession();
       (session.gci as unknown as Record<string, unknown>).GciTsResolveSymbol = vi.fn(() => ({
-        result: 0n, err: { ...noErr, number: 2010, message: 'not found' },
+        result: 0n,
+        err: { ...noErr, number: 2010, message: 'not found' },
       }));
 
       expect(debug.getMethodUriInfo(session, METHOD_OOP)).toBeUndefined();
@@ -249,10 +274,12 @@ describe('debugQueries', () => {
     it('returns undefined when GciTsExecuteFetchBytes fails', () => {
       const session = createMockSession();
       (session.gci as unknown as Record<string, unknown>).GciTsResolveSymbol = vi.fn(() => ({
-        result: 9000n, err: { ...noErr },
+        result: 9000n,
+        err: { ...noErr },
       }));
       (session.gci as unknown as Record<string, unknown>).GciTsExecuteFetchBytes = vi.fn(() => ({
-        bytesReturned: 0, data: '',
+        bytesReturned: 0,
+        data: '',
         err: { ...noErr, number: 1, message: 'error' },
       }));
 
@@ -262,7 +289,8 @@ describe('debugQueries', () => {
     it('parses class-side methods correctly', () => {
       const session = createMockSession();
       (session.gci as unknown as Record<string, unknown>).GciTsResolveSymbol = vi.fn(() => ({
-        result: 9000n, err: { ...noErr },
+        result: 9000n,
+        err: { ...noErr },
       }));
       (session.gci as unknown as Record<string, unknown>).GciTsExecuteFetchBytes = vi.fn(() => ({
         bytesReturned: 0,
@@ -288,10 +316,13 @@ describe('debugQueries', () => {
     function sessionReturning(data: string): ActiveSession {
       const session = createMockSession();
       (session.gci as unknown as Record<string, unknown>).GciTsResolveSymbol = vi.fn(() => ({
-        result: 9000n, err: { ...noErr },
+        result: 9000n,
+        err: { ...noErr },
       }));
       (session.gci as unknown as Record<string, unknown>).GciTsExecuteFetchBytes = vi.fn(() => ({
-        bytesReturned: 0, data, err: { ...noErr },
+        bytesReturned: 0,
+        data,
+        err: { ...noErr },
       }));
       return session;
     }
@@ -299,16 +330,22 @@ describe('debugQueries', () => {
     it('parses an instance-side DNU (keyword selector) into DnuInfo', () => {
       const session = sessionReturning('SmallInteger\tinstance\tGlobals\tfourtyTwo:bar:\t2');
       expect(debug.getDoesNotUnderstandInfo(session, GS_PROCESS)).toEqual({
-        className: 'SmallInteger', isMeta: false, dictName: 'Globals',
-        selector: 'fourtyTwo:bar:', argCount: 2,
+        className: 'SmallInteger',
+        isMeta: false,
+        dictName: 'Globals',
+        selector: 'fourtyTwo:bar:',
+        argCount: 2,
       });
     });
 
     it('parses a class-side DNU (message sent to a class)', () => {
       const session = sessionReturning('JasperDebugDemo\tclass\tUserGlobals\tmakeWidget\t0');
       expect(debug.getDoesNotUnderstandInfo(session, GS_PROCESS)).toEqual({
-        className: 'JasperDebugDemo', isMeta: true, dictName: 'UserGlobals',
-        selector: 'makeWidget', argCount: 0,
+        className: 'JasperDebugDemo',
+        isMeta: true,
+        dictName: 'UserGlobals',
+        selector: 'makeWidget',
+        argCount: 0,
       });
     });
 
@@ -320,10 +357,13 @@ describe('debugQueries', () => {
     it('returns undefined when the execute fails', () => {
       const session = createMockSession();
       (session.gci as unknown as Record<string, unknown>).GciTsResolveSymbol = vi.fn(() => ({
-        result: 9000n, err: { ...noErr },
+        result: 9000n,
+        err: { ...noErr },
       }));
       (session.gci as unknown as Record<string, unknown>).GciTsExecuteFetchBytes = vi.fn(() => ({
-        bytesReturned: 0, data: '', err: { ...noErr, number: 1, message: 'boom' },
+        bytesReturned: 0,
+        data: '',
+        err: { ...noErr, number: 1, message: 'boom' },
       }));
       expect(debug.getDoesNotUnderstandInfo(session, GS_PROCESS)).toBeUndefined();
     });
@@ -335,10 +375,13 @@ describe('debugQueries', () => {
     function sessionReturning(data: string): ActiveSession {
       const session = createMockSession();
       (session.gci as unknown as Record<string, unknown>).GciTsResolveSymbol = vi.fn(() => ({
-        result: 9000n, err: { ...noErr },
+        result: 9000n,
+        err: { ...noErr },
       }));
       (session.gci as unknown as Record<string, unknown>).GciTsExecuteFetchBytes = vi.fn(() => ({
-        bytesReturned: 0, data, err: { ...noErr },
+        bytesReturned: 0,
+        data,
+        err: { ...noErr },
       }));
       return session;
     }
@@ -346,14 +389,19 @@ describe('debugQueries', () => {
     it('parses the full chain (most-specific first), flagging the class that implements the selector', () => {
       // Interval -> SequenceableCollection -> Collection (implements it) -> Object (implements it).
       const session = sessionReturning(
-        'Interval\tinstance\tGlobals\t0\n'
-        + 'SequenceableCollection\tinstance\tKernel\t0\n'
-        + 'Collection\tinstance\tKernel\t1\n'
-        + 'Object\tinstance\tKernel\t1',
+        'Interval\tinstance\tGlobals\t0\n' +
+          'SequenceableCollection\tinstance\tKernel\t0\n' +
+          'Collection\tinstance\tKernel\t1\n' +
+          'Object\tinstance\tKernel\t1',
       );
       expect(debug.getReceiverClassChain(session, RECEIVER_OOP, 'asOrderedCollection')).toEqual([
         { className: 'Interval', isMeta: false, dictName: 'Globals', implementsSelector: false },
-        { className: 'SequenceableCollection', isMeta: false, dictName: 'Kernel', implementsSelector: false },
+        {
+          className: 'SequenceableCollection',
+          isMeta: false,
+          dictName: 'Kernel',
+          implementsSelector: false,
+        },
         { className: 'Collection', isMeta: false, dictName: 'Kernel', implementsSelector: true },
         { className: 'Object', isMeta: false, dictName: 'Kernel', implementsSelector: true },
       ]);
@@ -362,7 +410,12 @@ describe('debugQueries', () => {
     it('parses a single-class chain', () => {
       const session = sessionReturning('SmallInteger\tinstance\tGlobals\t0');
       expect(debug.getReceiverClassChain(session, RECEIVER_OOP, 'foo')).toEqual([
-        { className: 'SmallInteger', isMeta: false, dictName: 'Globals', implementsSelector: false },
+        {
+          className: 'SmallInteger',
+          isMeta: false,
+          dictName: 'Globals',
+          implementsSelector: false,
+        },
       ]);
     });
 
@@ -380,10 +433,13 @@ describe('debugQueries', () => {
     it('returns [] when the execute fails', () => {
       const session = createMockSession();
       (session.gci as unknown as Record<string, unknown>).GciTsResolveSymbol = vi.fn(() => ({
-        result: 9000n, err: { ...noErr },
+        result: 9000n,
+        err: { ...noErr },
       }));
       (session.gci as unknown as Record<string, unknown>).GciTsExecuteFetchBytes = vi.fn(() => ({
-        bytesReturned: 0, data: '', err: { ...noErr, number: 1, message: 'boom' },
+        bytesReturned: 0,
+        data: '',
+        err: { ...noErr, number: 1, message: 'boom' },
       }));
       expect(debug.getReceiverClassChain(session, RECEIVER_OOP, 'Object')).toEqual([]);
     });
@@ -395,10 +451,13 @@ describe('debugQueries', () => {
     function sessionReturning(data: string): ActiveSession {
       const session = createMockSession();
       (session.gci as unknown as Record<string, unknown>).GciTsResolveSymbol = vi.fn(() => ({
-        result: 9000n, err: { ...noErr },
+        result: 9000n,
+        err: { ...noErr },
       }));
       (session.gci as unknown as Record<string, unknown>).GciTsExecuteFetchBytes = vi.fn(() => ({
-        bytesReturned: 0, data, err: { ...noErr },
+        bytesReturned: 0,
+        data,
+        err: { ...noErr },
       }));
       return session;
     }
@@ -406,21 +465,30 @@ describe('debugQueries', () => {
     it('parses the defining class, dictionary, and category for an instance-side method', () => {
       const session = sessionReturning('Collection\tinstance\tKernel\taccessing');
       expect(debug.getBrowseTarget(session, RECEIVER_OOP, 'asOrderedCollection')).toEqual({
-        className: 'Collection', isMeta: false, dictName: 'Kernel', category: 'accessing',
+        className: 'Collection',
+        isMeta: false,
+        dictName: 'Kernel',
+        category: 'accessing',
       });
     });
 
     it('parses a class-side method', () => {
       const session = sessionReturning('Array\tclass\tGlobals\tinstance creation');
       expect(debug.getBrowseTarget(session, RECEIVER_OOP, 'new')).toEqual({
-        className: 'Array', isMeta: true, dictName: 'Globals', category: 'instance creation',
+        className: 'Array',
+        isMeta: true,
+        dictName: 'Globals',
+        category: 'instance creation',
       });
     });
 
     it('reports a blank dictionary and category when the class is outside the symbol list and the method is uncategorized', () => {
       const session = sessionReturning('Loner\tinstance\t\t');
       expect(debug.getBrowseTarget(session, RECEIVER_OOP, 'foo')).toEqual({
-        className: 'Loner', isMeta: false, dictName: '', category: '',
+        className: 'Loner',
+        isMeta: false,
+        dictName: '',
+        category: '',
       });
     });
 
@@ -431,7 +499,8 @@ describe('debugQueries', () => {
     it('returns undefined when symbol resolution fails', () => {
       const session = createMockSession();
       (session.gci as unknown as Record<string, unknown>).GciTsResolveSymbol = vi.fn(() => ({
-        result: 0n, err: { ...noErr, number: 2010, message: 'not found' },
+        result: 0n,
+        err: { ...noErr, number: 2010, message: 'not found' },
       }));
       expect(debug.getBrowseTarget(session, RECEIVER_OOP, 'foo')).toBeUndefined();
     });
@@ -439,10 +508,13 @@ describe('debugQueries', () => {
     it('returns undefined when the execute fails', () => {
       const session = createMockSession();
       (session.gci as unknown as Record<string, unknown>).GciTsResolveSymbol = vi.fn(() => ({
-        result: 9000n, err: { ...noErr },
+        result: 9000n,
+        err: { ...noErr },
       }));
       (session.gci as unknown as Record<string, unknown>).GciTsExecuteFetchBytes = vi.fn(() => ({
-        bytesReturned: 0, data: '', err: { ...noErr, number: 1, message: 'boom' },
+        bytesReturned: 0,
+        data: '',
+        err: { ...noErr, number: 1, message: 'boom' },
       }));
       expect(debug.getBrowseTarget(session, RECEIVER_OOP, 'foo')).toBeUndefined();
     });
@@ -459,7 +531,8 @@ describe('debugQueries', () => {
         if (selectorStr) expect(selectorStr).not.toContain(' ');
       }
 
-      const fetchBytesCalls = (session.gci.GciTsPerformFetchBytes as ReturnType<typeof vi.fn>).mock.calls;
+      const fetchBytesCalls = (session.gci.GciTsPerformFetchBytes as ReturnType<typeof vi.fn>).mock
+        .calls;
       for (const call of fetchBytesCalls) {
         const selector = call[2] as string;
         expect(selector).not.toContain(' ');
@@ -510,7 +583,10 @@ describe('debugQueries', () => {
     });
 
     it('getIndexedOops returns [] (and skips the fetch) when GciTsFetchObjInfo errors', () => {
-      const fetchObjInfo = vi.fn(() => ({ info: { namedSize: 0 }, err: { ...noErr, number: 2418 } }));
+      const fetchObjInfo = vi.fn(() => ({
+        info: { namedSize: 0 },
+        err: { ...noErr, number: 2418 },
+      }));
       const fetchOops = vi.fn();
       const session = sessionWith({ GciTsFetchObjInfo: fetchObjInfo, GciTsFetchOops: fetchOops });
 
@@ -545,14 +621,14 @@ describe('debugQueries', () => {
   // and we assert the *right call* is made, which is what regressed.)
   describe('evaluateInFrame ("3 + 4" regression)', () => {
     const GS_PROCESS = 9000n;
-    const FRAME_ARRAY = 0xF0n;
+    const FRAME_ARRAY = 0xf0n;
     const FRAME_RECEIVER = 0x77n; // becomes `self` for the evaluation
-    const EXPR_STRING = 0xE0n;
-    const EVAL_RESULT = 0x07n;    // the oop the evaluation returned
+    const EXPR_STRING = 0xe0n;
+    const EVAL_RESULT = 0x07n; // the oop the evaluation returned
 
     function evalSession() {
       const gci = {
-        GciTsI64ToOop: vi.fn(() => ({ result: 0xAAn, err: { ...noErr } })),
+        GciTsI64ToOop: vi.fn(() => ({ result: 0xaan, err: { ...noErr } })),
         GciTsOopToI64: vi.fn(() => ({ value: 5n, err: { ...noErr } })),
         GciTsNewString: vi.fn(() => ({ result: EXPR_STRING, err: { ...noErr } })),
         GciTsFetchSize: vi.fn(() => ({ result: 10n, err: { ...noErr } })),
@@ -570,10 +646,14 @@ describe('debugQueries', () => {
         GciTsPerformFetchBytes: vi.fn((_h: unknown, oop: bigint) =>
           oop === EVAL_RESULT
             ? { bytesReturned: 1, data: '7', err: { ...noErr } }
-            : { bytesReturned: 0, data: '', err: { ...noErr } }),
+            : { bytesReturned: 0, data: '', err: { ...noErr } },
+        ),
       };
       return {
-        id: 1, handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
+        id: 1,
+        handle: {},
+        login: { label: 'T' } as GemStoneLogin,
+        stoneVersion: '3.7.2',
         gci: gci as unknown as ActiveSession['gci'],
       } as ActiveSession;
     }
@@ -591,7 +671,7 @@ describe('debugQueries', () => {
       const performCalls = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls;
       const evalCall = performCalls.find((c: unknown[]) => c[3] === 'evaluateInContext:');
       expect(evalCall).toBeDefined();
-      expect(evalCall![1]).toBe(EXPR_STRING);         // receiver of evaluateInContext: is the expr String
+      expect(evalCall![1]).toBe(EXPR_STRING); // receiver of evaluateInContext: is the expr String
       expect(evalCall![4]).toEqual([FRAME_RECEIVER]); // arg is the frame's receiver (self)
     });
 
@@ -600,7 +680,9 @@ describe('debugQueries', () => {
       debug.evaluateInFrame(session, GS_PROCESS, '3 + 4', 3);
 
       const performCalls = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls;
-      expect(performCalls.some((c: unknown[]) => c[3] === '_framePerform:withArgs:onLevel:')).toBe(false);
+      expect(performCalls.some((c: unknown[]) => c[3] === '_framePerform:withArgs:onLevel:')).toBe(
+        false,
+      );
     });
   });
 
@@ -610,44 +692,49 @@ describe('debugQueries', () => {
   // `evaluateInContext:symbolList:` (NOT the self-only `evaluateInContext:`).
   describe('evaluateInFrame — binds named temps via a symbol-list dictionary', () => {
     const GS_PROCESS = 9000n;
-    const FRAME_ARRAY = 0xF0n;
-    const NAMES_ARRAY = 0xA1n;
+    const FRAME_ARRAY = 0xf0n;
+    const NAMES_ARRAY = 0xa1n;
     const FRAME_RECEIVER = 0x77n;
-    const AMOUNT_NAME = 0xB1n;   // the name string 'amount' in the names array
-    const AMOUNT_VALUE = 0x96n;  // oop of the temp's value (75)
-    const AMOUNT_SYMBOL = 0xC1n; // interned #amount
-    const EXPR_STRING = 0xE0n;
+    const AMOUNT_NAME = 0xb1n; // the name string 'amount' in the names array
+    const AMOUNT_VALUE = 0x96n; // oop of the temp's value (75)
+    const AMOUNT_SYMBOL = 0xc1n; // interned #amount
+    const EXPR_STRING = 0xe0n;
     const EVAL_RESULT = 0x07n;
 
     function tempSession() {
       const gci = {
-        GciTsI64ToOop: vi.fn(() => ({ result: 0xAAn, err: { ...noErr } })),
+        GciTsI64ToOop: vi.fn(() => ({ result: 0xaan, err: { ...noErr } })),
         GciTsOopToI64: vi.fn(() => ({ value: 5n, err: { ...noErr } })),
         GciTsNewString: vi.fn(() => ({ result: EXPR_STRING, err: { ...noErr } })),
         GciTsNewSymbol: vi.fn(() => ({ result: AMOUNT_SYMBOL, err: { ...noErr } })),
         GciTsResolveSymbol: vi.fn((_h: unknown, name: string) => ({
-          result: name === 'SymbolDictionary' ? 0xD1n : name === 'SymbolList' ? 0xD2n : 0xD3n,
+          result: name === 'SymbolDictionary' ? 0xd1n : name === 'SymbolList' ? 0xd2n : 0xd3n,
           err: { ...noErr },
         })),
         // Frame array size = 11 (so values start at slot 11); names array size = 1.
-        GciTsFetchSize: vi.fn((_h: unknown, oop: bigint) =>
-          ({ result: oop === NAMES_ARRAY ? 1n : 11n, err: { ...noErr } })),
+        GciTsFetchSize: vi.fn((_h: unknown, oop: bigint) => ({
+          result: oop === NAMES_ARRAY ? 1n : 11n,
+          err: { ...noErr },
+        })),
         GciTsFetchOops: vi.fn((_h: unknown, oop: bigint) =>
           oop === NAMES_ARRAY
             ? { oops: [AMOUNT_NAME], err: { ...noErr } }
-            : { // frame contents: [9]=names (idx8), [10]=receiver (idx9), [11+]=values
-              oops: [1n, 2n, 0n, 0n, 0n, 0n, 0n, 0n, NAMES_ARRAY, FRAME_RECEIVER, AMOUNT_VALUE],
-              err: { ...noErr },
-            }),
+            : {
+                // frame contents: [9]=names (idx8), [10]=receiver (idx9), [11+]=values
+                oops: [1n, 2n, 0n, 0n, 0n, 0n, 0n, 0n, NAMES_ARRAY, FRAME_RECEIVER, AMOUNT_VALUE],
+                err: { ...noErr },
+              },
+        ),
         GciTsPerform: vi.fn((_h: unknown, _r: bigint, _s: bigint, sel: string | null) => {
           if (sel === '_frameContentsAt:') return { result: FRAME_ARRAY, err: { ...noErr } };
-          if (sel === 'new') return { result: 0xDD0n, err: { ...noErr } };          // SymbolDictionary new
+          if (sel === 'new') return { result: 0xdd0n, err: { ...noErr } }; // SymbolDictionary new
           if (sel === 'at:put:') return { result: 0n, err: { ...noErr } };
-          if (sel === 'myUserProfile') return { result: 0xDDdn, err: { ...noErr } };
-          if (sel === 'symbolList') return { result: 0xDDan, err: { ...noErr } };
-          if (sel === 'with:') return { result: 0xDDfn, err: { ...noErr } };
-          if (sel === ',') return { result: 0xDDcn, err: { ...noErr } };
-          if (sel === 'evaluateInContext:symbolList:') return { result: EVAL_RESULT, err: { ...noErr } };
+          if (sel === 'myUserProfile') return { result: 0xdddn, err: { ...noErr } };
+          if (sel === 'symbolList') return { result: 0xddan, err: { ...noErr } };
+          if (sel === 'with:') return { result: 0xddfn, err: { ...noErr } };
+          if (sel === ',') return { result: 0xddcn, err: { ...noErr } };
+          if (sel === 'evaluateInContext:symbolList:')
+            return { result: EVAL_RESULT, err: { ...noErr } };
           return { result: 0n, err: { ...noErr } };
         }),
         GciTsPerformFetchBytes: vi.fn((_h: unknown, oop: bigint) =>
@@ -655,10 +742,14 @@ describe('debugQueries', () => {
             ? { bytesReturned: 6, data: 'amount', err: { ...noErr } }
             : oop === EVAL_RESULT
               ? { bytesReturned: 3, data: '150', err: { ...noErr } }
-              : { bytesReturned: 0, data: '', err: { ...noErr } }),
+              : { bytesReturned: 0, data: '', err: { ...noErr } },
+        ),
       };
       return {
-        id: 1, handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
+        id: 1,
+        handle: {},
+        login: { label: 'T' } as GemStoneLogin,
+        stoneVersion: '3.7.2',
         gci: gci as unknown as ActiveSession['gci'],
       } as ActiveSession;
     }
@@ -678,8 +769,9 @@ describe('debugQueries', () => {
       debug.evaluateInFrame(session, GS_PROCESS, 'amount * 2', 3);
 
       expect(session.gci.GciTsNewSymbol).toHaveBeenCalledWith({}, 'amount');
-      const atPut = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls
-        .find((c: unknown[]) => c[3] === 'at:put:');
+      const atPut = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c: unknown[]) => c[3] === 'at:put:',
+      );
       expect(atPut).toBeDefined();
       expect(atPut![4]).toEqual([AMOUNT_SYMBOL, AMOUNT_VALUE]); // dict at: #amount put: value
     });
@@ -689,13 +781,16 @@ describe('debugQueries', () => {
       // SymbolDictionary fails to resolve → no temp dictionary can be built, so
       // buildFrameSymbolList returns null and the eval falls back to self-only.
       (session.gci.GciTsResolveSymbol as ReturnType<typeof vi.fn>).mockImplementation(
-        (_h: unknown, name: string) => name === 'SymbolDictionary'
-          ? { result: 0n, err: { ...noErr, number: 2110, message: 'not resolved' } }
-          : { result: 0xD2n, err: { ...noErr } });
+        (_h: unknown, name: string) =>
+          name === 'SymbolDictionary'
+            ? { result: 0n, err: { ...noErr, number: 2110, message: 'not resolved' } }
+            : { result: 0xd2n, err: { ...noErr } },
+      );
       debug.evaluateInFrame(session, GS_PROCESS, 'amount * 2', 3);
 
-      const sels = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls
-        .map((c: unknown[]) => c[3]);
+      const sels = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c: unknown[]) => c[3],
+      );
       expect(sels).toContain('evaluateInContext:');
       expect(sels).not.toContain('evaluateInContext:symbolList:');
     });
@@ -707,16 +802,16 @@ describe('debugQueries', () => {
   // supplies the result + printString and we assert the right (non-blocking) calls.
   describe('evaluateInFrameNb (non-blocking eval)', () => {
     const GS_PROCESS = 9000n;
-    const FRAME_ARRAY = 0xF0n;
+    const FRAME_ARRAY = 0xf0n;
     const FRAME_RECEIVER = 0x77n;
-    const EXPR_STRING = 0xE0n;
+    const EXPR_STRING = 0xe0n;
     const EVAL_RESULT = 0x07n;
 
     // Self-only frame (no named temps → evaluateInContext:), with the non-blocking
     // calls wired to report "ready immediately" and hand back EVAL_RESULT.
     function nbEvalSession() {
       const gci = {
-        GciTsI64ToOop: vi.fn(() => ({ result: 0xAAn, err: { ...noErr } })),
+        GciTsI64ToOop: vi.fn(() => ({ result: 0xaan, err: { ...noErr } })),
         GciTsOopToI64: vi.fn(() => ({ value: 5n, err: { ...noErr } })),
         GciTsNewString: vi.fn(() => ({ result: EXPR_STRING, err: { ...noErr } })),
         GciTsFetchSize: vi.fn(() => ({ result: 10n, err: { ...noErr } })),
@@ -725,20 +820,26 @@ describe('debugQueries', () => {
           err: { ...noErr },
         })),
         GciTsPerform: vi.fn((_h: unknown, _r: bigint, _s: bigint, sel: string | null) =>
-          sel === '_frameContentsAt:' ? { result: FRAME_ARRAY, err: { ...noErr } }
-            : { result: 0n, err: { ...noErr } }),
+          sel === '_frameContentsAt:'
+            ? { result: FRAME_ARRAY, err: { ...noErr } }
+            : { result: 0n, err: { ...noErr } },
+        ),
         // printString of the evaluation result is "7".
         GciTsPerformFetchBytes: vi.fn((_h: unknown, oop: bigint) =>
           oop === EVAL_RESULT
             ? { bytesReturned: 1, data: '7', err: { ...noErr } }
-            : { bytesReturned: 0, data: '', err: { ...noErr } }),
+            : { bytesReturned: 0, data: '', err: { ...noErr } },
+        ),
         isAvailable: (n: string) => n === 'GciTsNbPoll',
         GciTsNbPerform: vi.fn(() => ({ success: true, err: { ...noErr } })),
         GciTsNbPoll: vi.fn(() => ({ result: 1, err: { ...noErr } })), // ready on first poll
         GciTsNbResult: vi.fn(() => ({ result: EVAL_RESULT, err: { ...noErr } })),
       };
       return {
-        id: 1, handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
+        id: 1,
+        handle: {},
+        login: { label: 'T' } as GemStoneLogin,
+        stoneVersion: '3.7.2',
         gci: gci as unknown as ActiveSession['gci'],
       } as ActiveSession;
     }
@@ -754,81 +855,101 @@ describe('debugQueries', () => {
 
       const nbCalls = (session.gci.GciTsNbPerform as ReturnType<typeof vi.fn>).mock.calls;
       expect(nbCalls).toHaveLength(1);
-      expect(nbCalls[0][1]).toBe(EXPR_STRING);            // receiver = the expression String
-      expect(nbCalls[0][3]).toBe('evaluateInContext:');   // self-only selector (no named temps)
-      expect(nbCalls[0][4]).toEqual([FRAME_RECEIVER]);    // arg = the frame's receiver (self)
+      expect(nbCalls[0][1]).toBe(EXPR_STRING); // receiver = the expression String
+      expect(nbCalls[0][3]).toBe('evaluateInContext:'); // self-only selector (no named temps)
+      expect(nbCalls[0][4]).toEqual([FRAME_RECEIVER]); // arg = the frame's receiver (self)
     });
 
     it('rejects when the expression string cannot be created', async () => {
       const session = nbEvalSession();
-      (session.gci.GciTsNewString as ReturnType<typeof vi.fn>).mockReturnValue(
-        { result: 0n, err: { ...noErr, number: 2101, message: 'bad string' } });
+      (session.gci.GciTsNewString as ReturnType<typeof vi.fn>).mockReturnValue({
+        result: 0n,
+        err: { ...noErr, number: 2101, message: 'bad string' },
+      });
 
-      await expect(debug.evaluateInFrameNb(session, GS_PROCESS, '3 + 4', 3))
-        .rejects.toThrow(/bad string|Cannot create expression string/);
+      await expect(debug.evaluateInFrameNb(session, GS_PROCESS, '3 + 4', 3)).rejects.toThrow(
+        /bad string|Cannot create expression string/,
+      );
     });
 
     it('rejects with the GCI error when the non-blocking result reports a failure (e.g. an interrupt)', async () => {
       const session = nbEvalSession();
-      (session.gci.GciTsNbResult as ReturnType<typeof vi.fn>).mockReturnValue(
-        { result: 0n, err: { ...noErr, number: 6004, message: 'the operation was interrupted' } });
+      (session.gci.GciTsNbResult as ReturnType<typeof vi.fn>).mockReturnValue({
+        result: 0n,
+        err: { ...noErr, number: 6004, message: 'the operation was interrupted' },
+      });
 
-      await expect(debug.evaluateInFrameNb(session, GS_PROCESS, '[true] whileTrue', 3))
-        .rejects.toThrow(/the operation was interrupted/);
+      await expect(
+        debug.evaluateInFrameNb(session, GS_PROCESS, '[true] whileTrue', 3),
+      ).rejects.toThrow(/the operation was interrupted/);
     });
 
     // When the frame has named temps, the nb eval must bind them via a symbol list
     // (evaluateInContext:symbolList:), exactly like the blocking evaluateInFrame.
     it('binds named temps via evaluateInContext:symbolList: (not the self-only path)', async () => {
-      const NAMES_ARRAY = 0xA1n;
-      const AMOUNT_NAME = 0xB1n;
+      const NAMES_ARRAY = 0xa1n;
+      const AMOUNT_NAME = 0xb1n;
       const AMOUNT_VALUE = 0x96n;
-      const AMOUNT_SYMBOL = 0xC1n;
+      const AMOUNT_SYMBOL = 0xc1n;
       const gci = {
-        GciTsI64ToOop: vi.fn(() => ({ result: 0xAAn, err: { ...noErr } })),
+        GciTsI64ToOop: vi.fn(() => ({ result: 0xaan, err: { ...noErr } })),
         GciTsOopToI64: vi.fn(() => ({ value: 5n, err: { ...noErr } })),
         GciTsNewString: vi.fn(() => ({ result: EXPR_STRING, err: { ...noErr } })),
         GciTsNewSymbol: vi.fn(() => ({ result: AMOUNT_SYMBOL, err: { ...noErr } })),
         GciTsResolveSymbol: vi.fn((_h: unknown, name: string) => ({
-          result: name === 'SymbolDictionary' ? 0xD1n : name === 'SymbolList' ? 0xD2n : 0xD3n,
+          result: name === 'SymbolDictionary' ? 0xd1n : name === 'SymbolList' ? 0xd2n : 0xd3n,
           err: { ...noErr },
         })),
-        GciTsFetchSize: vi.fn((_h: unknown, oop: bigint) =>
-          ({ result: oop === NAMES_ARRAY ? 1n : 11n, err: { ...noErr } })),
+        GciTsFetchSize: vi.fn((_h: unknown, oop: bigint) => ({
+          result: oop === NAMES_ARRAY ? 1n : 11n,
+          err: { ...noErr },
+        })),
         GciTsFetchOops: vi.fn((_h: unknown, oop: bigint) =>
           oop === NAMES_ARRAY
             ? { oops: [AMOUNT_NAME], err: { ...noErr } }
-            : { oops: [1n, 2n, 0n, 0n, 0n, 0n, 0n, 0n, NAMES_ARRAY, FRAME_RECEIVER, AMOUNT_VALUE], err: { ...noErr } }),
+            : {
+                oops: [1n, 2n, 0n, 0n, 0n, 0n, 0n, 0n, NAMES_ARRAY, FRAME_RECEIVER, AMOUNT_VALUE],
+                err: { ...noErr },
+              },
+        ),
         GciTsPerform: vi.fn((_h: unknown, _r: bigint, _s: bigint, sel: string | null) => {
           if (sel === '_frameContentsAt:') return { result: FRAME_ARRAY, err: { ...noErr } };
-          if (sel === 'new') return { result: 0xDD0n, err: { ...noErr } };
+          if (sel === 'new') return { result: 0xdd0n, err: { ...noErr } };
           if (sel === 'at:put:') return { result: 0n, err: { ...noErr } };
-          if (sel === 'myUserProfile') return { result: 0xDDdn, err: { ...noErr } };
-          if (sel === 'symbolList') return { result: 0xDDan, err: { ...noErr } };
-          if (sel === 'with:') return { result: 0xDDfn, err: { ...noErr } };
-          if (sel === ',') return { result: 0xDDcn, err: { ...noErr } };
+          if (sel === 'myUserProfile') return { result: 0xdddn, err: { ...noErr } };
+          if (sel === 'symbolList') return { result: 0xddan, err: { ...noErr } };
+          if (sel === 'with:') return { result: 0xddfn, err: { ...noErr } };
+          if (sel === ',') return { result: 0xddcn, err: { ...noErr } };
           return { result: 0n, err: { ...noErr } };
         }),
         GciTsPerformFetchBytes: vi.fn((_h: unknown, oop: bigint) =>
-          oop === AMOUNT_NAME ? { bytesReturned: 6, data: 'amount', err: { ...noErr } }
-            : oop === EVAL_RESULT ? { bytesReturned: 3, data: '150', err: { ...noErr } }
-              : { bytesReturned: 0, data: '', err: { ...noErr } }),
+          oop === AMOUNT_NAME
+            ? { bytesReturned: 6, data: 'amount', err: { ...noErr } }
+            : oop === EVAL_RESULT
+              ? { bytesReturned: 3, data: '150', err: { ...noErr } }
+              : { bytesReturned: 0, data: '', err: { ...noErr } },
+        ),
         isAvailable: (n: string) => n === 'GciTsNbPoll',
         GciTsNbPerform: vi.fn(() => ({ success: true, err: { ...noErr } })),
         GciTsNbPoll: vi.fn(() => ({ result: 1, err: { ...noErr } })),
         GciTsNbResult: vi.fn(() => ({ result: EVAL_RESULT, err: { ...noErr } })),
       };
       const session = {
-        id: 1, handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
+        id: 1,
+        handle: {},
+        login: { label: 'T' } as GemStoneLogin,
+        stoneVersion: '3.7.2',
         gci: gci as unknown as ActiveSession['gci'],
       } as ActiveSession;
 
-      await expect(debug.evaluateInFrameNb(session, GS_PROCESS, 'amount * 2', 3)).resolves.toBe('150');
+      await expect(debug.evaluateInFrameNb(session, GS_PROCESS, 'amount * 2', 3)).resolves.toBe(
+        '150',
+      );
 
       const nbCalls = (session.gci.GciTsNbPerform as ReturnType<typeof vi.fn>).mock.calls;
       expect(nbCalls[0][3]).toBe('evaluateInContext:symbolList:'); // symbol-list selector
-      expect(nbCalls[0][4][0]).toBe(FRAME_RECEIVER);               // self
-      expect(nbCalls[0][4]).toHaveLength(2);                       // [receiver, symbolList]
+      expect(nbCalls[0][4][0]).toBe(FRAME_RECEIVER); // self
+      expect(nbCalls[0][4]).toHaveLength(2); // [receiver, symbolList]
     });
   });
 
@@ -839,11 +960,17 @@ describe('debugQueries', () => {
     it('continueExecution returns the result oop when the process completes', () => {
       const continueWith = vi.fn(() => ({ result: RESULT, err: { ...noErr } }));
       const session = {
-        id: 1, handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
+        id: 1,
+        handle: {},
+        login: { label: 'T' } as GemStoneLogin,
+        stoneVersion: '3.7.2',
         gci: { GciTsContinueWith: continueWith } as unknown as ActiveSession['gci'],
       } as ActiveSession;
 
-      expect(debug.continueExecution(session, GS_PROCESS)).toEqual({ completed: true, resultOop: RESULT });
+      expect(debug.continueExecution(session, GS_PROCESS)).toEqual({
+        completed: true,
+        resultOop: RESULT,
+      });
       // Resume as-is: replaceTopOfStack must be OOP_ILLEGAL, NOT OOP_NIL — forcing
       // TOS := nil corrupts a frame re-entered by trimStackToLevel: and hangs the
       // gem. (3rd positional arg to GciTsContinueWith.)
@@ -854,8 +981,16 @@ describe('debugQueries', () => {
 
     it('continueExecution reports the error (no result oop) when it stops again', () => {
       const session = {
-        id: 1, handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
-        gci: { GciTsContinueWith: vi.fn(() => ({ result: 0n, err: { ...noErr, number: 2010, message: 'next error', context: 0xABn } })) } as unknown as ActiveSession['gci'],
+        id: 1,
+        handle: {},
+        login: { label: 'T' } as GemStoneLogin,
+        stoneVersion: '3.7.2',
+        gci: {
+          GciTsContinueWith: vi.fn(() => ({
+            result: 0n,
+            err: { ...noErr, number: 2010, message: 'next error', context: 0xabn },
+          })),
+        } as unknown as ActiveSession['gci'],
       } as ActiveSession;
 
       const r = debug.continueExecution(session, GS_PROCESS);
@@ -869,47 +1004,70 @@ describe('debugQueries', () => {
 
     it('stepOver returns the result oop when the step completes the process', () => {
       const session = {
-        id: 1, handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
+        id: 1,
+        handle: {},
+        login: { label: 'T' } as GemStoneLogin,
+        stoneVersion: '3.7.2',
         gci: {
-          GciTsI64ToOop: vi.fn(() => ({ result: 0xAAn, err: { ...noErr } })),
+          GciTsI64ToOop: vi.fn(() => ({ result: 0xaan, err: { ...noErr } })),
           GciTsPerform: vi.fn(() => ({ result: RESULT, err: { ...noErr } })),
         } as unknown as ActiveSession['gci'],
       } as ActiveSession;
 
-      expect(debug.stepOver(session, GS_PROCESS, 1)).toEqual({ completed: true, resultOop: RESULT });
+      expect(debug.stepOver(session, GS_PROCESS, 1)).toEqual({
+        completed: true,
+        resultOop: RESULT,
+      });
     });
 
     it('stepOver (blocking) propagates the GemStone error number when the step stops on an error', () => {
       const session = {
-        id: 1, handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
+        id: 1,
+        handle: {},
+        login: { label: 'T' } as GemStoneLogin,
+        stoneVersion: '3.7.2',
         gci: {
-          GciTsI64ToOop: vi.fn(() => ({ result: 0xAAn, err: { ...noErr } })),
-          GciTsPerform: vi.fn(() => ({ result: 0n, err: { ...noErr, number: 6011, message: 'uncontinuable', context: 0xABn } })),
+          GciTsI64ToOop: vi.fn(() => ({ result: 0xaan, err: { ...noErr } })),
+          GciTsPerform: vi.fn(() => ({
+            result: 0n,
+            err: { ...noErr, number: 6011, message: 'uncontinuable', context: 0xabn },
+          })),
         } as unknown as ActiveSession['gci'],
       } as ActiveSession;
 
       const r = debug.stepOver(session, GS_PROCESS, 1);
       expect(r.completed).toBe(false);
       expect(r.errorNumber).toBe(6011);
-      expect(r.errorContext).toBe(0xABn);
+      expect(r.errorContext).toBe(0xabn);
     });
 
     it('stepOverNb (non-blocking) propagates the error number on a stop (e.g. 6011 uncontinuable)', async () => {
       const session = {
-        id: 1, handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
+        id: 1,
+        handle: {},
+        login: { label: 'T' } as GemStoneLogin,
+        stoneVersion: '3.7.2',
         gci: {
           isAvailable: (n: string) => n === 'GciTsNbPoll',
-          GciTsI64ToOop: vi.fn(() => ({ result: 0xAAn, err: { ...noErr } })),
+          GciTsI64ToOop: vi.fn(() => ({ result: 0xaan, err: { ...noErr } })),
           GciTsNbPerform: vi.fn(() => ({ success: true, err: { ...noErr } })),
           GciTsNbPoll: vi.fn(() => ({ result: 1, err: { ...noErr } })), // ready immediately
-          GciTsNbResult: vi.fn(() => ({ result: 0n, err: { ...noErr, number: 6011, message: 'a UncontinuableError occurred (error 6011)', context: 0xABn } })),
+          GciTsNbResult: vi.fn(() => ({
+            result: 0n,
+            err: {
+              ...noErr,
+              number: 6011,
+              message: 'a UncontinuableError occurred (error 6011)',
+              context: 0xabn,
+            },
+          })),
         } as unknown as ActiveSession['gci'],
       } as ActiveSession;
 
       const r = await debug.stepOverNb(session, GS_PROCESS, 1);
       expect(r.completed).toBe(false);
       expect(r.errorNumber).toBe(6011);
-      expect(r.errorContext).toBe(0xABn);
+      expect(r.errorContext).toBe(0xabn);
     });
   });
 
@@ -928,8 +1086,11 @@ describe('debugQueries', () => {
         GciTsI64ToOop: vi.fn(() => ({ result: 10n, err: { ...noErr } })),
       };
       const session = {
-        id: 1, gci: gci as unknown as ActiveSession['gci'],
-        handle: {}, login: { label: 'T' } as GemStoneLogin, stoneVersion: '3.7.2',
+        id: 1,
+        gci: gci as unknown as ActiveSession['gci'],
+        handle: {},
+        login: { label: 'T' } as GemStoneLogin,
+        stoneVersion: '3.7.2',
       } as ActiveSession;
       return { session, perform };
     }
@@ -937,9 +1098,9 @@ describe('debugQueries', () => {
     it('sends every step message with native code disabled', () => {
       const { session, perform } = makeSession();
 
-      debug.stepOver(session, 0xAAn, 1);
-      debug.stepInto(session, 0xAAn, 1);
-      debug.stepOut(session, 0xAAn, 1);
+      debug.stepOver(session, 0xaan, 1);
+      debug.stepInto(session, 0xaan, 1);
+      debug.stepOut(session, 0xaan, 1);
 
       for (const call of perform.mock.calls) {
         const flags = call[5] as number;
@@ -951,7 +1112,7 @@ describe('debugQueries', () => {
     it('continues a suspended process with native code disabled', () => {
       const { session, perform } = makeSession();
 
-      debug.continueExecution(session, 0xAAn);
+      debug.continueExecution(session, 0xaan);
 
       const flags = perform.mock.calls[0][4] as number;
       expect(flags & FLAG_INTERPRETED).toBe(FLAG_INTERPRETED);
@@ -979,14 +1140,16 @@ describe('parseStackDump (#10/#11 whole-stack dump payload)', () => {
 
   it('un-escapes \\\\ \\t \\n \\r in name and value (so printStrings can hold delimiters/newlines)', () => {
     // value carries an escaped tab, newline, CR and backslash — none break framing.
-    const payload = line('3', 'argtemps', 'aString', "a\\tb\\nc\\rd\\\\e", '42');
+    const payload = line('3', 'argtemps', 'aString', 'a\\tb\\nc\\rd\\\\e', '42');
     const [row] = debug.parseStackDump(payload);
     expect(row.value).toBe('a\tb\nc\rd\\e');
     expect(row.serverLevel).toBe(3);
   });
 
   it('skips blank lines and malformed records (fewer than 5 fields)', () => {
-    const payload = ['', line('1', 'receiver', 'self', 'x', '1'), 'junk\twith\tthree', ''].join('\n');
+    const payload = ['', line('1', 'receiver', 'self', 'x', '1'), 'junk\twith\tthree', ''].join(
+      '\n',
+    );
     expect(debug.parseStackDump(payload)).toEqual([
       { serverLevel: 1, group: 'receiver', name: 'self', value: 'x', oop: '1' },
     ]);
@@ -1026,7 +1189,9 @@ describe('parseFrameVars (#5 single-frame one-trip payload)', () => {
   });
 
   it('un-escapes delimiters in name/value and skips malformed lines', () => {
-    const payload = ['', line('argtemps', 's', 'a\\tb\\nc', '42', '1'), 'junk\ttoo\tfew'].join('\n');
+    const payload = ['', line('argtemps', 's', 'a\\tb\\nc', '42', '1'), 'junk\ttoo\tfew'].join(
+      '\n',
+    );
     expect(debug.parseFrameVars(payload)).toEqual([
       { group: 'argtemps', name: 's', value: 'a\tb\nc', oop: '42', index: 1 },
     ]);

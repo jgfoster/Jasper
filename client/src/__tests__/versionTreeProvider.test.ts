@@ -16,7 +16,7 @@ import { VersionTreeProvider } from '../versionTreeProvider';
 import type { VersionManager } from '../versionManager';
 
 /** Let the fire-and-forget loadVersions() promise settle. */
-const tick = () => new Promise<void>(r => setTimeout(r, 0));
+const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
 function makeProvider(fetch: () => Promise<unknown>) {
   const manager = { fetchAvailableVersions: vi.fn(fetch) };
@@ -50,7 +50,9 @@ describe('VersionTreeProvider initial load', () => {
 describe('VersionTreeProvider failure handling (no error-dialog loop)', () => {
   it('shows the error once and does not re-fetch on subsequent renders', async () => {
     const { provider, manager } = makeProvider(() =>
-      Promise.reject(new Error('HTTP 404 for https://downloads.gemtalksystems.com/platforms/x86_64.Darwin/')),
+      Promise.reject(
+        new Error('HTTP 404 for https://downloads.gemtalksystems.com/platforms/x86_64.Darwin/'),
+      ),
     );
 
     // First render triggers the failing load.

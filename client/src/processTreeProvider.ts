@@ -17,7 +17,8 @@ export class ProcessItem extends vscode.TreeItem {
     const portInfo = process.port ? ` port ${process.port}` : '';
     const stalePrefix = process.responding ? '' : `${process.status} | `;
     this.description = `${stalePrefix}${process.version} | PID ${process.pid}${portInfo}`;
-    let tooltip = `${process.type === 'stone' ? 'Stone' : 'NetLDI'}: ${process.name}\n` +
+    let tooltip =
+      `${process.type === 'stone' ? 'Stone' : 'NetLDI'}: ${process.name}\n` +
       `Status: ${process.status}${process.responding ? '' : ' (not responding — stale lock)'}\n` +
       `Version: ${process.version}\nPID: ${process.pid}` +
       (process.port ? `\nPort: ${process.port}` : '') +
@@ -65,15 +66,19 @@ export class ProcessTreeProvider implements vscode.TreeDataProvider<ProcessItem>
   getChildren(): ProcessItem[] {
     const wslNet = needsWsl() ? getWslNetworkInfoCached() : undefined;
     if (needsWsl() && !wslNet) this.scheduleWslNetworkRefresh();
-    return this.processManager.getProcesses().map(p => new ProcessItem(p, wslNet));
+    return this.processManager.getProcesses().map((p) => new ProcessItem(p, wslNet));
   }
 
   private scheduleWslNetworkRefresh(): void {
     if (!needsWsl() || this.networkRefreshInFlight) return;
     this.networkRefreshInFlight = true;
     refreshWslNetworkInfo()
-      .finally(() => { this.networkRefreshInFlight = false; })
+      .finally(() => {
+        this.networkRefreshInFlight = false;
+      })
       .then(() => this._onDidChangeTreeData.fire(undefined))
-      .catch(() => { /* already swallowed in refreshWslNetworkInfo */ });
+      .catch(() => {
+        /* already swallowed in refreshWslNetworkInfo */
+      });
   }
 }

@@ -35,7 +35,11 @@ import * as vscode from 'vscode';
 import { __resetConfig } from '../__mocks__/vscode';
 import { appendTranscript, appendTranscriptOutput, showTranscript } from '../transcriptChannel';
 import { pollReadable } from '../socketPoll';
-import { GCI_PERFORM_FLAG_ENABLE_DEBUG, GCI_PERFORM_FLAG_SINGLE_STEP, GCI_PERFORM_FLAG_INTERPRETED } from '../gciConstants';
+import {
+  GCI_PERFORM_FLAG_ENABLE_DEBUG,
+  GCI_PERFORM_FLAG_SINGLE_STEP,
+  GCI_PERFORM_FLAG_INTERPRETED,
+} from '../gciConstants';
 
 /** Set the gemstone.displayItMode setting for the current test. */
 function setDisplayItMode(mode: 'overlay' | 'insert'): void {
@@ -49,11 +53,17 @@ const OOP_NIL = 0x14n;
 function makeGci(overrides: Record<string, unknown> = {}) {
   return {
     GciTsResolveSymbol: vi.fn(() => ({ result: 100n, err: { number: 0 } })),
-    GciTsNbExecute: vi.fn((): Record<string, unknown> => ({ success: true, err: { number: 0, message: '' } })),
+    GciTsNbExecute: vi.fn((): Record<string, unknown> => ({
+      success: true,
+      err: { number: 0, message: '' },
+    })),
     GciTsNbPoll: vi.fn(() => ({ result: 1, err: { number: 0 } })),
     isAvailable: vi.fn(() => true),
     GciTsSocket: vi.fn(() => ({ fd: 7, err: { number: 0 } })),
-    GciTsNbResult: vi.fn((): Record<string, unknown> => ({ result: 200n, err: { number: 0, message: '', context: OOP_NIL } })),
+    GciTsNbResult: vi.fn((): Record<string, unknown> => ({
+      result: 200n,
+      err: { number: 0, message: '', context: OOP_NIL },
+    })),
     GciTsPerformFetchBytes: vi.fn(() => ({ data: '42', err: { number: 0 } })),
     GciTsExecuteFetchBytes: vi.fn(() => ({ data: '', err: { number: 0 } })),
     GciTsClearStack: vi.fn(),
@@ -116,7 +126,9 @@ function makeEditor(text: string, selection?: vscode.Selection) {
         return new vscode.Position(lines.length - 1, (lines[lines.length - 1] || '').length);
       }),
     },
-    selection: selection ?? new vscode.Selection(new vscode.Position(0, 0), new vscode.Position(0, text.length)),
+    selection:
+      selection ??
+      new vscode.Selection(new vscode.Position(0, 0), new vscode.Position(0, text.length)),
     edit: vi.fn(async (cb: (builder: { insert: (...args: unknown[]) => void }) => void) => {
       cb({ insert: vi.fn() });
       return true;
@@ -125,7 +137,9 @@ function makeEditor(text: string, selection?: vscode.Selection) {
   };
 }
 
-function setActiveEditor(editor: ReturnType<typeof makeEditor> | ReturnType<typeof makeMutableEditor>): void {
+function setActiveEditor(
+  editor: ReturnType<typeof makeEditor> | ReturnType<typeof makeMutableEditor>,
+): void {
   (vscode.window as unknown as Record<string, unknown>).activeTextEditor = editor;
 }
 
@@ -152,7 +166,9 @@ function makeMutableEditor(initialText: string, selection?: vscode.Selection) {
         text: lines[line] || '',
       };
     }),
-    get lineCount() { return linesOf(text).length; },
+    get lineCount() {
+      return linesOf(text).length;
+    },
     offsetAt: vi.fn((pos: vscode.Position) => {
       const lines = linesOf(text);
       let offset = 0;
@@ -176,19 +192,22 @@ function makeMutableEditor(initialText: string, selection?: vscode.Selection) {
 
   return {
     document,
-    selection: selection ?? new vscode.Selection(
-      new vscode.Position(0, 0),
-      new vscode.Position(0, initialText.length),
+    selection:
+      selection ??
+      new vscode.Selection(new vscode.Position(0, 0), new vscode.Position(0, initialText.length)),
+    edit: vi.fn(
+      async (
+        cb: (builder: { insert: (pos: vscode.Position, newText: string) => void }) => void,
+      ) => {
+        cb({
+          insert: (pos: vscode.Position, newText: string) => {
+            const off = document.offsetAt(pos);
+            text = text.slice(0, off) + newText + text.slice(off);
+          },
+        });
+        return true;
+      },
     ),
-    edit: vi.fn(async (cb: (builder: { insert: (pos: vscode.Position, newText: string) => void }) => void) => {
-      cb({
-        insert: (pos: vscode.Position, newText: string) => {
-          const off = document.offsetAt(pos);
-          text = text.slice(0, off) + newText + text.slice(off);
-        },
-      });
-      return true;
-    }),
     setDecorations: vi.fn(),
   };
 }
@@ -222,7 +241,8 @@ describe('CodeExecutor', () => {
         success: false,
         err: {
           number: 1001,
-          message: 'a CompileError occurred (error 1001), expected expression, near source character 250',
+          message:
+            'a CompileError occurred (error 1001), expected expression, near source character 250',
         },
       });
 
@@ -320,7 +340,7 @@ describe('CodeExecutor', () => {
     });
 
     it('maps multi-line code offset to correct editor line', async () => {
-      const code = "| x |\nx := 42.\nx foo";
+      const code = '| x |\nx := 42.\nx foo';
       // 'foo' starts at offset 18 in user code: "| x |\n" (6) + "x := 42.\n" (9) + "x " (2) + "f" = 17; 1-based = 18
       (gci.GciTsNbExecute as Mock).mockReturnValue({
         success: false,
@@ -332,7 +352,7 @@ describe('CodeExecutor', () => {
 
       // Selection starts at line 3
       const sel = new vscode.Selection(new vscode.Position(3, 0), new vscode.Position(5, 5));
-      const editor = makeEditor("line0\nline1\nline2\n| x |\nx := 42.\nx foo", sel);
+      const editor = makeEditor('line0\nline1\nline2\n| x |\nx := 42.\nx foo', sel);
       editor.document.getText = vi.fn(() => code);
       setActiveEditor(editor);
 
@@ -383,24 +403,27 @@ describe('CodeExecutor', () => {
       await executor.executeIt();
 
       const sinkCalls = (gci.GciTsExecuteFetchBytes as Mock).mock.calls
-        .map(c => c[1] as string)
-        .filter(code => code.includes('jasperLive:'));
-      expect(sinkCalls.some(code => code.includes('jasperLive: true'))).toBe(true);
-      expect(sinkCalls.some(code => code.includes('jasperLive: false'))).toBe(true);
+        .map((c) => c[1] as string)
+        .filter((code) => code.includes('jasperLive:'));
+      expect(sinkCalls.some((code) => code.includes('jasperLive: true'))).toBe(true);
+      expect(sinkCalls.some((code) => code.includes('jasperLive: false'))).toBe(true);
     });
 
     it('restores buffered mode even when the execution errors', async () => {
       (gci.GciTsNbResult as Mock).mockReturnValue({
         result: 0x01n,
-        err: { number: 2003, message: 'a UndefinedObject does not understand #foo', context: OOP_NIL },
+        err: {
+          number: 2003,
+          message: 'a UndefinedObject does not understand #foo',
+          context: OOP_NIL,
+        },
       });
       setActiveEditor(makeEditor('nil foo'));
 
       await executor.executeIt();
 
-      const sinkCalls = (gci.GciTsExecuteFetchBytes as Mock).mock.calls
-        .map(c => c[1] as string);
-      expect(sinkCalls.some(code => code.includes('jasperLive: false'))).toBe(true);
+      const sinkCalls = (gci.GciTsExecuteFetchBytes as Mock).mock.calls.map((c) => c[1] as string);
+      expect(sinkCalls.some((code) => code.includes('jasperLive: false'))).toBe(true);
     });
 
     it('streams a mid-execution Transcript write to the channel and resumes to the result', async () => {
@@ -409,22 +432,32 @@ describe('CodeExecutor', () => {
       (gci.GciTsNbResult as Mock).mockReturnValue({
         result: 0x01n,
         err: {
-          number: 2336, context: 0x999n, argCount: 4,
-          args: [0x10n, 0x11n, 0x12n, 0x13n], message: 'clientForwarderSend',
+          number: 2336,
+          context: 0x999n,
+          argCount: 4,
+          args: [0x10n, 0x11n, 0x12n, 0x13n],
+          message: 'clientForwarderSend',
         },
       });
-      (gci as Record<string, unknown>).GciTsOopToI64 =
-        vi.fn(() => ({ success: true, value: 2n, err: { number: 0 } }));
-      (gci as Record<string, unknown>).GciTsFetchUtf8 =
-        vi.fn((_h: unknown, oop: bigint) => (
-          oop === 0x12n
-            ? { data: 'nextPutAll:', err: { number: 0 } }
-            : { data: 'live text', err: { number: 0 } }
-        ));
-      (gci as Record<string, unknown>).GciTsFetchOops =
-        vi.fn(() => ({ result: 1, oops: [0x77n], err: { number: 0 } }));
-      (gci as Record<string, unknown>).GciTsContinueWithAsync =
-        vi.fn(async () => ({ result: 200n, err: { number: 0, context: 0n } }));
+      (gci as Record<string, unknown>).GciTsOopToI64 = vi.fn(() => ({
+        success: true,
+        value: 2n,
+        err: { number: 0 },
+      }));
+      (gci as Record<string, unknown>).GciTsFetchUtf8 = vi.fn((_h: unknown, oop: bigint) =>
+        oop === 0x12n
+          ? { data: 'nextPutAll:', err: { number: 0 } }
+          : { data: 'live text', err: { number: 0 } },
+      );
+      (gci as Record<string, unknown>).GciTsFetchOops = vi.fn(() => ({
+        result: 1,
+        oops: [0x77n],
+        err: { number: 0 },
+      }));
+      (gci as Record<string, unknown>).GciTsContinueWithAsync = vi.fn(async () => ({
+        result: 200n,
+        err: { number: 0, context: 0n },
+      }));
       setActiveEditor(makeEditor("Transcript show: 'live text'. 3 + 4"));
 
       await executor.executeIt();
@@ -577,7 +610,9 @@ describe('CodeExecutor', () => {
 
     it('clears the stack if the Enhanced Debugger panel fails to open', async () => {
       setup();
-      vi.mocked(DebuggerPanel.create).mockImplementationOnce(() => { throw new Error('panel boom'); });
+      vi.mocked(DebuggerPanel.create).mockImplementationOnce(() => {
+        throw new Error('panel boom');
+      });
 
       await executor.debugIt();
 
@@ -602,7 +637,8 @@ describe('CodeExecutor', () => {
 
     it('selects the inserted result (including leading space)', async () => {
       (gci.GciTsPerformFetchBytes as Mock).mockReturnValue({
-        data: '42', err: { number: 0 },
+        data: '42',
+        err: { number: 0 },
       });
 
       const userCode = '3 + 4';
@@ -627,7 +663,8 @@ describe('CodeExecutor', () => {
 
     it('selection spans exactly the inserted text so backspace removes it cleanly', async () => {
       (gci.GciTsPerformFetchBytes as Mock).mockReturnValue({
-        data: "'hello'", err: { number: 0 },
+        data: "'hello'",
+        err: { number: 0 },
       });
 
       const userCode = "'hi'";
@@ -645,14 +682,12 @@ describe('CodeExecutor', () => {
 
     it('places selection correctly when user code is on a non-first line', async () => {
       (gci.GciTsPerformFetchBytes as Mock).mockReturnValue({
-        data: '7', err: { number: 0 },
+        data: '7',
+        err: { number: 0 },
       });
 
       const text = 'line0\n3 + 4\nline2';
-      const sel = new vscode.Selection(
-        new vscode.Position(1, 0),
-        new vscode.Position(1, 5),
-      );
+      const sel = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(1, 5));
       const editor = makeMutableEditor(text, sel);
       // Real VSCode's getText(selection) returns only the selected substring
       editor.document.getText = vi.fn(() => '3 + 4') as unknown as typeof editor.document.getText;
@@ -705,7 +740,8 @@ describe('CodeExecutor', () => {
 
     it('applies the result decoration to the inserted result range', async () => {
       (gci.GciTsPerformFetchBytes as Mock).mockReturnValue({
-        data: '42', err: { number: 0 },
+        data: '42',
+        err: { number: 0 },
       });
 
       const userCode = '3 + 4';
@@ -718,10 +754,11 @@ describe('CodeExecutor', () => {
       // Find the call whose range covers exactly the inserted result string
       // (without the leading space — the decoration highlights the value).
       const calls = editor.setDecorations.mock.calls as [unknown, vscode.Range[]][];
-      const decoCall = calls.find(([, ranges]) =>
-        ranges.length === 1
-          && ranges[0].start.character === userCode.length + 1
-          && ranges[0].end.character === userCode.length + 1 + '42'.length,
+      const decoCall = calls.find(
+        ([, ranges]) =>
+          ranges.length === 1 &&
+          ranges[0].start.character === userCode.length + 1 &&
+          ranges[0].end.character === userCode.length + 1 + '42'.length,
       );
       expect(decoCall).toBeDefined();
     });
@@ -735,7 +772,8 @@ describe('CodeExecutor', () => {
   describe('displayIt overlay mode', () => {
     function mockResult(value: string): void {
       (gci.GciTsPerformFetchBytes as Mock).mockReturnValue({
-        data: value, err: { number: 0 },
+        data: value,
+        err: { number: 0 },
       });
     }
 
@@ -744,16 +782,22 @@ describe('CodeExecutor', () => {
       editor: ReturnType<typeof makeEditor> | ReturnType<typeof makeMutableEditor>,
     ) {
       const calls = editor.setDecorations.mock.calls as [unknown, unknown[]][];
-      const overlayCall = [...calls].reverse().find(([, opts]) =>
-        Array.isArray(opts) && opts.length === 1
-          && (opts[0] as { renderOptions?: { after?: { contentText?: string } } })
-            .renderOptions?.after?.contentText !== undefined,
-      );
-      return overlayCall?.[1][0] as {
-        range: vscode.Range;
-        hoverMessage: { value: string; isTrusted?: boolean };
-        renderOptions: { after: { contentText: string } };
-      } | undefined;
+      const overlayCall = [...calls]
+        .reverse()
+        .find(
+          ([, opts]) =>
+            Array.isArray(opts) &&
+            opts.length === 1 &&
+            (opts[0] as { renderOptions?: { after?: { contentText?: string } } }).renderOptions
+              ?.after?.contentText !== undefined,
+        );
+      return overlayCall?.[1][0] as
+        | {
+            range: vscode.Range;
+            hoverMessage: { value: string; isTrusted?: boolean };
+            renderOptions: { after: { contentText: string } };
+          }
+        | undefined;
     }
 
     it('does not modify the document', async () => {
@@ -860,7 +904,9 @@ describe('CodeExecutor', () => {
       await executor.displayIt();
 
       expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
-        'setContext', 'gemstone.displayResultVisible', true,
+        'setContext',
+        'gemstone.displayResultVisible',
+        true,
       );
     });
 
@@ -880,7 +926,9 @@ describe('CodeExecutor', () => {
       expect(lastDeco?.[1]).toEqual([]);
       // Context released
       expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
-        'setContext', 'gemstone.displayResultVisible', false,
+        'setContext',
+        'gemstone.displayResultVisible',
+        false,
       );
       // Document untouched
       expect(editor.edit).not.toHaveBeenCalled();
@@ -901,7 +949,9 @@ describe('CodeExecutor', () => {
 
       expect(editor.document.getText()).toBe('3 + 4 a\nb\nc');
       expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
-        'setContext', 'gemstone.displayResultVisible', false,
+        'setContext',
+        'gemstone.displayResultVisible',
+        false,
       );
     });
 
@@ -933,17 +983,16 @@ describe('CodeExecutor', () => {
       expect(() => executor.dismissDisplayResult()).not.toThrow();
       // ...and must still release the context key.
       expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
-        'setContext', 'gemstone.displayResultVisible', false,
+        'setContext',
+        'gemstone.displayResultVisible',
+        false,
       );
     });
 
     it('anchors the overlay on the selection end when code is on a non-first line', async () => {
       mockResult('7');
       const text = 'line0\n3 + 4\nline2';
-      const sel = new vscode.Selection(
-        new vscode.Position(1, 0),
-        new vscode.Position(1, 5),
-      );
+      const sel = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(1, 5));
       const editor = makeMutableEditor(text, sel);
       // Real VSCode's getText(selection) returns only the selected substring
       editor.document.getText = vi.fn(() => '3 + 4') as unknown as typeof editor.document.getText;
@@ -976,7 +1025,9 @@ describe('CodeExecutor', () => {
       // The dismiss context was never turned on, so Backspace/Enter/Ctrl+Z
       // are not hijacked after a failed Display It
       expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
-        'setContext', 'gemstone.displayResultVisible', true,
+        'setContext',
+        'gemstone.displayResultVisible',
+        true,
       );
       // And nothing was inserted into the document
       expect(editor.document.getText()).toBe('bad syntax');
@@ -995,17 +1046,15 @@ describe('CodeExecutor', () => {
         beforeEach(() => {
           setDisplayItMode(mode);
           (gci.GciTsPerformFetchBytes as Mock).mockReturnValue({
-            data: '42', err: { number: 0 },
+            data: '42',
+            err: { number: 0 },
           });
         });
 
         it('executes the whole current line when the selection is empty', async () => {
           const text = 'line0\n3 + 4\nline2';
           // Collapsed (empty) caret on line 1
-          const caret = new vscode.Selection(
-            new vscode.Position(1, 2),
-            new vscode.Position(1, 2),
-          );
+          const caret = new vscode.Selection(new vscode.Position(1, 2), new vscode.Position(1, 2));
           const editor = makeMutableEditor(text, caret);
           setActiveEditor(editor);
 
@@ -1021,10 +1070,7 @@ describe('CodeExecutor', () => {
 
         it('executes only the selected text when a selection is present', async () => {
           const text = 'line0\n3 + 4\nline2';
-          const sel = new vscode.Selection(
-            new vscode.Position(1, 0),
-            new vscode.Position(1, 5),
-          );
+          const sel = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(1, 5));
           const editor = makeMutableEditor(text, sel);
           setActiveEditor(editor);
 
@@ -1047,8 +1093,9 @@ describe('CodeExecutor', () => {
 
       await executor.executeIt();
 
-      const calls = vi.mocked(vscode.commands.executeCommand).mock.calls
-        .filter(([cmd]) => cmd === 'setContext');
+      const calls = vi
+        .mocked(vscode.commands.executeCommand)
+        .mock.calls.filter(([cmd]) => cmd === 'setContext');
       // First call: set to true, last call: set to false
       expect(calls.length).toBeGreaterThanOrEqual(2);
       expect(calls[0]).toEqual(['setContext', 'gemstone.executing', true]);
@@ -1080,7 +1127,7 @@ describe('CodeExecutor', () => {
       expect(calls[0][1].length).toBe(1);
       // A later call clears it (empty array)
       const clearCall = (calls as [unknown, unknown[]][]).find(
-        (c) => c[1].length === 0 && c[0] !== calls[calls.length - 1][0] || c[1].length === 0,
+        (c) => (c[1].length === 0 && c[0] !== calls[calls.length - 1][0]) || c[1].length === 0,
       );
       expect(clearCall).toBeDefined();
     });
@@ -1101,8 +1148,9 @@ describe('CodeExecutor', () => {
       await executor.executeIt();
 
       // Context should be reset to false
-      const setCalls = vi.mocked(vscode.commands.executeCommand).mock.calls
-        .filter(([cmd]) => cmd === 'setContext');
+      const setCalls = vi
+        .mocked(vscode.commands.executeCommand)
+        .mock.calls.filter(([cmd]) => cmd === 'setContext');
       const lastCall = setCalls[setCalls.length - 1];
       expect(lastCall).toEqual(['setContext', 'gemstone.executing', false]);
 
@@ -1122,10 +1170,13 @@ describe('CodeExecutor', () => {
         findRootByLabel: vi.fn(),
       };
 
-      await executor.inspectIt(inspectorProvider as unknown as import('../inspectorTreeProvider').InspectorTreeProvider);
+      await executor.inspectIt(
+        inspectorProvider as unknown as import('../inspectorTreeProvider').InspectorTreeProvider,
+      );
 
-      const calls = vi.mocked(vscode.commands.executeCommand).mock.calls
-        .filter(([cmd]) => cmd === 'setContext');
+      const calls = vi
+        .mocked(vscode.commands.executeCommand)
+        .mock.calls.filter(([cmd]) => cmd === 'setContext');
       expect(calls[0]).toEqual(['setContext', 'gemstone.executing', true]);
       expect(calls[calls.length - 1]).toEqual(['setContext', 'gemstone.executing', false]);
     });
@@ -1136,7 +1187,9 @@ describe('CodeExecutor', () => {
       setActiveEditor(editor);
 
       const inspectorProvider = { addRoot: vi.fn(), findRootByLabel: vi.fn() };
-      await executor.inspectIt(inspectorProvider as unknown as import('../inspectorTreeProvider').InspectorTreeProvider);
+      await executor.inspectIt(
+        inspectorProvider as unknown as import('../inspectorTreeProvider').InspectorTreeProvider,
+      );
 
       expect(EnhancedInspector.create).toHaveBeenCalledWith(session, 200n, '3 + 4');
       expect(inspectorProvider.addRoot).not.toHaveBeenCalled();
@@ -1148,7 +1201,9 @@ describe('CodeExecutor', () => {
       setActiveEditor(editor);
 
       const inspectorProvider = { addRoot: vi.fn(), findRootByLabel: vi.fn() };
-      await executor.inspectIt(inspectorProvider as unknown as import('../inspectorTreeProvider').InspectorTreeProvider);
+      await executor.inspectIt(
+        inspectorProvider as unknown as import('../inspectorTreeProvider').InspectorTreeProvider,
+      );
 
       expect(inspectorProvider.addRoot).toHaveBeenCalledWith(1, 200n, '3 + 4');
       expect(EnhancedInspector.create).not.toHaveBeenCalled();
@@ -1176,7 +1231,9 @@ describe('CodeExecutor', () => {
 
       await executor.executeIt();
 
-      expect(callOrder.indexOf('decoration:apply')).toBeLessThan(callOrder.indexOf('executing:true'));
+      expect(callOrder.indexOf('decoration:apply')).toBeLessThan(
+        callOrder.indexOf('executing:true'),
+      );
     });
 
     it('applies dim decoration before setting gemstone.executing context (inspectIt)', async () => {
@@ -1202,7 +1259,9 @@ describe('CodeExecutor', () => {
         inspectorProvider as unknown as import('../inspectorTreeProvider').InspectorTreeProvider,
       );
 
-      expect(callOrder.indexOf('decoration:apply')).toBeLessThan(callOrder.indexOf('executing:true'));
+      expect(callOrder.indexOf('decoration:apply')).toBeLessThan(
+        callOrder.indexOf('executing:true'),
+      );
     });
 
     it('does not set gemstone.executing when resolveOopClassString fails (executeIt)', async () => {
@@ -1216,8 +1275,9 @@ describe('CodeExecutor', () => {
 
       await executor.executeIt();
 
-      const setCalls = vi.mocked(vscode.commands.executeCommand).mock.calls
-        .filter(([cmd, key]) => cmd === 'setContext' && key === 'gemstone.executing');
+      const setCalls = vi
+        .mocked(vscode.commands.executeCommand)
+        .mock.calls.filter(([cmd, key]) => cmd === 'setContext' && key === 'gemstone.executing');
       expect(setCalls.some(([, , value]) => value === true)).toBe(false);
     });
 
@@ -1235,8 +1295,9 @@ describe('CodeExecutor', () => {
         inspectorProvider as unknown as import('../inspectorTreeProvider').InspectorTreeProvider,
       );
 
-      const setCalls = vi.mocked(vscode.commands.executeCommand).mock.calls
-        .filter(([cmd, key]) => cmd === 'setContext' && key === 'gemstone.executing');
+      const setCalls = vi
+        .mocked(vscode.commands.executeCommand)
+        .mock.calls.filter(([cmd, key]) => cmd === 'setContext' && key === 'gemstone.executing');
       expect(setCalls.some(([, , value]) => value === true)).toBe(false);
     });
 
@@ -1251,8 +1312,9 @@ describe('CodeExecutor', () => {
 
       await executor.executeIt();
 
-      const setCalls = vi.mocked(vscode.commands.executeCommand).mock.calls
-        .filter(([cmd, key]) => cmd === 'setContext' && key === 'gemstone.executing');
+      const setCalls = vi
+        .mocked(vscode.commands.executeCommand)
+        .mock.calls.filter(([cmd, key]) => cmd === 'setContext' && key === 'gemstone.executing');
       expect(setCalls.length).toBeGreaterThanOrEqual(2);
       expect(setCalls[setCalls.length - 1][2]).toBe(false);
     });
@@ -1271,8 +1333,9 @@ describe('CodeExecutor', () => {
         inspectorProvider as unknown as import('../inspectorTreeProvider').InspectorTreeProvider,
       );
 
-      const setCalls = vi.mocked(vscode.commands.executeCommand).mock.calls
-        .filter(([cmd, key]) => cmd === 'setContext' && key === 'gemstone.executing');
+      const setCalls = vi
+        .mocked(vscode.commands.executeCommand)
+        .mock.calls.filter(([cmd, key]) => cmd === 'setContext' && key === 'gemstone.executing');
       expect(setCalls.length).toBeGreaterThanOrEqual(2);
       expect(setCalls[setCalls.length - 1][2]).toBe(false);
     });
@@ -1410,8 +1473,9 @@ describe('CodeExecutor', () => {
     }
 
     function revealedView(): boolean {
-      return vi.mocked(vscode.commands.executeCommand).mock.calls
-        .some(([cmd]) => cmd === 'workbench.view.debug');
+      return vi
+        .mocked(vscode.commands.executeCommand)
+        .mock.calls.some(([cmd]) => cmd === 'workbench.view.debug');
     }
 
     it('starts debugging and focuses the Run and Debug view when the user clicks Debug', async () => {
@@ -1423,11 +1487,13 @@ describe('CodeExecutor', () => {
 
       expect(vscode.debug.startDebugging).toHaveBeenCalled();
       const config = vi.mocked(vscode.debug.startDebugging).mock.calls[0][1] as unknown as {
-        type: string; gsProcess: string; sessionId: number;
+        type: string;
+        gsProcess: string;
+        sessionId: number;
       };
       expect(config.type).toBe('gemstone');
       expect(config.sessionId).toBe(session.id);
-      expect(config.gsProcess).toBe((0x123n).toString());
+      expect(config.gsProcess).toBe(0x123n.toString());
       expect(revealedView()).toBe(true);
     });
 
@@ -1451,7 +1517,12 @@ describe('CodeExecutor', () => {
 
       // The webview debugger owns the gsProcess for this error. Execute It is
       // intentionally silent, so no completion callback is passed.
-      expect(DebuggerPanel.create).toHaveBeenCalledWith(session, 0x123n, expect.any(String), undefined);
+      expect(DebuggerPanel.create).toHaveBeenCalledWith(
+        session,
+        0x123n,
+        expect.any(String),
+        undefined,
+      );
       // The DAP path must not run, and the stack must NOT be cleared — the
       // panel now owns the suspended process.
       expect(vscode.debug.startDebugging).not.toHaveBeenCalled();
@@ -1467,7 +1538,12 @@ describe('CodeExecutor', () => {
 
       // Display It → on Resume/step-to-completion the result is rendered back in
       // the workspace, so a completion callback IS provided.
-      expect(DebuggerPanel.create).toHaveBeenCalledWith(session, 0x123n, expect.any(String), expect.any(Function));
+      expect(DebuggerPanel.create).toHaveBeenCalledWith(
+        session,
+        0x123n,
+        expect.any(String),
+        expect.any(Function),
+      );
     });
 
     it('the Display It completion callback renders the result back in the workspace, refocusing the editor', async () => {
@@ -1479,11 +1555,17 @@ describe('CodeExecutor', () => {
       // to-completion. Rendering is deferred to the next tick (after the panel
       // disposes) and the editor is refocused first so the result's
       // Backspace/Enter keybindings (editorTextFocus) work.
-      const onComplete = vi.mocked(DebuggerPanel.create).mock.calls.at(-1)![3] as (oop: bigint) => void;
-      const editor = vscode.window.activeTextEditor as unknown as { setDecorations: ReturnType<typeof vi.fn> };
+      const onComplete = vi.mocked(DebuggerPanel.create).mock.calls.at(-1)![3] as (
+        oop: bigint,
+      ) => void;
+      const editor = vscode.window.activeTextEditor as unknown as {
+        setDecorations: ReturnType<typeof vi.fn>;
+      };
       editor.setDecorations.mockClear();
       // showTextDocument resolves with the same editor (as it would for the same doc).
-      vi.mocked(vscode.window.showTextDocument).mockResolvedValue(editor as unknown as vscode.TextEditor);
+      vi.mocked(vscode.window.showTextDocument).mockResolvedValue(
+        editor as unknown as vscode.TextEditor,
+      );
 
       vi.useFakeTimers();
       try {
@@ -1494,7 +1576,7 @@ describe('CodeExecutor', () => {
       }
 
       expect(vscode.window.showTextDocument).toHaveBeenCalled(); // editor refocused
-      expect(editor.setDecorations).toHaveBeenCalled();          // result rendered into the workspace
+      expect(editor.setDecorations).toHaveBeenCalled(); // result rendered into the workspace
     });
   });
 
@@ -1531,7 +1613,10 @@ describe('CodeExecutor', () => {
 
     it('reports an error when the session socket cannot be obtained on 3.6.2', async () => {
       (gci.isAvailable as Mock).mockImplementation((name: string) => name !== 'GciTsNbPoll');
-      (gci.GciTsSocket as Mock).mockReturnValue({ fd: -1, err: { number: 4100, message: 'no socket' } });
+      (gci.GciTsSocket as Mock).mockReturnValue({
+        fd: -1,
+        err: { number: 4100, message: 'no socket' },
+      });
 
       const editor = makeEditor('3 + 4');
       setActiveEditor(editor);

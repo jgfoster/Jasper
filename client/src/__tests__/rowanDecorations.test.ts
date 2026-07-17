@@ -3,11 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('vscode', () => import('../__mocks__/vscode'));
 
 import * as vscode from 'vscode';
-import {
-  RowanDecorationProvider,
-  loadedProjectUri,
-  changeUri,
-} from '../rowanDecorations';
+import { RowanDecorationProvider, loadedProjectUri, changeUri } from '../rowanDecorations';
 
 const provider = new RowanDecorationProvider();
 
@@ -16,9 +12,7 @@ describe('RowanDecorationProvider', () => {
     const deco = provider.provideFileDecoration(loadedProjectUri('Seaside', true));
 
     expect(deco?.badge).toBe('M');
-    expect(deco?.color).toEqual(
-      new vscode.ThemeColor('gitDecoration.modifiedResourceForeground'),
-    );
+    expect(deco?.color).toEqual(new vscode.ThemeColor('gitDecoration.modifiedResourceForeground'));
   });
 
   it('leaves a clean project undecorated', () => {
@@ -30,9 +24,7 @@ describe('RowanDecorationProvider', () => {
     const deleted = provider.provideFileDecoration(changeUri('Seaside', 'WAOldWidget', 'D'));
 
     expect(added?.badge).toBe('A');
-    expect(added?.color).toEqual(
-      new vscode.ThemeColor('gitDecoration.addedResourceForeground'),
-    );
+    expect(added?.color).toEqual(new vscode.ThemeColor('gitDecoration.addedResourceForeground'));
     expect(deleted?.badge).toBe('D');
     expect(deleted?.color).toEqual(
       new vscode.ThemeColor('gitDecoration.deletedResourceForeground'),

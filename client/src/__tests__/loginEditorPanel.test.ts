@@ -130,7 +130,6 @@ describe('LoginEditorPanel', () => {
       expect(html).toContain('id="saveBtn"');
       expect(html).toContain('id="cancelBtn"');
     });
-
   });
 
   describe('message handling', () => {
@@ -307,7 +306,9 @@ describe('LoginEditorPanel', () => {
       const loadCall = panel.webview.postMessage.mock.calls.find(
         (c: unknown[]) => (c[0] as { command?: string })?.command === 'loadData',
       );
-      expect((loadCall?.[0] as { data: { gs_password: string } }).data.gs_password).toBe('kc-secret');
+      expect((loadCall?.[0] as { data: { gs_password: string } }).data.gs_password).toBe(
+        'kc-secret',
+      );
     });
 
     it('does not call SecretStorage when editing a non-keychain login', async () => {
@@ -368,7 +369,14 @@ describe('LoginEditorPanel', () => {
       const panel = window.createWebviewPanel.mock.results[0].value;
       panel.webview.postMessage.mockClear();
 
-      await LoginEditorPanel.show(storage, secretsArg, treeProvider, makeLogin({ label: 'A' }), undefined, true);
+      await LoginEditorPanel.show(
+        storage,
+        secretsArg,
+        treeProvider,
+        makeLogin({ label: 'A' }),
+        undefined,
+        true,
+      );
 
       expect(panel.webview.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({ command: 'loadData', readOnly: true }),
@@ -381,7 +389,11 @@ describe('LoginEditorPanel', () => {
       const panel = window.createWebviewPanel.mock.results[0].value;
       const handler = panel.webview.onDidReceiveMessage.mock.calls[0][0];
 
-      await handler({ command: 'save', data: makeLogin({ stone: 'edited' }), originalLabel: 'Test' });
+      await handler({
+        command: 'save',
+        data: makeLogin({ stone: 'edited' }),
+        originalLabel: 'Test',
+      });
 
       expect(saveSpy).not.toHaveBeenCalled();
     });
@@ -422,8 +434,11 @@ describe('LoginEditorPanel', () => {
     it('persists the sync_classes flag from the form', async () => {
       const saveSpy = vi.spyOn(storage, 'saveLogin').mockResolvedValue();
       await simulateSave(undefined, {
-        gs_user: 'DataCurator', gem_host: 'localhost', stone: 'gs64stone',
-        gs_password: 'pw', sync_classes: false,
+        gs_user: 'DataCurator',
+        gem_host: 'localhost',
+        stone: 'gs64stone',
+        gs_password: 'pw',
+        sync_classes: false,
       });
       expect(saveSpy.mock.calls[0][0].sync_classes).toBe(false);
     });

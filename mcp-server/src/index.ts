@@ -38,12 +38,21 @@ export function parseArgs(argv: string[]): CliArgs {
   } else {
     transport = (rawTransport ?? 'stdio') as Transport;
     if (transport !== 'stdio' && transport !== 'sse') {
-      throw new Error(`Invalid --transport: ${rawTransport} (expected "stdio", "sse", or use --proxy-socket)`);
+      throw new Error(
+        `Invalid --transport: ${rawTransport} (expected "stdio", "sse", or use --proxy-socket)`,
+      );
     }
   }
 
   if (transport === 'sse' || transport === 'stdio') {
-    const required = ['library-path', 'stone-nrs', 'gem-nrs', 'gs-user', 'gemstone', 'gemstone-global-dir'];
+    const required = [
+      'library-path',
+      'stone-nrs',
+      'gem-nrs',
+      'gs-user',
+      'gemstone',
+      'gemstone-global-dir',
+    ];
     for (const key of required) {
       if (!result[key]) {
         throw new Error(`Missing required argument: --${key}`);
@@ -118,7 +127,7 @@ export function runProxyMode(socketPath: string): void {
   socket.on('error', (err) => {
     process.stderr.write(
       `MCP proxy: cannot connect to Jasper socket at ${socketPath}: ${err.message}\n` +
-      'Is Jasper running with a workspace folder open?\n',
+        'Is Jasper running with a workspace folder open?\n',
     );
     process.exit(1);
   });
@@ -209,7 +218,7 @@ async function main() {
 }
 
 if (!process.env.VITEST) {
-  main().catch(err => {
+  main().catch((err) => {
     process.stderr.write(`MCP server failed: ${err.message}\n`);
     process.exit(1);
   });

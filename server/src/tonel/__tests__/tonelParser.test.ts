@@ -24,11 +24,11 @@ describe('parseTonelDocument', () => {
         ']',
       ].join('\n');
       const regions = parseTonelDocument(text);
-      const header = regions.find(r => r.kind === 'tonel-header');
+      const header = regions.find((r) => r.kind === 'tonel-header');
       expect(header).toBeDefined();
       expect(header!.className).toBe('Object');
 
-      const methods = regions.filter(r => r.kind === 'smalltalk-method');
+      const methods = regions.filter((r) => r.kind === 'smalltalk-method');
       expect(methods).toHaveLength(1);
       expect(methods[0].className).toBe('Object');
       expect(methods[0].command).toBe('method');
@@ -45,7 +45,7 @@ describe('parseTonelDocument', () => {
         ']',
       ].join('\n');
       const regions = parseTonelDocument(text);
-      const methods = regions.filter(r => r.kind === 'smalltalk-method');
+      const methods = regions.filter((r) => r.kind === 'smalltalk-method');
       expect(methods).toHaveLength(1);
       expect(methods[0].command).toBe('classmethod');
       expect(methods[0].className).toBe('Association');
@@ -72,7 +72,7 @@ describe('parseTonelDocument', () => {
         ']',
       ].join('\n');
       const regions = parseTonelDocument(text);
-      const methods = regions.filter(r => r.kind === 'smalltalk-method');
+      const methods = regions.filter((r) => r.kind === 'smalltalk-method');
       expect(methods).toHaveLength(3);
     });
   });
@@ -92,13 +92,13 @@ describe('parseTonelDocument', () => {
         ']',
       ].join('\n');
       const regions = parseTonelDocument(text);
-      const header = regions.find(r => r.kind === 'tonel-header');
+      const header = regions.find((r) => r.kind === 'tonel-header');
       expect(header).toBeDefined();
       expect(header!.className).toBe('GsTopazRowanTool');
       expect(header!.startLine).toBe(0);
       expect(header!.endLine).toBe(4);
 
-      const methods = regions.filter(r => r.kind === 'smalltalk-method');
+      const methods = regions.filter((r) => r.kind === 'smalltalk-method');
       expect(methods).toHaveLength(1);
       expect(methods[0].className).toBe('GsTopazRowanTool');
     });
@@ -108,10 +108,10 @@ describe('parseTonelDocument', () => {
         'Class {',
         "\t#name : 'GsSocket',",
         "\t#superclass : 'IO',",
-        "\t#instVars : [",
+        '\t#instVars : [',
         "\t\t'readWaiters',",
         "\t\t'writeWaiters'",
-        "\t],",
+        '\t],',
         "\t#category : 'OSAccess-Sockets'",
         '}',
       ].join('\n');
@@ -135,7 +135,7 @@ describe('parseTonelDocument', () => {
         '}',
       ].join('\n');
       const regions = parseTonelDocument(text);
-      const header = regions.find(r => r.kind === 'tonel-header');
+      const header = regions.find((r) => r.kind === 'tonel-header');
       expect(header).toBeDefined();
       expect(header!.className).toBe('GsSocket');
     });
@@ -166,7 +166,7 @@ describe('parseTonelDocument', () => {
         ']',
       ].join('\n');
       const regions = parseTonelDocument(text);
-      const methods = regions.filter(r => r.kind === 'smalltalk-method');
+      const methods = regions.filter((r) => r.kind === 'smalltalk-method');
       expect(methods).toHaveLength(1);
       expect(methods[0].text).toContain('flattened');
       expect(methods[0].text).toContain('result add: each');
@@ -177,12 +177,12 @@ describe('parseTonelDocument', () => {
         "Extension { #name : 'Foo' }",
         '',
         "{ #category : 'testing' }",
-        "Foo >> test [",
+        'Foo >> test [',
         "\t^ 'a [bracket] inside string'",
         ']',
       ].join('\n');
       const regions = parseTonelDocument(text);
-      const methods = regions.filter(r => r.kind === 'smalltalk-method');
+      const methods = regions.filter((r) => r.kind === 'smalltalk-method');
       expect(methods).toHaveLength(1);
       expect(methods[0].text).toContain('bracket');
     });
@@ -198,7 +198,7 @@ describe('parseTonelDocument', () => {
         ']',
       ].join('\n');
       const regions = parseTonelDocument(text);
-      const methods = regions.filter(r => r.kind === 'smalltalk-method');
+      const methods = regions.filter((r) => r.kind === 'smalltalk-method');
       expect(methods).toHaveLength(1);
     });
   });
@@ -214,7 +214,7 @@ describe('parseTonelDocument', () => {
         ']',
       ].join('\n');
       const regions = parseTonelDocument(text);
-      const methods = regions.filter(r => r.kind === 'smalltalk-method');
+      const methods = regions.filter((r) => r.kind === 'smalltalk-method');
       expect(methods).toHaveLength(1);
       expect(methods[0].text).toContain('= anObject');
     });
@@ -229,7 +229,7 @@ describe('parseTonelDocument', () => {
         ']',
       ].join('\n');
       const regions = parseTonelDocument(text);
-      const methods = regions.filter(r => r.kind === 'smalltalk-method');
+      const methods = regions.filter((r) => r.kind === 'smalltalk-method');
       expect(methods).toHaveLength(1);
       expect(methods[0].text).toContain('<< items');
     });
@@ -238,17 +238,17 @@ describe('parseTonelDocument', () => {
   describe('line tracking', () => {
     it('records correct line numbers', () => {
       const text = [
-        "Extension { #name : 'Object' }",  // line 0
-        '',                                  // line 1
-        "{ #category : 'testing' }",         // line 2
-        'Object >> isCharacter [',           // line 3
-        '',                                  // line 4
-        '\t^ false',                         // line 5
-        '',                                  // line 6
-        ']',                                 // line 7
+        "Extension { #name : 'Object' }", // line 0
+        '', // line 1
+        "{ #category : 'testing' }", // line 2
+        'Object >> isCharacter [', // line 3
+        '', // line 4
+        '\t^ false', // line 5
+        '', // line 6
+        ']', // line 7
       ].join('\n');
       const regions = parseTonelDocument(text);
-      const method = regions.find(r => r.kind === 'smalltalk-method')!;
+      const method = regions.find((r) => r.kind === 'smalltalk-method')!;
       expect(method.startLine).toBe(3);
       expect(method.endLine).toBe(6);
       expect(method.annotationStartLine).toBe(2);
@@ -257,11 +257,11 @@ describe('parseTonelDocument', () => {
 
     it('records header line range', () => {
       const text = [
-        'Class {',                           // line 0
-        "\t#name : 'Foo',",                  // line 1
-        "\t#superclass : 'Object',",         // line 2
-        "\t#category : 'Test'",              // line 3
-        '}',                                 // line 4
+        'Class {', // line 0
+        "\t#name : 'Foo',", // line 1
+        "\t#superclass : 'Object',", // line 2
+        "\t#category : 'Test'", // line 3
+        '}', // line 4
       ].join('\n');
       const regions = parseTonelDocument(text);
       expect(regions[0].startLine).toBe(0);
@@ -280,7 +280,7 @@ describe('parseTonelDocument', () => {
         ']',
       ].join('\n');
       const regions = parseTonelDocument(text);
-      const method = regions.find(r => r.kind === 'smalltalk-method')!;
+      const method = regions.find((r) => r.kind === 'smalltalk-method')!;
 
       const lexer = new Lexer(method.text);
       const tokens = lexer.tokenize();
@@ -302,7 +302,7 @@ describe('parseTonelDocument', () => {
         ']',
       ].join('\n');
       const regions = parseTonelDocument(text);
-      const method = regions.find(r => r.kind === 'smalltalk-method')!;
+      const method = regions.find((r) => r.kind === 'smalltalk-method')!;
 
       const lexer = new Lexer(method.text);
       const tokens = lexer.tokenize();
@@ -324,7 +324,7 @@ describe('parseTonelDocument', () => {
         ']',
       ].join('\n');
       const regions = parseTonelDocument(text);
-      const method = regions.find(r => r.kind === 'smalltalk-method')!;
+      const method = regions.find((r) => r.kind === 'smalltalk-method')!;
 
       const lexer = new Lexer(method.text);
       const tokens = lexer.tokenize();
@@ -345,7 +345,7 @@ describe('parseTonelDocument', () => {
         ']',
       ].join('\n');
       const regions = parseTonelDocument(text);
-      const method = regions.find(r => r.kind === 'smalltalk-method')!;
+      const method = regions.find((r) => r.kind === 'smalltalk-method')!;
 
       const lexer = new Lexer(method.text);
       const tokens = lexer.tokenize();
@@ -364,12 +364,12 @@ describe('parseTonelDocument', () => {
         'Foo >> doStuff: arg [',
         '\t| temp |',
         '\ttemp := arg size.',
-        "\tself at: temp put: (arg collect: [:e | e printString]).",
+        '\tself at: temp put: (arg collect: [:e | e printString]).',
         '\t^temp',
         ']',
       ].join('\n');
       const regions = parseTonelDocument(text);
-      const method = regions.find(r => r.kind === 'smalltalk-method')!;
+      const method = regions.find((r) => r.kind === 'smalltalk-method')!;
 
       const lexer = new Lexer(method.text);
       const tokens = lexer.tokenize();

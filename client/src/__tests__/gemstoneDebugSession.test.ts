@@ -102,18 +102,29 @@ function createTestSession(breakpointManager?: BreakpointManager) {
 
   // Intercept DAP output by overriding sendResponse and sendEvent
   (session as unknown as Record<string, unknown>).sendResponse = vi.fn((resp: DapMessage) => {
-    sent.push({ type: 'response', command: resp.command, body: resp.body as Record<string, unknown>, success: resp.success, message: resp.message });
+    sent.push({
+      type: 'response',
+      command: resp.command,
+      body: resp.body as Record<string, unknown>,
+      success: resp.success,
+      message: resp.message,
+    });
   });
-  (session as unknown as Record<string, unknown>).sendEvent = vi.fn((evt: { event: string; body?: unknown }) => {
-    sent.push({ type: 'event', event: evt.event, body: evt.body as Record<string, unknown> });
-  });
+  (session as unknown as Record<string, unknown>).sendEvent = vi.fn(
+    (evt: { event: string; body?: unknown }) => {
+      sent.push({ type: 'event', event: evt.event, body: evt.body as Record<string, unknown> });
+    },
+  );
 
   return { session, sent, mockSessionManager };
 }
 
 // Helper to invoke protected DAP request handlers
 function callRequest(
-  session: GemStoneDebugSession, method: string, response: Record<string, unknown>, args: Record<string, unknown>,
+  session: GemStoneDebugSession,
+  method: string,
+  response: Record<string, unknown>,
+  args: Record<string, unknown>,
 ) {
   const fn = (session as unknown as Record<string, (...a: unknown[]) => unknown>)[method];
   return fn.call(session, response, args);
@@ -160,9 +171,12 @@ describe('GemStoneDebugSession', () => {
         errorMessage: 'a]ZeroDivide',
       });
 
-      expect(sent).toContainEqual(expect.objectContaining({
-        type: 'event', event: 'stopped',
-      }));
+      expect(sent).toContainEqual(
+        expect.objectContaining({
+          type: 'event',
+          event: 'stopped',
+        }),
+      );
     });
 
     it('fails when session not found', () => {
@@ -211,7 +225,10 @@ describe('GemStoneDebugSession', () => {
       const response = makeResponse('stackTrace');
       callRequest(session, 'stackTraceRequest', response, { threadId: 1 });
 
-      const body = response.body as { stackFrames: Array<{ id: number; name: string }>; totalFrames: number };
+      const body = response.body as {
+        stackFrames: Array<{ id: number; name: string }>;
+        totalFrames: number;
+      };
       expect(body.totalFrames).toBe(3);
       expect(body.stackFrames).toHaveLength(3);
       expect(body.stackFrames[0].id).toBe(1);
@@ -222,7 +239,11 @@ describe('GemStoneDebugSession', () => {
 
     it('respects startFrame and levels', () => {
       const response = makeResponse('stackTrace');
-      callRequest(session, 'stackTraceRequest', response, { threadId: 1, startFrame: 1, levels: 1 });
+      callRequest(session, 'stackTraceRequest', response, {
+        threadId: 1,
+        startFrame: 1,
+        levels: 1,
+      });
 
       const body = response.body as { stackFrames: Array<{ id: number }>; totalFrames: number };
       expect(body.totalFrames).toBe(3);
@@ -234,8 +255,10 @@ describe('GemStoneDebugSession', () => {
       const response = makeResponse('stackTrace');
       callRequest(session, 'stackTraceRequest', response, { threadId: 1 });
 
-      const body = response.body as { stackFrames: Array<{ source?: { sourceReference?: number } }> };
-      const refs = body.stackFrames.map(f => f.source?.sourceReference).filter(Boolean);
+      const body = response.body as {
+        stackFrames: Array<{ source?: { sourceReference?: number } }>;
+      };
+      const refs = body.stackFrames.map((f) => f.source?.sourceReference).filter(Boolean);
       expect(refs.length).toBe(3);
       // Each unique methodOop gets a unique sourceReference
       expect(new Set(refs).size).toBe(3);
@@ -261,7 +284,11 @@ describe('GemStoneDebugSession', () => {
       callRequest(session, 'stackTraceRequest', response, { threadId: 1 });
 
       const body = response.body as {
-        stackFrames: Array<{ id: number; name: string; source?: { sourceReference?: number; name?: string } }>;
+        stackFrames: Array<{
+          id: number;
+          name: string;
+          source?: { sourceReference?: number; name?: string };
+        }>;
         totalFrames: number;
       };
       expect(body.totalFrames).toBe(3);
@@ -282,7 +309,8 @@ describe('GemStoneDebugSession', () => {
       const test = createTestSession();
       session = test.session;
       callRequest(session, 'attachRequest', makeResponse('attach'), {
-        sessionId: 1, gsProcess: '12345',
+        sessionId: 1,
+        gsProcess: '12345',
       });
       // Trigger stackTrace to populate sourceRefMap
       callRequest(session, 'stackTraceRequest', makeResponse('stackTrace'), { threadId: 1 });
@@ -320,7 +348,8 @@ describe('GemStoneDebugSession', () => {
       const test = createTestSession();
       session = test.session;
       callRequest(session, 'attachRequest', makeResponse('attach'), {
-        sessionId: 1, gsProcess: '12345',
+        sessionId: 1,
+        gsProcess: '12345',
       });
     });
 
@@ -344,7 +373,8 @@ describe('GemStoneDebugSession', () => {
       const test = createTestSession();
       session = test.session;
       callRequest(session, 'attachRequest', makeResponse('attach'), {
-        sessionId: 1, gsProcess: '12345',
+        sessionId: 1,
+        gsProcess: '12345',
       });
     });
 
@@ -358,10 +388,16 @@ describe('GemStoneDebugSession', () => {
       const response = makeResponse('variables');
       callRequest(session, 'variablesRequest', response, { variablesReference: argsRef });
 
-      const body = response.body as { variables: Array<{ name: string; value: string; type: string }> };
+      const body = response.body as {
+        variables: Array<{ name: string; value: string; type: string }>;
+      };
       expect(body.variables).toHaveLength(2);
       expect(body.variables[0]).toMatchObject({ name: 'arg1', value: '42', type: 'SmallInteger' });
-      expect(body.variables[1]).toMatchObject({ name: 'temp1', value: 'nil', type: 'UndefinedObject' });
+      expect(body.variables[1]).toMatchObject({
+        name: 'temp1',
+        value: 'nil',
+        type: 'UndefinedObject',
+      });
     });
 
     it('returns empty for unknown variablesReference', () => {
@@ -376,7 +412,8 @@ describe('GemStoneDebugSession', () => {
       // Get the args scope
       const scopesResp = makeResponse('scopes');
       callRequest(session, 'scopesRequest', scopesResp, { frameId: 1 });
-      const argsRef = (scopesResp.body as { scopes: Array<{ variablesReference: number }> }).scopes[0].variablesReference;
+      const argsRef = (scopesResp.body as { scopes: Array<{ variablesReference: number }> })
+        .scopes[0].variablesReference;
 
       const response = makeResponse('variables');
       callRequest(session, 'variablesRequest', response, { variablesReference: argsRef });
@@ -392,7 +429,8 @@ describe('GemStoneDebugSession', () => {
     it('sends TerminatedEvent when execution completes', () => {
       const { session, sent } = createTestSession();
       callRequest(session, 'attachRequest', makeResponse('attach'), {
-        sessionId: 1, gsProcess: '12345',
+        sessionId: 1,
+        gsProcess: '12345',
       });
       sent.length = 0;
 
@@ -411,7 +449,8 @@ describe('GemStoneDebugSession', () => {
 
       const { session, sent } = createTestSession();
       callRequest(session, 'attachRequest', makeResponse('attach'), {
-        sessionId: 1, gsProcess: '12345',
+        sessionId: 1,
+        gsProcess: '12345',
       });
       sent.length = 0;
 
@@ -419,7 +458,9 @@ describe('GemStoneDebugSession', () => {
       callRequest(session, 'continueRequest', response, { threadId: 1 });
 
       expect(sent).toContainEqual(expect.objectContaining({ type: 'event', event: 'stopped' }));
-      expect(sent).not.toContainEqual(expect.objectContaining({ type: 'event', event: 'terminated' }));
+      expect(sent).not.toContainEqual(
+        expect.objectContaining({ type: 'event', event: 'terminated' }),
+      );
     });
   });
 
@@ -432,7 +473,8 @@ describe('GemStoneDebugSession', () => {
       session = test.session;
       sent = test.sent;
       callRequest(session, 'attachRequest', makeResponse('attach'), {
-        sessionId: 1, gsProcess: '12345',
+        sessionId: 1,
+        gsProcess: '12345',
       });
       sent.length = 0;
     });
@@ -466,7 +508,8 @@ describe('GemStoneDebugSession', () => {
     it('returns evaluated result string', () => {
       const { session } = createTestSession();
       callRequest(session, 'attachRequest', makeResponse('attach'), {
-        sessionId: 1, gsProcess: '12345',
+        sessionId: 1,
+        gsProcess: '12345',
       });
 
       const response = makeResponse('evaluate');
@@ -487,7 +530,8 @@ describe('GemStoneDebugSession', () => {
 
       const { session } = createTestSession();
       callRequest(session, 'attachRequest', makeResponse('attach'), {
-        sessionId: 1, gsProcess: '12345',
+        sessionId: 1,
+        gsProcess: '12345',
       });
 
       const response = makeResponse('evaluate');
@@ -505,16 +549,15 @@ describe('GemStoneDebugSession', () => {
     it('trims stack and sends StoppedEvent with reason restart', () => {
       const { session, sent } = createTestSession();
       callRequest(session, 'attachRequest', makeResponse('attach'), {
-        sessionId: 1, gsProcess: '12345',
+        sessionId: 1,
+        gsProcess: '12345',
       });
       sent.length = 0;
 
       const response = makeResponse('restartFrame');
       callRequest(session, 'restartFrameRequest', response, { frameId: 2 });
 
-      expect(debugQueries.trimStackToLevel).toHaveBeenCalledWith(
-        expect.anything(), 12345n, 2,
-      );
+      expect(debugQueries.trimStackToLevel).toHaveBeenCalledWith(expect.anything(), 12345n, 2);
       expect(sent).toContainEqual(expect.objectContaining({ type: 'event', event: 'stopped' }));
     });
 
@@ -525,7 +568,8 @@ describe('GemStoneDebugSession', () => {
 
       const { session } = createTestSession();
       callRequest(session, 'attachRequest', makeResponse('attach'), {
-        sessionId: 1, gsProcess: '12345',
+        sessionId: 1,
+        gsProcess: '12345',
       });
 
       const response = makeResponse('restartFrame');
@@ -540,15 +584,14 @@ describe('GemStoneDebugSession', () => {
     it('clears the stack on disconnect', () => {
       const { session } = createTestSession();
       callRequest(session, 'attachRequest', makeResponse('attach'), {
-        sessionId: 1, gsProcess: '12345',
+        sessionId: 1,
+        gsProcess: '12345',
       });
 
       const response = makeResponse('disconnect');
       callRequest(session, 'disconnectRequest', response, {});
 
-      expect(debugQueries.clearStack).toHaveBeenCalledWith(
-        expect.anything(), 12345n,
-      );
+      expect(debugQueries.clearStack).toHaveBeenCalledWith(expect.anything(), 12345n);
     });
 
     it('does not clear stack if already cleared', () => {
@@ -567,7 +610,8 @@ describe('GemStoneDebugSession', () => {
     it('clears stack and sends TerminatedEvent', () => {
       const { session, sent } = createTestSession();
       callRequest(session, 'attachRequest', makeResponse('attach'), {
-        sessionId: 1, gsProcess: '12345',
+        sessionId: 1,
+        gsProcess: '12345',
       });
       sent.length = 0;
 
@@ -585,7 +629,9 @@ describe('GemStoneDebugSession', () => {
       const response = makeResponse('configurationDone');
       callRequest(session, 'configurationDoneRequest', response, {});
 
-      expect(sent).toContainEqual(expect.objectContaining({ type: 'response', command: 'configurationDone' }));
+      expect(sent).toContainEqual(
+        expect.objectContaining({ type: 'response', command: 'configurationDone' }),
+      );
     });
   });
 
@@ -631,7 +677,8 @@ describe('GemStoneDebugSession', () => {
 
       const { session } = createTestSession();
       callRequest(session, 'attachRequest', makeResponse('attach'), {
-        sessionId: 1, gsProcess: '12345',
+        sessionId: 1,
+        gsProcess: '12345',
       });
       // Trigger stackTrace to populate sourceRefMap
       callRequest(session, 'stackTraceRequest', makeResponse('stackTrace'), { threadId: 1 });
@@ -665,7 +712,8 @@ describe('GemStoneDebugSession', () => {
 
       const { session } = createTestSession();
       callRequest(session, 'attachRequest', makeResponse('attach'), {
-        sessionId: 1, gsProcess: '12345',
+        sessionId: 1,
+        gsProcess: '12345',
       });
       callRequest(session, 'stackTraceRequest', makeResponse('stackTrace'), { threadId: 1 });
 
@@ -683,7 +731,8 @@ describe('GemStoneDebugSession', () => {
     it('returns unverified for all lines when getMethodSource throws via sourceReference', () => {
       const { session } = createTestSession();
       callRequest(session, 'attachRequest', makeResponse('attach'), {
-        sessionId: 1, gsProcess: '12345',
+        sessionId: 1,
+        gsProcess: '12345',
       });
       // stackTraceRequest populates sourceRefMap (doesn't call getMethodSource)
       callRequest(session, 'stackTraceRequest', makeResponse('stackTrace'), { threadId: 1 });
@@ -715,7 +764,8 @@ describe('GemStoneDebugSession', () => {
 
       const { session } = createTestSession(mockBPManager);
       callRequest(session, 'attachRequest', makeResponse('attach'), {
-        sessionId: 1, gsProcess: '12345',
+        sessionId: 1,
+        gsProcess: '12345',
       });
 
       const response = makeResponse('setBreakpoints');
@@ -741,7 +791,8 @@ describe('GemStoneDebugSession', () => {
 
       const { session } = createTestSession();
       callRequest(session, 'attachRequest', makeResponse('attach'), {
-        sessionId: 1, gsProcess: '12345',
+        sessionId: 1,
+        gsProcess: '12345',
       });
       callRequest(session, 'stackTraceRequest', makeResponse('stackTrace'), { threadId: 1 });
 
@@ -752,10 +803,16 @@ describe('GemStoneDebugSession', () => {
       });
 
       expect(browserQueries.getSourceOffsets).toHaveBeenCalledWith(
-        expect.anything(), 'Array', true, 'new',
+        expect.anything(),
+        'Array',
+        true,
+        'new',
       );
       expect(browserQueries.clearAllBreaks).toHaveBeenCalledWith(
-        expect.anything(), 'Array', true, 'new',
+        expect.anything(),
+        'Array',
+        true,
+        'new',
       );
     });
   });

@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
-  diffManifest, stateFromManifest, emptyState, entryKey, splitKey, chunkRefs,
+  diffManifest,
+  stateFromManifest,
+  emptyState,
+  entryKey,
+  splitKey,
+  chunkRefs,
 } from '../manifestDiff';
 import { Manifest } from '../syncFraming';
 
@@ -9,7 +14,10 @@ function manifest(rows: [number, string, string, string][]): Manifest {
   return {
     dictionaries: [],
     classes: rows.map(([dictIndex, dictName, className, hash]) => ({
-      dictIndex, dictName, className, hash,
+      dictIndex,
+      dictName,
+      className,
+      hash,
     })),
     classCount: rows.length,
     methodCount: null,
@@ -18,7 +26,10 @@ function manifest(rows: [number, string, string, string][]): Manifest {
 
 describe('diffManifest', () => {
   it('fetches everything on a first sync (empty local state)', () => {
-    const remote = manifest([[1, 'UG', 'Foo', 'a'], [1, 'UG', 'Bar', 'b']]);
+    const remote = manifest([
+      [1, 'UG', 'Foo', 'a'],
+      [1, 'UG', 'Bar', 'b'],
+    ]);
     const d = diffManifest(remote, emptyState());
     expect(d.toFetch).toEqual([
       { dictIndex: 1, dictName: 'UG', className: 'Foo' },
@@ -30,7 +41,9 @@ describe('diffManifest', () => {
 
   it('fetches only changed and new classes', () => {
     const remote = manifest([
-      [1, 'UG', 'Foo', 'a2'], [1, 'UG', 'Bar', 'b'], [1, 'UG', 'New', 'n'],
+      [1, 'UG', 'Foo', 'a2'],
+      [1, 'UG', 'Bar', 'b'],
+      [1, 'UG', 'New', 'n'],
     ]);
     const local = {
       classes: {
@@ -64,7 +77,10 @@ describe('diffManifest', () => {
   });
 
   it('tracks the same name in two dictionaries independently', () => {
-    const remote = manifest([[1, 'A', 'Dup', 'a'], [2, 'B', 'Dup', 'b']]);
+    const remote = manifest([
+      [1, 'A', 'Dup', 'a'],
+      [2, 'B', 'Dup', 'b'],
+    ]);
     const local = { classes: { [entryKey(1, 'A', 'Dup')]: 'a' } };
     const d = diffManifest(remote, local);
     expect(d.toFetch).toEqual([{ dictIndex: 2, dictName: 'B', className: 'Dup' }]);
@@ -83,7 +99,12 @@ describe('diffManifest', () => {
 
 describe('stateFromManifest', () => {
   it('builds keyed hash state', () => {
-    const state = stateFromManifest(manifest([[1, 'UG', 'Foo', 'a'], [2, 'G', 'Bar', 'b']]));
+    const state = stateFromManifest(
+      manifest([
+        [1, 'UG', 'Foo', 'a'],
+        [2, 'G', 'Bar', 'b'],
+      ]),
+    );
     expect(state.classes).toEqual({
       [entryKey(1, 'UG', 'Foo')]: 'a',
       [entryKey(2, 'G', 'Bar')]: 'b',
@@ -104,10 +125,12 @@ describe('splitKey', () => {
 describe('chunkRefs', () => {
   it('splits refs into batches of the given size', () => {
     const refs = Array.from({ length: 5 }, (_, i) => ({
-      dictIndex: 1, dictName: 'UG', className: `C${i}`,
+      dictIndex: 1,
+      dictName: 'UG',
+      className: `C${i}`,
     }));
     const batches = chunkRefs(refs, 2);
-    expect(batches.map(b => b.length)).toEqual([2, 2, 1]);
+    expect(batches.map((b) => b.length)).toEqual([2, 2, 1]);
   });
 
   it('returns no batches for empty input', () => {

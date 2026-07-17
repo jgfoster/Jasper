@@ -36,9 +36,10 @@ function createMockSession(): ActiveSession {
 /** Build a partial TextDocument mock, confining the one unavoidable cast here. */
 function createMockDocument(text: string, scheme = 'file'): TextDocument {
   return {
-    uri: scheme === 'gemstone'
-      ? Uri.parse('gemstone://1/UserGlobals/MyClass/instance/accessing/name')
-      : Uri.file('/test.gs'),
+    uri:
+      scheme === 'gemstone'
+        ? Uri.parse('gemstone://1/UserGlobals/MyClass/instance/accessing/name')
+        : Uri.file('/test.gs'),
     getText: () => text,
     languageId: scheme === 'gemstone' ? 'gemstone-smalltalk' : 'gemstone-topaz',
     lineAt: vi.fn(),
@@ -64,8 +65,8 @@ describe('GemStoneCodeLensProvider', () => {
   // The count is computed off the resolve path (so a spinner can paint first),
   // so resolving twice with the deferred work flushed in between yields the count.
   function resolveCount(lens: CodeLens): CodeLens {
-    provider.resolveCodeLens(lens);   // first resolve → spinner + schedules the lookup
-    vi.runAllTimers();                // run the deferred sendersOf/implementorsOf
+    provider.resolveCodeLens(lens); // first resolve → spinner + schedules the lookup
+    vi.runAllTimers(); // run the deferred sendersOf/implementorsOf
     return provider.resolveCodeLens(lens); // re-resolve → cache hit → the count
   }
 
@@ -181,9 +182,7 @@ foo
 
       expect(sendersLens.command?.title).toBe('2 senders');
       expect(sendersLens.command?.command).toBe('gemstone.sendersOfSelector');
-      expect(sendersLens.command?.arguments).toEqual([
-        { selector: 'foo', sessionId: session.id },
-      ]);
+      expect(sendersLens.command?.arguments).toEqual([{ selector: 'foo', sessionId: session.id }]);
     });
 
     it('emits the implementors lens second, dispatching to gemstone.implementorsOfSelector', () => {
@@ -302,7 +301,7 @@ foo
       provider.resolveCodeLens(provider.provideCodeLenses(doc)[0]); // schedules the lookup
 
       provider.dispose();
-      vi.runAllTimers();              // a still-pending timer would fire here
+      vi.runAllTimers(); // a still-pending timer would fire here
 
       expect(queries.sendersOf).not.toHaveBeenCalled();
     });

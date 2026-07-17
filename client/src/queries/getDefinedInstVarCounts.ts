@@ -7,11 +7,13 @@ import { escapeString, splitLines } from './util';
 // its ivar sub-tree, so classes with no locally-defined ivars stay flat. Accepts
 // a dictionary by 1-based index (canonical for Jasper) or by name.
 export function getDefinedInstVarCounts(
-  execute: QueryExecutor, dict: number | string,
+  execute: QueryExecutor,
+  dict: number | string,
 ): Map<string, number> {
-  const dictExpr = typeof dict === 'number'
-    ? `System myUserProfile symbolList at: ${dict}`
-    : `System myUserProfile symbolList objectNamed: #'${escapeString(dict)}'`;
+  const dictExpr =
+    typeof dict === 'number'
+      ? `System myUserProfile symbolList at: ${dict}`
+      : `System myUserProfile symbolList objectNamed: #'${escapeString(dict)}'`;
   const code = `| ws dict |
 dict := ${dictExpr}.
 dict ifNil: [^ ''].
@@ -22,9 +24,10 @@ dict keysAndValuesDo: [:k :v |
     n := [v instVarNames size] on: Error do: [:e | 0].
     ws nextPutAll: k; tab; print: n; lf]].
 ws contents`;
-  const label = typeof dict === 'number'
-    ? `getDefinedInstVarCounts(dictIndex: ${dict})`
-    : `getDefinedInstVarCounts(dictName: ${dict})`;
+  const label =
+    typeof dict === 'number'
+      ? `getDefinedInstVarCounts(dictIndex: ${dict})`
+      : `getDefinedInstVarCounts(dictName: ${dict})`;
   const map = new Map<string, number>();
   for (const line of splitLines(execute(label, code))) {
     const tab = line.indexOf('\t');

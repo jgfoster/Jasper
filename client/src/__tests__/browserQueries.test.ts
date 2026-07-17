@@ -10,7 +10,16 @@ import { ActiveSession } from '../sessionManager';
 import { GemStoneLogin } from '../loginTypes';
 import * as queries from '../browserQueries';
 
-const noErr = { number: 0, message: '', context: 0n, category: 0, fatal: false, argCount: 0, exceptionObj: 0n, args: [] };
+const noErr = {
+  number: 0,
+  message: '',
+  context: 0n,
+  category: 0,
+  fatal: false,
+  argCount: 0,
+  exceptionObj: 0n,
+  args: [],
+};
 
 function createMockSession(executeFetchData = ''): ActiveSession {
   const mockGci = {
@@ -61,7 +70,8 @@ describe('browserQueries', () => {
 
   describe('sendersOf', () => {
     it('parses tab-separated GsNMethod results', () => {
-      const payload = 'Globals\tArray\t0\tsize\taccessing\nUserGlobals\tMyClass\t1\tprintOn:\tprinting\n';
+      const payload =
+        'Globals\tArray\t0\tsize\taccessing\nUserGlobals\tMyClass\t1\tprintOn:\tprinting\n';
       const session = createMockSession(payload);
 
       const results = queries.sendersOf(session, 'size');
@@ -132,14 +142,19 @@ describe('browserQueries', () => {
 
   describe('getClassHierarchy', () => {
     it('parses superclass/self/subclass entries', () => {
-      const payload = 'Globals\tObject\tsuperclass\nGlobals\tSequenceableCollection\tsuperclass\nGlobals\tArray\tself\nGlobals\tFoo\tsubclass\n';
+      const payload =
+        'Globals\tObject\tsuperclass\nGlobals\tSequenceableCollection\tsuperclass\nGlobals\tArray\tself\nGlobals\tFoo\tsubclass\n';
       const session = createMockSession(payload);
 
       const results = queries.getClassHierarchy(session, 'Array');
 
       expect(results).toHaveLength(4);
       expect(results[0]).toEqual({ dictName: 'Globals', className: 'Object', kind: 'superclass' });
-      expect(results[1]).toEqual({ dictName: 'Globals', className: 'SequenceableCollection', kind: 'superclass' });
+      expect(results[1]).toEqual({
+        dictName: 'Globals',
+        className: 'SequenceableCollection',
+        kind: 'superclass',
+      });
       expect(results[2]).toEqual({ dictName: 'Globals', className: 'Array', kind: 'self' });
       expect(results[3]).toEqual({ dictName: 'Globals', className: 'Foo', kind: 'subclass' });
     });
@@ -194,7 +209,11 @@ describe('browserQueries', () => {
     it('returns class names ordered by inheritance depth then name', () => {
       const session = createMockSession('2\tAnimal\n1\tObject\n3\tDog\n');
 
-      expect(queries.getDictionaryClassFileOutOrder(session, 1)).toEqual(['Object', 'Animal', 'Dog']);
+      expect(queries.getDictionaryClassFileOutOrder(session, 1)).toEqual([
+        'Object',
+        'Animal',
+        'Dog',
+      ]);
     });
 
     it('scopes to a dictionary by 1-based index', () => {
@@ -209,14 +228,23 @@ describe('browserQueries', () => {
 
   describe('getGlobalsForDictionary', () => {
     it('parses tab-separated globals results', () => {
-      const payload = '_remoteNil\tUndefinedObject\tremoteNil\nAllUsers\tUserProfileSet\tanUserProfileSet(...)\n';
+      const payload =
+        '_remoteNil\tUndefinedObject\tremoteNil\nAllUsers\tUserProfileSet\tanUserProfileSet(...)\n';
       const session = createMockSession(payload);
 
       const results = queries.getGlobalsForDictionary(session, 1);
 
       expect(results).toHaveLength(2);
-      expect(results[0]).toEqual({ name: '_remoteNil', className: 'UndefinedObject', value: 'remoteNil' });
-      expect(results[1]).toEqual({ name: 'AllUsers', className: 'UserProfileSet', value: 'anUserProfileSet(...)' });
+      expect(results[0]).toEqual({
+        name: '_remoteNil',
+        className: 'UndefinedObject',
+        value: 'remoteNil',
+      });
+      expect(results[1]).toEqual({
+        name: 'AllUsers',
+        className: 'UserProfileSet',
+        value: 'anUserProfileSet(...)',
+      });
     });
 
     it('returns empty array for empty result', () => {

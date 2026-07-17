@@ -7,15 +7,15 @@ export const OOP_TAG_SPECIAL = 0x4;
 // Well-known OOP values (from gcioop.ht)
 export const OOP_ILLEGAL = 0x01n;
 export const OOP_NIL = 0x14n;
-export const OOP_FALSE = 0x0Cn;
-export const OOP_TRUE = 0x10Cn;
-export const OOP_ASCII_NUL = 0x1Cn;
+export const OOP_FALSE = 0x0cn;
+export const OOP_TRUE = 0x10cn;
+export const OOP_ASCII_NUL = 0x1cn;
 
 // SmallInteger OOPs (computed via GCI_I32_TO_OOP macro)
 export const OOP_Zero = 0x02n;
-export const OOP_One = 0x0An;
+export const OOP_One = 0x0an;
 export const OOP_Two = 0x12n;
-export const OOP_Three = 0x1An;
+export const OOP_Three = 0x1an;
 export const OOP_Four = 0x22n;
 
 // Perform flags (from gcicmn.ht)

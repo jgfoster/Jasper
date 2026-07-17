@@ -13,8 +13,14 @@ describe('GCI Priority 8: Debug Functions', () => {
     it('returns null session and error for a non-existent gem PID', () => {
       // Use a PID that almost certainly doesn't correspond to a GemStone gem
       const { session, err } = gci.GciTsDebugConnectToGem(999999);
-      console.log('DebugConnectToGem(999999) - session:', session,
-        'err.number:', err.number, 'err.message:', err.message);
+      console.log(
+        'DebugConnectToGem(999999) - session:',
+        session,
+        'err.number:',
+        err.number,
+        'err.message:',
+        err.message,
+      );
       // Should fail — no gem is listening on that PID
       expect(session).toBeNull();
       expect(err.number).not.toBe(0);

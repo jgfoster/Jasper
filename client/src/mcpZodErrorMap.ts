@@ -115,7 +115,7 @@ function isToolInputShape(value: unknown): value is z.ZodRawShape {
   const obj = value as Record<string, unknown>;
   const keys = Object.keys(obj);
   if (keys.length === 0) return true; // empty shape — wrap a no-op
-  return keys.every(k => {
+  return keys.every((k) => {
     const v = obj[k];
     return !!v && typeof v === 'object' && '_zod' in v;
   });
@@ -123,7 +123,7 @@ function isToolInputShape(value: unknown): value is z.ZodRawShape {
 
 function formatPath(path: PropertyKey[] | undefined): string {
   if (!path || path.length === 0) return '<root>';
-  return path.map(p => String(p)).join('.');
+  return path.map((p) => String(p)).join('.');
 }
 
 // Approximate the "received <type>" phrasing of zod's default. We can't get

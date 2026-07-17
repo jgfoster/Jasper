@@ -19,10 +19,7 @@ describe('GCI Object Creation and Inquiry', () => {
   let OOP_CLASS_BYTE_ARRAY: bigint;
 
   beforeAll(() => {
-    const login = gci.GciTsLogin(
-      STONE_NRS, null, null, false,
-      GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
-    );
+    const login = gci.GciTsLogin(STONE_NRS, null, null, false, GEM_NRS, GS_USER, GS_PASSWORD, 0, 0);
     expect(login.session).not.toBeNull();
     session = login.session;
 
@@ -95,7 +92,7 @@ describe('GCI Object Creation and Inquiry', () => {
 
   describe('GciTsNewByteArray', () => {
     it('creates a ByteArray and verifies class and size', () => {
-      const data = Buffer.from([0x01, 0x02, 0x03, 0xFF]);
+      const data = Buffer.from([0x01, 0x02, 0x03, 0xff]);
       const { result: oop, err } = gci.GciTsNewByteArray(session, data);
       console.log('NewByteArray - oop:', oop.toString(16), 'err.number:', err.number);
       expect(oop).not.toBe(OOP_ILLEGAL);
@@ -196,7 +193,12 @@ describe('GCI Object Creation and Inquiry', () => {
       expect(oop).not.toBe(OOP_ILLEGAL);
 
       const fetched = gci.GciTsFetchUnicode(session, oop, 256);
-      console.log('FetchUnicode - bytesReturned:', fetched.bytesReturned, 'requiredSize:', fetched.requiredSize);
+      console.log(
+        'FetchUnicode - bytesReturned:',
+        fetched.bytesReturned,
+        'requiredSize:',
+        fetched.requiredSize,
+      );
       expect(fetched.bytesReturned).toBeGreaterThan(0n);
 
       // Decode UTF-16LE from the buffer
@@ -213,7 +215,12 @@ describe('GCI Object Creation and Inquiry', () => {
       expect(oop).not.toBe(OOP_ILLEGAL);
 
       const { result, info } = gci.GciTsFetchObjInfo(session, oop, false, 1024);
-      console.log('FetchObjInfo - result:', result, 'info:', JSON.stringify(info, bigIntReplacer, 2));
+      console.log(
+        'FetchObjInfo - result:',
+        result,
+        'info:',
+        JSON.stringify(info, bigIntReplacer, 2),
+      );
       expect(result).toBeGreaterThanOrEqual(0n);
       expect(info.objId).toBe(oop);
       expect(info.objClass).toBe(OOP_CLASS_STRING);
@@ -319,7 +326,12 @@ describe('GCI Object Creation and Inquiry', () => {
 
     it('returns OOP_ILLEGAL for a non-existent name', () => {
       const { result, err } = gci.GciTsResolveSymbol(session, 'NoSuchClassXyz123', OOP_NIL);
-      console.log('ResolveSymbol(nonexistent) - result:', result.toString(), 'err.number:', err.number);
+      console.log(
+        'ResolveSymbol(nonexistent) - result:',
+        result.toString(),
+        'err.number:',
+        err.number,
+      );
       expect(result).toBe(OOP_ILLEGAL);
     });
   });
@@ -330,7 +342,12 @@ describe('GCI Object Creation and Inquiry', () => {
       expect(symOop).not.toBe(OOP_ILLEGAL);
 
       const { result, err } = gci.GciTsResolveSymbolObj(session, symOop, OOP_NIL);
-      console.log('ResolveSymbolObj(Array) - result:', result.toString(), 'err.number:', err.number);
+      console.log(
+        'ResolveSymbolObj(Array) - result:',
+        result.toString(),
+        'err.number:',
+        err.number,
+      );
       expect(result).not.toBe(OOP_ILLEGAL);
 
       // Should match what ResolveSymbol returns

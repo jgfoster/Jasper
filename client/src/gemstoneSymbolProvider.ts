@@ -33,13 +33,13 @@ export class GemStoneWorkspaceSymbolProvider implements vscode.WorkspaceSymbolPr
 
     const lower = query.toLowerCase();
     return this.cache
-      .filter(e => e.className.toLowerCase().includes(lower))
-      .map(e => {
+      .filter((e) => e.className.toLowerCase().includes(lower))
+      .map((e) => {
         const uri = vscode.Uri.parse(
           `gemstone://${session.id}` +
-          `/${encodeURIComponent(e.dictName)}` +
-          `/${encodeURIComponent(e.className)}` +
-          `/definition`
+            `/${encodeURIComponent(e.dictName)}` +
+            `/${encodeURIComponent(e.className)}` +
+            `/definition`,
         );
         return new vscode.SymbolInformation(
           e.className,

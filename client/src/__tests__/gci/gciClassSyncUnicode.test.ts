@@ -31,9 +31,7 @@ describe('Class sync round-trip with non-ASCII source (integration)', () => {
 
   beforeAll(() => {
     gci = new GciLibrary(GCI_LIBRARY_PATH);
-    const login = gci.GciTsLogin(
-      STONE_NRS, null, null, false, GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
-    );
+    const login = gci.GciTsLogin(STONE_NRS, null, null, false, GEM_NRS, GS_USER, GS_PASSWORD, 0, 0);
     expect(login.session).not.toBeNull();
     session = {
       id: 1,
@@ -43,30 +41,44 @@ describe('Class sync round-trip with non-ASCII source (integration)', () => {
       stoneVersion: '3.7.2',
     };
 
-    queries.compileClassDefinition(session,
+    queries.compileClassDefinition(
+      session,
       `Object subclass: '${TEST_CLASS}'
   instVarNames: #()
   classVars: #()
   classInstVars: #()
   poolDictionaries: #()
   inDictionary: UserGlobals
-  options: #()`);
+  options: #()`,
+    );
     queries.setClassComment(session, TEST_CLASS, `An em${EM_DASH}dash in the comment.`);
-    queries.compileMethod(session, TEST_CLASS, false, 'testing',
-      `answer\n  "another em${EM_DASH}dash here"\n  ^ 42`);
+    queries.compileMethod(
+      session,
+      TEST_CLASS,
+      false,
+      'testing',
+      `answer\n  "another em${EM_DASH}dash here"\n  ^ 42`,
+    );
     ugIndex = queries.getDictionaryNames(session).indexOf('UserGlobals') + 1;
   });
 
   afterAll(() => {
-    try { gci.GciTsAbort(session.handle); } catch { /* roll back the temp class */ }
+    try {
+      gci.GciTsAbort(session.handle);
+    } catch {
+      /* roll back the temp class */
+    }
     if (session?.handle) gci.GciTsLogout(session.handle);
     gci.close();
   });
 
   it('round-trips the file-out through the content transport with the em dash intact', () => {
     const exec = boundLimitExecutor(session);
-    const payload = fetchBlob(exec, 'content',
-      contentBuildExpr([{ dictIndex: ugIndex, dictName: 'UserGlobals', className: TEST_CLASS }]));
+    const payload = fetchBlob(
+      exec,
+      'content',
+      contentBuildExpr([{ dictIndex: ugIndex, dictName: 'UserGlobals', className: TEST_CLASS }]),
+    );
     const parsed = parseContent(payload);
 
     expect(parsed.error).toBeNull();
@@ -85,7 +97,7 @@ describe('Class sync round-trip with non-ASCII source (integration)', () => {
     const payload = fetchBlob(exec, 'manifest', MANIFEST_BUILD_EXPR);
     const manifest = parseManifest(payload);
 
-    const entry = manifest.classes.find(c => c.className === TEST_CLASS);
+    const entry = manifest.classes.find((c) => c.className === TEST_CLASS);
     expect(entry).toBeDefined();
     expect(entry!.hash).toMatch(/^\d+$/); // decimal md5
     // The server's S-line count must agree with the parsed C lines (no truncation).

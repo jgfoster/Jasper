@@ -83,7 +83,8 @@ describe('McpSession', () => {
         config.gemNrs,
         config.gsUser,
         config.gsPassword,
-        0, 0,
+        0,
+        0,
       );
     });
 
@@ -99,7 +100,8 @@ describe('McpSession', () => {
         config.gemNrs,
         config.gsUser,
         config.gsPassword,
-        0, 0,
+        0,
+        0,
       );
     });
 

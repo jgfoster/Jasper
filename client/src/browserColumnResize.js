@@ -76,7 +76,9 @@
       e.preventDefault();
       handle.classList.add('active');
       drag = {
-        handle: handle, colA: colA, colB: colB,
+        handle: handle,
+        colA: colA,
+        colB: colB,
         startX: e.clientX,
         startA: colA.getBoundingClientRect().width,
         startB: colB.getBoundingClientRect().width,

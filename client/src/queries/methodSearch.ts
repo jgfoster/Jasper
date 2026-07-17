@@ -58,33 +58,35 @@ function parseMethodSearchResults(raw: string): MethodSearchResult[] {
 }
 
 export function searchMethodSource(
-  execute: QueryExecutor, term: string, ignoreCase: boolean,
+  execute: QueryExecutor,
+  term: string,
+  ignoreCase: boolean,
 ): MethodSearchResult[] {
   const code = `| results methods stream limit classDict sl |
 results := ClassOrganizer new substringSearch: '${escapeString(term)}' ignoreCase: ${ignoreCase}.
 methods := results at: 1.
 ${methodSerialization(0)}`;
 
-  return parseMethodSearchResults(
-    execute(`searchMethodSource('${term}')`, code),
-  );
+  return parseMethodSearchResults(execute(`searchMethodSource('${term}')`, code));
 }
 
 export function sendersOf(
-  execute: QueryExecutor, selector: string, environmentId: number = 0,
+  execute: QueryExecutor,
+  selector: string,
+  environmentId: number = 0,
 ): MethodSearchResult[] {
   const code = `| methods stream limit classDict sl |
 methods := ((ClassOrganizer new environmentId: ${environmentId}; yourself)
   sendersOf: #'${escapeString(selector)}') at: 1.
 ${methodSerialization(environmentId)}`;
 
-  return parseMethodSearchResults(
-    execute(`sendersOf(#${selector}, env:${environmentId})`, code),
-  );
+  return parseMethodSearchResults(execute(`sendersOf(#${selector}, env:${environmentId})`, code));
 }
 
 export function implementorsOf(
-  execute: QueryExecutor, selector: string, environmentId: number = 0,
+  execute: QueryExecutor,
+  selector: string,
+  environmentId: number = 0,
 ): MethodSearchResult[] {
   const code = `| methods stream limit classDict sl |
 methods := ((ClassOrganizer new environmentId: ${environmentId}; yourself)
@@ -100,18 +102,23 @@ ${methodSerialization(environmentId)}`;
 // chain (direction 'up') or all subclasses (direction 'down'), on the
 // instance or class side. One round trip; reuses the standard result format.
 export function hierarchyImplementorsOf(
-  execute: QueryExecutor, dictIndex: number, className: string,
-  selector: string, isMeta: boolean, direction: 'up' | 'down',
+  execute: QueryExecutor,
+  dictIndex: number,
+  className: string,
+  selector: string,
+  isMeta: boolean,
+  direction: 'up' | 'down',
   environmentId: number = 0,
 ): MethodSearchResult[] {
   const sel = escapeString(selector);
   const target = isMeta ? 'class class' : 'class';
-  const collect = direction === 'up'
-    ? `cur := (${target}) superclass.
+  const collect =
+    direction === 'up'
+      ? `cur := (${target}) superclass.
 [cur notNil] whileTrue: [
   (cur includesSelector: #'${sel}') ifTrue: [methods add: (cur compiledMethodAt: #'${sel}')].
   cur := cur superclass].`
-    : `class allSubclasses do: [:sub | | tgt |
+      : `class allSubclasses do: [:sub | | tgt |
   tgt := ${isMeta ? 'sub class' : 'sub'}.
   (tgt includesSelector: #'${sel}') ifTrue: [methods add: (tgt compiledMethodAt: #'${sel}')]].`;
   const code = `| class methods stream limit classDict sl cur |
@@ -127,14 +134,14 @@ ${methodSerialization(environmentId)}`;
 }
 
 export function referencesToObject(
-  execute: QueryExecutor, objectName: string, environmentId: number = 0,
+  execute: QueryExecutor,
+  objectName: string,
+  environmentId: number = 0,
 ): MethodSearchResult[] {
   const code = `| methods stream limit classDict sl |
 methods := (ClassOrganizer new referencesToObject:
   (System myUserProfile symbolList objectNamed: #'${escapeString(objectName)}')).
 ${methodSerialization(environmentId)}`;
 
-  return parseMethodSearchResults(
-    execute(`referencesToObject(${objectName})`, code),
-  );
+  return parseMethodSearchResults(execute(`referencesToObject(${objectName})`, code));
 }

@@ -23,10 +23,7 @@ export interface MethodBodyNode extends ASTNode {
 
 // ── Message Patterns ───────────────────────────────────────
 
-export type MessagePatternNode =
-  | UnaryPatternNode
-  | BinaryPatternNode
-  | KeywordPatternNode;
+export type MessagePatternNode = UnaryPatternNode | BinaryPatternNode | KeywordPatternNode;
 
 export interface UnaryPatternNode extends ASTNode {
   kind: 'UnaryPattern';
@@ -70,10 +67,7 @@ export interface ExpressionNode extends ASTNode {
   cascades: MessageNode[];
 }
 
-export type MessageNode =
-  | UnaryMessageNode
-  | BinaryMessageNode
-  | KeywordMessageNode;
+export type MessageNode = UnaryMessageNode | BinaryMessageNode | KeywordMessageNode;
 
 export interface UnaryMessageNode extends ASTNode {
   kind: 'UnaryMessage';

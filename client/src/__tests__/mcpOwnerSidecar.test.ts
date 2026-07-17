@@ -11,10 +11,7 @@ import {
 } from '../mcpOwnerSidecar';
 
 function makeTempSidecarPath(): string {
-  return path.join(
-    fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-owner-sidecar-')),
-    'mcp.owner.json',
-  );
+  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-owner-sidecar-')), 'mcp.owner.json');
 }
 
 function sampleInfo(overrides: Partial<McpOwnerInfo> = {}): McpOwnerInfo {

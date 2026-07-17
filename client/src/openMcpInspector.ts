@@ -34,8 +34,6 @@ export function openMcpInspector(
   });
   state.terminal = terminal;
   terminal.show();
-  terminal.sendText(
-    `${npx} @modelcontextprotocol/inspector --transport sse --server-url ${url}`,
-  );
+  terminal.sendText(`${npx} @modelcontextprotocol/inspector --transport sse --server-url ${url}`);
   return terminal;
 }

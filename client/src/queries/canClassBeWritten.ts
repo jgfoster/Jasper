@@ -6,17 +6,19 @@ import { classLookupExpr } from './util';
 // dictionary so the same key registered in two dictionaries resolves to the
 // intended class; a missing class is treated as not writable.
 export function canClassBeWritten(
-  execute: QueryExecutor, className: string, dict?: number | string,
+  execute: QueryExecutor,
+  className: string,
+  dict?: number | string,
 ): boolean {
-  const code = dict === undefined
-    ? `${className} canBeWritten printString`
-    : `| cls |
+  const code =
+    dict === undefined
+      ? `${className} canBeWritten printString`
+      : `| cls |
 cls := ${classLookupExpr(className, dict)}.
 cls ifNil: [^ 'false'].
 cls canBeWritten printString`;
-  const label = dict === undefined
-    ? `canBeWritten(${className})`
-    : `canBeWritten(${className}, dict: ${dict})`;
+  const label =
+    dict === undefined ? `canBeWritten(${className})` : `canBeWritten(${className}, dict: ${dict})`;
   const result = execute(label, code);
   return result.trim() === 'true';
 }

@@ -48,15 +48,32 @@ function loginSystemUser(): SysSession {
   const handle = r.session;
   const utf8 = gci.GciTsResolveSymbol(handle, 'Utf8', OOP_NIL).result;
   const exec: QueryExecutor = (_label, code) => {
-    const { data, err } = gci.GciTsExecuteFetchBytes(handle, code, -1, utf8, OOP_ILLEGAL, OOP_NIL, MAX_RESULT);
-    if (err.number !== 0) throw new Error(`${err.message || `GCI error ${err.number}`} | source: ${code}`);
+    const { data, err } = gci.GciTsExecuteFetchBytes(
+      handle,
+      code,
+      -1,
+      utf8,
+      OOP_ILLEGAL,
+      OOP_NIL,
+      MAX_RESULT,
+    );
+    if (err.number !== 0)
+      throw new Error(`${err.message || `GCI error ${err.number}`} | source: ${code}`);
     return String(data);
   };
   return {
     exec,
     logout: () => {
-      try { gci.GciTsAbort(handle); } catch { /* ignore */ }
-      try { gci.GciTsLogout(handle); } catch { /* ignore */ }
+      try {
+        gci.GciTsAbort(handle);
+      } catch {
+        /* ignore */
+      }
+      try {
+        gci.GciTsLogout(handle);
+      } catch {
+        /* ignore */
+      }
     },
   };
 }
@@ -72,7 +89,9 @@ function mkTmp(prefix: string): string {
 function readTree(root: string): Map<string, string> {
   const out = new Map<string, string>();
   const walk = (dir: string, rel: string) => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    for (const entry of fs
+      .readdirSync(dir, { withFileTypes: true })
+      .sort((a, b) => a.name.localeCompare(b.name))) {
       const full = path.join(dir, entry.name);
       const r = rel ? `${rel}/${entry.name}` : entry.name;
       if (entry.isDirectory()) walk(full, r);
@@ -113,38 +132,51 @@ describe('Rowan export is a deterministic reload-faithful fixpoint', () => {
     for (const d of tmpDirs) fs.rmSync(d, { recursive: true, force: true });
   });
 
-  it('round-trips a created project to a byte-identical on-disk copy', (ctx) => {
-    // No Rowan in this image (e.g. the bare-extent test stone) → skip visibly
-    // rather than passing vacuously.
-    if (!rowanAvailable) ctx.skip();
+  it(
+    'round-trips a created project to a byte-identical on-disk copy',
+    (ctx) => {
+      // No Rowan in this image (e.g. the bare-extent test stone) → skip visibly
+      // rather than passing vacuously.
+      if (!rowanAvailable) ctx.skip();
 
-    const home = mkTmp('jasper-rowan-home-');
-    const dirA = mkTmp('jasper-rowan-a-');
-    const dirC = mkTmp('jasper-rowan-c-');
-    tmpDirs.push(home, dirA, dirC);
-    const targetA = path.join(dirA, PROJECT);
-    const targetC = path.join(dirC, PROJECT);
+      const home = mkTmp('jasper-rowan-home-');
+      const dirA = mkTmp('jasper-rowan-a-');
+      const dirC = mkTmp('jasper-rowan-c-');
+      tmpDirs.push(home, dirA, dirC);
+      const targetA = path.join(dirA, PROJECT);
+      const targetC = path.join(dirC, PROJECT);
 
-    expect(sys.exec('create', createCode(home)).trim()).toBe('ok');
+      expect(sys.exec('create', createCode(home)).trim()).toBe('ok');
 
-    const a = exportRowanProject(sys.exec, PROJECT, targetA);
-    expect(a.success, a.detail).toBe(true);
+      const a = exportRowanProject(sys.exec, PROJECT, targetA);
+      expect(a.success, a.detail).toBe(true);
 
-    expect(sys.exec('unload', `Rowan gemstoneTools topaz unloadProjectNamed: '${PROJECT}'. 'ok'`).trim()).toBe('ok');
-    expect(listRowanProjects(sys.exec).projects.some(p => p.name === PROJECT)).toBe(false);
+      expect(
+        sys
+          .exec('unload', `Rowan gemstoneTools topaz unloadProjectNamed: '${PROJECT}'. 'ok'`)
+          .trim(),
+      ).toBe('ok');
+      expect(listRowanProjects(sys.exec).projects.some((p) => p.name === PROJECT)).toBe(false);
 
-    expect(
-      sys.exec('reload', `(Rowan projectFromUrl: 'file:${targetA}/rowan/specs/${PROJECT}.ston' projectsHome: '${targetA}') load. 'ok'`).trim(),
-    ).toBe('ok');
-    expect(listRowanProjects(sys.exec).projects.some(p => p.name === PROJECT)).toBe(true);
+      expect(
+        sys
+          .exec(
+            'reload',
+            `(Rowan projectFromUrl: 'file:${targetA}/rowan/specs/${PROJECT}.ston' projectsHome: '${targetA}') load. 'ok'`,
+          )
+          .trim(),
+      ).toBe('ok');
+      expect(listRowanProjects(sys.exec).projects.some((p) => p.name === PROJECT)).toBe(true);
 
-    const c = exportRowanProject(sys.exec, PROJECT, targetC);
-    expect(c.success, c.detail).toBe(true);
+      const c = exportRowanProject(sys.exec, PROJECT, targetC);
+      expect(c.success, c.detail).toBe(true);
 
-    const treeA = readTree(targetA);
-    const treeC = readTree(targetC);
+      const treeA = readTree(targetA);
+      const treeC = readTree(targetC);
 
-    expect(treeC.size).toBeGreaterThan(0);
-    expect([...treeC.entries()].sort()).toEqual([...treeA.entries()].sort());
-  }, TIMEOUT);
+      expect(treeC.size).toBeGreaterThan(0);
+      expect([...treeC.entries()].sort()).toEqual([...treeA.entries()].sort());
+    },
+    TIMEOUT,
+  );
 });

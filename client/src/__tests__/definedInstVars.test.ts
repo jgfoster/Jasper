@@ -9,7 +9,7 @@ describe("a class's locally-defined instance variable names", () => {
     expect(getDefinedInstVarNames(execute, 'Point')).toEqual(['x', 'y', 'z']);
   });
 
-  it('asks for the class\'s own variables, not the inherited ones', () => {
+  it("asks for the class's own variables, not the inherited ones", () => {
     const execute = vi.fn().mockReturnValue('');
 
     getDefinedInstVarNames(execute, 'Point');

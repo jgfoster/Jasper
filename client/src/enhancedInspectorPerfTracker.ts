@@ -8,37 +8,81 @@ import { GciLibrary } from './gciLibrary';
 // Methods that make actual network round trips to the GemStone server.
 // Local-only methods (OopIsSpecial, I32ToOop, Encrypt, CallInProgress, etc.) are excluded.
 const ROUND_TRIP_METHODS = new Set([
-  'GciTsAbort', 'GciTsBegin', 'GciTsCommit',
-  'GciTsExecute', 'GciTsExecute_', 'GciTsExecuteFetchBytes',
-  'GciTsPerform', 'GciTsPerformFetchBytes', 'GciTsPerformFetchOops',
-  'GciTsNbExecute', 'GciTsNbPerform', 'GciTsNbResult',
-  'GciTsFetchBytes', 'GciTsFetchChars', 'GciTsFetchUtf8Bytes',
-  'GciTsFetchOops', 'GciTsFetchNamedOops', 'GciTsFetchVaryingOops',
-  'GciTsFetchObjInfo', 'GciTsFetchGbjInfo',
-  'GciTsFetchSize', 'GciTsFetchVaryingSize', 'GciTsFetchClass',
-  'GciTsFetchUnicode', 'GciTsFetchUtf8',
-  'GciTsIsKindOf', 'GciTsIsSubclassOf', 'GciTsIsKindOfClass', 'GciTsIsSubclassOfClass',
+  'GciTsAbort',
+  'GciTsBegin',
+  'GciTsCommit',
+  'GciTsExecute',
+  'GciTsExecute_',
+  'GciTsExecuteFetchBytes',
+  'GciTsPerform',
+  'GciTsPerformFetchBytes',
+  'GciTsPerformFetchOops',
+  'GciTsNbExecute',
+  'GciTsNbPerform',
+  'GciTsNbResult',
+  'GciTsFetchBytes',
+  'GciTsFetchChars',
+  'GciTsFetchUtf8Bytes',
+  'GciTsFetchOops',
+  'GciTsFetchNamedOops',
+  'GciTsFetchVaryingOops',
+  'GciTsFetchObjInfo',
+  'GciTsFetchGbjInfo',
+  'GciTsFetchSize',
+  'GciTsFetchVaryingSize',
+  'GciTsFetchClass',
+  'GciTsFetchUnicode',
+  'GciTsFetchUtf8',
+  'GciTsIsKindOf',
+  'GciTsIsSubclassOf',
+  'GciTsIsKindOfClass',
+  'GciTsIsSubclassOfClass',
   'GciTsObjExists',
-  'GciTsResolveSymbol', 'GciTsResolveSymbolObj',
-  'GciTsNewObj', 'GciTsNewByteArray',
-  'GciTsNewString', 'GciTsNewString_',
+  'GciTsResolveSymbol',
+  'GciTsResolveSymbolObj',
+  'GciTsNewObj',
+  'GciTsNewByteArray',
+  'GciTsNewString',
+  'GciTsNewString_',
   'GciTsNewSymbol',
-  'GciTsNewUnicodeString', 'GciTsNewUnicodeString_',
-  'GciTsNewUtf8String', 'GciTsNewUtf8String_',
+  'GciTsNewUnicodeString',
+  'GciTsNewUnicodeString_',
+  'GciTsNewUtf8String',
+  'GciTsNewUtf8String_',
   'GciTsNewStringFromUtf16',
-  'GciTsStoreBytes', 'GciTsStoreOops', 'GciTsStoreNamedOops', 'GciTsStoreIdxOops',
-  'GciTsCompileMethod', 'GciTsClassRemoveAllMethods', 'GciTsProtectMethods',
-  'GciTsFetchTraversal', 'GciTsMoreTraversal', 'GciTsStoreTrav', 'GciTsStoreTravDoTravRefs',
-  'GciTsGetFreeOops', 'GciTsSaveObjs', 'GciTsReleaseObjs', 'GciTsReleaseAllObjs',
-  'GciTsAddOopsToNsc', 'GciTsRemoveOopsFromNsc',
-  'GciTsDirtyObjsInit', 'GciTsDirtyExportedObjs',
-  'GciTsBreak', 'GciTsClearStack', 'GciTsGemTrace',
+  'GciTsStoreBytes',
+  'GciTsStoreOops',
+  'GciTsStoreNamedOops',
+  'GciTsStoreIdxOops',
+  'GciTsCompileMethod',
+  'GciTsClassRemoveAllMethods',
+  'GciTsProtectMethods',
+  'GciTsFetchTraversal',
+  'GciTsMoreTraversal',
+  'GciTsStoreTrav',
+  'GciTsStoreTravDoTravRefs',
+  'GciTsGetFreeOops',
+  'GciTsSaveObjs',
+  'GciTsReleaseObjs',
+  'GciTsReleaseAllObjs',
+  'GciTsAddOopsToNsc',
+  'GciTsRemoveOopsFromNsc',
+  'GciTsDirtyObjsInit',
+  'GciTsDirtyExportedObjs',
+  'GciTsBreak',
+  'GciTsClearStack',
+  'GciTsGemTrace',
   'GciTsContinueWith',
-  'GciTsWaitForEvent', 'GciTsCancelWaitForEvent',
-  'GciTsKeepAliveCount', 'GciTsKeyfilePermissions',
-  'GciTsDebugConnectToGem', 'GciTsDebugStartDebugService',
-  'GciTsDoubleToOop', 'GciTsOopToDouble',
-  'GciTsI64ToOop', 'GciTsOopToI64',
+  'GciTsWaitForEvent',
+  'GciTsCancelWaitForEvent',
+  'GciTsKeepAliveCount',
+  'GciTsKeyfilePermissions',
+  'GciTsDebugConnectToGem',
+  'GciTsDebugStartDebugService',
+  'GciTsDoubleToOop',
+  'GciTsOopToDouble',
+  'GciTsI64ToOop',
+  'GciTsOopToI64',
 ]);
 
 export interface EnhancedInspectorPerfTracker {
@@ -58,13 +102,15 @@ export interface EnhancedInspectorPerfQuickPickItem {
 }
 
 export const RESET_LABEL = '$(debug-restart) Reset Counter';
-export const COPY_LABEL  = '$(copy) Copy to Clipboard';
+export const COPY_LABEL = '$(copy) Copy to Clipboard';
 
 export function buildEnhancedInspectorPerfStatusBarText(count: number): string {
   return `$(record) Enhanced Inspector Perf: ${count}`;
 }
 
-export function buildEnhancedInspectorPerfClipboardText(tracker: EnhancedInspectorPerfTracker): string {
+export function buildEnhancedInspectorPerfClipboardText(
+  tracker: EnhancedInspectorPerfTracker,
+): string {
   const sorted = [...tracker.methodCounts.entries()].sort((a, b) => b[1] - a[1]);
   return [
     `Enhanced Inspector Perf: ${tracker.count} total GCI calls`,
@@ -72,11 +118,13 @@ export function buildEnhancedInspectorPerfClipboardText(tracker: EnhancedInspect
   ].join('\n');
 }
 
-export function buildEnhancedInspectorPerfQuickPickItems(tracker: EnhancedInspectorPerfTracker): EnhancedInspectorPerfQuickPickItem[] {
+export function buildEnhancedInspectorPerfQuickPickItems(
+  tracker: EnhancedInspectorPerfTracker,
+): EnhancedInspectorPerfQuickPickItem[] {
   const sorted = [...tracker.methodCounts.entries()].sort((a, b) => b[1] - a[1]);
   return [
     { label: RESET_LABEL, description: `clear all ${tracker.count} counts` },
-    { label: COPY_LABEL,  description: 'copy breakdown to clipboard' },
+    { label: COPY_LABEL, description: 'copy breakdown to clipboard' },
     { label: '', isSeparator: true },
     ...sorted.map(([method, count]) => ({ label: method, description: String(count) })),
   ];
@@ -122,7 +170,9 @@ export function wrapWithEnhancedInspectorPerfProxy(gci: GciLibrary): GciLibrary 
           return (val as (...a: unknown[]) => unknown).apply(target, args);
         };
       }
-      return typeof val === 'function' ? (val as (...args: unknown[]) => unknown).bind(target) : val;
+      return typeof val === 'function'
+        ? (val as (...args: unknown[]) => unknown).bind(target)
+        : val;
     },
   }) as GciLibrary;
 }
