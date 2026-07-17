@@ -80,10 +80,13 @@ export function applyErrorMapToShape<T extends z.ZodRawShape>(shape: T): T {
 // `any[]` opts out of that check, matching the runtime reality that we
 // inspect the args dynamically and forward them through.
 export function withMcpErrorMap(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- McpServer.tool is overloaded; see the "Why `any[]` rather than `unknown[]`" note above
   server: { tool: (...args: any[]) => any },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- return shape mirrors the overloaded server.tool; see note above
 ): { tool: (...args: any[]) => any } {
   const original = server.tool.bind(server);
   return {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- forwards the overloaded server.tool args dynamically; see note above
     tool(...args: any[]) {
       // server.tool overloads:
       //   (name, cb)
