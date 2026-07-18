@@ -59,9 +59,9 @@ export async function startMcpServerGem(opts: StartMcpServerOptions): Promise<st
   // Boot the Grail subclass when its class is installed, else the base server —
   // resolved in-image so a base-only install still launches. Matches run-server.sh.
   const bootExpr =
-    '((System myUserProfile objectNamed: #GsMcpServerWithGrail) '
-    + 'ifNil: [GsMcpServer] ifNotNil: [:cls | cls]) runOnPort: '
-    + `${port}.`;
+    '((System myUserProfile objectNamed: #GsMcpServerWithGrail) ' +
+    'ifNil: [GsMcpServer] ifNotNil: [:cls | cls]) runOnPort: ' +
+    `${port}.`;
   const script =
     [
       `set gemstone ${login.stone}`,
@@ -104,8 +104,8 @@ export async function startMcpServerGem(opts: StartMcpServerOptions): Promise<st
   stopMcpServerGem(port);
   const tail = fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8').slice(-1200) : '';
   throw new Error(
-    `The MCP server on port ${port} did not respond. Are the GsMcp* classes installed and `
-      + `committed? Log:\n${tail}`,
+    `The MCP server on port ${port} did not respond. Are the GsMcp* classes installed and ` +
+      `committed? Log:\n${tail}`,
   );
 }
 

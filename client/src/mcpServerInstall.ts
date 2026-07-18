@@ -107,8 +107,8 @@ export function imageHasGrail(session: ActiveSession): boolean {
     const r = executeFetchString(
       session,
       'mcpImageHasGrail',
-      "[(System myUserProfile resolveSymbol: #ModuleAst) notNil printString] "
-        + "on: Error do: [:e | 'false']",
+      '[(System myUserProfile resolveSymbol: #ModuleAst) notNil printString] ' +
+        "on: Error do: [:e | 'false']",
     );
     return r.trim() === 'true';
   } catch {
@@ -128,9 +128,9 @@ export function isMcpServerInstalled(session: ActiveSession): boolean {
     const result = executeFetchString(
       session,
       'verifyMcpServer',
-      '[| a | a := System myUserProfile resolveSymbol: #GsMcpServer. '
-        + '(a notNil and: [a value class canUnderstand: #runOnPort:]) printString] '
-        + "on: Error do: [:e | 'false']",
+      '[| a | a := System myUserProfile resolveSymbol: #GsMcpServer. ' +
+        '(a notNil and: [a value class canUnderstand: #runOnPort:]) printString] ' +
+        "on: Error do: [:e | 'false']",
     );
     return result.trim() === 'true';
   } catch {
@@ -166,7 +166,9 @@ export async function installMcpServer(
   // files + the ensure-Published step + the commit step.
   const stepIncrement = 100 / (files.length + 2);
 
-  const fail = (partial: Omit<InstallResult, 'success' | 'committed' | 'verified'>): InstallResult => ({
+  const fail = (
+    partial: Omit<InstallResult, 'success' | 'committed' | 'verified'>,
+  ): InstallResult => ({
     success: false,
     committed: false,
     verified: false,
@@ -181,9 +183,9 @@ export async function installMcpServer(
       filedIn: [],
       withGrail,
       message:
-        `The database's gem cannot read the payload files (${unreadable.join(', ')}) under `
-        + `${payloadDir}. Server-side install requires a local stone whose gem shares this `
-        + 'filesystem.',
+        `The database's gem cannot read the payload files (${unreadable.join(', ')}) under ` +
+        `${payloadDir}. Server-side install requires a local stone whose gem shares this ` +
+        'filesystem.',
     });
   }
 
@@ -251,8 +253,8 @@ export async function installMcpServer(
     withGrail,
     message: verified
       ? `Native MCP server installed and verified${withGrail ? ' (with Grail/Python tools)' : ''}.`
-      : 'Payload committed, but verification failed: GsMcpServer was not found. The install may be '
-        + 'incomplete.',
+      : 'Payload committed, but verification failed: GsMcpServer was not found. The install may be ' +
+        'incomplete.',
   };
 }
 
@@ -266,16 +268,16 @@ function ensurePublished(session: ActiveSession): void {
   executeFetchString(
     session,
     'mcpEnsurePublished',
-    '| up existing d | '
-      + 'up := System myUserProfile. '
-      + 'existing := up resolveSymbol: #Published. '
-      + 'existing isNil '
-      + 'ifTrue: [ '
-      + 'd := SymbolDictionary new. '
-      + 'd at: #Published put: d. '
-      + 'up insertDictionary: d at: up symbolList size + 1. '
-      + "'created' ] "
-      + "ifFalse: [ 'exists' ]",
+    '| up existing d | ' +
+      'up := System myUserProfile. ' +
+      'existing := up resolveSymbol: #Published. ' +
+      'existing isNil ' +
+      'ifTrue: [ ' +
+      'd := SymbolDictionary new. ' +
+      'd at: #Published put: d. ' +
+      'up insertDictionary: d at: up symbolList size + 1. ' +
+      "'created' ] " +
+      "ifFalse: [ 'exists' ]",
   );
 }
 
@@ -285,8 +287,8 @@ function gemCanRead(session: ActiveSession, serverPath: string): boolean {
     const r = executeFetchString(
       session,
       'mcpGemCanRead',
-      `[(GsFile existsOnServer: ${gsStringLiteral(serverPath)}) printString] `
-        + "on: Error do: [:e | 'false']",
+      `[(GsFile existsOnServer: ${gsStringLiteral(serverPath)}) printString] ` +
+        "on: Error do: [:e | 'false']",
     );
     return r.trim() === 'true';
   } catch {

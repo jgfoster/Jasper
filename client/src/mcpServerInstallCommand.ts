@@ -74,7 +74,8 @@ function loginAsCurrentUser(base: ActiveSession, password: string): ActiveSessio
     gemNrs,
     login.gs_user,
     password,
-    0, 0,
+    0,
+    0,
   );
   if (!result.session) {
     throw new Error(result.err.message || `Login failed (error ${result.err.number})`);
@@ -101,8 +102,9 @@ async function resolvePassword(
   if (base.login.gs_password) return base.login.gs_password;
   if (!interactive) return undefined;
   return vscode.window.showInputBox({
-    prompt: `GemStone password for "${base.login.gs_user}" on "${base.login.stone}" `
-      + '(required to install the MCP server)',
+    prompt:
+      `GemStone password for "${base.login.gs_user}" on "${base.login.stone}" ` +
+      '(required to install the MCP server)',
     password: true,
     ignoreFocusOut: true,
   });
@@ -135,8 +137,8 @@ async function performInstall(
     // path rather than failing silently.
     if (!interactive) {
       vscode.window.showWarningMessage(
-        'The native MCP server was not auto-installed: no stored GemStone password for this '
-          + 'connection. Run "GemStone: Install Native MCP Server" to install it.',
+        'The native MCP server was not auto-installed: no stored GemStone password for this ' +
+          'connection. Run "GemStone: Install Native MCP Server" to install it.',
       );
     }
     return;
@@ -156,7 +158,9 @@ async function performInstall(
     result = await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: reinstall ? 'Reinstalling the native MCP server…' : 'Installing the native MCP server…',
+        title: reinstall
+          ? 'Reinstalling the native MCP server…'
+          : 'Installing the native MCP server…',
         cancellable: false,
       },
       async (progress) =>
@@ -209,8 +213,8 @@ export async function runInstallMcpServer(
   }
   if (!supportsMcpServer(base.stoneVersion)) {
     vscode.window.showErrorMessage(
-      `The native MCP server requires GemStone ${MCP_SERVER_MIN_VERSION} or later. `
-        + `The stone "${base.login.stone}" is ${base.stoneVersion}.`,
+      `The native MCP server requires GemStone ${MCP_SERVER_MIN_VERSION} or later. ` +
+        `The stone "${base.login.stone}" is ${base.stoneVersion}.`,
     );
     return;
   }
@@ -250,11 +254,11 @@ export async function maybeOfferMcpServerInstall(
     {
       modal: true,
       detail:
-        'Runs a Model Context Protocol server inside the image so AI clients can reach GemStone '
-        + 'over plain HTTP — no Node.js bridge.\n\n'
-        + 'Installing commits the supporting classes to the database; the server then runs in its '
-        + 'own gem.\n'
-        + 'Choose "Always" or "Never" to remember your choice for stones without it.',
+        'Runs a Model Context Protocol server inside the image so AI clients can reach GemStone ' +
+        'over plain HTTP — no Node.js bridge.\n\n' +
+        'Installing commits the supporting classes to the database; the server then runs in its ' +
+        'own gem.\n' +
+        'Choose "Always" or "Never" to remember your choice for stones without it.',
     },
     INSTALL,
     ALWAYS,
@@ -284,8 +288,8 @@ const AUTO_INSTALL_MODES: { mode: AutoInstallMode; label: string; detail: string
     mode: 'always',
     label: 'Always install',
     detail:
-      'Install automatically on connect when a stone lacks it, then start the server. Uses the '
-      + "connection's stored password; if none is stored, use \"Ask\" or the install command.",
+      'Install automatically on connect when a stone lacks it, then start the server. Uses the ' +
+      'connection\'s stored password; if none is stored, use "Ask" or the install command.',
   },
   {
     mode: 'never',

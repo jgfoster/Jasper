@@ -1002,8 +1002,8 @@ export function activate(context: vscode.ExtensionContext) {
     const host = session.login.gem_host;
     if (host !== 'localhost' && host !== '127.0.0.1') {
       vscode.window.showErrorMessage(
-        'Starting the native MCP server currently supports a local stone (the gem runs where the '
-          + 'stone does).',
+        'Starting the native MCP server currently supports a local stone (the gem runs where the ' +
+          'stone does).',
       );
       return;
     }
@@ -1021,7 +1021,10 @@ export function activate(context: vscode.ExtensionContext) {
     const globalDir = sysadminStorage.getRootPath();
     try {
       const url = await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: 'Starting the native MCP server…' },
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Starting the native MCP server…',
+        },
         () =>
           startMcpServerGem({
             session,

@@ -146,8 +146,8 @@ describe('installMcpServer', () => {
 
     await installMcpServer(session, PAYLOAD_DIR);
 
-    const fileInCalls = executeFetchStringMock.mock.calls.filter(
-      (c) => String(c[2]).includes('GsFileIn fromPath'),
+    const fileInCalls = executeFetchStringMock.mock.calls.filter((c) =>
+      String(c[2]).includes('GsFileIn fromPath'),
     );
     expect(fileInCalls).toHaveLength(MCP_SERVER_FILES.length);
   });
