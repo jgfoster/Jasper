@@ -93,14 +93,11 @@ hypothesis, not a diagnosis.
 | 3.6.6 | Yes |
 | 3.6.8 | Yes |
 | 3.7.2 | Yes |
-| 3.7.4.3 | Untested |
+| 3.7.4.3 | Yes |
 | 3.7.5 | Yes |
 
-Checked against every GemStone version we had a local test stone for. 3.7.4.3
-is untested only because a local environment issue (unrelated to GemStone
-itself — a machine-specific shared-memory cleanup problem) got in the way
-mid-sweep; every other version in the matrix, oldest to newest, reproduces
-identically.
+Checked against every GemStone version we had a local test stone for, oldest
+to newest — reproduces identically across all ten.
 
 ## Reproducing this
 
