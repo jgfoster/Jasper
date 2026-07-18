@@ -61,9 +61,8 @@ suite reusing one login) makes that claim progressively less safe to rely on.
 
 ## Things we're still not sure about
 
-We don't have access to GemStone's source, so this comes from observing
-behavior rather than reading an implementation — please take it as a
-hypothesis, not a diagnosis.
+This comes from observing behavior rather than an implementation, so please
+take it as a hypothesis, not a diagnosis.
 
 - We initially assumed this was a stone-wide effect: Symbol creation is
   documented elsewhere as bypassing normal repository commit semantics, so
