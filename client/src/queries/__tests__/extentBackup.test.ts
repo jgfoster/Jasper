@@ -1,7 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { QueryExecutor } from '../types';
 import {
-  fullLoggingEnabled, extentFileNames, suspendCheckpoints, resumeCheckpoints,
+  fullLoggingEnabled,
+  extentFileNames,
+  suspendCheckpoints,
+  resumeCheckpoints,
 } from '../extentBackup';
 
 describe('fullLoggingEnabled', () => {
@@ -46,11 +49,21 @@ describe('extentFileNames', () => {
 
 describe('suspendCheckpoints', () => {
   it('succeeds when the stone suspends checkpoints', () => {
-    expect(suspendCheckpoints(vi.fn<QueryExecutor>(() => 'OK'), 30)).toBe(true);
+    expect(
+      suspendCheckpoints(
+        vi.fn<QueryExecutor>(() => 'OK'),
+        30,
+      ),
+    ).toBe(true);
   });
 
   it('fails when the stone declines to suspend checkpoints', () => {
-    expect(suspendCheckpoints(vi.fn<QueryExecutor>(() => 'FAILED'), 30)).toBe(false);
+    expect(
+      suspendCheckpoints(
+        vi.fn<QueryExecutor>(() => 'FAILED'),
+        30,
+      ),
+    ).toBe(false);
   });
 
   it('suspends for the requested whole number of minutes', () => {

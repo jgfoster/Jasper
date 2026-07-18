@@ -5,12 +5,21 @@ vi.mock('child_process');
 vi.mock('fs');
 vi.mock('../wslBridge', () => ({
   needsWsl: vi.fn(() => false),
-  getWslInfo: vi.fn(() => ({ available: false, defaultDistro: undefined, homeDir: undefined, arch: undefined, wslVersion: undefined })),
+  getWslInfo: vi.fn(() => ({
+    available: false,
+    defaultDistro: undefined,
+    homeDir: undefined,
+    arch: undefined,
+    wslVersion: undefined,
+  })),
   invalidateWslCache: vi.fn(),
   wslExecSync: vi.fn(() => ''),
   refreshWslNetworkInfo: vi.fn(async () => ({
-    mirrored: false, ip: undefined, netldiHost: undefined,
-    wslCoreVersion: undefined, supportsMirrored: false,
+    mirrored: false,
+    ip: undefined,
+    netldiHost: undefined,
+    wslCoreVersion: undefined,
+    supportsMirrored: false,
   })),
   invalidateWslNetworkCache: vi.fn(),
   updateWslConfigMirrored: vi.fn((c: string) => c + '[wsl2]\nnetworkingMode=mirrored\n'),
@@ -19,54 +28,63 @@ vi.mock('../wslBridge', () => ({
 import { exec } from 'child_process';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
-import { OsConfigTreeProvider } from '../sharedMemoryTreeProvider';
+import { OsConfigTreeProvider, type OsConfigNode } from '../sharedMemoryTreeProvider';
 import * as wslBridge from '../wslBridge';
+import { type WslNetworkInfo } from '../wslBridge';
 
 // ── Helpers ────────────────────────────────────────────────
 
 const LINUX_SHMMAX_4GB = 4294967296;
 const LINUX_SHMALL_4GB = 1048576;
 const LINUX_SYSCTL_4GB = `kernel.shmmax = ${LINUX_SHMMAX_4GB}\nkernel.shmall = ${LINUX_SHMALL_4GB}\n`;
-const LINUX_SYSCTL_UNLIMITED = 'kernel.shmmax = 18446744073692774399\nkernel.shmall = 18446744073692774399\n';
+const LINUX_SYSCTL_UNLIMITED =
+  'kernel.shmmax = 18446744073692774399\nkernel.shmall = 18446744073692774399\n';
 const LINUX_SYSCTL_1GB = 'kernel.shmmax = 1073741824\nkernel.shmall = 262144\n';
 
 const MACOS_SYSCTL_4GB = `kern.sysv.shmmax: ${LINUX_SHMMAX_4GB}\nkern.sysv.shmall: ${LINUX_SHMALL_4GB}\n`;
 const MACOS_SYSCTL_SMALL = 'kern.sysv.shmmax: 4194304\nkern.sysv.shmall: 1024\n'; // 4 MB / 4 MB
 
-function setPlatform(platform: string) {
+function setPlatform(platform: NodeJS.Platform) {
   Object.defineProperty(process, 'platform', { value: platform, configurable: true });
 }
 
-function makeContext() {
+function makeContext(extensionPath = '/ext') {
   return {
-    extensionPath: '/ext',
+    extensionPath,
     subscriptions: { push: vi.fn() },
   } as unknown as vscode.ExtensionContext;
 }
 
+/** A vscode.Terminal test double — only `show`/`sendText` are spied on; the rest of the interface is stubbed. */
+function fakeTerminal(): vscode.Terminal {
+  return { show: vi.fn(), sendText: vi.fn(), dispose: vi.fn() } as unknown as vscode.Terminal;
+}
+
 /** Retrieve the callback registered for a command by name. */
-function getCommand(commandId: string): (() => void) | undefined {
+function getCommand(commandId: string): (() => unknown) | undefined {
   const calls = vi.mocked(vscode.commands.registerCommand).mock.calls;
   const call = calls.find(([id]) => id === commandId);
-  return call?.[1] as (() => void) | undefined;
+  return call?.[1] as (() => unknown) | undefined;
 }
 
 /** Make exec call its callback immediately with the given stdout output. */
 function mockExec(output: string): void {
-  vi.mocked(exec as any).mockImplementation((_cmd: any, _opts: any, cb: any) => {
-    cb(null, output, '');
+  vi.mocked(exec).mockImplementation((_cmd, _opts, cb) => {
+    cb?.(null, output, '');
+    return {} as ReturnType<typeof exec>;
   });
 }
 
 /** Make exec call its callback with an error (simulates sysctl not found). */
 function mockExecError(): void {
-  vi.mocked(exec as any).mockImplementation((_cmd: any, _opts: any, cb: any) => {
-    cb(new Error('command not found'), '', '');
+  vi.mocked(exec).mockImplementation((_cmd, _opts, cb) => {
+    cb?.(new Error('command not found'), '', '');
+    return {} as ReturnType<typeof exec>;
   });
 }
 
 /** Call getChildren(), wait for async load to complete, then return cached nodes. */
-async function getRootNodes(provider: OsConfigTreeProvider): Promise<any[]> {
+async function getRootNodes(provider: OsConfigTreeProvider): Promise<OsConfigNode[]> {
   const initial = provider.getChildren();
   if (Array.isArray(initial) && initial.length === 1 && initial[0].kind === 'loading') {
     // Wait for the async _loadConfig to fire onDidChangeTreeData
@@ -76,16 +94,38 @@ async function getRootNodes(provider: OsConfigTreeProvider): Promise<any[]> {
         resolve();
       });
     });
-    return provider.getChildren() as any[];
+    return provider.getChildren();
   }
-  return (Array.isArray(initial) ? initial : await initial) as any[];
+  return Array.isArray(initial) ? initial : await initial;
+}
+
+/** Find the (at most one) node of a given kind, narrowed to that variant. */
+function findByKind<K extends OsConfigNode['kind']>(
+  nodes: OsConfigNode[],
+  kind: K,
+): Extract<OsConfigNode, { kind: K }> | undefined {
+  return nodes.find((n): n is Extract<OsConfigNode, { kind: K }> => n.kind === kind);
+}
+
+/** The `command` id of each action node, in order (non-action nodes → undefined). */
+function actionCommands(nodes: OsConfigNode[]): (string | undefined)[] {
+  return nodes.map((n) => (n.kind === 'action' ? n.command : undefined));
+}
+
+/** The codicon id of a tree item's icon — every node in this provider uses a ThemeIcon. */
+function themeIconId(item: vscode.TreeItem): string {
+  const icon = item.iconPath;
+  if (!(icon instanceof vscode.ThemeIcon)) {
+    throw new Error(`expected a ThemeIcon, got ${String(icon)}`);
+  }
+  return icon.id;
 }
 
 // ── Suite ──────────────────────────────────────────────────
 
 describe('OsConfigTreeProvider', () => {
   let provider: OsConfigTreeProvider;
-  let originalPlatform: string;
+  let originalPlatform: NodeJS.Platform;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -99,9 +139,11 @@ describe('OsConfigTreeProvider', () => {
     mockExec('');
     vi.mocked(fs.existsSync).mockReturnValue(false);
     vi.mocked(fs.readdirSync).mockReturnValue([]);
-    vi.mocked(fs.readFileSync).mockImplementation(() => { throw new Error('ENOENT'); });
+    vi.mocked(fs.readFileSync).mockImplementation(() => {
+      throw new Error('ENOENT');
+    });
     vi.mocked(vscode.commands.registerCommand).mockClear();
-    vi.mocked(vscode.window.createTerminal).mockReturnValue({ show: vi.fn(), sendText: vi.fn() } as any);
+    vi.mocked(vscode.window.createTerminal).mockReturnValue(fakeTerminal());
     vi.mocked(vscode.window.showInformationMessage).mockClear();
     vi.mocked(vscode.window.onDidCloseTerminal).mockClear();
   });
@@ -129,7 +171,7 @@ describe('OsConfigTreeProvider', () => {
       mockExec(MACOS_SYSCTL_SMALL);
       provider.refresh();
       const nodes = await getRootNodes(provider);
-      expect((nodes[0] as any).configured).toBe(false);
+      expect(findByKind(nodes, 'sharedMemoryStatus')?.configured).toBe(false);
     });
   });
 
@@ -139,7 +181,7 @@ describe('OsConfigTreeProvider', () => {
     it('returns a loading node before async data is ready', () => {
       setPlatform('darwin');
       mockExec(MACOS_SYSCTL_4GB);
-      const nodes = provider.getChildren() as any[];
+      const nodes = provider.getChildren() as OsConfigNode[];
       expect(nodes).toHaveLength(1);
       expect(nodes[0].kind).toBe('loading');
     });
@@ -185,83 +227,89 @@ describe('OsConfigTreeProvider', () => {
     it('labels large Linux default shmmax as "≥ 1"', async () => {
       setPlatform('linux');
       mockExec(LINUX_SYSCTL_UNLIMITED);
-      const [node] = await getRootNodes(provider);
-      expect(node.gbLabel).toBe('≥ 1');
+      const nodes = await getRootNodes(provider);
+      expect(findByKind(nodes, 'sharedMemoryStatus')?.gbLabel).toBe('≥ 1');
     });
 
     it('labels exact 1 GB shmmax as "1"', async () => {
       setPlatform('linux');
       mockExec(LINUX_SYSCTL_1GB);
-      const [node] = await getRootNodes(provider);
-      expect(node.gbLabel).toBe('1');
+      const nodes = await getRootNodes(provider);
+      expect(findByKind(nodes, 'sharedMemoryStatus')?.gbLabel).toBe('1');
     });
 
     it('removeIpcStatus configured=false when no logind.conf', async () => {
       setPlatform('linux');
       mockExec(LINUX_SYSCTL_4GB);
-      vi.mocked(fs.readFileSync).mockImplementation(() => { throw new Error('ENOENT'); });
+      vi.mocked(fs.readFileSync).mockImplementation(() => {
+        throw new Error('ENOENT');
+      });
       const nodes = await getRootNodes(provider);
-      const removeIpc = nodes.find((n: any) => n.kind === 'removeIpcStatus') as any;
-      expect(removeIpc.configured).toBe(false);
+      const removeIpc = findByKind(nodes, 'removeIpcStatus');
+      expect(removeIpc?.configured).toBe(false);
     });
 
     it('removeIpcStatus configured=true when logind.conf has RemoveIPC=no', async () => {
       setPlatform('linux');
       mockExec(LINUX_SYSCTL_4GB);
-      vi.mocked(fs.readFileSync).mockReturnValue('[Login]\nRemoveIPC=no\n' as any);
+      vi.mocked(fs.readFileSync).mockReturnValue('[Login]\nRemoveIPC=no\n');
       const nodes = await getRootNodes(provider);
-      const removeIpc = nodes.find((n: any) => n.kind === 'removeIpcStatus') as any;
-      expect(removeIpc.configured).toBe(true);
+      const removeIpc = findByKind(nodes, 'removeIpcStatus');
+      expect(removeIpc?.configured).toBe(true);
     });
 
     it('removeIpcStatus configured=false when logind.conf has RemoveIPC=yes', async () => {
       setPlatform('linux');
       mockExec(LINUX_SYSCTL_4GB);
-      vi.mocked(fs.readFileSync).mockReturnValue('[Login]\nRemoveIPC=yes\n' as any);
+      vi.mocked(fs.readFileSync).mockReturnValue('[Login]\nRemoveIPC=yes\n');
       const nodes = await getRootNodes(provider);
-      const removeIpc = nodes.find((n: any) => n.kind === 'removeIpcStatus') as any;
-      expect(removeIpc.configured).toBe(false);
+      const removeIpc = findByKind(nodes, 'removeIpcStatus');
+      expect(removeIpc?.configured).toBe(false);
     });
 
     it('ignores commented-out RemoveIPC lines', async () => {
       setPlatform('linux');
       mockExec(LINUX_SYSCTL_4GB);
-      vi.mocked(fs.readFileSync).mockReturnValue('# RemoveIPC=no\n' as any);
+      vi.mocked(fs.readFileSync).mockReturnValue('# RemoveIPC=no\n');
       const nodes = await getRootNodes(provider);
-      const removeIpc = nodes.find((n: any) => n.kind === 'removeIpcStatus') as any;
-      expect(removeIpc.configured).toBe(false);
+      const removeIpc = findByKind(nodes, 'removeIpcStatus');
+      expect(removeIpc?.configured).toBe(false);
     });
 
     it('drop-in file overrides main logind.conf (last wins)', async () => {
       setPlatform('linux');
       mockExec(LINUX_SYSCTL_4GB);
       vi.mocked(fs.existsSync).mockReturnValue(true);
-      vi.mocked(fs.readdirSync).mockReturnValue(['gemstone.conf'] as any);
-      vi.mocked(fs.readFileSync).mockImplementation((filepath: any) => {
+      vi.mocked(fs.readdirSync).mockReturnValue(['gemstone.conf'] as unknown as ReturnType<
+        typeof fs.readdirSync
+      >);
+      vi.mocked(fs.readFileSync).mockImplementation((filepath: fs.PathOrFileDescriptor) => {
         if (String(filepath).endsWith('logind.conf') && !String(filepath).includes('.d/')) {
-          return 'RemoveIPC=yes\n' as any; // main file says yes
+          return 'RemoveIPC=yes\n'; // main file says yes
         }
-        return '[Login]\nRemoveIPC=no\n' as any; // drop-in overrides to no
+        return '[Login]\nRemoveIPC=no\n'; // drop-in overrides to no
       });
       const nodes = await getRootNodes(provider);
-      const removeIpc = nodes.find((n: any) => n.kind === 'removeIpcStatus') as any;
-      expect(removeIpc.configured).toBe(true);
+      const removeIpc = findByKind(nodes, 'removeIpcStatus');
+      expect(removeIpc?.configured).toBe(true);
     });
 
     it('main logind.conf wins when drop-in sets it back to yes', async () => {
       setPlatform('linux');
       mockExec(LINUX_SYSCTL_4GB);
       vi.mocked(fs.existsSync).mockReturnValue(true);
-      vi.mocked(fs.readdirSync).mockReturnValue(['zz-override.conf'] as any);
-      vi.mocked(fs.readFileSync).mockImplementation((filepath: any) => {
+      vi.mocked(fs.readdirSync).mockReturnValue(['zz-override.conf'] as unknown as ReturnType<
+        typeof fs.readdirSync
+      >);
+      vi.mocked(fs.readFileSync).mockImplementation((filepath: fs.PathOrFileDescriptor) => {
         if (String(filepath).includes('logind.conf.d')) {
-          return 'RemoveIPC=yes\n' as any;
+          return 'RemoveIPC=yes\n';
         }
-        return 'RemoveIPC=no\n' as any;
+        return 'RemoveIPC=no\n';
       });
       const nodes = await getRootNodes(provider);
-      const removeIpc = nodes.find((n: any) => n.kind === 'removeIpcStatus') as any;
-      expect(removeIpc.configured).toBe(false);
+      const removeIpc = findByKind(nodes, 'removeIpcStatus');
+      expect(removeIpc?.configured).toBe(false);
     });
 
     it('returns cached nodes on second call without re-running exec', async () => {
@@ -269,8 +317,8 @@ describe('OsConfigTreeProvider', () => {
       mockExec(MACOS_SYSCTL_4GB);
       await getRootNodes(provider);
       mockExec(''); // change mock — cache should prevent this from being used
-      const nodes = provider.getChildren() as any[];
-      expect((nodes[0] as any).configured).toBe(true);
+      const nodes = provider.getChildren() as OsConfigNode[];
+      expect(findByKind(nodes, 'sharedMemoryStatus')?.configured).toBe(true);
     });
   });
 
@@ -282,7 +330,10 @@ describe('OsConfigTreeProvider', () => {
       const parent = { kind: 'sharedMemoryStatus' as const, configured: false, gbLabel: '1' };
       const children = await provider.getChildren(parent);
       expect(children).toHaveLength(1);
-      expect(children[0]).toMatchObject({ kind: 'action', command: 'gemstone.runSetSharedMemoryLinux' });
+      expect(children[0]).toMatchObject({
+        kind: 'action',
+        command: 'gemstone.runSetSharedMemoryLinux',
+      });
     });
 
     it('sharedMemoryStatus not configured on macOS returns one action', async () => {
@@ -319,30 +370,42 @@ describe('OsConfigTreeProvider', () => {
       it('shows a spinning loading icon', () => {
         const item = provider.getTreeItem({ kind: 'loading' });
         expect(item.label).toContain('Checking');
-        expect((item.iconPath as any).id).toBe('loading~spin');
+        expect(themeIconId(item)).toBe('loading~spin');
         expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.None);
       });
     });
 
     describe('sharedMemoryStatus', () => {
       it('configured: check icon, None collapsible state, label includes gbLabel', () => {
-        const item = provider.getTreeItem({ kind: 'sharedMemoryStatus', configured: true, gbLabel: '4' });
+        const item = provider.getTreeItem({
+          kind: 'sharedMemoryStatus',
+          configured: true,
+          gbLabel: '4',
+        });
         expect(item.label).toContain('4');
         expect(item.label).toContain('configured');
         expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.None);
-        expect((item.iconPath as any).id).toBe('check');
+        expect(themeIconId(item)).toBe('check');
       });
 
       it('not configured: warning icon, Expanded state, tooltip set', () => {
-        const item = provider.getTreeItem({ kind: 'sharedMemoryStatus', configured: false, gbLabel: '1' });
+        const item = provider.getTreeItem({
+          kind: 'sharedMemoryStatus',
+          configured: false,
+          gbLabel: '1',
+        });
         expect(item.label).toContain('not configured');
         expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Expanded);
-        expect((item.iconPath as any).id).toBe('warning');
+        expect(themeIconId(item)).toBe('warning');
         expect(item.tooltip).toBeTruthy();
       });
 
       it('uses "≥ 1" gbLabel in label', () => {
-        const item = provider.getTreeItem({ kind: 'sharedMemoryStatus', configured: true, gbLabel: '≥ 1' });
+        const item = provider.getTreeItem({
+          kind: 'sharedMemoryStatus',
+          configured: true,
+          gbLabel: '≥ 1',
+        });
         expect(item.label).toContain('≥ 1');
       });
     });
@@ -352,54 +415,82 @@ describe('OsConfigTreeProvider', () => {
         const item = provider.getTreeItem({ kind: 'removeIpcStatus', configured: true });
         expect(item.label).toContain('configured');
         expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.None);
-        expect((item.iconPath as any).id).toBe('check');
+        expect(themeIconId(item)).toBe('check');
         expect(item.tooltip).toBeUndefined();
       });
 
       it('not configured: warning icon, Expanded state, tooltip explains risk', () => {
         const item = provider.getTreeItem({ kind: 'removeIpcStatus', configured: false });
         expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Expanded);
-        expect((item.iconPath as any).id).toBe('warning');
+        expect(themeIconId(item)).toBe('warning');
         expect(String(item.tooltip)).toMatch(/shared memory|IPC/i);
       });
     });
 
     describe('action nodes', () => {
       it('runSetSharedMemory: terminal icon', () => {
-        const item = provider.getTreeItem({ kind: 'action', text: 'Run', command: 'gemstone.runSetSharedMemory' });
-        expect((item.iconPath as any).id).toBe('terminal');
+        const item = provider.getTreeItem({
+          kind: 'action',
+          text: 'Run',
+          command: 'gemstone.runSetSharedMemory',
+        });
+        expect(themeIconId(item)).toBe('terminal');
       });
 
       it('runSetSharedMemoryLinux: terminal icon, mentions no restart in tooltip', () => {
-        const item = provider.getTreeItem({ kind: 'action', text: 'Run', command: 'gemstone.runSetSharedMemoryLinux' });
-        expect((item.iconPath as any).id).toBe('terminal');
+        const item = provider.getTreeItem({
+          kind: 'action',
+          text: 'Run',
+          command: 'gemstone.runSetSharedMemoryLinux',
+        });
+        expect(themeIconId(item)).toBe('terminal');
         expect(String(item.tooltip)).toMatch(/no restart/i);
       });
 
       it('runSetSharedMemory: terminal icon, mentions no restart in tooltip', () => {
-        const item = provider.getTreeItem({ kind: 'action', text: 'Run', command: 'gemstone.runSetSharedMemory' });
-        expect((item.iconPath as any).id).toBe('terminal');
+        const item = provider.getTreeItem({
+          kind: 'action',
+          text: 'Run',
+          command: 'gemstone.runSetSharedMemory',
+        });
+        expect(themeIconId(item)).toBe('terminal');
         expect(String(item.tooltip)).toMatch(/no restart/i);
       });
 
       it('runSetRemoveIPC: terminal icon', () => {
-        const item = provider.getTreeItem({ kind: 'action', text: 'Run', command: 'gemstone.runSetRemoveIPC' });
-        expect((item.iconPath as any).id).toBe('terminal');
+        const item = provider.getTreeItem({
+          kind: 'action',
+          text: 'Run',
+          command: 'gemstone.runSetRemoveIPC',
+        });
+        expect(themeIconId(item)).toBe('terminal');
       });
 
       it('sharedMemoryInfo: info icon', () => {
-        const item = provider.getTreeItem({ kind: 'action', text: 'Info', command: 'gemstone.sharedMemoryInfo' });
-        expect((item.iconPath as any).id).toBe('info');
+        const item = provider.getTreeItem({
+          kind: 'action',
+          text: 'Info',
+          command: 'gemstone.sharedMemoryInfo',
+        });
+        expect(themeIconId(item)).toBe('info');
       });
 
       it('removeIpcInfo: info icon, tooltip mentions systemd-logind', () => {
-        const item = provider.getTreeItem({ kind: 'action', text: 'Info', command: 'gemstone.removeIpcInfo' });
-        expect((item.iconPath as any).id).toBe('info');
+        const item = provider.getTreeItem({
+          kind: 'action',
+          text: 'Info',
+          command: 'gemstone.removeIpcInfo',
+        });
+        expect(themeIconId(item)).toBe('info');
         expect(String(item.tooltip)).toMatch(/systemd-logind/);
       });
 
       it('sets item.command with command id and title', () => {
-        const item = provider.getTreeItem({ kind: 'action', text: 'My Label', command: 'gemstone.runSetRemoveIPC' });
+        const item = provider.getTreeItem({
+          kind: 'action',
+          text: 'My Label',
+          command: 'gemstone.runSetRemoveIPC',
+        });
         expect(item.command).toEqual({ command: 'gemstone.runSetRemoveIPC', title: 'My Label' });
       });
     });
@@ -420,36 +511,42 @@ describe('OsConfigTreeProvider', () => {
 
     it('runSetSharedMemory opens a terminal and sends the macOS script path', () => {
       provider.registerCommands(makeContext());
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
 
       getCommand('gemstone.runSetSharedMemory')?.();
 
       expect(vscode.window.createTerminal).toHaveBeenCalledWith('GemStone: Shared Memory Setup');
       expect(mockTerminal.show).toHaveBeenCalled();
-      expect(mockTerminal.sendText).toHaveBeenCalledWith(expect.stringContaining('setSharedMemory.sh'));
+      expect(mockTerminal.sendText).toHaveBeenCalledWith(
+        expect.stringContaining('setSharedMemory.sh'),
+      );
       expect(mockTerminal.sendText).toHaveBeenCalledWith(expect.stringMatching(/&& exit$/));
     });
 
     it('runSetSharedMemoryLinux opens a terminal and sends the Linux script path', () => {
       provider.registerCommands(makeContext());
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
 
       getCommand('gemstone.runSetSharedMemoryLinux')?.();
 
-      expect(mockTerminal.sendText).toHaveBeenCalledWith(expect.stringContaining('setSharedMemoryLinux.sh'));
+      expect(mockTerminal.sendText).toHaveBeenCalledWith(
+        expect.stringContaining('setSharedMemoryLinux.sh'),
+      );
     });
 
     it('runSetRemoveIPC opens a terminal and sends the RemoveIPC script path', () => {
       provider.registerCommands(makeContext());
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
 
       getCommand('gemstone.runSetRemoveIPC')?.();
 
       expect(vscode.window.createTerminal).toHaveBeenCalledWith('GemStone: RemoveIPC Setup');
-      expect(mockTerminal.sendText).toHaveBeenCalledWith(expect.stringContaining('setRemoveIPC.sh'));
+      expect(mockTerminal.sendText).toHaveBeenCalledWith(
+        expect.stringContaining('setRemoveIPC.sh'),
+      );
     });
 
     it('sharedMemoryInfo shows an information message', () => {
@@ -467,12 +564,14 @@ describe('OsConfigTreeProvider', () => {
 
     it('runSetSharedMemory refreshes the panel when the terminal closes', () => {
       provider.registerCommands(makeContext());
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
       const refreshSpy = vi.spyOn(provider, 'refresh');
 
       getCommand('gemstone.runSetSharedMemory')?.();
-      const closeListener = vi.mocked(vscode.window.onDidCloseTerminal).mock.calls[0][0] as (t: unknown) => void;
+      const closeListener = vi.mocked(vscode.window.onDidCloseTerminal).mock.calls[0][0] as (
+        t: unknown,
+      ) => void;
 
       closeListener(mockTerminal);
       expect(refreshSpy).toHaveBeenCalledOnce();
@@ -480,12 +579,14 @@ describe('OsConfigTreeProvider', () => {
 
     it('runSetSharedMemoryLinux refreshes the panel when the terminal closes', () => {
       provider.registerCommands(makeContext());
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
       const refreshSpy = vi.spyOn(provider, 'refresh');
 
       getCommand('gemstone.runSetSharedMemoryLinux')?.();
-      const closeListener = vi.mocked(vscode.window.onDidCloseTerminal).mock.calls[0][0] as (t: unknown) => void;
+      const closeListener = vi.mocked(vscode.window.onDidCloseTerminal).mock.calls[0][0] as (
+        t: unknown,
+      ) => void;
 
       closeListener(mockTerminal);
       expect(refreshSpy).toHaveBeenCalledOnce();
@@ -493,12 +594,14 @@ describe('OsConfigTreeProvider', () => {
 
     it('runSetRemoveIPC refreshes the panel when the terminal closes', () => {
       provider.registerCommands(makeContext());
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
       const refreshSpy = vi.spyOn(provider, 'refresh');
 
       getCommand('gemstone.runSetRemoveIPC')?.();
-      const closeListener = vi.mocked(vscode.window.onDidCloseTerminal).mock.calls[0][0] as (t: unknown) => void;
+      const closeListener = vi.mocked(vscode.window.onDidCloseTerminal).mock.calls[0][0] as (
+        t: unknown,
+      ) => void;
 
       closeListener(mockTerminal);
       expect(refreshSpy).toHaveBeenCalledOnce();
@@ -506,12 +609,14 @@ describe('OsConfigTreeProvider', () => {
 
     it('does not refresh when a different terminal closes', () => {
       provider.registerCommands(makeContext());
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
       const refreshSpy = vi.spyOn(provider, 'refresh');
 
       getCommand('gemstone.runSetSharedMemory')?.();
-      const closeListener = vi.mocked(vscode.window.onDidCloseTerminal).mock.calls[0][0] as (t: unknown) => void;
+      const closeListener = vi.mocked(vscode.window.onDidCloseTerminal).mock.calls[0][0] as (
+        t: unknown,
+      ) => void;
 
       closeListener({ show: vi.fn(), sendText: vi.fn() }); // different terminal
       expect(refreshSpy).not.toHaveBeenCalled();
@@ -519,16 +624,16 @@ describe('OsConfigTreeProvider', () => {
 
     it('runSetSharedMemoryLinux script path does not match macOS script', () => {
       provider.registerCommands(makeContext());
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
 
       getCommand('gemstone.runSetSharedMemoryLinux')?.();
-      const [linuxCmd] = mockTerminal.sendText.mock.calls[0];
+      const [linuxCmd] = vi.mocked(mockTerminal.sendText).mock.calls[0];
 
-      mockTerminal.sendText.mockClear();
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      vi.mocked(mockTerminal.sendText).mockClear();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
       getCommand('gemstone.runSetSharedMemory')?.();
-      const [macCmd] = mockTerminal.sendText.mock.calls[0];
+      const [macCmd] = vi.mocked(mockTerminal.sendText).mock.calls[0];
 
       expect(linuxCmd).not.toBe(macCmd);
     });
@@ -544,7 +649,11 @@ describe('OsConfigTreeProvider', () => {
 
     it('shows wslStatus + wslNetworking + wslServices + shared memory + removeIpc when version is 2', async () => {
       vi.mocked(wslBridge.getWslInfo).mockReturnValue({
-        available: true, defaultDistro: 'Ubuntu', homeDir: '/home/user', arch: 'x86_64', wslVersion: 2,
+        available: true,
+        defaultDistro: 'Ubuntu',
+        homeDir: '/home/user',
+        arch: 'x86_64',
+        wslVersion: 2,
       });
       mockExec(LINUX_SYSCTL_4GB);
       const nodes = await getRootNodes(provider);
@@ -558,7 +667,11 @@ describe('OsConfigTreeProvider', () => {
 
     it('shows only wslStatus when version is not 2 (avoids noise before upgrade)', async () => {
       vi.mocked(wslBridge.getWslInfo).mockReturnValue({
-        available: true, defaultDistro: 'Ubuntu', homeDir: '/home/user', arch: 'x86_64', wslVersion: 1,
+        available: true,
+        defaultDistro: 'Ubuntu',
+        homeDir: '/home/user',
+        arch: 'x86_64',
+        wslVersion: 1,
       });
       const nodes = await getRootNodes(provider);
       expect(nodes).toHaveLength(1);
@@ -567,18 +680,28 @@ describe('OsConfigTreeProvider', () => {
 
     it('shared memory on WSL: runs sysctl via wsl.exe and parses Linux format', async () => {
       vi.mocked(wslBridge.getWslInfo).mockReturnValue({
-        available: true, defaultDistro: 'Ubuntu', homeDir: '/home/user', arch: 'x86_64', wslVersion: 2,
+        available: true,
+        defaultDistro: 'Ubuntu',
+        homeDir: '/home/user',
+        arch: 'x86_64',
+        wslVersion: 2,
       });
       mockExec(LINUX_SYSCTL_1GB);
       const nodes = await getRootNodes(provider);
-      expect(vi.mocked(exec).mock.calls[0][0]).toBe('wsl.exe -e sysctl kernel.shmmax kernel.shmall');
-      const shm = nodes.find((n: any) => n.kind === 'sharedMemoryStatus') as any;
-      expect(shm.configured).toBe(true);
+      expect(vi.mocked(exec).mock.calls[0][0]).toBe(
+        'wsl.exe -e sysctl kernel.shmmax kernel.shmall',
+      );
+      const shm = findByKind(nodes, 'sharedMemoryStatus');
+      expect(shm?.configured).toBe(true);
     });
 
     it('removeIpc on WSL: routes logind.conf reads through wslExecSync', async () => {
       vi.mocked(wslBridge.getWslInfo).mockReturnValue({
-        available: true, defaultDistro: 'Ubuntu', homeDir: '/home/user', arch: 'x86_64', wslVersion: 2,
+        available: true,
+        defaultDistro: 'Ubuntu',
+        homeDir: '/home/user',
+        arch: 'x86_64',
+        wslVersion: 2,
       });
       mockExec(LINUX_SYSCTL_4GB);
       vi.mocked(wslBridge.wslExecSync).mockImplementation((cmd: string) => {
@@ -587,18 +710,23 @@ describe('OsConfigTreeProvider', () => {
         return '';
       });
       const nodes = await getRootNodes(provider);
-      const removeIpc = nodes.find((n: any) => n.kind === 'removeIpcStatus') as any;
-      expect(removeIpc.configured).toBe(true);
+      const removeIpc = findByKind(nodes, 'removeIpcStatus');
+      expect(removeIpc?.configured).toBe(true);
       // fs was NOT consulted for logind config on the WSL path (other
       // unrelated reads — e.g. Windows services file — are allowed).
-      const logindReads = vi.mocked(fs.readFileSync).mock.calls
-        .filter((c: any[]) => /logind\.conf/.test(String(c[0])));
+      const logindReads = vi
+        .mocked(fs.readFileSync)
+        .mock.calls.filter((c) => /logind\.conf/.test(String(c[0])));
       expect(logindReads).toHaveLength(0);
     });
 
     it('removeIpc on WSL: drop-in file overrides main logind.conf', async () => {
       vi.mocked(wslBridge.getWslInfo).mockReturnValue({
-        available: true, defaultDistro: 'Ubuntu', homeDir: '/home/user', arch: 'x86_64', wslVersion: 2,
+        available: true,
+        defaultDistro: 'Ubuntu',
+        homeDir: '/home/user',
+        arch: 'x86_64',
+        wslVersion: 2,
       });
       mockExec(LINUX_SYSCTL_4GB);
       vi.mocked(wslBridge.wslExecSync).mockImplementation((cmd: string) => {
@@ -608,24 +736,28 @@ describe('OsConfigTreeProvider', () => {
         return '';
       });
       const nodes = await getRootNodes(provider);
-      const removeIpc = nodes.find((n: any) => n.kind === 'removeIpcStatus') as any;
-      expect(removeIpc.configured).toBe(true);
+      const removeIpc = findByKind(nodes, 'removeIpcStatus');
+      expect(removeIpc?.configured).toBe(true);
     });
 
     it('not-configured shared memory on WSL offers the Linux setup script', async () => {
       const parent = { kind: 'sharedMemoryStatus' as const, configured: false, gbLabel: '0' };
       const children = await provider.getChildren(parent);
-      expect(children[0]).toMatchObject({ kind: 'action', command: 'gemstone.runSetSharedMemoryLinux' });
+      expect(children[0]).toMatchObject({
+        kind: 'action',
+        command: 'gemstone.runSetSharedMemoryLinux',
+      });
     });
 
     it('runSetSharedMemoryLinux on Windows opens a WSL shell with /mnt/<drive> script path', () => {
-      provider.registerCommands({ extensionPath: 'C:\\ext', subscriptions: { push: vi.fn() } } as any);
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      provider.registerCommands(makeContext('C:\\ext'));
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
 
       getCommand('gemstone.runSetSharedMemoryLinux')?.();
 
-      const createArgs = vi.mocked(vscode.window.createTerminal).mock.calls[0][0] as any;
+      const createArgs = vi.mocked(vscode.window.createTerminal).mock
+        .calls[0][0] as vscode.TerminalOptions;
       expect(createArgs.shellPath).toBe('wsl.exe');
       expect(mockTerminal.sendText).toHaveBeenCalledWith(
         expect.stringContaining('/mnt/c/ext/resources/setSharedMemoryLinux.sh'),
@@ -633,13 +765,14 @@ describe('OsConfigTreeProvider', () => {
     });
 
     it('runSetRemoveIPC on Windows opens a WSL shell with /mnt/<drive> script path', () => {
-      provider.registerCommands({ extensionPath: 'C:\\ext', subscriptions: { push: vi.fn() } } as any);
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      provider.registerCommands(makeContext('C:\\ext'));
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
 
       getCommand('gemstone.runSetRemoveIPC')?.();
 
-      const createArgs = vi.mocked(vscode.window.createTerminal).mock.calls[0][0] as any;
+      const createArgs = vi.mocked(vscode.window.createTerminal).mock
+        .calls[0][0] as vscode.TerminalOptions;
       expect(createArgs.shellPath).toBe('wsl.exe');
       expect(mockTerminal.sendText).toHaveBeenCalledWith(
         expect.stringContaining('/mnt/c/ext/resources/setRemoveIPC.sh'),
@@ -650,7 +783,7 @@ describe('OsConfigTreeProvider', () => {
       const item = provider.getTreeItem({ kind: 'wslStatus', distro: 'Ubuntu', wslVersion: 2 });
       expect(item.label).toContain('WSL 2');
       expect(item.label).toContain('Ubuntu');
-      expect((item.iconPath as any).id).toBe('check');
+      expect(themeIconId(item)).toBe('check');
       expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.None);
       expect(item.tooltip).toBeUndefined();
     });
@@ -659,14 +792,18 @@ describe('OsConfigTreeProvider', () => {
       const item = provider.getTreeItem({ kind: 'wslStatus', distro: 'Ubuntu', wslVersion: 1 });
       expect(item.label).toContain('WSL 1');
       expect(item.label).toContain('upgrade required');
-      expect((item.iconPath as any).id).toBe('warning');
+      expect(themeIconId(item)).toBe('warning');
       expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Expanded);
       expect(String(item.tooltip)).toContain('wsl --set-version');
     });
 
     it('wslStatus unknown version: warning icon', () => {
-      const item = provider.getTreeItem({ kind: 'wslStatus', distro: 'Debian', wslVersion: undefined });
-      expect((item.iconPath as any).id).toBe('warning');
+      const item = provider.getTreeItem({
+        kind: 'wslStatus',
+        distro: 'Debian',
+        wslVersion: undefined,
+      });
+      expect(themeIconId(item)).toBe('warning');
       expect(String(item.tooltip)).toContain('Debian');
     });
 
@@ -683,8 +820,12 @@ describe('OsConfigTreeProvider', () => {
     });
 
     it('upgradeWsl2 action: terminal icon', () => {
-      const item = provider.getTreeItem({ kind: 'action', text: 'Upgrade', command: 'gemstone.upgradeWsl2' });
-      expect((item.iconPath as any).id).toBe('terminal');
+      const item = provider.getTreeItem({
+        kind: 'action',
+        text: 'Upgrade',
+        command: 'gemstone.upgradeWsl2',
+      });
+      expect(themeIconId(item)).toBe('terminal');
     });
 
     it('registers gemstone.upgradeWsl2 command', () => {
@@ -695,28 +836,40 @@ describe('OsConfigTreeProvider', () => {
 
     it('upgradeWsl2 opens terminal with wsl --set-version command', () => {
       vi.mocked(wslBridge.getWslInfo).mockReturnValue({
-        available: true, defaultDistro: 'Ubuntu', homeDir: '/home/user', arch: 'x86_64', wslVersion: 1,
+        available: true,
+        defaultDistro: 'Ubuntu',
+        homeDir: '/home/user',
+        arch: 'x86_64',
+        wslVersion: 1,
       });
       provider.registerCommands(makeContext());
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
 
       getCommand('gemstone.upgradeWsl2')?.();
 
-      expect(mockTerminal.sendText).toHaveBeenCalledWith(expect.stringContaining('wsl --set-version Ubuntu 2'));
+      expect(mockTerminal.sendText).toHaveBeenCalledWith(
+        expect.stringContaining('wsl --set-version Ubuntu 2'),
+      );
     });
 
     it('upgradeWsl2 invalidates WSL cache and refreshes when terminal closes', () => {
       vi.mocked(wslBridge.getWslInfo).mockReturnValue({
-        available: true, defaultDistro: 'Ubuntu', homeDir: '/home/user', arch: 'x86_64', wslVersion: 1,
+        available: true,
+        defaultDistro: 'Ubuntu',
+        homeDir: '/home/user',
+        arch: 'x86_64',
+        wslVersion: 1,
       });
       provider.registerCommands(makeContext());
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
       const refreshSpy = vi.spyOn(provider, 'refresh');
 
       getCommand('gemstone.upgradeWsl2')?.();
-      const closeListener = vi.mocked(vscode.window.onDidCloseTerminal).mock.calls[0][0] as (t: unknown) => void;
+      const closeListener = vi.mocked(vscode.window.onDidCloseTerminal).mock.calls[0][0] as (
+        t: unknown,
+      ) => void;
 
       closeListener(mockTerminal);
       expect(wslBridge.invalidateWslCache).toHaveBeenCalled();
@@ -727,57 +880,71 @@ describe('OsConfigTreeProvider', () => {
   // ── wslNetworkingStatus ───────────────────────────────────
 
   describe('wslNetworkingStatus', () => {
-    const mirroredInfo = {
-      mirrored: true, ip: undefined, netldiHost: 'localhost',
-      wslCoreVersion: '2.0.9.0', supportsMirrored: true,
+    const mirroredInfo: WslNetworkInfo = {
+      mirrored: true,
+      ip: undefined,
+      netldiHost: 'localhost',
+      wslCoreVersion: '2.0.9.0',
+      supportsMirrored: true,
     };
-    const natCapableInfo = {
-      mirrored: false, ip: '172.29.240.2', netldiHost: '172.29.240.2',
-      wslCoreVersion: '2.0.9.0', supportsMirrored: true,
+    const natCapableInfo: WslNetworkInfo = {
+      mirrored: false,
+      ip: '172.29.240.2',
+      netldiHost: '172.29.240.2',
+      wslCoreVersion: '2.0.9.0',
+      supportsMirrored: true,
     };
-    const natLegacyInfo = {
-      mirrored: false, ip: '10.0.0.5', netldiHost: '10.0.0.5',
-      wslCoreVersion: '1.2.5.0', supportsMirrored: false,
+    const natLegacyInfo: WslNetworkInfo = {
+      mirrored: false,
+      ip: '10.0.0.5',
+      netldiHost: '10.0.0.5',
+      wslCoreVersion: '1.2.5.0',
+      supportsMirrored: false,
     };
 
     beforeEach(() => {
       setPlatform('win32');
       vi.mocked(wslBridge.needsWsl).mockReturnValue(true);
       vi.mocked(wslBridge.getWslInfo).mockReturnValue({
-        available: true, defaultDistro: 'Ubuntu', homeDir: '/home/user', arch: 'x86_64', wslVersion: 2,
+        available: true,
+        defaultDistro: 'Ubuntu',
+        homeDir: '/home/user',
+        arch: 'x86_64',
+        wslVersion: 2,
       });
       mockExec(LINUX_SYSCTL_4GB);
     });
 
     it('mirrored → check icon, None collapsible state, informative tooltip', () => {
-      const item = provider.getTreeItem({ kind: 'wslNetworkingStatus', info: mirroredInfo as any });
+      const item = provider.getTreeItem({ kind: 'wslNetworkingStatus', info: mirroredInfo });
       expect(String(item.label)).toContain('mirrored');
       expect(String(item.label)).toContain('localhost');
-      expect((item.iconPath as any).id).toBe('check');
+      expect(themeIconId(item)).toBe('check');
       expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.None);
       expect(String(item.tooltip)).toMatch(/localhost/);
     });
 
     it('NAT on WSL 2.0+ → warning icon, Expanded, tooltip mentions the IP', () => {
-      const item = provider.getTreeItem({ kind: 'wslNetworkingStatus', info: natCapableInfo as any });
+      const item = provider.getTreeItem({ kind: 'wslNetworkingStatus', info: natCapableInfo });
       expect(String(item.label)).toContain('NAT');
-      expect((item.iconPath as any).id).toBe('warning');
+      expect(themeIconId(item)).toBe('warning');
       expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Expanded);
       expect(String(item.tooltip)).toContain('172.29.240.2');
     });
 
     it('NAT on legacy WSL → warning icon, tooltip mentions wsl --update', () => {
-      const item = provider.getTreeItem({ kind: 'wslNetworkingStatus', info: natLegacyInfo as any });
+      const item = provider.getTreeItem({ kind: 'wslNetworkingStatus', info: natLegacyInfo });
       expect(String(item.label)).toContain('WSL 2.0+');
-      expect((item.iconPath as any).id).toBe('warning');
+      expect(themeIconId(item)).toBe('warning');
       expect(String(item.tooltip)).toMatch(/wsl --update/);
     });
 
     it('NAT on WSL 2.0+ offers Enable-Mirrored (first) plus the hosts-file fallback', async () => {
       const children = await provider.getChildren({
-        kind: 'wslNetworkingStatus', info: natCapableInfo as any,
+        kind: 'wslNetworkingStatus',
+        info: natCapableInfo,
       });
-      expect(children.map((c: any) => c.command)).toEqual([
+      expect(actionCommands(children)).toEqual([
         'gemstone.enableMirroredNetworking',
         'gemstone.writeWslHostsEntry',
       ]);
@@ -785,9 +952,10 @@ describe('OsConfigTreeProvider', () => {
 
     it('NAT on legacy WSL offers wsl --update (first) plus the hosts-file fallback', async () => {
       const children = await provider.getChildren({
-        kind: 'wslNetworkingStatus', info: natLegacyInfo as any,
+        kind: 'wslNetworkingStatus',
+        info: natLegacyInfo,
       });
-      expect(children.map((c: any) => c.command)).toEqual([
+      expect(actionCommands(children)).toEqual([
         'gemstone.updateWslCore',
         'gemstone.writeWslHostsEntry',
       ]);
@@ -795,33 +963,38 @@ describe('OsConfigTreeProvider', () => {
 
     it('mirrored state has no children', async () => {
       const children = await provider.getChildren({
-        kind: 'wslNetworkingStatus', info: mirroredInfo as any,
+        kind: 'wslNetworkingStatus',
+        info: mirroredInfo,
       });
       expect(children).toHaveLength(0);
     });
 
     it('enableMirroredNetworking action node uses the edit icon', () => {
       const item = provider.getTreeItem({
-        kind: 'action', text: 'Enable', command: 'gemstone.enableMirroredNetworking',
+        kind: 'action',
+        text: 'Enable',
+        command: 'gemstone.enableMirroredNetworking',
       });
-      expect((item.iconPath as any).id).toBe('edit');
+      expect(themeIconId(item)).toBe('edit');
       expect(String(item.tooltip)).toMatch(/\.wslconfig/);
     });
 
     it('updateWslCore action node uses the terminal icon', () => {
       const item = provider.getTreeItem({
-        kind: 'action', text: 'Update', command: 'gemstone.updateWslCore',
+        kind: 'action',
+        text: 'Update',
+        command: 'gemstone.updateWslCore',
       });
-      expect((item.iconPath as any).id).toBe('terminal');
+      expect(themeIconId(item)).toBe('terminal');
       expect(String(item.tooltip)).toMatch(/wsl --update/);
     });
 
     it('_loadConfig pushes a wslNetworkingStatus node with the refreshed info', async () => {
-      vi.mocked(wslBridge.refreshWslNetworkInfo).mockResolvedValue(natCapableInfo as any);
+      vi.mocked(wslBridge.refreshWslNetworkInfo).mockResolvedValue(natCapableInfo);
       const nodes = await getRootNodes(provider);
-      const netNode = nodes.find((n: any) => n.kind === 'wslNetworkingStatus') as any;
+      const netNode = findByKind(nodes, 'wslNetworkingStatus');
       expect(netNode).toBeDefined();
-      expect(netNode.info).toEqual(natCapableInfo);
+      expect(netNode?.info).toEqual(natCapableInfo);
     });
 
     it('registers enableMirroredNetworking and updateWslCore commands', () => {
@@ -839,66 +1012,86 @@ describe('OsConfigTreeProvider', () => {
       setPlatform('win32');
       vi.mocked(wslBridge.needsWsl).mockReturnValue(true);
       vi.mocked(wslBridge.getWslInfo).mockReturnValue({
-        available: true, defaultDistro: 'Ubuntu', homeDir: '/home/user', arch: 'x86_64', wslVersion: 2,
+        available: true,
+        defaultDistro: 'Ubuntu',
+        homeDir: '/home/user',
+        arch: 'x86_64',
+        wslVersion: 2,
       });
       mockExec(LINUX_SYSCTL_4GB);
     });
 
     it('both sides configured → check icon, None state, informative tooltip', () => {
       const item = provider.getTreeItem({
-        kind: 'wslServicesStatus', windowsHas: true, wslHas: true,
+        kind: 'wslServicesStatus',
+        windowsHas: true,
+        wslHas: true,
       });
       expect(String(item.label)).toMatch(/configured/);
       expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.None);
-      expect((item.iconPath as any).id).toBe('check');
+      expect(themeIconId(item)).toBe('check');
     });
 
     it('neither side configured → warning icon, Expanded state', () => {
       const item = provider.getTreeItem({
-        kind: 'wslServicesStatus', windowsHas: false, wslHas: false,
+        kind: 'wslServicesStatus',
+        windowsHas: false,
+        wslHas: false,
       });
       expect(String(item.label)).toMatch(/Windows and WSL/);
-      expect((item.iconPath as any).id).toBe('warning');
+      expect(themeIconId(item)).toBe('warning');
       expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Expanded);
     });
 
     it('only WSL side missing → label specifies WSL', () => {
       const item = provider.getTreeItem({
-        kind: 'wslServicesStatus', windowsHas: true, wslHas: false,
+        kind: 'wslServicesStatus',
+        windowsHas: true,
+        wslHas: false,
       });
       expect(String(item.label)).toMatch(/not in WSL/);
     });
 
     it('only Windows side missing → label specifies Windows', () => {
       const item = provider.getTreeItem({
-        kind: 'wslServicesStatus', windowsHas: false, wslHas: true,
+        kind: 'wslServicesStatus',
+        windowsHas: false,
+        wslHas: true,
       });
       expect(String(item.label)).toMatch(/not in Windows/);
     });
 
     it('fully configured has no children', async () => {
       const children = await provider.getChildren({
-        kind: 'wslServicesStatus', windowsHas: true, wslHas: true,
+        kind: 'wslServicesStatus',
+        windowsHas: true,
+        wslHas: true,
       });
       expect(children).toHaveLength(0);
     });
 
     it('both missing → two action children in the expected order', async () => {
       const children = await provider.getChildren({
-        kind: 'wslServicesStatus', windowsHas: false, wslHas: false,
+        kind: 'wslServicesStatus',
+        windowsHas: false,
+        wslHas: false,
       });
       expect(children).toHaveLength(2);
       expect(children[0]).toMatchObject({
-        kind: 'action', command: 'gemstone.writeServicesWindows',
+        kind: 'action',
+        command: 'gemstone.writeServicesWindows',
       });
       expect(children[1]).toMatchObject({
-        kind: 'action', command: 'gemstone.writeServicesWsl',
+        kind: 'action',
+        command: 'gemstone.writeServicesWsl',
       });
     });
 
     it('only WSL missing → just the WSL action', async () => {
       const children = await provider.getChildren({
-        kind: 'wslServicesStatus', windowsHas: true, wslHas: false,
+        kind: 'wslServicesStatus',
+        windowsHas: true,
+        wslHas: false,
       });
       expect(children).toHaveLength(1);
       expect(children[0]).toMatchObject({ command: 'gemstone.writeServicesWsl' });
@@ -906,13 +1099,17 @@ describe('OsConfigTreeProvider', () => {
 
     it('action items render with terminal icon and descriptive tooltip', () => {
       const winItem = provider.getTreeItem({
-        kind: 'action', text: 'Win', command: 'gemstone.writeServicesWindows',
+        kind: 'action',
+        text: 'Win',
+        command: 'gemstone.writeServicesWindows',
       });
       const wslItem = provider.getTreeItem({
-        kind: 'action', text: 'WSL', command: 'gemstone.writeServicesWsl',
+        kind: 'action',
+        text: 'WSL',
+        command: 'gemstone.writeServicesWsl',
       });
-      expect((winItem.iconPath as any).id).toBe('terminal');
-      expect((wslItem.iconPath as any).id).toBe('terminal');
+      expect(themeIconId(winItem)).toBe('terminal');
+      expect(themeIconId(wslItem)).toBe('terminal');
       expect(String(winItem.tooltip)).toMatch(/gs64ldi/);
       expect(String(wslItem.tooltip)).toMatch(/\/etc\/services/);
     });
@@ -921,11 +1118,14 @@ describe('OsConfigTreeProvider', () => {
       const children = await provider.getChildren({
         kind: 'wslNetworkingStatus',
         info: {
-          mirrored: false, ip: '172.29.240.2', netldiHost: '172.29.240.2',
-          wslCoreVersion: '2.0.9.0', supportsMirrored: true,
-        } as any,
+          mirrored: false,
+          ip: '172.29.240.2',
+          netldiHost: '172.29.240.2',
+          wslCoreVersion: '2.0.9.0',
+          supportsMirrored: true,
+        },
       });
-      expect(children.map((c: any) => c.command)).toEqual([
+      expect(actionCommands(children)).toEqual([
         'gemstone.enableMirroredNetworking',
         'gemstone.writeWslHostsEntry',
       ]);
@@ -935,11 +1135,14 @@ describe('OsConfigTreeProvider', () => {
       const children = await provider.getChildren({
         kind: 'wslNetworkingStatus',
         info: {
-          mirrored: false, ip: '10.0.0.5', netldiHost: '10.0.0.5',
-          wslCoreVersion: '1.2.5.0', supportsMirrored: false,
-        } as any,
+          mirrored: false,
+          ip: '10.0.0.5',
+          netldiHost: '10.0.0.5',
+          wslCoreVersion: '1.2.5.0',
+          supportsMirrored: false,
+        },
       });
-      expect(children.map((c: any) => c.command)).toEqual([
+      expect(actionCommands(children)).toEqual([
         'gemstone.updateWslCore',
         'gemstone.writeWslHostsEntry',
       ]);
@@ -954,13 +1157,14 @@ describe('OsConfigTreeProvider', () => {
     });
 
     it('writeWslHostsEntry opens a PowerShell terminal with the script path', () => {
-      provider.registerCommands({ extensionPath: 'C:\\ext', subscriptions: { push: vi.fn() } } as any);
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      provider.registerCommands(makeContext('C:\\ext'));
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
 
       getCommand('gemstone.writeWslHostsEntry')?.();
 
-      const args = vi.mocked(vscode.window.createTerminal).mock.calls[0][0] as any;
+      const args = vi.mocked(vscode.window.createTerminal).mock
+        .calls[0][0] as vscode.TerminalOptions;
       expect(args.shellPath).toBe('powershell.exe');
       expect(mockTerminal.sendText).toHaveBeenCalledWith(
         expect.stringContaining('setWslHostsEntry.ps1'),
@@ -968,13 +1172,14 @@ describe('OsConfigTreeProvider', () => {
     });
 
     it('writeServicesWsl opens a WSL shell and runs the bash script via sudo', () => {
-      provider.registerCommands({ extensionPath: 'C:\\ext', subscriptions: { push: vi.fn() } } as any);
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      provider.registerCommands(makeContext('C:\\ext'));
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
 
       getCommand('gemstone.writeServicesWsl')?.();
 
-      const args = vi.mocked(vscode.window.createTerminal).mock.calls[0][0] as any;
+      const args = vi.mocked(vscode.window.createTerminal).mock
+        .calls[0][0] as vscode.TerminalOptions;
       expect(args.shellPath).toBe('wsl.exe');
       expect(mockTerminal.sendText).toHaveBeenCalledWith(
         expect.stringContaining('/mnt/c/ext/resources/setServicesLinux.sh'),
@@ -991,12 +1196,12 @@ describe('OsConfigTreeProvider', () => {
     });
 
     it('writes the merged .wslconfig and prompts for a restart', async () => {
-      vi.mocked(fs.readFileSync).mockReturnValue('[wsl2]\nmemory=8GB\n' as any);
+      vi.mocked(fs.readFileSync).mockReturnValue('[wsl2]\nmemory=8GB\n');
       vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
       vi.mocked(wslBridge.updateWslConfigMirrored).mockImplementation(
         () => '[wsl2]\nnetworkingMode=mirrored\nmemory=8GB\n',
       );
-      vi.mocked(vscode.window.showInformationMessage).mockResolvedValue(undefined as any);
+      vi.mocked(vscode.window.showInformationMessage).mockResolvedValue(undefined);
 
       provider.registerCommands(makeContext());
       await getCommand('gemstone.enableMirroredNetworking')?.();
@@ -1005,19 +1210,24 @@ describe('OsConfigTreeProvider', () => {
       expect(fs.writeFileSync).toHaveBeenCalledOnce();
       expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
         expect.stringMatching(/restart/i),
-        'Restart WSL now', 'Later',
+        'Restart WSL now',
+        'Later',
       );
     });
 
     it('on "Restart WSL now" spawns a terminal with wsl --shutdown', async () => {
-      vi.mocked(fs.readFileSync).mockImplementation(() => { throw new Error('ENOENT'); });
+      vi.mocked(fs.readFileSync).mockImplementation(() => {
+        throw new Error('ENOENT');
+      });
       vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
       vi.mocked(wslBridge.updateWslConfigMirrored).mockImplementation(
         () => '[wsl2]\nnetworkingMode=mirrored\n',
       );
-      vi.mocked(vscode.window.showInformationMessage).mockResolvedValue('Restart WSL now' as any);
-      const mockTerminal = { show: vi.fn(), sendText: vi.fn() };
-      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal as any);
+      vi.mocked(vscode.window.showInformationMessage).mockResolvedValue(
+        'Restart WSL now' as unknown as vscode.MessageItem,
+      );
+      const mockTerminal = fakeTerminal();
+      vi.mocked(vscode.window.createTerminal).mockReturnValue(mockTerminal);
 
       provider.registerCommands(makeContext());
       await getCommand('gemstone.enableMirroredNetworking')?.();
@@ -1027,10 +1237,10 @@ describe('OsConfigTreeProvider', () => {
 
     it('does nothing destructive when .wslconfig already had mirrored (no write, still prompts)', async () => {
       const already = '[wsl2]\nnetworkingMode=mirrored\n';
-      vi.mocked(fs.readFileSync).mockReturnValue(already as any);
+      vi.mocked(fs.readFileSync).mockReturnValue(already);
       vi.mocked(wslBridge.updateWslConfigMirrored).mockReturnValue(already);
       vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
-      vi.mocked(vscode.window.showInformationMessage).mockResolvedValue(undefined as any);
+      vi.mocked(vscode.window.showInformationMessage).mockResolvedValue(undefined);
 
       provider.registerCommands(makeContext());
       await getCommand('gemstone.enableMirroredNetworking')?.();

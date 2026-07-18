@@ -165,12 +165,12 @@ export class SysadminStorage {
 
   /** Get extracted version directory names as version strings */
   getExtractedVersions(): string[] {
-    return this.getExtractedVersionInfos().map(v => v.version);
+    return this.getExtractedVersionInfos().map((v) => v.version);
   }
 
   /** Check if an extracted version directory is a symlink (local version) */
   isLocalVersion(version: string): boolean {
-    const match = this.getExtractedVersionInfos().find(v => v.version === version);
+    const match = this.getExtractedVersionInfos().find((v) => v.version === version);
     if (match) return match.isLocal;
     // Not in the extracted list — fall back to a direct check.
     const suffix = this.getPlatformSuffix();
@@ -231,7 +231,9 @@ export class SysadminStorage {
         const st = fs.lstatSync(full);
         isLocal = st.isSymbolicLink();
         isDir = isLocal || st.isDirectory();
-      } catch { continue; }
+      } catch {
+        continue;
+      }
       if (!isDir) continue;
       result.push({
         version: entry.slice(prefix.length, -suffix.length),
@@ -243,7 +245,9 @@ export class SysadminStorage {
   }
 
   /** Read version.txt from a product directory, returns { version, date, description } */
-  static readVersionTxt(productPath: string): { version: string; date: string; description: string } | undefined {
+  static readVersionTxt(
+    productPath: string,
+  ): { version: string; date: string; description: string } | undefined {
     const versionFile = path.join(productPath, 'version.txt');
     const raw = wslReadFileSync(versionFile);
     if (raw === undefined) return undefined;
@@ -377,7 +381,9 @@ export class SysadminStorage {
           if (!Number.isFinite(size)) continue;
           files.set(name.slice(prefix.length, -trimTail), size);
         }
-      } catch { /* return empty */ }
+      } catch {
+        /* return empty */
+      }
       return files;
     }
 
@@ -391,7 +397,9 @@ export class SysadminStorage {
           if (st.isFile()) {
             files.set(entry.slice(prefix.length, -trimTail), st.size);
           }
-        } catch { /* skip */ }
+        } catch {
+          /* skip */
+        }
       }
     }
     return files;

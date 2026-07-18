@@ -40,10 +40,21 @@ import {
   stopAllSeasideServers,
   SEASIDE_DEFAULT_PORT,
 } from './seasideServer';
-import { findRowanLoadSpecs, deriveRepoName, cloneGitRepo, updateGitRepo, normalizeGitUrl } from './rowanLoad';
+import {
+  findRowanLoadSpecs,
+  deriveRepoName,
+  cloneGitRepo,
+  updateGitRepo,
+  normalizeGitUrl,
+} from './rowanLoad';
 import { NbCancelledError } from './nbRunner';
 import { RowanRepoRegistry } from './rowanRepos';
-import { RowanTreeProvider, RowanRepoItem, RowanLoadedProjectItem, RowanChangesProjectItem } from './rowanTreeProvider';
+import {
+  RowanTreeProvider,
+  RowanRepoItem,
+  RowanLoadedProjectItem,
+  RowanChangesProjectItem,
+} from './rowanTreeProvider';
 import { RowanDecorationProvider } from './rowanDecorations';
 import { findMethodInClass } from './commands/findMethodInClass';
 import { loadClassPickItems } from './commands/classPicker';
@@ -72,7 +83,14 @@ import {
 } from './mcpServerGem';
 import { DebuggerPanel } from './debuggerPanel';
 import { InlineValuesCodeLensProvider } from './inlineValuesCodeLens';
-import { GemStoneFileSystemProvider, MethodCompiledEvent, ClassDefinitionCompiledEvent, closeGemstoneTabsForSession, installStaleGemstoneTabReaper, buildMethodUri } from './gemstoneFileSystemProvider';
+import {
+  GemStoneFileSystemProvider,
+  MethodCompiledEvent,
+  ClassDefinitionCompiledEvent,
+  closeGemstoneTabsForSession,
+  installStaleGemstoneTabReaper,
+  buildMethodUri,
+} from './gemstoneFileSystemProvider';
 import { openWorkspace } from './workspace';
 import { openTutorialNotebook } from './tutorialNotebook';
 import { GemStoneDebugSession } from './gemstoneDebugSession';
@@ -108,10 +126,7 @@ import { ProcessManager } from './processManager';
 import { openMcpInspector } from './openMcpInspector';
 import { McpSocketServer, writeClaudeDesktopMcpConfig } from './mcpSocketServer';
 import { writeClaudeCodeUserMcpConfig } from './claudeCodeUserMcpConfig';
-import {
-  buildRefreshPromptDeps,
-  promptClaudeCodeRefresh,
-} from './claudeCodeRefreshPrompt';
+import { buildRefreshPromptDeps, promptClaudeCodeRefresh } from './claudeCodeRefreshPrompt';
 import { McpServerTreeProvider } from './mcpServerTreeProvider';
 import { DEFAULT_MCP_HTTP_PORT, McpHttpServer } from './mcpHttpServer';
 import { readMcpSetting } from './mcpSettings';
@@ -127,33 +142,44 @@ import {
   refreshWslNetworkInfo,
 } from './wslBridge';
 import {
-  wslExistsSync, wslSymlinkSync, wslMkdirSync, wslImportFileSync,
-  wslReaddirSync, wslUnlinkSync, wslChmodSync,
+  wslExistsSync,
+  wslSymlinkSync,
+  wslMkdirSync,
+  wslImportFileSync,
+  wslReaddirSync,
+  wslUnlinkSync,
+  wslChmodSync,
 } from './wslFs';
-import type {OutputChannel} from "vscode";
-import {initializeExtensionFolder} from "./extensionPath";
-import {initializeBundledGci, bundledWindowsClientGciPath, bundledGciArchSupported} from "./bundledGci";
+import type { OutputChannel } from 'vscode';
+import { initializeExtensionFolder } from './extensionPath';
+import {
+  initializeBundledGci,
+  bundledWindowsClientGciPath,
+  bundledGciArchSupported,
+} from './bundledGci';
 
 let client: LanguageClient;
 let sessionManager: SessionManager;
 let exportManager: ExportManager;
 let fileInManager: FileInManager;
-let jasperChannel:OutputChannel;
+let jasperChannel: OutputChannel;
 
-function logLine(level: "ERROR", scope: string, message: string, data: unknown) {
-  jasperChannel?.appendLine(`${new Date().toISOString()} [${level}] [${scope}] ${message} | ${data && JSON.stringify(data)}`);
+function logLine(level: 'ERROR', scope: string, message: string, data: unknown) {
+  jasperChannel?.appendLine(
+    `${new Date().toISOString()} [${level}] [${scope}] ${message} | ${data && JSON.stringify(data)}`,
+  );
 }
 
 async function logJasperError(message: string, scope: string, error: unknown) {
-  logLine("ERROR", scope, message, { error: error instanceof Error ? error.message : String(error) });
+  logLine('ERROR', scope, message, {
+    error: error instanceof Error ? error.message : String(error),
+  });
 
-  await vscode.window
-      .showErrorMessage(message, 'Show Details')
-      .then((choice) => {
-        if (choice === 'Show Details') {
-          jasperChannel.show(true);
-        }
-      });
+  await vscode.window.showErrorMessage(message, 'Show Details').then((choice) => {
+    if (choice === 'Show Details') {
+      jasperChannel.show(true);
+    }
+  });
 }
 
 /**
@@ -201,7 +227,9 @@ export async function confirmLogoutWithUncommittedChanges(
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      vscode.window.showErrorMessage(`Session ${sessionId}: Commit failed — ${msg}. Not logging out.`);
+      vscode.window.showErrorMessage(
+        `Session ${sessionId}: Commit failed — ${msg}. Not logging out.`,
+      );
       return 'cancel';
     }
     return 'proceed';
@@ -238,9 +266,9 @@ export async function handleMethodCompiled(event: MethodCompiledEvent) {
   if (event.uri.toString() === event.previousUri.toString()) {
     return;
   }
-  
+
   await openTextEditorOn(event.uri);
-  
+
   if (event.previousUriIsTemplate) {
     await closeTextEditorOn(event.previousUri);
   }
@@ -343,7 +371,9 @@ function isInsideWorkspace(p: string): boolean {
 // working session's view and the browser. Shared by the local-directory and
 // git-clone load commands.
 async function loadRowanFromDirectory(
-  session: ActiveSession, dir: string, sessionManager: SessionManager,
+  session: ActiveSession,
+  dir: string,
+  sessionManager: SessionManager,
 ): Promise<void> {
   const specs = findRowanLoadSpecs(dir);
   if (specs.length === 0) {
@@ -353,7 +383,7 @@ async function loadRowanFromDirectory(
   let spec = specs[0];
   if (specs.length > 1) {
     const picked = await vscode.window.showQuickPick(
-      specs.map(s => ({ label: s.name, description: path.relative(dir, s.path), spec: s })),
+      specs.map((s) => ({ label: s.name, description: path.relative(dir, s.path), spec: s })),
       { placeHolder: 'Which project spec to load?' },
     );
     if (!picked) return;
@@ -366,7 +396,11 @@ async function loadRowanFromDirectory(
   // proceed, since the requirement is a conservative author estimate.
   if (spec.minTempObjCacheKB !== undefined) {
     let gemKB: number | undefined;
-    try { gemKB = queries.getGemCacheKB(session); } catch { gemKB = undefined; }
+    try {
+      gemKB = queries.getGemCacheKB(session);
+    } catch {
+      gemKB = undefined;
+    }
     if (gemKB !== undefined && gemKB < spec.minTempObjCacheKB) {
       const needMB = Math.round(spec.minTempObjCacheKB / 1000);
       const haveMB = Math.round(gemKB / 1000);
@@ -399,11 +433,17 @@ async function loadRowanFromDirectory(
     if (e instanceof NbCancelledError) {
       vscode.window.showInformationMessage(`Load of "${spec.name}" cancelled.`);
     } else {
-      vscode.window.showErrorMessage(`Load of "${spec.name}" failed: ${e instanceof Error ? e.message : String(e)}`);
+      vscode.window.showErrorMessage(
+        `Load of "${spec.name}" failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
     }
     return;
   } finally {
-    try { session.gci.GciTsLogout(sys.handle); } catch { /* transient session */ }
+    try {
+      session.gci.GciTsLogout(sys.handle);
+    } catch {
+      /* transient session */
+    }
   }
 
   if (!result.success) {
@@ -436,53 +476,50 @@ export function activate(context: vscode.ExtensionContext) {
   // and broken — no session to resolve gemstone://). See DebuggerPanel.
   DebuggerPanel.initSourceTabCleanup(context.workspaceState);
 
-
   // Inline-value overlay (#5): a source-pane CodeLens toggles it. The lens is
   // emitted only for source docs a live debugger is showing; the command it fires
   // carries that doc's URI so the right panel toggles.
   const inlineValuesLens = new InlineValuesCodeLensProvider();
   DebuggerPanel.setSourceCodeLensProvider(inlineValuesLens);
   context.subscriptions.push(
-    vscode.commands.registerCommand(
-      'gemstone.toggleInlineValues',
-      (uri?: unknown) => DebuggerPanel.toggleInlineValuesForUri(typeof uri === 'string' ? uri : undefined),
+    vscode.commands.registerCommand('gemstone.toggleInlineValues', (uri?: unknown) =>
+      DebuggerPanel.toggleInlineValuesForUri(typeof uri === 'string' ? uri : undefined),
     ),
-    vscode.commands.registerCommand(
-      'gemstone.toggleInlineValuesPerLine',
-      (uri?: unknown) => DebuggerPanel.toggleInlineValuesPerLineForUri(typeof uri === 'string' ? uri : undefined),
+    vscode.commands.registerCommand('gemstone.toggleInlineValuesPerLine', (uri?: unknown) =>
+      DebuggerPanel.toggleInlineValuesPerLineForUri(typeof uri === 'string' ? uri : undefined),
     ),
     vscode.languages.registerCodeLensProvider(
-      [{ scheme: 'gemstone' }, { scheme: 'gemstone-debug' }], inlineValuesLens,
+      [{ scheme: 'gemstone' }, { scheme: 'gemstone-debug' }],
+      inlineValuesLens,
     ),
     // The inline-value hover (#5): serves each variable's full printString for a
     // hovered line, plus a hint that editable ones are set by clicking the name.
-    vscode.languages.registerHoverProvider(
-      [{ scheme: 'gemstone' }, { scheme: 'gemstone-debug' }],
-      {
-        provideHover(doc, pos) {
-          const md = DebuggerPanel.provideInlineHover(doc.uri.toString(), pos.line);
-          return md ? new vscode.Hover(md) : undefined;
-        },
+    vscode.languages.registerHoverProvider([{ scheme: 'gemstone' }, { scheme: 'gemstone-debug' }], {
+      provideHover(doc, pos) {
+        const md = DebuggerPanel.provideInlineHover(doc.uri.toString(), pos.line);
+        return md ? new vscode.Hover(md) : undefined;
       },
-    ),
+    }),
   );
 
   try {
     initializeExtensionFolder();
   } catch (error) {
-    void logJasperError(`Jasper could not set up its local folder. Please check folder permissions and reload VS Code.`, "initialization", error);
+    void logJasperError(
+      `Jasper could not set up its local folder. Please check folder permissions and reload VS Code.`,
+      'initialization',
+      error,
+    );
     throw error;
   }
-  
+
   // Populated by the async cert-generation step below; read by the
   // `jasper.openMcpInspector` command so Node trusts our self-signed cert
   // (macOS keychain trust doesn't extend to Node's TLS stack).
   let certPathForTrust: string | undefined;
 
   // ── LSP Client ───────────────────────────────────────────
-  const serverModule = context.asAbsolutePath(
-    path.join('server', 'out', 'server.js')
-  );
+  const serverModule = context.asAbsolutePath(path.join('server', 'out', 'server.js'));
 
   const serverOptions: ServerOptions = {
     run: { module: serverModule, transport: TransportKind.ipc },
@@ -508,7 +545,7 @@ export function activate(context: vscode.ExtensionContext) {
     'gemstone-smalltalk',
     'GemStone Smalltalk Language Server',
     serverOptions,
-    clientOptions
+    clientOptions,
   );
 
   client.start();
@@ -552,7 +589,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (e.affectsConfiguration('gemstone.sessionMode')) {
         applySessionModeContext();
       }
-    })
+    }),
   );
 
   // Drive the `gemstone.multipleSessions` context key (used to show/hide the
@@ -602,14 +639,12 @@ export function activate(context: vscode.ExtensionContext) {
     gemstoneFs,
     vscode.workspace.registerFileSystemProvider('gemstone', gemstoneFs, {
       isCaseSensitive: true,
-    })
+    }),
   );
 
   // ── Workspace Symbol Provider (Cmd+T class search) ──────
   const symbolProvider = new GemStoneWorkspaceSymbolProvider(sessionManager);
-  context.subscriptions.push(
-    vscode.languages.registerWorkspaceSymbolProvider(symbolProvider),
-  );
+  context.subscriptions.push(vscode.languages.registerWorkspaceSymbolProvider(symbolProvider));
 
   // Set language mode for gemstone:// documents
   context.subscriptions.push(
@@ -617,7 +652,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (doc.uri.scheme === 'gemstone') {
         vscode.languages.setTextDocumentLanguage(doc, 'gemstone-smalltalk');
       }
-    })
+    }),
   );
 
   // Lock editors for read-only .gs files (e.g. Globals for non-SystemUser)
@@ -631,8 +666,10 @@ export function activate(context: vscode.ExtensionContext) {
         if ((stat.mode & 0o200) === 0) {
           vscode.commands.executeCommand('workbench.action.files.setActiveEditorReadonlyInSession');
         }
-      } catch { /* ignore */ }
-    })
+      } catch {
+        /* ignore */
+      }
+    }),
   );
 
   // ── GCI-backed providers (Definition + Hover + Completion) ─
@@ -671,7 +708,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Re-apply breakpoints and refresh browser method list after method recompilation
   context.subscriptions.push(
-    gemstoneFs.onDidChangeFile(events => {
+    gemstoneFs.onDidChangeFile((events) => {
       for (const event of events) {
         if (event.type === vscode.FileChangeType.Changed) {
           breakpointManager.invalidateForUri(event.uri);
@@ -745,15 +782,11 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(codeExecutor);
 
   // ── Status Bar: Active Session ─────────────────────────
-  const statusBarItem = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Right, 100
-  );
+  const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.command = 'gemstone.selectSession';
   context.subscriptions.push(statusBarItem);
 
-  const browserBarItem = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Right, 99
-  );
+  const browserBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
   browserBarItem.text = '$(book)';
   browserBarItem.tooltip = 'Open System Browser';
   browserBarItem.command = 'gemstone.openBrowser';
@@ -777,9 +810,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
   }
 
-  context.subscriptions.push(
-    sessionManager.onDidChangeSelection(() => updateStatusBar()),
-  );
+  context.subscriptions.push(sessionManager.onDidChangeSelection(() => updateStatusBar()));
   updateStatusBar();
 
   // Drive the `gemstone.enhancedInspectorSupported` context key off the selected
@@ -800,15 +831,23 @@ export function activate(context: vscode.ExtensionContext) {
   updateEnhancedInspectorSupportedContext();
 
   // ── Enhanced Inspector Perf Tracking ───────────────────────────────────
-  const enhancedInspectorPerfChannel = vscode.window.createOutputChannel('GemStone Enhanced Inspector Perf');
+  const enhancedInspectorPerfChannel = vscode.window.createOutputChannel(
+    'GemStone Enhanced Inspector Perf',
+  );
   context.subscriptions.push(enhancedInspectorPerfChannel);
 
-  const enhancedInspectorPerfCountItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 98);
+  const enhancedInspectorPerfCountItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    98,
+  );
   enhancedInspectorPerfCountItem.tooltip = 'Enhanced Inspector Perf: click to see breakdown';
   enhancedInspectorPerfCountItem.command = 'gemstone.showEnhancedInspectorPerfDetails';
   context.subscriptions.push(enhancedInspectorPerfCountItem);
 
-  const enhancedInspectorPerfResetItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 97);
+  const enhancedInspectorPerfResetItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    97,
+  );
   enhancedInspectorPerfResetItem.text = '$(debug-restart)';
   enhancedInspectorPerfResetItem.tooltip = 'Reset Enhanced Inspector Perf Counter';
   enhancedInspectorPerfResetItem.command = 'gemstone.resetEnhancedInspectorPerfCounter';
@@ -816,7 +855,9 @@ export function activate(context: vscode.ExtensionContext) {
 
   function updateEnhancedInspectorPerfStatusBar() {
     if (enhancedInspectorPerfTracker.enabled) {
-      enhancedInspectorPerfCountItem.text = buildEnhancedInspectorPerfStatusBarText(enhancedInspectorPerfTracker.count);
+      enhancedInspectorPerfCountItem.text = buildEnhancedInspectorPerfStatusBarText(
+        enhancedInspectorPerfTracker.count,
+      );
       enhancedInspectorPerfCountItem.show();
       enhancedInspectorPerfResetItem.show();
     } else {
@@ -828,7 +869,9 @@ export function activate(context: vscode.ExtensionContext) {
   enhancedInspectorPerfTracker.onCountChanged = updateEnhancedInspectorPerfStatusBar;
 
   const applyEnhancedInspectorPerfSetting = () => {
-    const enabled = vscode.workspace.getConfiguration('gemstone').get<boolean>('enhancedInspectorPerfTracking', false);
+    const enabled = vscode.workspace
+      .getConfiguration('gemstone')
+      .get<boolean>('enhancedInspectorPerfTracking', false);
     enhancedInspectorPerfTracker.setEnabled(enabled);
     vscode.commands.executeCommand('setContext', 'gemstone.enhancedInspectorPerfTracking', enabled);
     updateEnhancedInspectorPerfStatusBar();
@@ -836,20 +879,28 @@ export function activate(context: vscode.ExtensionContext) {
   applyEnhancedInspectorPerfSetting();
 
   context.subscriptions.push(
-    vscode.workspace.onDidChangeConfiguration(e => {
+    vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('gemstone.enhancedInspectorPerfTracking')) {
         applyEnhancedInspectorPerfSetting();
       }
     }),
     vscode.commands.registerCommand('gemstone.enableEnhancedInspectorPerfTracking', async () => {
-      await vscode.workspace.getConfiguration('gemstone').update('enhancedInspectorPerfTracking', true, vscode.ConfigurationTarget.Workspace);
+      await vscode.workspace
+        .getConfiguration('gemstone')
+        .update('enhancedInspectorPerfTracking', true, vscode.ConfigurationTarget.Workspace);
     }),
     vscode.commands.registerCommand('gemstone.disableEnhancedInspectorPerfTracking', async () => {
-      await vscode.workspace.getConfiguration('gemstone').update('enhancedInspectorPerfTracking', false, vscode.ConfigurationTarget.Workspace);
+      await vscode.workspace
+        .getConfiguration('gemstone')
+        .update('enhancedInspectorPerfTracking', false, vscode.ConfigurationTarget.Workspace);
     }),
     vscode.commands.registerCommand('gemstone.resetEnhancedInspectorPerfCounter', () => {
-      const sorted = [...enhancedInspectorPerfTracker.methodCounts.entries()].sort((a, b) => b[1] - a[1]);
-      enhancedInspectorPerfChannel.appendLine(`[reset] ${enhancedInspectorPerfTracker.count} total GCI calls`);
+      const sorted = [...enhancedInspectorPerfTracker.methodCounts.entries()].sort(
+        (a, b) => b[1] - a[1],
+      );
+      enhancedInspectorPerfChannel.appendLine(
+        `[reset] ${enhancedInspectorPerfTracker.count} total GCI calls`,
+      );
       for (const [method, count] of sorted) {
         enhancedInspectorPerfChannel.appendLine(`  ${method}: ${count}`);
       }
@@ -857,10 +908,12 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand('gemstone.showEnhancedInspectorPerfDetails', async () => {
       const clipboardText = buildEnhancedInspectorPerfClipboardText(enhancedInspectorPerfTracker);
-      const items: vscode.QuickPickItem[] = buildEnhancedInspectorPerfQuickPickItems(enhancedInspectorPerfTracker).map(item =>
+      const items: vscode.QuickPickItem[] = buildEnhancedInspectorPerfQuickPickItems(
+        enhancedInspectorPerfTracker,
+      ).map((item) =>
         item.isSeparator
           ? { label: '', kind: vscode.QuickPickItemKind.Separator }
-          : { label: item.label, description: item.description }
+          : { label: item.label, description: item.description },
       );
       const selected = await vscode.window.showQuickPick(items, {
         title: `Enhanced Inspector Perf: ${enhancedInspectorPerfTracker.count} total GCI calls`,
@@ -870,7 +923,9 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.executeCommand('gemstone.resetEnhancedInspectorPerfCounter');
       } else if (selected?.label === COPY_LABEL) {
         await vscode.env.clipboard.writeText(clipboardText);
-        vscode.window.showInformationMessage('Enhanced Inspector Perf breakdown copied to clipboard.');
+        vscode.window.showInformationMessage(
+          'Enhanced Inspector Perf breakdown copied to clipboard.',
+        );
       }
     }),
   );
@@ -886,13 +941,10 @@ export function activate(context: vscode.ExtensionContext) {
       // Ask LSP for selector at cursor position
       if (client) {
         try {
-          const selector = await client.sendRequest<string | null>(
-            'gemstone/selectorAtPosition',
-            {
-              textDocument: { uri: editor.document.uri.toString() },
-              position: editor.selection.active,
-            },
-          );
+          const selector = await client.sendRequest<string | null>('gemstone/selectorAtPosition', {
+            textDocument: { uri: editor.document.uri.toString() },
+            position: editor.selection.active,
+          });
           if (selector) return selector;
         } catch {
           // LSP not ready or request not supported
@@ -916,7 +968,7 @@ export function activate(context: vscode.ExtensionContext) {
       return;
     }
 
-    const items = results.map(r => ({
+    const items = results.map((r) => ({
       label: `${r.className}${r.isMeta ? ' class' : ''} >> #${r.selector}`,
       description: r.category,
       detail: r.dictName,
@@ -1003,7 +1055,11 @@ export function activate(context: vscode.ExtensionContext) {
       // the settings are only consumed at login, so editing a live one is
       // disabled (log out first) to avoid disturbing the session's tree row.
       LoginEditorPanel.show(
-        storage, context.secrets, treeProvider, item.login, sysadminStorage,
+        storage,
+        context.secrets,
+        treeProvider,
+        item.login,
+        sysadminStorage,
         loginHasActiveSession(item.login),
       );
     }),
@@ -1122,229 +1178,235 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
 
-    vscode.commands.registerCommand('gemstone.login', withLoginGuard(loginGuard, async (item: GemStoneLoginItem) => {
-      if (!vscode.workspace.workspaceFolders?.length) {
-        vscode.window.showErrorMessage(
-          'Please open a folder in the workspace before logging in to GemStone.',
-        );
-        return;
-      }
-
-      const login = { ...item.login };
-
-      // If the login is configured to use the OS keychain, fetch the password
-      // from there. Fall through to the prompt if the keychain entry is missing.
-      if (login.password_in_keychain && !login.gs_password) {
-        const stored = await getLoginPassword(context.secrets, login);
-        if (stored) {
-          login.gs_password = stored;
-        }
-      }
-
-      if (!login.gs_password) {
-        const password = await vscode.window.showInputBox({
-          prompt: `GemStone password for ${login.gs_user || 'user'}@${login.gem_host || 'host'}`,
-          password: true,
-        });
-        if (password === undefined) return;
-        login.gs_password = password;
-      }
-
-      if (!login.host_password && login.host_user) {
-        const password = await vscode.window.showInputBox({
-          prompt: `Host password for ${login.host_user}@${login.gem_host || 'host'}`,
-          password: true,
-        });
-        if (password === undefined) return;
-        login.host_password = password;
-      }
-
-      // Ensure GCI library is configured for this version
-      let gciPath = storage.getGciLibraryPath(login.version);
-
-      // Prefer a GCI library bundled with the extension (for secure /
-      // air-gapped installs that cannot download from gemtalksystems.com).
-      // This must win over the download/file-picker prompts below.
-      if (!gciPath && process.platform === 'win32') {
-        const bundled = bundledWindowsClientGciPath(login.version);
-        if (bundled) {
-          if (bundledGciArchSupported()) {
-            gciPath = bundled;
-          } else {
-            // The bundled DLLs are x64; an ARM64 VS Code process cannot load
-            // them. Guide the user to the x64 build instead of letting the
-            // native loader fail with a cryptic architecture-mismatch error.
-            vscode.window.showErrorMessage(
-              `The GemStone ${login.version} client library bundled with Jasper is x64, but VS Code is ` +
-              `running as ${process.arch}. Install and run the x64 build of VS Code (it runs under ` +
-              `emulation on Windows on ARM) to use the bundled library.`,
-            );
-            return;
-          }
-        }
-      }
-
-      // Auto-detect from extracted version's lib/ directory.
-      // Skipped on Windows: the product dir is a Linux build (only .so), so
-      // the GCI for a Windows host has to come from the Windows client below.
-      if (!gciPath && process.platform !== 'win32') {
-        const gsPath = sysadminStorage.getGemstonePath(login.version);
-        if (gsPath) {
-          const ext = process.platform === 'darwin' ? 'dylib' : 'so';
-          const candidate = path.join(gsPath, 'lib', `libgcits-${login.version}-64.${ext}`);
-          if (fs.existsSync(candidate)) {
-            gciPath = candidate;
-          }
-        }
-      }
-
-      // Auto-detect from extracted Windows client distribution
-      if (!gciPath && process.platform === 'win32') {
-        const clientGci = sysadminStorage.getWindowsClientGciPath(login.version);
-        if (clientGci) {
-          gciPath = clientGci;
-        }
-      }
-
-      // On Windows, offer to download the client distribution before falling
-      // back to the manual file picker.
-      if (!gciPath && process.platform === 'win32') {
-        if (!login.version || !login.version.trim()) {
+    vscode.commands.registerCommand(
+      'gemstone.login',
+      withLoginGuard(loginGuard, async (item: GemStoneLoginItem) => {
+        if (!vscode.workspace.workspaceFolders?.length) {
           vscode.window.showErrorMessage(
-            'Cannot download a Windows client: the login has no GemStone version set. Edit the login to choose a version first.',
+            'Please open a folder in the workspace before logging in to GemStone.',
           );
           return;
         }
-        const choice = await vscode.window.showInformationMessage(
-          `Windows client library not found for GemStone ${login.version}. Download it?`,
-          'Download', 'Browse...',
-        );
-        if (choice === 'Download') {
-          try {
-            await vscode.window.withProgress(
-              {
-                location: vscode.ProgressLocation.Notification,
-                title: `Installing Windows client ${login.version}...`,
-                cancellable: true,
-              },
-              (progress, token) =>
-                versionManager.downloadAndExtractWindowsClient(login.version, progress, token),
-            );
-            gciPath = sysadminStorage.getWindowsClientGciPath(login.version);
-            if (gciPath) {
-              await storage.setGciLibraryPath(login.version, gciPath);
+
+        const login = { ...item.login };
+
+        // If the login is configured to use the OS keychain, fetch the password
+        // from there. Fall through to the prompt if the keychain entry is missing.
+        if (login.password_in_keychain && !login.gs_password) {
+          const stored = await getLoginPassword(context.secrets, login);
+          if (stored) {
+            login.gs_password = stored;
+          }
+        }
+
+        if (!login.gs_password) {
+          const password = await vscode.window.showInputBox({
+            prompt: `GemStone password for ${login.gs_user || 'user'}@${login.gem_host || 'host'}`,
+            password: true,
+          });
+          if (password === undefined) return;
+          login.gs_password = password;
+        }
+
+        if (!login.host_password && login.host_user) {
+          const password = await vscode.window.showInputBox({
+            prompt: `Host password for ${login.host_user}@${login.gem_host || 'host'}`,
+            password: true,
+          });
+          if (password === undefined) return;
+          login.host_password = password;
+        }
+
+        // Ensure GCI library is configured for this version
+        let gciPath = storage.getGciLibraryPath(login.version);
+
+        // Prefer a GCI library bundled with the extension (for secure /
+        // air-gapped installs that cannot download from gemtalksystems.com).
+        // This must win over the download/file-picker prompts below.
+        if (!gciPath && process.platform === 'win32') {
+          const bundled = bundledWindowsClientGciPath(login.version);
+          if (bundled) {
+            if (bundledGciArchSupported()) {
+              gciPath = bundled;
+            } else {
+              // The bundled DLLs are x64; an ARM64 VS Code process cannot load
+              // them. Guide the user to the x64 build instead of letting the
+              // native loader fail with a cryptic architecture-mismatch error.
+              vscode.window.showErrorMessage(
+                `The GemStone ${login.version} client library bundled with Jasper is x64, but VS Code is ` +
+                  `running as ${process.arch}. Install and run the x64 build of VS Code (it runs under ` +
+                  `emulation on Windows on ARM) to use the bundled library.`,
+              );
+              return;
             }
-            versionProvider.loadVersions();
-          } catch (e) {
+          }
+        }
+
+        // Auto-detect from extracted version's lib/ directory.
+        // Skipped on Windows: the product dir is a Linux build (only .so), so
+        // the GCI for a Windows host has to come from the Windows client below.
+        if (!gciPath && process.platform !== 'win32') {
+          const gsPath = sysadminStorage.getGemstonePath(login.version);
+          if (gsPath) {
+            const ext = process.platform === 'darwin' ? 'dylib' : 'so';
+            const candidate = path.join(gsPath, 'lib', `libgcits-${login.version}-64.${ext}`);
+            if (fs.existsSync(candidate)) {
+              gciPath = candidate;
+            }
+          }
+        }
+
+        // Auto-detect from extracted Windows client distribution
+        if (!gciPath && process.platform === 'win32') {
+          const clientGci = sysadminStorage.getWindowsClientGciPath(login.version);
+          if (clientGci) {
+            gciPath = clientGci;
+          }
+        }
+
+        // On Windows, offer to download the client distribution before falling
+        // back to the manual file picker.
+        if (!gciPath && process.platform === 'win32') {
+          if (!login.version || !login.version.trim()) {
             vscode.window.showErrorMessage(
-              `Windows client install failed: ${e instanceof Error ? e.message : e}`,
+              'Cannot download a Windows client: the login has no GemStone version set. Edit the login to choose a version first.',
             );
             return;
           }
-        } else if (choice !== 'Browse...') {
-          return; // cancelled
-        }
-      }
-
-      if (!gciPath) {
-        const filters: Record<string, string[]> =
-          process.platform === 'win32'
-            ? { 'DLL files': ['dll'] }
-            : process.platform === 'darwin'
-              ? { 'Dynamic libraries': ['dylib'] }
-              : { 'Shared libraries': ['so'] };
-
-        const ext = process.platform === 'win32' ? 'dll' : process.platform === 'darwin' ? 'dylib' : 'so';
-        const expectedName = `libgcits-${login.version}-64.${ext}`;
-
-        const result = await vscode.window.showOpenDialog({
-          title: `Select GCI library (${expectedName}) for GemStone ${login.version}`,
-          canSelectMany: false,
-          filters,
-        });
-        if (!result || result.length === 0) return;
-        gciPath = result[0].fsPath;
-
-        const selectedName = gciPath.split(/[\\/]/).pop();
-        const libPattern = /^libgcits-[\d.]+.*-64\.\w+$/;
-        if (!libPattern.test(selectedName || '')) {
-          const pick = await vscode.window.showWarningMessage(
-            `Selected file "${selectedName}" does not match expected pattern "${expectedName}". Use it anyway?`,
-            'Yes', 'No',
+          const choice = await vscode.window.showInformationMessage(
+            `Windows client library not found for GemStone ${login.version}. Download it?`,
+            'Download',
+            'Browse...',
           );
-          if (pick !== 'Yes') return;
+          if (choice === 'Download') {
+            try {
+              await vscode.window.withProgress(
+                {
+                  location: vscode.ProgressLocation.Notification,
+                  title: `Installing Windows client ${login.version}...`,
+                  cancellable: true,
+                },
+                (progress, token) =>
+                  versionManager.downloadAndExtractWindowsClient(login.version, progress, token),
+              );
+              gciPath = sysadminStorage.getWindowsClientGciPath(login.version);
+              if (gciPath) {
+                await storage.setGciLibraryPath(login.version, gciPath);
+              }
+              versionProvider.loadVersions();
+            } catch (e) {
+              vscode.window.showErrorMessage(
+                `Windows client install failed: ${e instanceof Error ? e.message : e}`,
+              );
+              return;
+            }
+          } else if (choice !== 'Browse...') {
+            return; // cancelled
+          }
         }
-        await storage.setGciLibraryPath(login.version, gciPath);
-      }
 
-      // The in-process GCI library reads GEMSTONE_GLOBAL_DIR to find the
-      // NetLDI lock file (which encodes the port it is listening on).
-      // Set both variables from sysadminStorage so the login can succeed
-      // even though the VSCode/Electron process doesn't inherit them.
-      process.env.GEMSTONE_GLOBAL_DIR = sysadminStorage.getRootPath();
-      const gsInstallPath = sysadminStorage.getGemstonePath(login.version)
-        ?? path.dirname(path.dirname(gciPath));
-      process.env.GEMSTONE = gsInstallPath;
+        if (!gciPath) {
+          const filters: Record<string, string[]> =
+            process.platform === 'win32'
+              ? { 'DLL files': ['dll'] }
+              : process.platform === 'darwin'
+                ? { 'Dynamic libraries': ['dylib'] }
+                : { 'Shared libraries': ['so'] };
 
-      let session;
-      try {
-        session = await vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: `Connecting to ${login.stone} on ${login.gem_host} as ${login.gs_user}…`,
-            cancellable: false,
-          },
-          // loginAsync uses the non-blocking GciTsNbLogin path (yielding between
-          // polls) so the notification animates and the window stays responsive
-          // during a slow connect; it falls back to the blocking login on
-          // Windows / older libraries.
-          () => sessionManager.loginAsync(login, gciPath),
-        );
-        refreshEnhancedInspectorAvailable(session);
-        treeProvider.refresh();
-        vscode.window.showInformationMessage(
-          `Connected to ${login.stone} (${session.stoneVersion}) on ${login.gem_host} as ${login.gs_user}`
-        );
-        exportManager.exportSession(session, true);
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        vscode.window.showErrorMessage(`Login failed: ${msg}`);
-        return;
-      }
-      // We no longer auto-open a workspace on every connect (it left a dirty,
-      // hot-exit-restored buffer behind). Instead, on the *first* successful
-      // connect, open the Getting Started walkthrough once — a richer, native,
-      // dismissible onboarding card that links to the on-demand workspace. The
-      // workspace stays available afterward via the gemstone.openWorkspace
-      // command and the Logins & Sessions welcome view.
-      if (!context.globalState.get<boolean>(GETTING_STARTED_SEEN_KEY)) {
-        void context.globalState.update(GETTING_STARTED_SEEN_KEY, true);
-        void vscode.commands.executeCommand(
-          'workbench.action.openWalkthrough',
-          GETTING_STARTED_WALKTHROUGH_ID,
-          false,
-        );
-      }
+          const ext =
+            process.platform === 'win32' ? 'dll' : process.platform === 'darwin' ? 'dylib' : 'so';
+          const expectedName = `libgcits-${login.version}-64.${ext}`;
 
-      // If this stone lacks Enhanced Inspector support, offer (or auto-run) the
-      // install per the gemstone.enhancedInspector.autoInstall setting. Fire and
-      // forget so the connect flow completes; the offer surfaces its own UI.
-      if (!session.enhancedInspectorAvailable) {
-        void maybeOfferEnhancedInspectorInstall(session, sessionManager, context.extensionPath);
-      }
+          const result = await vscode.window.showOpenDialog({
+            title: `Select GCI library (${expectedName}) for GemStone ${login.version}`,
+            canSelectMany: false,
+            filters,
+          });
+          if (!result || result.length === 0) return;
+          gciPath = result[0].fsPath;
 
-      // If this stone lacks the native MCP server, offer (or auto-run) the
-      // install per the gemstone.mcpServer.autoInstall setting. Fire and forget
-      // so the connect flow completes; the offer surfaces its own UI.
-      if (!isMcpServerInstalled(session)) {
-        void maybeOfferMcpServerInstall(
-          session,
-          sessionManager,
-          context.extensionPath,
-          launchMcpServer,
-        );
-      }
-    })),
+          const selectedName = gciPath.split(/[\\/]/).pop();
+          const libPattern = /^libgcits-[\d.]+.*-64\.\w+$/;
+          if (!libPattern.test(selectedName || '')) {
+            const pick = await vscode.window.showWarningMessage(
+              `Selected file "${selectedName}" does not match expected pattern "${expectedName}". Use it anyway?`,
+              'Yes',
+              'No',
+            );
+            if (pick !== 'Yes') return;
+          }
+          await storage.setGciLibraryPath(login.version, gciPath);
+        }
+
+        // The in-process GCI library reads GEMSTONE_GLOBAL_DIR to find the
+        // NetLDI lock file (which encodes the port it is listening on).
+        // Set both variables from sysadminStorage so the login can succeed
+        // even though the VSCode/Electron process doesn't inherit them.
+        process.env.GEMSTONE_GLOBAL_DIR = sysadminStorage.getRootPath();
+        const gsInstallPath =
+          sysadminStorage.getGemstonePath(login.version) ?? path.dirname(path.dirname(gciPath));
+        process.env.GEMSTONE = gsInstallPath;
+
+        let session;
+        try {
+          session = await vscode.window.withProgress(
+            {
+              location: vscode.ProgressLocation.Notification,
+              title: `Connecting to ${login.stone} on ${login.gem_host} as ${login.gs_user}…`,
+              cancellable: false,
+            },
+            // loginAsync uses the non-blocking GciTsNbLogin path (yielding between
+            // polls) so the notification animates and the window stays responsive
+            // during a slow connect; it falls back to the blocking login on
+            // Windows / older libraries.
+            () => sessionManager.loginAsync(login, gciPath),
+          );
+          refreshEnhancedInspectorAvailable(session);
+          treeProvider.refresh();
+          vscode.window.showInformationMessage(
+            `Connected to ${login.stone} (${session.stoneVersion}) on ${login.gem_host} as ${login.gs_user}`,
+          );
+          exportManager.exportSession(session, true);
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          vscode.window.showErrorMessage(`Login failed: ${msg}`);
+          return;
+        }
+        // We no longer auto-open a workspace on every connect (it left a dirty,
+        // hot-exit-restored buffer behind). Instead, on the *first* successful
+        // connect, open the Getting Started walkthrough once — a richer, native,
+        // dismissible onboarding card that links to the on-demand workspace. The
+        // workspace stays available afterward via the gemstone.openWorkspace
+        // command and the Logins & Sessions welcome view.
+        if (!context.globalState.get<boolean>(GETTING_STARTED_SEEN_KEY)) {
+          void context.globalState.update(GETTING_STARTED_SEEN_KEY, true);
+          void vscode.commands.executeCommand(
+            'workbench.action.openWalkthrough',
+            GETTING_STARTED_WALKTHROUGH_ID,
+            false,
+          );
+        }
+
+        // If this stone lacks Enhanced Inspector support, offer (or auto-run) the
+        // install per the gemstone.enhancedInspector.autoInstall setting. Fire and
+        // forget so the connect flow completes; the offer surfaces its own UI.
+        if (!session.enhancedInspectorAvailable) {
+          void maybeOfferEnhancedInspectorInstall(session, sessionManager, context.extensionPath);
+        }
+
+        // If this stone lacks the native MCP server, offer (or auto-run) the
+        // install per the gemstone.mcpServer.autoInstall setting. Fire and forget
+        // so the connect flow completes; the offer surfaces its own UI.
+        if (!isMcpServerInstalled(session)) {
+          void maybeOfferMcpServerInstall(
+            session,
+            sessionManager,
+            context.extensionPath,
+            launchMcpServer,
+          );
+        }
+      }),
+    ),
 
     vscode.commands.registerCommand('gemstone.serveSeaside', async () => {
       const session = sessionManager.getSelectedSession();
@@ -1416,13 +1478,13 @@ export function activate(context: vscode.ExtensionContext) {
         const { success, err } = sessionManager.commit(item.activeSession.id);
         if (success) {
           vscode.window.showInformationMessage(
-            `Session ${item.activeSession.id}: Commit succeeded.`
+            `Session ${item.activeSession.id}: Commit succeeded.`,
           );
           await exportManager.refreshSession(item.activeSession);
           SystemBrowser.refresh(item.activeSession.id);
         } else {
           vscode.window.showErrorMessage(
-            `Session ${item.activeSession.id}: Commit failed — ${err.message || `error ${err.number}`}`
+            `Session ${item.activeSession.id}: Commit failed — ${err.message || `error ${err.number}`}`,
           );
         }
       } catch (e: unknown) {
@@ -1448,14 +1510,14 @@ export function activate(context: vscode.ExtensionContext) {
         const { success, err } = sessionManager.abort(item.activeSession.id);
         if (success) {
           vscode.window.showInformationMessage(
-            `Session ${item.activeSession.id}: Abort succeeded.`
+            `Session ${item.activeSession.id}: Abort succeeded.`,
           );
           await exportManager.refreshSession(item.activeSession);
           SystemBrowser.refresh(item.activeSession.id);
           explorer.onSessionAborted(item.activeSession.id);
         } else {
           vscode.window.showErrorMessage(
-            `Session ${item.activeSession.id}: Abort failed — ${err.message || `error ${err.number}`}`
+            `Session ${item.activeSession.id}: Abort failed — ${err.message || `error ${err.number}`}`,
           );
         }
       } catch (e: unknown) {
@@ -1465,9 +1527,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand('gemstone.openBrowser', async (item?: GemStoneSessionItem) => {
-      const session = item
-        ? item.activeSession
-        : await sessionManager.resolveSession();
+      const session = item ? item.activeSession : await sessionManager.resolveSession();
       if (!session) return;
       SystemBrowser.show(session, exportManager);
     }),
@@ -1481,19 +1541,20 @@ export function activate(context: vscode.ExtensionContext) {
       if (!session) return;
 
       const editor = vscode.window.activeTextEditor;
-      const selected = editor && !editor.selection.isEmpty
-        ? editor.document.getText(editor.selection).trim()
-        : '';
-      const className = selected || await vscode.window.showInputBox({
-        prompt: 'Class name to locate in Rowan',
-        placeHolder: 'e.g. STONReader',
-      });
+      const selected =
+        editor && !editor.selection.isEmpty ? editor.document.getText(editor.selection).trim() : '';
+      const className =
+        selected ||
+        (await vscode.window.showInputBox({
+          prompt: 'Class name to locate in Rowan',
+          placeHolder: 'e.g. STONReader',
+        }));
       if (!className) return;
 
       const owners = queries.findRowanClassOwners(session, className);
       const parts = [
-        ...owners.defined.map(o => `defined in ${o.project} / ${o.package}`),
-        ...owners.extended.map(o => `extended by ${o.project} / ${o.package}`),
+        ...owners.defined.map((o) => `defined in ${o.project} / ${o.package}`),
+        ...owners.extended.map((o) => `extended by ${o.project} / ${o.package}`),
       ];
       if (parts.length === 0) {
         vscode.window.showInformationMessage(`"${className}" is not in any loaded Rowan package.`);
@@ -1509,11 +1570,17 @@ export function activate(context: vscode.ExtensionContext) {
       let classes: queries.RowanClassLocation[];
       try {
         classes = await vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: 'Loading Rowan classes…', cancellable: false },
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: 'Loading Rowan classes…',
+            cancellable: false,
+          },
           () => Promise.resolve(queries.listAllRowanClasses(session)),
         );
       } catch (e: unknown) {
-        vscode.window.showErrorMessage(`Failed to load Rowan classes: ${e instanceof Error ? e.message : String(e)}`);
+        vscode.window.showErrorMessage(
+          `Failed to load Rowan classes: ${e instanceof Error ? e.message : String(e)}`,
+        );
         return;
       }
       if (classes.length === 0) {
@@ -1522,15 +1589,18 @@ export function activate(context: vscode.ExtensionContext) {
       }
 
       const picked = await vscode.window.showQuickPick(
-        classes.map(c => ({ label: c.name, description: `${c.project} / ${c.package}`, cls: c })),
+        classes.map((c) => ({ label: c.name, description: `${c.project} / ${c.package}`, cls: c })),
         { placeHolder: 'Search Rowan classes…', matchOnDescription: true },
       );
       if (!picked) return;
 
       // Reveal the class's source in the System Browser (opens one if needed).
       SystemBrowser.navigateBeside(session, {
-        dictName: picked.cls.symbolDict, className: picked.cls.name,
-        isMeta: false, selector: '', category: '',
+        dictName: picked.cls.symbolDict,
+        className: picked.cls.name,
+        isMeta: false,
+        selector: '',
+        category: '',
       });
     }),
 
@@ -1539,8 +1609,11 @@ export function activate(context: vscode.ExtensionContext) {
       if (!session) return;
 
       const folder = await vscode.window.showOpenDialog({
-        canSelectFolders: true, canSelectFiles: false, canSelectMany: false,
-        openLabel: 'Load Project', title: 'Select a Rowan project directory to load',
+        canSelectFolders: true,
+        canSelectFiles: false,
+        canSelectMany: false,
+        openLabel: 'Load Project',
+        title: 'Select a Rowan project directory to load',
       });
       if (!folder || folder.length === 0) return;
 
@@ -1552,12 +1625,14 @@ export function activate(context: vscode.ExtensionContext) {
       const session = await sessionManager.resolveSession();
       if (!session) return;
 
-      const raw = (await vscode.window.showInputBox({
-        prompt: 'Git repository URL of the Rowan project',
-        placeHolder: 'https://github.com/owner/repo.git',
-        ignoreFocusOut: true,
-        validateInput: validateRowanGitUrl,
-      }))?.trim();
+      const raw = (
+        await vscode.window.showInputBox({
+          prompt: 'Git repository URL of the Rowan project',
+          placeHolder: 'https://github.com/owner/repo.git',
+          ignoreFocusOut: true,
+          validateInput: validateRowanGitUrl,
+        })
+      )?.trim();
       if (!raw) return;
       const url = normalizeGitUrl(raw);
 
@@ -1567,11 +1642,17 @@ export function activate(context: vscode.ExtensionContext) {
       if (!fs.existsSync(dest)) {
         try {
           await vscode.window.withProgress(
-            { location: vscode.ProgressLocation.Notification, title: `Cloning ${url}…`, cancellable: false },
+            {
+              location: vscode.ProgressLocation.Notification,
+              title: `Cloning ${url}…`,
+              cancellable: false,
+            },
             () => cloneGitRepo(url, dest),
           );
         } catch (e: unknown) {
-          vscode.window.showErrorMessage(`git clone failed: ${e instanceof Error ? e.message : String(e)}`);
+          vscode.window.showErrorMessage(
+            `git clone failed: ${e instanceof Error ? e.message : String(e)}`,
+          );
           return;
         }
       }
@@ -1580,83 +1661,105 @@ export function activate(context: vscode.ExtensionContext) {
       void vscode.commands.executeCommand('gemstone.rowanRefreshView');
     }),
 
-    vscode.commands.registerCommand('gemstone.unloadRowanProject', async (nameArg?: string | RowanLoadedProjectItem) => {
-      const session = await sessionManager.resolveSession();
-      if (!session) return;
+    vscode.commands.registerCommand(
+      'gemstone.unloadRowanProject',
+      async (nameArg?: string | RowanLoadedProjectItem) => {
+        const session = await sessionManager.resolveSession();
+        if (!session) return;
 
-      // Invoked from the palette (no arg → pick), programmatically (string), or
-      // the Rowan view's context menu (tree item).
-      let projectName = typeof nameArg === 'string' ? nameArg : nameArg?.project.name;
-      if (!projectName) {
-        const projects = queries.listRowanProjects(session).projects;
-        projectName = await vscode.window.showQuickPick(
-          projects.map(p => p.name),
-          { placeHolder: 'Unload which Rowan project?' },
+        // Invoked from the palette (no arg → pick), programmatically (string), or
+        // the Rowan view's context menu (tree item).
+        let projectName = typeof nameArg === 'string' ? nameArg : nameArg?.project.name;
+        if (!projectName) {
+          const projects = queries.listRowanProjects(session).projects;
+          projectName = await vscode.window.showQuickPick(
+            projects.map((p) => p.name),
+            { placeHolder: 'Unload which Rowan project?' },
+          );
+        }
+        if (!projectName) return;
+
+        const confirm = await vscode.window.showWarningMessage(
+          `Unload Rowan project "${projectName}"?`,
+          {
+            modal: true,
+            detail:
+              'This removes its classes and methods from the image. The on-disk source is left untouched.',
+          },
+          'Unload',
         );
-      }
-      if (!projectName) return;
+        if (confirm !== 'Unload') return;
 
-      const confirm = await vscode.window.showWarningMessage(
-        `Unload Rowan project "${projectName}"?`,
-        { modal: true, detail: 'This removes its classes and methods from the image. The on-disk source is left untouched.' },
-        'Unload',
-      );
-      if (confirm !== 'Unload') return;
+        const sys = await obtainSystemUserSession(session, `unload Rowan project "${projectName}"`);
+        if (!sys) return;
 
-      const sys = await obtainSystemUserSession(session, `unload Rowan project "${projectName}"`);
-      if (!sys) return;
+        let result;
+        try {
+          result = await vscode.window.withProgress(
+            {
+              location: vscode.ProgressLocation.Notification,
+              title: `Unloading ${projectName}…`,
+              cancellable: false,
+            },
+            () => Promise.resolve(queries.unloadRowanProject(sys, projectName!)),
+          );
+        } finally {
+          try {
+            session.gci.GciTsLogout(sys.handle);
+          } catch {
+            /* transient session */
+          }
+        }
 
-      let result;
-      try {
-        result = await vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: `Unloading ${projectName}…`, cancellable: false },
-          () => Promise.resolve(queries.unloadRowanProject(sys, projectName!)),
+        if (!result.success) {
+          vscode.window.showErrorMessage(`Unload of "${projectName}" failed: ${result.detail}`);
+          return;
+        }
+        await refreshWorkingSession(
+          session,
+          sessionManager,
+          `Rowan project "${projectName}" unloaded.`,
         );
-      } finally {
-        try { session.gci.GciTsLogout(sys.handle); } catch { /* transient session */ }
-      }
+        void vscode.commands.executeCommand('gemstone.rowanRefreshView');
+      },
+    ),
 
-      if (!result.success) {
-        vscode.window.showErrorMessage(`Unload of "${projectName}" failed: ${result.detail}`);
-        return;
-      }
-      await refreshWorkingSession(session, sessionManager, `Rowan project "${projectName}" unloaded.`);
-      void vscode.commands.executeCommand('gemstone.rowanRefreshView');
-    }),
-
-    vscode.commands.registerCommand('gemstone.sessionLogout', async (item?: GemStoneSessionItem) => {
-      const session = item ? item.activeSession : sessionManager.getSelectedSession();
-      if (!session) {
-        vscode.window.showInformationMessage('No GemStone session to log out of.');
-        return;
-      }
-      const decision = await confirmLogoutWithUncommittedChanges(
-        session.id,
-        queries.sessionNeedsCommit(session),
-        (id) => sessionManager.commit(id),
-      );
-      if (decision === 'cancel') return;
-      // Keep the class mirror on disk: it's keyed by connection target and is
-      // re-synced incrementally on the next login, which is far cheaper than
-      // rebuilding it from scratch (especially for large, remote images).
-      SystemBrowser.disposeForSession(session.id);
-      GlobalsBrowser.disposeForSession(session.id);
-      CommentBrowser.disposeForSession(session.id);
-      // Close any lingering class-definition / method-source editor tabs for this
-      // session (e.g. opened via go-to-definition without a browser). Browser-owned
-      // tabs are already closed when the browser is disposed above.
-      void closeGemstoneTabsForSession(session.id);
-      EnhancedInspector.disposeForSession(session.id);
-      // Dispose before logout so each panel's dispose() can still release its
-      // suspended GsProcess against a live handle.
-      DebuggerPanel.disposeForSession(session.id);
-      sessionManager.logout(session.id);
-      treeProvider.refresh();
-      inspectorProvider.removeSessionItems(session.id);
-      breakpointManager.clearAllForSession(session.id);
-      selectorBreakpointManager.clearAllForSession(session.id);
-      vscode.window.showInformationMessage(`Session ${session.id}: Logged out.`);
-    }),
+    vscode.commands.registerCommand(
+      'gemstone.sessionLogout',
+      async (item?: GemStoneSessionItem) => {
+        const session = item ? item.activeSession : sessionManager.getSelectedSession();
+        if (!session) {
+          vscode.window.showInformationMessage('No GemStone session to log out of.');
+          return;
+        }
+        const decision = await confirmLogoutWithUncommittedChanges(
+          session.id,
+          queries.sessionNeedsCommit(session),
+          (id) => sessionManager.commit(id),
+        );
+        if (decision === 'cancel') return;
+        // Keep the class mirror on disk: it's keyed by connection target and is
+        // re-synced incrementally on the next login, which is far cheaper than
+        // rebuilding it from scratch (especially for large, remote images).
+        SystemBrowser.disposeForSession(session.id);
+        GlobalsBrowser.disposeForSession(session.id);
+        CommentBrowser.disposeForSession(session.id);
+        // Close any lingering class-definition / method-source editor tabs for this
+        // session (e.g. opened via go-to-definition without a browser). Browser-owned
+        // tabs are already closed when the browser is disposed above.
+        void closeGemstoneTabsForSession(session.id);
+        EnhancedInspector.disposeForSession(session.id);
+        // Dispose before logout so each panel's dispose() can still release its
+        // suspended GsProcess against a live handle.
+        DebuggerPanel.disposeForSession(session.id);
+        sessionManager.logout(session.id);
+        treeProvider.refresh();
+        inspectorProvider.removeSessionItems(session.id);
+        breakpointManager.clearAllForSession(session.id);
+        selectorBreakpointManager.clearAllForSession(session.id);
+        vscode.window.showInformationMessage(`Session ${session.id}: Logged out.`);
+      },
+    ),
 
     vscode.commands.registerCommand('gemstone.sessionPing', async (item?: GemStoneSessionItem) => {
       const session = item ? item.activeSession : sessionManager.getSelectedSession();
@@ -1670,7 +1773,7 @@ export function activate(context: vscode.ExtensionContext) {
           vscode.window.showInformationMessage(`Session ${session.id} is active and responsive.`);
         } else {
           vscode.window.showErrorMessage(
-            `Session ${session.id}: Ping failed — ${err.message || `error ${err.number}`}`
+            `Session ${session.id}: Ping failed — ${err.message || `error ${err.number}`}`,
           );
         }
       } catch (e: unknown) {
@@ -1679,22 +1782,26 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
 
-    vscode.commands.registerCommand('gemstone.selectSession', async (item?: GemStoneSessionItem) => {
-      if (item) {
-        sessionManager.selectSession(item.activeSession.id);
-      } else {
-        await sessionManager.resolveSession();
-      }
-      treeProvider.refresh();
-    }),
+    vscode.commands.registerCommand(
+      'gemstone.selectSession',
+      async (item?: GemStoneSessionItem) => {
+        if (item) {
+          sessionManager.selectSession(item.activeSession.id);
+        } else {
+          await sessionManager.resolveSession();
+        }
+        treeProvider.refresh();
+      },
+    ),
 
-    vscode.commands.registerCommand('gemstone.exportClasses', async (item?: GemStoneSessionItem) => {
-      const session = item
-        ? item.activeSession
-        : await sessionManager.resolveSession();
-      if (!session) return;
-      await exportManager.exportSession(session);
-    }),
+    vscode.commands.registerCommand(
+      'gemstone.exportClasses',
+      async (item?: GemStoneSessionItem) => {
+        const session = item ? item.activeSession : await sessionManager.resolveSession();
+        if (!session) return;
+        await exportManager.exportSession(session);
+      },
+    ),
 
     vscode.commands.registerCommand('gemstone.refreshBrowser', async () => {
       symbolProvider.invalidateCache();
@@ -1745,115 +1852,166 @@ export function activate(context: vscode.ExtensionContext) {
       showTranscript();
     }),
 
-    vscode.commands.registerCommand('gemstone.runSunitClass', async (args: { dictName: string; className: string }) => {
-      await sunitTestController.runClassByName(args.dictName, args.className);
-    }),
+    vscode.commands.registerCommand(
+      'gemstone.runSunitClass',
+      async (args: { dictName: string; className: string }) => {
+        await sunitTestController.runClassByName(args.dictName, args.className);
+      },
+    ),
 
-    vscode.commands.registerCommand('gemstone.runSunitClasses', async (dictName: string, classNames: string[]) => {
-      await sunitTestController.runClassesByName(dictName, classNames);
-    }),
+    vscode.commands.registerCommand(
+      'gemstone.runSunitClasses',
+      async (dictName: string, classNames: string[]) => {
+        await sunitTestController.runClassesByName(dictName, classNames);
+      },
+    ),
 
-    vscode.commands.registerCommand('gemstone.runSunitMethods', async (dictName: string, className: string, selectors: string[]) => {
-      await sunitTestController.runTestsByName(dictName, className, selectors);
-    }),
+    vscode.commands.registerCommand(
+      'gemstone.runSunitMethods',
+      async (dictName: string, className: string, selectors: string[]) => {
+        await sunitTestController.runTestsByName(dictName, className, selectors);
+      },
+    ),
 
-    vscode.commands.registerCommand('gemstone.runSunitMethodCategory', async (dictName: string, className: string, category: string) => {
-      await sunitTestController.runMethodCategoryByName(dictName, className, category);
-    }),
+    vscode.commands.registerCommand(
+      'gemstone.runSunitMethodCategory',
+      async (dictName: string, className: string, category: string) => {
+        await sunitTestController.runMethodCategoryByName(dictName, className, category);
+      },
+    ),
 
-    vscode.commands.registerCommand('gemstone.inspectGlobal', async (args: { className: string }) => {
-      // The reveal-existing dedup only applies to the classic Inspector tree: when
-      // the session has the Enhanced Inspector, inspectExpression opens a webview
-      // (not a tree root), so findRootByLabel could never match — skip the lookup
-      // and just inspect (a fresh panel, like editor Inspect It).
-      const selected = sessionManager.getSelectedSession();
-      if (!selected?.enhancedInspectorAvailable) {
-        const existing = inspectorProvider.findRootByLabel(args.className);
-        if (existing) {
-          await inspectorView.reveal(existing, { select: true, focus: true });
-          return;
+    vscode.commands.registerCommand(
+      'gemstone.inspectGlobal',
+      async (args: { className: string }) => {
+        // The reveal-existing dedup only applies to the classic Inspector tree: when
+        // the session has the Enhanced Inspector, inspectExpression opens a webview
+        // (not a tree root), so findRootByLabel could never match — skip the lookup
+        // and just inspect (a fresh panel, like editor Inspect It).
+        const selected = sessionManager.getSelectedSession();
+        if (!selected?.enhancedInspectorAvailable) {
+          const existing = inspectorProvider.findRootByLabel(args.className);
+          if (existing) {
+            await inspectorView.reveal(existing, { select: true, focus: true });
+            return;
+          }
         }
-      }
-      await codeExecutor.inspectExpression(inspectorProvider, args.className, args.className);
-    }),
+        await codeExecutor.inspectExpression(inspectorProvider, args.className, args.className);
+      },
+    ),
 
-    vscode.commands.registerCommand('gemstone.sendersOfSelector', async (args: { selector: string; sessionId: number }) => {
-      const session = sessionManager.getSession(args.sessionId);
-      if (!session) return;
-      const maxEnv = vscode.workspace.getConfiguration('gemstone').get<number>('maxEnvironment', 0);
-      const all: queries.MethodSearchResult[] = [];
-      for (let env = 0; env <= maxEnv; env++) {
-        all.push(...queries.sendersOf(session, args.selector, env));
-      }
-      const seen = new Set<string>();
-      const results = all.filter(r => {
-        const key = `${r.className}|${r.isMeta}|${r.selector}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-      await showMethodResults(session, results, `Senders of #${args.selector}`);
-    }),
+    vscode.commands.registerCommand(
+      'gemstone.sendersOfSelector',
+      async (args: { selector: string; sessionId: number }) => {
+        const session = sessionManager.getSession(args.sessionId);
+        if (!session) return;
+        const maxEnv = vscode.workspace
+          .getConfiguration('gemstone')
+          .get<number>('maxEnvironment', 0);
+        const all: queries.MethodSearchResult[] = [];
+        for (let env = 0; env <= maxEnv; env++) {
+          all.push(...queries.sendersOf(session, args.selector, env));
+        }
+        const seen = new Set<string>();
+        const results = all.filter((r) => {
+          const key = `${r.className}|${r.isMeta}|${r.selector}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        await showMethodResults(session, results, `Senders of #${args.selector}`);
+      },
+    ),
 
-    vscode.commands.registerCommand('gemstone.implementorsOfSelector', async (args: { selector: string; sessionId: number }) => {
-      const session = sessionManager.getSession(args.sessionId);
-      if (!session) return;
-      const maxEnv = vscode.workspace.getConfiguration('gemstone').get<number>('maxEnvironment', 0);
-      const all: queries.MethodSearchResult[] = [];
-      for (let env = 0; env <= maxEnv; env++) {
-        all.push(...queries.implementorsOf(session, args.selector, env));
-      }
-      const seen = new Set<string>();
-      const results = all.filter(r => {
-        const key = `${r.className}|${r.isMeta}|${r.selector}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-      await showMethodResults(session, results, `Implementors of #${args.selector}`);
-    }),
+    vscode.commands.registerCommand(
+      'gemstone.implementorsOfSelector',
+      async (args: { selector: string; sessionId: number }) => {
+        const session = sessionManager.getSession(args.sessionId);
+        if (!session) return;
+        const maxEnv = vscode.workspace
+          .getConfiguration('gemstone')
+          .get<number>('maxEnvironment', 0);
+        const all: queries.MethodSearchResult[] = [];
+        for (let env = 0; env <= maxEnv; env++) {
+          all.push(...queries.implementorsOf(session, args.selector, env));
+        }
+        const seen = new Set<string>();
+        const results = all.filter((r) => {
+          const key = `${r.className}|${r.isMeta}|${r.selector}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        await showMethodResults(session, results, `Implementors of #${args.selector}`);
+      },
+    ),
 
-    vscode.commands.registerCommand('gemstone.hierarchyImplementorsOf', async (args: { selector: string; className: string; dictIndex: number; isMeta: boolean; direction: 'up' | 'down'; sessionId: number }) => {
-      const session = sessionManager.getSession(args.sessionId);
-      if (!session) return;
-      const maxEnv = vscode.workspace.getConfiguration('gemstone').get<number>('maxEnvironment', 0);
-      const all: queries.MethodSearchResult[] = [];
-      for (let env = 0; env <= maxEnv; env++) {
-        all.push(...queries.hierarchyImplementorsOf(
-          session, args.dictIndex, args.className, args.selector, args.isMeta, args.direction, env,
-        ));
-      }
-      const seen = new Set<string>();
-      const results = all.filter(r => {
-        const key = `${r.className}|${r.isMeta}|${r.selector}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-      const side = args.isMeta ? ' class' : '';
-      const title = args.direction === 'up'
-        ? `${args.className}${side} >> #${args.selector} — superclass implementors`
-        : `${args.className}${side} >> #${args.selector} — subclass overrides`;
-      await showMethodResults(session, results, title);
-    }),
+    vscode.commands.registerCommand(
+      'gemstone.hierarchyImplementorsOf',
+      async (args: {
+        selector: string;
+        className: string;
+        dictIndex: number;
+        isMeta: boolean;
+        direction: 'up' | 'down';
+        sessionId: number;
+      }) => {
+        const session = sessionManager.getSession(args.sessionId);
+        if (!session) return;
+        const maxEnv = vscode.workspace
+          .getConfiguration('gemstone')
+          .get<number>('maxEnvironment', 0);
+        const all: queries.MethodSearchResult[] = [];
+        for (let env = 0; env <= maxEnv; env++) {
+          all.push(
+            ...queries.hierarchyImplementorsOf(
+              session,
+              args.dictIndex,
+              args.className,
+              args.selector,
+              args.isMeta,
+              args.direction,
+              env,
+            ),
+          );
+        }
+        const seen = new Set<string>();
+        const results = all.filter((r) => {
+          const key = `${r.className}|${r.isMeta}|${r.selector}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        const side = args.isMeta ? ' class' : '';
+        const title =
+          args.direction === 'up'
+            ? `${args.className}${side} >> #${args.selector} — superclass implementors`
+            : `${args.className}${side} >> #${args.selector} — subclass overrides`;
+        await showMethodResults(session, results, title);
+      },
+    ),
 
-    vscode.commands.registerCommand('gemstone.browseReferences', async (args: { objectName: string; sessionId: number }) => {
-      const session = sessionManager.getSession(args.sessionId);
-      if (!session) return;
-      const maxEnv = vscode.workspace.getConfiguration('gemstone').get<number>('maxEnvironment', 0);
-      const all: queries.MethodSearchResult[] = [];
-      for (let env = 0; env <= maxEnv; env++) {
-        all.push(...queries.referencesToObject(session, args.objectName, env));
-      }
-      const seen = new Set<string>();
-      const results = all.filter(r => {
-        const key = `${r.className}|${r.isMeta}|${r.selector}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-      await showMethodResults(session, results, `References to ${args.objectName}`);
-    }),
+    vscode.commands.registerCommand(
+      'gemstone.browseReferences',
+      async (args: { objectName: string; sessionId: number }) => {
+        const session = sessionManager.getSession(args.sessionId);
+        if (!session) return;
+        const maxEnv = vscode.workspace
+          .getConfiguration('gemstone')
+          .get<number>('maxEnvironment', 0);
+        const all: queries.MethodSearchResult[] = [];
+        for (let env = 0; env <= maxEnv; env++) {
+          all.push(...queries.referencesToObject(session, args.objectName, env));
+        }
+        const seen = new Set<string>();
+        const results = all.filter((r) => {
+          const key = `${r.className}|${r.isMeta}|${r.selector}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        await showMethodResults(session, results, `References to ${args.objectName}`);
+      },
+    ),
 
     vscode.commands.registerCommand('gemstone.removeInspectorItem', (node?: InspectorNode) => {
       if (node) inspectorProvider.removeRoot(node);
@@ -1873,34 +2031,40 @@ export function activate(context: vscode.ExtensionContext) {
       });
       if (!term) return;
 
-      await vscode.commands.executeCommand('gemstone.searchMethodsFor', { term, sessionId: session.id });
+      await vscode.commands.executeCommand('gemstone.searchMethodsFor', {
+        term,
+        sessionId: session.id,
+      });
     }),
 
     // Search method source for a term in a specific session (no prompt). Used by
     // the browser's "Browse Methods Containing…" context command, which supplies
     // the term; gemstone.searchMethods prompts and then delegates here.
-    vscode.commands.registerCommand('gemstone.searchMethodsFor', async (args: { term: string; sessionId: number }) => {
-      const session = sessionManager.getSession(args.sessionId);
-      if (!session) return;
+    vscode.commands.registerCommand(
+      'gemstone.searchMethodsFor',
+      async (args: { term: string; sessionId: number }) => {
+        const session = sessionManager.getSession(args.sessionId);
+        if (!session) return;
 
-      let results: queries.MethodSearchResult[];
-      try {
-        results = await vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: `Searching methods for "${args.term}"...`,
-            cancellable: false,
-          },
-          () => Promise.resolve(queries.searchMethodSource(session, args.term, true)),
-        );
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        vscode.window.showErrorMessage(`Search failed: ${msg}`);
-        return;
-      }
+        let results: queries.MethodSearchResult[];
+        try {
+          results = await vscode.window.withProgress(
+            {
+              location: vscode.ProgressLocation.Notification,
+              title: `Searching methods for "${args.term}"...`,
+              cancellable: false,
+            },
+            () => Promise.resolve(queries.searchMethodSource(session, args.term, true)),
+          );
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          vscode.window.showErrorMessage(`Search failed: ${msg}`);
+          return;
+        }
 
-      await showMethodResults(session, results, `Methods containing "${args.term}"`);
-    }),
+        await showMethodResults(session, results, `Methods containing "${args.term}"`);
+      },
+    ),
 
     vscode.commands.registerCommand('gemstone.sendersOf', async () => {
       const session = await sessionManager.resolveSession();
@@ -1926,12 +2090,14 @@ export function activate(context: vscode.ExtensionContext) {
             }
             // Deduplicate by class+meta+selector
             const seen = new Set<string>();
-            return Promise.resolve(all.filter(r => {
-              const key = `${r.className}|${r.isMeta}|${r.selector}`;
-              if (seen.has(key)) return false;
-              seen.add(key);
-              return true;
-            }));
+            return Promise.resolve(
+              all.filter((r) => {
+                const key = `${r.className}|${r.isMeta}|${r.selector}`;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+              }),
+            );
           },
         );
       } catch (e: unknown) {
@@ -1966,12 +2132,14 @@ export function activate(context: vscode.ExtensionContext) {
               all.push(...queries.implementorsOf(session, selector, env));
             }
             const seen = new Set<string>();
-            return Promise.resolve(all.filter(r => {
-              const key = `${r.className}|${r.isMeta}|${r.selector}`;
-              if (seen.has(key)) return false;
-              seen.add(key);
-              return true;
-            }));
+            return Promise.resolve(
+              all.filter((r) => {
+                const key = `${r.className}|${r.isMeta}|${r.selector}`;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+              }),
+            );
           },
         );
       } catch (e: unknown) {
@@ -2014,9 +2182,9 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
 
-      const superCount = results.filter(r => r.kind === 'superclass').length;
+      const superCount = results.filter((r) => r.kind === 'superclass').length;
 
-      const items = results.map(r => {
+      const items = results.map((r) => {
         let indent: string;
         if (r.kind === 'superclass') {
           const idx = results.indexOf(r);
@@ -2043,9 +2211,9 @@ export function activate(context: vscode.ExtensionContext) {
 
       const uri = vscode.Uri.parse(
         `gemstone://${session.id}` +
-        `/${encodeURIComponent(picked.entry.dictName)}` +
-        `/${encodeURIComponent(picked.entry.className)}` +
-        `/definition`
+          `/${encodeURIComponent(picked.entry.dictName)}` +
+          `/${encodeURIComponent(picked.entry.className)}` +
+          `/definition`,
       );
       vscode.commands.executeCommand('gemstone.openDocument', uri);
     }),
@@ -2069,23 +2237,30 @@ export function activate(context: vscode.ExtensionContext) {
       });
       if (!picked) return;
 
-      if (!SystemBrowser.navigateToClass(
-        session.id, picked.entry.dictName, picked.entry.className, picked.entry.dictIndex,
-      )) {
+      if (
+        !SystemBrowser.navigateToClass(
+          session.id,
+          picked.entry.dictName,
+          picked.entry.className,
+          picked.entry.dictIndex,
+        )
+      ) {
         // ?dict=<index> scopes the definition to the exact dictionary the entry
         // came from, so aliases sharing a key (or dictionaries sharing a name)
         // resolve to the class the user picked.
         const uri = vscode.Uri.parse(
           `gemstone://${session.id}` +
-          `/${encodeURIComponent(picked.entry.dictName)}` +
-          `/${encodeURIComponent(picked.entry.className)}` +
-          `/definition?dict=${picked.entry.dictIndex}`
+            `/${encodeURIComponent(picked.entry.dictName)}` +
+            `/${encodeURIComponent(picked.entry.className)}` +
+            `/definition?dict=${picked.entry.dictIndex}`,
         );
         vscode.commands.executeCommand('gemstone.openDocument', uri);
       }
     }),
 
-    vscode.commands.registerCommand('gemstone.findMethodInClass', () => findMethodInClass(sessionManager)),
+    vscode.commands.registerCommand('gemstone.findMethodInClass', () =>
+      findMethodInClass(sessionManager),
+    ),
   );
 
   // ── SysAdmin ──────────────────────────────────────────────
@@ -2101,7 +2276,7 @@ export function activate(context: vscode.ExtensionContext) {
     (async () => {
       let wslInfo = await getWslInfoAsync();
       if (!wslInfo.available) {
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        await new Promise((resolve) => setTimeout(resolve, 5000));
         invalidateWslCache();
         wslInfo = await getWslInfoAsync();
       }
@@ -2114,7 +2289,7 @@ export function activate(context: vscode.ExtensionContext) {
         // \\wsl$\... will succeed.
         const secConfig = vscode.workspace.getConfiguration('security');
         const allowedHosts = secConfig.get<string[]>('allowedUNCHosts', []);
-        const toAdd = ['wsl$', 'wsl.localhost'].filter(h => !allowedHosts.includes(h));
+        const toAdd = ['wsl$', 'wsl.localhost'].filter((h) => !allowedHosts.includes(h));
         if (toAdd.length > 0) {
           await secConfig.update(
             'allowedUNCHosts',
@@ -2132,7 +2307,7 @@ export function activate(context: vscode.ExtensionContext) {
       } else {
         const choice = await vscode.window.showWarningMessage(
           'GemStone system administration features require Windows Subsystem for Linux (WSL2). ' +
-          'Install WSL with: wsl --install',
+            'Install WSL with: wsl --install',
           'Learn More',
         );
         if (choice === 'Learn More') {
@@ -2193,11 +2368,17 @@ export function activate(context: vscode.ExtensionContext) {
         mcpSocketServer.socketPath,
       );
       if (result.skipped === 'missing') {
-        appendSysadmin(`Claude Code config not found at ${result.path}; skipping user-scope MCP registration.`);
+        appendSysadmin(
+          `Claude Code config not found at ${result.path}; skipping user-scope MCP registration.`,
+        );
       } else if (result.skipped === 'unreadable') {
-        appendSysadmin(`Claude Code config at ${result.path} is unreadable; skipping user-scope MCP registration.`);
+        appendSysadmin(
+          `Claude Code config at ${result.path} is unreadable; skipping user-scope MCP registration.`,
+        );
       } else {
-        appendSysadmin(`Claude Code MCP config: ${result.path}${result.updated ? ' (updated)' : ' (unchanged)'}`);
+        appendSysadmin(
+          `Claude Code MCP config: ${result.path}${result.updated ? ' (updated)' : ' (unchanged)'}`,
+        );
         if (result.updated) {
           void promptClaudeCodeRefresh(buildRefreshPromptDeps(context));
         }
@@ -2295,7 +2476,9 @@ export function activate(context: vscode.ExtensionContext) {
         } catch (err) {
           const e = err as NodeJS.ErrnoException;
           if (e.code === 'EADDRINUSE') {
-            appendSysadmin(`MCP HTTPS port ${httpPort} in use; skipping (another Jasper window may own it). Override jasper.mcp.httpPort per-workspace to run two windows simultaneously.`);
+            appendSysadmin(
+              `MCP HTTPS port ${httpPort} in use; skipping (another Jasper window may own it). Override jasper.mcp.httpPort per-workspace to run two windows simultaneously.`,
+            );
           } else {
             appendSysadmin(`MCP HTTPS server failed to start: ${e.message}`);
           }
@@ -2333,13 +2516,15 @@ export function activate(context: vscode.ExtensionContext) {
         if (!mcpSocketServer.isOwner) {
           vscode.window.showWarningMessage(
             'Could not claim the MCP server — another Jasper window still owns it. ' +
-            'Close or disable Jasper in that window, then try again.',
+              'Close or disable Jasper in that window, then try again.',
           );
         }
       }),
       vscode.commands.registerCommand('jasper.copyMcpUrl', async () => {
         if (!httpStarted || !httpServer) {
-          vscode.window.showWarningMessage(`Jasper MCP HTTPS surface is not running on port ${httpPort}. Check the GemStone Admin output channel for the reason.`);
+          vscode.window.showWarningMessage(
+            `Jasper MCP HTTPS surface is not running on port ${httpPort}. Check the GemStone Admin output channel for the reason.`,
+          );
           return;
         }
         await vscode.env.clipboard.writeText(httpServer.url);
@@ -2355,7 +2540,9 @@ export function activate(context: vscode.ExtensionContext) {
       }),
       vscode.commands.registerCommand('jasper.installMcpTlsCertificate', async () => {
         if (!certPathForTrust) {
-          vscode.window.showWarningMessage('MCP TLS certificate has not been generated yet. Wait for extension activation to complete and try again.');
+          vscode.window.showWarningMessage(
+            'MCP TLS certificate has not been generated yet. Wait for extension activation to complete and try again.',
+          );
           return;
         }
         const cmd = trustCertCommand(certPathForTrust);
@@ -2396,7 +2583,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
       vscode.window.createTreeView('gemstoneSharedMemory', {
         treeDataProvider: osConfigProvider,
-      })
+      }),
     );
     osConfigProvider.registerCommands(context);
   }
@@ -2406,7 +2593,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.window.createTreeView('gemstoneVersions', {
       treeDataProvider: versionProvider,
-    })
+    }),
   );
 
   // Databases
@@ -2415,7 +2602,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.window.createTreeView('gemstoneDatabases', {
       treeDataProvider: databaseProvider,
       showCollapseAll: true,
-    })
+    }),
   );
 
   // Processes
@@ -2423,7 +2610,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.window.createTreeView('gemstoneProcesses', {
       treeDataProvider: processProvider,
-    })
+    }),
   );
 
   // Rowan: tracked repositories (registry persists in globalState — stones are
@@ -2458,12 +2645,14 @@ export function activate(context: vscode.ExtensionContext) {
       let repoPath: string;
       let gitUrl: string | undefined;
       if (source.origin === 'git') {
-        const raw = (await vscode.window.showInputBox({
-          prompt: 'Git repository URL of the Rowan project',
-          placeHolder: 'https://github.com/owner/repo.git',
-          ignoreFocusOut: true,
-          validateInput: validateRowanGitUrl,
-        }))?.trim();
+        const raw = (
+          await vscode.window.showInputBox({
+            prompt: 'Git repository URL of the Rowan project',
+            placeHolder: 'https://github.com/owner/repo.git',
+            ignoreFocusOut: true,
+            validateInput: validateRowanGitUrl,
+          })
+        )?.trim();
         if (!raw) return;
         const url = normalizeGitUrl(raw);
         // Clone into the open workspace folder.
@@ -2472,11 +2661,17 @@ export function activate(context: vscode.ExtensionContext) {
         if (!fs.existsSync(dest)) {
           try {
             await vscode.window.withProgress(
-              { location: vscode.ProgressLocation.Notification, title: `Cloning ${url}…`, cancellable: false },
+              {
+                location: vscode.ProgressLocation.Notification,
+                title: `Cloning ${url}…`,
+                cancellable: false,
+              },
               () => cloneGitRepo(url, dest),
             );
           } catch (e: unknown) {
-            vscode.window.showErrorMessage(`git clone failed: ${e instanceof Error ? e.message : String(e)}`);
+            vscode.window.showErrorMessage(
+              `git clone failed: ${e instanceof Error ? e.message : String(e)}`,
+            );
             return;
           }
         }
@@ -2484,8 +2679,11 @@ export function activate(context: vscode.ExtensionContext) {
         gitUrl = url;
       } else {
         const folder = await vscode.window.showOpenDialog({
-          canSelectFolders: true, canSelectFiles: false, canSelectMany: false,
-          openLabel: 'Add Repository', title: 'Select a Rowan project directory',
+          canSelectFolders: true,
+          canSelectFiles: false,
+          canSelectMany: false,
+          openLabel: 'Add Repository',
+          title: 'Select a Rowan project directory',
         });
         if (!folder || folder.length === 0) return;
         const src = folder[0].fsPath;
@@ -2535,45 +2733,57 @@ export function activate(context: vscode.ExtensionContext) {
       rowanProvider.refresh();
     }),
 
-    vscode.commands.registerCommand('gemstone.rowanExportProject', async (item?: RowanLoadedProjectItem) => {
-      if (!item) return;
-      const session = sessionManager.getSelectedSession();
-      if (!session) return;
-      const folder = await vscode.window.showOpenDialog({
-        canSelectFolders: true, canSelectFiles: false, canSelectMany: false,
-        openLabel: 'Export Here',
-        title: `Export a copy of "${item.project.name}" to…`,
-      });
-      if (!folder || folder.length === 0) return;
-      const result = queries.exportRowanProject(session, item.project.name, folder[0].fsPath);
-      if (!result.success) {
-        vscode.window.showErrorMessage(`Export of "${item.project.name}" failed: ${result.detail}`);
-        return;
-      }
-      const choice = await vscode.window.showInformationMessage(
-        `Exported "${item.project.name}" to ${result.detail}.`, 'Reveal',
-      );
-      if (choice === 'Reveal') {
-        void vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(result.detail));
-      }
-    }),
+    vscode.commands.registerCommand(
+      'gemstone.rowanExportProject',
+      async (item?: RowanLoadedProjectItem) => {
+        if (!item) return;
+        const session = sessionManager.getSelectedSession();
+        if (!session) return;
+        const folder = await vscode.window.showOpenDialog({
+          canSelectFolders: true,
+          canSelectFiles: false,
+          canSelectMany: false,
+          openLabel: 'Export Here',
+          title: `Export a copy of "${item.project.name}" to…`,
+        });
+        if (!folder || folder.length === 0) return;
+        const result = queries.exportRowanProject(session, item.project.name, folder[0].fsPath);
+        if (!result.success) {
+          vscode.window.showErrorMessage(
+            `Export of "${item.project.name}" failed: ${result.detail}`,
+          );
+          return;
+        }
+        const choice = await vscode.window.showInformationMessage(
+          `Exported "${item.project.name}" to ${result.detail}.`,
+          'Reveal',
+        );
+        if (choice === 'Reveal') {
+          void vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(result.detail));
+        }
+      },
+    ),
 
-    vscode.commands.registerCommand('gemstone.rowanOpenProjectDiff', async (item?: RowanChangesProjectItem | RowanLoadedProjectItem) => {
-      if (!item) return;
-      const session = sessionManager.getSelectedSession();
-      if (!session) return;
-      const projectName = item instanceof RowanChangesProjectItem ? item.projectName : item.project.name;
-      const diff = queries.diffRowanProject(session, projectName);
-      if (!diff.ok) {
-        vscode.window.showErrorMessage(`Diff of "${projectName}" failed: ${diff.error}`);
-        return;
-      }
-      const doc = await vscode.workspace.openTextDocument({
-        content: queries.formatRowanDiff(projectName, diff),
-        language: 'markdown',
-      });
-      await vscode.window.showTextDocument(doc, { preview: true });
-    }),
+    vscode.commands.registerCommand(
+      'gemstone.rowanOpenProjectDiff',
+      async (item?: RowanChangesProjectItem | RowanLoadedProjectItem) => {
+        if (!item) return;
+        const session = sessionManager.getSelectedSession();
+        if (!session) return;
+        const projectName =
+          item instanceof RowanChangesProjectItem ? item.projectName : item.project.name;
+        const diff = queries.diffRowanProject(session, projectName);
+        if (!diff.ok) {
+          vscode.window.showErrorMessage(`Diff of "${projectName}" failed: ${diff.error}`);
+          return;
+        }
+        const doc = await vscode.workspace.openTextDocument({
+          content: queries.formatRowanDiff(projectName, diff),
+          language: 'markdown',
+        });
+        await vscode.window.showTextDocument(doc, { preview: true });
+      },
+    ),
 
     vscode.commands.registerCommand('gemstone.rowanLoadRepo', async (item?: RowanRepoItem) => {
       if (!item) return;
@@ -2588,11 +2798,17 @@ export function activate(context: vscode.ExtensionContext) {
       let result: { updated: boolean };
       try {
         result = await vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: `Updating ${item.repo.name}…`, cancellable: false },
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Updating ${item.repo.name}…`,
+            cancellable: false,
+          },
           () => updateGitRepo(item.repo.path),
         );
       } catch (e: unknown) {
-        vscode.window.showErrorMessage(`Update of "${item.repo.name}" failed: ${e instanceof Error ? e.message : String(e)}`);
+        vscode.window.showErrorMessage(
+          `Update of "${item.repo.name}" failed: ${e instanceof Error ? e.message : String(e)}`,
+        );
         return;
       }
       // Re-read the checkout (a new gemstone.ston, spec, etc. may now be present)
@@ -2713,27 +2929,34 @@ export function activate(context: vscode.ExtensionContext) {
       const linkName = `GemStone64Bit${info.version}${suffix}`;
       const linkPath = path.join(sysadminStorage.getRootPath(), linkName);
       if (wslExistsSync(linkPath)) {
-        vscode.window.showErrorMessage(`Version ${info.version} already exists in ${sysadminStorage.getRootPath()}.`);
+        vscode.window.showErrorMessage(
+          `Version ${info.version} already exists in ${sysadminStorage.getRootPath()}.`,
+        );
         return;
       }
       sysadminStorage.ensureRootPath();
       wslSymlinkSync(productPath, linkPath);
       sysadminStorage.invalidateExtractedCache();
       appendSysadmin(`Registered local version: ${info.version} → ${productPath}`);
-      vscode.window.showInformationMessage(`Registered local GemStone ${info.version} (${info.description || 'local build'}).`);
+      vscode.window.showInformationMessage(
+        `Registered local GemStone ${info.version} (${info.description || 'local build'}).`,
+      );
       versionProvider.loadVersions();
     }),
 
-    vscode.commands.registerCommand('gemstone.unregisterLocalVersion', async (item: VersionItem) => {
-      const confirmed = await vscode.window.showWarningMessage(
-        `Unregister local GemStone ${item.version.version}? This only removes the symlink, not the product directory.`,
-        { modal: true },
-        'Unregister',
-      );
-      if (confirmed !== 'Unregister') return;
-      await versionManager.deleteExtracted(item.version);
-      versionProvider.loadVersions();
-    }),
+    vscode.commands.registerCommand(
+      'gemstone.unregisterLocalVersion',
+      async (item: VersionItem) => {
+        const confirmed = await vscode.window.showWarningMessage(
+          `Unregister local GemStone ${item.version.version}? This only removes the symlink, not the product directory.`,
+          { modal: true },
+          'Unregister',
+        );
+        if (confirmed !== 'Unregister') return;
+        await versionManager.deleteExtracted(item.version);
+        versionProvider.loadVersions();
+      },
+    ),
 
     vscode.commands.registerCommand('gemstone.openVersionFolder', (item: VersionItem) => {
       const gsPath = sysadminStorage.getGemstonePath(item.version.version);
@@ -2759,7 +2982,8 @@ export function activate(context: vscode.ExtensionContext) {
             title: `Installing Windows client ${version}...`,
             cancellable: true,
           },
-          (progress, token) => versionManager.downloadAndExtractWindowsClient(version, progress, token),
+          (progress, token) =>
+            versionManager.downloadAndExtractWindowsClient(version, progress, token),
         );
       } catch (e) {
         vscode.window.showErrorMessage(
@@ -2787,16 +3011,19 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
 
-    vscode.commands.registerCommand('gemstone.deleteWindowsClientExtracted', async (item: VersionItem) => {
-      const confirmed = await vscode.window.showWarningMessage(
-        `Delete the Windows client distribution for GemStone ${item.version.version}?`,
-        { modal: true },
-        'Delete',
-      );
-      if (confirmed !== 'Delete') return;
-      await versionManager.deleteWindowsClientExtracted(item.version);
-      versionProvider.loadVersions();
-    }),
+    vscode.commands.registerCommand(
+      'gemstone.deleteWindowsClientExtracted',
+      async (item: VersionItem) => {
+        const confirmed = await vscode.window.showWarningMessage(
+          `Delete the Windows client distribution for GemStone ${item.version.version}?`,
+          { modal: true },
+          'Delete',
+        );
+        if (confirmed !== 'Delete') return;
+        await versionManager.deleteWindowsClientExtracted(item.version);
+        versionProvider.loadVersions();
+      },
+    ),
 
     vscode.commands.registerCommand('gemstone.createDatabase', async () => {
       const db = await databaseManager.createDatabase();
@@ -2929,11 +3156,9 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('jasper.openMcpInspector', () => {
       const port = readMcpSetting<number>('httpPort', DEFAULT_MCP_HTTP_PORT);
-      openMcpInspector(
-        `https://127.0.0.1:${port}/sse`,
-        inspectorTerminal,
-        { extraCaCertPath: certPathForTrust },
-      );
+      openMcpInspector(`https://127.0.0.1:${port}/sse`, inspectorTerminal, {
+        extraCaCertPath: certPathForTrust,
+      });
     }),
 
     vscode.commands.registerCommand('gemstone.openDbInFinder', (node: DatabaseNode) => {
@@ -2988,7 +3213,9 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage(`Removed stale lock for ${item.process.name}.`);
         processProvider.refresh();
       } else {
-        vscode.window.showErrorMessage(`Failed to remove ${report.lockPath}. Check filesystem permissions.`);
+        vscode.window.showErrorMessage(
+          `Failed to remove ${report.lockPath}. Check filesystem permissions.`,
+        );
       }
     }),
 
@@ -2996,7 +3223,7 @@ export function activate(context: vscode.ExtensionContext) {
       // Only NetLDI items surface this command (package.json menu filter),
       // but guard anyway since commands can be invoked programmatically.
       if (!item || item.process.type !== 'netldi') return;
-      const net = getWslNetworkInfoCached() ?? await refreshWslNetworkInfo();
+      const net = getWslNetworkInfoCached() ?? (await refreshWslNetworkInfo());
       const host = net.netldiHost;
       if (!host) {
         vscode.window.showWarningMessage(
@@ -3017,34 +3244,45 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
 
-    vscode.commands.registerCommand('gemstone.fullLogicalBackup', async (item?: GemStoneSessionItem) => {
-      // A full backup runs over GCI against the connected stone, so it operates
-      // on a specific session: the one clicked in the Sessions tree, or the
-      // selected session when invoked from the palette.
-      const session = item ? item.activeSession : sessionManager.getSelectedSession();
-      if (!session) {
-        vscode.window.showInformationMessage(
-          'No GemStone session to back up. Connect a session first.',
-        );
-        return;
-      }
-      // Default the destination next to the extents when this session's stone is
-      // one we manage locally; otherwise the picker opens without a default dir.
-      const db = sysadminStorage.getDatabases()
-        .find(d => d.config.stoneName === session.login.stone);
-      const backedUp = await runLogicalBackup({
-        execute: (label, code) => queries.executeFetchString(session, label, code),
-        runBackup: (code) =>
-          queries.executeFetchStringNb(session, 'gemstone.fullLogicalBackup', code, undefined, true),
-        stoneName: session.login.stone,
-        dbPath: db?.path,
-      });
-      // Re-read the Databases tree so the new backup (and the Backups node, if
-      // this was the first one) shows up without a manual refresh.
-      if (backedUp) refreshAdminViews();
-    }),
+    vscode.commands.registerCommand(
+      'gemstone.fullLogicalBackup',
+      async (item?: GemStoneSessionItem) => {
+        // A full backup runs over GCI against the connected stone, so it operates
+        // on a specific session: the one clicked in the Sessions tree, or the
+        // selected session when invoked from the palette.
+        const session = item ? item.activeSession : sessionManager.getSelectedSession();
+        if (!session) {
+          vscode.window.showInformationMessage(
+            'No GemStone session to back up. Connect a session first.',
+          );
+          return;
+        }
+        // Default the destination next to the extents when this session's stone is
+        // one we manage locally; otherwise the picker opens without a default dir.
+        const db = sysadminStorage
+          .getDatabases()
+          .find((d) => d.config.stoneName === session.login.stone);
+        const backedUp = await runLogicalBackup({
+          execute: (label, code) => queries.executeFetchString(session, label, code),
+          runBackup: (code) =>
+            queries.executeFetchStringNb(
+              session,
+              'gemstone.fullLogicalBackup',
+              code,
+              undefined,
+              true,
+            ),
+          stoneName: session.login.stone,
+          dbPath: db?.path,
+        });
+        // Re-read the Databases tree so the new backup (and the Backups node, if
+        // this was the first one) shows up without a manual refresh.
+        if (backedUp) refreshAdminViews();
+      },
+    ),
 
-    vscode.commands.registerCommand('gemstone.onlineExtentBackup',
+    vscode.commands.registerCommand(
+      'gemstone.onlineExtentBackup',
       async (item?: GemStoneSessionItem | DatabaseNode) => {
         // Two entry points: the Sessions view (a GemStoneSessionItem) and the
         // running Stone node in the Databases view (a 'stone' DatabaseNode).
@@ -3052,12 +3290,14 @@ export function activate(context: vscode.ExtensionContext) {
         // needs host-filesystem access to them, so it only works for a
         // Jasper-managed local stone.
         const resolved = resolveExtentBackupSession(
-          item, sessionManager.getSessions(), sessionManager.getSelectedSession(),
+          item,
+          sessionManager.getSessions(),
+          sessionManager.getSelectedSession(),
         );
         if ('needLogin' in resolved) {
           vscode.window.showWarningMessage(
-            'An online extent backup runs over a live session on the stone. '
-            + `Log in to "${resolved.needLogin}" first, then try again.`,
+            'An online extent backup runs over a live session on the stone. ' +
+              `Log in to "${resolved.needLogin}" first, then try again.`,
             { modal: true },
           );
           return;
@@ -3069,12 +3309,13 @@ export function activate(context: vscode.ExtensionContext) {
           return;
         }
         const session = resolved.session;
-        const db = sysadminStorage.getDatabases()
-          .find(d => d.config.stoneName === session.login.stone);
+        const db = sysadminStorage
+          .getDatabases()
+          .find((d) => d.config.stoneName === session.login.stone);
         if (!db) {
           vscode.window.showErrorMessage(
-            `Online extent backup needs a Jasper-managed local stone (to reach its extent files). `
-            + `Stone "${session.login.stone}" isn't managed here — use Full Logical Backup instead.`,
+            `Online extent backup needs a Jasper-managed local stone (to reach its extent files). ` +
+              `Stone "${session.login.stone}" isn't managed here — use Full Logical Backup instead.`,
             { modal: true },
           );
           return;
@@ -3090,9 +3331,11 @@ export function activate(context: vscode.ExtensionContext) {
           fileExists: wslExistsSync,
         });
         if (backedUp) refreshAdminViews();
-      }),
+      },
+    ),
 
-    vscode.commands.registerCommand('gemstone.fullLogicalRestore',
+    vscode.commands.registerCommand(
+      'gemstone.fullLogicalRestore',
       async (item?: GemStoneSessionItem | DatabaseNode) => {
         // Two entry points: the Sessions view button (a GemStoneSessionItem) and
         // a right-click on a backup-file node in the Databases tree. Either way we
@@ -3108,12 +3351,13 @@ export function activate(context: vscode.ExtensionContext) {
         } else if (item && 'kind' in item && item.kind === 'backupFile') {
           backupFile = item.filePath;
           db = item.db;
-          session = sessionManager.getSessions()
-            .find(s => s.login.stone === db!.config.stoneName);
+          session = sessionManager
+            .getSessions()
+            .find((s) => s.login.stone === db!.config.stoneName);
           if (!session) {
             vscode.window.showWarningMessage(
-              `A full logical restore runs over a live session (it needs your login to reconnect `
-              + `through the stone restart). Log in to "${db.config.stoneName}" first, then try again.`,
+              `A full logical restore runs over a live session (it needs your login to reconnect ` +
+                `through the stone restart). Log in to "${db.config.stoneName}" first, then try again.`,
               { modal: true },
             );
             return;
@@ -3128,14 +3372,15 @@ export function activate(context: vscode.ExtensionContext) {
           return;
         }
 
-        db = db ?? sysadminStorage.getDatabases()
-          .find(d => d.config.stoneName === session!.login.stone);
+        db =
+          db ??
+          sysadminStorage.getDatabases().find((d) => d.config.stoneName === session!.login.stone);
         if (!db) {
           vscode.window.showErrorMessage(
-            `Full logical restore currently requires a database created through Jasper's Databases `
-            + `panel — it needs to stop/start the stone and locate its extent, which Jasper only `
-            + `knows how to do for databases it manages. "${session.login.stone}" is not one of them `
-            + '(it was created outside Jasper), so it cannot be restored this way yet.',
+            `Full logical restore currently requires a database created through Jasper's Databases ` +
+              `panel — it needs to stop/start the stone and locate its extent, which Jasper only ` +
+              `knows how to do for databases it manages. "${session.login.stone}" is not one of them ` +
+              '(it was created outside Jasper), so it cannot be restored this way yet.',
             { modal: true },
           );
           return;
@@ -3150,10 +3395,12 @@ export function activate(context: vscode.ExtensionContext) {
         const dataDir = path.join(managed.path, 'data');
         const gsPath = sysadminStorage.getGemstonePath(managed.config.version);
 
-        const toRestoreSession = (
-          t: { session: ActiveSession; logout: () => void },
-        ): RestoreSession => ({
-          run: (label, code) => queries.executeFetchStringNb(t.session, label, code, undefined, true),
+        const toRestoreSession = (t: {
+          session: ActiveSession;
+          logout: () => void;
+        }): RestoreSession => ({
+          run: (label, code) =>
+            queries.executeFetchStringNb(t.session, label, code, undefined, true),
           logout: t.logout,
         });
 
@@ -3162,8 +3409,12 @@ export function activate(context: vscode.ExtensionContext) {
           dbPath: managed.path,
           backupFile,
           hasFileControl: () =>
-            hasFileControlPrivilege((label, code) => queries.executeFetchString(session!, label, code)),
-          closeCurrentSession: async () => { sessionManager.logout(sessionId); },
+            hasFileControlPrivilege((label, code) =>
+              queries.executeFetchString(session!, label, code),
+            ),
+          closeCurrentSession: async () => {
+            sessionManager.logout(sessionId);
+          },
           stopStone: async () => {
             // GciTsLogout returns before the stone finishes deregistering our gem,
             // so stopstone (which logs in itself to request shutdown) can still see
@@ -3182,7 +3433,9 @@ export function activate(context: vscode.ExtensionContext) {
             }
             throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
           },
-          startStone: async () => { await processManager.startStone(managed); },
+          startStone: async () => {
+            await processManager.startStone(managed);
+          },
           copyCurrentExtentAside: async (destPath) => {
             wslMkdirSync(path.dirname(destPath), { recursive: true });
             wslImportFileSync(path.join(dataDir, 'extent0.dbf'), destPath);
@@ -3206,11 +3459,13 @@ export function activate(context: vscode.ExtensionContext) {
             wslImportFileSync(pristine, dest);
             wslChmodSync(dest, 0o644);
           },
-          loginAsDefaultAdmin: async () => toRestoreSession(
-            sessionManager.loginTransient(
-              { ...harvested, gs_user: 'DataCurator', gs_password: DEFAULT_GS_PW }, gci,
+          loginAsDefaultAdmin: async () =>
+            toRestoreSession(
+              sessionManager.loginTransient(
+                { ...harvested, gs_user: 'DataCurator', gs_password: DEFAULT_GS_PW },
+                gci,
+              ),
             ),
-          ),
           loginAsSessionUser: async () =>
             toRestoreSession(sessionManager.loginTransient(harvested, gci)),
         });
@@ -3224,11 +3479,14 @@ export function activate(context: vscode.ExtensionContext) {
             try {
               const s = sessionManager.login(harvested, libraryPath);
               refreshEnhancedInspectorAvailable(s);
-            } catch { /* user reconnects manually */ }
+            } catch {
+              /* user reconnects manually */
+            }
           }
           refreshAdminViews();
         }
-      }),
+      },
+    ),
   );
 }
 
@@ -3251,26 +3509,29 @@ export function deactivate(): Thenable<void> | undefined {
 export async function openTextEditorOn(uri: vscode.Uri) {
   try {
     const document = await vscode.workspace.openTextDocument(uri);
-    await vscode.window.showTextDocument(document, {preview: false});
+    await vscode.window.showTextDocument(document, { preview: false });
   } catch (error) {
-    await logJasperError(`Failed to open text editor on ${uri.toString()}`, "Editor", error);
+    await logJasperError(`Failed to open text editor on ${uri.toString()}`, 'Editor', error);
   }
 }
 
 export async function closeTextEditorOn(uri: vscode.Uri) {
   const uriString = uri.toString();
-  await Promise.all(textEditorsOn(uriString).map(async tab => {
-    try {
-      await vscode.window.tabGroups.close(tab)
-    } catch (error) {
-      await logJasperError(`Failed to close text editor on ${uriString}`, "Editor", error);
-    }
-  }))
+  await Promise.all(
+    textEditorsOn(uriString).map(async (tab) => {
+      try {
+        await vscode.window.tabGroups.close(tab);
+      } catch (error) {
+        await logJasperError(`Failed to close text editor on ${uriString}`, 'Editor', error);
+      }
+    }),
+  );
 }
 
 function textEditorsOn(uriString: string) {
-  return vscode.window.tabGroups.all
-      .flatMap(tabGroup => tabGroup.tabs.filter(tab => isTextEditorFor(tab, uriString)));
+  return vscode.window.tabGroups.all.flatMap((tabGroup) =>
+    tabGroup.tabs.filter((tab) => isTextEditorFor(tab, uriString)),
+  );
 }
 
 function isTextEditorFor(tab: vscode.Tab, uriString: string) {

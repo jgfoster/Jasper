@@ -91,11 +91,11 @@ describe('applyErrorMapToShape', () => {
     expect(result.success).toBe(false);
     if (result.success) return;
 
-    const isMetaIssue = result.error.issues.find(i => i.path[0] === 'isMeta')!;
+    const isMetaIssue = result.error.issues.find((i) => i.path[0] === 'isMeta')!;
     expect(isMetaIssue.message).toContain("Parameter 'isMeta'");
     expect(isMetaIssue.message).toContain('received string');
 
-    const selectorIssue = result.error.issues.find(i => i.path[0] === 'selector')!;
+    const selectorIssue = result.error.issues.find((i) => i.path[0] === 'selector')!;
     expect(selectorIssue.message).toContain("Missing required parameter 'selector'");
   });
 

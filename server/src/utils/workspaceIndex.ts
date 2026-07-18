@@ -28,9 +28,7 @@ export function detectFormat(uri: string): DocumentFormat {
 
 export function indexFile(uri: string, text: string): MethodEntry[] {
   const format = detectFormat(uri);
-  const topazRegions = format === 'tonel'
-    ? parseTonelDocument(text)
-    : parseTopazDocument(text);
+  const topazRegions = format === 'tonel' ? parseTonelDocument(text) : parseTopazDocument(text);
   const methods: MethodEntry[] = [];
 
   for (const region of topazRegions) {
@@ -160,7 +158,7 @@ function pushTo(map: Map<string, MethodEntry[]>, key: string, entry: MethodEntry
 function removeFrom(map: Map<string, MethodEntry[]>, key: string, uri: string): void {
   const list = map.get(key);
   if (!list) return;
-  const filtered = list.filter(m => m.uri !== uri);
+  const filtered = list.filter((m) => m.uri !== uri);
   if (filtered.length === 0) {
     map.delete(key);
   } else {

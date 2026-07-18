@@ -53,9 +53,10 @@ export function pollNbResultReady(session: ActiveSession): { result: number; err
   const ready = pollReadable(fd, 0);
   return {
     result: ready,
-    err: ready === -1
-      ? ({ number: -1, message: 'Failed to poll the GemStone session socket' } as GciError)
-      : err,
+    err:
+      ready === -1
+        ? ({ number: -1, message: 'Failed to poll the GemStone session socket' } as GciError)
+        : err,
   };
 }
 
@@ -158,8 +159,8 @@ export function pollNbToCompletion<T>(
           return;
         }
         Promise.resolve(ready).then(
-          value => settle(() => resolve(value)),
-          e => settle(() => reject(e)),
+          (value) => settle(() => resolve(value)),
+          (e) => settle(() => reject(e)),
         );
         return;
       }
@@ -168,7 +169,8 @@ export function pollNbToCompletion<T>(
         return;
       }
 
-      const interval = pollIndex < BACKOFF_INTERVALS.length ? BACKOFF_INTERVALS[pollIndex] : MAX_INTERVAL;
+      const interval =
+        pollIndex < BACKOFF_INTERVALS.length ? BACKOFF_INTERVALS[pollIndex] : MAX_INTERVAL;
       pollIndex++;
       elapsedMs += interval;
 
@@ -183,7 +185,9 @@ export function pollNbToCompletion<T>(
           (progress, token) => {
             progressReport = (value) => progress.report(value);
             token.onCancellationRequested(requestCancel);
-            return new Promise<void>(res => { progressResolve = res; });
+            return new Promise<void>((res) => {
+              progressResolve = res;
+            });
           },
         );
       }

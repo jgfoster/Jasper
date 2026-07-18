@@ -1,11 +1,22 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fetchEnhancedInspectorRowOop, fetchEnhancedInspectorForwardRowOop } from '../queries/getEnhancedInspectorViewSpecs';
+import {
+  fetchEnhancedInspectorRowOop,
+  fetchEnhancedInspectorForwardRowOop,
+} from '../queries/getEnhancedInspectorViewSpecs';
 
-type RowOopFn = (execute: ReturnType<typeof vi.fn>, oop: bigint, selector: string, nodeId: number) => bigint | null;
+type RowOopFn = (
+  execute: ReturnType<typeof vi.fn>,
+  oop: bigint,
+  selector: string,
+  nodeId: number,
+) => bigint | null;
 
 describe.each([
   { name: 'fetchEnhancedInspectorRowOop', fn: fetchEnhancedInspectorRowOop as unknown as RowOopFn },
-  { name: 'fetchEnhancedInspectorForwardRowOop', fn: fetchEnhancedInspectorForwardRowOop as unknown as RowOopFn },
+  {
+    name: 'fetchEnhancedInspectorForwardRowOop',
+    fn: fetchEnhancedInspectorForwardRowOop as unknown as RowOopFn,
+  },
 ])('$name', ({ fn }) => {
   it('returns a bigint OOP on happy path', () => {
     expect.assertions(1);
@@ -33,7 +44,9 @@ describe.each([
 
   it('returns null when execute throws', () => {
     expect.assertions(1);
-    const execute = vi.fn(() => { throw new Error('connection lost'); });
+    const execute = vi.fn(() => {
+      throw new Error('connection lost');
+    });
     expect(fn(execute, 1000n, 'gtItemsFor:', 5)).toBeNull();
   });
 

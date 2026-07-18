@@ -11,20 +11,21 @@ import { escapeString } from './util';
 // `fullBackupTo:` requires the FileControl privilege; without it the stone
 // raises a raw GCI error. Pre-flighting lets us stop with a clear message.
 export function hasFileControlPrivilege(execute: QueryExecutor): boolean {
-  return execute(
-    'backup: FileControl privilege check',
-    '(System myUserProfile privileges includes: #FileControl) printString',
-  ).trim() === 'true';
+  return (
+    execute(
+      'backup: FileControl privilege check',
+      '(System myUserProfile privileges includes: #FileControl) printString',
+    ).trim() === 'true'
+  );
 }
 
 // A logical backup aborts the session; `fullBackupTo:` refuses outright
 // (rtErrAbortWouldLoseData) when the session holds uncommitted changes. Pre-flight
 // so we can warn the user before anything is discarded.
 export function sessionNeedsCommit(execute: QueryExecutor): boolean {
-  return execute(
-    'backup: uncommitted-changes check',
-    'System needsCommit printString',
-  ).trim() === 'true';
+  return (
+    execute('backup: uncommitted-changes check', 'System needsCommit printString').trim() === 'true'
+  );
 }
 
 // Discard the session's uncommitted changes so the subsequent backup won't be

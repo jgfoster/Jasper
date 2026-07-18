@@ -26,7 +26,10 @@ import { ActiveSession } from '../../sessionManager';
 import { GemStoneLogin } from '../../loginTypes';
 import * as queries from '../../browserQueries';
 import * as debug from '../../debugQueries';
-import { isEnhancedInspectorInstalled, supportsEnhancedInspector } from '../../enhancedInspectorInstall';
+import {
+  isEnhancedInspectorInstalled,
+  supportsEnhancedInspector,
+} from '../../enhancedInspectorInstall';
 import { refreshEnhancedInspectorAvailable } from '../../enhancedInspectorAvailability';
 
 const OOP_NIL = 0x14n;
@@ -37,10 +40,7 @@ describe('Inspect It routing (integration)', () => {
 
   beforeAll(() => {
     gci = new GciLibrary(GCI_LIBRARY_PATH);
-    const login = gci.GciTsLogin(
-      STONE_NRS, null, null, false,
-      GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
-    );
+    const login = gci.GciTsLogin(STONE_NRS, null, null, false, GEM_NRS, GS_USER, GS_PASSWORD, 0, 0);
     expect(login.session).not.toBeNull();
 
     session = {

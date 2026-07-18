@@ -101,10 +101,7 @@ export class GemStoneCodeLensProvider implements vscode.CodeLensProvider, vscode
         const className = parts[2];
         const isMeta = parts[3] === 'class';
 
-        const range = new vscode.Range(
-          new vscode.Position(0, 0),
-          new vscode.Position(0, 0),
-        );
+        const range = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0));
         lenses.push(...this.makeMethodLenses(range, selector, className, isMeta));
       }
     } catch {
@@ -145,8 +142,7 @@ export class GemStoneCodeLensProvider implements vscode.CodeLensProvider, vscode
       return codeLens;
     }
 
-    const maxEnv = vscode.workspace.getConfiguration('gemstone')
-      .get<number>('maxEnvironment', 0);
+    const maxEnv = vscode.workspace.getConfiguration('gemstone').get<number>('maxEnvironment', 0);
     // Each lens computes only its own count. Cached so a forced re-resolve
     // (another provider on this doc changing) doesn't repeat the server work.
     const cacheKey = `${data.kind}|${data.selector}|${data.className ?? ''}|${data.isMeta}|${session.id}|${maxEnv}`;
@@ -170,9 +166,8 @@ export class GemStoneCodeLensProvider implements vscode.CodeLensProvider, vscode
   private countCommand(count: number, data: CodeLensData, sessionId: number): vscode.Command {
     const noun = data.kind === 'senders' ? 'sender' : 'implementor';
     const title = count === 1 ? `1 ${noun}` : `${count} ${noun}s`;
-    const command = data.kind === 'senders'
-      ? 'gemstone.sendersOfSelector'
-      : 'gemstone.implementorsOfSelector';
+    const command =
+      data.kind === 'senders' ? 'gemstone.sendersOfSelector' : 'gemstone.implementorsOfSelector';
     return { title, command, arguments: [{ selector: data.selector, sessionId }] };
   }
 
@@ -183,7 +178,10 @@ export class GemStoneCodeLensProvider implements vscode.CodeLensProvider, vscode
    * — after the placeholder is already on screen — keeps the spin visible.
    */
   private scheduleCount(
-    data: CodeLensData, session: ActiveSession, maxEnv: number, cacheKey: string,
+    data: CodeLensData,
+    session: ActiveSession,
+    maxEnv: number,
+    cacheKey: string,
   ): void {
     if (this.pending.has(cacheKey)) return;
     this.pending.add(cacheKey);
@@ -193,9 +191,10 @@ export class GemStoneCodeLensProvider implements vscode.CodeLensProvider, vscode
       let count = 0;
       for (let env = 0; env <= maxEnv; env++) {
         try {
-          count += data.kind === 'senders'
-            ? queries.sendersOf(session, data.selector, env).length
-            : queries.implementorsOf(session, data.selector, env).length;
+          count +=
+            data.kind === 'senders'
+              ? queries.sendersOf(session, data.selector, env).length
+              : queries.implementorsOf(session, data.selector, env).length;
         } catch {
           // Session may be busy or selector not found in this env
         }

@@ -10,14 +10,22 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { runTestMethod } from '../../queries/runTestMethod';
 import { runTestClass } from '../../queries/runTestClass';
-import { runFailingTests, DISCOVER_ALL_TEST_CLASSES, MAX_RUN_CLASSES } from '../../queries/runFailingTests';
+import {
+  runFailingTests,
+  DISCOVER_ALL_TEST_CLASSES,
+  MAX_RUN_CLASSES,
+} from '../../queries/runFailingTests';
 import { describeTestFailure } from '../../queries/describeTestFailure';
 import { splitLines } from '../../queries/util';
 import { QueryExecutor } from '../../queries/types';
 import { HarnessSession, login } from './queryHarness';
 import {
-  installProbeFixture, uninstallProbeFixture,
-  PROBE_TEST_CLASS, PROBE_PASSING_SELECTOR, PROBE_FAILING_SELECTOR, PROBE_ERRORING_SELECTOR,
+  installProbeFixture,
+  uninstallProbeFixture,
+  PROBE_TEST_CLASS,
+  PROBE_PASSING_SELECTOR,
+  PROBE_FAILING_SELECTOR,
+  PROBE_ERRORING_SELECTOR,
 } from './probeFixture';
 
 // Run the production discover-all fragment and return one row per discovered
@@ -28,16 +36,14 @@ import {
 // it's unbounded, grows as the image gains tests, and — because the GCI
 // executor is a synchronous blocking call — can't be interrupted by a vitest
 // timeout, so a single slow or blocking image test hangs the whole run.
-function discoverAllTestClasses(
-  exec: QueryExecutor,
-): { name: string; isAbstract: boolean }[] {
+function discoverAllTestClasses(exec: QueryExecutor): { name: string; isAbstract: boolean }[] {
   const code = `| classes ws |
 classes := ${DISCOVER_ALL_TEST_CLASSES}.
 ws := WriteStream on: Unicode7 new.
 classes do: [:c |
   ws nextPutAll: c name; tab; nextPutAll: c isAbstract printString; lf].
 ws contents encodeAsUTF8`;
-  return splitLines(exec('discoverAllTestClasses', code)).map(line => {
+  return splitLines(exec('discoverAllTestClasses', code)).map((line) => {
     const [name, isAbstract] = line.split('\t');
     return { name: name || '', isAbstract: isAbstract === 'true' };
   });
@@ -52,7 +58,11 @@ describe('SUnit queries (live GCI)', () => {
   });
   afterAll(() => {
     if (s) {
-      try { uninstallProbeFixture(s.exec); } catch { /* keep going */ }
+      try {
+        uninstallProbeFixture(s.exec);
+      } catch {
+        /* keep going */
+      }
       s.logout();
     }
   });
@@ -90,7 +100,7 @@ describe('SUnit queries (live GCI)', () => {
   describe('runTestClass', () => {
     it('reports per-method results for the probe class', () => {
       const results = runTestClass(s.exec, PROBE_TEST_CLASS);
-      const bySel = new Map(results.map(r => [r.selector, r]));
+      const bySel = new Map(results.map((r) => [r.selector, r]));
 
       expect(bySel.get(PROBE_PASSING_SELECTOR)?.status).toBe('passed');
       expect(bySel.get(PROBE_FAILING_SELECTOR)?.status).toBe('failed');
@@ -111,7 +121,7 @@ describe('SUnit queries (live GCI)', () => {
     // because the discover-all fragment had un-wrapped temps.
     it('with explicit classNames returns only failed/errored entries', () => {
       const results = runFailingTests(s.exec, [PROBE_TEST_CLASS]);
-      const sels = new Set(results.map(r => r.selector));
+      const sels = new Set(results.map((r) => r.selector));
       expect(sels.has(PROBE_FAILING_SELECTOR)).toBe(true);
       expect(sels.has(PROBE_ERRORING_SELECTOR)).toBe(true);
       expect(sels.has(PROBE_PASSING_SELECTOR)).toBe(false);
@@ -127,7 +137,7 @@ describe('SUnit queries (live GCI)', () => {
     it('with classNamePattern filters the discovered TestCase set', () => {
       const results = runFailingTests(s.exec, undefined, 'JasperProbe*');
       // Pattern matches our probe class. We expect both failures from it.
-      const probeFailures = results.filter(r => r.className === PROBE_TEST_CLASS);
+      const probeFailures = results.filter((r) => r.className === PROBE_TEST_CLASS);
       expect(probeFailures.length).toBeGreaterThanOrEqual(2);
     });
 
@@ -148,7 +158,7 @@ describe('SUnit queries (live GCI)', () => {
     it('discovers our probe class among the TestCase subclasses', () => {
       // Confirms discovery returns a real, non-empty set (and sees our
       // installed fixture), so the dedup/abstract assertions below have teeth.
-      const names = discoverAllTestClasses(s.exec).map(c => c.name);
+      const names = discoverAllTestClasses(s.exec).map((c) => c.name);
       expect(names).toContain(PROBE_TEST_CLASS);
     });
 
@@ -169,7 +179,7 @@ describe('SUnit queries (live GCI)', () => {
       const dupes = [...counts.entries()].filter(([, n]) => n > 1);
       expect(dupes).toEqual([]);
 
-      const abstract = classes.filter(c => c.isAbstract).map(c => c.name);
+      const abstract = classes.filter((c) => c.isAbstract).map((c) => c.name);
       expect(abstract).toEqual([]);
     });
 

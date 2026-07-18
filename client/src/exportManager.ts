@@ -9,11 +9,19 @@ import { shouldSyncClasses } from './loginTypes';
 import { boundLimitExecutor } from './browserQueries';
 import { fetchBlob, newStats, RequestTiming } from './sync/syncTransport';
 import {
-  MANIFEST_BUILD_EXPR, contentBuildExpr, syncClassBuildExpr, SYNC_REFS_PER_BATCH, ClassRef,
+  MANIFEST_BUILD_EXPR,
+  contentBuildExpr,
+  syncClassBuildExpr,
+  SYNC_REFS_PER_BATCH,
+  ClassRef,
 } from './sync/syncProtocol';
 import { parseManifest, parseContent, ClassSource } from './sync/syncFraming';
 import {
-  diffManifest, emptyState, entryKey, splitKey, chunkRefs,
+  diffManifest,
+  emptyState,
+  entryKey,
+  splitKey,
+  chunkRefs,
   MirrorState,
 } from './sync/manifestDiff';
 
@@ -118,8 +126,11 @@ export class ExportManager {
     // mirror that survives logout. {index} and {dictName} stay as placeholders.
     if (!wsRoot) return undefined;
     return path.join(
-      wsRoot, '.gemstone',
-      safeSegment(gem_host), safeSegment(stone), safeSegment(gs_user),
+      wsRoot,
+      '.gemstone',
+      safeSegment(gem_host),
+      safeSegment(stone),
+      safeSegment(gs_user),
       '{index}-{dictName}',
     );
   }
@@ -128,9 +139,7 @@ export class ExportManager {
   getDictPath(session: ActiveSession, dictIndex: number, dictName: string): string | undefined {
     const template = this.getResolvedTemplate(session);
     if (!template) return undefined;
-    return template
-      .replace(/\{index}/g, String(dictIndex))
-      .replace(/\{dictName}/g, dictName);
+    return template.replace(/\{index}/g, String(dictIndex)).replace(/\{dictName}/g, dictName);
   }
 
   /** Per-target root directory (parent of all dictionary directories). */
@@ -150,7 +159,9 @@ export class ExportManager {
    */
   async exportSession(session: ActiveSession, silent = false): Promise<void> {
     if (!shouldSyncClasses(session.login)) {
-      this.log(`Sync skipped for ${session.login.gs_user}@${session.login.stone}: disabled for this login.`);
+      this.log(
+        `Sync skipped for ${session.login.gs_user}@${session.login.stone}: disabled for this login.`,
+      );
       return;
     }
 
@@ -181,7 +192,9 @@ export class ExportManager {
         // (build) vs the network (net ≈ wall − server).
         const reqLog = (t: RequestTiming) => {
           const net = Math.max(0, t.wallMs - t.serverMs);
-          this.log(`  ${t.label}: server=${t.serverMs}ms wall=${t.wallMs}ms net≈${net}ms ${formatBytes(t.bytes)}`);
+          this.log(
+            `  ${t.label}: server=${t.serverMs}ms wall=${t.wallMs}ms net≈${net}ms ${formatBytes(t.bytes)}`,
+          );
         };
 
         // 1. Fetch the manifest (md5 of every class) and diff against local state.
@@ -189,7 +202,14 @@ export class ExportManager {
         const manifestStats = newStats();
         let manifestText: string;
         try {
-          manifestText = fetchBlob(exec, 'manifest', MANIFEST_BUILD_EXPR, {}, manifestStats, reqLog);
+          manifestText = fetchBlob(
+            exec,
+            'manifest',
+            MANIFEST_BUILD_EXPR,
+            {},
+            manifestStats,
+            reqLog,
+          );
         } catch (e) {
           this.reportError(e, silent);
           return;
@@ -200,7 +220,7 @@ export class ExportManager {
         if (manifest.classCount !== null && manifest.classCount !== manifest.classes.length) {
           this.log(
             `WARNING: manifest looks truncated — server declared ${manifest.classCount} ` +
-            `classes but only ${manifest.classes.length} parsed.`,
+              `classes but only ${manifest.classes.length} parsed.`,
           );
         }
         const dictNameByIndex = new Map<number, string>();
@@ -247,7 +267,7 @@ export class ExportManager {
             deleted++;
           }
           const delT0 = Date.now();
-          await runPool(deletePaths, SYNC_WRITE_CONCURRENCY, fp => this.deleteClassFileAsync(fp));
+          await runPool(deletePaths, SYNC_WRITE_CONCURRENCY, (fp) => this.deleteClassFileAsync(fp));
           deleteMs += Date.now() - delT0;
 
           // 4. Fetch & write changed/new classes in batches.
@@ -256,7 +276,14 @@ export class ExportManager {
             if (token.isCancellationRequested) break;
             let payload: string;
             try {
-              payload = fetchBlob(exec, 'content', contentBuildExpr(batch), {}, contentStats, reqLog);
+              payload = fetchBlob(
+                exec,
+                'content',
+                contentBuildExpr(batch),
+                {},
+                contentStats,
+                reqLog,
+              );
             } catch (e) {
               this.reportError(e, silent);
               break;
@@ -309,13 +336,13 @@ export class ExportManager {
         const roundTrips = manifestStats.roundTrips + contentStats.roundTrips;
         this.log(
           `${session.login.gs_user}@${session.login.stone}` +
-          (cancelled ? ' (cancelled)' : '') +
-          ` — ${manifest.classes.length} classes` +
-          (manifest.methodCount !== null ? ` / ${manifest.methodCount} methods` : '') +
-          `, ${unchanged} unchanged, ${fetched} fetched, ${deleted} deleted; ` +
-          `${roundTrips} requests; server ${serverMs}ms, wall ${wallMs}ms, net≈${Math.max(0, wallMs - serverMs)}ms; ` +
-          `disk ${writeMs + deleteMs}ms (write ${writeMs}ms, delete ${deleteMs}ms); ` +
-          `total ${elapsed}ms; content ${formatBytes(contentStats.chars)}`,
+            (cancelled ? ' (cancelled)' : '') +
+            ` — ${manifest.classes.length} classes` +
+            (manifest.methodCount !== null ? ` / ${manifest.methodCount} methods` : '') +
+            `, ${unchanged} unchanged, ${fetched} fetched, ${deleted} deleted; ` +
+            `${roundTrips} requests; server ${serverMs}ms, wall ${wallMs}ms, net≈${Math.max(0, wallMs - serverMs)}ms; ` +
+            `disk ${writeMs + deleteMs}ms (write ${writeMs}ms, delete ${deleteMs}ms); ` +
+            `total ${elapsed}ms; content ${formatBytes(contentStats.chars)}`,
         );
 
         // 7. Audit: report (loudly) any requested class we failed to write.
@@ -323,7 +350,7 @@ export class ExportManager {
         if (auditFailed) {
           this.log(
             `AUDIT FAILED: ${missing.length} requested class(es) not written; ` +
-            `${parseErrors.length} batch parse error(s).`,
+              `${parseErrors.length} batch parse error(s).`,
           );
           for (const e of parseErrors) this.log(`  parse error: ${e}`);
           for (const m of missing.slice(0, 50)) this.log(`  missing: ${m.dictName}/${m.className}`);
@@ -331,7 +358,7 @@ export class ExportManager {
           if (!silent) {
             vscode.window.showWarningMessage(
               `GemStone class sync: ${missing.length} class(es) could not be written. ` +
-              `See the "GemStone Class Sync" output for details.`,
+                `See the "GemStone Class Sync" output for details.`,
             );
           }
         }
@@ -392,7 +419,9 @@ export class ExportManager {
       state.classes[entryKey(dictIndex, dictName, className)] = hash;
       this.saveState(sessionRoot, state);
     } catch (e) {
-      this.log(`syncClass failed for ${dictName}/${className}: ${e instanceof Error ? e.message : String(e)}`);
+      this.log(
+        `syncClass failed for ${dictName}/${className}: ${e instanceof Error ? e.message : String(e)}`,
+      );
     }
   }
 
@@ -402,7 +431,10 @@ export class ExportManager {
    * no server round trip is needed.
    */
   removeClassFile(
-    session: ActiveSession, dictIndex: number, dictName: string, className: string,
+    session: ActiveSession,
+    dictIndex: number,
+    dictName: string,
+    className: string,
   ): void {
     if (!shouldSyncClasses(session.login)) return;
     const sessionRoot = this.getSessionRoot(session);
@@ -431,10 +463,13 @@ export class ExportManager {
     if (!shouldSyncClasses(session.login)) return;
     const prev = this.refreshTimers.get(session.id);
     if (prev) clearTimeout(prev);
-    this.refreshTimers.set(session.id, setTimeout(() => {
-      this.refreshTimers.delete(session.id);
-      void this.refreshSession(session);
-    }, delayMs));
+    this.refreshTimers.set(
+      session.id,
+      setTimeout(() => {
+        this.refreshTimers.delete(session.id);
+        void this.refreshSession(session);
+      }, delayMs),
+    );
   }
 
   /**
@@ -502,7 +537,9 @@ export class ExportManager {
   // existing read-only mirror file, making it writable and retrying. Returns
   // false (and logs) if the class could not be written, so the audit catches it.
   private async writeClassFileAsync(
-    filePath: string, source: string, readOnly: boolean,
+    filePath: string,
+    source: string,
+    readOnly: boolean,
   ): Promise<boolean> {
     try {
       await fs.promises.writeFile(filePath, source, 'utf-8');
@@ -513,11 +550,15 @@ export class ExportManager {
           await fs.promises.chmod(filePath, 0o644);
           await fs.promises.writeFile(filePath, source, 'utf-8');
         } catch (e2) {
-          this.log(`Failed to write ${path.basename(filePath)}: ${e2 instanceof Error ? e2.message : String(e2)}`);
+          this.log(
+            `Failed to write ${path.basename(filePath)}: ${e2 instanceof Error ? e2.message : String(e2)}`,
+          );
           return false;
         }
       } else {
-        this.log(`Failed to write ${path.basename(filePath)}: ${e instanceof Error ? e.message : String(e)}`);
+        this.log(
+          `Failed to write ${path.basename(filePath)}: ${e instanceof Error ? e.message : String(e)}`,
+        );
         return false;
       }
     }
@@ -599,7 +640,9 @@ function formatBytes(n: number): string {
 
 // Run `fn` over `items` with at most `limit` promises in flight at once.
 async function runPool<T>(
-  items: T[], limit: number, fn: (item: T) => Promise<void>,
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
 ): Promise<void> {
   if (items.length === 0) return;
   let next = 0;

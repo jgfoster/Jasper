@@ -7,15 +7,27 @@ import * as os from 'os';
 // ExportManager runs the real sync transport/framing/diff against this in-memory
 // image (only the GCI executor is mocked), then writes real files to a temp dir.
 const h = vi.hoisted(() => {
-  interface FakeClass { dictIndex: number; className: string; source: string }
-  interface FakeImage { dicts: { index: number; name: string }[]; classes: FakeClass[] }
+  interface FakeClass {
+    dictIndex: number;
+    className: string;
+    source: string;
+  }
+  interface FakeImage {
+    dicts: { index: number; name: string }[];
+    classes: FakeClass[];
+  }
 
   const state: {
     image: FakeImage;
     contentPrepares: number;
     fetchedClasses: string[];
     drop: Set<string>; // className(s) the fake server silently omits from content
-  } = { image: { dicts: [], classes: [] }, contentPrepares: 0, fetchedClasses: [], drop: new Set() };
+  } = {
+    image: { dicts: [], classes: [] },
+    contentPrepares: 0,
+    fetchedClasses: [],
+    drop: new Set(),
+  };
 
   const fakeHash = (s: string): string => {
     let n = 0;
@@ -28,7 +40,7 @@ const h = vi.hoisted(() => {
     let classCount = 0;
     for (const d of img.dicts) {
       body += `D\t${d.index}\t${d.name}\n`;
-      for (const c of img.classes.filter(c => c.dictIndex === d.index)) {
+      for (const c of img.classes.filter((c) => c.dictIndex === d.index)) {
         classCount++;
         body += `C\t${d.index}\t${c.className}\t${fakeHash(c.source)}\n`;
       }
@@ -36,12 +48,15 @@ const h = vi.hoisted(() => {
     return `S\t${classCount}\t0\n${body}`;
   };
 
-  const contentPayload = (img: FakeImage, refs: { dictIndex: number; className: string }[]): string => {
+  const contentPayload = (
+    img: FakeImage,
+    refs: { dictIndex: number; className: string }[],
+  ): string => {
     let body = '';
     let count = 0;
     for (const r of refs) {
       if (state.drop.has(r.className)) continue; // simulate server omitting a class
-      const c = img.classes.find(c => c.dictIndex === r.dictIndex && c.className === r.className);
+      const c = img.classes.find((c) => c.dictIndex === r.dictIndex && c.className === r.className);
       if (!c) continue;
       count++;
       body += `${r.dictIndex}\t${r.className}\t${[...c.source].length}\n${c.source}`;
@@ -49,7 +64,7 @@ const h = vi.hoisted(() => {
     return `N\t${count}\t0\n${body}`;
   };
 
-  const dictNameOf = (img: FakeImage, idx: number) => img.dicts.find(d => d.index === idx)?.name;
+  const dictNameOf = (img: FakeImage, idx: number) => img.dicts.find((d) => d.index === idx)?.name;
 
   // syncClassBuildExpr: resolve dict by name, return `idx \t hash \n source`.
   const classPayload = (img: FakeImage, code: string): string => {
@@ -59,7 +74,8 @@ const h = vi.hoisted(() => {
     const dictName = dn[1].replace(/''/g, "'");
     const className = cn[1].replace(/''/g, "'");
     const c = img.classes.find(
-      c => c.className === className && dictNameOf(img, c.dictIndex) === dictName);
+      (c) => c.className === className && dictNameOf(img, c.dictIndex) === dictName,
+    );
     if (!c) return '';
     return `${c.dictIndex}\t${fakeHash(c.source)}\n${c.source}`;
   };
@@ -97,30 +113,42 @@ const h = vi.hoisted(() => {
         // fetch → `serverMs \n <chunk>`
         return `0\n${[...(stored ?? '')].slice(parseInt(m[1], 10) - 1, parseInt(m[2], 10)).join('')}`;
       }
-      if (label.endsWith(':release')) { stored = null; return ''; }
+      if (label.endsWith(':release')) {
+        stored = null;
+        return '';
+      }
       return '';
     };
   };
 
   return {
-    setImage: (img: FakeImage) => { state.image = img; },
+    setImage: (img: FakeImage) => {
+      state.image = img;
+    },
     setClassSource: (dictIndex: number, className: string, source: string) => {
-      const c = state.image.classes.find(c => c.dictIndex === dictIndex && c.className === className);
+      const c = state.image.classes.find(
+        (c) => c.dictIndex === dictIndex && c.className === className,
+      );
       if (c) c.source = source;
     },
     removeClass: (dictIndex: number, className: string) => {
       state.image.classes = state.image.classes.filter(
-        c => !(c.dictIndex === dictIndex && c.className === className));
+        (c) => !(c.dictIndex === dictIndex && c.className === className),
+      );
     },
     addClass: (dictIndex: number, className: string, source: string) => {
       state.image.classes.push({ dictIndex, className, source });
     },
     renameDict: (index: number, name: string) => {
-      const d = state.image.dicts.find(d => d.index === index);
+      const d = state.image.dicts.find((d) => d.index === index);
       if (d) d.name = name;
     },
     dropClass: (className: string) => state.drop.add(className),
-    reset: () => { state.contentPrepares = 0; state.fetchedClasses = []; state.drop.clear(); },
+    reset: () => {
+      state.contentPrepares = 0;
+      state.fetchedClasses = [];
+      state.drop.clear();
+    },
     contentPrepares: () => state.contentPrepares,
     fetchedClasses: () => state.fetchedClasses,
     boundLimitExecutor: vi.fn(() => makeExecutor()),
@@ -142,13 +170,22 @@ vi.mock('vscode', () => {
       showWarningMessage: vi.fn(),
       showInformationMessage: vi.fn(),
       showErrorMessage: vi.fn(),
-      createOutputChannel: vi.fn(() => ({ appendLine: vi.fn(), append: vi.fn(), dispose: vi.fn() })),
+      createOutputChannel: vi.fn(() => ({
+        appendLine: vi.fn(),
+        append: vi.fn(),
+        dispose: vi.fn(),
+      })),
       withProgress: vi.fn(async (_opts: unknown, task: (p: unknown, t: unknown) => Promise<void>) =>
-        task({ report: vi.fn() }, { isCancellationRequested: false })),
+        task({ report: vi.fn() }, { isCancellationRequested: false }),
+      ),
     },
     ProgressLocation: { Notification: 15 },
-    __setConfigValue: (key: string, value: unknown) => { configValues[key] = value; },
-    __resetConfig: () => { for (const k of Object.keys(configValues)) delete configValues[k]; },
+    __setConfigValue: (key: string, value: unknown) => {
+      configValues[key] = value;
+    },
+    __resetConfig: () => {
+      for (const k of Object.keys(configValues)) delete configValues[k];
+    },
   };
 });
 
@@ -163,9 +200,16 @@ function createMockSession(overrides?: Partial<GemStoneLogin>): ActiveSession {
     gci: {} as ActiveSession['gci'],
     handle: {},
     login: {
-      label: 'Test', version: '3.7.2', gem_host: 'localhost', stone: 'gs64stone',
-      gs_user: 'DataCurator', gs_password: '', netldi: 'gs64ldi',
-      host_user: '', host_password: '', ...overrides,
+      label: 'Test',
+      version: '3.7.2',
+      gem_host: 'localhost',
+      stone: 'gs64stone',
+      gs_user: 'DataCurator',
+      gs_password: '',
+      netldi: 'gs64ldi',
+      host_user: '',
+      host_password: '',
+      ...overrides,
     },
     stoneVersion: '3.7.2',
   } as ActiveSession;
@@ -173,7 +217,10 @@ function createMockSession(overrides?: Partial<GemStoneLogin>): ActiveSession {
 
 function defaultImage() {
   return {
-    dicts: [{ index: 1, name: 'UserGlobals' }, { index: 2, name: 'Globals' }],
+    dicts: [
+      { index: 1, name: 'UserGlobals' },
+      { index: 2, name: 'Globals' },
+    ],
     classes: [
       { dictIndex: 1, className: 'MyClass', source: '! fileout of MyClass\n' },
       { dictIndex: 1, className: 'OtherClass', source: '! fileout of OtherClass\n' },
@@ -193,8 +240,9 @@ describe('ExportManager (incremental sync)', () => {
     h.reset();
     manager = new ExportManager();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemstone-export-test-'));
-    (vscode.workspace as unknown as { workspaceFolders: { uri: { fsPath: string } }[] })
-      .workspaceFolders = [{ uri: { fsPath: tmpDir } }];
+    (
+      vscode.workspace as unknown as { workspaceFolders: { uri: { fsPath: string } }[] }
+    ).workspaceFolders = [{ uri: { fsPath: tmpDir } }];
   });
 
   afterEach(() => {
@@ -208,12 +256,16 @@ describe('ExportManager (incremental sync)', () => {
   describe('path layout', () => {
     it('keys the mirror by host/stone/user', () => {
       const session = createMockSession();
-      expect(root(session)).toBe(path.join(tmpDir, '.gemstone', 'localhost', 'gs64stone', 'DataCurator'));
+      expect(root(session)).toBe(
+        path.join(tmpDir, '.gemstone', 'localhost', 'gs64stone', 'DataCurator'),
+      );
     });
 
     it('sanitizes unusual segments', () => {
       const session = createMockSession({ stone: 'weird/stone..name' });
-      expect(root(session)).toBe(path.join(tmpDir, '.gemstone', 'localhost', 'weird_stone..name', 'DataCurator'));
+      expect(root(session)).toBe(
+        path.join(tmpDir, '.gemstone', 'localhost', 'weird_stone..name', 'DataCurator'),
+      );
     });
   });
 
@@ -222,10 +274,18 @@ describe('ExportManager (incremental sync)', () => {
       const session = createMockSession();
       await manager.exportSession(session);
       const r = root(session);
-      expect(fs.readFileSync(path.join(r, '1-UserGlobals', 'MyClass.gs'), 'utf-8')).toBe('! fileout of MyClass\n');
-      expect(fs.readFileSync(path.join(r, '1-UserGlobals', 'OtherClass.gs'), 'utf-8')).toBe('! fileout of OtherClass\n');
-      expect(fs.readFileSync(path.join(r, '2-Globals', 'Array.gs'), 'utf-8')).toBe('! fileout of Array\n');
-      expect(fs.readFileSync(path.join(r, '2-Globals', 'String.gs'), 'utf-8')).toBe('! fileout of String\n');
+      expect(fs.readFileSync(path.join(r, '1-UserGlobals', 'MyClass.gs'), 'utf-8')).toBe(
+        '! fileout of MyClass\n',
+      );
+      expect(fs.readFileSync(path.join(r, '1-UserGlobals', 'OtherClass.gs'), 'utf-8')).toBe(
+        '! fileout of OtherClass\n',
+      );
+      expect(fs.readFileSync(path.join(r, '2-Globals', 'Array.gs'), 'utf-8')).toBe(
+        '! fileout of Array\n',
+      );
+      expect(fs.readFileSync(path.join(r, '2-Globals', 'String.gs'), 'utf-8')).toBe(
+        '! fileout of String\n',
+      );
     });
 
     it('marks class files read-only', async () => {
@@ -265,8 +325,9 @@ describe('ExportManager (incremental sync)', () => {
       h.setClassSource(1, 'MyClass', '! fileout of MyClass v2\n');
       await manager.refreshSession(session);
       expect(h.fetchedClasses()).toEqual(['MyClass']);
-      expect(fs.readFileSync(path.join(root(session), '1-UserGlobals', 'MyClass.gs'), 'utf-8'))
-        .toBe('! fileout of MyClass v2\n');
+      expect(
+        fs.readFileSync(path.join(root(session), '1-UserGlobals', 'MyClass.gs'), 'utf-8'),
+      ).toBe('! fileout of MyClass v2\n');
     });
 
     it('deletes a class removed from the image', async () => {
@@ -299,8 +360,9 @@ describe('ExportManager (incremental sync)', () => {
       h.renameDict(1, 'Renamed');
       await manager.refreshSession(session);
       expect(fs.existsSync(path.join(root(session), '1-UserGlobals'))).toBe(false);
-      expect(fs.readFileSync(path.join(root(session), '1-Renamed', 'MyClass.gs'), 'utf-8'))
-        .toBe('! fileout of MyClass\n');
+      expect(fs.readFileSync(path.join(root(session), '1-Renamed', 'MyClass.gs'), 'utf-8')).toBe(
+        '! fileout of MyClass\n',
+      );
     });
   });
 
@@ -324,7 +386,8 @@ describe('ExportManager (incremental sync)', () => {
       (vscode.workspace as unknown as { workspaceFolders: null }).workspaceFolders = null;
       await manager.exportSession(createMockSession());
       expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
-        expect.stringContaining('No workspace folder'));
+        expect.stringContaining('No workspace folder'),
+      );
     });
 
     it('stays silent on an automatic (silent) sync', async () => {
@@ -357,8 +420,9 @@ describe('ExportManager (incremental sync)', () => {
 
       await manager.syncClass(session, 'UserGlobals', 'FreshClass');
 
-      expect(fs.readFileSync(path.join(root(session), '1-UserGlobals', 'FreshClass.gs'), 'utf-8'))
-        .toBe('! fileout of FreshClass\n');
+      expect(
+        fs.readFileSync(path.join(root(session), '1-UserGlobals', 'FreshClass.gs'), 'utf-8'),
+      ).toBe('! fileout of FreshClass\n');
     });
 
     it('writes a read-only file', async () => {
@@ -448,9 +512,11 @@ describe('ExportManager (incremental sync)', () => {
       expect(fs.existsSync(path.join(root(session), '2-Globals', 'Array.gs'))).toBe(false);
       expect(fs.existsSync(path.join(root(session), '1-UserGlobals', 'MyClass.gs'))).toBe(true);
       expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
-        expect.stringContaining('could not be written'));
+        expect.stringContaining('could not be written'),
+      );
       expect(vscode.window.showInformationMessage).not.toHaveBeenCalledWith(
-        expect.stringContaining('Synced GemStone classes'));
+        expect.stringContaining('Synced GemStone classes'),
+      );
     });
 
     it('does not record a missing class in state, so the next sync re-fetches it', async () => {
@@ -466,8 +532,10 @@ describe('ExportManager (incremental sync)', () => {
 
   describe('readOnlyMirror setting', () => {
     it('writes writable files when disabled (fewer syscalls on slow filesystems)', async () => {
-      (vscode as unknown as { __setConfigValue: (k: string, v: unknown) => void })
-        .__setConfigValue('classSync.readOnlyMirror', false);
+      (vscode as unknown as { __setConfigValue: (k: string, v: unknown) => void }).__setConfigValue(
+        'classSync.readOnlyMirror',
+        false,
+      );
       const session = createMockSession();
       await manager.exportSession(session);
       const stat = fs.statSync(path.join(root(session), '1-UserGlobals', 'MyClass.gs'));
@@ -479,8 +547,9 @@ describe('ExportManager (incremental sync)', () => {
       await manager.exportSession(session); // writes read-only files
       h.setClassSource(1, 'MyClass', '! fileout of MyClass v2\n');
       await manager.refreshSession(session); // must make it writable, rewrite, re-lock
-      expect(fs.readFileSync(path.join(root(session), '1-UserGlobals', 'MyClass.gs'), 'utf-8'))
-        .toBe('! fileout of MyClass v2\n');
+      expect(
+        fs.readFileSync(path.join(root(session), '1-UserGlobals', 'MyClass.gs'), 'utf-8'),
+      ).toBe('! fileout of MyClass v2\n');
     });
   });
 
@@ -503,8 +572,10 @@ describe('ExportManager (incremental sync)', () => {
 
   describe('exportPath setting', () => {
     it('uses a custom template with variable substitution', async () => {
-      (vscode as unknown as { __setConfigValue: (k: string, v: unknown) => void })
-        .__setConfigValue('exportPath', '{workspaceRoot}/smalltalk/{dictName}');
+      (vscode as unknown as { __setConfigValue: (k: string, v: unknown) => void }).__setConfigValue(
+        'exportPath',
+        '{workspaceRoot}/smalltalk/{dictName}',
+      );
       const session = createMockSession();
       await manager.exportSession(session);
       const r = root(session);
@@ -513,9 +584,19 @@ describe('ExportManager (incremental sync)', () => {
     });
 
     it('lists all variables and documents the default in package.json', () => {
-      const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf-8'));
+      const pkg = JSON.parse(
+        fs.readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf-8'),
+      );
       const desc = pkg.contributes.configuration[0].properties['gemstone.exportPath'].description;
-      for (const v of ['{workspaceRoot}', '{session}', '{host}', '{stone}', '{user}', '{index}', '{dictName}']) {
+      for (const v of [
+        '{workspaceRoot}',
+        '{session}',
+        '{host}',
+        '{stone}',
+        '{user}',
+        '{index}',
+        '{dictName}',
+      ]) {
         expect(desc).toContain(v);
       }
       expect(desc).toContain('.gemstone');

@@ -1,7 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { QueryExecutor } from '../types';
 import {
-  searchMethodSource, sendersOf, implementorsOf, referencesToObject,
+  searchMethodSource,
+  sendersOf,
+  implementorsOf,
+  referencesToObject,
   hierarchyImplementorsOf,
 } from '../methodSearch';
 
@@ -9,20 +12,37 @@ const row = 'Globals\tArray\t0\tsize\taccessing\n';
 
 describe('methodSearch shared parser', () => {
   it('parses tab-separated rows into MethodSearchResult', () => {
-    const results = searchMethodSource(vi.fn<QueryExecutor>(() => row), 'size', true);
-    expect(results).toEqual([{
-      dictName: 'Globals', className: 'Array', isMeta: false,
-      selector: 'size', category: 'accessing',
-    }]);
+    const results = searchMethodSource(
+      vi.fn<QueryExecutor>(() => row),
+      'size',
+      true,
+    );
+    expect(results).toEqual([
+      {
+        dictName: 'Globals',
+        className: 'Array',
+        isMeta: false,
+        selector: 'size',
+        category: 'accessing',
+      },
+    ]);
   });
 
   it('returns [] for empty output', () => {
-    expect(sendersOf(vi.fn<QueryExecutor>(() => ''), 'nope')).toEqual([]);
+    expect(
+      sendersOf(
+        vi.fn<QueryExecutor>(() => ''),
+        'nope',
+      ),
+    ).toEqual([]);
   });
 
   it('maps isMeta=true when the third column is "1"', () => {
     const raw = 'Globals\tArray\t1\tnew\tinstance creation\n';
-    const results = implementorsOf(vi.fn<QueryExecutor>(() => raw), 'new');
+    const results = implementorsOf(
+      vi.fn<QueryExecutor>(() => raw),
+      'new',
+    );
     expect(results[0].isMeta).toBe(true);
   });
 });
@@ -138,9 +158,22 @@ describe('hierarchyImplementorsOf', () => {
 
   it('parses returned rows into MethodSearchResult', () => {
     const raw = 'Globals\tObject\t0\tat:\taccessing\n';
-    const results = hierarchyImplementorsOf(vi.fn<QueryExecutor>(() => raw), 1, 'Array', 'at:', false, 'up');
+    const results = hierarchyImplementorsOf(
+      vi.fn<QueryExecutor>(() => raw),
+      1,
+      'Array',
+      'at:',
+      false,
+      'up',
+    );
     expect(results).toEqual([
-      { dictName: 'Globals', className: 'Object', isMeta: false, selector: 'at:', category: 'accessing' },
+      {
+        dictName: 'Globals',
+        className: 'Object',
+        isMeta: false,
+        selector: 'at:',
+        category: 'accessing',
+      },
     ]);
   });
 });

@@ -8,7 +8,8 @@ export interface ClassHierarchyEntry {
 }
 
 export function getClassHierarchy(
-  execute: QueryExecutor, className: string,
+  execute: QueryExecutor,
+  className: string,
 ): ClassHierarchyEntry[] {
   /**
    * In the Smalltalk code below, allSuperclassesOf: returns root-first ([Object, Collection, ...]),

@@ -8,7 +8,9 @@ function fakeMemento(): vscode.Memento {
   return {
     get: <T>(key: string, defaultValue?: T) =>
       (store.has(key) ? store.get(key) : defaultValue) as T,
-    update: async (key: string, value: unknown) => { store.set(key, value); },
+    update: async (key: string, value: unknown) => {
+      store.set(key, value);
+    },
     keys: () => [...store.keys()],
   } as vscode.Memento;
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 
 vi.mock('vscode', () => import('../__mocks__/vscode'));
 
@@ -10,6 +10,7 @@ vi.mock('../browserQueries', () => ({
 }));
 
 import { Uri, window } from '../__mocks__/vscode';
+import type * as vscode from 'vscode';
 import {
   SelectorBreakpointManager,
   findNearestStepPoint,
@@ -32,7 +33,7 @@ function makeSessionManager(hasSession: boolean) {
     getSelectedSession: vi.fn(() =>
       hasSession
         ? { id: 1, gci: {}, handle: 'h1', login: { label: 'Test' }, stoneVersion: '3.7.2' }
-        : undefined
+        : undefined,
     ),
     onDidChangeSelection: vi.fn(() => ({ dispose: () => {} })),
   } as unknown as SessionManager;
@@ -57,7 +58,10 @@ function makeEditor(uriStr: string, source: string) {
       active: { line: 0, character: 5 },
     },
     setDecorations: vi.fn(),
-  } as any;
+  } as unknown as vscode.TextEditor & {
+    document: { offsetAt: Mock };
+    setDecorations: Mock;
+  };
 }
 
 // ── findNearestStepPoint ──────────────────────────────────
@@ -210,7 +214,7 @@ describe('expandKeywordParts', () => {
     ];
     const expanded = expandKeywordParts(source, infos);
     // Should find equals: but NOT at: (which is inside parens)
-    const continuations = expanded.filter(e => e !== infos[0]);
+    const continuations = expanded.filter((e) => e !== infos[0]);
     expect(continuations).toHaveLength(1);
     expect(continuations[0].selectorText).toBe('equals:');
   });
@@ -223,7 +227,7 @@ describe('expandKeywordParts', () => {
     ];
     const expanded = expandKeywordParts(source, infos);
     // #bar: is a symbol literal, baz: is the continuation
-    const texts = expanded.map(e => e.selectorText);
+    const texts = expanded.map((e) => e.selectorText);
     expect(texts).toContain('foo:');
     expect(texts).toContain('baz:');
     expect(texts).not.toContain('bar:');
@@ -325,9 +329,7 @@ describe('SelectorBreakpointManager', () => {
       editor.document.offsetAt.mockReturnValue(6); // cursor within 'at:' range
       manager.toggleBreakpointAtCursor(editor);
 
-      expect(mockSetBreak).toHaveBeenCalledWith(
-        expect.anything(), 'Array', false, 'at:', 1, 0,
-      );
+      expect(mockSetBreak).toHaveBeenCalledWith(expect.anything(), 'Array', false, 'at:', 1, 0);
       expect(editor.setDecorations).toHaveBeenCalledTimes(1);
       const ranges = editor.setDecorations.mock.calls[0][1];
       expect(ranges).toHaveLength(1);
@@ -348,12 +350,11 @@ describe('SelectorBreakpointManager', () => {
       // Second toggle: clears breakpoint
       manager.toggleBreakpointAtCursor(editor);
       expect(mockClearBreak).toHaveBeenCalledTimes(1);
-      expect(mockClearBreak).toHaveBeenCalledWith(
-        expect.anything(), 'Array', false, 'at:', 1, 0,
-      );
+      expect(mockClearBreak).toHaveBeenCalledWith(expect.anything(), 'Array', false, 'at:', 1, 0);
 
       // Decorations should be cleared
-      const lastCall = editor.setDecorations.mock.calls[editor.setDecorations.mock.calls.length - 1];
+      const lastCall =
+        editor.setDecorations.mock.calls[editor.setDecorations.mock.calls.length - 1];
       expect(lastCall[1]).toHaveLength(0);
     });
 
@@ -361,26 +362,26 @@ describe('SelectorBreakpointManager', () => {
       mockGetRanges.mockReturnValue([
         { stepPoint: 1, selectorOffset: 5, selectorLength: 3, selectorText: 'at:' },
       ]);
-      mockSetBreak.mockImplementation(() => { throw new Error('GCI error'); });
+      mockSetBreak.mockImplementation(() => {
+        throw new Error('GCI error');
+      });
       const manager = new SelectorBreakpointManager(makeSessionManager(true));
       const editor = makeEditor('gemstone://1/Globals/Array/instance/accessing/at%3A', '');
       editor.document.offsetAt.mockReturnValue(6);
       manager.toggleBreakpointAtCursor(editor);
 
-      expect(window.showErrorMessage).toHaveBeenCalledWith(
-        expect.stringContaining('GCI error'),
-      );
+      expect(window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining('GCI error'));
     });
 
     it('handles getStepPointSelectorRanges throwing', () => {
-      mockGetRanges.mockImplementation(() => { throw new Error('AST error'); });
+      mockGetRanges.mockImplementation(() => {
+        throw new Error('AST error');
+      });
       const manager = new SelectorBreakpointManager(makeSessionManager(true));
       const editor = makeEditor('gemstone://1/Globals/Array/instance/accessing/at%3A', '');
       manager.toggleBreakpointAtCursor(editor);
 
-      expect(window.showErrorMessage).toHaveBeenCalledWith(
-        expect.stringContaining('AST error'),
-      );
+      expect(window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining('AST error'));
     });
 
     it('parses class-side URIs correctly', () => {
@@ -392,12 +393,8 @@ describe('SelectorBreakpointManager', () => {
       editor.document.offsetAt.mockReturnValue(1);
       manager.toggleBreakpointAtCursor(editor);
 
-      expect(mockGetRanges).toHaveBeenCalledWith(
-        expect.anything(), 'Array', true, 'new', 0,
-      );
-      expect(mockSetBreak).toHaveBeenCalledWith(
-        expect.anything(), 'Array', true, 'new', 1, 0,
-      );
+      expect(mockGetRanges).toHaveBeenCalledWith(expect.anything(), 'Array', true, 'new', 0);
+      expect(mockSetBreak).toHaveBeenCalledWith(expect.anything(), 'Array', true, 'new', 1, 0);
     });
 
     it('parses environment ID from query string', () => {
@@ -409,9 +406,7 @@ describe('SelectorBreakpointManager', () => {
       editor.document.offsetAt.mockReturnValue(1);
       manager.toggleBreakpointAtCursor(editor);
 
-      expect(mockGetRanges).toHaveBeenCalledWith(
-        expect.anything(), 'Array', false, 'foo', 2,
-      );
+      expect(mockGetRanges).toHaveBeenCalledWith(expect.anything(), 'Array', false, 'foo', 2);
     });
 
     it('sets breakpoint on correct selector when multiple step points exist', () => {
@@ -428,7 +423,12 @@ describe('SelectorBreakpointManager', () => {
 
       // Should set breakpoint on step point 2 (equals:), not step point 1 (at:)
       expect(mockSetBreak).toHaveBeenCalledWith(
-        expect.anything(), 'Array', false, 'at:equals:', 2, 0,
+        expect.anything(),
+        'Array',
+        false,
+        'at:equals:',
+        2,
+        0,
       );
     });
 
@@ -484,7 +484,8 @@ describe('SelectorBreakpointManager', () => {
 
       // After clearing, decorations should show nothing
       manager.refreshDecorations(editor);
-      const lastCall = editor.setDecorations.mock.calls[editor.setDecorations.mock.calls.length - 1];
+      const lastCall =
+        editor.setDecorations.mock.calls[editor.setDecorations.mock.calls.length - 1];
       expect(lastCall[1]).toHaveLength(0);
     });
   });
@@ -507,7 +508,8 @@ describe('SelectorBreakpointManager', () => {
 
       // Decorations should be cleared
       manager.refreshDecorations(editor);
-      const lastCall = editor.setDecorations.mock.calls[editor.setDecorations.mock.calls.length - 1];
+      const lastCall =
+        editor.setDecorations.mock.calls[editor.setDecorations.mock.calls.length - 1];
       expect(lastCall[1]).toHaveLength(0);
     });
 

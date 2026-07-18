@@ -56,8 +56,8 @@ export function findRowanLoadSpecs(root: string): RowanLoadSpec[] {
         walk(full, depth + 1);
       } else if (entry.isFile() && entry.name === GEMSTONE_METADATA_FILE) {
         try {
-          minTempObjCacheKB = parseMinTempObjCacheKB(fs.readFileSync(full, 'utf8'))
-            ?? minTempObjCacheKB;
+          minTempObjCacheKB =
+            parseMinTempObjCacheKB(fs.readFileSync(full, 'utf8')) ?? minTempObjCacheKB;
         } catch {
           /* unreadable metadata — leave the hint unset */
         }
@@ -120,10 +120,15 @@ export function normalizeGitUrl(raw: string): string {
 // git's stderr on failure.
 export function cloneGitRepo(url: string, dest: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    execFile('git', ['clone', '--recurse-submodules', url, dest], { timeout: 300_000 }, (err, _stdout, stderr) => {
-      if (err) reject(new Error((stderr && stderr.trim()) || err.message));
-      else resolve();
-    });
+    execFile(
+      'git',
+      ['clone', '--recurse-submodules', url, dest],
+      { timeout: 300_000 },
+      (err, _stdout, stderr) => {
+        if (err) reject(new Error((stderr && stderr.trim()) || err.message));
+        else resolve();
+      },
+    );
   });
 }
 

@@ -12,11 +12,13 @@ export interface ClassCategoryEntry {
 // for Jasper) or by name (convenient for callers that skip enumeration).
 // Classes whose category is nil/empty are reported under 'as yet unclassified'.
 export function getClassesWithCategory(
-  execute: QueryExecutor, dict: number | string,
+  execute: QueryExecutor,
+  dict: number | string,
 ): ClassCategoryEntry[] {
-  const dictExpr = typeof dict === 'number'
-    ? `System myUserProfile symbolList at: ${dict}`
-    : `System myUserProfile symbolList objectNamed: #'${escapeString(dict)}'`;
+  const dictExpr =
+    typeof dict === 'number'
+      ? `System myUserProfile symbolList at: ${dict}`
+      : `System myUserProfile symbolList objectNamed: #'${escapeString(dict)}'`;
   const code = `| ws dict |
 dict := ${dictExpr}.
 dict ifNil: [^ ''].
@@ -28,9 +30,10 @@ dict keysAndValuesDo: [:k :v |
     (cat isNil or: [cat isEmpty]) ifTrue: [cat := 'as yet unclassified'].
     ws nextPutAll: cat asString; tab; nextPutAll: k; lf]].
 ws contents`;
-  const label = typeof dict === 'number'
-    ? `getClassesWithCategory(dictIndex: ${dict})`
-    : `getClassesWithCategory(dictName: ${dict})`;
+  const label =
+    typeof dict === 'number'
+      ? `getClassesWithCategory(dictIndex: ${dict})`
+      : `getClassesWithCategory(dictName: ${dict})`;
   return splitLines(execute(label, code)).map((line) => {
     const tab = line.indexOf('\t');
     return {

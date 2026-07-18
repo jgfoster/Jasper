@@ -15,8 +15,16 @@ import type { DatabaseNode } from '../databaseTreeProvider';
 
 // A fake GCI executor that answers each bracketing call by matching the emitted
 // Smalltalk. Override any response to drive a failure path.
-function makeExecutor(over: Partial<Record<'fullLogging' | 'extents' | 'suspend' | 'resume', string>> = {}) {
-  const r = { fullLogging: 'true', extents: '/db/data/extent0.dbf\n', suspend: 'OK', resume: 'OK', ...over };
+function makeExecutor(
+  over: Partial<Record<'fullLogging' | 'extents' | 'suspend' | 'resume', string>> = {},
+) {
+  const r = {
+    fullLogging: 'true',
+    extents: '/db/data/extent0.dbf\n',
+    suspend: 'OK',
+    resume: 'OK',
+    ...over,
+  };
   return vi.fn<QueryExecutor>((_label, code) => {
     if (code.includes('FULL_LOGGING')) return r.fullLogging;
     if (code.includes('SystemRepository fileNames')) return r.extents;
@@ -42,7 +50,9 @@ function makeDeps(execute: QueryExecutor, over: Partial<ExtentBackupDeps> = {}):
 
 // The order index of the execute() call whose Smalltalk contains `needle`.
 function callOrder(execute: QueryExecutor, needle: string): number {
-  const spy = execute as unknown as { mock: { calls: [string, string][]; invocationCallOrder: number[] } };
+  const spy = execute as unknown as {
+    mock: { calls: [string, string][]; invocationCallOrder: number[] };
+  };
   const i = spy.mock.calls.findIndex(([, code]) => code.includes(needle));
   return i === -1 ? -1 : spy.mock.invocationCallOrder[i];
 }
@@ -64,8 +74,8 @@ describe('runOnlineExtentBackup', () => {
       '/db/data/extent0.dbf',
       expect.stringMatching(/\/chosen\/gs64stone_extents_[\d-]+_[\d-]+\/extent0\.dbf$/),
     );
-    const copyOrder = (deps.copyFile as unknown as { mock: { invocationCallOrder: number[] } })
-      .mock.invocationCallOrder[0];
+    const copyOrder = (deps.copyFile as unknown as { mock: { invocationCallOrder: number[] } }).mock
+      .invocationCallOrder[0];
     expect(callOrder(execute, 'suspendCheckpointsForMinutes')).toBeLessThan(copyOrder);
     expect(copyOrder).toBeLessThan(callOrder(execute, 'resumeCheckpoints'));
   });
@@ -106,7 +116,9 @@ describe('runOnlineExtentBackup', () => {
   it('resumes checkpoints even when copying an extent fails', async () => {
     const execute = makeExecutor();
     const deps = makeDeps(execute, {
-      copyFile: vi.fn(() => { throw new Error('disk full'); }),
+      copyFile: vi.fn(() => {
+        throw new Error('disk full');
+      }),
     });
 
     const ok = await runOnlineExtentBackup(deps);
@@ -149,8 +161,9 @@ describe('runOnlineExtentBackup', () => {
 
     expect(ok).toBe(true);
     expect(deps.copyFile).toHaveBeenCalledTimes(2);
-    const copied = (deps.copyFile as unknown as { mock: { calls: [string, string][] } })
-      .mock.calls.map(([src]) => src);
+    const copied = (
+      deps.copyFile as unknown as { mock: { calls: [string, string][] } }
+    ).mock.calls.map(([src]) => src);
     expect(copied).toEqual(['/db/data/extent0.dbf', '/db/data/extent1.dbf']);
   });
 });
@@ -183,7 +196,9 @@ describe('resolveExtentBackupSession', () => {
     const elsewhere = fakeSession('otherstone');
 
     const result = resolveExtentBackupSession(
-      runningStoneRow('gs64stone'), [elsewhere, target], elsewhere,
+      runningStoneRow('gs64stone'),
+      [elsewhere, target],
+      elsewhere,
     );
 
     expect(result).toEqual({ session: target });
@@ -191,7 +206,9 @@ describe('resolveExtentBackupSession', () => {
 
   it('asks the user to log in when the clicked stone has no live session', () => {
     const result = resolveExtentBackupSession(
-      runningStoneRow('gs64stone'), [fakeSession('otherstone')], undefined,
+      runningStoneRow('gs64stone'),
+      [fakeSession('otherstone')],
+      undefined,
     );
 
     expect(result).toEqual({ needLogin: 'gs64stone' });

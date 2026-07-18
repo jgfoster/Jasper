@@ -6,7 +6,9 @@ import { classLookupExpr } from './util';
 // dictionaries resolves to the intended class; without it, the class name is
 // resolved as a bare global (first match in the symbol list).
 export function getClassComment(
-  execute: QueryExecutor, className: string, dict?: number | string,
+  execute: QueryExecutor,
+  className: string,
+  dict?: number | string,
 ): string {
   if (dict === undefined) {
     return execute(`getClassComment(${className})`, `${className} comment`);

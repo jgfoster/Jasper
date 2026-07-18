@@ -37,18 +37,30 @@ vi.mock('../browserQueries', () => ({
   removeDictionary: vi.fn(() => ''),
   BrowserQueryError: class BrowserQueryError extends Error {
     gciErrorNumber: number;
-    constructor(msg: string, num = 0) { super(msg); this.gciErrorNumber = num; }
+    constructor(msg: string, num = 0) {
+      super(msg);
+      this.gciErrorNumber = num;
+    }
   },
 }));
 vi.mock('../sunitQueries', () => ({
-  runTestMethod: vi.fn(() => ({ className: '', selector: '', status: 'passed', message: '', durationMs: 0 })),
+  runTestMethod: vi.fn(() => ({
+    className: '',
+    selector: '',
+    status: 'passed',
+    message: '',
+    durationMs: 0,
+  })),
   runTestClass: vi.fn(() => []),
   runFailingTests: vi.fn(() => []),
   discoverTestClasses: vi.fn(() => [] as Array<{ dictName: string; className: string }>),
   describeTestFailure: vi.fn(() => ({ status: 'passed' })),
   SunitQueryError: class SunitQueryError extends Error {
     gciErrorNumber: number;
-    constructor(msg: string, num = 0) { super(msg); this.gciErrorNumber = num; }
+    constructor(msg: string, num = 0) {
+      super(msg);
+      this.gciErrorNumber = num;
+    }
   },
 }));
 vi.mock('../pythonQueries', () => ({
@@ -140,8 +152,14 @@ describe('McpSocketServer integration', () => {
     server = new McpSocketServer({
       getSession: () => session,
       // Randomize per test so parallel runs don't collide on the fixed socket path.
-      socketPath: path.join(os.tmpdir(), `jasper-mcp-test-${crypto.randomBytes(6).toString('hex')}.sock`),
-      sidecarPath: path.join(os.tmpdir(), `jasper-mcp-owner-${crypto.randomBytes(6).toString('hex')}.json`),
+      socketPath: path.join(
+        os.tmpdir(),
+        `jasper-mcp-test-${crypto.randomBytes(6).toString('hex')}.sock`,
+      ),
+      sidecarPath: path.join(
+        os.tmpdir(),
+        `jasper-mcp-owner-${crypto.randomBytes(6).toString('hex')}.json`,
+      ),
     });
     await server.start();
     vi.clearAllMocks();
@@ -155,7 +173,7 @@ describe('McpSocketServer integration', () => {
     const { client, socket } = await connectClient(server.socketPath);
     try {
       const { tools } = await client.listTools();
-      expect(tools.map(t => t.name).sort()).toEqual([
+      expect(tools.map((t) => t.name).sort()).toEqual([
         'abort',
         'add_dictionary',
         'commit',
@@ -232,7 +250,7 @@ describe('McpSocketServer integration', () => {
   });
 
   it('returns a graceful error response when no session is selected', async () => {
-    session = undefined;  // Simulate "no logged-in session"
+    session = undefined; // Simulate "no logged-in session"
     const { client, socket } = await connectClient(server.socketPath);
     try {
       const result = await client.callTool({
@@ -299,5 +317,4 @@ describe('McpSocketServer integration', () => {
       socket.destroy();
     }
   });
-
 });

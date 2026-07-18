@@ -24,10 +24,7 @@ describe('LoginStorage', () => {
     });
 
     it('returns configured logins', () => {
-      const logins = [
-        makeLogin({ stone: 'stoneA' }),
-        makeLogin({ stone: 'stoneB' }),
-      ];
+      const logins = [makeLogin({ stone: 'stoneA' }), makeLogin({ stone: 'stoneB' })];
       __setConfig('gemstone', 'logins', logins);
       expect(storage.getLogins()).toEqual(logins);
     });

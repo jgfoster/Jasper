@@ -85,12 +85,14 @@
       title.className = 'var-group-title';
       title.textContent = g.title;
       // Clicking a group title collapses/expands its body.
-      title.addEventListener('click', function () { group.classList.toggle('collapsed'); });
+      title.addEventListener('click', function () {
+        group.classList.toggle('collapsed');
+      });
       group.appendChild(title);
 
       const body = document.createElement('div');
       body.className = 'var-group-body';
-      for (const v of (g.vars || [])) {
+      for (const v of g.vars || []) {
         const row = document.createElement('div');
         row.className = 'var' + (v.edit ? ' editable' : '');
         row.dataset.oop = v.oop;
@@ -166,7 +168,10 @@
       errored = false;
       input.classList.remove('error');
       input.removeAttribute('title');
-      if (errEl) { if (errEl.parentNode) errEl.parentNode.removeChild(errEl); errEl = null; }
+      if (errEl) {
+        if (errEl.parentNode) errEl.parentNode.removeChild(errEl);
+        errEl = null;
+      }
     }
     function close() {
       if (closed) return;
@@ -200,12 +205,17 @@
     };
     if (handlers.setActiveEditor) handlers.setActiveEditor(ctrl);
 
-    input.addEventListener('click', function (e) { e.stopPropagation(); });
+    input.addEventListener('click', function (e) {
+      e.stopPropagation();
+    });
     input.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') {
         e.preventDefault();
         const expr = input.value.trim();
-        if (!expr) { close(); return; }
+        if (!expr) {
+          close();
+          return;
+        }
         clearError();
         pending = true;
         if (handlers.commit) handlers.commit(v.edit, expr);
@@ -221,7 +231,9 @@
       // Defer so a click that moved focus to (e.g.) the context menu still runs.
       // While an error is showing, DON'T auto-close — the user may be clicking the
       // message to select/copy it (blurring the input). Esc still dismisses it.
-      setTimeout(function () { if (!pending && !errored) close(); }, 0);
+      setTimeout(function () {
+        if (!pending && !errored) close();
+      }, 0);
     });
   }
 
@@ -235,7 +247,8 @@
     if (!dnu) return;
     const btn = document.createElement('button');
     btn.className = 'dnu-btn';
-    btn.textContent = 'Create #' + dnu.selector + ' in ' + dnu.className + (dnu.isMeta ? ' class' : '');
+    btn.textContent =
+      'Create #' + dnu.selector + ' in ' + dnu.className + (dnu.isMeta ? ' class' : '');
     btn.title = 'Create the missing method, then re-run the send into it';
     if (onCreate) btn.addEventListener('click', onCreate);
     dnuBarEl.appendChild(btn);
@@ -275,7 +288,9 @@
     menuEl.style.top = y + 'px';
     menuEl.classList.add('show');
   }
-  function hideMenu(menuEl) { menuEl.classList.remove('show'); }
+  function hideMenu(menuEl) {
+    menuEl.classList.remove('show');
+  }
 
   // Find the 1-based level of the frame containing an event target, or null.
   function frameLevelOf(target) {
@@ -295,7 +310,35 @@
    * editor and highlight the current line.
    */
   function init(refs, vscode) {
-    const { list, menu, copyFrameItem, browseFrameItem, homeFrameItem, frameImplItem, copyBtn, dumpBtn, saveNotice, savePath, copyPathBtn, error, flash, dnuBar, toolbar, runToCursorBtn, variables, evalInput, evalResult, main, splitter, hsplitter, evalbar, varMenu, varInspectItem, busyOverlay, busyCancel } = refs;
+    const {
+      list,
+      menu,
+      copyFrameItem,
+      browseFrameItem,
+      homeFrameItem,
+      frameImplItem,
+      copyBtn,
+      dumpBtn,
+      saveNotice,
+      savePath,
+      copyPathBtn,
+      error,
+      flash,
+      dnuBar,
+      toolbar,
+      runToCursorBtn,
+      variables,
+      evalInput,
+      evalResult,
+      main,
+      splitter,
+      hsplitter,
+      evalbar,
+      varMenu,
+      varInspectItem,
+      busyOverlay,
+      busyCancel,
+    } = refs;
     // Progress indicator (#9). A blocking GCI call FREEZES the extension host, and
     // postMessage delivery needs that event loop — so the host cannot tell us "I'm
     // busy" while it's busy (the on/off pair would arrive together, after the work).
@@ -308,35 +351,53 @@
     // reply back. Local-only commands (copyText/saveLayout/dump/terminate/etc.) and
     // ops with no webview reply (inspectVariable) are intentionally excluded.
     const SERVER_BOUND = {
-      ready: 1, selectFrame: 1, evalInFrame: 1, stepOver: 1, stepInto: 1,
-      stepThrough: 1, restartFrame: 1, setVariable: 1, revertVariable: 1,
-      runToCursor: 1, resume: 1, createDnuMethod: 1,
+      ready: 1,
+      selectFrame: 1,
+      evalInFrame: 1,
+      stepOver: 1,
+      stepInto: 1,
+      stepThrough: 1,
+      restartFrame: 1,
+      setVariable: 1,
+      revertVariable: 1,
+      runToCursor: 1,
+      resume: 1,
+      createDnuMethod: 1,
     };
-    let busyTimer = null;       // reveal-delay timer; non-null ⇒ a span is pending/shown
-    let busyActive = false;     // a server request is in flight (timer pending or shown)
+    let busyTimer = null; // reveal-delay timer; non-null ⇒ a span is pending/shown
+    let busyActive = false; // a server request is in flight (timer pending or shown)
     let busyCancellable = false; // the running op can be cancelled (host said so)
-    let busyShown = false;       // the spinner is currently revealed
+    let busyShown = false; // the spinner is currently revealed
     function showBusyOverlay(on) {
       busyShown = on;
       if (document.body) document.body.classList.toggle('busy', on);
       if (busyOverlay) busyOverlay.style.display = on ? '' : 'none';
       // The Cancel button rides the spinner, but only for cancellable ops — so it
       // never shows for a blocking op the host couldn't actually interrupt.
-      if (busyCancel) busyCancel.style.display = (on && busyCancellable) ? '' : 'none';
+      if (busyCancel) busyCancel.style.display = on && busyCancellable ? '' : 'none';
     }
     function beginBusy() {
       if (busyActive) return; // already in a span; keep the existing reveal timer
       busyActive = true;
-      busyTimer = setTimeout(function () { busyTimer = null; showBusyOverlay(true); }, BUSY_DELAY_MS);
+      busyTimer = setTimeout(function () {
+        busyTimer = null;
+        showBusyOverlay(true);
+      }, BUSY_DELAY_MS);
     }
     function endBusy() {
       busyActive = false;
       busyCancellable = false;
-      if (busyTimer != null) { clearTimeout(busyTimer); busyTimer = null; }
+      if (busyTimer != null) {
+        clearTimeout(busyTimer);
+        busyTimer = null;
+      }
       showBusyOverlay(false);
       if (busyCancel) busyCancel.textContent = 'Cancel'; // reset for the next op
     }
-    function applyBusy(on) { if (on) beginBusy(); else endBusy(); }
+    function applyBusy(on) {
+      if (on) beginBusy();
+      else endBusy();
+    }
     // Host tells us the in-flight op can be cancelled → reveal Cancel if the
     // spinner is already up (else showBusyOverlay picks it up when it reveals).
     function setCancellable(on) {
@@ -359,9 +420,15 @@
     let saveNoticeTimer = null;
     const COPY_GLYPH = copyPathBtn ? copyPathBtn.textContent : '';
     function hideSaveNotice() {
-      if (saveNoticeTimer) { clearTimeout(saveNoticeTimer); saveNoticeTimer = null; }
+      if (saveNoticeTimer) {
+        clearTimeout(saveNoticeTimer);
+        saveNoticeTimer = null;
+      }
       if (saveNotice) saveNotice.style.display = 'none';
-      if (savePath) { savePath.textContent = ''; savePath.title = ''; }
+      if (savePath) {
+        savePath.textContent = '';
+        savePath.title = '';
+      }
       dumpedPath = null;
     }
     let selectedLevel = null;
@@ -375,7 +442,10 @@
     let activeVarEditor = null;
     let varMenuTarget = null;
     function setActiveVarEditor(ctrl) {
-      if (ctrl == null) { activeVarEditor = null; return; }
+      if (ctrl == null) {
+        activeVarEditor = null;
+        return;
+      }
       if (activeVarEditor && activeVarEditor !== ctrl) activeVarEditor.close();
       activeVarEditor = ctrl;
     }
@@ -389,10 +459,21 @@
         showMenu(varMenu, e.clientX, e.clientY);
       },
       commit: function (edit, expr) {
-        post({ command: 'setVariable', level: selectedLevel, kind: edit.kind, index: edit.index, expr: expr });
+        post({
+          command: 'setVariable',
+          level: selectedLevel,
+          kind: edit.kind,
+          index: edit.index,
+          expr: expr,
+        });
       },
       revert: function (edit) {
-        post({ command: 'revertVariable', level: selectedLevel, kind: edit.kind, index: edit.index });
+        post({
+          command: 'revertVariable',
+          level: selectedLevel,
+          kind: edit.kind,
+          index: edit.index,
+        });
       },
       setActiveEditor: setActiveVarEditor,
     };
@@ -402,7 +483,9 @@
     // no such method, so the button is disabled there (host also guards).
     function updateRunToCursor(level) {
       if (!runToCursorBtn) return;
-      const frame = currentStack.find(function (f) { return f.level === level; });
+      const frame = currentStack.find(function (f) {
+        return f.level === level;
+      });
       const breakable = !!(frame && frame.breakable);
       runToCursorBtn.disabled = !breakable;
       runToCursorBtn.title = breakable
@@ -496,7 +579,8 @@
     if (varInspectItem) {
       varInspectItem.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (varMenuTarget) post({ command: 'inspectVariable', oop: varMenuTarget.oop, name: varMenuTarget.name });
+        if (varMenuTarget)
+          post({ command: 'inspectVariable', oop: varMenuTarget.oop, name: varMenuTarget.name });
         if (varMenu) hideMenu(varMenu);
       });
     }
@@ -508,8 +592,16 @@
     let flashTimer = null;
     function showFlash(text) {
       if (!flash) return;
-      if (flashTimer) { clearTimeout(flashTimer); flashTimer = null; }
-      if (!text) { flash.classList.remove('show'); flash.style.display = 'none'; flash.textContent = ''; return; }
+      if (flashTimer) {
+        clearTimeout(flashTimer);
+        flashTimer = null;
+      }
+      if (!text) {
+        flash.classList.remove('show');
+        flash.style.display = 'none';
+        flash.textContent = '';
+        return;
+      }
       flash.textContent = text;
       flash.style.display = '';
       // Force a reflow so the opacity transition runs from 0 even on a re-show.
@@ -517,7 +609,11 @@
       flash.classList.add('show');
       flashTimer = setTimeout(function () {
         flash.classList.remove('show');
-        flashTimer = setTimeout(function () { flash.style.display = 'none'; flash.textContent = ''; flashTimer = null; }, 200);
+        flashTimer = setTimeout(function () {
+          flash.style.display = 'none';
+          flash.textContent = '';
+          flashTimer = null;
+        }, 200);
       }, 3500);
     }
 
@@ -526,7 +622,9 @@
     function flashIcon(btn) {
       const prev = btn.innerHTML;
       btn.textContent = '✓';
-      setTimeout(() => { btn.innerHTML = prev; }, 1200);
+      setTimeout(() => {
+        btn.innerHTML = prev;
+      }, 1200);
     }
 
     // #10 Copy Stack: the full stack (short stack + each frame's variable values).
@@ -558,9 +656,15 @@
       copyPathBtn.addEventListener('click', () => {
         if (dumpedPath == null) return;
         post({ command: 'copyText', text: dumpedPath });
-        if (saveNoticeTimer) { clearTimeout(saveNoticeTimer); saveNoticeTimer = null; }
+        if (saveNoticeTimer) {
+          clearTimeout(saveNoticeTimer);
+          saveNoticeTimer = null;
+        }
         copyPathBtn.textContent = '✓';
-        setTimeout(() => { copyPathBtn.textContent = COPY_GLYPH; hideSaveNotice(); }, 1200);
+        setTimeout(() => {
+          copyPathBtn.textContent = COPY_GLYPH;
+          hideSaveNotice();
+        }, 1200);
       });
     }
 
@@ -592,7 +696,8 @@
       // Restore a previously saved ratio when reopening a reloaded webview.
       const saved = vscode.getState ? vscode.getState() : null;
       if (saved && saved.stackBasis) main.style.setProperty('--stack-basis', saved.stackBasis);
-      if (saved && saved.evalHeight && evalbar) evalbar.style.setProperty('--eval-height', saved.evalHeight);
+      if (saved && saved.evalHeight && evalbar)
+        evalbar.style.setProperty('--eval-height', saved.evalHeight);
 
       // The basis at mousedown, so endDrag can tell a real drag from a bare click.
       let startBasis = null;
@@ -669,12 +774,19 @@
 
     // Suppress the native Cut/Copy/Paste menu everywhere; close our popup on any
     // dismiss gesture (outside click, scroll, focus loss, Escape).
-    function hideMenus() { hideMenu(menu); if (varMenu) hideMenu(varMenu); }
-    window.addEventListener('contextmenu', (e) => { e.preventDefault(); });
+    function hideMenus() {
+      hideMenu(menu);
+      if (varMenu) hideMenu(varMenu);
+    }
+    window.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+    });
     document.addEventListener('click', hideMenus);
     window.addEventListener('scroll', hideMenus, true);
     window.addEventListener('blur', hideMenus);
-    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideMenus(); });
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') hideMenus();
+    });
 
     // Inbound messages from the host.
     window.addEventListener('message', (event) => {
@@ -701,14 +813,20 @@
         // Show the create-method action when parked on a doesNotUnderstand:, or the
         // implement action when parked on a subclassResponsibility (T4). Mutually
         // exclusive; renderDnu(undefined) clears the bar before the SR button renders.
-        renderDnu(dnuBar, msg.dnu, function () { post({ command: 'createDnuMethod' }); });
+        renderDnu(dnuBar, msg.dnu, function () {
+          post({ command: 'createDnuMethod' });
+        });
         if (!msg.dnu) {
-          renderSubclassResp(dnuBar, msg.subclassResp,
-            function () { post({ command: 'implementSubclassResponsibility' }); });
+          renderSubclassResp(dnuBar, msg.subclassResp, function () {
+            post({ command: 'implementSubclassResponsibility' });
+          });
         }
         // Clear stale variables / eval output; the default-select below re-fetches.
         if (variables) variables.innerHTML = '';
-        if (evalResult) { evalResult.textContent = ''; evalResult.classList.remove('error'); }
+        if (evalResult) {
+          evalResult.textContent = '';
+          evalResult.classList.remove('error');
+        }
         currentStack = msg.stack || [];
         renderStack(list, msg.stack);
         // Default-select the top frame so the debugger opens focused on a frame.
@@ -739,9 +857,15 @@
         // glyph, then auto-dismiss after 5s (forever was annoying once you're
         // done). Pressing Copy dismisses it early (see the handler above).
         dumpedPath = msg.path || null;
-        if (!dumpedPath) { hideSaveNotice(); return; }
+        if (!dumpedPath) {
+          hideSaveNotice();
+          return;
+        }
         if (copyPathBtn) copyPathBtn.textContent = COPY_GLYPH; // reset a stale ✓
-        if (savePath) { savePath.textContent = 'Dumped to ' + dumpedPath; savePath.title = dumpedPath; }
+        if (savePath) {
+          savePath.textContent = 'Dumped to ' + dumpedPath;
+          savePath.title = dumpedPath;
+        }
         if (saveNotice) saveNotice.style.display = '';
         if (saveNoticeTimer) clearTimeout(saveNoticeTimer);
         saveNoticeTimer = setTimeout(hideSaveNotice, 5000);
@@ -752,5 +876,15 @@
   }
 
   const root = typeof globalThis !== 'undefined' ? globalThis : window;
-  root.DebuggerView = { renderStack, renderVariables, renderDnu, renderSubclassResp, selectFrame, showMenu, hideMenu, frameLevelOf, init };
+  root.DebuggerView = {
+    renderStack,
+    renderVariables,
+    renderDnu,
+    renderSubclassResp,
+    selectFrame,
+    showMenu,
+    hideMenu,
+    frameLevelOf,
+    init,
+  };
 })();

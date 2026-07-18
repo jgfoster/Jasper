@@ -1,13 +1,22 @@
-import {
-  Token,
-  TokenType,
-  SourcePosition,
-  createPosition,
-  createRange,
-} from './tokens';
+import { Token, TokenType, SourcePosition, createPosition, createRange } from './tokens';
 
 const SELECTOR_CHARS = new Set([
-  '+', '-', '\\', '*', '~', '<', '>', '=', '|', '/', '&', '@', '%', ',', '?', '!',
+  '+',
+  '-',
+  '\\',
+  '*',
+  '~',
+  '<',
+  '>',
+  '=',
+  '|',
+  '/',
+  '&',
+  '@',
+  '%',
+  ',',
+  '?',
+  '!',
 ]);
 
 const SPECIAL_LITERALS: Record<string, boolean> = {
@@ -216,15 +225,24 @@ export class Lexer {
     // #identifier or #keyword:keyword: or #binarySelector
     if (this.isLetter(next) || next === '_') {
       // Scan identifier(s) and optional colons for keyword symbols
-      while (this.pos < this.length && (this.isLetterOrDigit(this.source[this.pos]) || this.source[this.pos] === '_')) {
+      while (
+        this.pos < this.length &&
+        (this.isLetterOrDigit(this.source[this.pos]) || this.source[this.pos] === '_')
+      ) {
         this.advance();
       }
       // Check for keyword symbol: #at:put:
       while (this.pos < this.length && this.source[this.pos] === ':') {
         this.advance(); // consume ':'
         // After colon, scan next identifier part if present
-        if (this.pos < this.length && (this.isLetter(this.source[this.pos]) || this.source[this.pos] === '_')) {
-          while (this.pos < this.length && (this.isLetterOrDigit(this.source[this.pos]) || this.source[this.pos] === '_')) {
+        if (
+          this.pos < this.length &&
+          (this.isLetter(this.source[this.pos]) || this.source[this.pos] === '_')
+        ) {
+          while (
+            this.pos < this.length &&
+            (this.isLetterOrDigit(this.source[this.pos]) || this.source[this.pos] === '_')
+          ) {
             this.advance();
           }
         }
@@ -280,7 +298,11 @@ export class Lexer {
         if (this.pos < this.length) {
           const expType = this.tryExponent();
           if (expType === 'scaled') {
-            return this.makeToken(TokenType.ScaledDecimal, this.source.slice(startPos, this.pos), start);
+            return this.makeToken(
+              TokenType.ScaledDecimal,
+              this.source.slice(startPos, this.pos),
+              start,
+            );
           }
         }
         return this.makeToken(TokenType.Float, this.source.slice(startPos, this.pos), start);
@@ -289,7 +311,11 @@ export class Lexer {
       // Exponent without fractional part
       const expType = this.tryExponent();
       if (expType === 'scaled') {
-        return this.makeToken(TokenType.ScaledDecimal, this.source.slice(startPos, this.pos), start);
+        return this.makeToken(
+          TokenType.ScaledDecimal,
+          this.source.slice(startPos, this.pos),
+          start,
+        );
       }
       if (expType === 'float') {
         return this.makeToken(TokenType.Float, this.source.slice(startPos, this.pos), start);
@@ -325,7 +351,10 @@ export class Lexer {
     // Scaled decimal: s
     if (ch === 's') {
       this.advance();
-      if (this.pos < this.length && (this.source[this.pos] === '-' || this.isDigit(this.source[this.pos]))) {
+      if (
+        this.pos < this.length &&
+        (this.source[this.pos] === '-' || this.isDigit(this.source[this.pos]))
+      ) {
         if (this.source[this.pos] === '-') this.advance();
         this.scanDigits();
       }
@@ -335,7 +364,10 @@ export class Lexer {
     // Fixed point: p
     if (ch === 'p') {
       this.advance();
-      if (this.pos < this.length && (this.source[this.pos] === '-' || this.isDigit(this.source[this.pos]))) {
+      if (
+        this.pos < this.length &&
+        (this.source[this.pos] === '-' || this.isDigit(this.source[this.pos]))
+      ) {
         if (this.source[this.pos] === '-') this.advance();
         this.scanDigits();
       }
@@ -361,15 +393,21 @@ export class Lexer {
     const start = this.currentPosition();
     const startPos = this.pos;
 
-    while (this.pos < this.length && (this.isLetterOrDigit(this.source[this.pos]) || this.source[this.pos] === '_')) {
+    while (
+      this.pos < this.length &&
+      (this.isLetterOrDigit(this.source[this.pos]) || this.source[this.pos] === '_')
+    ) {
       this.advance();
     }
 
     const text = this.source.slice(startPos, this.pos);
 
     // Check for keyword (identifier followed by colon, but not :=)
-    if (this.pos < this.length && this.source[this.pos] === ':' &&
-        (this.pos + 1 >= this.length || this.source[this.pos + 1] !== '=')) {
+    if (
+      this.pos < this.length &&
+      this.source[this.pos] === ':' &&
+      (this.pos + 1 >= this.length || this.source[this.pos + 1] !== '=')
+    ) {
       this.advance(); // consume ':'
       return this.makeToken(TokenType.Keyword, text + ':', start);
     }
@@ -387,16 +425,25 @@ export class Lexer {
     const startPos = this.pos;
 
     // Check if it starts an identifier (_remoteNil, _var, etc.)
-    if (this.pos + 1 < this.length && (this.isLetter(this.source[this.pos + 1]) || this.source[this.pos + 1] === '_')) {
+    if (
+      this.pos + 1 < this.length &&
+      (this.isLetter(this.source[this.pos + 1]) || this.source[this.pos + 1] === '_')
+    ) {
       this.advance(); // skip _
-      while (this.pos < this.length && (this.isLetterOrDigit(this.source[this.pos]) || this.source[this.pos] === '_')) {
+      while (
+        this.pos < this.length &&
+        (this.isLetterOrDigit(this.source[this.pos]) || this.source[this.pos] === '_')
+      ) {
         this.advance();
       }
       const text = this.source.slice(startPos, this.pos);
 
       // Check for keyword
-      if (this.pos < this.length && this.source[this.pos] === ':' &&
-          (this.pos + 1 >= this.length || this.source[this.pos + 1] !== '=')) {
+      if (
+        this.pos < this.length &&
+        this.source[this.pos] === ':' &&
+        (this.pos + 1 >= this.length || this.source[this.pos + 1] !== '=')
+      ) {
         this.advance();
         return this.makeToken(TokenType.Keyword, text + ':', start);
       }
@@ -424,7 +471,11 @@ export class Lexer {
         this.scanDigits();
         if (this.pos < this.length && this.source[this.pos] === ':') {
           this.advance();
-          return this.makeToken(TokenType.EnvSpecifier, this.source.slice(startPos, this.pos), start);
+          return this.makeToken(
+            TokenType.EnvSpecifier,
+            this.source.slice(startPos, this.pos),
+            start,
+          );
         }
       }
       // Not a valid env specifier, treat as binary selector
@@ -481,9 +532,17 @@ export class Lexer {
     if (first === '-') {
       this.advance();
       // Check for second selector char
-      if (this.pos < this.length && SELECTOR_CHARS.has(this.source[this.pos]) && this.source[this.pos] !== '-') {
+      if (
+        this.pos < this.length &&
+        SELECTOR_CHARS.has(this.source[this.pos]) &&
+        this.source[this.pos] !== '-'
+      ) {
         this.advance();
-        return this.makeToken(TokenType.BinarySelector, this.source.slice(startPos, this.pos), start);
+        return this.makeToken(
+          TokenType.BinarySelector,
+          this.source.slice(startPos, this.pos),
+          start,
+        );
       }
       return this.makeToken(TokenType.Minus, '-', start);
     }

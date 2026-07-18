@@ -24,7 +24,7 @@ function makeSessionManager(hasSession: boolean) {
     getSelectedSession: vi.fn(() =>
       hasSession
         ? { id: 1, gci: {}, handle: {}, login: { label: 'Test' }, stoneVersion: '3.7.2' }
-        : undefined
+        : undefined,
     ),
     onDidChangeSelection: vi.fn(() => ({ dispose: () => {} })),
   } as unknown as SessionManager;
@@ -48,7 +48,7 @@ function makeDocument(text: string, uri = 'gemstone://1/Globals/Array/instance/a
       if (start === end) return undefined;
       return new Range(new Position(pos.line, start), new Position(pos.line, end));
     },
-  } as any;
+  } as unknown as vscode.TextDocument;
 }
 
 describe('GemStoneDefinitionProvider', () => {
@@ -72,7 +72,13 @@ describe('GemStoneDefinitionProvider', () => {
   describe('selector resolution', () => {
     it('queries implementors when selector resolver returns a selector', async () => {
       mockImplementorsOf.mockReturnValue([
-        { dictName: 'Globals', className: 'Array', isMeta: false, selector: 'size', category: 'accessing' },
+        {
+          dictName: 'Globals',
+          className: 'Array',
+          isMeta: false,
+          selector: 'size',
+          category: 'accessing',
+        },
       ]);
       const resolver: SelectorResolver = {
         getSelector: vi.fn(async () => 'size'),
@@ -82,7 +88,9 @@ describe('GemStoneDefinitionProvider', () => {
       const results = await provider.provideDefinition(doc, pos(0, 5));
 
       expect(mockImplementorsOf).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 1 }), 'size', 0,
+        expect.objectContaining({ id: 1 }),
+        'size',
+        0,
       );
       expect(results).toHaveLength(1);
       expect(results[0]).toBeInstanceOf(Location);
@@ -93,8 +101,20 @@ describe('GemStoneDefinitionProvider', () => {
 
     it('returns multiple locations for multiple implementors', async () => {
       mockImplementorsOf.mockReturnValue([
-        { dictName: 'Globals', className: 'Array', isMeta: false, selector: 'size', category: 'accessing' },
-        { dictName: 'Globals', className: 'String', isMeta: false, selector: 'size', category: 'accessing' },
+        {
+          dictName: 'Globals',
+          className: 'Array',
+          isMeta: false,
+          selector: 'size',
+          category: 'accessing',
+        },
+        {
+          dictName: 'Globals',
+          className: 'String',
+          isMeta: false,
+          selector: 'size',
+          category: 'accessing',
+        },
       ]);
       const resolver: SelectorResolver = {
         getSelector: vi.fn(async () => 'size'),
@@ -110,7 +130,13 @@ describe('GemStoneDefinitionProvider', () => {
 
     it('builds class-side URI for isMeta results', async () => {
       mockImplementorsOf.mockReturnValue([
-        { dictName: 'Globals', className: 'Array', isMeta: true, selector: 'new', category: 'creation' },
+        {
+          dictName: 'Globals',
+          className: 'Array',
+          isMeta: true,
+          selector: 'new',
+          category: 'creation',
+        },
       ]);
       const resolver: SelectorResolver = {
         getSelector: vi.fn(async () => 'new'),
@@ -131,14 +157,14 @@ describe('GemStoneDefinitionProvider', () => {
       const doc = makeDocument('self size');
       await provider.provideDefinition(doc, pos(0, 5));
 
-      expect(mockImplementorsOf).toHaveBeenCalledWith(
-        expect.anything(), 'size', 3,
-      );
+      expect(mockImplementorsOf).toHaveBeenCalledWith(expect.anything(), 'size', 3);
     });
 
     it('handles selector resolver throwing', async () => {
       const resolver: SelectorResolver = {
-        getSelector: vi.fn(async () => { throw new Error('LSP not ready'); }),
+        getSelector: vi.fn(async () => {
+          throw new Error('LSP not ready');
+        }),
       };
       mockGetAllClassNames.mockReturnValue([]);
       const provider = new GemStoneDefinitionProvider(makeSessionManager(true), resolver);

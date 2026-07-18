@@ -259,9 +259,8 @@ describe('Parser', () => {
       expect(ast).not.toBeNull();
       const stmt = ast!.body.statements[0];
       // Statement may be Return wrapping Expression, or an Expression
-      const expr = stmt.kind === 'Return'
-        ? stmt.expression
-        : (stmt.kind === 'Expression' ? stmt : null);
+      const expr =
+        stmt.kind === 'Return' ? stmt.expression : stmt.kind === 'Expression' ? stmt : null;
       expect(expr).not.toBeNull();
       return expr!;
     }

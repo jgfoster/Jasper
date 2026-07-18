@@ -1,6 +1,12 @@
 import * as vscode from 'vscode';
 import { SessionManager, ActiveSession } from './sessionManager';
-import { OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG, GCI_PERFORM_FLAG_SINGLE_STEP, GCI_PERFORM_FLAG_INTERPRETED } from './gciConstants';
+import {
+  OOP_ILLEGAL,
+  OOP_NIL,
+  GCI_PERFORM_FLAG_ENABLE_DEBUG,
+  GCI_PERFORM_FLAG_SINGLE_STEP,
+  GCI_PERFORM_FLAG_INTERPRETED,
+} from './gciConstants';
 import { logQuery, logResult, logError, logInfo } from './gciLog';
 import { InspectorTreeProvider } from './inspectorTreeProvider';
 import { routeInspect } from './inspectRouter';
@@ -55,7 +61,10 @@ const DISPLAY_RESULT_CONTEXT = 'gemstone.displayResultVisible';
 const MAX_OVERLAY_PREVIEW = 100;
 
 class DebuggableError extends Error {
-  constructor(message: string, public readonly context: bigint) {
+  constructor(
+    message: string,
+    public readonly context: bigint,
+  ) {
     super(message);
   }
 }
@@ -128,7 +137,7 @@ export class CodeExecutor {
 
     if (this.executing.has(session.id)) {
       vscode.window.showWarningMessage(
-        'A GemStone execution is already in progress on this session.'
+        'A GemStone execution is already in progress on this session.',
       );
       return;
     }
@@ -154,8 +163,7 @@ export class CodeExecutor {
     const oopClassString = this.resolveOopClassString(session);
     if (oopClassString === undefined) return;
 
-    const label = mode === 'display' ? 'Display It'
-      : mode === 'debug' ? 'Debug It' : 'Execute It';
+    const label = mode === 'display' ? 'Display It' : mode === 'debug' ? 'Debug It' : 'Execute It';
     logQuery(session.id, label, code);
 
     // Dim the selected code while executing
@@ -168,16 +176,23 @@ export class CodeExecutor {
     // must START interpreted. Debug It adds the single-step flag so the server
     // breaks on the first statement of the compiled code and we open the
     // debugger sitting there.
-    const execFlags = GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED
-      | (mode === 'debug' ? GCI_PERFORM_FLAG_SINGLE_STEP : 0);
+    const execFlags =
+      GCI_PERFORM_FLAG_ENABLE_DEBUG |
+      GCI_PERFORM_FLAG_INTERPRETED |
+      (mode === 'debug' ? GCI_PERFORM_FLAG_SINGLE_STEP : 0);
     // Transcript writes stream live to the output channel while this execute
     // runs (see transcriptSink). Any residue buffered since the last drain is
     // displayed now. Switched back to buffered mode in finally.
     appendTranscriptOutput(setTranscriptLive(session, true));
     try {
       const { success, err: startErr } = session.gci.GciTsNbExecute(
-        session.handle, code, oopClassString,
-        OOP_ILLEGAL, OOP_NIL, execFlags, 0,
+        session.handle,
+        code,
+        oopClassString,
+        OOP_ILLEGAL,
+        OOP_NIL,
+        execFlags,
+        0,
       );
       if (!success) {
         const msg = startErr.message || `error ${startErr.number}`;
@@ -237,8 +252,9 @@ export class CodeExecutor {
               // Backspace/Enter keybindings require editorTextFocus, so otherwise
               // the result shows but can't be dismissed/expanded from the keyboard.
               setTimeout(() => {
-                this.renderResultWithFocus(editor, selection, resultString, column)
-                  .catch(err => logError(session.id, err instanceof Error ? err.message : String(err)));
+                this.renderResultWithFocus(editor, selection, resultString, column).catch((err) =>
+                  logError(session.id, err instanceof Error ? err.message : String(err)),
+                );
               }, 0);
             }
           : undefined;
@@ -314,14 +330,14 @@ export class CodeExecutor {
     selection: vscode.Selection,
     resultString: string,
   ): Promise<void> {
-    await editor.edit(editBuilder => {
+    await editor.edit((editBuilder) => {
       editBuilder.insert(selection.end, ` ${resultString}`);
     });
 
     // Select the inserted result so a single backspace removes it
     const resultStart = selection.end.translate(0, 1);
     const resultEnd = editor.document.positionAt(
-      editor.document.offsetAt(selection.end) + 1 + resultString.length
+      editor.document.offsetAt(selection.end) + 1 + resultString.length,
     );
     editor.selection = new vscode.Selection(selection.end, resultEnd);
 
@@ -331,7 +347,7 @@ export class CodeExecutor {
 
     // Clear decoration when document is next edited
     setTimeout(() => {
-      const disposable = vscode.workspace.onDidChangeTextDocument(e => {
+      const disposable = vscode.workspace.onDidChangeTextDocument((e) => {
         if (e.document === editor.document) {
           editor.setDecorations(resultDecorationType, []);
           disposable.dispose();
@@ -356,9 +372,8 @@ export class CodeExecutor {
     this.clearOverlay();
 
     const flat = resultString.replace(/\s*\r?\n\s*/g, ' ⏎ ').trim();
-    const preview = flat.length > MAX_OVERLAY_PREVIEW
-      ? `${flat.slice(0, MAX_OVERLAY_PREVIEW)} …`
-      : flat;
+    const preview =
+      flat.length > MAX_OVERLAY_PREVIEW ? `${flat.slice(0, MAX_OVERLAY_PREVIEW)} …` : flat;
 
     // Hover carries the full value plus clickable command links. isTrusted is
     // required for command: links to fire.
@@ -366,18 +381,16 @@ export class CodeExecutor {
     hover.isTrusted = true;
     hover.appendCodeblock(resultString, 'smalltalk');
     hover.appendMarkdown(
-      '\n\n[Copy](command:gemstone.copyDisplayItResult "Copy the full result to the clipboard")'
-      + ' &nbsp;|&nbsp; '
-      + '[Output](command:gemstone.outputDisplayItResult "Show the full result in the Output panel")'
-      + '\n\n_Enter to insert in place · Backspace to dismiss_'
+      '\n\n[Copy](command:gemstone.copyDisplayItResult "Copy the full result to the clipboard")' +
+        ' &nbsp;|&nbsp; ' +
+        '[Output](command:gemstone.outputDisplayItResult "Show the full result in the Output panel")' +
+        '\n\n_Enter to insert in place · Backspace to dismiss_',
     );
 
     // Anchor on the last character of the selection so the hover has a target;
     // the `after` annotation still renders past the end of the selection.
     const endOffset = editor.document.offsetAt(selection.end);
-    const anchorStart = endOffset > 0
-      ? editor.document.positionAt(endOffset - 1)
-      : selection.end;
+    const anchorStart = endOffset > 0 ? editor.document.positionAt(endOffset - 1) : selection.end;
     const decoration: vscode.DecorationOptions = {
       range: new vscode.Range(anchorStart, selection.end),
       hoverMessage: hover,
@@ -397,10 +410,10 @@ export class CodeExecutor {
     const disposables: vscode.Disposable[] = [];
     setTimeout(() => {
       disposables.push(
-        vscode.workspace.onDidChangeTextDocument(e => {
+        vscode.workspace.onDidChangeTextDocument((e) => {
           if (e.document === editor.document) this.clearOverlay();
         }),
-        vscode.window.onDidChangeTextEditorSelection(e => {
+        vscode.window.onDidChangeTextEditorSelection((e) => {
           if (e.textEditor === editor) this.clearOverlay();
         }),
         vscode.window.onDidChangeActiveTextEditor(() => this.clearOverlay()),
@@ -418,7 +431,7 @@ export class CodeExecutor {
     // error below can never strand it on — a stranded key would hijack
     // Backspace/Enter/Ctrl+Z with no overlay visible to explain why.
     vscode.commands.executeCommand('setContext', DISPLAY_RESULT_CONTEXT, false);
-    this.overlayDisposables?.forEach(d => d.dispose());
+    this.overlayDisposables?.forEach((d) => d.dispose());
     this.overlayDisposables = undefined;
     if (this.overlayEditor) {
       try {
@@ -481,15 +494,19 @@ export class CodeExecutor {
 
     if (exists) {
       // Try to get its class
-      const { result: classOop, err } = session.gci.GciTsFetchClass(
-        session.handle, context,
-      );
+      const { result: classOop, err } = session.gci.GciTsFetchClass(session.handle, context);
       if (err.number === 0) {
         // Get class name
         const { data, err: nameErr } = session.gci.GciTsPerformFetchBytes(
-          session.handle, classOop, 'name', [], 256,
+          session.handle,
+          classOop,
+          'name',
+          [],
+          256,
         );
-        logInfo(`[Session ${session.id}] Debug context class: ${nameErr.number === 0 ? data : `error ${nameErr.number}`}`);
+        logInfo(
+          `[Session ${session.id}] Debug context class: ${nameErr.number === 0 ? data : `error ${nameErr.number}`}`,
+        );
       } else {
         logInfo(`[Session ${session.id}] Debug context FetchClass error: ${err.message}`);
       }
@@ -500,12 +517,10 @@ export class CodeExecutor {
     let oop = this.oopClassStringCache.get(session.handle);
     if (oop !== undefined) return oop;
 
-    const { result, err } = session.gci.GciTsResolveSymbol(
-      session.handle, 'String', OOP_NIL,
-    );
+    const { result, err } = session.gci.GciTsResolveSymbol(session.handle, 'String', OOP_NIL);
     if (err.number !== 0) {
       vscode.window.showErrorMessage(
-        `Failed to resolve String class: ${err.message || `error ${err.number}`}`
+        `Failed to resolve String class: ${err.message || `error ${err.number}`}`,
       );
       return undefined;
     }
@@ -535,9 +550,7 @@ export class CodeExecutor {
     //   "...near source character 45"
     //   "...at or near character 45"
     //   "...Error, (offset 45)"
-    const offsetMatch = message.match(
-      /(?:character|offset|position)\s+(\d+)/i,
-    );
+    const offsetMatch = message.match(/(?:character|offset|position)\s+(\d+)/i);
     let diagRange: vscode.Range;
     if (offsetMatch) {
       const gsOffset = parseInt(offsetMatch[1], 10) - 1; // GemStone is 1-based
@@ -553,7 +566,7 @@ export class CodeExecutor {
     this.diagnostics.set(editor.document.uri, [diag]);
 
     // Clear diagnostic when the document is next edited
-    const disposable = vscode.workspace.onDidChangeTextDocument(e => {
+    const disposable = vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.document === editor.document) {
         this.diagnostics.delete(editor.document.uri);
         disposable.dispose();
@@ -569,23 +582,32 @@ export class CodeExecutor {
    * the process is released. The two debuggers never coexist on one process.
    */
   private async promptDebuggableError(
-    session: ActiveSession, gsProcess: bigint, msg: string,
+    session: ActiveSession,
+    gsProcess: bigint,
+    msg: string,
     onComplete?: (resultOop: bigint) => void,
   ): Promise<void> {
     // Button array order maps to right-to-left placement in the modal, so
     // 'Enhanced Debug' first puts it to the RIGHT of 'Debug'.
     const choice = await vscode.window.showErrorMessage(
-      `GemStone error: ${msg}`, { modal: true }, 'Enhanced Debug', 'Debug',
+      `GemStone error: ${msg}`,
+      { modal: true },
+      'Enhanced Debug',
+      'Debug',
     );
     if (choice === 'Debug') {
-      await vscode.debug.startDebugging(undefined, {
-        type: 'gemstone',
-        name: 'GemStone Error',
-        request: 'attach',
-        sessionId: session.id,
-        gsProcess: gsProcess.toString(),
-        errorMessage: msg,
-      }, { suppressSaveBeforeStart: true });
+      await vscode.debug.startDebugging(
+        undefined,
+        {
+          type: 'gemstone',
+          name: 'GemStone Error',
+          request: 'attach',
+          sessionId: session.id,
+          gsProcess: gsProcess.toString(),
+          errorMessage: msg,
+        },
+        { suppressSaveBeforeStart: true },
+      );
       // Reveal the Run and Debug view so the call stack is immediately visible
       // instead of silently populating a hidden view.
       await vscode.commands.executeCommand('workbench.view.debug');
@@ -620,9 +642,7 @@ export class CodeExecutor {
 
     // Map to editor position relative to the selection start
     const editorLine = selection.start.line + errorLineInCode;
-    const editorCol = errorLineInCode === 0
-      ? selection.start.character + errorCol
-      : errorCol;
+    const editorCol = errorLineInCode === 0 ? selection.start.character + errorCol : errorCol;
 
     const pos = new vscode.Position(editorLine, editorCol);
     // Highlight from the error position to the end of that line
@@ -630,9 +650,7 @@ export class CodeExecutor {
     return new vscode.Range(pos, lineEnd);
   }
 
-  private pollForCompletion<T>(
-    session: ActiveSession, onReady: () => Promise<T>,
-  ): Promise<T> {
+  private pollForCompletion<T>(session: ActiveSession, onReady: () => Promise<T>): Promise<T> {
     // Delegates to the shared non-blocking poll loop (nbRunner) so Execute/Display
     // It and the debugger's step/trim share ONE cancel/break/backoff/progress
     // implementation (no divergence). The Nb call is already started by the caller
@@ -652,8 +670,8 @@ export class CodeExecutor {
     // Transcript writes arrive here as forwarder sends (error 2336) while the
     // code is still running: settleNbResult displays each one and resumes the
     // execution, only returning when a real result or error arrives.
-    const { result: resultOop, err: resultErr } = await settleNbResult(
-      session, text => appendTranscriptOutput(text),
+    const { result: resultOop, err: resultErr } = await settleNbResult(session, (text) =>
+      appendTranscriptOutput(text),
     );
     if (resultErr.number !== 0) {
       const msg = resultErr.message || `GemStone error ${resultErr.number}`;
@@ -671,7 +689,11 @@ export class CodeExecutor {
     const resultOop = await this.fetchResultOop(session);
 
     const { data, err: fetchErr } = session.gci.GciTsPerformFetchBytes(
-      session.handle, resultOop, 'printString', [], MAX_RESULT_SIZE,
+      session.handle,
+      resultOop,
+      'printString',
+      [],
+      MAX_RESULT_SIZE,
     );
     if (fetchErr.number !== 0) {
       throw new Error(fetchErr.message || `printString error ${fetchErr.number}`);
@@ -688,7 +710,7 @@ export class CodeExecutor {
 
     if (this.executing.has(session.id)) {
       vscode.window.showWarningMessage(
-        'A GemStone execution is already in progress on this session.'
+        'A GemStone execution is already in progress on this session.',
       );
       return;
     }
@@ -716,14 +738,16 @@ export class CodeExecutor {
   }
 
   async inspectExpression(
-    inspectorProvider: InspectorTreeProvider, code: string, label: string,
+    inspectorProvider: InspectorTreeProvider,
+    code: string,
+    label: string,
   ): Promise<void> {
     const session = await this.sessionManager.resolveSession();
     if (!session) return;
 
     if (this.executing.has(session.id)) {
       vscode.window.showWarningMessage(
-        'A GemStone execution is already in progress on this session.'
+        'A GemStone execution is already in progress on this session.',
       );
       return;
     }
@@ -732,7 +756,9 @@ export class CodeExecutor {
   }
 
   private async executeAndInspect(
-    session: ActiveSession, code: string, label: string,
+    session: ActiveSession,
+    code: string,
+    label: string,
     inspectorProvider: InspectorTreeProvider,
   ): Promise<void> {
     const oopClassString = this.resolveOopClassString(session);
@@ -752,8 +778,13 @@ export class CodeExecutor {
     try {
       // Interpreted so a halt/error is steppable in the debugger; see execute().
       const { success, err: startErr } = session.gci.GciTsNbExecute(
-        session.handle, code, oopClassString,
-        OOP_ILLEGAL, OOP_NIL, GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED, 0,
+        session.handle,
+        code,
+        oopClassString,
+        OOP_ILLEGAL,
+        OOP_NIL,
+        GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED,
+        0,
       );
       if (!success) {
         const msg = `Execution failed to start: ${startErr.message || `error ${startErr.number}`}`;

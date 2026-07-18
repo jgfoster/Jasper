@@ -3,10 +3,7 @@ import { ParseError } from '../parser/errors';
 
 export function toDiagnostics(errors: ParseError[]): Diagnostic[] {
   return errors.map((error) => ({
-    severity:
-      error.severity === 'error'
-        ? DiagnosticSeverity.Error
-        : DiagnosticSeverity.Warning,
+    severity: error.severity === 'error' ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning,
     range: {
       start: {
         line: error.range.start.line,

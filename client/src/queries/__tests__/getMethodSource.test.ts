@@ -34,7 +34,7 @@ describe('shared getMethodSource', () => {
     );
   });
 
-  it("escapes single quotes in selectors", () => {
+  it('escapes single quotes in selectors', () => {
     const execute = vi.fn(() => '');
     getMethodSource(execute, 'Array', false, "o'clock");
 

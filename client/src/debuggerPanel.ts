@@ -21,7 +21,10 @@ import { extensionPathFrom } from './extensionPath';
 // instead of being trapped inside the inline <script> template literal. The
 // webview needs the raw source text to inject into a <script> tag, so we read it
 // at runtime rather than importing it as a compiled module.
-const debuggerViewJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'debuggerView.js'), 'utf8');
+const debuggerViewJs = fs.readFileSync(
+  path.join(__dirname, '..', 'src', 'debuggerView.js'),
+  'utf8',
+);
 
 /**
  * Toolbar glyphs, keyed by `data-cmd`. These are the exact VS Code `codicon`
@@ -32,22 +35,31 @@ const debuggerViewJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'debugg
  * button's text colour drive the glyph (so the danger Terminate renders red).
  */
 const TOOLBAR_ICONS: Record<string, string> = {
-  resume: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M14.578 7.149L7.578 2.186C7.397 2.058 7.198 2 7.003 2C6.484 2 6 2.411 6 3.002V13.003C6 13.594 6.485 14.005 7.004 14.005C7.201 14.005 7.403 13.946 7.585 13.815L14.585 8.777C15.142 8.376 15.139 7.546 14.579 7.15L14.578 7.149ZM7.5 12.027V3.969L13.14 7.968L7.5 12.027ZM3.5 2.75V13.25C3.5 13.664 3.164 14 2.75 14C2.336 14 2 13.664 2 13.25V2.75C2 2.336 2.336 2 2.75 2C3.164 2 3.5 2.336 3.5 2.75Z"/></svg>',
+  resume:
+    '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M14.578 7.149L7.578 2.186C7.397 2.058 7.198 2 7.003 2C6.484 2 6 2.411 6 3.002V13.003C6 13.594 6.485 14.005 7.004 14.005C7.201 14.005 7.403 13.946 7.585 13.815L14.585 8.777C15.142 8.376 15.139 7.546 14.579 7.15L14.578 7.149ZM7.5 12.027V3.969L13.14 7.968L7.5 12.027ZM3.5 2.75V13.25C3.5 13.664 3.164 14 2.75 14C2.336 14 2 13.664 2 13.25V2.75C2 2.336 2.336 2 2.75 2C3.164 2 3.5 2.336 3.5 2.75Z"/></svg>',
   // "Run to Cursor" (#2): a play triangle aimed at a vertical bar — run until the
   // cursor (the bar). Reads as "continue to this point", distinct from the plain
   // Resume glyph.
-  runToCursor: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3 3.8v8.4a.6.6 0 0 0 .92.5l6.3-4.2a.6.6 0 0 0 0-1L3.92 3.3A.6.6 0 0 0 3 3.8z"/><path d="M12.25 3a.75.75 0 0 1 .75.75v8.5a.75.75 0 0 1-1.5 0v-8.5A.75.75 0 0 1 12.25 3z"/></svg>',
-  stepOver: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M9.99993 13C9.99993 14.103 9.10293 15 7.99993 15C6.89693 15 5.99993 14.103 5.99993 13C5.99993 11.897 6.89693 11 7.99993 11C9.10293 11 9.99993 11.897 9.99993 13ZM13.2499 2C12.8359 2 12.4999 2.336 12.4999 2.75V4.027C11.3829 2.759 9.75993 2 7.99993 2C5.03293 2 2.47993 4.211 2.06093 7.144C2.00193 7.554 2.28793 7.934 2.69793 7.993C2.73393 7.999 2.76993 8.001 2.80493 8.001C3.17193 8.001 3.49293 7.731 3.54693 7.357C3.86093 5.159 5.77593 3.501 8.00093 3.501C9.52993 3.501 10.9199 4.264 11.7439 5.501H9.75093C9.33693 5.501 9.00093 5.837 9.00093 6.251C9.00093 6.665 9.33693 7.001 9.75093 7.001H13.2509C13.6649 7.001 14.0009 6.665 14.0009 6.251V2.751C14.0009 2.337 13.6649 2.001 13.2509 2.001L13.2499 2Z"/></svg>',
-  stepInto: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M10 13C10 14.103 9.10304 15 8.00004 15C6.89704 15 6.00004 14.103 6.00004 13C6.00004 11.897 6.89704 11 8.00004 11C9.10304 11 10 11.897 10 13ZM12.03 5.22C11.737 4.927 11.262 4.927 10.969 5.22L8.74904 7.44V1.75C8.74904 1.336 8.41304 1 7.99904 1C7.58504 1 7.24904 1.336 7.24904 1.75V7.439L5.02904 5.219C4.73604 4.926 4.26104 4.926 3.96804 5.219C3.67504 5.512 3.67504 5.987 3.96804 6.28L7.46804 9.78C7.61404 9.926 7.80604 10 7.99804 10C8.19004 10 8.38204 9.927 8.52804 9.78L12.028 6.28C12.321 5.987 12.321 5.512 12.028 5.219L12.03 5.22Z"/></svg>',
+  runToCursor:
+    '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3 3.8v8.4a.6.6 0 0 0 .92.5l6.3-4.2a.6.6 0 0 0 0-1L3.92 3.3A.6.6 0 0 0 3 3.8z"/><path d="M12.25 3a.75.75 0 0 1 .75.75v8.5a.75.75 0 0 1-1.5 0v-8.5A.75.75 0 0 1 12.25 3z"/></svg>',
+  stepOver:
+    '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M9.99993 13C9.99993 14.103 9.10293 15 7.99993 15C6.89693 15 5.99993 14.103 5.99993 13C5.99993 11.897 6.89693 11 7.99993 11C9.10293 11 9.99993 11.897 9.99993 13ZM13.2499 2C12.8359 2 12.4999 2.336 12.4999 2.75V4.027C11.3829 2.759 9.75993 2 7.99993 2C5.03293 2 2.47993 4.211 2.06093 7.144C2.00193 7.554 2.28793 7.934 2.69793 7.993C2.73393 7.999 2.76993 8.001 2.80493 8.001C3.17193 8.001 3.49293 7.731 3.54693 7.357C3.86093 5.159 5.77593 3.501 8.00093 3.501C9.52993 3.501 10.9199 4.264 11.7439 5.501H9.75093C9.33693 5.501 9.00093 5.837 9.00093 6.251C9.00093 6.665 9.33693 7.001 9.75093 7.001H13.2509C13.6649 7.001 14.0009 6.665 14.0009 6.251V2.751C14.0009 2.337 13.6649 2.001 13.2509 2.001L13.2499 2Z"/></svg>',
+  stepInto:
+    '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M10 13C10 14.103 9.10304 15 8.00004 15C6.89704 15 6.00004 14.103 6.00004 13C6.00004 11.897 6.89704 11 8.00004 11C9.10304 11 10 11.897 10 13ZM12.03 5.22C11.737 4.927 11.262 4.927 10.969 5.22L8.74904 7.44V1.75C8.74904 1.336 8.41304 1 7.99904 1C7.58504 1 7.24904 1.336 7.24904 1.75V7.439L5.02904 5.219C4.73604 4.926 4.26104 4.926 3.96804 5.219C3.67504 5.512 3.67504 5.987 3.96804 6.28L7.46804 9.78C7.61404 9.926 7.80604 10 7.99804 10C8.19004 10 8.38204 9.927 8.52804 9.78L12.028 6.28C12.321 5.987 12.321 5.512 12.028 5.219L12.03 5.22Z"/></svg>',
   // "Through" = step through blocks (gciStepThru). The `indent` arrow (turns down
   // into a nested position) reads as stepping into a block, and stays visually
   // distinct from Into's debug-step-into glyph.
-  stepThrough: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M2.50002 3C2.77602 3 3.00002 3.224 3.00002 3.5V6.5C3.00002 7.327 3.67302 8 4.50002 8H12.293L9.64702 5.354C9.45202 5.159 9.45202 4.842 9.64702 4.647C9.84202 4.452 10.159 4.452 10.354 4.647L13.854 8.147C14.049 8.342 14.049 8.659 13.854 8.854L10.354 12.354C10.256 12.452 10.128 12.5 10 12.5C9.87202 12.5 9.74402 12.451 9.64602 12.354C9.45102 12.159 9.45102 11.842 9.64602 11.647L12.292 9.001H4.49902C3.12002 9.001 1.99902 7.88 1.99902 6.501V3.501C1.99902 3.225 2.22302 3.001 2.49902 3.001L2.50002 3Z"/></svg>',
-  restartFrame: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5C1 3.22386 1.22386 3 1.5 3H14.5C14.7761 3 15 3.22386 15 3.5C15 3.77614 14.7761 4 14.5 4H1.5C1.22386 4 1 3.77614 1 3.5Z"/><path d="M1 7.5C1 7.22386 1.22386 7 1.5 7H14.5C14.7761 7 15 7.22386 15 7.5C15 7.77614 14.7761 8 14.5 8H1.5C1.22386 8 1 7.77614 1 7.5Z"/><path d="M1 11.5C1 11.2239 1.22386 11 1.5 11H7.99939V11.4994C7.99939 11.6716 8.02899 11.8407 8.08538 12H1.5C1.22386 12 1 11.7761 1 11.5Z"/><path d="M8.99939 9.49939V11.4994C8.99939 11.632 9.05207 11.7592 9.14584 11.8529C9.2396 11.9467 9.36678 11.9994 9.49939 11.9994H11.4994C11.632 11.9994 11.7592 11.9467 11.8529 11.8529C11.9467 11.7592 11.9994 11.632 11.9994 11.4994C11.9994 11.3668 11.9467 11.2396 11.8529 11.1458C11.7592 11.0521 11.632 10.9994 11.4994 10.9994H10.4994C10.5702 10.9049 10.6477 10.8157 10.7314 10.7324C11.2078 10.2778 11.8409 10.0242 12.4994 10.0242C13.1579 10.0242 13.791 10.2778 14.2674 10.7324C14.4996 10.9645 14.6838 11.2402 14.8095 11.5435C14.9352 11.8469 14.9999 12.172 14.9999 12.5004C14.9999 12.8287 14.9352 13.1539 14.8095 13.4573C14.6838 13.7606 14.4996 14.0362 14.2674 14.2684C13.7909 14.7227 13.1578 14.9762 12.4994 14.9762C11.841 14.9762 11.2079 14.7227 10.7314 14.2684C10.6371 14.1773 10.5108 14.1269 10.3797 14.1281C10.2486 14.1292 10.1232 14.1818 10.0305 14.2745C9.93778 14.3672 9.88519 14.4926 9.88405 14.6237C9.88291 14.7548 9.93331 14.8811 10.0244 14.9754C10.6808 15.6318 11.5711 16.0006 12.4994 16.0006C13.4277 16.0006 14.318 15.6318 14.9744 14.9754C15.6308 14.319 15.9996 13.4287 15.9996 12.5004C15.9996 11.5721 15.6308 10.6818 14.9744 10.0254C14.3075 9.38902 13.4212 9.03396 12.4994 9.03396C11.5776 9.03396 10.6912 9.38902 10.0244 10.0254L9.99939 10.0514V9.49939C9.99939 9.36678 9.94671 9.2396 9.85294 9.14584C9.75918 9.05207 9.632 8.99939 9.49939 8.99939C9.36678 8.99939 9.2396 9.05207 9.14584 9.14584C9.05207 9.2396 8.99939 9.36678 8.99939 9.49939Z"/></svg>',
-  terminate: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M12.5 3.5V12.5H3.5V3.5H12.5ZM12.5 2H3.5C2.672 2 2 2.672 2 3.5V12.5C2 13.328 2.672 14 3.5 14H12.5C13.328 14 14 13.328 14 12.5V3.5C14 2.672 13.328 2 12.5 2Z"/></svg>',
+  stepThrough:
+    '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M2.50002 3C2.77602 3 3.00002 3.224 3.00002 3.5V6.5C3.00002 7.327 3.67302 8 4.50002 8H12.293L9.64702 5.354C9.45202 5.159 9.45202 4.842 9.64702 4.647C9.84202 4.452 10.159 4.452 10.354 4.647L13.854 8.147C14.049 8.342 14.049 8.659 13.854 8.854L10.354 12.354C10.256 12.452 10.128 12.5 10 12.5C9.87202 12.5 9.74402 12.451 9.64602 12.354C9.45102 12.159 9.45102 11.842 9.64602 11.647L12.292 9.001H4.49902C3.12002 9.001 1.99902 7.88 1.99902 6.501V3.501C1.99902 3.225 2.22302 3.001 2.49902 3.001L2.50002 3Z"/></svg>',
+  restartFrame:
+    '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5C1 3.22386 1.22386 3 1.5 3H14.5C14.7761 3 15 3.22386 15 3.5C15 3.77614 14.7761 4 14.5 4H1.5C1.22386 4 1 3.77614 1 3.5Z"/><path d="M1 7.5C1 7.22386 1.22386 7 1.5 7H14.5C14.7761 7 15 7.22386 15 7.5C15 7.77614 14.7761 8 14.5 8H1.5C1.22386 8 1 7.77614 1 7.5Z"/><path d="M1 11.5C1 11.2239 1.22386 11 1.5 11H7.99939V11.4994C7.99939 11.6716 8.02899 11.8407 8.08538 12H1.5C1.22386 12 1 11.7761 1 11.5Z"/><path d="M8.99939 9.49939V11.4994C8.99939 11.632 9.05207 11.7592 9.14584 11.8529C9.2396 11.9467 9.36678 11.9994 9.49939 11.9994H11.4994C11.632 11.9994 11.7592 11.9467 11.8529 11.8529C11.9467 11.7592 11.9994 11.632 11.9994 11.4994C11.9994 11.3668 11.9467 11.2396 11.8529 11.1458C11.7592 11.0521 11.632 10.9994 11.4994 10.9994H10.4994C10.5702 10.9049 10.6477 10.8157 10.7314 10.7324C11.2078 10.2778 11.8409 10.0242 12.4994 10.0242C13.1579 10.0242 13.791 10.2778 14.2674 10.7324C14.4996 10.9645 14.6838 11.2402 14.8095 11.5435C14.9352 11.8469 14.9999 12.172 14.9999 12.5004C14.9999 12.8287 14.9352 13.1539 14.8095 13.4573C14.6838 13.7606 14.4996 14.0362 14.2674 14.2684C13.7909 14.7227 13.1578 14.9762 12.4994 14.9762C11.841 14.9762 11.2079 14.7227 10.7314 14.2684C10.6371 14.1773 10.5108 14.1269 10.3797 14.1281C10.2486 14.1292 10.1232 14.1818 10.0305 14.2745C9.93778 14.3672 9.88519 14.4926 9.88405 14.6237C9.88291 14.7548 9.93331 14.8811 10.0244 14.9754C10.6808 15.6318 11.5711 16.0006 12.4994 16.0006C13.4277 16.0006 14.318 15.6318 14.9744 14.9754C15.6308 14.319 15.9996 13.4287 15.9996 12.5004C15.9996 11.5721 15.6308 10.6818 14.9744 10.0254C14.3075 9.38902 13.4212 9.03396 12.4994 9.03396C11.5776 9.03396 10.6912 9.38902 10.0244 10.0254L9.99939 10.0514V9.49939C9.99939 9.36678 9.94671 9.2396 9.85294 9.14584C9.75918 9.05207 9.632 8.99939 9.49939 8.99939C9.36678 8.99939 9.2396 9.05207 9.14584 9.14584C9.05207 9.2396 8.99939 9.36678 8.99939 9.49939Z"/></svg>',
+  terminate:
+    '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M12.5 3.5V12.5H3.5V3.5H12.5ZM12.5 2H3.5C2.672 2 2 2.672 2 3.5V12.5C2 13.328 2.672 14 3.5 14H12.5C13.328 14 14 13.328 14 12.5V3.5C14 2.672 13.328 2 12.5 2Z"/></svg>',
   // Copy Stack → clipboard glyph; Dump Stack → save-to-file (floppy) glyph.
-  copyStack: '<svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M4 4l1-1h5.414L14 6.586V14l-1 1H5l-1-1V4zm9 3l-3-3H5v10h8V7z"/><path d="M3 1L2 2v10l1 1V2h6.414l-1-1H3z"/></svg>',
-  dumpStack: '<svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M13.353 1.146l1.5 1.5L15 3v11.5l-.5.5h-13l-.5-.5v-13l.5-.5H13l.353.146zM2 2v12h12V3.207L12.793 2H12v5H4V2H2zm7 0v4h2V2H9z"/></svg>',
+  copyStack:
+    '<svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M4 4l1-1h5.414L14 6.586V14l-1 1H5l-1-1V4zm9 3l-3-3H5v10h8V7z"/><path d="M3 1L2 2v10l1 1V2h6.414l-1-1H3z"/></svg>',
+  dumpStack:
+    '<svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M13.353 1.146l1.5 1.5L15 3v11.5l-.5.5h-13l-.5-.5v-13l.5-.5H13l.353.146zM2 2v12h12V3.207L12.793 2H12v5H4V2H2zm7 0v4h2V2H9z"/></svg>',
 };
 
 /**
@@ -159,12 +171,14 @@ interface VarGroup {
  */
 export function buildMethodSourceUri(sessionId: number, uriInfo: debug.MethodUriInfo): string {
   const side = uriInfo.isMeta ? 'class' : 'instance';
-  return `gemstone://${sessionId}`
-    + `/${encodeURIComponent(uriInfo.dictName)}`
-    + `/${encodeURIComponent(uriInfo.className)}`
-    + `/${side}`
-    + `/${encodeURIComponent(uriInfo.category)}`
-    + `/${encodeURIComponent(uriInfo.selector)}`;
+  return (
+    `gemstone://${sessionId}` +
+    `/${encodeURIComponent(uriInfo.dictName)}` +
+    `/${encodeURIComponent(uriInfo.className)}` +
+    `/${side}` +
+    `/${encodeURIComponent(uriInfo.category)}` +
+    `/${encodeURIComponent(uriInfo.selector)}`
+  );
 }
 
 /** Resolved pieces of a frame label, before formatting. */
@@ -225,7 +239,7 @@ export function buildMethodStub(selector: string, argCount: number): string {
   let signature: string;
   if (selector.includes(':')) {
     // Keyword selector: pair each keyword with a generated argument name.
-    const keywords = selector.split(':').filter(k => k.length > 0);
+    const keywords = selector.split(':').filter((k) => k.length > 0);
     signature = keywords.map((kw, i) => `${kw}: arg${i + 1}`).join(' ');
   } else if (argCount > 0) {
     signature = `${selector} arg1`; // binary selector (e.g. + or <=)
@@ -234,9 +248,11 @@ export function buildMethodStub(selector: string, argCount: number): string {
   }
   // Keep the comment short so it fits a normal-width source pane (the long
   // version ran off the right edge), and have it state the save step explicitly.
-  return `${signature}\n`
-    + '\t"Fill in the body, then save (Ctrl+S) to create this method."\n'
-    + '\t^nil\n';
+  return (
+    `${signature}\n` +
+    '\t"Fill in the body, then save (Ctrl+S) to create this method."\n' +
+    '\t^nil\n'
+  );
 }
 
 /**
@@ -345,20 +361,35 @@ export function shortenInlineValue(value: string, maxLen = 40): string {
  */
 export function maskCommentsAndStrings(text: string): string {
   const out = text.split('');
-  const blank = (k: number): void => { if (text[k] !== '\n') out[k] = ' '; };
+  const blank = (k: number): void => {
+    if (text[k] !== '\n') out[k] = ' ';
+  };
   let i = 0;
   while (i < text.length) {
     const c = text[i];
-    if (c === '$') { i += 2; continue; }        // character literal: `$x`, `$"`, `$'`
-    if (c === '"' || c === "'") {               // comment or string
+    if (c === '$') {
+      i += 2;
+      continue;
+    } // character literal: `$x`, `$"`, `$'`
+    if (c === '"' || c === "'") {
+      // comment or string
       const quote = c;
-      blank(i); i++;
+      blank(i);
+      i++;
       while (i < text.length) {
         if (text[i] === quote) {
-          if (text[i + 1] === quote) { blank(i); blank(i + 1); i += 2; continue; } // escaped
-          blank(i); i++; break;                  // closing delimiter
+          if (text[i + 1] === quote) {
+            blank(i);
+            blank(i + 1);
+            i += 2;
+            continue;
+          } // escaped
+          blank(i);
+          i++;
+          break; // closing delimiter
         }
-        blank(i); i++;
+        blank(i);
+        i++;
       }
       continue;
     }
@@ -370,8 +401,10 @@ export function maskCommentsAndStrings(text: string): string {
 /** Char ranges on `line` that are binding sites (temp decls + block args). */
 function declarationSpans(line: string): Array<[number, number]> {
   const spans: Array<[number, number]> = [];
-  for (const d of line.matchAll(INLINE_TEMPDECL_RE)) spans.push([d.index ?? 0, (d.index ?? 0) + d[0].length]);
-  for (const b of line.matchAll(INLINE_BLOCKARG_RE)) spans.push([b.index ?? 0, (b.index ?? 0) + b[0].length]);
+  for (const d of line.matchAll(INLINE_TEMPDECL_RE))
+    spans.push([d.index ?? 0, (d.index ?? 0) + d[0].length]);
+  for (const b of line.matchAll(INLINE_BLOCKARG_RE))
+    spans.push([b.index ?? 0, (b.index ?? 0) + b[0].length]);
   return spans;
 }
 
@@ -393,7 +426,9 @@ function declarationSpans(line: string): Array<[number, number]> {
  * instVars → args/temps in that order).
  */
 export function computeInlineValueLines(
-  srcLines: string[], vars: InlineVar[], opts: InlineValueOpts = {},
+  srcLines: string[],
+  vars: InlineVar[],
+  opts: InlineValueOpts = {},
 ): InlineValueLine[] {
   const byName = new Map<string, InlineVar>();
   for (const v of vars) byName.set(v.name, v);
@@ -434,10 +469,10 @@ export function computeInlineValueLines(
   const targetCol = Math.min(widestAnnotated, INLINE_VALUE_MAX_COL) + INLINE_VALUE_GAP;
 
   // Pass 2: render label + alignment padding.
-  return hits.map(h => ({
+  return hits.map((h) => ({
     line: h.line,
     vars: h.vars,
-    label: h.vars.map(v => `${v.name} = ${v.value}`).join(INLINE_VALUE_SEP),
+    label: h.vars.map((v) => `${v.name} = ${v.value}`).join(INLINE_VALUE_SEP),
     padCh: Math.max(INLINE_VALUE_GAP, targetCol - lines[h.line].length),
   }));
 }
@@ -455,11 +490,11 @@ export function inlineHoverMarkdown(vars: InlineVar[]): string {
   // Escape markdown-significant chars in the (server-supplied) printString so it
   // renders verbatim rather than as accidental markup.
   const safe = (s: string): string => s.replace(/[\\[\]`*_<>]/g, '\\$&');
-  const body = vars.map(v => `**${v.name}** = ${safe(v.full)}`).join('  \n');
+  const body = vars.map((v) => `**${v.name}** = ${safe(v.full)}`).join('  \n');
   // Editing in the source is by double-clicking the variable's name (command-links
   // in hovers don't fire in all hosts, so the hover only hints — it isn't the
   // trigger). The hint shows only when something on this line is editable.
-  return vars.some(v => v.edit)
+  return vars.some((v) => v.edit)
     ? `${body}\n\n_Double-click the variable name to set its value._`
     : body;
 }
@@ -547,7 +582,9 @@ function detailFrameHeading(f: FrameSummary): string {
  * and Dump Stack (file, #11).
  */
 export function formatDetailedStack(
-  errorMessage: string, frames: DetailedStackFrame[], header?: string,
+  errorMessage: string,
+  frames: DetailedStackFrame[],
+  header?: string,
 ): string {
   const lines: string[] = [];
   if (header) lines.push(header, '');
@@ -578,8 +615,10 @@ const pad2 = (n: number): string => (n < 10 ? `0${n}` : `${n}`);
  * name so the stacks folder sorts chronologically.
  */
 export function stackDumpTimestamp(d: Date): string {
-  return `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}`
-    + `_${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`;
+  return (
+    `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}` +
+    `_${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`
+  );
 }
 
 /**
@@ -589,11 +628,12 @@ export function stackDumpTimestamp(d: Date): string {
  * `-`), e.g. `[] in JasperFoo>>#bar` → `2026-06-25_153012_JasperFoo-bar.txt`.
  */
 export function stackDumpFileName(topLabel: string, d: Date): string {
-  const token = (topLabel || '')
-    .replace(/\[\] in /g, '')
-    .replace(/[^A-Za-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60) || 'stack';
+  const token =
+    (topLabel || '')
+      .replace(/\[\] in /g, '')
+      .replace(/[^A-Za-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60) || 'stack';
   return `${stackDumpTimestamp(d)}_${token}.txt`;
 }
 
@@ -651,13 +691,27 @@ export interface RawFrame {
 // Trimming them opens the debugger on the abstract method itself (the frame just below,
 // e.g. `LargeNegativeInteger(Integer)>>foo`) — the method T4 offers to implement.
 const MACHINERY_SELECTORS = new Set([
-  'halt', 'halt:', 'pause', 'error:', 'signal', 'signal:', 'defaultAction', '_defaultAction',
-  'subclassResponsibility', 'subclassResponsibility:',
+  'halt',
+  'halt:',
+  'pause',
+  'error:',
+  'signal',
+  'signal:',
+  'defaultAction',
+  '_defaultAction',
+  'subclassResponsibility',
+  'subclassResponsibility:',
 ]);
 // Kernel block-invocation selectors that appear as transcript-capture-wrapper
 // glue at the BOTTOM (the doit evaluates its blocks via these).
 const BLOCK_EVAL_SELECTORS = new Set([
-  'value', 'value:', 'value:value:', 'value:value:value:', 'ensure:', 'ifCurtailed:', 'on:do:',
+  'value',
+  'value:',
+  'value:value:',
+  'value:value:value:',
+  'ensure:',
+  'ifCurtailed:',
+  'on:do:',
 ]);
 
 // GemStone rtErrUncontinuable (ErrorSymbols #rtErrUncontinuable → 6011): raised
@@ -669,11 +723,13 @@ const GS_ERR_UNCONTINUABLE = 6011;
 
 /** True when a frame is exception-signalling / halt machinery. */
 export function isExceptionMachinery(f: RawFrame): boolean {
-  return f.definingClassName === 'AbstractException'
-    || f.selector.startsWith('doesNotUnderstand')
-    || f.selector.startsWith('_doesNotUnderstand')
-    || f.selector.startsWith('_signal')
-    || MACHINERY_SELECTORS.has(f.selector);
+  return (
+    f.definingClassName === 'AbstractException' ||
+    f.selector.startsWith('doesNotUnderstand') ||
+    f.selector.startsWith('_doesNotUnderstand') ||
+    f.selector.startsWith('_signal') ||
+    MACHINERY_SELECTORS.has(f.selector)
+  );
 }
 
 /**
@@ -705,7 +761,10 @@ export function filterStack(raws: RawFrame[]): RawFrame[] {
   // Bottom: find the deepest doit (Executed Code) frame, if any.
   let doitIdx = -1;
   for (let i = kept.length - 1; i >= 0; i--) {
-    if (kept[i].isExecutedCode) { doitIdx = i; break; }
+    if (kept[i].isExecutedCode) {
+      doitIdx = i;
+      break;
+    }
   }
   if (doitIdx === -1) return kept; // no wrapper (e.g. a breakpoint in a method)
 
@@ -736,8 +795,14 @@ const DEFAULT_SOURCE_RATIO = 0.33;
  * a `size`, a branch has nested `groups`. Sizes round-trip in pixels but are
  * treated as relative weights, so preserving their sum preserves the layout.
  */
-export interface EditorGroupNode { size?: number; groups?: EditorGroupNode[]; }
-export interface EditorGroupLayout { orientation?: number; groups: EditorGroupNode[]; }
+export interface EditorGroupNode {
+  size?: number;
+  groups?: EditorGroupNode[];
+}
+export interface EditorGroupLayout {
+  orientation?: number;
+  groups: EditorGroupNode[];
+}
 
 /**
  * Flatten a layout's leaf groups in depth-first, left-to-right order — the same
@@ -765,7 +830,8 @@ export function flattenLayoutLeaves(
  * column can't be located / measured. `sourceColumn` is 1-based (a ViewColumn).
  */
 export function sourceRatioFromLayout(
-  layout: EditorGroupLayout | undefined, sourceColumn: number | undefined,
+  layout: EditorGroupLayout | undefined,
+  sourceColumn: number | undefined,
 ): number | undefined {
   if (!layout || !sourceColumn) return undefined;
   const leaves = flattenLayoutLeaves(layout);
@@ -784,7 +850,9 @@ export function sourceRatioFromLayout(
  * clamped to a sane band so a degenerate save can't collapse a pane.
  */
 export function setSourceRatioInLayout(
-  layout: EditorGroupLayout | undefined, sourceColumn: number | undefined, ratio: number,
+  layout: EditorGroupLayout | undefined,
+  sourceColumn: number | undefined,
+  ratio: number,
 ): boolean {
   if (!layout || !sourceColumn) return false;
   const leaves = flattenLayoutLeaves(layout);
@@ -794,7 +862,7 @@ export function setSourceRatioInLayout(
   if (total <= 0) return false;
   const clamped = Math.max(0.1, Math.min(0.9, ratio));
   const sourceSize = Math.round(total * clamped);
-  const sibling = leaf.parent.groups.find(g => g !== leaf.node);
+  const sibling = leaf.parent.groups.find((g) => g !== leaf.node);
   if (!sibling) return false;
   leaf.node.size = sourceSize;
   sibling.size = total - sourceSize;
@@ -975,7 +1043,12 @@ export class DebuggerPanel {
   }
 
   /** Stash a frame's read-only source and return its virtual URI; `title` is the tab label. */
-  private static stashReadOnlySource(sessionId: number, methodOop: bigint, title: string, source: string): vscode.Uri {
+  private static stashReadOnlySource(
+    sessionId: number,
+    methodOop: bigint,
+    title: string,
+    source: string,
+  ): vscode.Uri {
     DebuggerPanel.ensureReadOnlySourceProvider();
     // Path titles the tab; query keeps each method distinct.
     const uri = vscode.Uri.from({
@@ -1196,7 +1269,9 @@ export class DebuggerPanel {
    *   result to surface (Execute It, or a halt not originating from a doit).
    */
   static create(
-    session: ActiveSession, gsProcess: bigint, errorMessage: string,
+    session: ActiveSession,
+    gsProcess: bigint,
+    errorMessage: string,
     onComplete?: (resultOop: bigint) => void,
   ): void {
     const panel = vscode.window.createWebviewPanel(
@@ -1212,7 +1287,9 @@ export class DebuggerPanel {
         for (let i = 0; i < PANEL_WIDEN_STEPS; i++) {
           await vscode.commands.executeCommand('workbench.action.increaseViewWidth');
         }
-      } catch { /* best-effort layout */ }
+      } catch {
+        /* best-effort layout */
+      }
     })();
     const debugger_ = new DebuggerPanel(panel, session, gsProcess, errorMessage, onComplete);
     if (!DebuggerPanel.panels.has(session.id)) {
@@ -1283,10 +1360,10 @@ export class DebuggerPanel {
     const uri = this.sourceEditor?.document.uri.toString();
     if (uri === undefined || e.textEditor.document.uri.toString() !== uri) return;
     const sel = e.selections[0];
-    if (!sel || sel.isEmpty) return;                                   // single click → leave the cursor
-    const word = e.textEditor.document.getText(sel);                   // the double-clicked word
+    if (!sel || sel.isEmpty) return; // single click → leave the cursor
+    const word = e.textEditor.document.getText(sel); // the double-clicked word
     const edit = this.inlineEditableByName.get(word);
-    if (!edit) return;                                                 // not an editable variable
+    if (!edit) return; // not an editable variable
     void this.editInlineValue(this.inlineHoverLevel, edit.kind, edit.index, word);
   }
 
@@ -1305,18 +1382,27 @@ export class DebuggerPanel {
         void vscode.env.clipboard.writeText(this.buildDetailedStackText(new Date()));
         return;
       }
-      case 'dumpStackToFile': { void this.dumpStackToFile(); return; }
-      case 'openDumpFile': { void this.openDumpFile(msg.path); return; }
-      case 'copyText': { void vscode.env.clipboard.writeText(msg.text); return; }
+      case 'dumpStackToFile': {
+        void this.dumpStackToFile();
+        return;
+      }
+      case 'openDumpFile': {
+        void this.openDumpFile(msg.path);
+        return;
+      }
+      case 'copyText': {
+        void vscode.env.clipboard.writeText(msg.text);
+        return;
+      }
       case 'copyFrame': {
-        const frame = this.frames.find(f => f.level === msg.level);
+        const frame = this.frames.find((f) => f.level === msg.level);
         if (frame) void vscode.env.clipboard.writeText(formatFrameForClipboard(frame));
         return;
       }
       case 'selectFrame': {
         // Map the display level the webview reported back to the server level,
         // then drive the source pane AND the variables pane for that frame.
-        const frame = this.frames.find(f => f.level === msg.level);
+        const frame = this.frames.find((f) => f.level === msg.level);
         if (frame) {
           this.selectedServerLevel = frame.serverLevel;
           void this.revealFrameSource(frame.serverLevel);
@@ -1325,14 +1411,26 @@ export class DebuggerPanel {
         return;
       }
       case 'evalInFrame': {
-        const frame = this.frames.find(f => f.level === msg.level);
+        const frame = this.frames.find((f) => f.level === msg.level);
         void this.evalInFrame(frame?.serverLevel, msg.expr);
         return;
       }
-      case 'cancelOp': { this.cancelActiveOp(); return; }
-      case 'resume': { this.resume(); return; }
-      case 'runToCursor': { this.runToCursor(msg.level); return; }
-      case 'terminate': { this.panel.dispose(); return; } // dispose → clearStack
+      case 'cancelOp': {
+        this.cancelActiveOp();
+        return;
+      }
+      case 'resume': {
+        this.resume();
+        return;
+      }
+      case 'runToCursor': {
+        this.runToCursor(msg.level);
+        return;
+      }
+      case 'terminate': {
+        this.panel.dispose();
+        return;
+      } // dispose → clearStack
       case 'stepOver':
       case 'stepInto':
       case 'stepThrough': {
@@ -1340,21 +1438,33 @@ export class DebuggerPanel {
         return;
       }
       case 'restartFrame': {
-        const frame = this.frames.find(f => f.level === msg.level);
+        const frame = this.frames.find((f) => f.level === msg.level);
         if (frame) void this.restartFrame(frame.serverLevel);
         return;
       }
-      case 'createDnuMethod': { void this.createDnuMethod(); return; }
-      case 'implementInReceiver': { void this.implementInReceiver(msg.level); return; }
-      case 'browseFrame': { void this.browseFrame(msg.level); return; }
-      case 'implementSubclassResponsibility': { void this.implementSubclassResponsibility(); return; }
+      case 'createDnuMethod': {
+        void this.createDnuMethod();
+        return;
+      }
+      case 'implementInReceiver': {
+        void this.implementInReceiver(msg.level);
+        return;
+      }
+      case 'browseFrame': {
+        void this.browseFrame(msg.level);
+        return;
+      }
+      case 'implementSubclassResponsibility': {
+        void this.implementSubclassResponsibility();
+        return;
+      }
       case 'setVariable': {
-        const frame = this.frames.find(f => f.level === msg.level);
+        const frame = this.frames.find((f) => f.level === msg.level);
         this.setVariable(frame?.serverLevel, msg.kind, msg.index, msg.expr);
         return;
       }
       case 'revertVariable': {
-        const frame = this.frames.find(f => f.level === msg.level);
+        const frame = this.frames.find((f) => f.level === msg.level);
         this.revertVariable(frame?.serverLevel, msg.kind, msg.index);
         return;
       }
@@ -1366,7 +1476,10 @@ export class DebuggerPanel {
         // primary sidebar (which persists on its own).
         try {
           const inspector = routeInspect(
-            this.session, BigInt(msg.oop), msg.name, DebuggerPanel.inspectorProvider!,
+            this.session,
+            BigInt(msg.oop),
+            msg.name,
+            DebuggerPanel.inspectorProvider!,
           );
           if (inspector) this.openedInspectors.add(inspector);
         } catch (e: unknown) {
@@ -1390,18 +1503,29 @@ export class DebuggerPanel {
       command: 'init',
       errorMessage: this.errorMessage,
       // Send only the display shape; serverLevel stays host-side.
-      stack: this.frames.map(f => ({
-        level: f.level, label: f.label, position: f.position,
-        overridable: f.overridable, receiverClass: f.receiverClass,
-        breakable: f.breakable, browsable: f.browsable, homeDisplayLevel: f.homeDisplayLevel,
+      stack: this.frames.map((f) => ({
+        level: f.level,
+        label: f.label,
+        position: f.position,
+        overridable: f.overridable,
+        receiverClass: f.receiverClass,
+        breakable: f.breakable,
+        browsable: f.browsable,
+        homeDisplayLevel: f.homeDisplayLevel,
       })),
       // When parked on a doesNotUnderstand:, drive the "Create #sel in Class" button.
       dnu: this.dnuInfo
-        ? { selector: this.dnuInfo.selector, className: this.dnuInfo.className, isMeta: this.dnuInfo.isMeta }
+        ? {
+            selector: this.dnuInfo.selector,
+            className: this.dnuInfo.className,
+            isMeta: this.dnuInfo.isMeta,
+          }
         : undefined,
       // When parked on a subclassResponsibility, drive the "Implement #sel" button (T4).
       // The target class is chosen via picker, so only the selector is sent.
-      subclassResp: this.subclassRespInfo ? { selector: this.subclassRespInfo.selector } : undefined,
+      subclassResp: this.subclassRespInfo
+        ? { selector: this.subclassRespInfo.selector }
+        : undefined,
     });
   }
 
@@ -1443,15 +1567,18 @@ export class DebuggerPanel {
    * precedence), while a T4 template is being edited, or once resolved (srSuppressed).
    */
   private detectSubclassResp(): SubclassRespInfo | undefined {
-    if (this.dnuInfo || this.srSuppressed || this.pendingOverrideUri !== undefined) return undefined;
+    if (this.dnuInfo || this.srSuppressed || this.pendingOverrideUri !== undefined)
+      return undefined;
     const raws = this.rawFrames;
     const srIdx = raws.findIndex(
-      r => r.selector === 'subclassResponsibility' || r.selector === 'subclassResponsibility:');
+      (r) => r.selector === 'subclassResponsibility' || r.selector === 'subclassResponsibility:',
+    );
     // Need the abstract method frame just below the marker. (srIdx+1 must exist.)
     if (srIdx === -1 || srIdx + 1 >= raws.length) return undefined;
     const abstractFrame = raws[srIdx + 1];
     // Only a real method can be implemented/overridden — never a block or doit.
-    if (!abstractFrame.selector || abstractFrame.isBlock || abstractFrame.isExecutedCode) return undefined;
+    if (!abstractFrame.selector || abstractFrame.isBlock || abstractFrame.isExecutedCode)
+      return undefined;
     if (!abstractFrame.definingClassName) return undefined;
     const sender = raws[srIdx + 2];
     return {
@@ -1476,7 +1603,12 @@ export class DebuggerPanel {
    * the FS provider's form is what lets us recognise (and close) the tab it opens.
    * `selector` may be `new-method` for the template URI. Env 0 (no query).
    */
-  private gemstoneMethodUri(dictName: string, className: string, isMeta: boolean, selector: string): vscode.Uri {
+  private gemstoneMethodUri(
+    dictName: string,
+    className: string,
+    isMeta: boolean,
+    selector: string,
+  ): vscode.Uri {
     return vscode.Uri.from({
       scheme: 'gemstone',
       authority: String(this.session.id),
@@ -1489,8 +1621,9 @@ export class DebuggerPanel {
     if (!dnu) return;
     if (!dnu.dictName) {
       // No home dictionary → we can't build an editable gemstone:// URI for it.
-      this.errorMessage = `Can't create #${dnu.selector}: ${dnu.className} isn't in your symbol `
-        + 'list, so its source has no home dictionary. Add the class to a dictionary first.';
+      this.errorMessage =
+        `Can't create #${dnu.selector}: ${dnu.className} isn't in your symbol ` +
+        'list, so its source has no home dictionary. Add the class to a dictionary first.';
       this.postInit();
       return;
     }
@@ -1500,7 +1633,12 @@ export class DebuggerPanel {
     // URI — built EXACTLY as the provider builds it (vscode.Uri.from leaves ':'
     // un-encoded, unlike buildMethodSourceUri's encodeURIComponent → '%3A'), so the
     // strings match and closeSourceEditors actually closes it (else it lingered).
-    const compiledUri = this.gemstoneMethodUri(dnu.dictName, dnu.className, dnu.isMeta, dnu.selector);
+    const compiledUri = this.gemstoneMethodUri(
+      dnu.dictName,
+      dnu.className,
+      dnu.isMeta,
+      dnu.selector,
+    );
     try {
       await this.openTemplateEditor(uri, buildMethodStub(dnu.selector, dnu.argCount));
       this.pendingDnuMethodUri = uri.toString();
@@ -1515,8 +1653,9 @@ export class DebuggerPanel {
       // source in the source column and steals focus from the new-method editor we
       // just opened. The banner update clears the Create button and keeps focus on
       // the new-method tab so the user can type immediately.
-      this.errorMessage = `Editing new method #${dnu.selector} below — fill in the body, then save it `
-        + '(Ctrl+S / Cmd+S) to create the method. Then press Resume (▶) to run it.';
+      this.errorMessage =
+        `Editing new method #${dnu.selector} below — fill in the body, then save it ` +
+        '(Ctrl+S / Cmd+S) to create the method. Then press Resume (▶) to run it.';
       this.panel.webview.postMessage({ command: 'banner', text: this.errorMessage });
     } catch (e: unknown) {
       logError(this.sessionId, e instanceof Error ? e.message : String(e));
@@ -1548,9 +1687,9 @@ export class DebuggerPanel {
    * error help as the DNU path.
    */
   private async implementInReceiver(displayLevel: number): Promise<void> {
-    const frame = this.frames.find(f => f.level === displayLevel);
+    const frame = this.frames.find((f) => f.level === displayLevel);
     if (!frame || !frame.overridable) return;
-    const raw = this.rawFrames.find(r => r.serverLevel === frame.serverLevel);
+    const raw = this.rawFrames.find((r) => r.serverLevel === frame.serverLevel);
     const selector = raw?.selector;
     if (!selector) return;
 
@@ -1572,7 +1711,9 @@ export class DebuggerPanel {
       return;
     }
     await this.pickAndOpenImplementTemplate({
-      selector, chain, contextLabel: `${frame.label}@sv${frame.serverLevel}`,
+      selector,
+      chain,
+      contextLabel: `${frame.label}@sv${frame.serverLevel}`,
     });
   }
 
@@ -1586,9 +1727,9 @@ export class DebuggerPanel {
    * a selector not found in the chain, or a class outside the user's symbol list.
    */
   private async browseFrame(displayLevel: number): Promise<void> {
-    const frame = this.frames.find(f => f.level === displayLevel);
+    const frame = this.frames.find((f) => f.level === displayLevel);
     if (!frame) return;
-    const raw = this.rawFrames.find(r => r.serverLevel === frame.serverLevel);
+    const raw = this.rawFrames.find((r) => r.serverLevel === frame.serverLevel);
     if (!raw || raw.isExecutedCode || !raw.selector) {
       this.errorMessage = 'Cannot browse this frame — it has no class or method.';
       this.postInit();
@@ -1621,10 +1762,17 @@ export class DebuggerPanel {
     // group so ViewColumn.Beside resolves relative to it, then open a fresh
     // browser there and navigate it to the running method's defining class.
     this.panel.reveal(this.panel.viewColumn, false);
-    SystemBrowser.openAndNavigate(this.session, {
-      dictName: target.dictName, className: target.className,
-      isMeta: target.isMeta, selector: raw.selector, category: target.category,
-    }, vscode.ViewColumn.Beside);
+    SystemBrowser.openAndNavigate(
+      this.session,
+      {
+        dictName: target.dictName,
+        className: target.className,
+        isMeta: target.isMeta,
+        selector: raw.selector,
+        category: target.category,
+      },
+      vscode.ViewColumn.Beside,
+    );
   }
 
   /**
@@ -1645,7 +1793,11 @@ export class DebuggerPanel {
     if (!info) return;
     let receiverOop: bigint;
     try {
-      receiverOop = debug.getFrameInfo(this.session, this.gsProcess, info.abstractServerLevel).receiverOop;
+      receiverOop = debug.getFrameInfo(
+        this.session,
+        this.gsProcess,
+        info.abstractServerLevel,
+      ).receiverOop;
     } catch (e: unknown) {
       logError(this.sessionId, e instanceof Error ? e.message : String(e));
       this.errorMessage = `Could not resolve the receiver of #${info.selector}.`;
@@ -1654,7 +1806,7 @@ export class DebuggerPanel {
     }
     let chain = debug.getReceiverClassChain(this.session, receiverOop, info.selector);
     // Bound the chain at the abstract method's defining class (inclusive).
-    const boundIdx = chain.findIndex(c => c.className === info.definingClassName);
+    const boundIdx = chain.findIndex((c) => c.className === info.definingClassName);
     if (boundIdx >= 0) chain = chain.slice(0, boundIdx + 1);
     if (chain.length === 0) {
       this.errorMessage = `Could not resolve the receiver's class to implement #${info.selector}.`;
@@ -1662,7 +1814,8 @@ export class DebuggerPanel {
       return;
     }
     await this.pickAndOpenImplementTemplate({
-      selector: info.selector, chain,
+      selector: info.selector,
+      chain,
       contextLabel: `subclassResponsibility #${info.selector}`,
       reEnterSenderLevel: info.senderServerLevel,
     });
@@ -1686,16 +1839,20 @@ export class DebuggerPanel {
     const { selector, chain, reEnterSenderLevel } = opts;
     // One candidate → go straight in. Several → let the user pick where in the
     // chain to implement (receiver's class first; each marked override vs edit).
-    logInfo(`[Jasper Debugger] implement #${selector}: chain = `
-      + chain.map(c => `${c.className}${c.implementsSelector ? '(impl)' : ''}`).join(' → '));
+    logInfo(
+      `[Jasper Debugger] implement #${selector}: chain = ` +
+        chain.map((c) => `${c.className}${c.implementsSelector ? '(impl)' : ''}`).join(' → '),
+    );
     let targetIndex = 0;
     if (chain.length > 1) {
       const pick = await vscode.window.showQuickPick(
         chain.map((c, i) => ({
           label: c.className,
-          description: !c.dictName ? '(not in your symbol list)'
-            : c.implementsSelector ? `already implements #${selector} — opens it to edit (in ${c.dictName})`
-            : `implement here (in ${c.dictName})`,
+          description: !c.dictName
+            ? '(not in your symbol list)'
+            : c.implementsSelector
+              ? `already implements #${selector} — opens it to edit (in ${c.dictName})`
+              : `implement here (in ${c.dictName})`,
           index: i,
         })),
         {
@@ -1706,15 +1863,16 @@ export class DebuggerPanel {
           ignoreFocusOut: true,
         },
       );
-      if (this.disposed) return;          // panel closed while the pick was open
-      if (!pick) return;                  // user cancelled — open nothing
+      if (this.disposed) return; // panel closed while the pick was open
+      if (!pick) return; // user cancelled — open nothing
       targetIndex = pick.index;
     }
     const target = chain[targetIndex];
     if (!target.dictName) {
       // No home dictionary → no editable gemstone:// URI (same guard as the DNU path).
-      this.errorMessage = `Can't implement #${selector}: ${target.className} isn't in your symbol `
-        + 'list, so its source has no home dictionary. Add the class to a dictionary first.';
+      this.errorMessage =
+        `Can't implement #${selector}: ${target.className} isn't in your symbol ` +
+        'list, so its source has no home dictionary. Add the class to a dictionary first.';
       this.postInit();
       return;
     }
@@ -1722,46 +1880,60 @@ export class DebuggerPanel {
     // Shadowing: the method actually used by this receiver is the FIRST class in
     // the chain (most specific) that implements the selector. If that class is
     // strictly below the chosen target, the new/edited target method is shadowed.
-    const activeIndex = chain.findIndex(c => c.implementsSelector);
-    const shadowedBy = activeIndex >= 0 && activeIndex < targetIndex ? chain[activeIndex].className : undefined;
+    const activeIndex = chain.findIndex((c) => c.implementsSelector);
+    const shadowedBy =
+      activeIndex >= 0 && activeIndex < targetIndex ? chain[activeIndex].className : undefined;
 
     // For a class that already implements the selector, open its EXISTING source
     // (no stub → never clobber a real method). Otherwise open a pre-filled stub.
     const editingExisting = target.implementsSelector === true;
-    const compiledUri = this.gemstoneMethodUri(target.dictName, target.className, target.isMeta, selector);
+    const compiledUri = this.gemstoneMethodUri(
+      target.dictName,
+      target.className,
+      target.isMeta,
+      selector,
+    );
     // selector 'new-method' is the FS provider's template URI; for an edit we open
     // the real method URI directly. Built EXACTLY as the provider builds it (see
     // createDnuMethod) so the close-on-dispose match works.
     const openUri = editingExisting
       ? compiledUri
       : this.gemstoneMethodUri(target.dictName, target.className, target.isMeta, 'new-method');
-    logInfo(`[Jasper Debugger] implement #${selector} in ${target.className} `
-      + `(${editingExisting ? 'edit existing' : 'new method'}); from `
-      + `${opts.contextLabel}${shadowedBy ? `; shadowed by ${shadowedBy}` : ''}`
-      + `${reEnterSenderLevel !== undefined ? `; re-enter sender sv${reEnterSenderLevel}` : ''}`);
+    logInfo(
+      `[Jasper Debugger] implement #${selector} in ${target.className} ` +
+        `(${editingExisting ? 'edit existing' : 'new method'}); from ` +
+        `${opts.contextLabel}${shadowedBy ? `; shadowed by ${shadowedBy}` : ''}` +
+        `${reEnterSenderLevel !== undefined ? `; re-enter sender sv${reEnterSenderLevel}` : ''}`,
+    );
     try {
       await this.openTemplateEditor(
-        openUri, editingExisting ? undefined : buildMethodStub(selector, selectorArgCount(selector)));
+        openUri,
+        editingExisting ? undefined : buildMethodStub(selector, selectorArgCount(selector)),
+      );
       this.pendingOverrideUri = openUri.toString();
       this.pendingOverrideSelector = selector;
       this.pendingOverrideShadowedBy = shadowedBy;
       this.pendingOverrideTargetClass = target.className;
       this.pendingOverrideReEnterSenderLevel = reEnterSenderLevel;
-      this.dnuMethodUris.add(openUri.toString());  // closed with the panel
+      this.dnuMethodUris.add(openUri.toString()); // closed with the panel
       this.dnuMethodUris.add(compiledUri.toString());
       DebuggerPanel.persistLiveSourceUris();
       // Banner-only guidance (NOT postInit — that re-selects the top frame and
       // steals focus from the editor we just opened; see createDnuMethod).
-      const verb = editingExisting ? `Editing existing #${selector} in` : `Editing new method #${selector} in`;
+      const verb = editingExisting
+        ? `Editing existing #${selector} in`
+        : `Editing new method #${selector} in`;
       // T4 (re-enter sender): the abstract method is on the stack, so the new method
       // is reached by re-dispatching the send — not "the next send" (T3 / option B).
-      const usage = reEnterSenderLevel !== undefined
-        ? `On a clean save the call to #${selector} is re-dispatched into it (or re-run the expression).`
-        : `It's then used on the next #${selector} send.`;
+      const usage =
+        reEnterSenderLevel !== undefined
+          ? `On a clean save the call to #${selector} is re-dispatched into it (or re-run the expression).`
+          : `It's then used on the next #${selector} send.`;
       let text = `${verb} ${target.className} below — edit the body, then save it (Ctrl+S / Cmd+S). ${usage}`;
       if (shadowedBy) {
-        text += ` NOTE: ${shadowedBy} already implements #${selector}, so a ${chain[0].className} still `
-          + `uses ${shadowedBy}>>#${selector}, not ${target.className}'s.`;
+        text +=
+          ` NOTE: ${shadowedBy} already implements #${selector}, so a ${chain[0].className} still ` +
+          `uses ${shadowedBy}>>#${selector}, not ${target.className}'s.`;
       }
       this.errorMessage = text;
       this.panel.webview.postMessage({ command: 'banner', text });
@@ -1789,7 +1961,9 @@ export class DebuggerPanel {
    * for a workspace/"Executed Code" caller, tell the user to re-run the expression.
    */
   private async finishOverrideMethod(
-    selector: string, shadowedBy: string | undefined, targetClass: string,
+    selector: string,
+    shadowedBy: string | undefined,
+    targetClass: string,
     reEnterSenderLevel?: number,
   ): Promise<void> {
     const sel = selector ? `#${selector}` : 'the method';
@@ -1802,9 +1976,10 @@ export class DebuggerPanel {
 
     // T4: re-dispatch from the caller of the abstract method.
     if (reEnterSenderLevel !== undefined) {
-      const senderRaw = reEnterSenderLevel >= 0
-        ? this.rawFrames.find(r => r.serverLevel === reEnterSenderLevel)
-        : undefined;
+      const senderRaw =
+        reEnterSenderLevel >= 0
+          ? this.rawFrames.find((r) => r.serverLevel === reEnterSenderLevel)
+          : undefined;
       if (!senderRaw || senderRaw.isExecutedCode || reEnterSenderLevel <= 1) {
         // Workspace/"Executed Code" (or top) caller — can't be re-entered in place
         // (the kernel trim sends compiledMethodAt: to its nil class), so don't trim.
@@ -1812,8 +1987,9 @@ export class DebuggerPanel {
         this.frames = this.fetchStack();
         this.dnuInfo = this.detectDnu();
         this.subclassRespInfo = this.detectSubclassResp();
-        this.errorMessage = `Saved ${sel}${inTarget} — re-run the expression to dispatch into the new `
-          + `method. (Resume just finishes the abstract stub, which returns the receiver.)${shadowNote}`;
+        this.errorMessage =
+          `Saved ${sel}${inTarget} — re-run the expression to dispatch into the new ` +
+          `method. (Resume just finishes the abstract stub, which returns the receiver.)${shadowNote}`;
         this.postInit();
         return;
       }
@@ -1824,24 +2000,26 @@ export class DebuggerPanel {
         if (this.disposed) return;
         this.staleTopActivation = false; // the trim rebuilt the stack from a fresh activation
         this.uncontinuable = false;
-        this.srSuppressed = false;        // fresh stack — a new abstract stop may legitimately appear
+        this.srSuppressed = false; // fresh stack — a new abstract stop may legitimately appear
         this.frames = this.fetchStack();
         this.dnuInfo = this.detectDnu();
         this.subclassRespInfo = this.detectSubclassResp();
-        this.errorMessage = `Saved ${sel}${inTarget} — re-entered the caller. Press Resume (▶) to `
-          + `re-send ${sel} into the new method, or step into it.${shadowNote}`;
+        this.errorMessage =
+          `Saved ${sel}${inTarget} — re-entered the caller. Press Resume (▶) to ` +
+          `re-send ${sel} into the new method, or step into it.${shadowNote}`;
         this.postInit();
       });
       return;
     }
 
     this.dnuSuppressed = false;
-    this.frames = this.fetchStack();   // labels/source may have shifted; no trim
+    this.frames = this.fetchStack(); // labels/source may have shifted; no trim
     this.dnuInfo = this.detectDnu();
     this.subclassRespInfo = this.detectSubclassResp();
-    this.errorMessage = `Saved ${sel}${inTarget} — used on the next ${sel} send. Resume (▶) to continue `
-      + '(the call now on the stack finishes with the previously-found version), or re-run the '
-      + `expression.${shadowNote}`;
+    this.errorMessage =
+      `Saved ${sel}${inTarget} — used on the next ${sel} send. Resume (▶) to continue ` +
+      '(the call now on the stack finishes with the previously-found version), or re-run the ' +
+      `expression.${shadowNote}`;
     this.postInit();
   }
 
@@ -1859,13 +2037,15 @@ export class DebuggerPanel {
       try {
         this.panel.reveal(this.panel.viewColumn, false); // focus the panel's group…
         await vscode.commands.executeCommand('workbench.action.newGroupBelow'); // …split below it
-      } catch { /* best-effort layout; fall back to the active group */ }
+      } catch {
+        /* best-effort layout; fall back to the active group */
+      }
     }
     const doc = await vscode.workspace.openTextDocument(uri);
     const editor = await vscode.window.showTextDocument(doc, {
       viewColumn: this.sourceColumn ?? vscode.ViewColumn.Active,
-      preview: false,        // a real tab the user edits, not a throwaway preview
-      preserveFocus: false,  // focus the editor so the user can fill in the body
+      preview: false, // a real tab the user edits, not a throwaway preview
+      preserveFocus: false, // focus the editor so the user can fill in the body
     });
     this.sourceColumn = editor.viewColumn ?? this.sourceColumn;
     this.sourceEditor = editor;
@@ -1876,7 +2056,7 @@ export class DebuggerPanel {
     if (stub !== undefined) {
       const lastLine = Math.max(0, editor.document.lineCount - 1);
       const end = editor.document.lineAt(lastLine).range.end;
-      await editor.edit(b => b.replace(new vscode.Range(new vscode.Position(0, 0), end), stub));
+      await editor.edit((b) => b.replace(new vscode.Range(new vscode.Position(0, 0), end), stub));
     }
     this.shownSourceUris.add(uri.toString()); // closed with the panel
     DebuggerPanel.persistLiveSourceUris();
@@ -1933,11 +2113,12 @@ export class DebuggerPanel {
       if (this.disposed) return;
       this.staleTopActivation = false; // the trim rebuilt the stack from a fresh activation
       this.uncontinuable = false;
-      this.dnuSuppressed = false;       // fresh stack — a new DNU may legitimately appear
+      this.dnuSuppressed = false; // fresh stack — a new DNU may legitimately appear
       this.frames = this.fetchStack();
       this.dnuInfo = this.detectDnu();
-      this.errorMessage = `Created ${sel} — re-entered the frame where it was sent. `
-        + 'Press Resume (▶) to run the new method, or step into it.';
+      this.errorMessage =
+        `Created ${sel} — re-entered the frame where it was sent. ` +
+        'Press Resume (▶) to run the new method, or step into it.';
       this.postInit(); // re-selects the re-entered sender frame + shows the banner
     });
   }
@@ -1992,8 +2173,10 @@ export class DebuggerPanel {
     const toRow = (r: debug.FrameVarRow, edit?: VarRow['edit']): VarRow => {
       // Stamp `revertible` only when this slot has been edited away from its
       // original this halt (the webview then shows the ↺ icon).
-      const revertible = edit && this.undoDirty.has(this.undoKey(serverLevel, edit.kind, edit.index))
-        ? true : undefined;
+      const revertible =
+        edit && this.undoDirty.has(this.undoKey(serverLevel, edit.kind, edit.index))
+          ? true
+          : undefined;
       return { name: r.name, value: r.value, oop: r.oop, edit, revertible };
     };
     const byName = (a: VarRow, b: VarRow): number =>
@@ -2004,20 +2187,31 @@ export class DebuggerPanel {
     // temps. The server emits the 1-based write index per editable slot; instVars
     // and named temps are alphabetized for findability (each row keeps its own
     // index, so sorting the display never disturbs the write path).
-    const receiver = rows.filter(r => r.group === 'receiver').map(r => toRow(r));
-    const instVars = rows.filter(r => r.group === 'instvars')
-      .map(r => toRow(r, { kind: 'instvar', index: r.index })).sort(byName);
-    const argTemps = rows.filter(r => r.group === 'argtemps')
-      .map(r => toRow(r, { kind: 'temp', index: r.index })).sort(byName);
+    const receiver = rows.filter((r) => r.group === 'receiver').map((r) => toRow(r));
+    const instVars = rows
+      .filter((r) => r.group === 'instvars')
+      .map((r) => toRow(r, { kind: 'instvar', index: r.index }))
+      .sort(byName);
+    const argTemps = rows
+      .filter((r) => r.group === 'argtemps')
+      .map((r) => toRow(r, { kind: 'temp', index: r.index }))
+      .sort(byName);
     // Stack temps keep natural order (sorting `.t1/.t10/.t2` would look wrong).
-    const stackTemps = rows.filter(r => r.group === 'stacktemps').map(r => toRow(r));
+    const stackTemps = rows.filter((r) => r.group === 'stacktemps').map((r) => toRow(r));
 
     const groups: VarGroup[] = [];
     if (receiver.length > 0) groups.push({ title: 'Receiver', kind: 'receiver', vars: receiver });
-    if (instVars.length > 0) groups.push({ title: 'Instance variables', kind: 'instvars', vars: instVars });
-    if (argTemps.length > 0) groups.push({ title: 'Arguments & Temps', kind: 'argtemps', vars: argTemps });
+    if (instVars.length > 0)
+      groups.push({ title: 'Instance variables', kind: 'instvars', vars: instVars });
+    if (argTemps.length > 0)
+      groups.push({ title: 'Arguments & Temps', kind: 'argtemps', vars: argTemps });
     if (stackTemps.length > 0) {
-      groups.push({ title: '(stack temps)', kind: 'stacktemps', collapsed: true, vars: stackTemps });
+      groups.push({
+        title: '(stack temps)',
+        kind: 'stacktemps',
+        collapsed: true,
+        vars: stackTemps,
+      });
     }
     return groups;
   }
@@ -2048,25 +2242,31 @@ export class DebuggerPanel {
     const byLevel = new Map<number, VarGroup[]>();
     for (const r of rows) {
       let groups = byLevel.get(r.serverLevel);
-      if (!groups) { groups = []; byLevel.set(r.serverLevel, groups); }
+      if (!groups) {
+        groups = [];
+        byLevel.set(r.serverLevel, groups);
+      }
       let group = groups[groups.length - 1];
       if (!group || group.kind !== r.group) {
         group = {
-          title: DebuggerPanel.DUMP_GROUP_TITLES[r.group], kind: r.group, vars: [],
+          title: DebuggerPanel.DUMP_GROUP_TITLES[r.group],
+          kind: r.group,
+          vars: [],
           collapsed: r.group === 'stacktemps' || undefined,
         };
         groups.push(group);
       }
       group.vars.push({ name: r.name, value: r.value, oop: r.oop });
     }
-    return this.frames.map(f => ({ ...f, groups: byLevel.get(f.serverLevel) ?? [] }));
+    return this.frames.map((f) => ({ ...f, groups: byLevel.get(f.serverLevel) ?? [] }));
   }
 
   /** The full detailed-stack text (header + short stack + per-frame variables). */
   private buildDetailedStackText(now: Date): string {
     const subtitle = this.sessionSubtitle();
-    const when = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())} `
-      + `${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}`;
+    const when =
+      `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())} ` +
+      `${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}`;
     const header = ['Jasper Debugger stack dump', subtitle, when].filter(Boolean).join(' — ');
     return formatDetailedStack(this.errorMessage, this.collectStackDetail(), header);
   }
@@ -2122,7 +2322,10 @@ export class DebuggerPanel {
   /** Evaluate an expression in the selected frame and post the printString back. */
   private async evalInFrame(serverLevel: number | undefined, expr: string): Promise<void> {
     if (serverLevel == null) return;
-    if (this.nbBusy) { this.notifyBusy('Evaluate'); return; }
+    if (this.nbBusy) {
+      this.notifyBusy('Evaluate');
+      return;
+    }
     this.nbBusy = true;
     // Reset here, not only in onStart: the blocking frame-setup inside
     // evaluateInFrameNb can fail BEFORE polling starts (so onStart never fires), and
@@ -2136,7 +2339,10 @@ export class DebuggerPanel {
     try {
       value = await debug.evaluateInFrameNb(this.session, this.gsProcess, expr, serverLevel, {
         suppressNotification: true,
-        onStart: (cancel) => { this.activeNbCancel = cancel; this.setCancellable(true); },
+        onStart: (cancel) => {
+          this.activeNbCancel = cancel;
+          this.setCancellable(true);
+        },
       });
     } catch (e: unknown) {
       const raw = e instanceof Error ? e.message : String(e);
@@ -2171,9 +2377,9 @@ export class DebuggerPanel {
     this.cancelClicks += 1;
     // Acknowledge the click so it visibly registers — the break is asynchronous
     // (the gem stops at a safe point), so without this the Cancel feels unheard.
-    this.flash(this.cancelClicks === 1
-      ? 'Break sent — waiting for the gem to stop…'
-      : 'Forcing interrupt…');
+    this.flash(
+      this.cancelClicks === 1 ? 'Break sent — waiting for the gem to stop…' : 'Forcing interrupt…',
+    );
     this.activeNbCancel();
   }
 
@@ -2187,23 +2393,32 @@ export class DebuggerPanel {
    * editor open.
    */
   private setVariable(
-    serverLevel: number | undefined, kind: 'instvar' | 'temp', index: number, expr: string,
+    serverLevel: number | undefined,
+    kind: 'instvar' | 'temp',
+    index: number,
+    expr: string,
   ): void {
     if (serverLevel == null) return;
     // Writing is a blocking GCI perform; refuse while a non-blocking step/trim
     // owns the session's single in-flight call.
     if (this.nbBusy) {
       this.notifyBusy('Set variable');
-      this.panel.webview.postMessage({ command: 'setVariableResult', ok: false, error: 'Busy — try again' });
+      this.panel.webview.postMessage({
+        command: 'setVariableResult',
+        ok: false,
+        error: 'Busy — try again',
+      });
       return;
     }
     const result = this.writeVariableInFrame(serverLevel, kind, index, expr);
     // Success → the host's `postVariables` (inside the write) already re-rendered
     // the pane, which removes the open editor; this ok just confirms it. Failure →
     // keep the editor open and flag the error on it so the expression can be fixed.
-    this.panel.webview.postMessage(result.ok
-      ? { command: 'setVariableResult', ok: true }
-      : { command: 'setVariableResult', ok: false, error: result.error });
+    this.panel.webview.postMessage(
+      result.ok
+        ? { command: 'setVariableResult', ok: true }
+        : { command: 'setVariableResult', ok: false, error: result.error },
+    );
   }
 
   /**
@@ -2216,7 +2431,10 @@ export class DebuggerPanel {
    * the pane's editor stays open). Callers must guard `nbBusy` first.
    */
   private writeVariableInFrame(
-    serverLevel: number, kind: 'instvar' | 'temp', index: number, expr: string,
+    serverLevel: number,
+    kind: 'instvar' | 'temp',
+    index: number,
+    expr: string,
   ): { ok: boolean; error?: string } {
     try {
       const valueOop = debug.evaluateInFrameToOop(this.session, this.gsProcess, expr, serverLevel);
@@ -2253,16 +2471,24 @@ export class DebuggerPanel {
    * command args by `editInlineValueForUri`.
    */
   private async editInlineValue(
-    serverLevel: number, kind: 'instvar' | 'temp', index: number, name: string,
+    serverLevel: number,
+    kind: 'instvar' | 'temp',
+    index: number,
+    name: string,
   ): Promise<void> {
     try {
-      if (this.nbBusy) { this.notifyBusy('Set variable'); return; }
+      if (this.nbBusy) {
+        this.notifyBusy('Set variable');
+        return;
+      }
       // Prefill with the current printString (like the pane), but never let a
       // failed prefetch abort the edit — fall back to an empty box.
       let prefill = '';
       try {
-        prefill = this.inlineVarsForFrame(serverLevel)
-          .find(v => v.name === name && v.edit?.kind === kind && v.edit?.index === index)?.full ?? '';
+        prefill =
+          this.inlineVarsForFrame(serverLevel).find(
+            (v) => v.name === name && v.edit?.kind === kind && v.edit?.index === index,
+          )?.full ?? '';
       } catch (e: unknown) {
         logError(this.sessionId, e instanceof Error ? e.message : String(e));
       }
@@ -2277,7 +2503,10 @@ export class DebuggerPanel {
       if (trimmed === '') return; // empty → no-op, matching the pane's editor
       // The prompt is modeless; re-check before the blocking write in case a
       // step/trim claimed the session while it was open.
-      if (this.nbBusy) { this.notifyBusy('Set variable'); return; }
+      if (this.nbBusy) {
+        this.notifyBusy('Set variable');
+        return;
+      }
       const result = this.writeVariableInFrame(serverLevel, kind, index, trimmed);
       if (!result.ok) {
         void vscode.window.showErrorMessage(`Could not set ${name}: ${result.error}`);
@@ -2302,13 +2531,17 @@ export class DebuggerPanel {
    * already-fetched frame contents for `level`.
    */
   private captureUndoOriginal(
-    level: number, kind: 'instvar' | 'temp', index: number, info: debug.FrameInfo,
+    level: number,
+    kind: 'instvar' | 'temp',
+    index: number,
+    info: debug.FrameInfo,
   ): void {
     const key = this.undoKey(level, kind, index);
     if (this.undoOriginals.has(key)) return; // keep the FIRST original
-    const originalOop = kind === 'instvar'
-      ? debug.getInstVarOop(this.session, info.receiverOop, index)
-      : info.argAndTempOops[index - 1];
+    const originalOop =
+      kind === 'instvar'
+        ? debug.getInstVarOop(this.session, info.receiverOop, index)
+        : info.argAndTempOops[index - 1];
     if (originalOop === undefined) return; // defensive: nothing to remember
     this.undoOriginals.set(key, originalOop);
     if (!debug.isSpecialOop(this.session, originalOop)) {
@@ -2325,17 +2558,26 @@ export class DebuggerPanel {
    * en masse by clearUndoState(). No-op if the slot has no stored original.
    */
   private revertVariable(
-    serverLevel: number | undefined, kind: 'instvar' | 'temp', index: number,
+    serverLevel: number | undefined,
+    kind: 'instvar' | 'temp',
+    index: number,
   ): void {
     if (serverLevel == null) return;
     const key = this.undoKey(serverLevel, kind, index);
     const originalOop = this.undoOriginals.get(key);
     if (originalOop === undefined) return; // nothing recorded for this slot
     // A blocking write can't share the session with an in-flight non-blocking op.
-    if (this.nbBusy) { this.notifyBusy('Revert variable'); return; }
+    if (this.nbBusy) {
+      this.notifyBusy('Revert variable');
+      return;
+    }
     try {
       if (kind === 'instvar') {
-        const receiverOop = debug.getFrameInfo(this.session, this.gsProcess, serverLevel).receiverOop;
+        const receiverOop = debug.getFrameInfo(
+          this.session,
+          this.gsProcess,
+          serverLevel,
+        ).receiverOop;
         debug.setInstVar(this.session, receiverOop, index, originalOop);
       } else {
         debug.setFrameTemp(this.session, this.gsProcess, serverLevel, index, originalOop);
@@ -2359,8 +2601,11 @@ export class DebuggerPanel {
    */
   private clearUndoState(): void {
     if (this.undoPinned.length > 0) {
-      try { debug.releaseObjs(this.session, this.undoPinned); }
-      catch (e: unknown) { logError(this.sessionId, e instanceof Error ? e.message : String(e)); }
+      try {
+        debug.releaseObjs(this.session, this.undoPinned);
+      } catch (e: unknown) {
+        logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      }
     }
     this.undoPinned = [];
     this.undoOriginals.clear();
@@ -2432,22 +2677,33 @@ export class DebuggerPanel {
   private runToCursor(displayLevel: number): void {
     if (this.guardStaleTopActivation('Run to Cursor')) return;
     if (this.guardUncontinuable()) return;
-    if (this.nbBusy) { this.notifyBusy('Run to Cursor'); return; }
+    if (this.nbBusy) {
+      this.notifyBusy('Run to Cursor');
+      return;
+    }
 
     const target = this.resolveRunToTarget(displayLevel);
     if (!target) {
-      this.flash('Run to Cursor: place the cursor on a code line in the source pane — resuming instead.');
+      this.flash(
+        'Run to Cursor: place the cursor on a code line in the source pane — resuming instead.',
+      );
       this.resume();
       return;
     }
 
     // Don't clear a break the USER already set at this step point (editable
     // frames only; a read-only doit can't carry a user line breakpoint).
-    const userOwns = target.byName ? this.userBreakAt(target.byName.uri, target.byName.actualLine) : false;
+    const userOwns = target.byName
+      ? this.userBreakAt(target.byName.uri, target.byName.actualLine)
+      : false;
     const setBreak = (): void => {
       if (target.byName) {
         queries.setBreakAtStepPoint(
-          this.session, target.byName.className, target.byName.isMeta, target.byName.selector, target.stepPoint,
+          this.session,
+          target.byName.className,
+          target.byName.isMeta,
+          target.byName.selector,
+          target.stepPoint,
         );
       } else {
         debug.setBreakAtStepPointByOop(this.session, target.homeMethodOop, target.stepPoint);
@@ -2456,7 +2712,11 @@ export class DebuggerPanel {
     const clearBreak = (): void => {
       if (target.byName) {
         queries.clearBreakAtStepPoint(
-          this.session, target.byName.className, target.byName.isMeta, target.byName.selector, target.stepPoint,
+          this.session,
+          target.byName.className,
+          target.byName.isMeta,
+          target.byName.selector,
+          target.stepPoint,
         );
       } else {
         debug.clearBreakAtStepPointByOop(this.session, target.homeMethodOop, target.stepPoint);
@@ -2479,8 +2739,11 @@ export class DebuggerPanel {
       result = debug.continueExecution(this.session, this.gsProcess);
     } finally {
       if (!userOwns) {
-        try { clearBreak(); }
-        catch (e: unknown) { logError(this.sessionId, e instanceof Error ? e.message : String(e)); }
+        try {
+          clearBreak();
+        } catch (e: unknown) {
+          logError(this.sessionId, e instanceof Error ? e.message : String(e));
+        }
       }
     }
     this.handleContinueResult(result);
@@ -2499,20 +2762,32 @@ export class DebuggerPanel {
    * `byName` is present only for an editable method (break by class>>selector with
    * the user-break guard); absent for a doit (break by the home method's OOP).
    */
-  private resolveRunToTarget(displayLevel: number): {
-    homeMethodOop: bigint;
-    stepPoint: number;
-    byName?: { className: string; isMeta: boolean; selector: string; uri: string; actualLine: number };
-  } | undefined {
-    const frame = this.frames.find(f => f.level === displayLevel);
+  private resolveRunToTarget(displayLevel: number):
+    | {
+        homeMethodOop: bigint;
+        stepPoint: number;
+        byName?: {
+          className: string;
+          isMeta: boolean;
+          selector: string;
+          uri: string;
+          actualLine: number;
+        };
+      }
+    | undefined {
+    const frame = this.frames.find((f) => f.level === displayLevel);
     if (!frame) return undefined;
     const editor = this.sourceEditor;
     // The cursor only refers to this frame's source when the companion editor is
     // showing it (editable gemstone:// or read-only gemstone-debug:).
-    if (!editor || this.shownFrameSourceUri === undefined
-      || editor.document.uri.toString() !== this.shownFrameSourceUri) return undefined;
+    if (
+      !editor ||
+      this.shownFrameSourceUri === undefined ||
+      editor.document.uri.toString() !== this.shownFrameSourceUri
+    )
+      return undefined;
 
-    const raw = this.rawFrames.find(r => r.serverLevel === frame.serverLevel);
+    const raw = this.rawFrames.find((r) => r.serverLevel === frame.serverLevel);
     if (!raw || raw.homeMethodOop === 0n) return undefined; // an unresolvable <frame N>
     const home = this.resolveHomeMethod(raw.homeMethodOop);
 
@@ -2538,7 +2813,8 @@ export class DebuggerPanel {
     const storedLineOffsets = dispLineOffsets;
     let storedLine = 1;
     for (let l = 1; l < storedLineOffsets.length; l++) {
-      if (storedLineOffsets[l] <= cursorOffset) storedLine = l; else break;
+      if (storedLineOffsets[l] <= cursorOffset) storedLine = l;
+      else break;
     }
     const lineStart = storedLineOffsets[storedLine];
     const lineEnd = storedLineOffsets[storedLine + 1] ?? rawSource.length; // end exclusive
@@ -2553,14 +2829,18 @@ export class DebuggerPanel {
     // `mapped.offset` is a 1-based stored position == displayed position (shift 0).
     let actualLine = 1;
     for (let l = 1; l < dispLineOffsets.length; l++) {
-      if (dispLineOffsets[l] <= mapped.offset - 1) actualLine = l; else break;
+      if (dispLineOffsets[l] <= mapped.offset - 1) actualLine = l;
+      else break;
     }
     return {
       homeMethodOop: raw.homeMethodOop,
       stepPoint: mapped.stepPoint,
       byName: {
-        className: home.uriInfo.className, isMeta: home.uriInfo.isMeta, selector: home.uriInfo.selector,
-        uri: this.shownFrameSourceUri, actualLine,
+        className: home.uriInfo.className,
+        isMeta: home.uriInfo.isMeta,
+        selector: home.uriInfo.selector,
+        uri: this.shownFrameSourceUri,
+        actualLine,
       },
     };
   }
@@ -2571,10 +2851,13 @@ export class DebuggerPanel {
    * user's, not our temporary one).
    */
   private userBreakAt(uri: string, line: number): boolean {
-    return vscode.debug.breakpoints.some(bp =>
-      bp instanceof vscode.SourceBreakpoint && bp.enabled
-      && bp.location.uri.toString() === uri
-      && bp.location.range.start.line === line - 1);
+    return vscode.debug.breakpoints.some(
+      (bp) =>
+        bp instanceof vscode.SourceBreakpoint &&
+        bp.enabled &&
+        bp.location.uri.toString() === uri &&
+        bp.location.range.start.line === line - 1,
+    );
   }
 
   /** Post a brief, self-dismissing status flash to the webview (transient; doesn't disturb the error banner). */
@@ -2594,9 +2877,9 @@ export class DebuggerPanel {
   // retrying Resume/Step never grows GemStone's accumulating exception-chain
   // message — and steers the user to the only thing that works: Terminate.
   private static readonly UNCONTINUABLE_MSG =
-    "Execution can't be continued — this stepped into an unhandled halt or error and GemStone "
-    + 'marked the process uncontinuable (error 6011). Terminate (■) and re-run; Resume and Step '
-    + 'cannot recover it. (To pass a halt next time, use Resume instead of Step.)';
+    "Execution can't be continued — this stepped into an unhandled halt or error and GemStone " +
+    'marked the process uncontinuable (error 6011). Terminate (■) and re-run; Resume and Step ' +
+    'cannot recover it. (To pass a halt next time, use Resume instead of Step.)';
 
   /**
    * Refuse a Resume/Step once the process is uncontinuable (6011). Returns true
@@ -2613,9 +2896,10 @@ export class DebuggerPanel {
 
   private guardStaleTopActivation(action: string): boolean {
     if (!this.staleTopActivation) return false;
-    this.errorMessage = `${action} is unavailable: the top frame's method was recompiled, so its `
-      + 'suspended activation can no longer be continued (GemStone would hang). Restart a deeper '
-      + 'frame to re-enter the recompiled code, or Terminate the process.';
+    this.errorMessage =
+      `${action} is unavailable: the top frame's method was recompiled, so its ` +
+      'suspended activation can no longer be continued (GemStone would hang). Restart a deeper ' +
+      'frame to re-enter the recompiled code, or Terminate the process.';
     this.postInit();
     return true;
   }
@@ -2659,19 +2943,25 @@ export class DebuggerPanel {
    * 6014). If a step still hits that, we surface a clear message rather than
    * fail silently. Resume is unaffected.
    */
-  private async step(command: 'stepOver' | 'stepInto' | 'stepThrough', displayLevel?: number): Promise<void> {
+  private async step(
+    command: 'stepOver' | 'stepInto' | 'stepThrough',
+    displayLevel?: number,
+  ): Promise<void> {
     if (this.guardStaleTopActivation('Step')) return;
     if (this.guardUncontinuable()) return;
-    const fn = command === 'stepOver' ? debug.stepOverNb
-      : command === 'stepInto' ? debug.stepIntoNb
-        : debug.stepThruNb; // "Through" == gciStepThru
-    const frame = this.frames.find(f => f.level === displayLevel) ?? this.frames[0];
+    const fn =
+      command === 'stepOver'
+        ? debug.stepOverNb
+        : command === 'stepInto'
+          ? debug.stepIntoNb
+          : debug.stepThruNb; // "Through" == gciStepThru
+    const frame = this.frames.find((f) => f.level === displayLevel) ?? this.frames[0];
     let level = frame?.serverLevel ?? 1;
     // Redirect a step on a collapsed doit frame to its true stop frame (the
     // nested wrapper block where the halt actually is), or one Step at a halt
     // steps over the entire user block to completion. Mirrors revealFrameSource.
     if (frame?.isExecutedCode) {
-      const raw = this.rawFrames.find(r => r.serverLevel === frame.serverLevel);
+      const raw = this.rawFrames.find((r) => r.serverLevel === frame.serverLevel);
       if (raw) level = this.stopFrameLevel(raw.homeMethodOop, frame.serverLevel);
     }
     await this.runNb('Step', async (opts) => {
@@ -2700,8 +2990,9 @@ export class DebuggerPanel {
         return;
       }
       if (result.errorMessage && /native code/i.test(result.errorMessage)) {
-        this.errorMessage = 'Stepping is unavailable while the gem runs native code '
-          + '(GEM_NATIVE_CODE_ENABLED). Use Resume — or run the gem with native code disabled to step.';
+        this.errorMessage =
+          'Stepping is unavailable while the gem runs native code ' +
+          '(GEM_NATIVE_CODE_ENABLED). Use Resume — or run the gem with native code disabled to step.';
         this.postInit(); // show the note; the stack is unchanged
         return;
       }
@@ -2795,8 +3086,9 @@ export class DebuggerPanel {
     if (serverLevel <= 1) {
       // Show the notice IN the panel (the banner) — a toast is easy to miss while
       // the webview has focus. It clears on the next step/resume/restart.
-      this.errorMessage = 'Cannot restart the top frame: GemStone can only restart a frame '
-        + 'that has called another. Select a deeper frame to restart it.';
+      this.errorMessage =
+        'Cannot restart the top frame: GemStone can only restart a frame ' +
+        'that has called another. Select a deeper frame to restart it.';
       this.postInit();
       return;
     }
@@ -2805,9 +3097,10 @@ export class DebuggerPanel {
     // (possibly recompiled) method, and a doit's home method has a NIL class — so
     // the trim fails with a raw `UndefinedObject doesNotUnderstand`. Guard it with a
     // clear message instead, mirroring the edit-and-continue re-enter guard.
-    if (this.rawFrames.find(r => r.serverLevel === serverLevel)?.isExecutedCode) {
-      this.errorMessage = 'Cannot restart an Executed Code frame — it has no home class for '
-        + 'GemStone to reset. Re-run the expression instead.';
+    if (this.rawFrames.find((r) => r.serverLevel === serverLevel)?.isExecutedCode) {
+      this.errorMessage =
+        'Cannot restart an Executed Code frame — it has no home class for ' +
+        'GemStone to reset. Re-run the expression instead.';
       this.postInit();
       return;
     }
@@ -2819,7 +3112,7 @@ export class DebuggerPanel {
       await debug.trimStackToLevelNb(this.session, this.gsProcess, serverLevel, opts);
       if (this.disposed) return;
       this.staleTopActivation = false; // the trim discarded any stale top activation
-      this.uncontinuable = false;      // …and a fresh activation is continuable again
+      this.uncontinuable = false; // …and a fresh activation is continuable again
       this.errorMessage = '';
       this.refresh();
     });
@@ -2903,9 +3196,10 @@ export class DebuggerPanel {
       // The top method is now recompiled but its activation can't be re-entered;
       // mark it stale so Resume/Step refuse to continue it (would hang the gem).
       this.staleTopActivation = true;
-      this.errorMessage = 'Saved and recompiled — but GemStone cannot re-enter the top frame in '
-        + 'place, so its suspended activation can no longer be continued. Restart a deeper frame '
-        + 'to re-enter the recompiled code, or Terminate the process. (Resume/Step are disabled.)';
+      this.errorMessage =
+        'Saved and recompiled — but GemStone cannot re-enter the top frame in ' +
+        'place, so its suspended activation can no longer be continued. Restart a deeper frame ' +
+        'to re-enter the recompiled code, or Terminate the process. (Resume/Step are disabled.)';
       this.postInit();
       return;
     }
@@ -2913,7 +3207,7 @@ export class DebuggerPanel {
       await debug.trimStackToLevelNb(this.session, this.gsProcess, serverLevel);
       if (this.disposed) return;
       this.staleTopActivation = false; // the trim rebuilt the stack from a fresh activation
-      this.uncontinuable = false;      // …which is continuable again
+      this.uncontinuable = false; // …which is continuable again
       this.errorMessage = '';
       this.refresh();
     });
@@ -2955,7 +3249,11 @@ export class DebuggerPanel {
       if (home.uriInfo) {
         // In the symbol list → the real editable gemstone:// editor.
         uri = vscode.Uri.parse(buildMethodSourceUri(this.session.id, home.uriInfo));
-        methodForOffsets = { className: home.uriInfo.className, isMeta: home.uriInfo.isMeta, selector: home.uriInfo.selector };
+        methodForOffsets = {
+          className: home.uriInfo.className,
+          isMeta: home.uriInfo.isMeta,
+          selector: home.uriInfo.selector,
+        };
         // Saving this document triggers edit-and-continue for the selected frame.
         this.editableSourceUri = uri.toString();
       } else {
@@ -2975,7 +3273,9 @@ export class DebuggerPanel {
         // line up. (This mirrors the editable path, which uses home offsets.)
         const source = debug.getMethodSource(this.session, homeMethodOop);
         readOnlyOffsetMethodOop = homeMethodOop;
-        const title = home.isExecutedCode ? 'Executed Code' : `${home.definingClassName}>>#${home.selector}`;
+        const title = home.isExecutedCode
+          ? 'Executed Code'
+          : `${home.definingClassName}>>#${home.selector}`;
         uri = DebuggerPanel.stashReadOnlySource(this.session.id, homeMethodOop, title, source);
         this.stashedSourceKeys.add(uri.toString());
       }
@@ -2994,11 +3294,16 @@ export class DebuggerPanel {
       // point from the true stop frame so the marker lands on the user's halt
       // rather than the wrapper glue. Other frames show un-collapsed, so they
       // stop where they display (highlightLevel === level).
-      const highlightLevel = home.isExecutedCode ? this.stopFrameLevel(homeMethodOop, level) : level;
+      const highlightLevel = home.isExecutedCode
+        ? this.stopFrameLevel(homeMethodOop, level)
+        : level;
       let highlightInfo = info;
       if (highlightLevel !== level) {
-        try { highlightInfo = debug.getFrameInfo(this.session, this.gsProcess, highlightLevel); }
-        catch { /* keep the displayed frame's info for the line fallback */ }
+        try {
+          highlightInfo = debug.getFrameInfo(this.session, this.gsProcess, highlightLevel);
+        } catch {
+          /* keep the displayed frame's info for the line fallback */
+        }
       }
 
       // Highlight the current step point: from class>>selector offsets for an
@@ -3006,7 +3311,13 @@ export class DebuggerPanel {
       const range = methodForOffsets
         ? this.stepPointRange(editor.document, highlightInfo, highlightLevel, methodForOffsets)
         : readOnlyOffsetMethodOop !== undefined
-          ? this.stepPointRange(editor.document, highlightInfo, highlightLevel, undefined, readOnlyOffsetMethodOop)
+          ? this.stepPointRange(
+              editor.document,
+              highlightInfo,
+              highlightLevel,
+              undefined,
+              readOnlyOffsetMethodOop,
+            )
           : undefined;
       // Clear a stale highlight if the source moved to a different editor.
       if (this.decoratedEditor && this.decoratedEditor !== editor) {
@@ -3058,12 +3369,10 @@ export class DebuggerPanel {
       // Record this frame's overlay so the HoverProvider can serve the full-value
       // hover for a hovered line (the decoration carries only the rendered `after`
       // text). Also index the editable variables by name for click-to-edit.
-      this.inlineHoverByLine = new Map(overlay.map(o => [o.line, o.vars]));
-      this.inlineEditableByName = new Map(
-        vars.filter(v => v.edit).map(v => [v.name, v.edit!]),
-      );
+      this.inlineHoverByLine = new Map(overlay.map((o) => [o.line, o.vars]));
+      this.inlineEditableByName = new Map(vars.filter((v) => v.edit).map((v) => [v.name, v.edit!]));
       this.inlineHoverLevel = serverLevel;
-      const decorations: vscode.DecorationOptions[] = overlay.map(o => {
+      const decorations: vscode.DecorationOptions[] = overlay.map((o) => {
         const line = editor.document.lineAt(o.line);
         return {
           range: new vscode.Range(line.range.end, line.range.end),
@@ -3116,7 +3425,12 @@ export class DebuggerPanel {
     for (const group of this.variablesForFrame(serverLevel)) {
       if (group.kind === 'stacktemps') continue;
       for (const v of group.vars) {
-        vars.push({ name: v.name, value: shortenInlineValue(v.value), full: v.value, edit: v.edit });
+        vars.push({
+          name: v.name,
+          value: shortenInlineValue(v.value),
+          full: v.value,
+          edit: v.edit,
+        });
       }
     }
     return vars;
@@ -3222,7 +3536,9 @@ export class DebuggerPanel {
       try {
         this.panel.reveal(this.panel.viewColumn, false); // focus the panel's group…
         await vscode.commands.executeCommand('workbench.action.newGroupBelow'); // …then split below it
-      } catch { /* best-effort layout; fall back to the active group */ }
+      } catch {
+        /* best-effort layout; fall back to the active group */
+      }
     }
     const doc = await vscode.workspace.openTextDocument(uri);
     const editor = await vscode.window.showTextDocument(doc, {
@@ -3263,19 +3579,24 @@ export class DebuggerPanel {
   private async applySourcePaneRatio(): Promise<void> {
     const ratio = DebuggerPanel.savedSourceRatio ?? DEFAULT_SOURCE_RATIO;
     try {
-      const layout = await vscode.commands.executeCommand<EditorGroupLayout>('vscode.getEditorLayout');
+      const layout =
+        await vscode.commands.executeCommand<EditorGroupLayout>('vscode.getEditorLayout');
       if (setSourceRatioInLayout(layout, this.liveSourceColumn, ratio)) {
         await vscode.commands.executeCommand('vscode.setEditorLayout', layout);
         return;
       }
-    } catch { /* fall through to the step-based resize */ }
+    } catch {
+      /* fall through to the step-based resize */
+    }
     // The new group is still focused (showTextDocument kept focus there), so the
     // relative resize targets it. newGroupBelow split 50/50; shrink toward ~1/3.
     try {
       for (let i = 0; i < SOURCE_SHRINK_STEPS; i++) {
         await vscode.commands.executeCommand('workbench.action.decreaseViewHeight');
       }
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
   }
 
   /**
@@ -3293,10 +3614,13 @@ export class DebuggerPanel {
   private async captureSourceRatio(): Promise<void> {
     if (this.disposed || this.liveSourceColumn === undefined) return;
     try {
-      const layout = await vscode.commands.executeCommand<EditorGroupLayout>('vscode.getEditorLayout');
+      const layout =
+        await vscode.commands.executeCommand<EditorGroupLayout>('vscode.getEditorLayout');
       const ratio = sourceRatioFromLayout(layout, this.liveSourceColumn);
       if (ratio !== undefined) DebuggerPanel.savedSourceRatio = ratio;
-    } catch { /* best-effort sampling */ }
+    } catch {
+      /* best-effort sampling */
+    }
   }
 
   /**
@@ -3339,7 +3663,7 @@ export class DebuggerPanel {
    * the caller then acts on the frame as-is.
    */
   private homeMethodFrameLevel(serverLevel: number): number {
-    const raw = this.rawFrames.find(r => r.serverLevel === serverLevel);
+    const raw = this.rawFrames.find((r) => r.serverLevel === serverLevel);
     if (!raw || !raw.isBlock) return serverLevel;
     for (const r of this.rawFrames) {
       if (r.serverLevel > serverLevel && !r.isBlock && r.methodOop === raw.homeMethodOop) {
@@ -3377,19 +3701,30 @@ export class DebuggerPanel {
           // 1-BASED (see getStepPointSelectorRanges.ts). doc.positionAt is
           // 0-based, so convert — otherwise the highlight sits one char too far.
           const offsets = method
-            ? queries.getSourceOffsets(this.session, method.className, method.isMeta, method.selector)
+            ? queries.getSourceOffsets(
+                this.session,
+                method.className,
+                method.isMeta,
+                method.selector,
+              )
             : debug.getSourceOffsetsForMethod(this.session, readOnlyMethodOop!);
           const offset = offsets[stepPoint - 1];
           const displayOffset = offset != null ? offset - 1 : -1;
           if (displayOffset >= 0 && doc.positionAt) pos = doc.positionAt(displayOffset);
         }
-      } catch { /* best-effort; fall back to the IP line below */ }
+      } catch {
+        /* best-effort; fall back to the IP line below */
+      }
     }
 
     // Fallback: the first non-whitespace token of the IP's source line.
     if (!pos) {
       let line = 0;
-      try { line = debug.getLineForIp(this.session, info.methodOop, info.ipOffset); } catch { /* */ }
+      try {
+        line = debug.getLineForIp(this.session, info.methodOop, info.ipOffset);
+      } catch {
+        /* */
+      }
       if (line > 0) {
         const col = doc.lineAt?.(line - 1)?.firstNonWhitespaceCharacterIndex ?? 0;
         pos = new vscode.Position(line - 1, col);
@@ -3472,8 +3807,14 @@ export class DebuggerPanel {
     } catch (e: unknown) {
       logError(this.sessionId, e instanceof Error ? e.message : String(e));
       return {
-        serverLevel: level, methodOop: 0n, homeMethodOop: 0n, isBlock: false,
-        definingClassName: '', selector: '', isExecutedCode: false, breakable: false,
+        serverLevel: level,
+        methodOop: 0n,
+        homeMethodOop: 0n,
+        isBlock: false,
+        definingClassName: '',
+        selector: '',
+        isExecutedCode: false,
+        breakable: false,
         label: `<frame ${level}>`,
       };
     }
@@ -3485,7 +3826,9 @@ export class DebuggerPanel {
       const blockInfo = debug.getMethodBlockInfo(this.session, info.methodOop);
       isBlock = blockInfo.isBlock;
       homeMethodOop = blockInfo.homeMethodOop;
-    } catch { /* treat as a non-block frame */ }
+    } catch {
+      /* treat as a non-block frame */
+    }
 
     // Resolve the home method's identity (the single source of truth for
     // "is this executed code?", shared with revealFrameSource — see C3).
@@ -3500,7 +3843,9 @@ export class DebuggerPanel {
       if (!isBlock) {
         try {
           receiverClass = debug.getObjectClassName(this.session, info.receiverOop);
-        } catch { /* best-effort; fall back to defining class only */ }
+        } catch {
+          /* best-effort; fall back to defining class only */
+        }
       }
       label = formatFrameLabel({ isBlock, definingClass, selector: home.selector, receiverClass });
     } else {
@@ -3511,19 +3856,26 @@ export class DebuggerPanel {
     // method's defining class — the precise condition for offering "Implement in
     // <ReceiverClass>" (override). (getObjectClassName returns "Foo class" for a
     // class receiver, so a class-side inherited method qualifies too.)
-    const overridable = !isBlock && !isExecutedCode && !!receiverClass
-      && receiverClass !== home.definingClassName
-      && receiverClass !== `${home.definingClassName} class`;
+    const overridable =
+      !isBlock &&
+      !isExecutedCode &&
+      !!receiverClass &&
+      receiverClass !== home.definingClassName &&
+      receiverClass !== `${home.definingClassName} class`;
 
     let line: number | undefined;
     try {
       line = debug.getLineForIp(this.session, info.methodOop, info.ipOffset);
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
 
     let stepPoint: number | undefined;
     try {
       stepPoint = debug.getStepPoint(this.session, this.gsProcess, level);
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
 
     // Breakable iff we resolved a home method to set a step-point break in —
     // drives "Run to Cursor" (#2). The home method's `_sourceOffsets` is method-
@@ -3534,9 +3886,19 @@ export class DebuggerPanel {
     const breakable = homeMethodOop !== 0n;
 
     return {
-      serverLevel: level, methodOop: info.methodOop, homeMethodOop, isBlock,
-      definingClassName: home.definingClassName, selector: home.selector,
-      isExecutedCode, receiverClassName: receiverClass, overridable, breakable, label, line, stepPoint,
+      serverLevel: level,
+      methodOop: info.methodOop,
+      homeMethodOop,
+      isBlock,
+      definingClassName: home.definingClassName,
+      selector: home.selector,
+      isExecutedCode,
+      receiverClassName: receiverClass,
+      overridable,
+      breakable,
+      label,
+      line,
+      stepPoint,
     };
   }
 
@@ -3572,8 +3934,16 @@ export class DebuggerPanel {
         definingClassName = methodInfo.className;
         selector = methodInfo.selector;
       }
-    } catch { /* doit / executed code: no resolvable home class */ }
-    return { uriInfo, definingClassName, selector, isMeta, isExecutedCode: definingClassName === '' };
+    } catch {
+      /* doit / executed code: no resolvable home class */
+    }
+    return {
+      uriInfo,
+      definingClassName,
+      selector,
+      isMeta,
+      isExecutedCode: definingClassName === '',
+    };
   }
 
   /** Dimmed "For <user> on <stone> @ <host>" subtitle from the login. */
@@ -3990,7 +4360,10 @@ export class DebuggerPanel {
 
   private dispose(): void {
     this.disposed = true; // an in-flight Nb step/trim continuation must skip the dead panel
-    if (this.layoutSampler) { clearInterval(this.layoutSampler); this.layoutSampler = undefined; }
+    if (this.layoutSampler) {
+      clearInterval(this.layoutSampler);
+      this.layoutSampler = undefined;
+    }
     DebuggerPanel.panels.get(this.sessionId)?.delete(this);
     // Release any pinned revert originals so closing the debugger never leaks the
     // session's export set.
@@ -4048,7 +4421,10 @@ export class DebuggerPanel {
         // A DNU template / its compiled method was created BY this debugger, so
         // it's safe to close in ANY column (the FS provider may have swapped the
         // template tab to the compiled method, and possibly into another column).
-        if (this.dnuMethodUris.has(uriStr)) { void vscode.window.tabGroups.close(tab); continue; }
+        if (this.dnuMethodUris.has(uriStr)) {
+          void vscode.window.tabGroups.close(tab);
+          continue;
+        }
         if (!this.shownSourceUris.has(uriStr)) continue;
         if (inOurColumn || tab.input.uri.scheme === READONLY_SOURCE_SCHEME) {
           void vscode.window.tabGroups.close(tab);

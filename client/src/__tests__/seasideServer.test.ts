@@ -95,8 +95,16 @@ describe('Seaside server lifecycle', () => {
     spawnReturns();
     servesHelloWorld();
 
-    await startSeasideServer({ session: fakeSession(), gemstonePath: '/gs', globalDir: '/gs/global' });
-    await startSeasideServer({ session: fakeSession(), gemstonePath: '/gs', globalDir: '/gs/global' });
+    await startSeasideServer({
+      session: fakeSession(),
+      gemstonePath: '/gs',
+      globalDir: '/gs/global',
+    });
+    await startSeasideServer({
+      session: fakeSession(),
+      gemstonePath: '/gs',
+      globalDir: '/gs/global',
+    });
 
     expect(child_process.spawn).toHaveBeenCalledTimes(1);
   });
@@ -106,7 +114,11 @@ describe('Seaside server lifecycle', () => {
     servesHelloWorld();
     const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
 
-    await startSeasideServer({ session: fakeSession(), gemstonePath: '/gs', globalDir: '/gs/global' });
+    await startSeasideServer({
+      session: fakeSession(),
+      gemstonePath: '/gs',
+      globalDir: '/gs/global',
+    });
     expect(isSeasideServing()).toBe(true);
 
     const stopped = stopSeasideServer();

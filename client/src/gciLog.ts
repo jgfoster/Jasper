@@ -61,7 +61,8 @@ export function logGciCall(sessionId: number, func: string, args: Record<string,
   const formatted = Object.entries(args)
     .map(([k, v]) => {
       if (typeof v === 'bigint') return `${k}: 0x${v.toString(16)} (${v})`;
-      if (typeof v === 'string' && v.length > 100) return `${k}: "${v.substring(0, 100)}..." (${v.length} chars)`;
+      if (typeof v === 'string' && v.length > 100)
+        return `${k}: "${v.substring(0, 100)}..." (${v.length} chars)`;
       if (typeof v === 'string') return `${k}: "${v}"`;
       return `${k}: ${v}`;
     })
@@ -69,12 +70,17 @@ export function logGciCall(sessionId: number, func: string, args: Record<string,
   log.appendLine(`${stamp()} [Session ${sessionId}] GCI: ${func}(${formatted})`);
 }
 
-export function logGciResult(sessionId: number, func: string, result: Record<string, unknown>): void {
+export function logGciResult(
+  sessionId: number,
+  func: string,
+  result: Record<string, unknown>,
+): void {
   const log = getGciLog();
   const formatted = Object.entries(result)
     .map(([k, v]) => {
       if (typeof v === 'bigint') return `${k}: 0x${v.toString(16)} (${v})`;
-      if (typeof v === 'string' && v.length > 200) return `${k}: "${v.substring(0, 200)}..." (${v.length} chars)`;
+      if (typeof v === 'string' && v.length > 200)
+        return `${k}: "${v.substring(0, 200)}..." (${v.length} chars)`;
       if (typeof v === 'string') return `${k}: "${v}"`;
       if (typeof v === 'object' && v !== null) return `${k}: ${JSON.stringify(v)}`;
       return `${k}: ${v}`;

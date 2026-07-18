@@ -10,10 +10,7 @@ import { writeOwnerSidecar } from '../mcpOwnerSidecar';
 import { resolveOwnership, renderOwnership } from '../mcpServerTreeProvider';
 
 function makeTempSidecarPath(): string {
-  return path.join(
-    fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-tree-')),
-    'mcp.owner.json',
-  );
+  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-tree-')), 'mcp.owner.json');
 }
 
 function fakeSession(id = 7): ActiveSession {
@@ -171,9 +168,7 @@ describe('renderOwnership', () => {
       socketPath: '/tmp/sock',
       httpsUrl: undefined,
     });
-    expect(
-      nodes.find((n) => String(n.label) === 'Open MCP Inspector'),
-    ).toBeUndefined();
+    expect(nodes.find((n) => String(n.label) === 'Open MCP Inspector')).toBeUndefined();
   });
 
   it('omits the Open MCP Inspector action when another window owns the server', () => {
@@ -186,9 +181,7 @@ describe('renderOwnership', () => {
         claimedAt: '2026-05-23T00:00:00Z',
       },
     });
-    expect(
-      nodes.find((n) => String(n.label) === 'Open MCP Inspector'),
-    ).toBeUndefined();
+    expect(nodes.find((n) => String(n.label) === 'Open MCP Inspector')).toBeUndefined();
   });
 
   it('renders other-window state pointing at the owning workspace', () => {
@@ -221,7 +214,7 @@ describe('renderOwnership', () => {
     expect(labels.some((l) => /Owner's active session: foo \(id 12\)/.test(l))).toBe(true);
   });
 
-  it("warns when the owner has no selected session (likely wrong-window-owner)", () => {
+  it('warns when the owner has no selected session (likely wrong-window-owner)', () => {
     const nodes = renderOwnership({
       kind: 'other',
       info: {

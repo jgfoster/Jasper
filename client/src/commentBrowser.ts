@@ -62,7 +62,8 @@ export class CommentBrowser {
         const choice = await vscode.window.showWarningMessage(
           `Save changes to the comment for ${existing.className}?`,
           { modal: true, detail: "Your changes will be lost if you don't save them." },
-          'Save', "Don't Save",
+          'Save',
+          "Don't Save",
         );
         if (choice === undefined) return; // Cancel — keep editing the current class
         if (choice === 'Save') existing.save(existing.currentText);

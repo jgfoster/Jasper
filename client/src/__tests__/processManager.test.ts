@@ -19,10 +19,16 @@ vi.mock('../wslBridge', async () => {
 });
 
 import * as vscode from 'vscode';
-import { spawn } from 'child_process';
-import { ProcessManager, parseGslist, classifyPidOwnership, versionsMatch } from '../processManager';
+import { spawn, type SpawnOptions } from 'child_process';
+import {
+  ProcessManager,
+  parseGslist,
+  classifyPidOwnership,
+  versionsMatch,
+} from '../processManager';
 import { GemStoneDatabase, GemStoneProcess } from '../sysadminTypes';
 import * as wslBridge from '../wslBridge';
+import { SysadminStorage } from '../sysadminStorage';
 
 // ── Helpers ────────────────────────────────────────────────
 
@@ -40,12 +46,16 @@ function makeDatabase(overrides: Partial<GemStoneDatabase> = {}): GemStoneDataba
   };
 }
 
-function makeStorage(gsPath = '/gs/3.7.4') {
+function rawStorage(gsPath = '/gs/3.7.4') {
   return {
     getRootPath: vi.fn(() => '/home/user/gemstone'),
     getGemstonePath: vi.fn(() => gsPath),
     getExtractedVersions: vi.fn(() => ['3.7.4']),
   };
+}
+
+function makeStorage(gsPath = '/gs/3.7.4'): SysadminStorage {
+  return rawStorage(gsPath) as unknown as SysadminStorage;
 }
 
 /** Create a mock ChildProcess that emits 'close' with the given exit code. */
@@ -74,6 +84,11 @@ function makeChildProcess(exitCode = 0) {
     },
   };
   return proc;
+}
+
+/** Point the mocked spawn() at a fake ChildProcess, keeping the cast in one place. */
+function mockSpawnReturn(proc: ReturnType<typeof makeChildProcess>) {
+  vi.mocked(spawn).mockReturnValue(proc as unknown as ReturnType<typeof spawn>);
 }
 
 function setPlatform(platform: string) {
@@ -120,10 +135,10 @@ describe('ProcessManager', () => {
     it('on Linux wraps spawn in bash with ulimit -n 1024', async () => {
       setPlatform('linux');
       const proc = makeChildProcess(0);
-      vi.mocked(spawn).mockReturnValue(proc as any);
+      mockSpawnReturn(proc);
 
       const storage = makeStorage('/gs/3.7.4');
-      const manager = new ProcessManager(storage as any);
+      const manager = new ProcessManager(storage);
       const db = makeDatabase();
 
       const promise = manager.startStone(db);
@@ -143,10 +158,10 @@ describe('ProcessManager', () => {
     it('on Linux passes the stone arguments after the exec sentinel', async () => {
       setPlatform('linux');
       const proc = makeChildProcess(0);
-      vi.mocked(spawn).mockReturnValue(proc as any);
+      mockSpawnReturn(proc);
 
       const storage = makeStorage('/gs/3.7.4');
-      const manager = new ProcessManager(storage as any);
+      const manager = new ProcessManager(storage);
       const db = makeDatabase();
 
       const promise = manager.startStone(db);
@@ -162,10 +177,10 @@ describe('ProcessManager', () => {
     it('on macOS spawns the binary directly without a shell wrapper', async () => {
       setPlatform('darwin');
       const proc = makeChildProcess(0);
-      vi.mocked(spawn).mockReturnValue(proc as any);
+      mockSpawnReturn(proc);
 
       const storage = makeStorage('/gs/3.7.4');
-      const manager = new ProcessManager(storage as any);
+      const manager = new ProcessManager(storage);
       const db = makeDatabase();
 
       const promise = manager.startStone(db);
@@ -181,32 +196,32 @@ describe('ProcessManager', () => {
     it('on Linux the env is passed as the spawn options env', async () => {
       setPlatform('linux');
       const proc = makeChildProcess(0);
-      vi.mocked(spawn).mockReturnValue(proc as any);
+      mockSpawnReturn(proc);
 
       const storage = makeStorage('/gs/3.7.4');
-      const manager = new ProcessManager(storage as any);
+      const manager = new ProcessManager(storage);
       const promise = manager.startStone(makeDatabase());
       proc.finish();
       await promise;
 
-      const [, , opts] = vi.mocked(spawn).mock.calls[0];
-      expect((opts as any).env).toBeDefined();
-      expect((opts as any).env.GEMSTONE).toBe('/gs/3.7.4');
+      const [, , opts] = vi.mocked(spawn).mock.calls[0] as [string, string[], SpawnOptions];
+      expect(opts.env).toBeDefined();
+      expect(opts.env?.GEMSTONE).toBe('/gs/3.7.4');
     });
 
     it('on Linux sets LD_LIBRARY_PATH (not DYLD_LIBRARY_PATH) in env', async () => {
       setPlatform('linux');
       const proc = makeChildProcess(0);
-      vi.mocked(spawn).mockReturnValue(proc as any);
+      mockSpawnReturn(proc);
 
       const storage = makeStorage('/gs/3.7.4');
-      const manager = new ProcessManager(storage as any);
+      const manager = new ProcessManager(storage);
       const promise = manager.startStone(makeDatabase());
       proc.finish();
       await promise;
 
-      const [, , opts] = vi.mocked(spawn).mock.calls[0];
-      const env = (opts as any).env;
+      const [, , opts] = vi.mocked(spawn).mock.calls[0] as [string, string[], SpawnOptions];
+      const env = opts.env as NodeJS.ProcessEnv;
       expect(env.LD_LIBRARY_PATH).toContain('/gs/3.7.4/lib');
       expect(env.DYLD_LIBRARY_PATH).toBeUndefined();
     });
@@ -214,16 +229,16 @@ describe('ProcessManager', () => {
     it('on macOS sets DYLD_LIBRARY_PATH (not LD_LIBRARY_PATH) in env', async () => {
       setPlatform('darwin');
       const proc = makeChildProcess(0);
-      vi.mocked(spawn).mockReturnValue(proc as any);
+      mockSpawnReturn(proc);
 
       const storage = makeStorage('/gs/3.7.4');
-      const manager = new ProcessManager(storage as any);
+      const manager = new ProcessManager(storage);
       const promise = manager.startStone(makeDatabase());
       proc.finish();
       await promise;
 
-      const [, , opts] = vi.mocked(spawn).mock.calls[0];
-      const env = (opts as any).env;
+      const [, , opts] = vi.mocked(spawn).mock.calls[0] as [string, string[], SpawnOptions];
+      const env = opts.env as NodeJS.ProcessEnv;
       expect(env.DYLD_LIBRARY_PATH).toContain('/gs/3.7.4/lib');
       expect(env.LD_LIBRARY_PATH).toBeUndefined();
     });
@@ -231,9 +246,9 @@ describe('ProcessManager', () => {
     it('rejects when the process exits with a non-zero code', async () => {
       setPlatform('linux');
       const proc = makeChildProcess(1);
-      vi.mocked(spawn).mockReturnValue(proc as any);
+      mockSpawnReturn(proc);
 
-      const manager = new ProcessManager(makeStorage() as any);
+      const manager = new ProcessManager(makeStorage());
       const promise = manager.startStone(makeDatabase());
       proc.finish();
 
@@ -260,7 +275,7 @@ describe('ProcessManager', () => {
 
     it('marks an "OK" netldi as responding and preserves its port', () => {
       const procs = parseGslist(sampleOutput);
-      const netldi = procs.find(p => p.type === 'netldi')!;
+      const netldi = procs.find((p) => p.type === 'netldi')!;
       expect(netldi.status).toBe('OK');
       expect(netldi.responding).toBe(true);
       expect(netldi.port).toBe(50377);
@@ -270,7 +285,7 @@ describe('ProcessManager', () => {
 
     it('marks a "frozen" stone as not responding so the UI can flag it', () => {
       const procs = parseGslist(sampleOutput);
-      const stone = procs.find(p => p.type === 'stone')!;
+      const stone = procs.find((p) => p.type === 'stone')!;
       expect(stone.status).toBe('frozen');
       expect(stone.responding).toBe(false);
       expect(stone.pid).toBe(4106);
@@ -278,7 +293,8 @@ describe('ProcessManager', () => {
     });
 
     it('recognizes the two-word "exe deleted" status without bleeding into version', () => {
-      const line = 'exe deleted  3.7.5     jfoster       4106 49677 May 17 19:57 Stone       gs64stone';
+      const line =
+        'exe deleted  3.7.5     jfoster       4106 49677 May 17 19:57 Stone       gs64stone';
       const procs = parseGslist(line);
       expect(procs).toHaveLength(1);
       expect(procs[0].status).toBe('exe deleted');
@@ -287,7 +303,8 @@ describe('ProcessManager', () => {
     });
 
     it('recognizes "unknown(EPERM)" as a stale (non-responding) status', () => {
-      const line = 'unknown(EPERM)  3.7.5     jfoster       4106 49677 May 17 19:57 Stone       gs64stone';
+      const line =
+        'unknown(EPERM)  3.7.5     jfoster       4106 49677 May 17 19:57 Stone       gs64stone';
       const procs = parseGslist(line);
       expect(procs).toHaveLength(1);
       expect(procs[0].status).toBe('unknown(EPERM)');
@@ -342,7 +359,7 @@ describe('ProcessManager', () => {
     function managerWith(output: string) {
       vi.mocked(wslBridge.wslExecSync).mockReturnValue(output);
       const storage = makeStorage('/gs/3.7.5');
-      const manager = new ProcessManager(storage as any);
+      const manager = new ProcessManager(storage);
       manager.refreshProcesses();
       return manager;
     }
@@ -372,9 +389,9 @@ describe('ProcessManager', () => {
     it('on Linux also wraps startnetldi in the bash ulimit shell', async () => {
       setPlatform('linux');
       const proc = makeChildProcess(0);
-      vi.mocked(spawn).mockReturnValue(proc as any);
+      mockSpawnReturn(proc);
 
-      const manager = new ProcessManager(makeStorage() as any);
+      const manager = new ProcessManager(makeStorage());
       const promise = manager.startNetldi(makeDatabase());
       proc.finish();
       await promise;
@@ -387,9 +404,9 @@ describe('ProcessManager', () => {
     it('on macOS spawns startnetldi directly', async () => {
       setPlatform('darwin');
       const proc = makeChildProcess(0);
-      vi.mocked(spawn).mockReturnValue(proc as any);
+      mockSpawnReturn(proc);
 
-      const manager = new ProcessManager(makeStorage() as any);
+      const manager = new ProcessManager(makeStorage());
       const promise = manager.startNetldi(makeDatabase());
       proc.finish();
       await promise;
@@ -414,7 +431,8 @@ describe('ProcessManager', () => {
     });
 
     it('recognizes a real stoned command line as a GemStone server', () => {
-      const cmd = '/Users/jfoster/Documents/GemStone/GemStone64Bit3.7.5/sys/stoned -l /log/x.log -e /conf/x.conf -z /conf/system.conf gs64stone';
+      const cmd =
+        '/Users/jfoster/Documents/GemStone/GemStone64Bit3.7.5/sys/stoned -l /log/x.log -e /conf/x.conf -z /conf/system.conf gs64stone';
       const r = classifyPidOwnership(cmd);
       expect(r.pidGone).toBe(false);
       expect(r.isGemStoneServer).toBe(true);
@@ -450,7 +468,7 @@ describe('ProcessManager', () => {
 
     it('returns safe=true and the expected lock path when the PID is gone', () => {
       vi.mocked(wslBridge.wslExecSync).mockReturnValue('GONE');
-      const manager = new ProcessManager(makeStorage() as any);
+      const manager = new ProcessManager(makeStorage());
       const report = manager.inspectStaleLock(staleStone());
       expect(report.safe).toBe(true);
       expect(report.lockPath).toBe('/home/user/gemstone/locks/gs64stone..LCK');
@@ -459,7 +477,7 @@ describe('ProcessManager', () => {
 
     it('refuses when the recorded PID is still a running stoned', () => {
       vi.mocked(wslBridge.wslExecSync).mockReturnValue('/gs/sys/stoned -l /log gs64stone');
-      const manager = new ProcessManager(makeStorage() as any);
+      const manager = new ProcessManager(makeStorage());
       const report = manager.inspectStaleLock(staleStone());
       expect(report.safe).toBe(false);
       expect(report.reason).toMatch(/still a running GemStone server/);
@@ -468,7 +486,7 @@ describe('ProcessManager', () => {
     it('marks safe=true when the PID has been reused by an unrelated process', () => {
       // This is the exact scenario from the user's bug: PID 4106 is now ssh-agent.
       vi.mocked(wslBridge.wslExecSync).mockReturnValue('/usr/bin/ssh-agent');
-      const manager = new ProcessManager(makeStorage() as any);
+      const manager = new ProcessManager(makeStorage());
       const report = manager.inspectStaleLock(staleStone());
       expect(report.safe).toBe(true);
       expect(report.currentPidOwner).toBe('/usr/bin/ssh-agent');
@@ -479,7 +497,7 @@ describe('ProcessManager', () => {
       vi.mocked(wslBridge.wslExecSync).mockImplementation(() => {
         throw new Error('ps: not found');
       });
-      const manager = new ProcessManager(makeStorage() as any);
+      const manager = new ProcessManager(makeStorage());
       const report = manager.inspectStaleLock(staleStone());
       expect(report.safe).toBe(false);
       expect(report.reason).toMatch(/Could not check PID/);
@@ -489,10 +507,10 @@ describe('ProcessManager', () => {
       vi.mocked(wslBridge.needsWsl).mockReturnValue(true);
       vi.mocked(wslBridge.wslExecSync).mockReturnValue('GONE');
       const storage = {
-        ...makeStorage(),
+        ...rawStorage(),
         getWslRootPath: vi.fn(() => '/mnt/c/gemstone'),
-      };
-      const manager = new ProcessManager(storage as any);
+      } as unknown as SysadminStorage;
+      const manager = new ProcessManager(storage);
       const report = manager.inspectStaleLock(staleStone());
       expect(report.lockPath).toBe('/mnt/c/gemstone/locks/gs64stone..LCK');
     });
@@ -505,7 +523,7 @@ describe('ProcessManager', () => {
 
     it('shells out an rm -f for the lock path and reports success', () => {
       vi.mocked(wslBridge.wslExecSync).mockReturnValue('');
-      const manager = new ProcessManager(makeStorage() as any);
+      const manager = new ProcessManager(makeStorage());
       const ok = manager.deleteStaleLock('/home/user/gemstone/locks/gs64stone..LCK');
       expect(ok).toBe(true);
       const cmd = vi.mocked(wslBridge.wslExecSync).mock.calls[0][0];
@@ -517,7 +535,7 @@ describe('ProcessManager', () => {
       vi.mocked(wslBridge.wslExecSync).mockImplementation(() => {
         throw new Error('rm: permission denied');
       });
-      const manager = new ProcessManager(makeStorage() as any);
+      const manager = new ProcessManager(makeStorage());
       const ok = manager.deleteStaleLock('/home/user/gemstone/locks/gs64stone..LCK');
       expect(ok).toBe(false);
     });
@@ -530,7 +548,7 @@ describe('ProcessManager', () => {
     });
 
     it('reports success without signalling anything when the stone is not running', async () => {
-      const manager = new ProcessManager(makeStorage() as any);
+      const manager = new ProcessManager(makeStorage());
       vi.spyOn(manager, 'refreshProcesses').mockReturnValue([]);
 
       const result = await manager.forceKillStone(makeDatabase(), { graceMs: 0 });
@@ -541,7 +559,7 @@ describe('ProcessManager', () => {
     });
 
     it('refuses to kill a PID that now belongs to an unrelated process', async () => {
-      const manager = new ProcessManager(makeStorage() as any);
+      const manager = new ProcessManager(makeStorage());
       vi.spyOn(manager, 'refreshProcesses').mockReturnValue([staleStone()]);
       vi.mocked(wslBridge.wslExecSync).mockReturnValueOnce('/usr/bin/ssh-agent');
 
@@ -554,7 +572,7 @@ describe('ProcessManager', () => {
     });
 
     it('SIGTERMs a running stone, clears its lock, and reports recovery', async () => {
-      const manager = new ProcessManager(makeStorage() as any);
+      const manager = new ProcessManager(makeStorage());
       vi.spyOn(manager, 'refreshProcesses').mockReturnValue([staleStone()]);
       vi.mocked(wslBridge.wslExecSync)
         .mockReturnValueOnce('/gs/sys/stoned -l /log gs64stone')
@@ -573,7 +591,7 @@ describe('ProcessManager', () => {
     });
 
     it('escalates to SIGKILL when SIGTERM does not stop the stone', async () => {
-      const manager = new ProcessManager(makeStorage() as any);
+      const manager = new ProcessManager(makeStorage());
       vi.spyOn(manager, 'refreshProcesses').mockReturnValue([staleStone()]);
       vi.mocked(wslBridge.wslExecSync)
         .mockReturnValueOnce('/gs/sys/stoned -l /log gs64stone')
@@ -600,7 +618,7 @@ describe('ProcessManager', () => {
     });
 
     it('opens a terminal rooted at the version product directory', () => {
-      const manager = new ProcessManager(makeStorage('/gs/3.7.4') as any);
+      const manager = new ProcessManager(makeStorage('/gs/3.7.4'));
 
       manager.openVersionTerminal('3.7.4');
 
@@ -612,11 +630,12 @@ describe('ProcessManager', () => {
     });
 
     it('sets only GEMSTONE and GEMSTONE_GLOBAL_DIR, not the full stone environment', () => {
-      const manager = new ProcessManager(makeStorage('/gs/3.7.4') as any);
+      const manager = new ProcessManager(makeStorage('/gs/3.7.4'));
 
       manager.openVersionTerminal('3.7.4');
 
-      const options = vi.mocked(vscode.window.createTerminal).mock.calls[0][0] as any;
+      const options = vi.mocked(vscode.window.createTerminal).mock
+        .calls[0][0] as vscode.TerminalOptions;
       expect(options.env).toEqual({
         GEMSTONE: '/gs/3.7.4',
         GEMSTONE_GLOBAL_DIR: '/home/user/gemstone',
@@ -624,8 +643,11 @@ describe('ProcessManager', () => {
     });
 
     it('refuses when the requested version has not been extracted', () => {
-      const storage = { ...makeStorage(), getGemstonePath: vi.fn(() => undefined) };
-      const manager = new ProcessManager(storage as any);
+      const storage = {
+        ...rawStorage(),
+        getGemstonePath: vi.fn(() => undefined),
+      } as unknown as SysadminStorage;
+      const manager = new ProcessManager(storage);
 
       expect(() => manager.openVersionTerminal('9.9.9')).toThrow(/not found/);
       expect(vscode.window.createTerminal).not.toHaveBeenCalled();
@@ -634,11 +656,11 @@ describe('ProcessManager', () => {
     it('under WSL launches a bash shell that cds and exports the version paths', () => {
       vi.mocked(wslBridge.needsWsl).mockReturnValue(true);
       const storage = {
-        ...makeStorage(),
+        ...rawStorage(),
         getWslGemstonePath: vi.fn(() => '/mnt/c/gs/3.7.4'),
         getWslRootPath: vi.fn(() => '/mnt/c/gemstone'),
-      };
-      const manager = new ProcessManager(storage as any);
+      } as unknown as SysadminStorage;
+      const manager = new ProcessManager(storage);
 
       manager.openVersionTerminal('3.7.4');
 
@@ -654,7 +676,10 @@ describe('ProcessManager', () => {
   });
 
   describe('gem temp-object cache self-heal (via startNetldi)', () => {
-    function dbWithGemConf(cacheLine: string | null): { db: ReturnType<typeof makeDatabase>; confFile: string } {
+    function dbWithGemConf(cacheLine: string | null): {
+      db: ReturnType<typeof makeDatabase>;
+      confFile: string;
+    } {
       const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'pm-db-'));
       fs.mkdirSync(nodePath.join(dir, 'conf'));
       fs.mkdirSync(nodePath.join(dir, 'log'), { recursive: true });
@@ -665,9 +690,9 @@ describe('ProcessManager', () => {
 
     it('raises an existing 50 MB cache to 500 MB on start', async () => {
       const { db, confFile } = dbWithGemConf('GEM_TEMPOBJ_CACHE_SIZE = 50000;');
-      const manager = new ProcessManager(makeStorage() as any);
+      const manager = new ProcessManager(makeStorage());
       const proc = makeChildProcess(0);
-      vi.mocked(spawn).mockReturnValue(proc as any);
+      mockSpawnReturn(proc);
 
       const promise = manager.startNetldi(db);
       proc.finish();
@@ -679,9 +704,9 @@ describe('ProcessManager', () => {
 
     it('adds the cache setting when the conf lacks it', async () => {
       const { db, confFile } = dbWithGemConf(null);
-      const manager = new ProcessManager(makeStorage() as any);
+      const manager = new ProcessManager(makeStorage());
       const proc = makeChildProcess(0);
-      vi.mocked(spawn).mockReturnValue(proc as any);
+      mockSpawnReturn(proc);
 
       const promise = manager.startNetldi(db);
       proc.finish();
@@ -692,9 +717,9 @@ describe('ProcessManager', () => {
 
     it('leaves an already-adequate cache untouched', async () => {
       const { db, confFile } = dbWithGemConf('GEM_TEMPOBJ_CACHE_SIZE = 2000000;');
-      const manager = new ProcessManager(makeStorage() as any);
+      const manager = new ProcessManager(makeStorage());
       const proc = makeChildProcess(0);
-      vi.mocked(spawn).mockReturnValue(proc as any);
+      mockSpawnReturn(proc);
 
       const promise = manager.startNetldi(db);
       proc.finish();
@@ -703,5 +728,4 @@ describe('ProcessManager', () => {
       expect(fs.readFileSync(confFile, 'utf8')).toContain('GEM_TEMPOBJ_CACHE_SIZE = 2000000;');
     });
   });
-
 });

@@ -3,8 +3,7 @@ import { logInfo } from './gciLog';
 
 const MOD_KEY = process.platform === 'darwin' ? 'Cmd' : 'Ctrl';
 
-export const WORKSPACE_TEMPLATE =
-`"Workspace — a scratch pad for GemStone Smalltalk.
+export const WORKSPACE_TEMPLATE = `"Workspace — a scratch pad for GemStone Smalltalk.
  Put the cursor on a line (or select an expression), then evaluate it:
    Display It   <${MOD_KEY}>+<K> then <D>   evaluate and insert the result inline
    Inspect It   <${MOD_KEY}>+<K> then <I>   open the result in the Inspector

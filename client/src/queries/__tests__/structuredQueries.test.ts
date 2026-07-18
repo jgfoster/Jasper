@@ -16,7 +16,10 @@ import { getGrailStubReflection, parseGrailStubReflection } from '../grailStubRe
 describe('getDictionaryEntries', () => {
   it('parses class (1) and global (0) rows', () => {
     const raw = '1\taccessing\tArray\n0\t\tMyVar\n';
-    const results = getDictionaryEntries(vi.fn<QueryExecutor>(() => raw), 1);
+    const results = getDictionaryEntries(
+      vi.fn<QueryExecutor>(() => raw),
+      1,
+    );
     expect(results).toEqual([
       { isClass: true, category: 'accessing', name: 'Array' },
       { isClass: false, category: '', name: 'MyVar' },
@@ -25,7 +28,10 @@ describe('getDictionaryEntries', () => {
 
   it('skips entries whose name is empty', () => {
     const raw = '1\taccessing\t\n1\taccessing\tFoo\n';
-    const results = getDictionaryEntries(vi.fn<QueryExecutor>(() => raw), 1);
+    const results = getDictionaryEntries(
+      vi.fn<QueryExecutor>(() => raw),
+      1,
+    );
     expect(results).toHaveLength(1);
     expect(results[0].name).toBe('Foo');
   });
@@ -34,13 +40,19 @@ describe('getDictionaryEntries', () => {
 describe('getGlobalsForDictionary', () => {
   it('preserves tabs inside the value field', () => {
     const raw = 'X\tArray\tvalue\twith\ttabs\n';
-    const results = getGlobalsForDictionary(vi.fn<QueryExecutor>(() => raw), 1);
+    const results = getGlobalsForDictionary(
+      vi.fn<QueryExecutor>(() => raw),
+      1,
+    );
     expect(results[0].value).toBe('value\twith\ttabs');
   });
 
   it('skips lines without at least two tabs', () => {
     const raw = 'bogus\noneTab\tonly\nok\tArray\tvalue\n';
-    const results = getGlobalsForDictionary(vi.fn<QueryExecutor>(() => raw), 1);
+    const results = getGlobalsForDictionary(
+      vi.fn<QueryExecutor>(() => raw),
+      1,
+    );
     expect(results).toHaveLength(1);
     expect(results[0].name).toBe('ok');
   });
@@ -90,12 +102,19 @@ describe('getAllClassNames', () => {
 describe('getClassEnvironments', () => {
   it('detects class side via " class" suffix on receiver name', () => {
     // Each selector token carries a fixed 2-digit leading flag byte (00..15).
-    const raw = 'Array class\t0\tinstance creation\t00new\t00with:\n'
-              + 'Array\t0\taccessing\t00size\n';
-    const results = getClassEnvironments(vi.fn<QueryExecutor>(() => raw), 1, 'Array', 0);
+    const raw =
+      'Array class\t0\tinstance creation\t00new\t00with:\n' + 'Array\t0\taccessing\t00size\n';
+    const results = getClassEnvironments(
+      vi.fn<QueryExecutor>(() => raw),
+      1,
+      'Array',
+      0,
+    );
     expect(results).toHaveLength(2);
     expect(results[0]).toMatchObject({
-      isMeta: true, envId: 0, category: 'instance creation',
+      isMeta: true,
+      envId: 0,
+      category: 'instance creation',
     });
     expect(results[0].selectors).toEqual(['new', 'with:']);
     expect(results[1].isMeta).toBe(false);
@@ -104,7 +123,12 @@ describe('getClassEnvironments', () => {
   it('parses the per-selector override bitmask and strips its prefix', () => {
     // 1 = overrides super (▲), 2 = overridden in subclass (▼), 3 = both.
     const raw = 'Array\t0\taccessing\t01at:\t02size\t03printOn:\t00name\n';
-    const results = getClassEnvironments(vi.fn<QueryExecutor>(() => raw), 1, 'Array', 0);
+    const results = getClassEnvironments(
+      vi.fn<QueryExecutor>(() => raw),
+      1,
+      'Array',
+      0,
+    );
     expect(results[0].selectors).toEqual(['at:', 'name', 'printOn:', 'size']);
     expect(results[0].methodOverrideBits).toEqual({ 'at:': 1, size: 2, 'printOn:': 3 });
     expect(results[0].sessionMethodBits).toEqual({});
@@ -112,14 +136,24 @@ describe('getClassEnvironments', () => {
 
   it('omits zero-bit (neither overrides nor overridden) selectors from the map', () => {
     const raw = 'Array\t0\taccessing\t00a\t00b\n';
-    const results = getClassEnvironments(vi.fn<QueryExecutor>(() => raw), 1, 'Array', 0);
+    const results = getClassEnvironments(
+      vi.fn<QueryExecutor>(() => raw),
+      1,
+      'Array',
+      0,
+    );
     expect(results[0].selectors).toEqual(['a', 'b']);
     expect(results[0].methodOverrideBits).toEqual({});
   });
 
   it('records override bits on the class side too', () => {
     const raw = 'Array class\t0\tinstance creation\t03new\t01basicNew\n';
-    const results = getClassEnvironments(vi.fn<QueryExecutor>(() => raw), 1, 'Array', 0);
+    const results = getClassEnvironments(
+      vi.fn<QueryExecutor>(() => raw),
+      1,
+      'Array',
+      0,
+    );
     expect(results[0].isMeta).toBe(true);
     expect(results[0].methodOverrideBits).toEqual({ new: 3, basicNew: 1 });
   });
@@ -128,7 +162,12 @@ describe('getClassEnvironments', () => {
     // 04 = session extension (transient only), 12 = session override (4+8,
     // also in persistent dict). 00 = ordinary persistent method.
     const raw = 'Object\t0\t*mypkg\t04sessionExt\t12isVowel\t00hash\n';
-    const results = getClassEnvironments(vi.fn<QueryExecutor>(() => raw), 1, 'Object', 0);
+    const results = getClassEnvironments(
+      vi.fn<QueryExecutor>(() => raw),
+      1,
+      'Object',
+      0,
+    );
     expect(results[0].selectors).toEqual(['hash', 'isVowel', 'sessionExt']);
     expect(results[0].sessionMethodBits).toEqual({ sessionExt: 1, isVowel: 2 });
     expect(results[0].methodOverrideBits).toEqual({});
@@ -138,7 +177,12 @@ describe('getClassEnvironments', () => {
     // 05 = overrides super (1) + session extension (4); a session method may
     // also shadow a superclass impl. Both maps must carry their own bits.
     const raw = 'Object\t0\t*mypkg\t05foo\t14bar\n';
-    const results = getClassEnvironments(vi.fn<QueryExecutor>(() => raw), 1, 'Object', 0);
+    const results = getClassEnvironments(
+      vi.fn<QueryExecutor>(() => raw),
+      1,
+      'Object',
+      0,
+    );
     // 14 = overridden-in-subclass (2) + session override (4+8) -> not asserted
     // on override map beyond bit 2; session map sees an override.
     expect(results[0].methodOverrideBits).toEqual({ foo: 1, bar: 2 });
@@ -171,8 +215,8 @@ describe('getClassEnvironments', () => {
     getClassEnvironments(execute, 1, 'Array', 0);
     const code = execute.mock.calls[0][1];
     expect(code).toContain('whichClassIncludesSelector:'); // walks all ancestors
-    expect(code).toContain('allSubclasses');               // walks all descendants
-    expect(code).not.toContain('lookupSelector:');         // the rejected approach
+    expect(code).toContain('allSubclasses'); // walks all descendants
+    expect(code).not.toContain('lookupSelector:'); // the rejected approach
   });
 });
 
@@ -201,16 +245,22 @@ describe('getBaseMethodSource', () => {
   it('emits ASCII-only source (3.6.x miscompiles non-ASCII: ComStrmSetCursor)', () => {
     const execute = vi.fn<QueryExecutor>(() => '');
     getBaseMethodSource(execute, 'Character', false, 'isVowel', 0);
-    // eslint-disable-next-line no-control-regex
-    expect(/[^\x00-\x7F]/.test(execute.mock.calls[0][1])).toBe(false);
+
+    const code = execute.mock.calls[0][1];
+    // eslint-disable-next-line no-control-regex -- \x00-\x7F is the intentional ASCII range, not a stray control char
+    const asciiOnly = /^[\x00-\x7F]*$/;
+    expect(asciiOnly.test(code)).toBe(true);
   });
 });
 
 describe('getClassHierarchy', () => {
   it('preserves superclass/self/subclass order from Smalltalk', () => {
     const raw = 'Globals\tObject\tsuperclass\nGlobals\tArray\tself\nGlobals\tFoo\tsubclass\n';
-    const results = getClassHierarchy(vi.fn<QueryExecutor>(() => raw), 'Array');
-    expect(results.map(r => r.kind)).toEqual(['superclass', 'self', 'subclass']);
+    const results = getClassHierarchy(
+      vi.fn<QueryExecutor>(() => raw),
+      'Array',
+    );
+    expect(results.map((r) => r.kind)).toEqual(['superclass', 'self', 'subclass']);
   });
 
   // ClassOrganizer>>allSuperclassesOf: returns root-first
@@ -233,7 +283,10 @@ describe('getClassHierarchy', () => {
 describe('getMethodList', () => {
   it('parses instance (0) and class (1) rows', () => {
     const raw = '0\taccessing\tsize\n1\tinstance creation\tnew\n';
-    const results = getMethodList(vi.fn<QueryExecutor>(() => raw), 'Array');
+    const results = getMethodList(
+      vi.fn<QueryExecutor>(() => raw),
+      'Array',
+    );
     expect(results).toEqual([
       { isMeta: false, category: 'accessing', selector: 'size' },
       { isMeta: true, category: 'instance creation', selector: 'new' },
@@ -241,7 +294,10 @@ describe('getMethodList', () => {
   });
 
   it('skips lines with fewer than 3 tab-separated fields', () => {
-    const results = getMethodList(vi.fn<QueryExecutor>(() => 'incomplete\tonly\n0\tcat\tsel\n'), 'Array');
+    const results = getMethodList(
+      vi.fn<QueryExecutor>(() => 'incomplete\tonly\n0\tcat\tsel\n'),
+      'Array',
+    );
     expect(results).toHaveLength(1);
   });
 });
@@ -249,7 +305,12 @@ describe('getMethodList', () => {
 describe('getStepPointSelectorRanges', () => {
   it('parses step point info with 0-based selectorOffset', () => {
     const raw = '1\t0\t3\tfoo\n2\t5\t4\tbar:\n';
-    const results = getStepPointSelectorRanges(vi.fn<QueryExecutor>(() => raw), 'X', false, 'y');
+    const results = getStepPointSelectorRanges(
+      vi.fn<QueryExecutor>(() => raw),
+      'X',
+      false,
+      'y',
+    );
     expect(results).toEqual([
       { stepPoint: 1, selectorOffset: 0, selectorLength: 3, selectorText: 'foo' },
       { stepPoint: 2, selectorOffset: 5, selectorLength: 4, selectorText: 'bar:' },
@@ -259,11 +320,24 @@ describe('getStepPointSelectorRanges', () => {
 
 describe('runFailingTests', () => {
   it('parses class\\tselector\\tstatus\\tmessage rows into TestRunResult[]', () => {
-    const raw = 'MyTest\ttestBad\tfailed\texpected 1 got 2\nOther\ttestBoom\terror\tdivision by zero\n';
+    const raw =
+      'MyTest\ttestBad\tfailed\texpected 1 got 2\nOther\ttestBoom\terror\tdivision by zero\n';
     const results = runFailingTests(vi.fn<QueryExecutor>(() => raw));
     expect(results).toEqual([
-      { className: 'MyTest', selector: 'testBad', status: 'failed', message: 'expected 1 got 2', durationMs: 0 },
-      { className: 'Other', selector: 'testBoom', status: 'error', message: 'division by zero', durationMs: 0 },
+      {
+        className: 'MyTest',
+        selector: 'testBad',
+        status: 'failed',
+        message: 'expected 1 got 2',
+        durationMs: 0,
+      },
+      {
+        className: 'Other',
+        selector: 'testBoom',
+        status: 'error',
+        message: 'division by zero',
+        durationMs: 0,
+      },
     ]);
   });
 
@@ -473,12 +547,17 @@ describe('describeTestFailure', () => {
   // ignored so a future Smalltalk-side addition (extra fields, GS-version
   // specific extras) doesn't crash callers.
   it('parses TestFailure-shaped output into structured details', () => {
-    const raw = 'status: failed\n' +
+    const raw =
+      'status: failed\n' +
       'exceptionClass: TestFailure\n' +
       'errorNumber: 2751\n' +
       'messageText: Assertion failed\n' +
       'description: TestFailure: Assertion failed\n';
-    const result = describeTestFailure(vi.fn<QueryExecutor>(() => raw), 'ArrayTest', 'testBad');
+    const result = describeTestFailure(
+      vi.fn<QueryExecutor>(() => raw),
+      'ArrayTest',
+      'testBad',
+    );
     expect(result).toEqual({
       status: 'failed',
       exceptionClass: 'TestFailure',
@@ -489,14 +568,19 @@ describe('describeTestFailure', () => {
   });
 
   it('parses MessageNotUnderstood output, including mnuReceiver and mnuSelector', () => {
-    const raw = 'status: error\n' +
+    const raw =
+      'status: error\n' +
       'exceptionClass: MessageNotUnderstood\n' +
       'errorNumber: 2010\n' +
       'messageText: a Object class does not understand #foo\n' +
       'description: a Object class does not understand #foo\n' +
       'mnuReceiver: Object\n' +
       'mnuSelector: foo\n';
-    const result = describeTestFailure(vi.fn<QueryExecutor>(() => raw), 'ArrayTest', 'testErrors');
+    const result = describeTestFailure(
+      vi.fn<QueryExecutor>(() => raw),
+      'ArrayTest',
+      'testErrors',
+    );
     expect(result.status).toBe('error');
     expect(result.exceptionClass).toBe('MessageNotUnderstood');
     expect(result.mnuReceiver).toBe('Object');
@@ -504,7 +588,11 @@ describe('describeTestFailure', () => {
   });
 
   it('parses passed status with no other fields', () => {
-    const result = describeTestFailure(vi.fn<QueryExecutor>(() => 'status: passed\n'), 'X', 'y');
+    const result = describeTestFailure(
+      vi.fn<QueryExecutor>(() => 'status: passed\n'),
+      'X',
+      'y',
+    );
     expect(result.status).toBe('passed');
     expect(result.exceptionClass).toBeUndefined();
     expect(result.messageText).toBeUndefined();
@@ -514,7 +602,11 @@ describe('describeTestFailure', () => {
   // server-side without coordinating client updates.
   it('ignores unknown keys', () => {
     const raw = 'status: failed\nfutureField: whatever\nexceptionClass: TestFailure\n';
-    const result = describeTestFailure(vi.fn<QueryExecutor>(() => raw), 'X', 'y');
+    const result = describeTestFailure(
+      vi.fn<QueryExecutor>(() => raw),
+      'X',
+      'y',
+    );
     expect(result.status).toBe('failed');
     expect(result.exceptionClass).toBe('TestFailure');
   });
@@ -559,8 +651,8 @@ describe('describeTestFailure', () => {
 
     // Saved before, set true during, restored in ensure: after.
     expect(code).toContain('System gemConfigurationAt: #GemExceptionSignalCapturesStack');
-    expect(code).toContain("gemConfigurationAt: #GemExceptionSignalCapturesStack put: true");
-    expect(code).toContain("gemConfigurationAt: #GemExceptionSignalCapturesStack put: oldStackCfg");
+    expect(code).toContain('gemConfigurationAt: #GemExceptionSignalCapturesStack put: true');
+    expect(code).toContain('gemConfigurationAt: #GemExceptionSignalCapturesStack put: oldStackCfg');
     expect(code).toContain('ensure:');
   });
 
@@ -568,7 +660,8 @@ describe('describeTestFailure', () => {
   // line-prefixed key/value section. Without it, frame newlines would split
   // into bogus key/value pairs and the parser would lose the stack.
   it('parses stackReport that follows the sentinel as one verbatim block', () => {
-    const raw = 'status: failed\n' +
+    const raw =
+      'status: failed\n' +
       'exceptionClass: TestFailure\n' +
       'errorNumber: 2751\n' +
       'messageText: Assertion failed\n' +
@@ -577,7 +670,11 @@ describe('describeTestFailure', () => {
       'TestFailure (AbstractException) >> signal: @3 line 7  [GsNMethod 3523841]\n' +
       'TestFailure class (AbstractException class) >> signal: @3 line 4  [GsNMethod 3803137]\n' +
       'JasperProbeTest >> testFails @3 line 1  [GsNMethod 1236251649]\n';
-    const result = describeTestFailure(vi.fn<QueryExecutor>(() => raw), 'X', 'y');
+    const result = describeTestFailure(
+      vi.fn<QueryExecutor>(() => raw),
+      'X',
+      'y',
+    );
     expect(result.status).toBe('failed');
     expect(result.exceptionClass).toBe('TestFailure');
     expect(result.stackReport).toContain('TestFailure (AbstractException) >> signal:');
@@ -588,7 +685,11 @@ describe('describeTestFailure', () => {
 
   it('omits stackReport when the sentinel is absent (e.g. config rejected)', () => {
     const raw = 'status: failed\nexceptionClass: TestFailure\nmessageText: Assertion failed\n';
-    const result = describeTestFailure(vi.fn<QueryExecutor>(() => raw), 'X', 'y');
+    const result = describeTestFailure(
+      vi.fn<QueryExecutor>(() => raw),
+      'X',
+      'y',
+    );
     expect(result.stackReport).toBeUndefined();
   });
 
@@ -668,8 +769,9 @@ describe('python (Grail) queries', () => {
     expect(code).toContain("'Error: AlmostOutOfStack");
     // AlmostOutOfStack must appear *before* AbstractException in the source
     // (innermost handler) so the minimal handler runs first.
-    expect(code.indexOf('on: AlmostOutOfStack'))
-      .toBeLessThan(code.indexOf('on: AbstractException'));
+    expect(code.indexOf('on: AlmostOutOfStack')).toBeLessThan(
+      code.indexOf('on: AbstractException'),
+    );
   });
 
   // Errors from Grail's compile/runtime path (SyntaxError, NameError, etc.)
@@ -723,11 +825,14 @@ describe('python (Grail) queries', () => {
     evalPython(exec, 'x = 1');
     const code = exec.mock.calls[0][1];
     expect(code).not.toContain('asInteger < 128');
-    expect(code).not.toContain("ifFalse: [$?]");
+    expect(code).not.toContain('ifFalse: [$?]');
   });
 
   it('returns the executor result verbatim — no parsing on the JS side', () => {
-    const result = evalPython(vi.fn<QueryExecutor>(() => '3'), '1 + 2');
+    const result = evalPython(
+      vi.fn<QueryExecutor>(() => '3'),
+      '1 + 2',
+    );
     expect(result).toBe('3');
   });
 
@@ -781,8 +886,9 @@ describe('python (Grail) scoped queries — notebook kernel', () => {
     const code = exec.mock.calls[0][1];
     expect(code).toContain("objectNamed: #'ModuleAst'");
     expect(code).toContain('Grail (GemStone-Python) not detected');
-    expect(code.indexOf('on: AlmostOutOfStack'))
-      .toBeLessThan(code.indexOf('on: AbstractException'));
+    expect(code.indexOf('on: AlmostOutOfStack')).toBeLessThan(
+      code.indexOf('on: AbstractException'),
+    );
     expect(code).toContain('result encodeAsUTF8');
   });
 
@@ -798,7 +904,11 @@ describe('python (Grail) scoped queries — notebook kernel', () => {
   });
 
   it('returns the executor result verbatim — no parsing on the JS side', () => {
-    const result = evalPythonInScope(vi.fn<QueryExecutor>(() => '3'), 'x + 2', 'nb');
+    const result = evalPythonInScope(
+      vi.fn<QueryExecutor>(() => '3'),
+      'x + 2',
+      'nb',
+    );
     expect(result).toBe('3');
   });
 
@@ -824,13 +934,14 @@ describe('python (Grail) scoped queries — notebook kernel', () => {
 
 describe('getGrailStubReflection', () => {
   it('parses superclass, instance variables with accessor flags, methods, and comment', () => {
-    const raw = 'SUPER\tObject\n'
-      + 'IVAR\tbalance\t1\t1\n'
-      + 'IVAR\towner\t1\t0\n'
-      + 'METHOD\ti\taccessing\tbalance\n'
-      + 'METHOD\tc\tinstance creation\tnew\n'
-      + '===COMMENT===\n'
-      + 'An account.';
+    const raw =
+      'SUPER\tObject\n' +
+      'IVAR\tbalance\t1\t1\n' +
+      'IVAR\towner\t1\t0\n' +
+      'METHOD\ti\taccessing\tbalance\n' +
+      'METHOD\tc\tinstance creation\tnew\n' +
+      '===COMMENT===\n' +
+      'An account.';
 
     const result = parseGrailStubReflection(raw);
 

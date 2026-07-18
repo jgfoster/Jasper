@@ -9,6 +9,7 @@ vi.mock('../browserQueries', () => ({
 }));
 
 import { Uri, CompletionItemKind } from '../__mocks__/vscode';
+import type * as vscode from 'vscode';
 import { GemStoneCompletionProvider } from '../gemstoneCompletionProvider';
 import { SessionManager } from '../sessionManager';
 import { getAllClassNames, getInstVarNames, getAllSelectors } from '../browserQueries';
@@ -22,7 +23,7 @@ function makeSessionManager(hasSession: boolean) {
     getSelectedSession: vi.fn(() =>
       hasSession
         ? { id: 1, gci: {}, handle: 'h1', login: { label: 'Test' }, stoneVersion: '3.7.2' }
-        : undefined
+        : undefined,
     ),
     onDidChangeSelection: vi.fn(() => ({ dispose: () => {} })),
   } as unknown as SessionManager;
@@ -33,7 +34,7 @@ function makeDocument(uri: string) {
     uri: Uri.parse(uri),
     getText: vi.fn(() => ''),
     getWordRangeAtPosition: vi.fn(() => undefined),
-  } as any;
+  } as unknown as vscode.TextDocument;
 }
 
 describe('GemStoneCompletionProvider', () => {
@@ -63,11 +64,9 @@ describe('GemStoneCompletionProvider', () => {
         { dictIndex: 1, dictName: 'Globals', className: 'String' },
       ]);
       const provider = new GemStoneCompletionProvider(makeSessionManager(true));
-      const result = provider.provideCompletionItems(
-        makeDocument('file:///test.tpz'),
-      );
+      const result = provider.provideCompletionItems(makeDocument('file:///test.tpz'));
 
-      const classItems = result.filter(i => i.kind === CompletionItemKind.Class);
+      const classItems = result.filter((i) => i.kind === CompletionItemKind.Class);
       expect(classItems).toHaveLength(2);
       expect(classItems[0].label).toBe('Array');
       expect(classItems[0].detail).toBe('Globals');
@@ -80,11 +79,9 @@ describe('GemStoneCompletionProvider', () => {
         { dictIndex: 2, dictName: 'UserGlobals', className: 'Array' },
       ]);
       const provider = new GemStoneCompletionProvider(makeSessionManager(true));
-      const result = provider.provideCompletionItems(
-        makeDocument('file:///test.tpz'),
-      );
+      const result = provider.provideCompletionItems(makeDocument('file:///test.tpz'));
 
-      const classItems = result.filter(i => i.kind === CompletionItemKind.Class);
+      const classItems = result.filter((i) => i.kind === CompletionItemKind.Class);
       expect(classItems).toHaveLength(1);
       expect(classItems[0].label).toBe('Array');
       expect(classItems[0].detail).toBe('Globals');
@@ -95,9 +92,7 @@ describe('GemStoneCompletionProvider', () => {
         { dictIndex: 1, dictName: 'Globals', className: 'Array' },
       ]);
       const provider = new GemStoneCompletionProvider(makeSessionManager(true));
-      const result = provider.provideCompletionItems(
-        makeDocument('file:///test.tpz'),
-      );
+      const result = provider.provideCompletionItems(makeDocument('file:///test.tpz'));
 
       expect(result).toHaveLength(1);
       expect(result[0].kind).toBe(CompletionItemKind.Class);
@@ -113,7 +108,7 @@ describe('GemStoneCompletionProvider', () => {
         makeDocument('gemstone://1/Globals/Person/instance/accessing/name'),
       );
 
-      const fieldItems = result.filter(i => i.kind === CompletionItemKind.Field);
+      const fieldItems = result.filter((i) => i.kind === CompletionItemKind.Field);
       expect(fieldItems).toHaveLength(3);
       expect(fieldItems[0].label).toBe('name');
       expect(fieldItems[0].detail).toBe('Person inst var');
@@ -124,11 +119,9 @@ describe('GemStoneCompletionProvider', () => {
     it('does not provide inst vars for file:// documents', () => {
       mockGetInstVarNames.mockReturnValue(['name']);
       const provider = new GemStoneCompletionProvider(makeSessionManager(true));
-      const result = provider.provideCompletionItems(
-        makeDocument('file:///test.tpz'),
-      );
+      const result = provider.provideCompletionItems(makeDocument('file:///test.tpz'));
 
-      const fieldItems = result.filter(i => i.kind === CompletionItemKind.Field);
+      const fieldItems = result.filter((i) => i.kind === CompletionItemKind.Field);
       expect(fieldItems).toHaveLength(0);
       expect(mockGetInstVarNames).not.toHaveBeenCalled();
     });
@@ -143,7 +136,7 @@ describe('GemStoneCompletionProvider', () => {
         makeDocument('gemstone://1/Globals/Array/instance/accessing/size'),
       );
 
-      const methodItems = result.filter(i => i.kind === CompletionItemKind.Method);
+      const methodItems = result.filter((i) => i.kind === CompletionItemKind.Method);
       expect(methodItems).toHaveLength(3);
       expect(methodItems[0].label).toBe('size');
       expect(methodItems[1].label).toBe('at:');
@@ -153,11 +146,9 @@ describe('GemStoneCompletionProvider', () => {
     it('does not provide selectors for file:// documents', () => {
       mockGetAllSelectors.mockReturnValue(['size']);
       const provider = new GemStoneCompletionProvider(makeSessionManager(true));
-      const result = provider.provideCompletionItems(
-        makeDocument('file:///test.tpz'),
-      );
+      const result = provider.provideCompletionItems(makeDocument('file:///test.tpz'));
 
-      const methodItems = result.filter(i => i.kind === CompletionItemKind.Method);
+      const methodItems = result.filter((i) => i.kind === CompletionItemKind.Method);
       expect(methodItems).toHaveLength(0);
       expect(mockGetAllSelectors).not.toHaveBeenCalled();
     });
@@ -202,11 +193,11 @@ describe('GemStoneCompletionProvider', () => {
 
   describe('error handling', () => {
     it('returns empty when getAllClassNames throws', () => {
-      mockGetAllClassNames.mockImplementation(() => { throw new Error('GCI error'); });
+      mockGetAllClassNames.mockImplementation(() => {
+        throw new Error('GCI error');
+      });
       const provider = new GemStoneCompletionProvider(makeSessionManager(true));
-      const result = provider.provideCompletionItems(
-        makeDocument('file:///test.tpz'),
-      );
+      const result = provider.provideCompletionItems(makeDocument('file:///test.tpz'));
 
       expect(result).toEqual([]);
     });
@@ -215,16 +206,18 @@ describe('GemStoneCompletionProvider', () => {
       mockGetAllClassNames.mockReturnValue([
         { dictIndex: 1, dictName: 'Globals', className: 'Array' },
       ]);
-      mockGetInstVarNames.mockImplementation(() => { throw new Error('GCI error'); });
+      mockGetInstVarNames.mockImplementation(() => {
+        throw new Error('GCI error');
+      });
       mockGetAllSelectors.mockReturnValue(['size']);
       const provider = new GemStoneCompletionProvider(makeSessionManager(true));
       const result = provider.provideCompletionItems(
         makeDocument('gemstone://1/Globals/Array/instance/accessing/size'),
       );
 
-      const classItems = result.filter(i => i.kind === CompletionItemKind.Class);
-      const fieldItems = result.filter(i => i.kind === CompletionItemKind.Field);
-      const methodItems = result.filter(i => i.kind === CompletionItemKind.Method);
+      const classItems = result.filter((i) => i.kind === CompletionItemKind.Class);
+      const fieldItems = result.filter((i) => i.kind === CompletionItemKind.Field);
+      const methodItems = result.filter((i) => i.kind === CompletionItemKind.Method);
       expect(classItems).toHaveLength(1);
       expect(fieldItems).toHaveLength(0);
       expect(methodItems).toHaveLength(1);
@@ -235,15 +228,17 @@ describe('GemStoneCompletionProvider', () => {
         { dictIndex: 1, dictName: 'Globals', className: 'Array' },
       ]);
       mockGetInstVarNames.mockReturnValue(['x']);
-      mockGetAllSelectors.mockImplementation(() => { throw new Error('GCI error'); });
+      mockGetAllSelectors.mockImplementation(() => {
+        throw new Error('GCI error');
+      });
       const provider = new GemStoneCompletionProvider(makeSessionManager(true));
       const result = provider.provideCompletionItems(
         makeDocument('gemstone://1/Globals/Array/instance/accessing/size'),
       );
 
-      const classItems = result.filter(i => i.kind === CompletionItemKind.Class);
-      const fieldItems = result.filter(i => i.kind === CompletionItemKind.Field);
-      const methodItems = result.filter(i => i.kind === CompletionItemKind.Method);
+      const classItems = result.filter((i) => i.kind === CompletionItemKind.Class);
+      const fieldItems = result.filter((i) => i.kind === CompletionItemKind.Field);
+      const methodItems = result.filter((i) => i.kind === CompletionItemKind.Method);
       expect(classItems).toHaveLength(1);
       expect(fieldItems).toHaveLength(1);
       expect(methodItems).toHaveLength(0);
@@ -259,9 +254,7 @@ describe('GemStoneCompletionProvider', () => {
         makeDocument('gemstone://1/Globals/MyClass/instance/accessing/foo'),
       );
 
-      expect(mockGetInstVarNames).toHaveBeenCalledWith(
-        expect.anything(), 'MyClass',
-      );
+      expect(mockGetInstVarNames).toHaveBeenCalledWith(expect.anything(), 'MyClass');
     });
 
     it('decodes percent-encoded class names', () => {
@@ -272,23 +265,17 @@ describe('GemStoneCompletionProvider', () => {
         makeDocument('gemstone://1/My%20Dict/My%20Class/instance/cat/sel'),
       );
 
-      expect(mockGetInstVarNames).toHaveBeenCalledWith(
-        expect.anything(), 'My Class',
-      );
+      expect(mockGetInstVarNames).toHaveBeenCalledWith(expect.anything(), 'My Class');
     });
 
     it('handles definition URIs without class context methods', () => {
       mockGetAllClassNames.mockReturnValue([]);
       mockGetInstVarNames.mockReturnValue(['x']);
       const provider = new GemStoneCompletionProvider(makeSessionManager(true));
-      provider.provideCompletionItems(
-        makeDocument('gemstone://1/Globals/Array/definition'),
-      );
+      provider.provideCompletionItems(makeDocument('gemstone://1/Globals/Array/definition'));
 
       // Should still extract "Array" as class name
-      expect(mockGetInstVarNames).toHaveBeenCalledWith(
-        expect.anything(), 'Array',
-      );
+      expect(mockGetInstVarNames).toHaveBeenCalledWith(expect.anything(), 'Array');
     });
   });
 });

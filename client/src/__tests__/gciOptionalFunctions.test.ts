@@ -75,27 +75,27 @@ describe('GciLibrary with Windows client DLL (missing optional functions)', () =
   // Functions added after 3.6.2 (found via the gcits.hf diff) must not crash
   // the constructor; calling them on an older library throws a clear error.
   it('throws descriptive error when calling GciTsKeepAliveCount (added after 3.6.2)', () => {
-    expect(() =>
-      gci.GciTsKeepAliveCount(null),
-    ).toThrow('GciTsKeepAliveCount is not available in this GCI library');
+    expect(() => gci.GciTsKeepAliveCount(null)).toThrow(
+      'GciTsKeepAliveCount is not available in this GCI library',
+    );
   });
 
   it('throws descriptive error when calling GciTsKeyfilePermissions (added after 3.6.2)', () => {
-    expect(() =>
-      gci.GciTsKeyfilePermissions(null),
-    ).toThrow('GciTsKeyfilePermissions is not available in this GCI library');
+    expect(() => gci.GciTsKeyfilePermissions(null)).toThrow(
+      'GciTsKeyfilePermissions is not available in this GCI library',
+    );
   });
 
   it('throws descriptive error when calling GciTsFetchNamedOops (added after 3.6.2)', () => {
-    expect(() =>
-      gci.GciTsFetchNamedOops(null, 0n, 0n, 1),
-    ).toThrow('GciTsFetchNamedOops is not available in this GCI library');
+    expect(() => gci.GciTsFetchNamedOops(null, 0n, 0n, 1)).toThrow(
+      'GciTsFetchNamedOops is not available in this GCI library',
+    );
   });
 
   it('throws descriptive error when calling GciTsNbLogin', () => {
-    expect(() =>
-      gci.GciTsNbLogin(null, null, null, false, null, 'user', 'pass', 0, 0),
-    ).toThrow('GciTsNbLogin is not available in this GCI library');
+    expect(() => gci.GciTsNbLogin(null, null, null, false, null, 'user', 'pass', 0, 0)).toThrow(
+      'GciTsNbLogin is not available in this GCI library',
+    );
   });
 
   it('throws descriptive error when calling GciTsNbLogin_', () => {
@@ -105,20 +105,20 @@ describe('GciLibrary with Windows client DLL (missing optional functions)', () =
   });
 
   it('throws descriptive error when calling GciTsNbLoginFinished', () => {
-    expect(() =>
-      gci.GciTsNbLoginFinished(null),
-    ).toThrow('GciTsNbLoginFinished is not available in this GCI library');
+    expect(() => gci.GciTsNbLoginFinished(null)).toThrow(
+      'GciTsNbLoginFinished is not available in this GCI library',
+    );
   });
 
   it('throws descriptive error when calling GciTsDebugConnectToGem', () => {
-    expect(() =>
-      gci.GciTsDebugConnectToGem(12345),
-    ).toThrow('GciTsDebugConnectToGem is not available in this GCI library');
+    expect(() => gci.GciTsDebugConnectToGem(12345)).toThrow(
+      'GciTsDebugConnectToGem is not available in this GCI library',
+    );
   });
 
   it('throws descriptive error when calling GciTsDebugStartDebugService', () => {
-    expect(() =>
-      gci.GciTsDebugStartDebugService(null, 0n),
-    ).toThrow('GciTsDebugStartDebugService is not available in this GCI library');
+    expect(() => gci.GciTsDebugStartDebugService(null, 0n)).toThrow(
+      'GciTsDebugStartDebugService is not available in this GCI library',
+    );
   });
 });

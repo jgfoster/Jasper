@@ -1,11 +1,7 @@
 import * as vscode from 'vscode';
 import { loginLabel } from './loginTypes';
 import { ActiveSession } from './sessionManager';
-import {
-  McpOwnerInfo,
-  isPidAlive,
-  readOwnerSidecar,
-} from './mcpOwnerSidecar';
+import { McpOwnerInfo, isPidAlive, readOwnerSidecar } from './mcpOwnerSidecar';
 
 // Three states the tree view can be in. Resolved fresh on every getChildren()
 // call — cheap (one sidecar read) and avoids drift between "real" state and
@@ -40,10 +36,7 @@ export function resolveOwnership(deps: McpServerTreeDeps): McpOwnership {
 }
 
 class McpNode extends vscode.TreeItem {
-  constructor(
-    label: string,
-    collapsibleState = vscode.TreeItemCollapsibleState.None,
-  ) {
+  constructor(label: string, collapsibleState = vscode.TreeItemCollapsibleState.None) {
     super(label, collapsibleState);
   }
 }
@@ -78,9 +71,7 @@ export function renderOwnership(ownership: McpOwnership): McpNode[] {
   return renderNoOwner();
 }
 
-function renderThisWindow(
-  ownership: Extract<McpOwnership, { kind: 'this' }>,
-): McpNode[] {
+function renderThisWindow(ownership: Extract<McpOwnership, { kind: 'this' }>): McpNode[] {
   const status = new McpNode('Status: This window owns the MCP server');
   status.iconPath = new vscode.ThemeIcon('pass-filled');
   status.tooltip =
@@ -119,9 +110,9 @@ function renderThisWindow(
     const inspector = new McpNode('Open MCP Inspector');
     inspector.iconPath = new vscode.ThemeIcon('rocket');
     inspector.tooltip =
-      'Launch MCP Inspector against this window\'s MCP server in a dedicated terminal. ' +
+      "Launch MCP Inspector against this window's MCP server in a dedicated terminal. " +
       'Requires Node.js / npx on PATH; first run downloads @modelcontextprotocol/inspector via npx ' +
-      '(several seconds). The inspector\'s own browser tab opens automatically with the server URL pre-filled.';
+      "(several seconds). The inspector's own browser tab opens automatically with the server URL pre-filled.";
     inspector.contextValue = 'mcpInspector';
     inspector.command = {
       command: 'jasper.openMcpInspector',
@@ -190,7 +181,9 @@ function otherWindowSessionNode(label: string): McpNode {
 }
 
 function otherWindowNoSessionNode(): McpNode {
-  const node = new McpNode("Owner's active session: (none — tool calls will return \"no session selected\")");
+  const node = new McpNode(
+    'Owner\'s active session: (none — tool calls will return "no session selected")',
+  );
   node.iconPath = new vscode.ThemeIcon('warning');
   node.tooltip =
     'The owning Jasper window has no GemStone session selected, so MCP tool ' +
@@ -209,7 +202,7 @@ function renderNoOwner(): McpNode[] {
   const claim = new McpNode('Claim MCP Server');
   claim.iconPath = new vscode.ThemeIcon('flame');
   claim.tooltip =
-    'Make this Jasper window the MCP server owner. Claude clients\' tool ' +
+    "Make this Jasper window the MCP server owner. Claude clients' tool " +
     'calls will then be answered by whichever GemStone session you select here.';
   claim.contextValue = 'mcpClaim';
   claim.command = {

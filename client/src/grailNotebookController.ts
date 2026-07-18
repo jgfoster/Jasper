@@ -28,9 +28,8 @@ export class GrailNotebookController extends GemStoneNotebookKernel {
       evaluate: (session, source, scopeId) => evalPythonInScope(session, source, scopeId),
     });
 
-    this.resetCommand = vscode.commands.registerCommand(
-      GRAIL_RESET_SCOPE_COMMAND,
-      () => this.resetActiveNotebookScope(),
+    this.resetCommand = vscode.commands.registerCommand(GRAIL_RESET_SCOPE_COMMAND, () =>
+      this.resetActiveNotebookScope(),
     );
   }
 

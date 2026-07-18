@@ -1,0 +1,12 @@
+# Opt-in local git hooks — installing these is a separate step
+# (`npm run hooks:install`), not tied to `npm install`, so each dev
+# chooses whether to run them. CI's `lint` job is the real gate either way.
+pre-commit:
+  parallel: true
+  jobs:
+    - name: eslint
+      glob: '*.{ts,mts,cts,js,mjs,cjs}'
+      run: npx eslint {staged_files}
+    - name: prettier
+      glob: '*.{ts,mts,cts,js,mjs,cjs}'
+      run: npx prettier --check {staged_files}

@@ -5,7 +5,9 @@ import { classLookupExpr, escapeString } from './util';
 // `dict` is optional; when given, disambiguates shadowed class names.
 export function deleteMethod(
   execute: QueryExecutor,
-  className: string, isMeta: boolean, selector: string,
+  className: string,
+  isMeta: boolean,
+  selector: string,
   dict?: number | string,
 ): string {
   const esc = escapeString(className);
@@ -18,8 +20,9 @@ target := ${isMeta ? 'base class' : 'base'}.
 (target includesSelector: #'${sel}') ifFalse: [^ 'Selector not found: ' , target name , ' >> ${sel}'].
 target removeSelector: #'${sel}'.
 'Deleted: ' , target name , ' >> ${sel}'`;
-  const label = dict === undefined
-    ? `deleteMethod(${isMeta ? className + ' class' : className}>>#${selector})`
-    : `deleteMethod(${isMeta ? className + ' class' : className}>>#${selector}, dict: ${dict})`;
+  const label =
+    dict === undefined
+      ? `deleteMethod(${isMeta ? className + ' class' : className}>>#${selector})`
+      : `deleteMethod(${isMeta ? className + ' class' : className}>>#${selector}, dict: ${dict})`;
   return execute(label, code);
 }

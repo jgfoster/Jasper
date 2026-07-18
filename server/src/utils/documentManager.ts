@@ -39,12 +39,18 @@ export interface ParsedDocument {
 export class DocumentManager {
   private documents: Map<string, ParsedDocument> = new Map();
 
-  update(uri: string, version: number, text: string, format: DocumentFormat = 'topaz'): ParsedDocument {
-    const topazRegions = format === 'tonel'
-      ? parseTonelDocument(text)
-      : format === 'smalltalk'
-        ? parseSmalltalkRegions(uri, text)
-        : parseTopazDocument(text);
+  update(
+    uri: string,
+    version: number,
+    text: string,
+    format: DocumentFormat = 'topaz',
+  ): ParsedDocument {
+    const topazRegions =
+      format === 'tonel'
+        ? parseTonelDocument(text)
+        : format === 'smalltalk'
+          ? parseSmalltalkRegions(uri, text)
+          : parseTopazDocument(text);
     const parsedRegions: ParsedRegion[] = [];
     const allErrors: ParseError[] = [];
     const allTokens: Token[] = [];
@@ -58,7 +64,9 @@ export class DocumentManager {
       const regionTokens = lexer.tokenize();
 
       // Offset token positions to document-level coordinates
-      const offsetTokens = regionTokens.map((t) => offsetToken(t, region.startLine, region.selectorColumnOffset ?? 0));
+      const offsetTokens = regionTokens.map((t) =>
+        offsetToken(t, region.startLine, region.selectorColumnOffset ?? 0),
+      );
       allTokens.push(...offsetTokens);
 
       if (region.kind === 'smalltalk-method') {
@@ -132,9 +140,7 @@ export class DocumentManager {
    * Find the parsed region containing a document-level line.
    */
   findRegionAt(doc: ParsedDocument, line: number): ParsedRegion | undefined {
-    return doc.parsedRegions.find(
-      (pr) => line >= pr.region.startLine && line <= pr.region.endLine
-    );
+    return doc.parsedRegions.find((pr) => line >= pr.region.startLine && line <= pr.region.endLine);
   }
 }
 
@@ -152,10 +158,22 @@ function offsetError(error: ParseError, lineOffset: number): ParseError {
   };
 }
 
-function offsetRange(range: SourceRange, lineOffset: number, selectorColumnOffset: number = 0): SourceRange {
+function offsetRange(
+  range: SourceRange,
+  lineOffset: number,
+  selectorColumnOffset: number = 0,
+): SourceRange {
   return createRange(
-    createPosition(range.start.offset, range.start.line + lineOffset, range.start.column + (range.start.line === 0 ? selectorColumnOffset : 0)),
-    createPosition(range.end.offset, range.end.line + lineOffset, range.end.column + (range.end.line === 0 ? selectorColumnOffset : 0)),
+    createPosition(
+      range.start.offset,
+      range.start.line + lineOffset,
+      range.start.column + (range.start.line === 0 ? selectorColumnOffset : 0),
+    ),
+    createPosition(
+      range.end.offset,
+      range.end.line + lineOffset,
+      range.end.column + (range.end.line === 0 ? selectorColumnOffset : 0),
+    ),
   );
 }
 
@@ -189,12 +207,14 @@ function parseSmalltalkRegions(uri: string, text: string): TopazRegion[] {
     // If URI parsing fails, default to method
   }
 
-  return [{
-    kind,
-    startLine: 0,
-    endLine,
-    text,
-    className,
-    command,
-  }];
+  return [
+    {
+      kind,
+      startLine: 0,
+      endLine,
+      text,
+      className,
+      command,
+    },
+  ];
 }

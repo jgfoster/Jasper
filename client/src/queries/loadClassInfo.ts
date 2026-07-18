@@ -12,7 +12,9 @@ export interface ClassInfo {
 // canBeWritten in a single GemStone round trip. Purpose-built for the class
 // browser panel which needs all four fields when loading a class.
 export function loadClassInfo(
-  execute: QueryExecutor, dictIndex: number, className: string,
+  execute: QueryExecutor,
+  dictIndex: number,
+  className: string,
 ): ClassInfo {
   const esc = escapeString(className);
   const code = `| cls scDictName comment canEdit ws |

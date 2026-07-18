@@ -11,7 +11,7 @@ import { QueryExecutor } from '../types';
 export function getGemCacheKB(execute: QueryExecutor): number | undefined {
   const raw = execute(
     'getGemCacheKB',
-    "(System configurationAt: #GemTempObjCacheSize) // 1024",
+    '(System configurationAt: #GemTempObjCacheSize) // 1024',
   ).trim();
   const kb = Number(raw);
   return Number.isFinite(kb) && kb > 0 ? kb : undefined;

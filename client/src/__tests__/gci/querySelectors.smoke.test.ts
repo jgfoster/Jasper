@@ -44,25 +44,62 @@ const claims: SelectorClaim[] = [
   // Stream class: the round-3 Utf8 immutability bug. Unicode7 must accept
   // at:put: (i.e. extend) for `WriteStream on: Unicode7 new` to work as
   // we use it. Utf8 famously does not, so we don't claim that.
-  { label: 'Unicode7 supports at:put: (extensible buffer)', className: 'Unicode7', selector: 'at:put:' },
+  {
+    label: 'Unicode7 supports at:put: (extensible buffer)',
+    className: 'Unicode7',
+    selector: 'at:put:',
+  },
 
   // Exception protocol — used by describeTestFailure / runFailingTests /
   // runTestMethod / runTestClass to format the message column.
-  { label: 'AbstractException understands messageText', className: 'AbstractException', selector: 'messageText' },
-  { label: 'AbstractException understands description', className: 'AbstractException', selector: 'description' },
-  { label: 'AbstractException understands number', className: 'AbstractException', selector: 'number' },
-  { label: 'AbstractException understands stackReport', className: 'AbstractException', selector: 'stackReport' },
+  {
+    label: 'AbstractException understands messageText',
+    className: 'AbstractException',
+    selector: 'messageText',
+  },
+  {
+    label: 'AbstractException understands description',
+    className: 'AbstractException',
+    selector: 'description',
+  },
+  {
+    label: 'AbstractException understands number',
+    className: 'AbstractException',
+    selector: 'number',
+  },
+  {
+    label: 'AbstractException understands stackReport',
+    className: 'AbstractException',
+    selector: 'stackReport',
+  },
   // mnu-specific accessors live on MessageNotUnderstood.
-  { label: 'MessageNotUnderstood understands receiver', className: 'MessageNotUnderstood', selector: 'receiver' },
-  { label: 'MessageNotUnderstood understands selector', className: 'MessageNotUnderstood', selector: 'selector' },
+  {
+    label: 'MessageNotUnderstood understands receiver',
+    className: 'MessageNotUnderstood',
+    selector: 'receiver',
+  },
+  {
+    label: 'MessageNotUnderstood understands selector',
+    className: 'MessageNotUnderstood',
+    selector: 'selector',
+  },
 
   // SUnit: TestCase>>run is what describeTestFailure deliberately bypasses;
   // setUp/tearDown/perform: are what we call instead.
   { label: 'TestCase understands setUp', className: 'TestCase', selector: 'setUp' },
   { label: 'TestCase understands tearDown', className: 'TestCase', selector: 'tearDown' },
-  { label: 'TestCase understands selector (the test method name)', className: 'TestCase', selector: 'selector' },
+  {
+    label: 'TestCase understands selector (the test method name)',
+    className: 'TestCase',
+    selector: 'selector',
+  },
   // suite is class-side.
-  { label: 'TestCase class understands suite', className: 'TestCase', meta: true, selector: 'suite' },
+  {
+    label: 'TestCase class understands suite',
+    className: 'TestCase',
+    meta: true,
+    selector: 'suite',
+  },
 
   // Pattern-matching for list_failing_tests classNamePattern. The public
   // glob primitive on CharacterCollection is `matchPattern:`, which takes
@@ -76,24 +113,46 @@ const claims: SelectorClaim[] = [
   // directly). `isAbstract` is sent to the class object, which dispatches
   // through the metaclass chain — so the right canUnderstand: probe is
   // on `TestCase class`, not `TestCase` (instance side).
-  { label: 'TestCase class understands isAbstract', className: 'TestCase', meta: true, selector: 'isAbstract' },
+  {
+    label: 'TestCase class understands isAbstract',
+    className: 'TestCase',
+    meta: true,
+    selector: 'isAbstract',
+  },
 
   // Stack capture: describeTestFailure toggles GemExceptionSignalCapturesStack
   // around the run via gemConfigurationAt:put:. If the setter is missing,
   // the toggle silently no-ops and stackReport returns nil — which the
   // tool tolerates, but it's worth flagging that the config name is right.
-  { label: 'System class understands gemConfigurationAt:put:', className: 'System', meta: true, selector: 'gemConfigurationAt:put:' },
-  { label: 'System class understands gemConfigurationAt:', className: 'System', meta: true, selector: 'gemConfigurationAt:' },
+  {
+    label: 'System class understands gemConfigurationAt:put:',
+    className: 'System',
+    meta: true,
+    selector: 'gemConfigurationAt:put:',
+  },
+  {
+    label: 'System class understands gemConfigurationAt:',
+    className: 'System',
+    meta: true,
+    selector: 'gemConfigurationAt:',
+  },
 ];
 
 describe('selectors used by shared queries (live GCI)', () => {
   let s: HarnessSession;
 
-  beforeAll(() => { s = login(); });
-  afterAll(() => { s?.logout(); });
+  beforeAll(() => {
+    s = login();
+  });
+  afterAll(() => {
+    s?.logout();
+  });
 
   it.each(claims)('$label', ({ className, selector, meta }) => {
     const exists = selectorExists(s.exec, className, selector, meta ?? false);
-    expect(exists, `${meta ? `${className} class` : className} >> #${selector} not found in this stone`).toBe(true);
+    expect(
+      exists,
+      `${meta ? `${className} class` : className} >> #${selector} not found in this stone`,
+    ).toBe(true);
   });
 });

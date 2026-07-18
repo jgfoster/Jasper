@@ -5,7 +5,8 @@ import { SYNC_BLOB_KEY } from '../syncProtocol';
 // A fake GemStone implementing the prepare/fetch/release protocol, including the
 // `serverMs \t total \n` (prepare) and `serverMs \n` (fetch) response framing.
 function makeFakeGem(
-  payload: string, serverMs = { prepare: 7, fetch: 3 },
+  payload: string,
+  serverMs = { prepare: 7, fetch: 3 },
 ): { exec: LimitExecutor } {
   let stored: string | null = null;
   const cps = [...payload]; // code points
@@ -68,9 +69,12 @@ describe('fetchBlob', () => {
   it('reports each request through the onRequest callback', () => {
     const { exec } = makeFakeGem('x'.repeat(25));
     const labels: string[] = [];
-    fetchBlob(exec, 'content', 'BUILD', { chunkChars: 10 }, undefined, t => labels.push(t.label));
+    fetchBlob(exec, 'content', 'BUILD', { chunkChars: 10 }, undefined, (t) => labels.push(t.label));
     expect(labels).toEqual([
-      'content:prepare', 'content:fetch', 'content:fetch', 'content:release',
+      'content:prepare',
+      'content:fetch',
+      'content:fetch',
+      'content:release',
     ]);
   });
 
@@ -85,7 +89,10 @@ describe('fetchBlob', () => {
   it('uses the configured blob key in generated code', () => {
     let prepareCodeSeen = '';
     const exec: LimitExecutor = (label, code) => {
-      if (label.endsWith(':prepare')) { prepareCodeSeen = code; return '0\t0\n'; }
+      if (label.endsWith(':prepare')) {
+        prepareCodeSeen = code;
+        return '0\t0\n';
+      }
       return '';
     };
     fetchBlob(exec, 'manifest', 'BUILD');

@@ -80,10 +80,13 @@ export function applyErrorMapToShape<T extends z.ZodRawShape>(shape: T): T {
 // `any[]` opts out of that check, matching the runtime reality that we
 // inspect the args dynamically and forward them through.
 export function withMcpErrorMap(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- McpServer.tool is overloaded; see the "Why `any[]` rather than `unknown[]`" note above
   server: { tool: (...args: any[]) => any },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- return shape mirrors the overloaded server.tool; see note above
 ): { tool: (...args: any[]) => any } {
   const original = server.tool.bind(server);
   return {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- forwards the overloaded server.tool args dynamically; see note above
     tool(...args: any[]) {
       // server.tool overloads:
       //   (name, cb)
@@ -112,7 +115,7 @@ function isToolInputShape(value: unknown): value is z.ZodRawShape {
   const obj = value as Record<string, unknown>;
   const keys = Object.keys(obj);
   if (keys.length === 0) return true; // empty shape — wrap a no-op
-  return keys.every(k => {
+  return keys.every((k) => {
     const v = obj[k];
     return !!v && typeof v === 'object' && '_zod' in v;
   });
@@ -120,7 +123,7 @@ function isToolInputShape(value: unknown): value is z.ZodRawShape {
 
 function formatPath(path: PropertyKey[] | undefined): string {
   if (!path || path.length === 0) return '<root>';
-  return path.map(p => String(p)).join('.');
+  return path.map((p) => String(p)).join('.');
 }
 
 // Approximate the "received <type>" phrasing of zod's default. We can't get

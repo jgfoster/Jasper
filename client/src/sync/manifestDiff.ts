@@ -63,9 +63,7 @@ export function stateFromManifest(remote: Manifest): MirrorState {
   return { classes };
 }
 
-export function splitKey(
-  key: string,
-): { dictIndex: number; dictName: string; className: string } {
+export function splitKey(key: string): { dictIndex: number; dictName: string; className: string } {
   const parts = key.split('\t');
   return {
     dictIndex: parseInt(parts[0], 10),

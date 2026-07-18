@@ -22,14 +22,20 @@ import { toDiagnostics } from './services/diagnostics';
 import { getDocumentSymbols } from './services/documentSymbols';
 import { getCompletions } from './services/completion';
 import { getHover } from './services/hover';
-import { getDefinition, getWorkspaceDefinition, getWorkspaceReferences } from './services/definition';
+import {
+  getDefinition,
+  getWorkspaceDefinition,
+  getWorkspaceReferences,
+} from './services/definition';
 import { findSelectorAtPosition } from './utils/astUtils';
 import { getFoldingRanges } from './services/folding';
 import { formatDocument } from './services/formatting';
 import { FormatterSettings, DEFAULT_SETTINGS } from './services/formatterSettings';
 import {
-  collectSemanticTokens, encodeSemanticTokens,
-  SEMANTIC_TOKEN_TYPES, SEMANTIC_TOKEN_MODIFIERS,
+  collectSemanticTokens,
+  encodeSemanticTokens,
+  SEMANTIC_TOKEN_TYPES,
+  SEMANTIC_TOKEN_MODIFIERS,
 } from './services/semanticTokens';
 import { ScopeAnalyzer } from './utils/scopeAnalyzer';
 
@@ -46,8 +52,7 @@ const SMALLTALK_EXTENSIONS = ['.gs', '.st', '.tpz'];
 
 connection.onInitialize((params: InitializeParams): InitializeResult => {
   hasConfigurationCapability = !!(
-    params.capabilities.workspace &&
-    params.capabilities.workspace.configuration
+    params.capabilities.workspace && params.capabilities.workspace.configuration
   );
 
   workspaceFolders = params.workspaceFolders ?? [];
@@ -79,22 +84,18 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 
 connection.onInitialized(async () => {
   if (hasConfigurationCapability) {
-    connection.client.register(
-      DidChangeConfigurationNotification.type,
-      { section: 'gemstoneSmalltalk' },
-    );
+    connection.client.register(DidChangeConfigurationNotification.type, {
+      section: 'gemstoneSmalltalk',
+    });
     await updateFormatterSettings();
   }
 
   // Register file watchers for Smalltalk files
-  connection.client.register(
-    DidChangeWatchedFilesNotification.type,
-    {
-      watchers: SMALLTALK_EXTENSIONS.map(ext => ({
-        globPattern: `**/*${ext}`,
-      })),
-    },
-  );
+  connection.client.register(DidChangeWatchedFilesNotification.type, {
+    watchers: SMALLTALK_EXTENSIONS.map((ext) => ({
+      globPattern: `**/*${ext}`,
+    })),
+  });
 
   // Initial workspace scan
   scanWorkspace();
@@ -151,7 +152,7 @@ function findFiles(dir: string, extensions: string[]): string[] {
     if (entry.isDirectory()) {
       if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
       results.push(...findFiles(fullPath, extensions));
-    } else if (extensions.some(ext => entry.name.endsWith(ext))) {
+    } else if (extensions.some((ext) => entry.name.endsWith(ext))) {
       results.push(fullPath);
     }
   }
@@ -290,9 +291,7 @@ connection.onWorkspaceSymbol((params) => {
   const methods = workspaceIndex.searchMethods(query);
 
   return methods.map((method): SymbolInformation => {
-    const name = method.className
-      ? `${method.className} >> ${method.selector}`
-      : method.selector;
+    const name = method.className ? `${method.className} >> ${method.selector}` : method.selector;
 
     return {
       name,
@@ -347,12 +346,15 @@ connection.languages.semanticTokens.on((params) => {
   for (const pr of doc.parsedRegions) {
     if (!pr.ast) continue;
 
-    const lineOffset = pr.region.startLine
-      - (pr.region.kind === 'smalltalk-code' ? 1 : 0);
+    const lineOffset = pr.region.startLine - (pr.region.kind === 'smalltalk-code' ? 1 : 0);
 
     const scopeRoot = analyzer.analyze(pr.ast);
     const regionTokens = collectSemanticTokens(
-      pr.ast, pr.tokens, lineOffset, scopeRoot, pr.region.selectorColumnOffset ?? 0,
+      pr.ast,
+      pr.tokens,
+      lineOffset,
+      scopeRoot,
+      pr.region.selectorColumnOffset ?? 0,
     );
     allTokens.push(...regionTokens);
   }
@@ -362,23 +364,23 @@ connection.languages.semanticTokens.on((params) => {
 
 // ── Custom: Selector at Position ─────────────────────────
 
-connection.onRequest('gemstone/selectorAtPosition', (params: {
-  textDocument: { uri: string };
-  position: { line: number; character: number };
-}): string | null => {
-  const doc = documentManager.get(params.textDocument.uri);
-  if (!doc) return null;
+connection.onRequest(
+  'gemstone/selectorAtPosition',
+  (params: {
+    textDocument: { uri: string };
+    position: { line: number; character: number };
+  }): string | null => {
+    const doc = documentManager.get(params.textDocument.uri);
+    if (!doc) return null;
 
-  const region = documentManager.findRegionAt(doc, params.position.line);
-  if (!region) return null;
+    const region = documentManager.findRegionAt(doc, params.position.line);
+    if (!region) return null;
 
-  const lineOffset = region.region.startLine
-    - (region.region.kind === 'smalltalk-code' ? 1 : 0);
+    const lineOffset = region.region.startLine - (region.region.kind === 'smalltalk-code' ? 1 : 0);
 
-  return findSelectorAtPosition(
-    region.tokens, region.ast, params.position, lineOffset,
-  );
-});
+    return findSelectorAtPosition(region.tokens, region.ast, params.position, lineOffset);
+  },
+);
 
 // ── Start ───────────────────────────────────────────────────
 

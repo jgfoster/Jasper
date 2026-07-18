@@ -4,14 +4,16 @@ import { TokenType } from '../tokens';
 
 function tokenTypes(source: string): TokenType[] {
   const lexer = new Lexer(source);
-  return lexer.tokenize()
+  return lexer
+    .tokenize()
     .filter((t) => t.type !== TokenType.Whitespace && t.type !== TokenType.EOF)
     .map((t) => t.type);
 }
 
 function tokenTexts(source: string): string[] {
   const lexer = new Lexer(source);
-  return lexer.tokenize()
+  return lexer
+    .tokenize()
     .filter((t) => t.type !== TokenType.Whitespace && t.type !== TokenType.EOF)
     .map((t) => t.text);
 }
@@ -221,33 +223,24 @@ describe('Lexer', () => {
 
     it('scans @env0: prefixed in front of a keyword selector', () => {
       // @env0:show: should produce two tokens: EnvSpecifier then Keyword
-      expect(tokenTypes('@env0:show:')).toEqual([
-        TokenType.EnvSpecifier,
-        TokenType.Keyword,
-      ]);
+      expect(tokenTypes('@env0:show:')).toEqual([TokenType.EnvSpecifier, TokenType.Keyword]);
       expect(tokenTexts('@env0:show:')).toEqual(['@env0:', 'show:']);
     });
 
     it('scans @env1: prefixed in front of a binary selector', () => {
-      expect(tokenTypes('@env1:+')).toEqual([
-        TokenType.EnvSpecifier,
-        TokenType.BinarySelector,
-      ]);
+      expect(tokenTypes('@env1:+')).toEqual([TokenType.EnvSpecifier, TokenType.BinarySelector]);
       expect(tokenTexts('@env1:+')).toEqual(['@env1:', '+']);
     });
 
     it('scans @env2: prefixed in front of an identifier (unary)', () => {
-      expect(tokenTypes('@env2:squared')).toEqual([
-        TokenType.EnvSpecifier,
-        TokenType.Identifier,
-      ]);
+      expect(tokenTypes('@env2:squared')).toEqual([TokenType.EnvSpecifier, TokenType.Identifier]);
       expect(tokenTexts('@env2:squared')).toEqual(['@env2:', 'squared']);
     });
   });
 
   describe('complex examples', () => {
     it('tokenizes a simple method', () => {
-      const source = "foo: bar\n  | temp |\n  temp := bar + 1.\n  ^temp";
+      const source = 'foo: bar\n  | temp |\n  temp := bar + 1.\n  ^temp';
       const types = tokenTypes(source);
       expect(types).toContain(TokenType.Keyword);
       expect(types).toContain(TokenType.Identifier);

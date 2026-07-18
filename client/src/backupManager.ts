@@ -48,8 +48,10 @@ function errorMessage(e: unknown): string {
 function timestamp(): string {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-    + `_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`
+  );
 }
 
 // Returns true if the backup completed, false if it was cancelled or failed
@@ -64,8 +66,8 @@ export async function runLogicalBackup(deps: LogicalBackupDeps): Promise<boolean
   }
   if (!hasPrivilege) {
     vscode.window.showErrorMessage(
-      'A full logical backup requires the FileControl privilege. Connect as a user that has it '
-      + '(for example DataCurator or SystemUser) and try again.',
+      'A full logical backup requires the FileControl privilege. Connect as a user that has it ' +
+        '(for example DataCurator or SystemUser) and try again.',
     );
     return false;
   }
@@ -79,8 +81,8 @@ export async function runLogicalBackup(deps: LogicalBackupDeps): Promise<boolean
   }
   if (needsCommit) {
     const proceed = await vscode.window.showWarningMessage(
-      `The session connected to "${deps.stoneName}" has uncommitted changes. A full logical backup `
-      + 'discards them (it aborts the session). Continue?',
+      `The session connected to "${deps.stoneName}" has uncommitted changes. A full logical backup ` +
+        'discards them (it aborts the session). Continue?',
       { modal: true },
       'Discard changes and back up',
     );

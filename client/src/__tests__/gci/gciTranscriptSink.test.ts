@@ -29,10 +29,7 @@ describe('transcript sink (live stone)', () => {
   let session: ActiveSession;
 
   beforeAll(() => {
-    const login = gci.GciTsLogin(
-      STONE_NRS, null, null, false,
-      GEM_NRS, GS_USER, GS_PASSWORD, 0, 0,
-    );
+    const login = gci.GciTsLogin(STONE_NRS, null, null, false, GEM_NRS, GS_USER, GS_PASSWORD, 0, 0);
     expect(login.session).not.toBeNull();
     session = {
       id: 99,
@@ -60,7 +57,13 @@ describe('transcript sink (live stone)', () => {
 
   function execute(code: string): { data: string; err: { number: number; message: string } } {
     const { data, err } = gci.GciTsExecuteFetchBytes(
-      session.handle, code, -1, OOP_CLASS_STRING, OOP_ILLEGAL, OOP_NIL, 4096,
+      session.handle,
+      code,
+      -1,
+      OOP_CLASS_STRING,
+      OOP_ILLEGAL,
+      OOP_NIL,
+      4096,
     );
     return { data, err };
   }
@@ -69,7 +72,7 @@ describe('transcript sink (live stone)', () => {
     for (let i = 0; i < 400; i++) {
       const { result } = gci.GciTsNbPoll(session.handle, 25);
       if (result === 1) return;
-      await new Promise(r => setTimeout(r, 5));
+      await new Promise((r) => setTimeout(r, 5));
     }
     throw new Error('nb call never became ready');
   }
@@ -99,7 +102,9 @@ describe('transcript sink (live stone)', () => {
   });
 
   it('round-trips non-ASCII transcript output through the UTF-8 drain', () => {
-    const { err } = execute("Transcript nextPutAll: 'caf', (Character codePoint: 233) asString. 'ok'");
+    const { err } = execute(
+      "Transcript nextPutAll: 'caf', (Character codePoint: 233) asString. 'ok'",
+    );
     expect(err.number).toBe(0);
 
     expect(drainTranscript(session)).toContain('café');
@@ -121,13 +126,17 @@ describe('transcript sink (live stone)', () => {
       const start = gci.GciTsNbExecute(
         session.handle,
         "Transcript nextPutAll: 'first'. Transcript nextPutAll: 'second'. 6 * 7",
-        OOP_CLASS_STRING, OOP_ILLEGAL, OOP_NIL, 0, 0,
+        OOP_CLASS_STRING,
+        OOP_ILLEGAL,
+        OOP_NIL,
+        0,
+        0,
       );
       expect(start.success).toBe(true);
       await pollUntilReady();
 
       const chunks: string[] = [];
-      const { result, err } = await settleNbResult(session, text => chunks.push(text));
+      const { result, err } = await settleNbResult(session, (text) => chunks.push(text));
 
       expect(err.number).toBe(0);
       expect(chunks).toEqual(['first', 'second']);
@@ -144,13 +153,17 @@ describe('transcript sink (live stone)', () => {
       const start = gci.GciTsNbExecute(
         session.handle,
         "[Transcript nextPutAll: 'inside handler'. 'no error'] on: AbstractException do: [:e | 'trapped']",
-        OOP_CLASS_STRING, OOP_ILLEGAL, OOP_NIL, 0, 0,
+        OOP_CLASS_STRING,
+        OOP_ILLEGAL,
+        OOP_NIL,
+        0,
+        0,
       );
       expect(start.success).toBe(true);
       await pollUntilReady();
 
       const chunks: string[] = [];
-      const { result, err } = await settleNbResult(session, text => chunks.push(text));
+      const { result, err } = await settleNbResult(session, (text) => chunks.push(text));
 
       expect(err.number).toBe(0);
       expect(chunks).toEqual(['inside handler']);
@@ -168,13 +181,17 @@ describe('transcript sink (live stone)', () => {
       const start = gci.GciTsNbExecute(
         session.handle,
         "Transcript nextPutAll: 'before boom'. nil foo",
-        OOP_CLASS_STRING, OOP_ILLEGAL, OOP_NIL, 0, 0,
+        OOP_CLASS_STRING,
+        OOP_ILLEGAL,
+        OOP_NIL,
+        0,
+        0,
       );
       expect(start.success).toBe(true);
       await pollUntilReady();
 
       const chunks: string[] = [];
-      const { err } = await settleNbResult(session, text => chunks.push(text));
+      const { err } = await settleNbResult(session, (text) => chunks.push(text));
 
       expect(chunks).toEqual(['before boom']);
       expect(err.number).not.toBe(0);
@@ -189,7 +206,7 @@ describe('transcript sink (live stone)', () => {
   });
 
   it('the session remains healthy after live-mode use', () => {
-    const { data, err } = execute("(3 + 4) printString");
+    const { data, err } = execute('(3 + 4) printString');
 
     expect(err.number).toBe(0);
     expect(data).toBe('7');

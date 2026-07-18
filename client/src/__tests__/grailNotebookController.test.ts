@@ -91,7 +91,9 @@ describe('GrailNotebookController', () => {
   it('registers a controller for the jupyter-notebook type with python cells', () => {
     const ctrl = new GrailNotebookController(makeSessionManager(true));
     expect(notebooks.createNotebookController).toHaveBeenCalledWith(
-      GRAIL_CONTROLLER_ID, GEMSTONE_NOTEBOOK_TYPE, GRAIL_CONTROLLER_LABEL,
+      GRAIL_CONTROLLER_ID,
+      GEMSTONE_NOTEBOOK_TYPE,
+      GRAIL_CONTROLLER_LABEL,
     );
     const mock = lastController();
     expect(mock.supportedLanguages).toEqual(['python']);
@@ -186,7 +188,8 @@ describe('GrailNotebookController', () => {
   it('registers the reset-scope command and resets the active notebook scope', async () => {
     const ctrl = new GrailNotebookController(makeSessionManager(true));
     expect(commands.registerCommand).toHaveBeenCalledWith(
-      GRAIL_RESET_SCOPE_COMMAND, expect.any(Function),
+      GRAIL_RESET_SCOPE_COMMAND,
+      expect.any(Function),
     );
 
     (window as { activeNotebookEditor: unknown }).activeNotebookEditor = {
