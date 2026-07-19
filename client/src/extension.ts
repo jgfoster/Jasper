@@ -285,12 +285,29 @@ export async function openWorkspaceForSession(
   await openWorkspace();
 }
 
-// Getting Started onboarding. The walkthrough auto-opens once per machine on the
-// first successful connect; this globalState key records that it has been shown.
-// Clear it via the `gemstone.resetGettingStarted` command to make it auto-open
-// again on the next connect.
+// Getting Started onboarding. The walkthrough auto-opens once per machine the
+// first time the GemStone view is revealed; this globalState key records that it
+// has been shown. Clear it via the `gemstone.resetGettingStarted` command to make
+// it auto-open again the next time the view is revealed.
 const GETTING_STARTED_SEEN_KEY = 'gemstone.hasSeenGettingStarted';
 const GETTING_STARTED_WALKTHROUGH_ID = 'gemtalksystems.gemstone-ide#gemstoneGettingStarted';
+
+// Open the Getting Started walkthrough the first time the user reveals the
+// GemStone view. Revealing the view proves intent, and it happens *before* the
+// user connects — so the walkthrough's "how to connect" step arrives when it's
+// actually useful, not after they've already worked it out. Gated by
+// GETTING_STARTED_SEEN_KEY so it fires once per machine; the flag is set before
+// opening so a rapid second reveal can't double-open. Idempotent — safe to call
+// on every visibility change.
+export function maybeOpenGettingStarted(context: vscode.ExtensionContext): void {
+  if (context.globalState.get<boolean>(GETTING_STARTED_SEEN_KEY)) return;
+  void context.globalState.update(GETTING_STARTED_SEEN_KEY, true);
+  void vscode.commands.executeCommand(
+    'workbench.action.openWalkthrough',
+    GETTING_STARTED_WALKTHROUGH_ID,
+    false,
+  );
+}
 
 // How long a connect target stays reserved after a login attempt settles, so
 // clicks queued behind a slow (blocking) login are dropped when they replay.
@@ -564,6 +581,15 @@ export function activate(context: vscode.ExtensionContext) {
     showCollapseAll: false,
   });
   context.subscriptions.push(treeView);
+
+  // Auto-open the Getting Started walkthrough the first time the GemStone view is
+  // revealed (see maybeOpenGettingStarted). Fires once per machine; reset via the
+  // gemstone.resetGettingStarted command.
+  context.subscriptions.push(
+    treeView.onDidChangeVisibility((e) => {
+      if (e.visible) maybeOpenGettingStarted(context);
+    }),
+  );
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
@@ -1058,7 +1084,7 @@ export function activate(context: vscode.ExtensionContext) {
       await context.globalState.update(GETTING_STARTED_SEEN_KEY, undefined);
       const openNow = 'Open Walkthrough Now';
       const choice = await vscode.window.showInformationMessage(
-        'Getting Started reset — the walkthrough will open automatically on your next connect.',
+        'Getting Started reset — the walkthrough will open automatically the next time you open the GemStone view.',
         openNow,
       );
       if (choice === openNow) {
@@ -1265,19 +1291,11 @@ export function activate(context: vscode.ExtensionContext) {
           return;
         }
         // We no longer auto-open a workspace on every connect (it left a dirty,
-        // hot-exit-restored buffer behind). Instead, on the *first* successful
-        // connect, open the Getting Started walkthrough once — a richer, native,
-        // dismissible onboarding card that links to the on-demand workspace. The
-        // workspace stays available afterward via the gemstone.openWorkspace
-        // command and the Logins & Sessions welcome view.
-        if (!context.globalState.get<boolean>(GETTING_STARTED_SEEN_KEY)) {
-          void context.globalState.update(GETTING_STARTED_SEEN_KEY, true);
-          void vscode.commands.executeCommand(
-            'workbench.action.openWalkthrough',
-            GETTING_STARTED_WALKTHROUGH_ID,
-            false,
-          );
-        }
+        // hot-exit-restored buffer behind), nor the Getting Started walkthrough —
+        // that now opens the first time the GemStone view is revealed (see
+        // maybeOpenGettingStarted), so its "how to connect" step arrives before the
+        // user connects rather than after. The workspace stays available via the
+        // gemstone.openWorkspace command and the Logins & Sessions welcome view.
 
         // If this stone lacks Enhanced Inspector support, offer (or auto-run) the
         // install per the gemstone.enhancedInspector.autoInstall setting. Fire and

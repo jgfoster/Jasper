@@ -555,3 +555,59 @@ describe('withLoginGuard', () => {
     expect(handler).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('maybeOpenGettingStarted', () => {
+  const SEEN_KEY = 'gemstone.hasSeenGettingStarted';
+
+  function fakeContext(alreadySeen?: boolean) {
+    const store = new Map<string, unknown>();
+    if (alreadySeen !== undefined) store.set(SEEN_KEY, alreadySeen);
+    const context = {
+      globalState: {
+        get: (key: string) => store.get(key),
+        update: (key: string, value: unknown) => {
+          if (value === undefined) store.delete(key);
+          else store.set(key, value);
+          return Promise.resolve();
+        },
+      },
+    } as unknown as vscode.ExtensionContext;
+    return { context, store };
+  }
+
+  const walkthroughOpenings = () =>
+    vi
+      .mocked(vscode.commands.executeCommand)
+      .mock.calls.filter((c) => c[0] === 'workbench.action.openWalkthrough');
+
+  beforeEach(() => {
+    vi.mocked(vscode.commands.executeCommand).mockReset();
+  });
+
+  it('opens the walkthrough the first time the GemStone view is revealed', () => {
+    const { context, store } = fakeContext();
+
+    extension.maybeOpenGettingStarted(context);
+
+    expect(walkthroughOpenings()).toHaveLength(1);
+    expect(store.get(SEEN_KEY)).toBe(true);
+  });
+
+  it('stays out of the way once it has already been shown', () => {
+    const { context } = fakeContext(true);
+
+    extension.maybeOpenGettingStarted(context);
+
+    expect(walkthroughOpenings()).toHaveLength(0);
+  });
+
+  it('opens only once no matter how often the view is revealed', () => {
+    const { context } = fakeContext();
+
+    extension.maybeOpenGettingStarted(context);
+    extension.maybeOpenGettingStarted(context);
+    extension.maybeOpenGettingStarted(context);
+
+    expect(walkthroughOpenings()).toHaveLength(1);
+  });
+});
