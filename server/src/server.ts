@@ -355,6 +355,7 @@ connection.languages.semanticTokens.on((params) => {
       lineOffset,
       scopeRoot,
       pr.region.selectorColumnOffset ?? 0,
+      pr.region.kind !== 'smalltalk-code',
     );
     allTokens.push(...regionTokens);
   }

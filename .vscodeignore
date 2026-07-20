@@ -18,6 +18,13 @@ scripts/**
 .dockerignore
 CLAUDE.md
 **/CLAUDE.md
+# Lint / format / git-hook config (dev-only).
+.git-blame-ignore-revs
+.editorconfig
+.prettierrc.json
+.prettierignore
+eslint.config.mjs
+lefthook.yml
 
 docs/**
 !docs/mcp-server.md
