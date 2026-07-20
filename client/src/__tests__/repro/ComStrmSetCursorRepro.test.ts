@@ -74,4 +74,22 @@ describe('GemStone compiler: ComStrmSetCursor with non-ASCII source text', () =>
 
     expect(() => gci.execute(session, code)).not.toThrow();
   });
+
+  // Added 2026-07-18 to check "Open question 1" from the README (does
+  // hitting this once poison the session for later, unrelated compiles?).
+  // Everything below runs against the SAME session on purpose, in one
+  // test, so ordering is fixed regardless of vitest's shuffled test order --
+  // this is the one test in this file where that matters.
+  it('does not poison the session for later, unrelated compiles after it throws once', () => {
+    expect(() => gci.execute(session, `1 + 1`)).not.toThrow();
+
+    const poisoningCode = `| t | t := '${unique('—')}'. t printString`;
+    expect(() => gci.execute(session, poisoningCode)).toThrow(/ComStrmSetCursor/);
+
+    expect(() => gci.execute(session, `2 + 2`)).not.toThrow();
+    expect(() => gci.execute(session, `| x | x := 5. x printString`)).not.toThrow();
+
+    const freshNonAsciiCode = `| t | t := '${unique('—')}'. t printString`;
+    expect(() => gci.execute(session, freshNonAsciiCode)).toThrow(/ComStrmSetCursor/);
+  });
 });
