@@ -230,7 +230,10 @@ export const window = {
   showErrorMessage: vi.fn(),
   showInformationMessage: vi.fn(),
   showWarningMessage: vi.fn(),
-  createTreeView: vi.fn(() => ({ dispose: () => {} })),
+  createTreeView: vi.fn(() => ({
+    onDidChangeVisibility: new EventEmitter<{ visible: boolean }>().event,
+    dispose: () => {},
+  })),
   registerFileDecorationProvider: vi.fn(() => ({ dispose: () => {} })),
   createOutputChannel: vi.fn(() => ({
     append: vi.fn(),

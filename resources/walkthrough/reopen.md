@@ -11,12 +11,12 @@ back at any time.
 - **Command Palette** (`Cmd/Ctrl + Shift + P`) → **"Welcome: Open Walkthrough..."**
   → **Get Started with GemStone**.
 
-## Make it auto-open again on connect
+## Make it auto-open again
 
-This walkthrough opens automatically **once per machine**, on your first
-successful connect. After that it stays out of your way.
+This walkthrough opens automatically **once per machine**, the first time you
+open the GemStone view. After that it stays out of your way.
 
-To make it auto-open again on your next connect, run:
+To make it auto-open again the next time you open the GemStone view, run:
 
 > **Command Palette → "GemStone: Reset Getting Started"**
 
