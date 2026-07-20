@@ -23,7 +23,7 @@ function makeSession(gciOverrides: Record<string, unknown> = {}): ActiveSession 
     gci: gci as unknown as ActiveSession['gci'],
     login: {} as ActiveSession['login'],
     stoneVersion: '3.7.2',
-  } as ActiveSession;
+  };
 }
 
 describe('executeFetchStringWithLimit', () => {

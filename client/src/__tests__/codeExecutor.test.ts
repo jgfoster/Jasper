@@ -79,7 +79,7 @@ function makeSession(gci = makeGci()): ActiveSession {
   return {
     id: 1,
     gci: gci as unknown as ActiveSession['gci'],
-    handle: {} as unknown,
+    handle: {},
     login: { label: 'Test', gs_user: 'DataCurator' },
     stoneVersion: '3.7.2',
   } as ActiveSession;
@@ -690,7 +690,7 @@ describe('CodeExecutor', () => {
       const sel = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(1, 5));
       const editor = makeMutableEditor(text, sel);
       // Real VSCode's getText(selection) returns only the selected substring
-      editor.document.getText = vi.fn(() => '3 + 4') as unknown as typeof editor.document.getText;
+      editor.document.getText = vi.fn(() => '3 + 4');
       setActiveEditor(editor);
 
       await executor.displayIt();
@@ -995,7 +995,7 @@ describe('CodeExecutor', () => {
       const sel = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(1, 5));
       const editor = makeMutableEditor(text, sel);
       // Real VSCode's getText(selection) returns only the selected substring
-      editor.document.getText = vi.fn(() => '3 + 4') as unknown as typeof editor.document.getText;
+      editor.document.getText = vi.fn(() => '3 + 4');
       setActiveEditor(editor);
 
       await executor.displayIt();
@@ -1480,7 +1480,7 @@ describe('CodeExecutor', () => {
 
     it('starts debugging and focuses the Run and Debug view when the user clicks Debug', async () => {
       vi.mocked(vscode.window.showErrorMessage).mockResolvedValue('Debug' as never);
-      vi.mocked(vscode.debug.startDebugging).mockResolvedValue(true as never);
+      vi.mocked(vscode.debug.startDebugging).mockResolvedValue(true);
       setup();
 
       await executor.executeIt();
@@ -1498,7 +1498,7 @@ describe('CodeExecutor', () => {
     });
 
     it('does not reveal the view or start debugging, and clears the stack, when the dialog is dismissed', async () => {
-      vi.mocked(vscode.window.showErrorMessage).mockResolvedValue(undefined as never);
+      vi.mocked(vscode.window.showErrorMessage).mockResolvedValue(undefined);
       setup();
 
       await executor.executeIt();

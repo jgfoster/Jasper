@@ -361,7 +361,7 @@ export function writeClaudeDesktopMcpConfig(extensionPath: string, socketPath: s
     args: [proxyScriptPath(extensionPath), '--proxy-socket', socketPath],
   };
 
-  const mcpServers = (settings.mcpServers ?? {}) as Record<string, unknown>;
+  const mcpServers = settings.mcpServers ?? {};
   let dirty = false;
   if (JSON.stringify(mcpServers[MCP_SERVER_NAME]) !== JSON.stringify(desired)) {
     mcpServers[MCP_SERVER_NAME] = desired;

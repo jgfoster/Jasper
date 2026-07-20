@@ -121,7 +121,7 @@ describe('writeClaudeDesktopMcpConfig', () => {
 
     const writeCall = vi.mocked(fs.writeFileSync).mock.calls[0];
     expect(writeCall).toBeDefined();
-    const written = JSON.parse(writeCall![1] as string);
+    const written = JSON.parse(writeCall[1] as string);
     expect(written.mcpServers[MCP_SERVER_NAME].command).toBe('node');
     expect(written.mcpServers[MCP_SERVER_NAME].args).toContain('--proxy-socket');
     expect(written.mcpServers[MCP_SERVER_NAME].args).toContain('/tmp/socket.sock');
@@ -147,7 +147,7 @@ describe('writeClaudeDesktopMcpConfig', () => {
     writeClaudeDesktopMcpConfig('/ext', '/tmp/socket.sock');
 
     const writeCall = vi.mocked(fs.writeFileSync).mock.calls[0];
-    const written = JSON.parse(writeCall![1] as string);
+    const written = JSON.parse(writeCall[1] as string);
     expect(written.mcpServers.filesystem).toEqual({ command: 'mcp-fs' });
     expect(written.mcpServers.notion).toEqual({ command: 'mcp-notion' });
     expect(written.mcpServers[MCP_SERVER_NAME]).toBeDefined();
@@ -164,7 +164,7 @@ describe('writeClaudeDesktopMcpConfig', () => {
     writeClaudeDesktopMcpConfig('/ext', '/tmp/socket.sock');
 
     const writeCall = vi.mocked(fs.writeFileSync).mock.calls[0];
-    const written = JSON.parse(writeCall![1] as string);
+    const written = JSON.parse(writeCall[1] as string);
     expect(written.globalShortcut).toBe('Ctrl+Space');
   });
 
@@ -201,7 +201,7 @@ describe('writeClaudeDesktopMcpConfig', () => {
 
     const writeCall = vi.mocked(fs.writeFileSync).mock.calls[0];
     expect(writeCall).toBeDefined();
-    const written = JSON.parse(writeCall![1] as string);
+    const written = JSON.parse(writeCall[1] as string);
     expect(written.mcpServers[MCP_SERVER_NAME].args).toContain('/tmp/NEW.sock');
   });
 
@@ -215,7 +215,7 @@ describe('writeClaudeDesktopMcpConfig', () => {
     writeClaudeDesktopMcpConfig('/ext', '/tmp/socket.sock');
 
     const writeCall = vi.mocked(fs.writeFileSync).mock.calls[0];
-    const written = JSON.parse(writeCall![1] as string);
+    const written = JSON.parse(writeCall[1] as string);
     expect(written.mcpServers.gemstone).toBeUndefined();
     expect(written.mcpServers[MCP_SERVER_NAME]).toBeDefined();
   });
@@ -230,7 +230,7 @@ describe('writeClaudeDesktopMcpConfig', () => {
     writeClaudeDesktopMcpConfig('/ext', '/tmp/socket.sock');
 
     const writeCall = vi.mocked(fs.writeFileSync).mock.calls[0];
-    const written = JSON.parse(writeCall![1] as string);
+    const written = JSON.parse(writeCall[1] as string);
     expect(written.mcpServers.gemstone).toEqual(foreignGemstoneEntry);
     expect(written.mcpServers[MCP_SERVER_NAME]).toBeDefined();
   });
@@ -249,7 +249,7 @@ describe('writeClaudeDesktopMcpConfig', () => {
     writeClaudeDesktopMcpConfig('/ext', '/tmp/socket.sock');
 
     const writeCall = vi.mocked(fs.writeFileSync).mock.calls[0];
-    const written = JSON.parse(writeCall![1] as string);
+    const written = JSON.parse(writeCall[1] as string);
     expect(written.mcpServers['gemstone-abcdef0123']).toBeUndefined();
     expect(written.mcpServers['gemstone-fedcba9876']).toBeUndefined();
     expect(written.mcpServers[MCP_SERVER_NAME]).toBeDefined();
@@ -293,7 +293,7 @@ describe('writeClaudeDesktopMcpConfig', () => {
     expect(() => writeClaudeDesktopMcpConfig('/ext', '/tmp/socket.sock')).not.toThrow();
 
     const writeCall = vi.mocked(fs.writeFileSync).mock.calls[0];
-    const written = JSON.parse(writeCall![1] as string);
+    const written = JSON.parse(writeCall[1] as string);
     expect(written.mcpServers[MCP_SERVER_NAME]).toBeDefined();
   });
 });

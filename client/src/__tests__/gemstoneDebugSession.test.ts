@@ -105,7 +105,7 @@ function createTestSession(breakpointManager?: BreakpointManager) {
     sent.push({
       type: 'response',
       command: resp.command,
-      body: resp.body as Record<string, unknown>,
+      body: resp.body,
       success: resp.success,
       message: resp.message,
     });

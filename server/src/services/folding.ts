@@ -1,14 +1,7 @@
 import { FoldingRange, FoldingRangeKind } from 'vscode-languageserver';
 import { ParsedDocument } from '../utils/documentManager';
 import { TokenType } from '../lexer/tokens';
-import {
-  MethodNode,
-  BlockNode,
-  StatementNode,
-  ExpressionNode,
-  PrimaryNode,
-  MessageNode,
-} from '../parser/ast';
+import { MethodNode, StatementNode, ExpressionNode, PrimaryNode, MessageNode } from '../parser/ast';
 
 export function getFoldingRanges(doc: ParsedDocument): FoldingRange[] {
   const ranges: FoldingRange[] = [];
@@ -132,7 +125,7 @@ function walkMessageForFolds(msg: MessageNode, ranges: FoldingRange[], off: numb
 
 function walkPrimaryForFolds(primary: PrimaryNode, ranges: FoldingRange[], off: number): void {
   if (primary.kind === 'Block') {
-    const block = primary as BlockNode;
+    const block = primary;
     const startLine = block.range.start.line + off;
     const endLine = block.range.end.line + off;
     if (endLine > startLine) {

@@ -174,5 +174,5 @@ export function wrapWithEnhancedInspectorPerfProxy(gci: GciLibrary): GciLibrary 
         ? (val as (...args: unknown[]) => unknown).bind(target)
         : val;
     },
-  }) as GciLibrary;
+  });
 }

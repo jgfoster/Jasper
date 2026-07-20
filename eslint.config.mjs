@@ -23,6 +23,29 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended, // non-type-checked only — no `projectService`/type-aware rules for now
   {
+    // Type-aware linting, scoped to `**/*.ts` (the files covered by a workspace
+    // tsconfig.json — client/server/mcp-server/acceptance). `projectService`
+    // finds the nearest tsconfig per file rather than needing an explicit list.
+    // Enabling type-aware rules individually rather than the full
+    // `recommendedTypeChecked` set, which surfaces ~2k pre-existing findings
+    // across the codebase that need separate triage (see
+    // playground/research/jasper-eslint-type-aware-rules.md for the full breakdown).
+    files: ['**/*.ts'],
+    languageOptions: {
+      parserOptions: {
+        projectService: {
+          // vitest.config.ts files aren't included in any tsconfig's `include`,
+          // so type-aware linting can't otherwise parse them.
+          allowDefaultProject: ['vitest.config.ts', '*/vitest.config.ts'],
+        },
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-unnecessary-type-assertion': 'error',
+    },
+  },
+  {
     // Catches stale `eslint-disable` comments that no longer suppress anything.
     linterOptions: { reportUnusedDisableDirectives: 'error' },
   },

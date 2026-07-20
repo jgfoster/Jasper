@@ -752,7 +752,7 @@ describe('SystemBrowser', () => {
             return new Promise<void>((r) => {
               releaseGroup = r;
             });
-          return undefined as unknown as Thenable<unknown>;
+          return undefined;
         });
         try {
           // First click starts opening the diff and blocks awaiting the new group.
@@ -1327,7 +1327,7 @@ describe('SystemBrowser', () => {
 
     it('removes dictionary after confirmation', async () => {
       messageHandler({ command: 'selectDictionary', index: 1 });
-      vi.mocked(window.showWarningMessage).mockResolvedValue('Remove' as never);
+      vi.mocked(window.showWarningMessage).mockResolvedValue('Remove');
       vi.mocked(queries.getDictionaryNames).mockReturnValue(['Globals']);
       vi.mocked(mockPanel.webview.postMessage).mockClear();
 
@@ -1346,7 +1346,7 @@ describe('SystemBrowser', () => {
 
     it('does not remove dictionary when user cancels', async () => {
       messageHandler({ command: 'selectDictionary', index: 1 });
-      vi.mocked(window.showWarningMessage).mockResolvedValue(undefined as never);
+      vi.mocked(window.showWarningMessage).mockResolvedValue(undefined);
 
       await messageHandler({ command: 'ctxRemoveDictionary' });
 
@@ -1355,7 +1355,7 @@ describe('SystemBrowser', () => {
 
     it('reconciles the mirror via a debounced refresh when removing a dictionary', async () => {
       messageHandler({ command: 'selectDictionary', index: 1 });
-      vi.mocked(window.showWarningMessage).mockResolvedValue('Remove' as never);
+      vi.mocked(window.showWarningMessage).mockResolvedValue('Remove');
       vi.mocked(queries.getDictionaryNames).mockReturnValue(['Globals']);
       vi.mocked(fs.existsSync).mockReturnValue(true);
 
@@ -1439,7 +1439,7 @@ describe('SystemBrowser', () => {
     });
 
     it('deletes class after confirmation', async () => {
-      vi.mocked(window.showWarningMessage).mockResolvedValue('Delete' as never);
+      vi.mocked(window.showWarningMessage).mockResolvedValue('Delete');
 
       await messageHandler({ command: 'ctxDeleteClass' });
 
@@ -1461,13 +1461,13 @@ describe('SystemBrowser', () => {
     });
 
     it('does not delete class when user cancels', async () => {
-      vi.mocked(window.showWarningMessage).mockResolvedValue(undefined as never);
+      vi.mocked(window.showWarningMessage).mockResolvedValue(undefined);
       await messageHandler({ command: 'ctxDeleteClass' });
       expect(queries.deleteClass).not.toHaveBeenCalled();
     });
 
     it('moves class to another dictionary', async () => {
-      vi.mocked(window.showQuickPick).mockResolvedValue({ label: 'Globals', index: 2 } as never);
+      vi.mocked(window.showQuickPick).mockResolvedValue({ label: 'Globals', index: 2 });
 
       await messageHandler({ command: 'ctxMoveClass' });
 
@@ -1502,7 +1502,7 @@ describe('SystemBrowser', () => {
     it('writes the selected class file-out to the chosen path', async () => {
       messageHandler({ command: 'selectClass', name: 'Array' });
       vi.mocked(queries.fileOutClass).mockReturnValue('! Array file-out');
-      vi.mocked(window.showSaveDialog).mockResolvedValue(Uri.file('/out/Array.gs') as never);
+      vi.mocked(window.showSaveDialog).mockResolvedValue(Uri.file('/out/Array.gs'));
 
       await messageHandler({ command: 'ctxFileOutClass' });
 
@@ -1512,7 +1512,7 @@ describe('SystemBrowser', () => {
 
     it('defaults a test class file name to its subject', async () => {
       messageHandler({ command: 'selectClass', name: 'AccountTestCase' });
-      vi.mocked(window.showSaveDialog).mockResolvedValue(undefined as never);
+      vi.mocked(window.showSaveDialog).mockResolvedValue(undefined);
 
       await messageHandler({ command: 'ctxFileOutClass' });
 
@@ -1522,7 +1522,7 @@ describe('SystemBrowser', () => {
 
     it('does not write a class file-out when the save dialog is cancelled', async () => {
       messageHandler({ command: 'selectClass', name: 'Array' });
-      vi.mocked(window.showSaveDialog).mockResolvedValue(undefined as never);
+      vi.mocked(window.showSaveDialog).mockResolvedValue(undefined);
 
       await messageHandler({ command: 'ctxFileOutClass' });
 
@@ -1538,7 +1538,7 @@ describe('SystemBrowser', () => {
       vi.mocked(queries.fileOutClass).mockImplementation(
         (_s, className) => `! ${className} file-out`,
       );
-      vi.mocked(window.showSaveDialog).mockResolvedValue(Uri.file('/out/UserGlobals.gs') as never);
+      vi.mocked(window.showSaveDialog).mockResolvedValue(Uri.file('/out/UserGlobals.gs'));
 
       await messageHandler({ command: 'ctxFileOutDictionaryMany' });
 
@@ -1558,7 +1558,7 @@ describe('SystemBrowser', () => {
         'Dog',
       ]);
       vi.mocked(queries.fileOutClass).mockImplementation((_s, className) => `! ${className}`);
-      vi.mocked(window.showSaveDialog).mockResolvedValue(Uri.file('/out/UserGlobals.gs') as never);
+      vi.mocked(window.showSaveDialog).mockResolvedValue(Uri.file('/out/UserGlobals.gs'));
 
       await messageHandler({ command: 'ctxFileOutDictionaryMany' });
 
@@ -1574,7 +1574,7 @@ describe('SystemBrowser', () => {
 
     it('warns and writes nothing when a dictionary has no classes', async () => {
       vi.mocked(queries.getDictionaryClassFileOutOrder).mockReturnValue([]);
-      vi.mocked(window.showSaveDialog).mockResolvedValue(Uri.file('/out/UserGlobals.gs') as never);
+      vi.mocked(window.showSaveDialog).mockResolvedValue(Uri.file('/out/UserGlobals.gs'));
 
       await messageHandler({ command: 'ctxFileOutDictionaryMany' });
 
@@ -1657,7 +1657,7 @@ describe('SystemBrowser', () => {
     });
 
     it('deletes method after confirmation', async () => {
-      vi.mocked(window.showWarningMessage).mockResolvedValue('Delete' as never);
+      vi.mocked(window.showWarningMessage).mockResolvedValue('Delete');
 
       await messageHandler({ command: 'ctxDeleteMethod' });
 
@@ -1667,7 +1667,7 @@ describe('SystemBrowser', () => {
     });
 
     it('refreshes method list after deletion', async () => {
-      vi.mocked(window.showWarningMessage).mockResolvedValue('Delete' as never);
+      vi.mocked(window.showWarningMessage).mockResolvedValue('Delete');
       vi.mocked(mockPanel.webview.postMessage).mockClear();
 
       await messageHandler({ command: 'ctxDeleteMethod' });
@@ -1681,7 +1681,7 @@ describe('SystemBrowser', () => {
     });
 
     it('does not delete method when user cancels', async () => {
-      vi.mocked(window.showWarningMessage).mockResolvedValue(undefined as never);
+      vi.mocked(window.showWarningMessage).mockResolvedValue(undefined);
       await messageHandler({ command: 'ctxDeleteMethod' });
       expect(queries.deleteMethod).not.toHaveBeenCalled();
     });
@@ -1692,7 +1692,7 @@ describe('SystemBrowser', () => {
         'Comparing',
         'Printing',
       ]);
-      vi.mocked(window.showQuickPick).mockResolvedValue('Printing' as never);
+      vi.mocked(window.showQuickPick).mockResolvedValue('Printing');
 
       await messageHandler({ command: 'ctxMoveToCategory' });
 
@@ -1853,7 +1853,7 @@ describe('SystemBrowser', () => {
     });
 
     it('moves the class to the chosen category', async () => {
-      vi.mocked(window.showQuickPick).mockResolvedValue('Collections' as never);
+      vi.mocked(window.showQuickPick).mockResolvedValue('Collections');
 
       messageHandler({ command: 'ctxMoveClassToCategory' });
       await flush();
@@ -1866,7 +1866,7 @@ describe('SystemBrowser', () => {
     });
 
     it('offers the real class categories, excluding the "all classes" pseudo-entry', async () => {
-      vi.mocked(window.showQuickPick).mockResolvedValue(undefined as never);
+      vi.mocked(window.showQuickPick).mockResolvedValue(undefined);
 
       messageHandler({ command: 'ctxMoveClassToCategory' });
       await flush();
@@ -1876,7 +1876,7 @@ describe('SystemBrowser', () => {
     });
 
     it('does nothing to the category when the quick pick is cancelled', async () => {
-      vi.mocked(window.showQuickPick).mockResolvedValue(undefined as never);
+      vi.mocked(window.showQuickPick).mockResolvedValue(undefined);
 
       messageHandler({ command: 'ctxMoveClassToCategory' });
       await flush();
@@ -1886,7 +1886,7 @@ describe('SystemBrowser', () => {
 
     it('copies the selected method to the chosen class, preserving side and environment', async () => {
       vi.mocked(queries.getClassNames).mockReturnValue(['Array', 'Bag', 'Set']);
-      vi.mocked(window.showQuickPick).mockResolvedValue('Set' as never);
+      vi.mocked(window.showQuickPick).mockResolvedValue('Set');
 
       messageHandler({ command: 'ctxCopyMethodToClass' });
       await flush();
@@ -1906,7 +1906,7 @@ describe('SystemBrowser', () => {
 
     it('excludes the source class from the copy targets', async () => {
       vi.mocked(queries.getClassNames).mockReturnValue(['Array', 'Bag', 'Set']);
-      vi.mocked(window.showQuickPick).mockResolvedValue(undefined as never);
+      vi.mocked(window.showQuickPick).mockResolvedValue(undefined);
 
       messageHandler({ command: 'ctxCopyMethodToClass' });
       await flush();

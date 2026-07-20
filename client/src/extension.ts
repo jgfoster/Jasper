@@ -1599,7 +1599,7 @@ export function activate(context: vscode.ExtensionContext) {
               title: `Unloading ${projectName}…`,
               cancellable: false,
             },
-            () => Promise.resolve(queries.unloadRowanProject(sys, projectName!)),
+            () => Promise.resolve(queries.unloadRowanProject(sys, projectName)),
           );
         } finally {
           try {
@@ -2067,7 +2067,7 @@ export function activate(context: vscode.ExtensionContext) {
             title: `Fetching hierarchy for ${className}...`,
             cancellable: false,
           },
-          () => Promise.resolve(queries.getClassHierarchy(session, className!)),
+          () => Promise.resolve(queries.getClassHierarchy(session, className)),
         );
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -3272,7 +3272,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         db =
           db ??
-          sysadminStorage.getDatabases().find((d) => d.config.stoneName === session!.login.stone);
+          sysadminStorage.getDatabases().find((d) => d.config.stoneName === session.login.stone);
         if (!db) {
           vscode.window.showErrorMessage(
             `Full logical restore currently requires a database created through Jasper's Databases ` +
@@ -3308,7 +3308,7 @@ export function activate(context: vscode.ExtensionContext) {
           backupFile,
           hasFileControl: () =>
             hasFileControlPrivilege((label, code) =>
-              queries.executeFetchString(session!, label, code),
+              queries.executeFetchString(session, label, code),
             ),
           closeCurrentSession: async () => {
             sessionManager.logout(sessionId);

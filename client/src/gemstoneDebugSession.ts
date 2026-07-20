@@ -298,7 +298,7 @@ export class GemStoneDebugSession extends DebugSession {
               const side = uriInfo.isMeta ? 'class' : 'instance';
               frameName = `${baseClass}${uriInfo.isMeta ? ' class' : ''}>>#${uriInfo.selector}`;
               sourcePath =
-                `gemstone://${this.session!.id}` +
+                `gemstone://${this.session.id}` +
                 `/${encodeURIComponent(uriInfo.dictName)}` +
                 `/${encodeURIComponent(baseClass)}` +
                 `/${side}` +
@@ -463,7 +463,7 @@ export class GemStoneDebugSession extends DebugSession {
 
   private getReceiverVariables(receiverOop: bigint): Variable[] {
     if (!this.session || receiverOop === OOP_NIL || receiverOop === 0n) {
-      return [{ name: 'self', value: 'nil', variablesReference: 0 } as Variable];
+      return [{ name: 'self', value: 'nil', variablesReference: 0 }];
     }
 
     const vars: Variable[] = [];
@@ -514,7 +514,7 @@ export class GemStoneDebugSession extends DebugSession {
 
   private makeVariable(name: string, oop: bigint): Variable {
     if (!this.session) {
-      return { name, value: '<no session>', variablesReference: 0 } as Variable;
+      return { name, value: '<no session>', variablesReference: 0 };
     }
 
     const value = debug.getObjectPrintString(this.session, oop, MAX_PRINT_STRING);

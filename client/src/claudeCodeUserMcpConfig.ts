@@ -45,7 +45,7 @@ function readUserConfig(configPath: string): ClaudeCodeUserConfig {
   } catch {
     // Don't clobber a corrupt file with our own contents — let Claude Code
     // recreate it on next launch and skip this activation's write.
-    return { __unreadable__: true } as ClaudeCodeUserConfig;
+    return { __unreadable__: true };
   }
 }
 
@@ -83,7 +83,7 @@ export function writeClaudeCodeUserMcpConfig(
     env: {},
   };
 
-  const mcpServers = (settings.mcpServers ?? {}) as Record<string, unknown>;
+  const mcpServers = settings.mcpServers ?? {};
   let dirty = false;
   if (JSON.stringify(mcpServers[MCP_SERVER_NAME]) !== JSON.stringify(desired)) {
     mcpServers[MCP_SERVER_NAME] = desired;
@@ -98,7 +98,7 @@ export function writeClaudeCodeUserMcpConfig(
 
   if (settings.projects) {
     for (const proj of Object.values(settings.projects)) {
-      const projMcp = proj?.mcpServers as Record<string, unknown> | undefined;
+      const projMcp = proj?.mcpServers;
       if (!projMcp) {
         continue;
       }

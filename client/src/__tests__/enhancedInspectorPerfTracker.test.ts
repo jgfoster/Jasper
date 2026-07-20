@@ -114,14 +114,14 @@ describe('wrapWithEnhancedInspectorPerfProxy', () => {
   it('counts a round-trip method when enabled', () => {
     enhancedInspectorPerfTracker.setEnabled(true);
     const proxy = wrapWithEnhancedInspectorPerfProxy(makeFakeGci());
-    proxy.GciTsExecuteFetchBytes({} as never, null, -1, 0n, 0n, 0n, 1024);
+    proxy.GciTsExecuteFetchBytes({}, null, -1, 0n, 0n, 0n, 1024);
     expect(enhancedInspectorPerfTracker.count).toBe(1);
     expect(enhancedInspectorPerfTracker.methodCounts.get('GciTsExecuteFetchBytes')).toBe(1);
   });
 
   it('does not count a round-trip method when disabled', () => {
     const proxy = wrapWithEnhancedInspectorPerfProxy(makeFakeGci());
-    proxy.GciTsExecuteFetchBytes({} as never, null, -1, 0n, 0n, 0n, 1024);
+    proxy.GciTsExecuteFetchBytes({}, null, -1, 0n, 0n, 0n, 1024);
     expect(enhancedInspectorPerfTracker.count).toBe(0);
   });
 
@@ -137,14 +137,14 @@ describe('wrapWithEnhancedInspectorPerfProxy', () => {
   it('does not count GciTsCallInProgress', () => {
     enhancedInspectorPerfTracker.setEnabled(true);
     const proxy = wrapWithEnhancedInspectorPerfProxy(makeFakeGci());
-    proxy.GciTsCallInProgress({} as never);
+    proxy.GciTsCallInProgress({});
     expect(enhancedInspectorPerfTracker.count).toBe(0);
   });
 
   it('passes the return value through unchanged', () => {
     enhancedInspectorPerfTracker.setEnabled(true);
     const proxy = wrapWithEnhancedInspectorPerfProxy(makeFakeGci());
-    const result = proxy.GciTsExecuteFetchBytes({} as never, null, -1, 0n, 0n, 0n, 1024);
+    const result = proxy.GciTsExecuteFetchBytes({}, null, -1, 0n, 0n, 0n, 1024);
     expect(result.data).toBe('ok');
   });
 
@@ -152,7 +152,7 @@ describe('wrapWithEnhancedInspectorPerfProxy', () => {
     enhancedInspectorPerfTracker.setEnabled(true);
     const fake = makeFakeGci();
     const proxy = wrapWithEnhancedInspectorPerfProxy(fake);
-    proxy.GciTsExecuteFetchBytes({} as never, null, -1, 0n, 0n, 0n, 1024);
+    proxy.GciTsExecuteFetchBytes({}, null, -1, 0n, 0n, 0n, 1024);
     expect(fake.GciTsExecuteFetchBytes).toHaveBeenCalledOnce();
   });
 });

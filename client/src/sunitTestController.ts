@@ -125,7 +125,7 @@ export class SunitTestController implements vscode.Disposable {
       exclude: [],
       profile: undefined,
       preserveFocus: false,
-    } as vscode.TestRunRequest);
+    });
     await this.runClassTests(session, run, classItem, className, dictName);
     run.end();
   }

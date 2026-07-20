@@ -12,7 +12,7 @@ function fakeMemento(): vscode.Memento {
       store.set(key, value);
     },
     keys: () => [...store.keys()],
-  } as vscode.Memento;
+  };
 }
 
 describe('RowanRepoRegistry', () => {
