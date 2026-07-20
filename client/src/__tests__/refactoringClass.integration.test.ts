@@ -58,8 +58,8 @@ describe('rename class + class history (integration)', () => {
     expect(enginePresent()).toBe(q.checkRefactoringSupportAvailable(session()));
   });
 
-  it('runs the rename-class and class-history GS SUnit suites in-stone with zero failures', () => {
-    if (!enginePresent()) return;
+  it('runs the rename-class and class-history GS SUnit suites in-stone with zero failures', (ctx) => {
+    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     const code = `| failuresAndErrors |
 ${fileInTests()}
@@ -104,8 +104,8 @@ failuresAndErrors printString`;
     );
   };
 
-  it('previews a whole-system class rename, then applies it server-side', async () => {
-    if (!enginePresent()) return;
+  it('previews a whole-system class rename, then applies it server-side', async (ctx) => {
+    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     defineFixture();
     const token = `rcit-${BASE}`;
@@ -154,8 +154,8 @@ failuresAndErrors printString`;
     ).toContain(`${RENAMED} new`);
   });
 
-  it('reads a class definition history and restores a prior version as a new one', async () => {
-    if (!enginePresent()) return;
+  it('reads a class definition history and restores a prior version as a new one', async (ctx) => {
+    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     // Two-version fixture: shape a, then shape a+y (new version).
     q.compileClassDefinition(
@@ -177,9 +177,16 @@ failuresAndErrors printString`;
     const baseline = versions[versions.length - 1]; // newest-first array; baseline is last (index 1)
     const result = parseRevertResult(q.revertClassToVersion(session(), 'RCItHist', baseline.index));
     expect(result.reverted).toBe(true);
-    // Restored to the baseline shape (only a).
-    expect(
-      exec('(RCItHist instVarNames collect: [:e | e asString]) asArray printString').trim(),
-    ).toBe("an Array( 'a')");
+    // Restored to the baseline shape (only a). Compare the printed instVar list
+    // with whitespace stripped: the Array printString spells the class name with a
+    // space ("an Array( 'a')") on 3.6.x but without one ("anArray( 'a')") on 3.7.x,
+    // and an in-stone String comparison is rejected as Unicode on 3.6.2 — so
+    // normalize on the client instead of asserting either exact form or comparing
+    // in the stone.
+    const printedInstVars = exec(
+      '(RCItHist instVarNames collect: [:e | e asString]) asArray printString',
+    ).replace(/\s/g, '');
+
+    expect(printedInstVars).toBe("anArray('a')");
   });
 });

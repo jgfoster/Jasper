@@ -59,8 +59,8 @@ describe('rename method (integration)', () => {
     expect(enginePresent()).toBe(q.checkRefactoringSupportAvailable(session()));
   });
 
-  it('runs the engine GS SUnit suites in-stone with zero failures', () => {
-    if (!enginePresent()) return;
+  it('runs the engine GS SUnit suites in-stone with zero failures', (ctx) => {
+    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     // File in the test classes (in-image compile — robust) then run every engine
     // suite, answering the total failure+error count across all of them.
@@ -78,8 +78,8 @@ failuresAndErrors printString`;
     expect(exec(code).trim()).toBe('0');
   });
 
-  it('runs the rename-method suite alone and reports its test count', () => {
-    if (!enginePresent()) return;
+  it('runs the rename-method suite alone and reports its test count', (ctx) => {
+    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     const p = escapeString(engineTestsPayload());
     // The class isn't defined at this doit's compile time (it is filed in at run
@@ -112,8 +112,8 @@ r runCount printString, ' ', (r failures size + r errors size) printString`;
     q.compileMethod(session(), BASE, false, 'moving', 'caller\n\t^self movePointX: 1 y: 2');
   };
 
-  it('previews a keyword rename+reorder through the paginated query, then applies it server-side', async () => {
-    if (!enginePresent()) return;
+  it('previews a keyword rename+reorder through the paginated query, then applies it server-side', async (ctx) => {
+    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     defineFixture();
     const token = `rmit-${BASE}`;
@@ -157,8 +157,8 @@ r runCount printString, ' ', (r failures size + r errors size) printString`;
     ).toBe('true');
   });
 
-  it('pages a preview and honours a deselected change on apply', async () => {
-    if (!enginePresent()) return;
+  it('pages a preview and honours a deselected change on apply', async (ctx) => {
+    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     defineFixture();
     const token = `rmit-page-${BASE}`;

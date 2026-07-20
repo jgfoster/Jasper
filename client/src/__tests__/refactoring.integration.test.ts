@@ -37,6 +37,12 @@ describe('rename instance variable (integration)', () => {
 
   const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
   const exec = (code: string): string => q.executeFetchString(session(), 'refactoring-it', code);
+  // previewRenameInstVar wants a QueryExecutor `(label, code) => string` and calls it
+  // as `execute(label, code)`. Adapt to the two-arg shape (a single-arg `exec` would
+  // send the label as code), forwarding the descriptive label so query logging matches
+  // production.
+  const execQuery = (label: string, code: string): string =>
+    q.executeFetchString(session(), label, code);
 
   const engineLoaded = (): boolean => q.checkRefactoringSupportAvailable(session());
   const engineClassPresent = (): boolean =>
@@ -91,13 +97,13 @@ describe('rename instance variable (integration)', () => {
     expect(available).toBe(engineClassPresent());
   });
 
-  it('rewrites references across the defining class and its subclass', () => {
-    if (!engineLoaded()) return;
+  it('rewrites references across the defining class and its subclass', (ctx) => {
+    if (!engineLoaded()) ctx.skip('refactoring engine not loaded in this stone');
 
     defineCounterHierarchy();
 
     const changes = parseRenameChanges(
-      previewRenameInstVar(exec, COUNTER, 'count', 'tally', userIndex()),
+      previewRenameInstVar(execQuery, COUNTER, 'count', 'tally', userIndex()),
     );
 
     expect(changeFor(changes, COUNTER, 'increment')?.newSource).toContain('tally := tally + 1');
@@ -105,13 +111,13 @@ describe('rename instance variable (integration)', () => {
     expect(changes.some((c) => c.newSource.includes('count'))).toBe(false);
   });
 
-  it('rewrites the instance-variable list in the class definition', () => {
-    if (!engineLoaded()) return;
+  it('rewrites the instance-variable list in the class definition', (ctx) => {
+    if (!engineLoaded()) ctx.skip('refactoring engine not loaded in this stone');
 
     defineCounterHierarchy();
 
     const changes = parseRenameChanges(
-      previewRenameInstVar(exec, COUNTER, 'count', 'tally', userIndex()),
+      previewRenameInstVar(execQuery, COUNTER, 'count', 'tally', userIndex()),
     );
 
     const classDef = changes.find((c) => c.kind === 'classDefinitionEdit');
@@ -120,13 +126,13 @@ describe('rename instance variable (integration)', () => {
     expect(classDef?.newSource).not.toContain('count');
   });
 
-  it('builds the preview without committing', () => {
-    if (!engineLoaded()) return;
+  it('builds the preview without committing', (ctx) => {
+    if (!engineLoaded()) ctx.skip('refactoring engine not loaded in this stone');
 
     defineCounterHierarchy();
     const needsCommitBefore = exec('System needsCommit printString').trim();
 
-    previewRenameInstVar(exec, COUNTER, 'count', 'tally', userIndex());
+    previewRenameInstVar(execQuery, COUNTER, 'count', 'tally', userIndex());
 
     expect(exec('System needsCommit printString').trim()).toBe(needsCommitBefore);
   });

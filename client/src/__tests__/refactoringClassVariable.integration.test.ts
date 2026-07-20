@@ -93,8 +93,8 @@ describe('rename class variable (integration)', () => {
     expect(enginePresent()).toBe(q.checkRefactoringSupportAvailable(session()));
   });
 
-  it('runs the rename-class-variable GS SUnit suite in-stone with zero failures', () => {
-    if (!enginePresent()) return;
+  it('runs the rename-class-variable GS SUnit suite in-stone with zero failures', (ctx) => {
+    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     const code = `| r |
 ${fileInTests()}
@@ -104,8 +104,8 @@ r := (System myUserProfile symbolList objectNamed: #GsRenameClassVariableRefacto
     expect(exec(code).trim()).toBe('0');
   });
 
-  it('previews the rename across both sides and the subclass, and stages the class-def edit', async () => {
-    if (!enginePresent()) return;
+  it('previews the rename across both sides and the subclass, and stages the class-def edit', async (ctx) => {
+    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     defineFixture();
 
@@ -134,8 +134,8 @@ r := (System myUserProfile symbolList objectNamed: #GsRenameClassVariableRefacto
     expect(useRate?.className).toBe(SUB);
   });
 
-  it('applies the rename server-side, preserving the value and creating no new version', async () => {
-    if (!enginePresent()) return;
+  it('applies the rename server-side, preserving the value and creating no new version', async (ctx) => {
+    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     defineFixture();
     const token = `rcvit-apply-${BASE}`;

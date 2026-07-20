@@ -88,8 +88,8 @@ describe('rename class variable end-to-end (live GCI)', () => {
     expect(typeof enginePresent()).toBe('boolean');
   });
 
-  it('rewrites a genuine reference but leaves a shadowing block temporary alone', async () => {
-    if (!enginePresent()) return;
+  it('rewrites a genuine reference but leaves a shadowing block temporary alone', async (ctx) => {
+    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     defineFixture();
 
@@ -111,8 +111,8 @@ describe('rename class variable end-to-end (live GCI)', () => {
     expect(start.page.changes.some((c) => c.selector === 'shadow')).toBe(false);
   });
 
-  it('applies the rename, preserving the shared value and creating no new class version', async () => {
-    if (!enginePresent()) return;
+  it('applies the rename, preserving the shared value and creating no new class version', async (ctx) => {
+    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     defineFixture();
     const token = `cve2e-apply-${BASE}`;
