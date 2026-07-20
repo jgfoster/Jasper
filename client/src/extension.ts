@@ -1696,16 +1696,16 @@ export function activate(context: vscode.ExtensionContext) {
       sunitTestController.refresh();
     }),
 
-    vscode.commands.registerCommand('gemstone.displayIt', () => {
-      codeExecutor.displayIt();
+    vscode.commands.registerCommand('gemstone.displayIt', async () => {
+      await codeExecutor.displayIt();
     }),
 
-    vscode.commands.registerCommand('gemstone.executeIt', () => {
-      codeExecutor.executeIt();
+    vscode.commands.registerCommand('gemstone.executeIt', async () => {
+      await codeExecutor.executeIt();
     }),
 
-    vscode.commands.registerCommand('gemstone.debugIt', () => {
-      codeExecutor.debugIt();
+    vscode.commands.registerCommand('gemstone.debugIt', async () => {
+      await codeExecutor.debugIt();
     }),
 
     vscode.commands.registerCommand('gemstone.copyDisplayItResult', () => {
@@ -1724,8 +1724,8 @@ export function activate(context: vscode.ExtensionContext) {
       codeExecutor.expandResultInPlace();
     }),
 
-    vscode.commands.registerCommand('gemstone.inspectIt', () => {
-      codeExecutor.inspectIt(inspectorProvider);
+    vscode.commands.registerCommand('gemstone.inspectIt', async () => {
+      await codeExecutor.inspectIt(inspectorProvider);
     }),
 
     vscode.commands.registerCommand('gemstone.showTranscript', () => {
