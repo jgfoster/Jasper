@@ -29,6 +29,11 @@ narrower, and a bit surprising.
 | `:=` assigning a non-ASCII literal to a temp | Yes |
 | `at:put:` storing a non-ASCII literal | Yes |
 
+*(This table holds as the first attempt against a given stone. See
+[Update (2026-07-18)](#update-2026-07-18) below: the same shapes can stop
+reproducing after enough unrelated non-ASCII compiler activity has
+accumulated on that stone.)*
+
 The pattern we found: a non-ASCII character seems fine sitting in an *inert*
 expression. It triggers the error once it's the value being **stored**.
 
@@ -77,6 +82,75 @@ We'd love your perspective on either of these, if you have one:
   times, while a fresh, never-used snippet reproduced every time. We're not
   sure if that's the same mechanism as the session issue above, or something
   separate.
+
+## Update (2026-07-18)
+
+We (well, a Claude Code session digging into this with us) went back and
+tried to resolve the two open questions above, plus retest the trigger
+table itself. Some of what we thought we knew didn't hold up.
+
+### The trigger table isn't stable
+
+We reran the exact single-statement `:=` case from the table above, on a
+stone that had already been through a long, varied session of other
+non-ASCII compiles. It didn't reproduce anymore. Restarted the stone fresh
+and ran the identical code as the very first call: it reproduced exactly as
+the table says. So the table is accurate, but only as a first attempt
+against a given stone. Something about accumulated compiler activity shifts
+whether a given shape reproduces, and we don't yet know what specifically
+drives that (total compile count, non-ASCII byte count, something else
+entirely).
+
+This also gives us a competing candidate for the actual trigger, alongside
+"storing a value": whether a *later statement* resolves a name at all
+(a temp or a global), independent of whether that name touches the
+non-ASCII text. For example:
+
+```smalltalk
+#'x—y' printString. Object name      "throws"
+#'x—y' printString. 3 class name     "doesn't -- no name to resolve"
+```
+
+We think this fits our own `getBaseMethodSource.ts` exception (a read,
+not a store, that still reproduces once wrapped in `ifNotNil:`/`ifNil:`)
+better than the store/read framing did. We're not confident this is the
+whole story either, given the stone-state drift above; we're noting it as
+a better-fitting hypothesis, not a replacement rule.
+
+### Open question 1 (session poisoning): no evidence found
+
+We ran an ascii-only compile, then a compile we knew would throw, then two
+more ascii-only compiles, then a fresh non-ASCII shape, all in the same
+session. Every one behaved exactly as expected on its own terms -- no
+carryover from the earlier throw. We couldn't get this to reproduce, in any
+shape we tried.
+
+### Open question 2 (same text eventually stops reproducing): not from repetition
+
+The same throwing text, repeated 10 times in one session and across 5 fresh
+sessions, threw every single time -- so it isn't simply "run the same
+snippet enough times," and the `unique()` comment's stated reason (text-keyed
+caching) looks incorrect. What we actually saw drift was tied to a long
+session of *varied* non-ASCII activity (see above), not repetition of one
+fixed string. That's a narrower and different claim than what we originally
+wrote, and we'd guess it's the same underlying mechanism as the trigger-table
+instability, though we haven't confirmed that.
+
+### Versions
+
+Re-ran the full matrix independently: same result as above (3.6.2, 3.6.8,
+3.7.2, and 3.7.4.3 reproduce; 3.7.5 doesn't).
+
+### Where this leaves us
+
+We don't have a complete rule yet. What changed: we no longer think "store
+vs. inert" is the deciding factor, we have a competing hypothesis that fits
+our own exception case better, and we have a name for the thing we
+couldn't explain before (stone-lifetime accumulation) even though we can't
+yet say what specifically accumulates. Flagging this rather than
+smoothing it over, since anyone trying to reproduce this against our
+existing table should know it can look different depending on what's
+already run against that stone.
 
 ## Reproducing this
 

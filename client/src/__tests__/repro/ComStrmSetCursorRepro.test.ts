@@ -13,6 +13,14 @@ import { GCI_LIBRARY_PATH, STONE_NRS, GEM_NRS, GS_USER, GS_PASSWORD } from '../g
 // This repo's default test stone is 3.6.2, so the two `toThrow` assertions
 // below pass out of the box. Against a 3.7.5+ stone, EXPECT them to fail --
 // that's the fix working, not a broken test.
+//
+// Update (2026-07-18): further testing suggests both claims in the comment
+// above need revising. See README's "Update" section: repeating the exact
+// same text (same session, 10x; fresh sessions, 5x) reproduced every time,
+// so it doesn't look text-keyed. And no session-poisoning effect showed up
+// either -- an ascii-only compile right after a throw, in the same
+// session, succeeded normally. unique() is still a reasonable defensive
+// choice; we just no longer believe the reason we originally gave for it.
 function unique(label: string): string {
   return `${label}${Math.random().toString(36).slice(2, 10)}`;
 }
