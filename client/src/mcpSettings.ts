@@ -22,7 +22,7 @@ interface ConfigLike {
 export type GetConfiguration = (section: string) => ConfigLike;
 
 const defaultGetConfiguration: GetConfiguration = (section) =>
-  vscode.workspace.getConfiguration(section) as unknown as ConfigLike;
+  vscode.workspace.getConfiguration(section);
 
 /** True when the user set this key at any scope (not merely the contributed default). */
 function isExplicitlySet<T>(config: ConfigLike, key: string): boolean {

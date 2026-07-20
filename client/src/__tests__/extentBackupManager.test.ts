@@ -85,7 +85,7 @@ describe('runOnlineExtentBackup', () => {
 
     await runOnlineExtentBackup(deps);
 
-    const message = vi.mocked(vscode.window.showInformationMessage).mock.calls[0][0] as string;
+    const message = vi.mocked(vscode.window.showInformationMessage).mock.calls[0][0];
     expect(message).toContain('written to');
     expect(message).toContain('transaction logs');
   });
@@ -135,7 +135,7 @@ describe('runOnlineExtentBackup', () => {
 
     expect(ok).toBe(false);
     expect(deps.copyFile).toHaveBeenCalled();
-    const error = vi.mocked(vscode.window.showErrorMessage).mock.calls[0][0] as string;
+    const error = vi.mocked(vscode.window.showErrorMessage).mock.calls[0][0];
     expect(error).toContain('NOT usable');
   });
 
@@ -176,7 +176,7 @@ function fakeSession(stone: string): ActiveSession {
   return { login: { stone } } as unknown as ActiveSession;
 }
 function sessionRow(session: ActiveSession): GemStoneSessionItem {
-  return { activeSession: session } as unknown as GemStoneSessionItem;
+  return { activeSession: session };
 }
 function runningStoneRow(stoneName: string): DatabaseNode {
   return { kind: 'stone', db: { config: { stoneName } }, running: true } as unknown as DatabaseNode;

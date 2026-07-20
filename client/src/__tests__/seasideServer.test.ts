@@ -44,7 +44,7 @@ function servesHelloWorld() {
   global.fetch = vi.fn().mockResolvedValue({
     ok: true,
     text: async () => '<body>Hello World from Seaside</body>',
-  }) as unknown as typeof fetch;
+  });
 }
 
 describe('Seaside server lifecycle', () => {

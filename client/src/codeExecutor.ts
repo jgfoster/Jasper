@@ -675,7 +675,7 @@ export class CodeExecutor {
     );
     if (resultErr.number !== 0) {
       const msg = resultErr.message || `GemStone error ${resultErr.number}`;
-      const context = toBigInt(resultErr.context as unknown as number | bigint);
+      const context = toBigInt(resultErr.context);
       if (context !== OOP_NIL && context !== 0n) {
         this.validateContextOop(session, context);
         throw new DebuggableError(msg, context);

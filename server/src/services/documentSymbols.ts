@@ -1,12 +1,5 @@
 import { DocumentSymbol, SymbolKind } from 'vscode-languageserver';
-import {
-  MethodNode,
-  BlockNode,
-  StatementNode,
-  ExpressionNode,
-  PrimaryNode,
-  MessageNode,
-} from '../parser/ast';
+import { MethodNode, StatementNode, ExpressionNode, PrimaryNode, MessageNode } from '../parser/ast';
 import { SourceRange } from '../lexer/tokens';
 import { TopazRegion } from '../topaz/topazParser';
 
@@ -115,7 +108,7 @@ function collectFromMessage(msg: MessageNode, symbols: DocumentSymbol[], off: nu
 
 function collectFromPrimary(primary: PrimaryNode, symbols: DocumentSymbol[], off: number): void {
   if (primary.kind === 'Block') {
-    const block = primary as BlockNode;
+    const block = primary;
     const blockSymbol: DocumentSymbol = {
       name:
         block.parameters.length > 0

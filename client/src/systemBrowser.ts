@@ -504,7 +504,7 @@ export class SystemBrowser {
 
     // Update dictionary if changed
     if (this.state.selectedDictIndex !== dictIndex) {
-      this.handleSelectDictionary(dictIndex);
+      this.handleSelectDictionary(dictIndex).catch((e) => this.postError(e));
       this.panel.webview.postMessage({
         command: 'selectDictionaryItem',
         index: dictIndex,
@@ -604,7 +604,9 @@ export class SystemBrowser {
           this.handleReady();
           break;
         case 'selectDictionary':
-          this.handleSelectDictionary(message.index as number, false, true);
+          this.handleSelectDictionary(message.index as number, false, true).catch((e) =>
+            this.postError(e),
+          );
           break;
         case 'selectCategory':
           this.handleSelectCategory(message.name as string);
@@ -984,7 +986,7 @@ export class SystemBrowser {
     const className = this.state.selectedClass;
     if (!className) return;
 
-    this.openClassFile(className, selector, this.state.isMeta);
+    this.openClassFile(className, selector, this.state.isMeta).catch((e) => this.postError(e));
   }
 
   // Open a side-by-side diff of a session override against the persistent base
@@ -1138,7 +1140,7 @@ export class SystemBrowser {
     });
     this.postMethods(this.state.methods, selector);
 
-    if (openFile) this.openClassFile(className, selector, isMeta);
+    if (openFile) this.openClassFile(className, selector, isMeta).catch((e) => this.postError(e));
   }
 
   /**
@@ -1159,7 +1161,7 @@ export class SystemBrowser {
     this.panel.reveal(undefined, true);
 
     if (this.state.selectedDictIndex !== dictIndex) {
-      this.handleSelectDictionary(dictIndex);
+      this.handleSelectDictionary(dictIndex).catch((e) => this.postError(e));
       this.panel.webview.postMessage({ command: 'selectDictionaryItem', index: dictIndex });
     }
 
@@ -1210,7 +1212,7 @@ export class SystemBrowser {
     // Restore previous selections when the items still exist after refresh
     if (!prev.selectedDictIndex || prev.selectedDictIndex > this.state.dictionaries.length) return;
 
-    this.handleSelectDictionary(prev.selectedDictIndex);
+    this.handleSelectDictionary(prev.selectedDictIndex).catch((e) => this.postError(e));
     this.panel.webview.postMessage({
       command: 'selectDictionaryItem',
       index: prev.selectedDictIndex,

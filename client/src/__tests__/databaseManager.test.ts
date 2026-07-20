@@ -53,9 +53,7 @@ function makeManager(overrides?: {
 
 /** Pick the QuickPick item at `index` (preserving object identity). */
 function pickItem(index: number): void {
-  vi.mocked(vscode.window.showQuickPick).mockImplementation(
-    async (items) => (await items)[index] as vscode.QuickPickItem,
-  );
+  vi.mocked(vscode.window.showQuickPick).mockImplementation(async (items) => (await items)[index]);
 }
 
 describe('DatabaseManager.replaceExtent', () => {

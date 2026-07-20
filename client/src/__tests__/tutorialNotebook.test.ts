@@ -141,7 +141,7 @@ describe('tutorial notebook', () => {
       await openTutorialNotebook();
 
       expect(vscode.window.showErrorMessage).toHaveBeenCalledTimes(1);
-      const msg = vi.mocked(vscode.window.showErrorMessage).mock.calls[0][0] as string;
+      const msg = vi.mocked(vscode.window.showErrorMessage).mock.calls[0][0];
       expect(msg).toContain('tutorial notebook');
       expect(vscode.window.showNotebookDocument).not.toHaveBeenCalled();
     });

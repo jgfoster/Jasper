@@ -38,7 +38,7 @@ function fakeMemento(): vscode.Memento {
       store.set(key, value);
     },
     keys: () => [...store.keys()],
-  } as vscode.Memento;
+  };
 }
 
 // A real directory on disk, holding a Rowan load spec when asked — the
@@ -316,7 +316,7 @@ describe('RowanTreeProvider', () => {
       const items = sectionChildren(provider, 'loaded');
 
       expect((items[0] as RowanLoadedProjectItem).label).toBe('Seaside');
-      const group = items[1] as RowanBuiltinGroupItem;
+      const group = items[1];
       expect(group).toBeInstanceOf(RowanBuiltinGroupItem);
       expect(group.description).toBe('2');
       const builtins = provider.getChildren(group) as RowanLoadedProjectItem[];

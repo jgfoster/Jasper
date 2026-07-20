@@ -16,7 +16,7 @@ import {
 /** The lines appended to the singleton channel, in order. */
 function loggedLines(): string[] {
   const channel = getGciLog();
-  return vi.mocked(channel.appendLine).mock.calls.map((c) => c[0] as string);
+  return vi.mocked(channel.appendLine).mock.calls.map((c) => c[0]);
 }
 
 describe('gciLog', () => {

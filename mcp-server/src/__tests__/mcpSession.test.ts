@@ -52,7 +52,10 @@ function makeConfig(overrides: Partial<McpSessionConfig> = {}): McpSessionConfig
 
 function createMockGci() {
   return {
-    GciTsLogin: vi.fn(() => ({ session: {} as unknown, err: { ...noErr } })),
+    GciTsLogin: vi.fn((): { session: unknown; err: typeof noErr } => ({
+      session: {},
+      err: { ...noErr },
+    })),
     GciTsLogout: vi.fn(() => ({ err: { ...noErr } })),
     GciTsResolveSymbol: vi.fn(() => ({ result: 1000n, err: { ...noErr } })),
     GciTsExecuteFetchBytes: vi.fn(() => ({ data: 'result', bytesReturned: 6, err: { ...noErr } })),
@@ -66,7 +69,7 @@ describe('McpSession', () => {
     mockGci = createMockGci();
     vi.mocked(GciLibrary).mockImplementation(function (this: unknown) {
       return mockGci as unknown as GciLibrary;
-    } as unknown as new (...args: ConstructorParameters<typeof GciLibrary>) => GciLibrary);
+    });
   });
 
   describe('constructor', () => {

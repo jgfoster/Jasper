@@ -152,7 +152,7 @@ export class ScopeAnalyzer {
   private walkPrimary(primary: PrimaryNode, scope: ScopeNode): void {
     switch (primary.kind) {
       case 'Block':
-        this.walkBlock(primary as BlockNode, scope);
+        this.walkBlock(primary, scope);
         break;
       case 'SelectionBlock':
         // Selection block has a parameter and predicate

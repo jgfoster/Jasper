@@ -68,7 +68,7 @@ describe('CommentBrowser', () => {
     vi.mocked(queries.getClassComment).mockReturnValue('the class comment');
     vi.mocked(queries.setClassComment).mockReturnValue('ok');
     vi.mocked(queries.canClassBeWritten).mockReturnValue(true);
-    vi.mocked(window.showWarningMessage).mockResolvedValue(undefined as never);
+    vi.mocked(window.showWarningMessage).mockResolvedValue(undefined);
   });
 
   afterEach(resetPanels);
@@ -261,7 +261,7 @@ describe('CommentBrowser', () => {
     });
 
     it('saves the outgoing class edits when the user chooses Save, then loads the new class', async () => {
-      vi.mocked(window.showWarningMessage).mockResolvedValue('Save' as never);
+      vi.mocked(window.showWarningMessage).mockResolvedValue('Save');
       vi.mocked(queries.getClassComment).mockReturnValue('invoice comment');
 
       await CommentBrowser.showOrUpdate(
@@ -284,7 +284,7 @@ describe('CommentBrowser', () => {
     });
 
     it("discards the edits and loads the new class when the user chooses Don't Save", async () => {
-      vi.mocked(window.showWarningMessage).mockResolvedValue("Don't Save" as never);
+      vi.mocked(window.showWarningMessage).mockResolvedValue("Don't Save");
 
       await CommentBrowser.showOrUpdate(
         session,
@@ -301,7 +301,7 @@ describe('CommentBrowser', () => {
     });
 
     it('keeps the current class and does not refill when the prompt is cancelled', async () => {
-      vi.mocked(window.showWarningMessage).mockResolvedValue(undefined as never);
+      vi.mocked(window.showWarningMessage).mockResolvedValue(undefined);
 
       await CommentBrowser.showOrUpdate(
         session,

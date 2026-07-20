@@ -426,7 +426,7 @@ class ExplorerController {
   private currentMethodSelector(): string | undefined {
     const selection = this.views?.method.selection;
     if (!selection) return this.state.selectedSelector;
-    const item = selection.find((n) => n instanceof MethodItem) as MethodItem | undefined;
+    const item = selection.find((n) => n instanceof MethodItem);
     return item?.info.selector;
   }
 
@@ -437,13 +437,13 @@ class ExplorerController {
   private providerFor(viewId: string): RefreshableProvider<unknown> {
     switch (viewId) {
       case VIEW_DICTS:
-        return this.dictProvider as RefreshableProvider<unknown>;
+        return this.dictProvider;
       case VIEW_CATEGORIES:
-        return this.categoryProvider as RefreshableProvider<unknown>;
+        return this.categoryProvider;
       case VIEW_CLASSES:
-        return this.classProvider as RefreshableProvider<unknown>;
+        return this.classProvider;
       default:
-        return this.methodProvider as RefreshableProvider<unknown>;
+        return this.methodProvider;
     }
   }
 
@@ -536,8 +536,7 @@ class ExplorerController {
     const session = this.session();
     const { dictName, dictIndex, className } = this.state;
     // Remember the method row currently selected so it can be re-revealed.
-    const selectedMethod = this.views?.method.selection.find((n) => n instanceof MethodItem) as
-      MethodItem | undefined;
+    const selectedMethod = this.views?.method.selection.find((n) => n instanceof MethodItem);
     const revealMethod = selectedMethod
       ? { selector: selectedMethod.info.selector, isMeta: selectedMethod.isMeta }
       : undefined;
@@ -1329,7 +1328,7 @@ class ExplorerController {
     if (this.state.className === className && this.state.dictName === dictName) {
       if (revealMethod) {
         const info = this.selectorsFor(revealMethod.isMeta, ALL_METHODS_CATEGORY).find(
-          (i) => i.selector === revealMethod!.selector,
+          (i) => i.selector === revealMethod.selector,
         );
         if (info) {
           try {
@@ -1815,7 +1814,7 @@ class MethodDragAndDrop implements vscode.TreeDragAndDropController<MethodNode> 
   constructor(private readonly ctl: ExplorerController) {}
 
   handleDrag(source: readonly MethodNode[], dataTransfer: vscode.DataTransfer): void {
-    const item = source.find((n) => n instanceof MethodItem) as MethodItem | undefined;
+    const item = source.find((n) => n instanceof MethodItem);
     const payload = item && this.ctl.dragPayload(item);
     if (payload) dataTransfer.set(METHOD_MIME, new vscode.DataTransferItem(payload));
   }

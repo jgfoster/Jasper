@@ -155,7 +155,7 @@ describe('ListFilter', () => {
       filter.applyFilter();
 
       expect(filter.matchedItems).toHaveLength(1);
-      expect((filter.matchedItems[0] as HTMLElement).dataset.value).toBe('Array');
+      expect(filter.matchedItems[0].dataset.value).toBe('Array');
     });
 
     it('adds a match-highlight span for the matched portion', () => {
@@ -459,10 +459,7 @@ describe('ListFilter', () => {
       getListFilterClass().refreshFilterOf(list);
 
       expect(filter.matchedItems).toHaveLength(2);
-      expect(filter.matchedItems.map((el) => (el as HTMLElement).dataset.value)).toEqual([
-        'Array',
-        'Barrage',
-      ]);
+      expect(filter.matchedItems.map((el) => el.dataset.value)).toEqual(['Array', 'Barrage']);
     });
 
     it('picks up a changed query when called after searchBox value changes', () => {
@@ -476,7 +473,7 @@ describe('ListFilter', () => {
       getListFilterClass().refreshFilterOf(list);
 
       expect(filter.matchedItems).toHaveLength(1);
-      expect((filter.matchedItems[0] as HTMLElement).dataset.value).toBe('Bag');
+      expect(filter.matchedItems[0].dataset.value).toBe('Bag');
     });
 
     it('re-applies the active filter against new children after list repopulation', () => {
@@ -494,10 +491,7 @@ describe('ListFilter', () => {
       getListFilterClass().refreshFilterOf(list);
 
       expect(filter.matchedItems).toHaveLength(2);
-      expect(filter.matchedItems.map((el) => (el as HTMLElement).dataset.value)).toEqual([
-        'Array',
-        'Barrage',
-      ]);
+      expect(filter.matchedItems.map((el) => el.dataset.value)).toEqual(['Array', 'Barrage']);
     });
 
     it('does nothing when no filter is associated with the list element', () => {
@@ -536,7 +530,7 @@ describe('ListFilter', () => {
       getListFilterClass().refreshFilterOf(list);
 
       expect(filter.matchedItems).toHaveLength(1);
-      expect((filter.matchedItems[0] as HTMLElement).dataset.value).toBe('Array');
+      expect(filter.matchedItems[0].dataset.value).toBe('Array');
     });
   });
 
@@ -559,7 +553,7 @@ describe('ListFilter', () => {
       filter.applyFilter();
 
       expect(filter.matchedItems).toHaveLength(1);
-      expect((filter.matchedItems[0] as HTMLElement).dataset.value).toBe('Array');
+      expect(filter.matchedItems[0].dataset.value).toBe('Array');
     });
   });
 

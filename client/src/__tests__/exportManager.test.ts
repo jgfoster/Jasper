@@ -212,7 +212,7 @@ function createMockSession(overrides?: Partial<GemStoneLogin>): ActiveSession {
       ...overrides,
     },
     stoneVersion: '3.7.2',
-  } as ActiveSession;
+  };
 }
 
 function defaultImage() {

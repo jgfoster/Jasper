@@ -339,6 +339,7 @@ export class OsConfigTreeProvider implements vscode.TreeDataProvider<OsConfigNod
       if (this._cache) return this._cache;
 
       // Return a loading indicator immediately, then fetch async and refresh.
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       this._loadConfig();
       return [{ kind: 'loading' }];
     }

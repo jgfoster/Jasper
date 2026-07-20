@@ -11,16 +11,13 @@ import {
   MethodNode,
   MethodBodyNode,
   MessagePatternNode,
-  UnaryPatternNode,
   BinaryPatternNode,
   KeywordPatternNode,
   StatementNode,
   ReturnNode,
-  AssignmentNode,
   ExpressionNode,
   PrimaryNode,
   VariableNode,
-  PathNode,
   BlockNode,
   SelectionBlockNode,
   ParenExpressionNode,
@@ -32,12 +29,9 @@ import {
   KeywordPartNode,
   LiteralNode,
   NumberLiteralNode,
-  StringLiteralNode,
   SymbolLiteralNode,
-  CharacterLiteralNode,
   ArrayLiteralNode,
   ByteArrayLiteralNode,
-  SpecialLiteralNode,
   ArrayItemNode,
   PragmaNode,
   UnaryPragmaNode,
@@ -116,7 +110,7 @@ export class Parser {
         kind: 'UnaryPattern',
         selector: id.text,
         range: this.rangeFrom(start),
-      } as UnaryPatternNode;
+      };
     }
 
     this.addError('Expected method pattern');
@@ -124,7 +118,7 @@ export class Parser {
       kind: 'UnaryPattern',
       selector: 'unknown',
       range: this.rangeFrom(start),
-    } as UnaryPatternNode;
+    };
   }
 
   private parseBinaryPattern(start: SourcePosition): BinaryPatternNode {
@@ -173,7 +167,7 @@ export class Parser {
     if (this.check(TokenType.Identifier)) {
       const text = this.peek().text;
       if (text === 'protected' || text === 'unprotected') {
-        protection = text as 'protected' | 'unprotected';
+        protection = text;
         this.advance();
       }
     }
@@ -381,7 +375,7 @@ export class Parser {
           variable,
           value,
           range: this.rangeFrom(start),
-        } as AssignmentNode;
+        };
       }
     }
 
@@ -469,7 +463,7 @@ export class Parser {
       selector: selector.text,
       envSpecifier,
       range: this.rangeFrom(start),
-    } as UnaryMessageNode;
+    };
   }
 
   private parseBinaryMessageNode(): BinaryMessageNode {
@@ -489,7 +483,7 @@ export class Parser {
       argument,
       envSpecifier,
       range: this.rangeFrom(start),
-    } as BinaryMessageNode;
+    };
   }
 
   private parseKeywordMessage(): KeywordMessageNode | null {
@@ -565,7 +559,7 @@ export class Parser {
         kind: 'SymbolLiteral',
         value: '#',
         range: this.rangeFrom(start),
-      } as SymbolLiteralNode;
+      };
     }
 
     // Block: [...]
@@ -599,7 +593,7 @@ export class Parser {
           kind: 'NumberLiteral',
           value: '-' + num.text,
           range: this.rangeFrom(start),
-        } as NumberLiteralNode;
+        };
       }
     }
 
@@ -621,7 +615,7 @@ export class Parser {
       kind: 'Variable',
       name: token.text,
       range: this.rangeFrom(start),
-    } as VariableNode;
+    };
   }
 
   private parseIdentifierOrPath(): PrimaryNode {
@@ -663,7 +657,7 @@ export class Parser {
             kind: 'Path',
             segments,
             range: this.rangeFrom(start),
-          } as PathNode;
+          };
         }
       }
     }
@@ -672,7 +666,7 @@ export class Parser {
       kind: 'Variable',
       name: id.text,
       range: this.rangeFrom(start),
-    } as VariableNode;
+    };
   }
 
   private parseBlock(): BlockNode {
@@ -804,7 +798,7 @@ export class Parser {
           kind: 'NumberLiteral',
           value: '-' + num.text,
           range: this.rangeFrom(start),
-        } as NumberLiteralNode;
+        };
       }
     }
 
@@ -820,7 +814,7 @@ export class Parser {
         kind: 'SymbolLiteral',
         value: text,
         range: this.rangeFrom(start),
-      } as SymbolLiteralNode;
+      };
     }
 
     if (this.check(TokenType.Keyword)) {
@@ -833,10 +827,10 @@ export class Parser {
         kind: 'SymbolLiteral',
         value: text,
         range: this.rangeFrom(start),
-      } as SymbolLiteralNode;
+      };
     }
 
-    return this.parseLiteral() as ArrayItemNode;
+    return this.parseLiteral();
   }
 
   private parseByteArrayLiteral(): ByteArrayLiteralNode {
@@ -893,7 +887,7 @@ export class Parser {
           kind: 'NumberLiteral',
           value: token.text,
           range: this.rangeFrom(start),
-        } as NumberLiteralNode;
+        };
 
       case TokenType.String:
         this.advance();
@@ -901,7 +895,7 @@ export class Parser {
           kind: 'StringLiteral',
           value: token.text,
           range: this.rangeFrom(start),
-        } as StringLiteralNode;
+        };
 
       case TokenType.Symbol:
         return this.parseSymbolLiteral();
@@ -912,7 +906,7 @@ export class Parser {
           kind: 'CharacterLiteral',
           value: token.text,
           range: this.rangeFrom(start),
-        } as CharacterLiteralNode;
+        };
 
       case TokenType.SpecialLiteral:
         this.advance();
@@ -920,7 +914,7 @@ export class Parser {
           kind: 'SpecialLiteral',
           value: token.text as 'true' | 'false' | 'nil' | '_remoteNil',
           range: this.rangeFrom(start),
-        } as SpecialLiteralNode;
+        };
 
       case TokenType.HashLeftParen:
         return this.parseArrayLiteral();
@@ -935,7 +929,7 @@ export class Parser {
           kind: 'NumberLiteral',
           value: '0',
           range: this.rangeFrom(start),
-        } as NumberLiteralNode;
+        };
     }
   }
 

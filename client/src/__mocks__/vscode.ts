@@ -566,7 +566,7 @@ function createMockDiagnosticCollection() {
     get: vi.fn((uri: { toString(): string }) => store.get(uri.toString())),
     forEach: vi.fn((callback: (uri: Uri, diagnostics: unknown[], collection: unknown) => void) => {
       store.forEach((_diags, uriStr) => {
-        callback(Uri.parse(uriStr), _diags as unknown[], undefined);
+        callback(Uri.parse(uriStr), _diags, undefined);
       });
     }),
     clear: vi.fn(() => store.clear()),
