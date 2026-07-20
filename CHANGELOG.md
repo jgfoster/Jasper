@@ -4,6 +4,12 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.8.6] - 2026-07-20
+
+### Changed
+
+- **Login editor: the NetLDI field now shows that it accepts a port number.** It is labeled **NetLDI (name or port)**, with a hint that it takes either a NetLDI service name (e.g. `gs64ldi`) or a port number (e.g. `50377`) — useful for connecting to remote stones.
+
 ## [1.8.5] - 2026-07-14
 
 ### Fixed

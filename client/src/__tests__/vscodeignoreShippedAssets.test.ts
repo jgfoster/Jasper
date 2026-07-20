@@ -95,6 +95,12 @@ describe('contributor tooling is excluded from the .vsix', () => {
     '.dockerignore',
     'CLAUDE.md',
     '**/CLAUDE.md',
+    '.git-blame-ignore-revs',
+    '.editorconfig',
+    '.prettierrc.json',
+    '.prettierignore',
+    'eslint.config.mjs',
+    'lefthook.yml',
   ])('excludes %s', (pattern) => {
     expect(ignores).toContain(pattern);
   });
