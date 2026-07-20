@@ -229,7 +229,7 @@ Jasper registers two kernels with Microsoft's [Jupyter extension](https://market
 
 **GemStone Smalltalk** runs each cell as an independent doit — multi-statement bodies are fine, and the value of the last statement is printed as the cell output. There is no notebook-local variable scope (Smalltalk has no REPL globals concept); state persists the way it does everywhere else in the session, e.g. `UserGlobals at: #x put: ...`, class definitions, and commits.
 
-**Grail (GemStone Python)** requires [Grail](https://github.com/jgfoster/Grail) (GemStone-Python) in your stone:
+**Grail (GemStone Python)** requires [Grail](https://github.com/GemTalk/Grail) (GemStone-Python) in your stone:
 
 - Globals persist across cells (Jupyter REPL semantics): `x = 1` in one cell, `x + 2` in the next. Each notebook gets its own module scope within the session, so two open notebooks don't share variables.
 - **GemStone: Reset Grail Notebook Scope** (command palette) clears the active notebook's globals — the equivalent of restarting a kernel.

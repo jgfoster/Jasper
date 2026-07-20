@@ -6,7 +6,7 @@ import * as path from 'path';
 // case where a tree-view command is invoked from the Command Palette with
 // `undefined`. Commands that read `node.kind` without a guard crash with
 // "Cannot read properties of undefined (reading 'kind')" — which is what
-// https://github.com/jgfoster/Jasper (gemstone.stopStone) hit in 1.3.2.
+// https://github.com/GemTalk/Jasper (gemstone.stopStone) hit in 1.3.2.
 //
 // Every handler must guard with either `!node ||` or optional chaining
 // (`node?.kind`). This test scans extension.ts to keep it that way.
