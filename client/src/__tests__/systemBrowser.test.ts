@@ -1254,9 +1254,11 @@ describe('SystemBrowser', () => {
       vi.mocked(queries.getDictionaryNames).mockReturnValue(['UserGlobals', 'Globals', 'NewDict']);
       vi.mocked(mockPanel.webview.postMessage).mockClear();
 
-      await messageHandler({ command: 'ctxAddDictionary' });
+      messageHandler({ command: 'ctxAddDictionary' });
 
-      expect(queries.addDictionary).toHaveBeenCalledWith(session, 'NewDict');
+      await vi.waitFor(() =>
+        expect(queries.addDictionary).toHaveBeenCalledWith(session, 'NewDict'),
+      );
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
         command: 'loadDictionaries',
         items: ['UserGlobals', 'Globals', 'NewDict'],
@@ -1267,15 +1269,16 @@ describe('SystemBrowser', () => {
       vi.mocked(window.showInputBox).mockResolvedValue('NewDict');
       vi.mocked(queries.getDictionaryNames).mockReturnValue(['UserGlobals', 'Globals', 'NewDict']);
 
-      await messageHandler({ command: 'ctxAddDictionary' });
+      messageHandler({ command: 'ctxAddDictionary' });
 
-      expect(exportManager.scheduleRefresh).toHaveBeenCalled();
+      await vi.waitFor(() => expect(exportManager.scheduleRefresh).toHaveBeenCalled());
       expect(fs.mkdirSync).not.toHaveBeenCalled();
     });
 
     it('does nothing when user cancels add dictionary', async () => {
       vi.mocked(window.showInputBox).mockResolvedValue(undefined);
-      await messageHandler({ command: 'ctxAddDictionary' });
+      messageHandler({ command: 'ctxAddDictionary' });
+      await new Promise((resolve) => setTimeout(resolve, 0));
       expect(queries.addDictionary).not.toHaveBeenCalled();
     });
 
@@ -1331,9 +1334,9 @@ describe('SystemBrowser', () => {
       vi.mocked(queries.getDictionaryNames).mockReturnValue(['Globals']);
       vi.mocked(mockPanel.webview.postMessage).mockClear();
 
-      await messageHandler({ command: 'ctxRemoveDictionary' });
+      messageHandler({ command: 'ctxRemoveDictionary' });
 
-      expect(queries.removeDictionary).toHaveBeenCalledWith(session, 1);
+      await vi.waitFor(() => expect(queries.removeDictionary).toHaveBeenCalledWith(session, 1));
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith({
         command: 'loadDictionaries',
         items: ['Globals'],
@@ -1348,7 +1351,8 @@ describe('SystemBrowser', () => {
       messageHandler({ command: 'selectDictionary', index: 1 });
       vi.mocked(window.showWarningMessage).mockResolvedValue(undefined);
 
-      await messageHandler({ command: 'ctxRemoveDictionary' });
+      messageHandler({ command: 'ctxRemoveDictionary' });
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(queries.removeDictionary).not.toHaveBeenCalled();
     });
@@ -1359,9 +1363,9 @@ describe('SystemBrowser', () => {
       vi.mocked(queries.getDictionaryNames).mockReturnValue(['Globals']);
       vi.mocked(fs.existsSync).mockReturnValue(true);
 
-      await messageHandler({ command: 'ctxRemoveDictionary' });
+      messageHandler({ command: 'ctxRemoveDictionary' });
 
-      expect(exportManager.scheduleRefresh).toHaveBeenCalled();
+      await vi.waitFor(() => expect(exportManager.scheduleRefresh).toHaveBeenCalled());
       expect(fs.rmSync).not.toHaveBeenCalled();
     });
 
@@ -1441,9 +1445,9 @@ describe('SystemBrowser', () => {
     it('deletes class after confirmation', async () => {
       vi.mocked(window.showWarningMessage).mockResolvedValue('Delete');
 
-      await messageHandler({ command: 'ctxDeleteClass' });
+      messageHandler({ command: 'ctxDeleteClass' });
 
-      expect(queries.deleteClass).toHaveBeenCalledWith(session, 1, 'Array');
+      await vi.waitFor(() => expect(queries.deleteClass).toHaveBeenCalledWith(session, 1, 'Array'));
       // The class's mirror file + persisted hash are dropped.
       expect(exportManager.removeClassFile).toHaveBeenCalledWith(
         session,
@@ -1462,16 +1466,19 @@ describe('SystemBrowser', () => {
 
     it('does not delete class when user cancels', async () => {
       vi.mocked(window.showWarningMessage).mockResolvedValue(undefined);
-      await messageHandler({ command: 'ctxDeleteClass' });
+      messageHandler({ command: 'ctxDeleteClass' });
+      await new Promise((resolve) => setTimeout(resolve, 0));
       expect(queries.deleteClass).not.toHaveBeenCalled();
     });
 
     it('moves class to another dictionary', async () => {
       vi.mocked(window.showQuickPick).mockResolvedValue({ label: 'Globals', index: 2 });
 
-      await messageHandler({ command: 'ctxMoveClass' });
+      messageHandler({ command: 'ctxMoveClass' });
 
-      expect(queries.moveClass).toHaveBeenCalledWith(session, 1, 2, 'Array');
+      await vi.waitFor(() =>
+        expect(queries.moveClass).toHaveBeenCalledWith(session, 1, 2, 'Array'),
+      );
     });
 
     it('delegates run tests to command', () => {
@@ -1504,9 +1511,11 @@ describe('SystemBrowser', () => {
       vi.mocked(queries.fileOutClass).mockReturnValue('! Array file-out');
       vi.mocked(window.showSaveDialog).mockResolvedValue(Uri.file('/out/Array.gs'));
 
-      await messageHandler({ command: 'ctxFileOutClass' });
+      messageHandler({ command: 'ctxFileOutClass' });
 
-      expect(queries.fileOutClass).toHaveBeenCalledWith(session, 'Array', 1);
+      await vi.waitFor(() =>
+        expect(queries.fileOutClass).toHaveBeenCalledWith(session, 'Array', 1),
+      );
       expect(fs.writeFileSync).toHaveBeenCalledWith('/out/Array.gs', '! Array file-out', 'utf8');
     });
 
@@ -1514,8 +1523,9 @@ describe('SystemBrowser', () => {
       messageHandler({ command: 'selectClass', name: 'AccountTestCase' });
       vi.mocked(window.showSaveDialog).mockResolvedValue(undefined);
 
-      await messageHandler({ command: 'ctxFileOutClass' });
+      messageHandler({ command: 'ctxFileOutClass' });
 
+      await vi.waitFor(() => expect(window.showSaveDialog).toHaveBeenCalled());
       const opts = vi.mocked(window.showSaveDialog).mock.calls[0][0]!;
       expect((opts.defaultUri as { fsPath: string }).fsPath).toContain('Account.gs');
     });
@@ -1524,7 +1534,8 @@ describe('SystemBrowser', () => {
       messageHandler({ command: 'selectClass', name: 'Array' });
       vi.mocked(window.showSaveDialog).mockResolvedValue(undefined);
 
-      await messageHandler({ command: 'ctxFileOutClass' });
+      messageHandler({ command: 'ctxFileOutClass' });
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(fs.writeFileSync).not.toHaveBeenCalled();
     });
@@ -1540,9 +1551,15 @@ describe('SystemBrowser', () => {
       );
       vi.mocked(window.showSaveDialog).mockResolvedValue(Uri.file('/out/UserGlobals.gs'));
 
-      await messageHandler({ command: 'ctxFileOutDictionaryMany' });
+      messageHandler({ command: 'ctxFileOutDictionaryMany' });
 
-      expect(fs.writeFileSync).toHaveBeenCalledWith('/out/Object.gs', '! Object file-out', 'utf8');
+      await vi.waitFor(() =>
+        expect(fs.writeFileSync).toHaveBeenCalledWith(
+          '/out/Object.gs',
+          '! Object file-out',
+          'utf8',
+        ),
+      );
       expect(fs.writeFileSync).toHaveBeenCalledWith('/out/Animal.gs', '! Animal file-out', 'utf8');
       expect(fs.writeFileSync).toHaveBeenCalledWith('/out/Dog.gs', '! Dog file-out', 'utf8');
       const loader = vi
@@ -1560,8 +1577,15 @@ describe('SystemBrowser', () => {
       vi.mocked(queries.fileOutClass).mockImplementation((_s, className) => `! ${className}`);
       vi.mocked(window.showSaveDialog).mockResolvedValue(Uri.file('/out/UserGlobals.gs'));
 
-      await messageHandler({ command: 'ctxFileOutDictionaryMany' });
+      messageHandler({ command: 'ctxFileOutDictionaryMany' });
 
+      await vi.waitFor(() =>
+        expect(fs.writeFileSync).toHaveBeenCalledWith(
+          '/out/UserGlobals.gs',
+          expect.anything(),
+          'utf8',
+        ),
+      );
       const loader = vi
         .mocked(fs.writeFileSync)
         .mock.calls.find((c) => c[0] === '/out/UserGlobals.gs')![1] as string;
@@ -1576,9 +1600,9 @@ describe('SystemBrowser', () => {
       vi.mocked(queries.getDictionaryClassFileOutOrder).mockReturnValue([]);
       vi.mocked(window.showSaveDialog).mockResolvedValue(Uri.file('/out/UserGlobals.gs'));
 
-      await messageHandler({ command: 'ctxFileOutDictionaryMany' });
+      messageHandler({ command: 'ctxFileOutDictionaryMany' });
 
-      expect(window.showWarningMessage).toHaveBeenCalled();
+      await vi.waitFor(() => expect(window.showWarningMessage).toHaveBeenCalled());
       expect(fs.writeFileSync).not.toHaveBeenCalled();
     });
   });
@@ -1598,21 +1622,24 @@ describe('SystemBrowser', () => {
     it('renames method category', async () => {
       vi.mocked(window.showInputBox).mockResolvedValue('Getters');
 
-      await messageHandler({ command: 'ctxRenameCategory' });
+      messageHandler({ command: 'ctxRenameCategory' });
 
-      expect(queries.renameCategory).toHaveBeenCalledWith(
-        session,
-        'Array',
-        false,
-        'Accessing',
-        'Getters',
-        1,
+      await vi.waitFor(() =>
+        expect(queries.renameCategory).toHaveBeenCalledWith(
+          session,
+          'Array',
+          false,
+          'Accessing',
+          'Getters',
+          1,
+        ),
       );
     });
 
     it('does not rename when user cancels', async () => {
       vi.mocked(window.showInputBox).mockResolvedValue(undefined);
-      await messageHandler({ command: 'ctxRenameCategory' });
+      messageHandler({ command: 'ctxRenameCategory' });
+      await new Promise((resolve) => setTimeout(resolve, 0));
       expect(queries.renameCategory).not.toHaveBeenCalled();
     });
 
@@ -1659,9 +1686,11 @@ describe('SystemBrowser', () => {
     it('deletes method after confirmation', async () => {
       vi.mocked(window.showWarningMessage).mockResolvedValue('Delete');
 
-      await messageHandler({ command: 'ctxDeleteMethod' });
+      messageHandler({ command: 'ctxDeleteMethod' });
 
-      expect(queries.deleteMethod).toHaveBeenCalledWith(session, 'Array', false, 'name', 1);
+      await vi.waitFor(() =>
+        expect(queries.deleteMethod).toHaveBeenCalledWith(session, 'Array', false, 'name', 1),
+      );
       // The class's mirror file is re-filed-out to reflect the removed method.
       expect(exportManager.syncClass).toHaveBeenCalledWith(session, 'UserGlobals', 'Array');
     });
@@ -1670,10 +1699,12 @@ describe('SystemBrowser', () => {
       vi.mocked(window.showWarningMessage).mockResolvedValue('Delete');
       vi.mocked(mockPanel.webview.postMessage).mockClear();
 
-      await messageHandler({ command: 'ctxDeleteMethod' });
+      messageHandler({ command: 'ctxDeleteMethod' });
 
-      expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ command: 'loadMethodCategories' }),
+      await vi.waitFor(() =>
+        expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ command: 'loadMethodCategories' }),
+        ),
       );
       expect(mockPanel.webview.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({ command: 'loadMethods' }),
@@ -1682,7 +1713,8 @@ describe('SystemBrowser', () => {
 
     it('does not delete method when user cancels', async () => {
       vi.mocked(window.showWarningMessage).mockResolvedValue(undefined);
-      await messageHandler({ command: 'ctxDeleteMethod' });
+      messageHandler({ command: 'ctxDeleteMethod' });
+      await new Promise((resolve) => setTimeout(resolve, 0));
       expect(queries.deleteMethod).not.toHaveBeenCalled();
     });
 
@@ -1694,15 +1726,17 @@ describe('SystemBrowser', () => {
       ]);
       vi.mocked(window.showQuickPick).mockResolvedValue('Printing');
 
-      await messageHandler({ command: 'ctxMoveToCategory' });
+      messageHandler({ command: 'ctxMoveToCategory' });
 
-      expect(queries.recategorizeMethod).toHaveBeenCalledWith(
-        session,
-        'Array',
-        false,
-        'name',
-        'Printing',
-        1,
+      await vi.waitFor(() =>
+        expect(queries.recategorizeMethod).toHaveBeenCalledWith(
+          session,
+          'Array',
+          false,
+          'name',
+          'Printing',
+          1,
+        ),
       );
     });
 
