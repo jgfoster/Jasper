@@ -129,6 +129,7 @@ export class VersionTreeProvider implements vscode.TreeDataProvider<VersionItem>
       // keeps `loaded` true so the refresh() below does not re-trigger us into
       // an endless reload/error-dialog loop. Explicit user actions (the refresh
       // command, post-download, etc.) call loadVersions() directly to re-fetch.
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       this.loadVersions();
       return [];
     }

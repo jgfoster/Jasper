@@ -552,6 +552,7 @@ export function activate(context: vscode.ExtensionContext) {
     clientOptions,
   );
 
+  // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
   client.start();
 
   // ── Login Management ─────────────────────────────────────
@@ -1013,6 +1014,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand('gemstone.addLogin', () => {
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       LoginEditorPanel.show(storage, context.secrets, treeProvider, undefined, sysadminStorage);
     }),
 
@@ -1020,6 +1022,7 @@ export function activate(context: vscode.ExtensionContext) {
       // A connected login opens read-only so its config can still be viewed;
       // the settings are only consumed at login, so editing a live one is
       // disabled (log out first) to avoid disturbing the session's tree row.
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       LoginEditorPanel.show(
         storage,
         context.secrets,
@@ -1053,6 +1056,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('gemstone.duplicateLogin', (item: GemStoneLoginItem) => {
       const copy = { ...item.login, label: '' };
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       LoginEditorPanel.show(storage, context.secrets, treeProvider, copy, sysadminStorage);
     }),
 
@@ -1211,6 +1215,7 @@ export function activate(context: vscode.ExtensionContext) {
               if (gciPath) {
                 await storage.setGciLibraryPath(login.version, gciPath);
               }
+              // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
               versionProvider.loadVersions();
             } catch (e) {
               vscode.window.showErrorMessage(
@@ -1284,6 +1289,7 @@ export function activate(context: vscode.ExtensionContext) {
           vscode.window.showInformationMessage(
             `Connected to ${login.stone} (${session.stoneVersion}) on ${login.gem_host} as ${login.gs_user}`,
           );
+          // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
           exportManager.exportSession(session, true);
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
@@ -1727,6 +1733,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand('gemstone.copyDisplayItResult', () => {
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       codeExecutor.copyLastResult();
     }),
 
@@ -1739,6 +1746,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand('gemstone.expandDisplayResultInPlace', () => {
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       codeExecutor.expandResultInPlace();
     }),
 
@@ -2171,6 +2179,7 @@ export function activate(context: vscode.ExtensionContext) {
   // will re-probe — giving the user a recovery path without reloading.
   if (isWindows()) {
     vscode.commands.executeCommand('setContext', 'gemstone.isWindows', true);
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
     (async () => {
       let wslInfo = await getWslInfoAsync();
       if (!wslInfo.available) {
@@ -2754,6 +2763,7 @@ export function activate(context: vscode.ExtensionContext) {
         const wslInfo = await getWslInfoAsync();
         vscode.commands.executeCommand('setContext', 'gemstone.wslAvailable', wslInfo.available);
       }
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       versionProvider.loadVersions();
     }),
 
@@ -2770,6 +2780,7 @@ export function activate(context: vscode.ExtensionContext) {
         },
       );
       vscode.window.showInformationMessage(`GemStone ${version.version} downloaded.`);
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       versionProvider.loadVersions();
     }),
 
@@ -2781,6 +2792,7 @@ export function activate(context: vscode.ExtensionContext) {
       );
       if (confirmed !== 'Delete') return;
       await versionManager.deleteDownload(item.version);
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       versionProvider.loadVersions();
     }),
 
@@ -2795,6 +2807,7 @@ export function activate(context: vscode.ExtensionContext) {
         },
       );
       vscode.window.showInformationMessage(`GemStone ${item.version.version} extracted.`);
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       versionProvider.loadVersions();
     }),
 
@@ -2806,6 +2819,7 @@ export function activate(context: vscode.ExtensionContext) {
       );
       if (confirmed !== 'Delete') return;
       await versionManager.deleteExtracted(item.version);
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       versionProvider.loadVersions();
     }),
 
@@ -2839,6 +2853,7 @@ export function activate(context: vscode.ExtensionContext) {
       vscode.window.showInformationMessage(
         `Registered local GemStone ${info.version} (${info.description || 'local build'}).`,
       );
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       versionProvider.loadVersions();
     }),
 
@@ -2852,6 +2867,7 @@ export function activate(context: vscode.ExtensionContext) {
         );
         if (confirmed !== 'Unregister') return;
         await versionManager.deleteExtracted(item.version);
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
         versionProvider.loadVersions();
       },
     ),
@@ -2887,6 +2903,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showErrorMessage(
           `Windows client install failed: ${e instanceof Error ? e.message : e}`,
         );
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
         versionProvider.loadVersions();
         return;
       }
@@ -2896,6 +2913,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (gciPath) {
         await storage.setGciLibraryPath(version, gciPath);
       }
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       versionProvider.loadVersions();
       vscode.window.showInformationMessage(
         `Windows client for GemStone ${version} is ready.${gciPath ? ' GCI library registered.' : ''}`,
@@ -2919,6 +2937,7 @@ export function activate(context: vscode.ExtensionContext) {
         );
         if (confirmed !== 'Delete') return;
         await versionManager.deleteWindowsClientExtracted(item.version);
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
         versionProvider.loadVersions();
       },
     ),
@@ -3087,6 +3106,7 @@ export function activate(context: vscode.ExtensionContext) {
           }
         }
       }
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       LoginEditorPanel.show(storage, context.secrets, treeProvider, login, sysadminStorage);
     }),
 

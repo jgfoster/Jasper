@@ -3142,6 +3142,7 @@ export class DebuggerPanel {
       this.pendingDnuMethodUri = undefined;
       this.pendingDnuSelector = undefined;
       this.dnuInfo = undefined; // the method now exists
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: needs investigation before deciding void vs .catch; the sibling override branch below uses void, but confirm finishDnuMethod can't reject outside runNb's internal handling first
       this.finishDnuMethod(selector);
       return;
     }
