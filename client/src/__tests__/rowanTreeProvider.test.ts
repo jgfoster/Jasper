@@ -139,6 +139,22 @@ describe('RowanTreeProvider', () => {
       expect(item.contextValue).toBe('rowanRepo');
     });
 
+    it('shows the open workspace project as a workspace repo, even when untracked', () => {
+      const root = makeRepoDir(true, 'WsApp');
+      fs.writeFileSync(
+        path.join(root, 'rowan', 'project.ston'),
+        "RwProjectSpecificationV3 { #specName : 'project' }",
+      );
+      __setWorkspaceFolders([root]);
+      const provider = makeProvider(registry, null);
+
+      const [item] = sectionChildren(provider, 'repositories') as RowanRepoItem[];
+
+      expect(item.contextValue).toBe('rowanRepoWorkspace');
+      expect(item.description).toContain('workspace');
+      expect((item.iconPath as { id?: string }).id).toBe('root-folder');
+    });
+
     it('marks a git-backed repo so it can be updated from its remote', async () => {
       await registry.add({
         name: 'seaside',
