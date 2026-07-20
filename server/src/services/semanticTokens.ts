@@ -57,6 +57,7 @@ export function collectSemanticTokens(
   lineOffset: number,
   scopeRoot: ScopeNode,
   selectorColumnOffset: number = 0,
+  emitPattern: boolean = true,
 ): RawSemanticToken[] {
   const result: RawSemanticToken[] = [];
   const analyzer = new ScopeAnalyzer();
@@ -107,9 +108,16 @@ export function collectSemanticTokens(
   }
 
   // ── Method pattern ─────────────────────────────────────
+  // 'smalltalk-code' regions (class definitions, doits) are wrapped in a
+  // synthetic '_doIt' method so the method parser can be reused. That pattern
+  // is not real source, so emitting a token for it paints the first characters
+  // of the actual expression (e.g. the superclass name) with the selector
+  // color. Skip it for those regions.
 
   const pattern = ast.pattern;
-  if (pattern.kind === 'UnaryPattern') {
+  if (!emitPattern) {
+    // no method pattern token for synthetic wrappers
+  } else if (pattern.kind === 'UnaryPattern') {
     push(pattern.range, 7, MOD_DECLARATION); // method + declaration
   } else if (pattern.kind === 'BinaryPattern') {
     // The selector is the binary operator, parameter is the argument
