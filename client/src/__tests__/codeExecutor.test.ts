@@ -52,7 +52,7 @@ const OOP_NIL = 0x14n;
 
 function makeGci(overrides: Record<string, unknown> = {}) {
   return {
-    GciTsResolveSymbol: vi.fn(() => ({ result: 100n, err: { number: 0 } })),
+    utf8ClassOop: vi.fn(() => 100n),
     GciTsNbExecute: vi.fn((): Record<string, unknown> => ({
       success: true,
       err: { number: 0, message: '' },
@@ -66,11 +66,15 @@ function makeGci(overrides: Record<string, unknown> = {}) {
     })),
     GciTsPerformFetchBytes: vi.fn(() => ({ data: '42', err: { number: 0 } })),
     GciTsExecuteFetchBytes: vi.fn(() => ({ data: '', err: { number: 0 } })),
+    executeAndFetchString: vi.fn(() =>
+      expect.unreachable(
+        'executeAndFetchString mock not configured for this test -- call ' +
+          '(gci.executeAndFetchString as Mock).mockReturnValue(...) before triggering Display It.',
+      ),
+    ),
     GciTsClearStack: vi.fn(),
     GciTsObjExists: vi.fn(() => false),
     GciTsFetchClass: vi.fn(() => ({ result: 0n, err: { number: 0 } })),
-
-    GciTsExecute: vi.fn(() => ({ result: 0n, err: { number: 0 } })),
     ...overrides,
   };
 }
@@ -309,6 +313,8 @@ describe('CodeExecutor', () => {
     });
 
     it('clears diagnostics on successful execution', async () => {
+      (gci.executeAndFetchString as Mock).mockReturnValue('7');
+
       const editor = makeEditor('3 + 4');
       setActiveEditor(editor);
 
@@ -636,10 +642,7 @@ describe('CodeExecutor', () => {
     });
 
     it('selects the inserted result (including leading space)', async () => {
-      (gci.GciTsPerformFetchBytes as Mock).mockReturnValue({
-        data: '42',
-        err: { number: 0 },
-      });
+      (gci.executeAndFetchString as Mock).mockReturnValue('42');
 
       const userCode = '3 + 4';
       const sel = new vscode.Selection(
@@ -662,10 +665,7 @@ describe('CodeExecutor', () => {
     });
 
     it('selection spans exactly the inserted text so backspace removes it cleanly', async () => {
-      (gci.GciTsPerformFetchBytes as Mock).mockReturnValue({
-        data: "'hello'",
-        err: { number: 0 },
-      });
+      (gci.executeAndFetchString as Mock).mockReturnValue("'hello'");
 
       const userCode = "'hi'";
       const editor = makeMutableEditor(userCode);
@@ -681,10 +681,7 @@ describe('CodeExecutor', () => {
     });
 
     it('places selection correctly when user code is on a non-first line', async () => {
-      (gci.GciTsPerformFetchBytes as Mock).mockReturnValue({
-        data: '7',
-        err: { number: 0 },
-      });
+      (gci.executeAndFetchString as Mock).mockReturnValue('7');
 
       const text = 'line0\n3 + 4\nline2';
       const sel = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(1, 5));
@@ -739,10 +736,7 @@ describe('CodeExecutor', () => {
     });
 
     it('applies the result decoration to the inserted result range', async () => {
-      (gci.GciTsPerformFetchBytes as Mock).mockReturnValue({
-        data: '42',
-        err: { number: 0 },
-      });
+      (gci.executeAndFetchString as Mock).mockReturnValue('42');
 
       const userCode = '3 + 4';
       const editor = makeMutableEditor(userCode);
@@ -771,10 +765,7 @@ describe('CodeExecutor', () => {
 
   describe('displayIt overlay mode', () => {
     function mockResult(value: string): void {
-      (gci.GciTsPerformFetchBytes as Mock).mockReturnValue({
-        data: value,
-        err: { number: 0 },
-      });
+      (gci.executeAndFetchString as Mock).mockReturnValue(value);
     }
 
     /** The decoration options passed to the last after-content setDecorations call. */
@@ -1045,10 +1036,7 @@ describe('CodeExecutor', () => {
       describe(`${mode} mode`, () => {
         beforeEach(() => {
           setDisplayItMode(mode);
-          (gci.GciTsPerformFetchBytes as Mock).mockReturnValue({
-            data: '42',
-            err: { number: 0 },
-          });
+          (gci.executeAndFetchString as Mock).mockReturnValue('42');
         });
 
         it('executes the whole current line when the selection is empty', async () => {
@@ -1264,16 +1252,15 @@ describe('CodeExecutor', () => {
       );
     });
 
-    it('does not set gemstone.executing when resolveOopClassString fails (executeIt)', async () => {
-      (gci.GciTsResolveSymbol as Mock).mockReturnValue({
-        result: 0n,
-        err: { number: 4242, message: 'cannot resolve String' },
+    it('does not set gemstone.executing when the Utf8 class oop cannot be resolved (executeIt)', async () => {
+      (gci.utf8ClassOop as Mock).mockImplementation(() => {
+        throw new Error('cannot resolve Utf8');
       });
 
       const editor = makeEditor('3 + 4');
       setActiveEditor(editor);
 
-      await executor.executeIt();
+      await expect(executor.executeIt()).rejects.toThrow('cannot resolve Utf8');
 
       const setCalls = vi
         .mocked(vscode.commands.executeCommand)
@@ -1281,19 +1268,20 @@ describe('CodeExecutor', () => {
       expect(setCalls.some(([, , value]) => value === true)).toBe(false);
     });
 
-    it('does not set gemstone.executing when resolveOopClassString fails (inspectIt)', async () => {
-      (gci.GciTsResolveSymbol as Mock).mockReturnValue({
-        result: 0n,
-        err: { number: 4242, message: 'cannot resolve String' },
+    it('does not set gemstone.executing when the Utf8 class oop cannot be resolved (inspectIt)', async () => {
+      (gci.utf8ClassOop as Mock).mockImplementation(() => {
+        throw new Error('cannot resolve Utf8');
       });
 
       const editor = makeEditor('3 + 4');
       setActiveEditor(editor);
 
       const inspectorProvider = { addRoot: vi.fn(), findRootByLabel: vi.fn() };
-      await executor.inspectIt(
-        inspectorProvider as unknown as import('../inspectorTreeProvider').InspectorTreeProvider,
-      );
+      await expect(
+        executor.inspectIt(
+          inspectorProvider as unknown as import('../inspectorTreeProvider').InspectorTreeProvider,
+        ),
+      ).rejects.toThrow('cannot resolve Utf8');
 
       const setCalls = vi
         .mocked(vscode.commands.executeCommand)

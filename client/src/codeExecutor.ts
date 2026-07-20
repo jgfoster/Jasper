@@ -77,7 +77,6 @@ function toBigInt(value: number | bigint): bigint {
 
 export class CodeExecutor {
   private executing = new Set<number>();
-  private oopClassStringCache = new Map<unknown, bigint>();
   private diagnostics: vscode.DiagnosticCollection;
   private statusBarItem: vscode.StatusBarItem;
   // Most recent Display It result (full text), used by the Copy/Expand hover
@@ -160,8 +159,7 @@ export class CodeExecutor {
       return;
     }
 
-    const oopClassString = this.resolveOopClassString(session);
-    if (oopClassString === undefined) return;
+    const oopClassString = this.resolveUtf8ClassOopUsing(session);
 
     const label = mode === 'display' ? 'Display It' : mode === 'debug' ? 'Debug It' : 'Execute It';
     logQuery(session.id, label, code);
@@ -513,20 +511,8 @@ export class CodeExecutor {
     }
   }
 
-  private resolveOopClassString(session: ActiveSession): bigint | undefined {
-    let oop = this.oopClassStringCache.get(session.handle);
-    if (oop !== undefined) return oop;
-
-    const { result, err } = session.gci.GciTsResolveSymbol(session.handle, 'String', OOP_NIL);
-    if (err.number !== 0) {
-      vscode.window.showErrorMessage(
-        `Failed to resolve String class: ${err.message || `error ${err.number}`}`,
-      );
-      return undefined;
-    }
-    oop = result;
-    this.oopClassStringCache.set(session.handle, oop);
-    return oop;
+  private resolveUtf8ClassOopUsing(session: ActiveSession): bigint {
+    return session.gci.utf8ClassOop(session.handle);
   }
 
   /**
@@ -688,18 +674,10 @@ export class CodeExecutor {
   private async fetchResultString(session: ActiveSession): Promise<string> {
     const resultOop = await this.fetchResultOop(session);
 
-    const { data, err: fetchErr } = session.gci.GciTsPerformFetchBytes(
+    return session.gci.executeAndFetchString(
       session.handle,
-      resultOop,
-      'printString',
-      [],
-      MAX_RESULT_SIZE,
+      `(Object objectForOop: ${resultOop}) printString`,
     );
-    if (fetchErr.number !== 0) {
-      throw new Error(fetchErr.message || `printString error ${fetchErr.number}`);
-    }
-
-    return data;
   }
 
   // ── Inspect ──────────────────────────────────────────
@@ -761,8 +739,7 @@ export class CodeExecutor {
     label: string,
     inspectorProvider: InspectorTreeProvider,
   ): Promise<void> {
-    const oopClassString = this.resolveOopClassString(session);
-    if (oopClassString === undefined) return;
+    const oopClassString = this.resolveUtf8ClassOopUsing(session);
 
     logQuery(session.id, 'Inspect It', code);
 
