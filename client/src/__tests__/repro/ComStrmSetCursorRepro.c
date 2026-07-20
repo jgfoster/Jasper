@@ -247,6 +247,33 @@ int main(int argc, char **argv) {
   allOk &= run_case(gciTsExecute, sess,
       "^-return guard-clause idiom, non-ASCII text", code, EXPECT_SUCCESS);
 
+  /* Added 2026-07-18 -- see README's Update section, "Open question 1"
+   * (session poisoning). Ported from the equivalent Vitest test in
+   * ComStrmSetCursorRepro.test.ts. Deliberately a fixed sequence on the
+   * SAME session established above, not independent cases -- the sequence
+   * itself is what's under test. */
+  printf("\n--- session-poisoning check (README's Update, open question 1) ---\n");
+  allOk &= run_case(gciTsExecute, sess,
+      "ascii-only, before the poisoning throw", "1 + 1", EXPECT_SUCCESS);
+
+  unique_tag(var, sizeof(var), "t");
+  unique_tag(val, sizeof(val), "\xe2\x80\x94");
+  snprintf(code, sizeof(code), "| %s | %s := '%s'. %s printString", var, var, val, var);
+  allOk &= run_case(gciTsExecute, sess,
+      "poisoning throw", code, EXPECT_CURSOR_ERROR);
+
+  allOk &= run_case(gciTsExecute, sess,
+      "ascii-only, after (unrelated)", "2 + 2", EXPECT_SUCCESS);
+  allOk &= run_case(gciTsExecute, sess,
+      "ascii-only, after (temp declared and referenced)",
+      "| x | x := 5. x printString", EXPECT_SUCCESS);
+
+  unique_tag(var, sizeof(var), "t");
+  unique_tag(val, sizeof(val), "\xe2\x80\x94");
+  snprintf(code, sizeof(code), "| %s | %s := '%s'. %s printString", var, var, val, var);
+  allOk &= run_case(gciTsExecute, sess,
+      "fresh non-ASCII throw, after (still throws?)", code, EXPECT_CURSOR_ERROR);
+
   memset(&logoutErr, 0, sizeof(logoutErr));
   gciTsLogout(sess, &logoutErr);
 

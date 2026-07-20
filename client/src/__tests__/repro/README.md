@@ -125,11 +125,13 @@ session. Every one behaved exactly as expected on its own terms -- no
 carryover from the earlier throw. We couldn't get this to reproduce, in any
 shape we tried.
 
-That sequence is now a permanent test --
+That sequence is now a permanent check in both repro versions --
 `does not poison the session for later, unrelated compiles after it throws
-once` in `ComStrmSetCursorRepro.test.ts` -- so anyone can rerun it rather
-than take our word for it. We also reran it as the very first thing against
-a freshly restarted stone, given what the section above says about
+once` in `ComStrmSetCursorRepro.test.ts`, and the same sequence appended to
+`ComStrmSetCursorRepro.c`'s `main()` -- so anyone can rerun it in whichever
+form is more convenient, rather than take our word for it. We also reran
+both as the very first thing against a freshly restarted stone, given what
+the section above says about
 accumulated state; same result.
 
 ### Open question 2 (same text eventually stops reproducing): not from repetition
