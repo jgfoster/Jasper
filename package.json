@@ -36,7 +36,8 @@
   "activationEvents": [
     "onNotebook:jupyter-notebook",
     "onStartupFinished",
-    "onFileSystem:gemstone"
+    "onFileSystem:gemstone",
+    "workspaceContains:**/rowan/project.ston"
   ],
   "main": "./client/out/extension.js",
   "contributes": {
@@ -418,6 +419,15 @@
           "name": "Inspector",
           "type": "tree",
           "icon": "$(eye)"
+        }
+      ],
+      "explorer": [
+        {
+          "id": "gemstoneRowanProject",
+          "name": "Rowan",
+          "type": "tree",
+          "icon": "$(package)",
+          "when": "gemstone.workspaceIsRowanProject"
         }
       ]
     },
@@ -1574,12 +1584,12 @@
         },
         {
           "command": "gemstone.rowanLoadRepo",
-          "when": "view == gemstoneRowan && (viewItem == rowanRepo || viewItem == rowanRepoGit)",
+          "when": "view == gemstoneRowan && (viewItem == rowanRepo || viewItem == rowanRepoGit || viewItem == rowanRepoWorkspace)",
           "group": "inline@1"
         },
         {
           "command": "gemstone.rowanRemoveRepo",
-          "when": "view == gemstoneRowan && viewItem =~ /^rowanRepo/",
+          "when": "view == gemstoneRowan && viewItem =~ /^rowanRepo/ && viewItem != rowanRepoWorkspace && viewItem != rowanRepoWorkspaceNoSpec",
           "group": "rowan@1"
         },
         {

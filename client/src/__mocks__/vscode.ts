@@ -375,6 +375,7 @@ export const workspace = {
   onWillSaveTextDocument: vi.fn(() => ({ dispose: () => {} })),
   onDidCreateFiles: vi.fn(() => ({ dispose: () => {} })),
   onDidDeleteFiles: vi.fn(() => ({ dispose: () => {} })),
+  onDidChangeWorkspaceFolders: vi.fn(() => ({ dispose: () => {} })),
   onDidOpenTextDocument: vi.fn(() => ({ dispose: () => {} })),
   registerTextDocumentContentProvider: vi.fn(() => ({ dispose: () => {} })),
   registerFileSystemProvider: vi.fn(() => ({ dispose: () => {} })),

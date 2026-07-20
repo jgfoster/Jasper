@@ -55,6 +55,8 @@ import {
   RowanLoadedProjectItem,
   RowanChangesProjectItem,
 } from './rowanTreeProvider';
+import { isRowanProjectRoot } from './rowanProject';
+import { RowanProjectTreeProvider } from './rowanProjectView';
 import { RowanDecorationProvider } from './rowanDecorations';
 import { findMethodInClass } from './commands/findMethodInClass';
 import { loadClassPickItems } from './commands/classPicker';
@@ -2499,7 +2501,31 @@ export function activate(context: vscode.ExtensionContext) {
   const rowanProvider = new RowanTreeProvider(rowanRegistry, {
     getSession: () => sessionManager.getSelectedSession() ?? null,
   });
+  // The Rowan project at the open workspace root, shown as a section in the
+  // Explorer (contributed only when gemstone.workspaceIsRowanProject). Its
+  // packages are read from disk — co-located with the file tree, no stone.
+  const rowanProjectProvider = new RowanProjectTreeProvider();
+  const rowanProjectView = vscode.window.createTreeView('gemstoneRowanProject', {
+    treeDataProvider: rowanProjectProvider,
+  });
+  const refreshRowanProjectView = () => {
+    rowanProjectProvider.refresh();
+    rowanProjectView.description = rowanProjectProvider.projectName();
+  };
+  // Recognize when the open workspace root is itself a Rowan project — gates the
+  // Explorer section's visibility. Passive: no effect when it isn't one.
+  const refreshRowanWorkspaceContext = () => {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    vscode.commands.executeCommand(
+      'setContext',
+      'gemstone.workspaceIsRowanProject',
+      !!root && isRowanProjectRoot(root),
+    );
+  };
+  refreshRowanWorkspaceContext();
+  refreshRowanProjectView();
   context.subscriptions.push(
+    rowanProjectView,
     vscode.window.createTreeView('gemstoneRowan', {
       treeDataProvider: rowanProvider,
     }),
@@ -2507,6 +2533,12 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.window.registerFileDecorationProvider(new RowanDecorationProvider()),
     // Loaded-projects section tracks the connected stone.
     sessionManager.onDidChangeSelection(() => rowanProvider.refresh()),
+    // The workspace root defines the Rowan project — re-evaluate on folder change.
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      refreshRowanWorkspaceContext();
+      rowanProvider.refresh();
+      refreshRowanProjectView();
+    }),
 
     vscode.commands.registerCommand('gemstone.rowanRefreshView', () => {
       rowanProvider.refresh();
