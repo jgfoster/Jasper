@@ -33,6 +33,8 @@ import { loadClassInfo as sharedLoadClassInfo } from './queries/loadClassInfo';
 import { getInstVarNames as sharedGetInstVarNames } from './queries/getInstVarNames';
 import { getDefinedInstVarNames as sharedGetDefinedInstVarNames } from './queries/getDefinedInstVarNames';
 import { getDefinedInstVarCounts as sharedGetDefinedInstVarCounts } from './queries/getDefinedInstVarCounts';
+import { getDefinedClassVarNames as sharedGetDefinedClassVarNames } from './queries/getDefinedClassVarNames';
+import { getDefinedClassVarCounts as sharedGetDefinedClassVarCounts } from './queries/getDefinedClassVarCounts';
 import {
   getClassVersions as sharedGetClassVersions,
   ClassVersionInfo,
@@ -53,6 +55,12 @@ import {
   RenameClassScope,
   RenameClassOptions,
 } from './queries/previewRenameClass';
+import {
+  startRenameClassVarPreview as sharedStartRenameClassVarPreview,
+  pageRenameClassVarPreview as sharedPageRenameClassVarPreview,
+  applyRenameClassVar as sharedApplyRenameClassVar,
+  clearRenameClassVarPreview as sharedClearRenameClassVarPreview,
+} from './queries/previewRenameClassVar';
 import {
   getClassHistory as sharedGetClassHistory,
   revertClassToVersion as sharedRevertClassToVersion,
@@ -576,8 +584,12 @@ export function getInstVarNames(session: ActiveSession, className: string): stri
   return sharedGetInstVarNames(bind(session), className);
 }
 
-export function getDefinedInstVarNames(session: ActiveSession, className: string): string[] {
-  return sharedGetDefinedInstVarNames(bind(session), className);
+export function getDefinedInstVarNames(
+  session: ActiveSession,
+  className: string,
+  dict?: number | string,
+): string[] {
+  return sharedGetDefinedInstVarNames(bind(session), className, dict);
 }
 
 export function getDefinedInstVarCounts(
@@ -585,6 +597,21 @@ export function getDefinedInstVarCounts(
   dict: number | string,
 ): Map<string, number> {
   return sharedGetDefinedInstVarCounts(bind(session), dict);
+}
+
+export function getDefinedClassVarNames(
+  session: ActiveSession,
+  className: string,
+  dict?: number | string,
+): string[] {
+  return sharedGetDefinedClassVarNames(bind(session), className, dict);
+}
+
+export function getDefinedClassVarCounts(
+  session: ActiveSession,
+  dict: number | string,
+): Map<string, number> {
+  return sharedGetDefinedClassVarCounts(bind(session), dict);
 }
 
 export function getClassVersions(
@@ -707,6 +734,45 @@ export function applyRenameClass(
 
 export function clearRenameClassPreview(session: ActiveSession, token: string): string {
   return sharedClearRenameClassPreview(bind(session), token);
+}
+
+// Paginated rename-class-variable preview: fetched NON-BLOCKING (progress +
+// responsive), byte-bounded pages, server-side value-preserving apply. Mirrors the
+// rename-method/class wrappers; the rename is all-or-nothing, so the apply always
+// passes an empty deselected set.
+export function startRenameClassVarPreview(
+  session: ActiveSession,
+  className: string,
+  oldName: string,
+  newName: string,
+  token: string,
+  maxBytes: number,
+  dict?: number | string,
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, `Previewing rename of ${oldName}…`);
+  return sharedStartRenameClassVarPreview(exec, className, oldName, newName, token, maxBytes, dict);
+}
+
+export function pageRenameClassVarPreview(
+  session: ActiveSession,
+  token: string,
+  offset: number,
+  maxBytes: number,
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, 'Loading more changes…');
+  return sharedPageRenameClassVarPreview(exec, token, offset, maxBytes);
+}
+
+export function applyRenameClassVar(session: ActiveSession, token: string): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, 'Applying rename…');
+  return sharedApplyRenameClassVar(exec, token);
+}
+
+export function clearRenameClassVarPreview(session: ActiveSession, token: string): string {
+  return sharedClearRenameClassVarPreview(bind(session), token);
 }
 
 // Class-definition history (native classHistory, this-stone-only, read-only) and

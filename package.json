@@ -1060,6 +1060,12 @@
         "icon": "$(edit)"
       },
       {
+        "command": "gemstone.explorer.renameClassVariable",
+        "title": "Rename Class Variable…",
+        "category": "GemStone",
+        "icon": "$(edit)"
+      },
+      {
         "command": "gemstone.explorer.renameMethod",
         "title": "Rename Method…",
         "category": "GemStone",
@@ -1307,6 +1313,10 @@
         },
         {
           "command": "gemstone.explorer.renameIvar",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.explorer.renameClassVariable",
           "when": "false"
         },
         {
@@ -1561,6 +1571,11 @@
         {
           "command": "gemstone.explorer.renameIvar",
           "when": "view == gemstoneExplorerClasses && viewItem == explorerIvar",
+          "group": "inline"
+        },
+        {
+          "command": "gemstone.explorer.renameClassVariable",
+          "when": "view == gemstoneExplorerClasses && viewItem == explorerClassVar",
           "group": "inline"
         },
         {

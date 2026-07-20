@@ -168,14 +168,28 @@ the "is this actually a class var of this class?" precondition).
 
 ## 5. Client wiring (mirror R1's ivar rows, simplest editor)
 
+> **As shipped (2026-07-20):** file/symbol names are `…ClassVar…`, not
+> `…ClassVariable…` (query module `queries/previewRenameClassVar.ts`, functions
+> `startRenameClassVarPreview`/`pageRenameClassVarPreview`/`applyRenameClassVar`/
+> `clearRenameClassVarPreview`; model `renameClassVarPreview.ts`; panel
+> `renameClassVarPanel(Html).ts`). The Explorer command is
+> `renameClassVariable(item)`. `applyRenameClassVar` takes **no** deselection arg
+> (all-or-nothing). Names below are the original plan.
+>
+> **Explorer tree reshape (shipped):** rather than flat variable rows under a
+> class, the class now expands to an **"instance" / "class" variable-side layer**
+> (`VarSideItem`, mirroring the Methods pane) — R1's ivar rows are now nested under
+> the "instance" side, and class-var rows under the "class" side. Side-decision
+> logic is the pure `explorerTreeHelpers.ts` `variableSides()`.
+
 - The Explorer already renders a class's instance-variable sub-tree with a rename
   pencil (R1). Add the **class-variable rows** the same way, with a rename pencil that
   calls a `renameClassVariable(item)` command.
-- `queries/previewRenameClassVariable.ts` — `startRenameClassVariablePreview` /
-  `pageRenameClassVariablePreview` / `applyRenameClassVariable` /
-  `clearRenameClassVariablePreview` (token-based, byte-bounded, non-blocking fetch —
+- `queries/previewRenameClassVar.ts` — `startRenameClassVarPreview` /
+  `pageRenameClassVarPreview` / `applyRenameClassVar` /
+  `clearRenameClassVarPreview` (token-based, byte-bounded, non-blocking fetch —
   the R2/R3 query shape).
-- `renameClassVariablePreview.ts` — pure model: parse the start/page/apply envelopes
+- `renameClassVarPreview.ts` — pure model: parse the start/page/apply envelopes
   (reuse the R1/R2 change parser: `classDefinitionEdit` + `methodRecompile`).
 - Input: **new-name input box** (`showInputBox` with a variable-identifier validator)
   — no keyword editor, no scope quick-pick. Then the paginated preview panel, reusing

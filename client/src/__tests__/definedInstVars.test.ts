@@ -15,8 +15,19 @@ describe("a class's locally-defined instance variable names", () => {
     getDefinedInstVarNames(execute, 'Point');
 
     const code = execute.mock.calls[0][1];
-    expect(code).toContain('Point instVarNames');
+    // Resolves the class (dict-scoped/quoted via classLookupExpr) then reads its own
+    // instVarNames — not allInstVarNames (which would include inherited ones).
+    expect(code).toContain("objectNamed: #'Point'");
+    expect(code).toContain('instVarNames');
     expect(code).not.toContain('allInstVarNames');
+  });
+
+  it('resolves the class scoped to a 1-based dictionary index when given one', () => {
+    const execute = vi.fn().mockReturnValue('');
+
+    getDefinedInstVarNames(execute, 'Point', 5);
+
+    expect(execute.mock.calls[0][1]).toContain('symbolList at: 5');
   });
 
   it('returns nothing for a class that defines no variables', () => {
