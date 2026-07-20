@@ -43,7 +43,6 @@ import { getSourceOffsets as sharedGetSourceOffsets } from './queries/getSourceO
 import { getStepPointSelectorRanges as sharedGetStepPointSelectorRanges } from './queries/getStepPointSelectorRanges';
 import { listRowanProjects as sharedListRowanProjects } from './queries/rowan/listRowanProjects';
 import { getGemCacheKB as sharedGetGemCacheKB } from './queries/rowan/getGemCacheKB';
-import { getRowanProjectDetail as sharedGetRowanProjectDetail } from './queries/rowan/getRowanProjectDetail';
 import { exportRowanProject as sharedExportRowanProject } from './queries/rowan/exportRowanProject';
 import { findRowanClassOwners as sharedFindRowanClassOwners } from './queries/rowan/findRowanClassOwners';
 import { listAllRowanClasses as sharedListAllRowanClasses } from './queries/rowan/listAllRowanClasses';
@@ -96,7 +95,6 @@ export type { StepPointSelectorInfo } from './queries/getStepPointSelectorRanges
 export type { MethodSearchResult } from './queries/methodSearch';
 export type { ClassInfo } from './queries/loadClassInfo';
 export type { RowanProject, RowanProjectList } from './queries/rowan/listRowanProjects';
-export type { RowanProjectDetail } from './queries/rowan/getRowanProjectDetail';
 export type { RowanExportResult } from './queries/rowan/exportRowanProject';
 export type { RowanClassOwner, RowanClassOwners } from './queries/rowan/findRowanClassOwners';
 export type { RowanClassLocation } from './queries/rowan/listAllRowanClasses';
@@ -341,10 +339,6 @@ export function getGemCacheKB(session: ActiveSession) {
 
 export function listRowanProjects(session: ActiveSession) {
   return sharedListRowanProjects(bind(session));
-}
-
-export function getRowanProjectDetail(session: ActiveSession, projectName: string) {
-  return sharedGetRowanProjectDetail(bind(session), projectName);
 }
 
 export function exportRowanProject(session: ActiveSession, projectName: string, targetDir: string) {

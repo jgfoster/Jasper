@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { listRowanProjects } from '../queries/rowan/listRowanProjects';
 import { getGemCacheKB } from '../queries/rowan/getGemCacheKB';
-import { getRowanProjectDetail } from '../queries/rowan/getRowanProjectDetail';
 import { exportRowanProject } from '../queries/rowan/exportRowanProject';
 import { findRowanClassOwners } from '../queries/rowan/findRowanClassOwners';
 import { listAllRowanClasses } from '../queries/rowan/listAllRowanClasses';
@@ -25,45 +24,6 @@ describe('listRowanProjects', () => {
 
   it('reports Rowan unavailable on the sentinel', () => {
     expect(listRowanProjects(executor('!NO_ROWAN')).available).toBe(false);
-  });
-});
-
-describe('getRowanProjectDetail', () => {
-  it('parses the load recipe, joined lists, and trailing comment', () => {
-    const raw = [
-      'name\tSTON',
-      'isDirty\tfalse',
-      'isCommitted\ttrue',
-      'loadedCommitId\t8685ae5b',
-      'commitId\t8685ae5b',
-      'useGit\tfalse',
-      'branch\t',
-      'repositoryRootPath\t/gs/STON',
-      'gitUrl\t',
-      'remote\t',
-      'revision\t',
-      'packageConvention\tRowanHybrid',
-      'defaultSymbolDict\tUserGlobals',
-      'conditionalAttributes\tgemstone, 3.7',
-      'components\tCore, Tests',
-      'packageCount\t5',
-      '@@COMMENT@@',
-      'STON project.',
-    ].join('\n');
-
-    const d = getRowanProjectDetail(executor(raw), 'STON');
-
-    expect(d.found).toBe(true);
-    expect(d.packageConvention).toBe('RowanHybrid');
-    expect(d.defaultSymbolDict).toBe('UserGlobals');
-    expect(d.components).toEqual(['Core', 'Tests']);
-    expect(d.conditionalAttributes).toEqual(['gemstone', '3.7']);
-    expect(d.packageCount).toBe(5);
-    expect(d.comment).toBe('STON project.');
-  });
-
-  it('reports not found on empty result', () => {
-    expect(getRowanProjectDetail(executor(''), 'Ghost').found).toBe(false);
   });
 });
 
