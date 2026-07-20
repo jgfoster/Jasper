@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DocumentManager } from '../../utils/documentManager';
+import { DocumentManager, DocumentFormat } from '../../utils/documentManager';
 import { ScopeAnalyzer } from '../../utils/scopeAnalyzer';
 import {
   collectSemanticTokens,
@@ -11,9 +11,12 @@ function typeIndex(name: string): number {
   return SEMANTIC_TOKEN_TYPES.indexOf(name);
 }
 
-function getTokens(source: string) {
+// Mirror the server's semanticTokens handler exactly, including the per-region
+// lineOffset and the emitPattern flag (false for synthetic 'smalltalk-code'
+// wrappers) so tests exercise production behavior.
+function getTokens(source: string, uri = 'test://test', format: DocumentFormat = 'topaz') {
   const dm = new DocumentManager();
-  const doc = dm.update('test://test', 1, source);
+  const doc = dm.update(uri, 1, source, format);
 
   const allTokens: ReturnType<typeof collectSemanticTokens> = [];
   const analyzer = new ScopeAnalyzer();
@@ -22,7 +25,16 @@ function getTokens(source: string) {
     if (!pr.ast) continue;
     const lineOffset = pr.region.startLine - (pr.region.kind === 'smalltalk-code' ? 1 : 0);
     const scopeRoot = analyzer.analyze(pr.ast);
-    allTokens.push(...collectSemanticTokens(pr.ast, pr.tokens, lineOffset, scopeRoot));
+    allTokens.push(
+      ...collectSemanticTokens(
+        pr.ast,
+        pr.tokens,
+        lineOffset,
+        scopeRoot,
+        pr.region.selectorColumnOffset ?? 0,
+        pr.region.kind !== 'smalltalk-code',
+      ),
+    );
   }
 
   return allTokens;
@@ -163,6 +175,40 @@ describe('Semantic Tokens', () => {
         (t) => t.tokenType === typeIndex('variable') && (t.modifiers & 1) === 1,
       );
       expect(blockTemps.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('class definition', () => {
+    // A class definition is shown in a 'smalltalk-code' region, which the LSP
+    // wraps in a synthetic '_doIt' method so the method parser can be reused.
+    // The wrapper's selector must not leak a token onto the real expression —
+    // that used to split the superclass name into two colors.
+    const source = [
+      "Object subclass: 'Foo'",
+      '\tinstVarNames: #()',
+      '\tinDictionary: UserGlobals',
+    ].join('\n');
+    const uri = 'gemstone://1/UserGlobals/Foo/definition/Foo';
+
+    it('does not emit a token on the synthetic wrapper line', () => {
+      const tokens = getTokens(source, uri, 'smalltalk');
+
+      // The '_doIt' wrapper sits one line above the real source; a token for it
+      // lands on a negative line, which the editor clamps onto the superclass.
+      const tokensAboveDocument = tokens.filter((t) => t.line < 0);
+
+      expect(tokensAboveDocument).toHaveLength(0);
+    });
+
+    it('colors the superclass as a single global, like the dictionary', () => {
+      const tokens = getTokens(source, uri, 'smalltalk');
+
+      const globals = tokens.filter((t) => t.tokenType === typeIndex('property'));
+
+      expect(globals).toHaveLength(2); // the superclass and the dictionary
+      const superclass = globals.find((t) => t.line === 0)!;
+      expect(superclass.startChar).toBe(0);
+      expect(superclass.length).toBe('Object'.length);
     });
   });
 
