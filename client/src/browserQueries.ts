@@ -9,7 +9,6 @@ import { QueryExecutor } from './queries/types';
 import { getMethodSource as sharedGetMethodSource } from './queries/getMethodSource';
 import { getBaseMethodSource as sharedGetBaseMethodSource } from './queries/getBaseMethodSource';
 import { getDictionaryNames as sharedGetDictionaryNames } from './queries/getDictionaryNames';
-import { getPoolDictionaryNames as sharedGetPoolDictionaryNames } from './queries/getPoolDictionaryNames';
 import { getClassNames as sharedGetClassNames } from './queries/getClassNames';
 import {
   getClassesWithCategory as sharedGetClassesWithCategory,
@@ -325,10 +324,6 @@ function bind(session: ActiveSession): QueryExecutor {
 
 export function getDictionaryNames(session: ActiveSession): string[] {
   return sharedGetDictionaryNames(bind(session));
-}
-
-export function getPoolDictionaryNames(session: ActiveSession): string[] {
-  return sharedGetPoolDictionaryNames(bind(session));
 }
 
 // ── Rowan browser queries ─────────────────────────────────────────────────

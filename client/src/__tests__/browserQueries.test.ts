@@ -297,32 +297,6 @@ describe('browserQueries', () => {
     });
   });
 
-  describe('getPoolDictionaryNames', () => {
-    it('parses sorted SymbolDictionary names', () => {
-      const payload = 'Globals\nMyPool\nUserGlobals\n';
-      const session = createMockSession(payload);
-
-      const results = queries.getPoolDictionaryNames(session);
-
-      expect(results).toEqual(['Globals', 'MyPool', 'UserGlobals']);
-    });
-
-    it('returns empty array for no results', () => {
-      const session = createMockSession('');
-      expect(queries.getPoolDictionaryNames(session)).toEqual([]);
-    });
-
-    it('sends Smalltalk code that finds SymbolDictionary instances', () => {
-      const session = createMockSession('');
-      queries.getPoolDictionaryNames(session);
-
-      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
-      const code = mockExec.mock.calls[0][1] as string;
-      expect(code).toContain('isKindOf: SymbolDictionary');
-      expect(code).toContain('symbolList');
-    });
-  });
-
   describe('getMethodList', () => {
     it('parses instance and class methods with categories', () => {
       const payload = '0\taccessing\tname\n0\taccessing\tname:\n1\tinstance creation\tnew\n';

@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { QueryExecutor } from '../types';
 import { getDictionaryNames } from '../getDictionaryNames';
-import { getPoolDictionaryNames } from '../getPoolDictionaryNames';
 import { getClassNames } from '../getClassNames';
 import { getDictionaryClassFileOutOrder } from '../getDictionaryClassFileOutOrder';
 import { getMethodCategories } from '../getMethodCategories';
@@ -18,14 +17,6 @@ describe('getDictionaryNames', () => {
 
   it('returns [] for empty output', () => {
     expect(getDictionaryNames(vi.fn<QueryExecutor>(() => ''))).toEqual([]);
-  });
-});
-
-describe('getPoolDictionaryNames', () => {
-  it('probes for SymbolDictionary instances in symbolList', () => {
-    const execute = vi.fn<QueryExecutor>(() => 'Globals\nMyPool\n');
-    expect(getPoolDictionaryNames(execute)).toEqual(['Globals', 'MyPool']);
-    expect(execute.mock.calls[0][1]).toContain('isKindOf: SymbolDictionary');
   });
 });
 
