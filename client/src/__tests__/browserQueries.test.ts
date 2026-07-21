@@ -329,7 +329,7 @@ describe('browserQueries', () => {
       const session = createMockSession('');
       queries.getMethodList(session, 'MyClass');
 
-      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
       const code = mockExec.mock.calls[0][1] as string;
       expect(code).toContain('class := MyClass');
     });

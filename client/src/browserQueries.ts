@@ -18,7 +18,6 @@ import { getDictionaryClassFileOutOrder as sharedGetDictionaryClassFileOutOrder 
 import { getDictionaryEntries as sharedGetDictionaryEntries } from './queries/getDictionaryEntries';
 import { getGlobalsForDictionary as sharedGetGlobalsForDictionary } from './queries/getGlobalsForDictionary';
 import { getMethodCategories as sharedGetMethodCategories } from './queries/getMethodCategories';
-import { getMethodSelectors as sharedGetMethodSelectors } from './queries/getMethodSelectors';
 import { getClassEnvironments as sharedGetClassEnvironments } from './queries/getClassEnvironments';
 import { getClassDefinition as sharedGetClassDefinition } from './queries/getClassDefinition';
 import { getClassComment as sharedGetClassComment } from './queries/getClassComment';
@@ -443,17 +442,7 @@ export function getMethodCategories(
   isMeta: boolean,
   dict?: number | string,
 ): string[] {
-  return sharedGetMethodCategories(bind(session), className, isMeta, dict);
-}
-
-export function getMethodSelectors(
-  session: ActiveSession,
-  className: string,
-  isMeta: boolean,
-  category: string,
-  dict?: number | string,
-): string[] {
-  return sharedGetMethodSelectors(bind(session), className, isMeta, category, dict);
+  return sharedGetMethodCategories(defaultQueryExecutorUsing(session), className, isMeta, dict);
 }
 
 export function getClassEnvironments(
@@ -478,7 +467,14 @@ export function getMethodSource(
   environmentId: number = 0,
   dict?: number | string,
 ): string {
-  return sharedGetMethodSource(bind(session), className, isMeta, selector, environmentId, dict);
+  return sharedGetMethodSource(
+    defaultQueryExecutorUsing(session),
+    className,
+    isMeta,
+    selector,
+    environmentId,
+    dict,
+  );
 }
 
 export function getBaseMethodSource(
@@ -489,7 +485,14 @@ export function getBaseMethodSource(
   environmentId: number = 0,
   dict?: number | string,
 ): string {
-  return sharedGetBaseMethodSource(bind(session), className, isMeta, selector, environmentId, dict);
+  return sharedGetBaseMethodSource(
+    defaultQueryExecutorUsing(session),
+    className,
+    isMeta,
+    selector,
+    environmentId,
+    dict,
+  );
 }
 
 export function getClassDefinition(
@@ -568,7 +571,7 @@ export function getAllSelectors(session: ActiveSession, className: string): stri
 }
 
 export function getMethodList(session: ActiveSession, className: string) {
-  return sharedGetMethodList(bind(session), className);
+  return sharedGetMethodList(defaultQueryExecutorUsing(session), className);
 }
 
 export function getSourceOffsets(
