@@ -28,6 +28,11 @@ describe('Getting Started walkthrough content', () => {
   const viewsWelcome: Array<{ view: string; contents: string }> =
     pkg.contributes?.viewsWelcome ?? [];
   const loginsWelcome = viewsWelcome.find((v) => v.view === 'gemstoneLogins');
+  // The Databases view has two welcome variants (the WSL-missing prompt and the
+  // normal one); the normal one is the entry that offers Create Database.
+  const databasesWelcome = viewsWelcome.find(
+    (v) => v.view === 'gemstoneDatabases' && v.contents.includes('command:gemstone.createDatabase'),
+  );
 
   const commands: Array<{ command: string; title: string }> = pkg.contributes?.commands ?? [];
   const resetCommand = commands.find((c) => c.command === 'gemstone.resetGettingStarted');
@@ -71,8 +76,21 @@ describe('Getting Started walkthrough content', () => {
     expect(loginsWelcome?.contents).not.toMatch(invokesConnectFromButton);
   });
 
-  it('offers Quick Setup from the Logins view welcome text', () => {
-    expect(loginsWelcome?.contents).toContain('command:gemstone.quickSetup');
+  // Each empty view offers the action that populates *it*: adding a login here,
+  // not creating a database (that belongs to the Databases view). Keeping the
+  // stone-setup actions out of this view keeps it from becoming a scrolling list
+  // of steps that point "back" to things a user does elsewhere.
+  it('keeps the Logins view welcome focused on adding a login', () => {
+    expect(loginsWelcome?.contents).not.toContain('command:gemstone.quickSetup');
+    expect(loginsWelcome?.contents).not.toContain('command:gemstone.openWalkthrough');
+  });
+
+  // Quick Setup is the one-step "I have no stone yet" path, so it belongs where a
+  // missing database is surfaced — the Databases view — alongside the manual
+  // Create Database.
+  it('offers Quick Setup and Create Database from the Databases view welcome', () => {
+    expect(databasesWelcome?.contents).toContain('command:gemstone.quickSetup');
+    expect(databasesWelcome?.contents).toContain('command:gemstone.createDatabase');
   });
 
   // The walkthrough auto-opens on activation (startup), not on connecting or on

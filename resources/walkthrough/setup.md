@@ -14,8 +14,11 @@ and prompts for your password before continuing.
 
 ## Prefer to do it by hand?
 
+Quick Setup just automates these steps — you can run them yourself:
+
 - **Versions** view — download and extract a version.
 - **Databases** view — **Create Database** from an extracted version, then
-  **Start Stone**.
+  **Start Stone**. Creating a database also adds a **DataCurator** login for it
+  (just as Quick Setup does), so there's nothing extra to set up before connecting.
 
 Either way, once a stone is running, continue to **Connect to a stone**.
