@@ -33,8 +33,9 @@ npm run test:server:list   # list running GemStone processes for the test stone
 npm run test:gci           # deep GCI binding tests (requires a running stone)
 npm run package          # produce .vsix package
 
-# Dev helpers
-npm run dev:fresh        # launch the extension in a throwaway editor window
+# Dev helpers (human-driven GUI launchers — not agent-runnable; can't verify a change)
+npm run dev:fresh               # throwaway editor window, isolated clean-slate GemStone installs
+npm run dev:fresh:keep-installs # same, but reuse your real ~/Documents/GemStone to connect
 
 # End-user acceptance tests (Playwright drives a real editor window; see acceptance/)
 npm run test:acceptance         # run the specs locally (opens a window — macOS can't headless it)

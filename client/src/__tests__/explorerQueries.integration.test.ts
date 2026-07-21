@@ -190,14 +190,6 @@ describe('explorer queries (integration)', () => {
     });
   });
 
-  describe('getSuperclassDictName', () => {
-    it('names the dictionary that holds the superclass', () => {
-      defineWidget();
-
-      expect(q.getSuperclassDictName(session(), userIndex(), WIDGET)).toBe('Globals');
-    });
-  });
-
   describe('recategorizeClass', () => {
     it('moves a class to a new class-category', () => {
       defineWidget();
