@@ -649,7 +649,7 @@ export function referencesToObject(
 // All of these delegate to the shared layer. None auto-commit.
 
 export function compileClassDefinition(session: ActiveSession, source: string): string {
-  return sharedCompileClassDefinition(bind(session), source);
+  return sharedCompileClassDefinition(defaultQueryExecutorUsing(session), source);
 }
 
 export function compileMethod(
@@ -678,7 +678,7 @@ export function setClassComment(
   comment: string,
   dict?: number | string,
 ): string {
-  return sharedSetClassComment(bind(session), className, comment, dict);
+  return sharedSetClassComment(defaultQueryExecutorUsing(session), className, comment, dict);
 }
 
 export function recategorizeClass(
@@ -687,7 +687,7 @@ export function recategorizeClass(
   newCategory: string,
   dict?: number | string,
 ): string {
-  return sharedRecategorizeClass(bind(session), className, newCategory, dict);
+  return sharedRecategorizeClass(defaultQueryExecutorUsing(session), className, newCategory, dict);
 }
 
 export function copyMethodToClass(
@@ -747,7 +747,7 @@ export function deleteClass(
   dict: number | string,
   className: string,
 ): string {
-  return sharedDeleteClass(bind(session), dict, className);
+  return sharedDeleteClass(defaultQueryExecutorUsing(session), dict, className);
 }
 
 export function moveClass(
@@ -756,7 +756,12 @@ export function moveClass(
   destDictIndex: number,
   className: string,
 ): string {
-  return sharedMoveClass(bind(session), srcDictIndex, destDictIndex, className);
+  return sharedMoveClass(
+    defaultQueryExecutorUsing(session),
+    srcDictIndex,
+    destDictIndex,
+    className,
+  );
 }
 
 export function reclassifyClass(
@@ -765,7 +770,12 @@ export function reclassifyClass(
   className: string,
   newCategory: string,
 ): string {
-  return sharedReclassifyClass(bind(session), dictIndex, className, newCategory);
+  return sharedReclassifyClass(
+    defaultQueryExecutorUsing(session),
+    dictIndex,
+    className,
+    newCategory,
+  );
 }
 
 export function addDictionary(session: ActiveSession, dictName: string): string {
