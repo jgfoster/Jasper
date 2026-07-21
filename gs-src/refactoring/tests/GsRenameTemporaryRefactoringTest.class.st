@@ -159,6 +159,9 @@ GsRenameTemporaryRefactoringTest >> setUp [
 	self compile: 'shadowTemp | x | x := 1. ^[:x | x + 1] value: x + x' in: base.
 	self compile: 'withSizeTemp | size | size := 3. ^(Array new: size) size + size' in: base.
 	self compile: 'readsIvar ^count' in: base.
+	self compile: 'commentMentions: anArg
+	"renames anArg in this comment but only the real reference is renamed"
+	^anArg' in: base.
 	self compile: 'argAndTemp: anArg | aTemp | aTemp := anArg. ^aTemp' in: base.
 	self compile: 'blockCollide | m | m := 0. ^#(1 2) do: [:each | m := m + each]' in: base.
 	self compile: 'subTemp | temp | temp := 1. ^temp' in: sub
@@ -327,6 +330,39 @@ GsRenameTemporaryRefactoringTest >> testRenamingAnInstanceVariableIsDeclined [
 { #category : 'tests - decline' }
 GsRenameTemporaryRefactoringTest >> testALocalTemporaryIsRenamable [
 	self assert: (self renameComputeTempTo: 'sum') renamable
+]
+
+{ #category : 'tests - decline' }
+GsRenameTemporaryRefactoringTest >> testCursorNotOnAVariableIsDeclined [
+	"Pointing at a message selector (not a variable occurrence) is declined with a
+	 place-the-cursor reason and stages no change -- the offset must land on an actual
+	 variable, not merely a spot whose scope declares the name (e.g. inside a comment)."
+	| ref |
+	ref := self
+		renamingIn: self baseFixture selector: #overBlock from: 'inject' to: 'x' at: 'inject'.
+
+	self deny: ref renamable.
+	self assert: ref declineReason notNil.
+	self assert: ref declineReason includesSubstring: 'not a variable'.
+	self assert: (self methodChangeIn: ref changeSet) isNil
+]
+
+{ #category : 'tests - decline' }
+GsRenameTemporaryRefactoringTest >> testCursorInsideACommentNamingARealArgumentIsDeclined [
+	"The offset must land on an actual variable OCCURRENCE, not merely a position whose
+	 scope declares the name: commentMentions: has an argument anArg AND names 'anArg'
+	 in its comment. A click INSIDE the comment (where anArg is not a variable node)
+	 must be declined and stage no change -- otherwise a comment click would silently
+	 rename the real argument. (This fails against pre-occurrenceNode code, which would
+	 resolve the enclosing method scope and rename.)"
+	| ref |
+	ref := self
+		renamingIn: self baseFixture selector: #commentMentions: from: 'anArg' to: 'x'
+		at: 'anArg in this'.
+
+	self deny: ref renamable.
+	self assert: ref declineReason includesSubstring: 'not a variable'.
+	self assert: (self methodChangeIn: ref changeSet) isNil
 ]
 
 { #category : 'tests - preconditions' }

@@ -224,19 +224,35 @@ GsRenameTemporaryRefactoring >> declaringScopeFor: aNode [
 ]
 
 { #category : 'private' }
+GsRenameTemporaryRefactoring >> occurrenceNode [
+	"The RBVariableNode at offset whose name is the old name, or nil if the offset is
+	 NOT on an occurrence of that variable -- a comment, a message selector, an
+	 operator, whitespace, or any other token. Requiring an actual variable node (not
+	 merely a position whose enclosing scope happens to declare the name) is what
+	 keeps a click in a COMMENT that mentions a real argument from being treated as a
+	 rename of that argument, and lets a click on a message like #do: decline cleanly."
+	| tree occ |
+	tree := self parseTree.
+	tree isNil ifTrue: [^nil].
+	occ := [tree bestNodeFor: (offset to: offset)] on: Error do: [:e | nil].
+	^(occ notNil and: [occ isVariable and: [occ name asSymbol == oldNameSym]])
+		ifTrue: [occ]
+		ifFalse: [nil]
+]
+
+{ #category : 'private' }
 GsRenameTemporaryRefactoring >> resolvedScope [
-	"The declaring scope of the occurrence at offset, or nil if that occurrence is
-	 not a temporary/argument (an instance variable, a global, self, a message).
-	 Computed once from a fresh parse; used by renamable and declineReason."
+	"The declaring scope of the variable occurrence at offset, or nil when the offset
+	 is not on a renamable local -- either it is not on a variable occurrence of the
+	 name at all (occurrenceNode nil) or the name is not a temporary/argument there
+	 (an instance variable, a global, self). Computed once; used by renamable and
+	 declineReason."
 	resolved ifFalse: [
 		resolved := true.
-		resolvedScope := nil.
-		[ | tree occ |
-		tree := self parseTree.
-		tree ifNotNil: [
-			occ := tree bestNodeFor: (offset to: offset).
-			occ ifNotNil: [resolvedScope := self declaringScopeFor: occ]]]
-			on: Error do: [:e | resolvedScope := nil]].
+		resolvedScope := [self occurrenceNode
+			ifNil: [nil]
+			ifNotNil: [:occ | self declaringScopeFor: occ]]
+			on: Error do: [:e | nil]].
 	^resolvedScope
 ]
 
@@ -254,6 +270,10 @@ GsRenameTemporaryRefactoring >> declineReason [
 	 rename was declined and point them at the right refactoring."
 	| sym |
 	self renamable ifTrue: [^nil].
+	"Not on a variable occurrence at all (a comment, a message selector, an operator,
+	 whitespace) -- guide the user to click the actual variable name."
+	self occurrenceNode isNil ifTrue: [
+		^'Place the cursor on the temporary or argument you want to rename -- that position is not a variable (it may be a comment, a message selector, or punctuation).'].
 	sym := oldNameSym.
 	(self isPseudoVariable: sym)
 		ifTrue: [^'''', oldName, ''' is a reserved variable and cannot be renamed.'].
@@ -284,8 +304,12 @@ GsRenameTemporaryRefactoring >> buildChangeSet [
 	cs := GsRefactoringChangeSet new.
 	tree := self parseTree.
 	tree isNil ifTrue: [^cs].
+	"The offset must land on an actual variable occurrence of the name -- not merely a
+	 position whose scope declares it (e.g. inside a comment that mentions it). Resolve
+	 it in THIS tree (not via occurrenceNode, whose separate parse would make the
+	 identity compare below never match)."
 	occ := tree bestNodeFor: (offset to: offset).
-	occ isNil ifTrue: [^cs].
+	(occ notNil and: [occ isVariable and: [occ name asSymbol == oldNameSym]]) ifFalse: [^cs].
 	scope := self declaringScopeFor: occ.
 	scope isNil ifTrue: [^cs].
 	targets := OrderedCollection new.

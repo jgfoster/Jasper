@@ -13,7 +13,6 @@
  */
 import * as vscode from 'vscode';
 import { SessionManager } from './sessionManager';
-import { parseUri } from './gemstoneFileSystemProvider';
 import * as queries from './browserQueries';
 import { PREVIEW_PAGE_BYTES } from './queries/previewRenameMethod';
 import {
@@ -23,50 +22,36 @@ import {
   validateNewTemporaryName,
 } from './renameTemporaryPreview';
 import { showRenameTemporaryPanel } from './renameTemporaryPanel';
+import { logInfo } from './gciLog';
+import {
+  resolveMethodEditor,
+  wordAt,
+  ensureRbSupport,
+  refuse,
+  reloadMethodEditor,
+  saveIfDirty,
+} from './renameAtCursorShared';
 
-// A Smalltalk local identifier at the cursor: letter/underscore then word chars.
-const IDENTIFIER = /[A-Za-z_][A-Za-z0-9_]*/;
-
-/** Run the rename-temporary flow for the active method editor. */
-export async function renameTemporaryCommand(sessions: SessionManager): Promise<void> {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor || editor.document.uri.scheme !== 'gemstone') {
-    void vscode.window.showInformationMessage(
-      'Open a GemStone method and place the cursor on a temporary or argument to rename it.',
-    );
+/** Run the rename-temporary flow for the active method editor. When invoked from
+ *  the "Refactor…" code action, `position` is the exact spot the action was offered
+ *  at; the palette command passes none and falls back to the editor cursor. */
+export async function renameTemporaryCommand(
+  sessions: SessionManager,
+  position?: vscode.Position,
+): Promise<void> {
+  logInfo('[renameTemp] invoked');
+  const target = resolveMethodEditor(sessions, position, 'a temporary or argument');
+  if (!target) return;
+  if (!(await ensureRbSupport(target.session.rbSupportAvailable, 'Renaming a temporary'))) {
+    logInfo('[renameTemp] refactoring engine unavailable; user declined install');
     return;
   }
 
-  let parsed;
-  try {
-    parsed = parseUri(editor.document.uri);
-  } catch {
-    parsed = undefined;
-  }
-  if (!parsed || parsed.kind !== 'method') {
-    void vscode.window.showInformationMessage(
-      'Rename Temporary/Argument works in a method source editor.',
-    );
-    return;
-  }
-
-  const session = sessions.getSession(parsed.sessionId);
-  if (!session) {
-    void vscode.window.showWarningMessage('No GemStone session for this editor.');
-    return;
-  }
-  if (!(await ensureRbSupport(session.rbSupportAvailable))) return;
-
-  const wordRange = editor.document.getWordRangeAtPosition(editor.selection.active, IDENTIFIER);
-  if (!wordRange) {
-    void vscode.window.showInformationMessage(
-      'Place the cursor on a temporary or argument name to rename it.',
-    );
-    return;
-  }
-  const oldName = editor.document.getText(wordRange);
-  // 1-based source offset (the engine indexes the stored source from 1).
-  const offset = editor.document.offsetAt(wordRange.start) + 1;
+  const word = wordAt(target, 'a temporary or argument');
+  if (!word) return;
+  const { editor, parsed, session, dict } = target;
+  const oldName = word.name;
+  const offset = word.offset;
 
   const focusEditor = (): void => {
     void vscode.window.showTextDocument(editor.document, {
@@ -77,18 +62,15 @@ export async function renameTemporaryCommand(sessions: SessionManager): Promise<
 
   // The engine rewrites the STORED method source, so a dirty buffer must be saved
   // first or the offset would not match what the stone compiled.
-  if (editor.document.isDirty) {
-    const saved = await editor.document.save();
-    if (!saved) {
-      void vscode.window.showWarningMessage('Save the method before renaming.');
-      return;
-    }
-  }
+  if (!(await saveIfDirty(editor))) return;
 
   // Refuse up front, with a specific reason, if the cursor is not on a renamable
   // temporary/argument (an instance variable, an inherited one, a class variable,
   // a global, a pseudo-variable, or a message selector) — so the user is told why
   // before being asked for a new name. Offsets match the just-saved stored source.
+  logInfo(
+    `[renameTemp] pre-check '${oldName}' @${offset} in ${parsed.className}>>${parsed.selector}`,
+  );
   try {
     const reason = (
       await queries.renameTemporaryDeclineReason(
@@ -98,17 +80,21 @@ export async function renameTemporaryCommand(sessions: SessionManager): Promise<
         parsed.isMeta,
         oldName,
         offset,
-        parsed.dictIndex ?? parsed.dictName,
+        dict,
       )
     ).trim();
     if (reason.length > 0) {
-      void vscode.window.showWarningMessage(reason);
+      refuse(reason);
       focusEditor();
       return;
     }
-  } catch {
+  } catch (e: unknown) {
     // Non-fatal: fall through — startPreview still guards decline/collision.
+    logInfo(
+      `[renameTemp] pre-check failed (falling through): ${e instanceof Error ? e.message : String(e)}`,
+    );
   }
+  logInfo('[renameTemp] pre-check passed; prompting for new name');
 
   const entered = await vscode.window.showInputBox({
     title: 'Rename Temporary/Argument',
@@ -148,7 +134,7 @@ export async function renameTemporaryCommand(sessions: SessionManager): Promise<
       offset,
       token,
       PREVIEW_PAGE_BYTES,
-      parsed.dictIndex ?? parsed.dictName,
+      dict,
     );
     start = parseStartPreview(json);
   } catch (e: unknown) {
@@ -163,21 +149,19 @@ export async function renameTemporaryCommand(sessions: SessionManager): Promise<
   // is already taken) is refused up front — we never open the panel or apply, so a
   // shadowing rename cannot slip through.
   if (start.outOfScope.decline) {
-    void vscode.window.showWarningMessage(start.outOfScope.decline);
+    refuse(start.outOfScope.decline);
     safeClear();
     focusEditor();
     return;
   }
   if (start.outOfScope.collision) {
-    void vscode.window.showWarningMessage(
-      `Cannot rename to '${newName}': ${start.outOfScope.collision}.`,
-    );
+    refuse(`Cannot rename to '${newName}': ${start.outOfScope.collision}.`);
     safeClear();
     focusEditor();
     return;
   }
   if (start.total === 0) {
-    void vscode.window.showInformationMessage(`No occurrences of '${oldName}' to rename.`);
+    refuse(`No occurrences of '${oldName}' to rename.`);
     safeClear();
     focusEditor();
     return;
@@ -204,31 +188,6 @@ export async function renameTemporaryCommand(sessions: SessionManager): Promise<
   // The method was recompiled server-side (no commit). Reload the editor from the
   // stone so it shows the saved, renamed source, and re-focus it (Eric: the method
   // is selected after the refactoring).
-  await reloadAndFocus(editor.document);
+  await reloadMethodEditor(editor);
   void vscode.window.setStatusBarMessage(`Renamed '${oldName}' → '${newName}'`, 4000);
-}
-
-/** Gate on the refactoring engine being loaded; offer to install it if not. */
-async function ensureRbSupport(available: boolean | undefined): Promise<boolean> {
-  if (available) return true;
-  const LOAD = 'Install GemStone Support…';
-  const choice = await vscode.window.showInformationMessage(
-    "Renaming a temporary needs the GemStone refactoring engine, which isn't loaded in this stone yet.",
-    LOAD,
-  );
-  if (choice !== LOAD) return false;
-  await vscode.commands.executeCommand('gemstone.installServerSupport');
-  return true;
-}
-
-/** Reload the method editor from the provider (post server-side recompile) and
- *  focus it, so the just-refactored method is shown selected with its saved
- *  source. */
-async function reloadAndFocus(document: vscode.TextDocument): Promise<void> {
-  await vscode.window.showTextDocument(document, { preserveFocus: false });
-  try {
-    await vscode.commands.executeCommand('workbench.action.files.revert');
-  } catch {
-    /* best-effort: the editor is focused even if revert is unavailable */
-  }
 }

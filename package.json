@@ -1110,6 +1110,24 @@
         "icon": "$(edit)"
       },
       {
+        "command": "gemstone.renameInstVarAtCursor",
+        "title": "Rename Instance Variable at Cursor…",
+        "category": "GemStone",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "gemstone.renameClassVarAtCursor",
+        "title": "Rename Class Variable at Cursor…",
+        "category": "GemStone",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "gemstone.renameMethodInEditor",
+        "title": "Rename Method in Editor…",
+        "category": "GemStone",
+        "icon": "$(edit)"
+      },
+      {
         "command": "gemstone.explorer.renameClass",
         "title": "Rename Class…",
         "category": "GemStone",

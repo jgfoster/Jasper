@@ -25,6 +25,9 @@ import {
   validateNewIvarName,
 } from './renameInstVarPreview';
 import { showRenameInstVarPanel } from './renameInstVarPanel';
+import { renameInstVarAtCursorCommand } from './renameInstVarAtCursorCommand';
+import { renameClassVarAtCursorCommand } from './renameClassVarAtCursorCommand';
+import { renameMethodAtCursorCommand, SelectorAtPosition } from './renameMethodAtCursorCommand';
 import {
   parseStartPreview,
   parsePage,
@@ -1295,8 +1298,21 @@ class ExplorerController {
   // apply — which recompiles the kept changes in the stone (class definition
   // first) WITHOUT committing. The user commits explicitly, as everywhere else.
   async renameInstVar(item: IvarItem): Promise<void> {
+    await this.renameInstVarNamed(item.className, item.ivarName, this.state.dictIndex);
+  }
+
+  // The rename-instance-variable flow, addressed by NAME rather than a tree row so
+  // both entry points share it: the Explorer's ivar-row pencil (above) and the
+  // source editor's Refactor… code action (renameInstVarAtCursorCommand). Answers
+  // true when the rename was APPLIED (so an editor-triggered caller knows to
+  // reload the method source), false on any cancel/decline path.
+  async renameInstVarNamed(
+    className: string,
+    ivarName: string,
+    dict: number | string | undefined,
+  ): Promise<boolean> {
     const session = this.session();
-    if (!session) return;
+    if (!session) return false;
 
     // The engine ships as an optional, separately-installed payload (bundled with
     // the Enhanced Inspector). When it isn't loaded, offer to install the optional
@@ -1309,22 +1325,22 @@ class ExplorerController {
           "isn't loaded in this stone yet.",
         LOAD,
       );
-      if (choice !== LOAD) return;
+      if (choice !== LOAD) return false;
       await vscode.commands.executeCommand('gemstone.installServerSupport');
-      if (!this.session()?.rbSupportAvailable) return;
+      if (!this.session()?.rbSupportAvailable) return false;
     }
 
-    const oldName = item.ivarName;
+    const oldName = ivarName;
     const entered = await vscode.window.showInputBox({
       title: 'Rename Instance Variable',
-      prompt: `Rename '${oldName}' in ${item.className} (and its subclasses).`,
+      prompt: `Rename '${oldName}' in ${className} (and its subclasses).`,
       value: oldName,
       valueSelection: [0, oldName.length],
       validateInput: (v) => validateNewIvarName(v, oldName),
     });
-    if (entered === undefined) return;
+    if (entered === undefined) return false;
     const newName = entered.trim();
-    if (newName === oldName) return;
+    if (newName === oldName) return false;
 
     let json: string;
     try {
@@ -1335,20 +1351,12 @@ class ExplorerController {
           cancellable: false,
         },
         () =>
-          Promise.resolve(
-            queries.previewRenameInstVar(
-              session,
-              item.className,
-              oldName,
-              newName,
-              this.state.dictIndex,
-            ),
-          ),
+          Promise.resolve(queries.previewRenameInstVar(session, className, oldName, newName, dict)),
       );
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       void vscode.window.showErrorMessage(`Rename preview failed: ${msg}`);
-      return;
+      return false;
     }
 
     let changes: RenameChange[];
@@ -1357,24 +1365,25 @@ class ExplorerController {
     } catch {
       const detail = json.length > 200 ? `${json.slice(0, 200)}…` : json;
       void vscode.window.showErrorMessage(`Rename preview failed: ${detail}`);
-      return;
+      return false;
     }
 
     if (changes.length === 0) {
       void vscode.window.showInformationMessage(
-        `No references to '${oldName}' were found in ${item.className} or its ` +
+        `No references to '${oldName}' were found in ${className} or its ` +
           'subclasses; nothing to rename.',
       );
-      return;
+      return false;
     }
 
     // Preview in the custom panel (all changes pre-checked, before/after diffs);
     // the user unchecks any they don't want and hits Apply.
     const ordered = orderChangesClassDefFirst(changes);
     const selectedIds = await showRenameInstVarPanel(oldName, newName, ordered);
-    if (!selectedIds || selectedIds.length === 0) return;
+    if (!selectedIds || selectedIds.length === 0) return false;
 
     await this.applyRename(session, ordered, selectedIds, oldName, newName);
+    return true;
   }
 
   // Recompile the selected changes in the stone: the class-definition edit first
@@ -1458,10 +1467,30 @@ class ExplorerController {
   // user unchecks any change, and Apply recompiles the kept changes — deleting the
   // old-selector implementors — WITHOUT committing.
   async renameMethod(item: MethodItem): Promise<void> {
-    const session = this.session();
-    if (!session) return;
     const className = this.state.className;
     if (!className) return;
+    await this.renameMethodNamed(
+      className,
+      item.info.selector,
+      item.isMeta,
+      this.state.dictIndex,
+      this.state.dictName,
+    );
+  }
+
+  // The rename-method flow, addressed by NAME rather than a tree row so both
+  // entry points share it: the Explorer's method-row pencil (above) and the
+  // source editor's Refactor… code action (renameMethodAtCursorCommand). Answers
+  // true when the rename was APPLIED, false on any cancel/decline path.
+  async renameMethodNamed(
+    className: string,
+    selector: string,
+    isMeta: boolean,
+    dictIndex: number | undefined,
+    dictName: string | undefined,
+  ): Promise<boolean> {
+    const session = this.session();
+    if (!session) return false;
 
     if (!session.rbSupportAvailable) {
       const LOAD = 'Install GemStone Support…';
@@ -1470,25 +1499,17 @@ class ExplorerController {
           'loaded in this stone yet.',
         LOAD,
       );
-      if (choice !== LOAD) return;
+      if (choice !== LOAD) return false;
       await vscode.commands.executeCommand('gemstone.installServerSupport');
-      if (!this.session()?.rbSupportAvailable) return;
+      if (!this.session()?.rbSupportAvailable) return false;
     }
 
-    const oldSelector = item.info.selector;
-    const isMeta = item.isMeta;
+    const oldSelector = selector;
 
     // Best-effort argument names for the editor rows (display only).
     let argNames: string[];
     try {
-      const src = queries.getMethodSource(
-        session,
-        className,
-        isMeta,
-        oldSelector,
-        0,
-        this.state.dictIndex,
-      );
+      const src = queries.getMethodSource(session, className, isMeta, oldSelector, 0, dictIndex);
       argNames = parseArgNames(src, oldSelector);
     } catch {
       argNames = parseArgNames('', oldSelector);
@@ -1499,19 +1520,19 @@ class ExplorerController {
       oldSelector,
       isMeta,
       argNames,
-      dictName: this.state.dictName,
+      dictName,
     });
-    if (!edit) return;
+    if (!edit) return false;
 
     const err = validateNewParts(edit.parts, oldSelector);
     if (err) {
       void vscode.window.showErrorMessage(`Rename: ${err}`);
-      return;
+      return false;
     }
     const newSelector = buildSelector(edit.parts);
     const permutation = permutationFromOriginalIndices(edit.originalIndices);
     const noReorder = permutation.every((v, i) => v === i + 1);
-    if (newSelector === oldSelector && noReorder) return; // nothing to do
+    if (newSelector === oldSelector && noReorder) return false; // nothing to do
 
     // A client-generated token keys this preview's server-side state (the built
     // change set stored in SessionTemps) for paging and the eventual apply.
@@ -1537,14 +1558,14 @@ class ExplorerController {
         edit.scope,
         token,
         PREVIEW_PAGE_BYTES,
-        this.state.dictIndex,
+        dictIndex,
       );
       start = parseStartPreview(json);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       void vscode.window.showErrorMessage(`Rename preview failed: ${msg}`);
       safeClear();
-      return;
+      return false;
     }
 
     if (start.total === 0) {
@@ -1553,7 +1574,7 @@ class ExplorerController {
         `No implementors or senders of '${oldSelector}' were found in the chosen scope; ` +
           'nothing to rename.',
       );
-      return;
+      return false;
     }
 
     // The preview is paginated (each page bounded to fit the GCI buffer) and the
@@ -1568,7 +1589,7 @@ class ExplorerController {
         parseApplyResult(await queries.applyRenameMethod(session, token, deselected)),
       cleanup: safeClear,
     });
-    if (!result) return; // cancelled/closed
+    if (!result) return false; // cancelled/closed
 
     // Selectors changed, so the current class's cached method environment is
     // stale — reload it and reopen any editor that was on the renamed selector.
@@ -1582,12 +1603,13 @@ class ExplorerController {
           `${first.label}: ${first.error}` +
           (result.failed.length > 1 ? ` (+${result.failed.length - 1} more)` : ''),
       );
-      return;
+      return true;
     }
     void vscode.window.showInformationMessage(
       `Renamed '${oldSelector}' → '${newSelector}' (${result.applied} change` +
         `${result.applied === 1 ? '' : 's'}). Compiled but NOT committed — commit when ready.`,
     );
+    return true;
   }
 
   // Ensure the refactoring engine is loaded, offering to install it if not.
@@ -1783,35 +1805,51 @@ class ExplorerController {
   // all-or-nothing: every reference is rewritten (no per-change deselection), so a
   // method is never left naming a removed variable. Nothing is committed.
   async renameClassVariable(item: ClassVarItem): Promise<void> {
-    const session = this.session();
-    if (!session) return;
-    if (!(await this.ensureRbSupport('Renaming a class variable'))) return;
+    await this.renameClassVarNamed(item.className, item.classVarName, this.state.dictIndex);
+  }
 
-    const oldName = item.classVarName;
+  // The rename-class-variable flow, addressed by NAME rather than a tree row so
+  // both entry points share it: the Explorer's class-var-row pencil (above) and
+  // the source editor's Refactor… code action (renameClassVarAtCursorCommand).
+  // Answers true when the rename was APPLIED (so an editor-triggered caller knows
+  // to reload the method source), false on any cancel/decline path.
+  async renameClassVarNamed(
+    className: string,
+    classVarName: string,
+    dict: number | string | undefined,
+  ): Promise<boolean> {
+    const session = this.session();
+    if (!session) return false;
+    if (!(await this.ensureRbSupport('Renaming a class variable'))) return false;
+
+    const oldName = classVarName;
     // Re-select the class-variable row the rename started from. Opening the input
     // box or the preview webview moves focus off the tree, so on any cancel/no-op
     // exit we put focus back on the original row (otherwise the row is left
     // unfocused — inconsistently, since only the webview steals focus). Best-effort.
     const reselect = (): void => {
       const views = this.views;
-      if (views) views.klass.reveal(item, { select: true, focus: true }).then(undefined, () => {});
+      if (views)
+        views.klass
+          .reveal(new ClassVarItem(className, oldName), { select: true, focus: true })
+          .then(undefined, () => {});
     };
 
     const entered = await vscode.window.showInputBox({
       title: 'Rename Class Variable',
-      prompt: `Rename '${oldName}' in ${item.className} (and its subclasses).`,
+      prompt: `Rename '${oldName}' in ${className} (and its subclasses).`,
       value: oldName,
       valueSelection: [0, oldName.length],
       validateInput: (v) => validateNewClassVarName(v, oldName),
     });
     if (entered === undefined) {
       reselect();
-      return;
+      return false;
     }
     const newName = entered.trim();
     if (newName === oldName) {
       reselect();
-      return;
+      return false;
     }
 
     const token = `rcvp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -1827,12 +1865,12 @@ class ExplorerController {
     try {
       const json = await queries.startRenameClassVarPreview(
         session,
-        item.className,
+        className,
         oldName,
         newName,
         token,
         PREVIEW_PAGE_BYTES,
-        this.state.dictIndex,
+        dict,
       );
       start = parseStartClassVarPreview(json);
     } catch (e: unknown) {
@@ -1840,17 +1878,17 @@ class ExplorerController {
       void vscode.window.showErrorMessage(`Rename preview failed: ${msg}`);
       safeClear();
       reselect();
-      return;
+      return false;
     }
 
     if (start.total === 0) {
       safeClear();
       void vscode.window.showInformationMessage(
-        `No references to '${oldName}' were found in ${item.className} or its subclasses; ` +
+        `No references to '${oldName}' were found in ${className} or its subclasses; ` +
           'nothing to rename.',
       );
       reselect();
-      return;
+      return false;
     }
 
     const result = await showRenameClassVarPanel(oldName, newName, start, {
@@ -1865,18 +1903,18 @@ class ExplorerController {
     });
     if (!result) {
       reselect();
-      return;
+      return false;
     }
 
     // The class variable and any referencing methods changed (the class name and
     // its [n] version tag do NOT — a class-variable change makes no new version).
-    await this.refreshAfterClassReshape(item.className);
+    await this.refreshAfterClassReshape(className);
     // Keep the (now-renamed) class variable selected: refreshAfterClassReshape
     // re-reveals the CLASS, which would otherwise steal the selection, so re-reveal
     // the renamed class-variable row last. Best-effort — the row must be in the
     // rebuilt tree (same dictionary), else this is a no-op.
     try {
-      await this.views?.klass.reveal(new ClassVarItem(item.className, newName), {
+      await this.views?.klass.reveal(new ClassVarItem(className, newName), {
         select: true,
         focus: false,
       });
@@ -1885,7 +1923,7 @@ class ExplorerController {
       // row); if it can't be revealed, fall back to selecting the "class" side node
       // so focus at least lands near the renamed variable.
       try {
-        await this.views?.klass.reveal(new VarSideItem(item.className, true), {
+        await this.views?.klass.reveal(new VarSideItem(className, true), {
           select: true,
           focus: false,
         });
@@ -1901,12 +1939,13 @@ class ExplorerController {
           `${first.label}: ${first.error}` +
           (result.failed.length > 1 ? ` (+${result.failed.length - 1} more)` : ''),
       );
-      return;
+      return true;
     }
     void vscode.window.showInformationMessage(
       `Renamed class variable '${oldName}' → '${newName}' (${result.applied} change` +
         `${result.applied === 1 ? '' : 's'}). Compiled but NOT committed — commit when ready.`,
     );
+    return true;
   }
 
   // Open the (read-only, this-stone-only) class-definition history viewer for a
@@ -2786,6 +2825,10 @@ export interface ExplorerHandle {
 export function registerGemStoneExplorer(
   context: vscode.ExtensionContext,
   sessionManager: SessionManager,
+  // LSP-backed "full selector at this position" resolver, used by the editor-
+  // triggered Rename Method to target a SENT selector under the cursor. Optional
+  // so tests (and a not-yet-started LSP) degrade to renaming the edited method.
+  selectorAtPosition: SelectorAtPosition = () => Promise.resolve(null),
 ): ExplorerHandle {
   const ctl = new ExplorerController(sessionManager);
 
@@ -2936,6 +2979,43 @@ export function registerGemStoneExplorer(
     // Rename a locally-defined instance variable (pencil on the ivar row).
     vscode.commands.registerCommand('gemstone.explorer.renameIvar', (item?: IvarItem) => {
       if (item instanceof IvarItem) void ctl.renameInstVar(item);
+    }),
+    // Rename the instance variable at the cursor in a method source editor (the
+    // Refactor… code action / palette) — routes into the same shared flow.
+    vscode.commands.registerCommand('gemstone.renameInstVarAtCursor', (position?: unknown) => {
+      void renameInstVarAtCursorCommand(
+        sessionManager,
+        (target) => ctl.renameInstVarNamed(target.className, target.ivarName, target.dict),
+        position instanceof vscode.Position ? position : undefined,
+      );
+    }),
+    // Rename the class variable at the cursor in a method source editor — routes
+    // into the same shared flow as the Explorer's class-var-row pencil.
+    vscode.commands.registerCommand('gemstone.renameClassVarAtCursor', (position?: unknown) => {
+      void renameClassVarAtCursorCommand(
+        sessionManager,
+        (target) => ctl.renameClassVarNamed(target.className, target.classVarName, target.dict),
+        position instanceof vscode.Position ? position : undefined,
+      );
+    }),
+    // Rename the method at the cursor in a source editor: a SENT selector under
+    // the cursor renames that selector; the header (or a non-send position)
+    // renames the edited method. Routes into the same shared flow as the
+    // Explorer's method-row pencil (which also reopens editors under the new
+    // selector).
+    vscode.commands.registerCommand('gemstone.renameMethodInEditor', (position?: unknown) => {
+      void renameMethodAtCursorCommand(
+        (target) =>
+          ctl.renameMethodNamed(
+            target.className,
+            target.selector,
+            target.isMeta,
+            target.dictIndex,
+            target.dictName,
+          ),
+        selectorAtPosition,
+        position instanceof vscode.Position ? position : undefined,
+      );
     }),
     // Rename a locally-defined class variable (pencil on the class-variable row).
     vscode.commands.registerCommand(

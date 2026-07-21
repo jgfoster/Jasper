@@ -84,7 +84,7 @@ import { GemStoneDebugSession } from './gemstoneDebugSession';
 import { InspectorTreeProvider, InspectorNode } from './inspectorTreeProvider';
 import { registerGemStoneExplorer } from './gemstoneExplorer';
 import { renameTemporaryCommand } from './renameTemporaryCommand';
-import { RenameTemporaryCodeActionProvider } from './renameTemporaryCodeAction';
+import { RefactorCodeActionProvider } from './renameRefactorCodeActions';
 import { GemStoneWorkspaceSymbolProvider } from './gemstoneSymbolProvider';
 import { GemStoneDefinitionProvider } from './gemstoneDefinitionProvider';
 import { GemStoneHoverProvider } from './gemstoneHoverProvider';
@@ -647,7 +647,22 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(inspectorView, inspectorProvider);
 
   // ── GemStone Explorer (cascading navigation panes) ───────────
-  const explorer = registerGemStoneExplorer(context, sessionManager);
+  // The selector-at-position resolver lets the editor-triggered Rename Method
+  // target a SENT selector under the cursor (LSP AST-based, so multi-part keyword
+  // selectors resolve whole). Reads `client` lazily — it is created above but
+  // starts asynchronously; until it answers, the rename falls back to the edited
+  // method.
+  const explorer = registerGemStoneExplorer(context, sessionManager, async (document, position) => {
+    // Distinguish "no selector at this position" (LSP answers null → rename the
+    // edited method) from "lookup unavailable" (throw → the command aborts rather
+    // than guess): a not-yet-started client or a request failure THROWS; only a
+    // live "no selector here" answers null.
+    if (!client) throw new Error('language server not started');
+    return client.sendRequest<string | null>('gemstone/selectorAtPosition', {
+      textDocument: { uri: document.uri.toString() },
+      position,
+    });
+  });
 
   // ── GemStone FileSystem Provider ─────────────────────────
   const gemstoneFs = new GemStoneFileSystemProvider(sessionManager, exportManager);
@@ -717,8 +732,8 @@ export function activate(context: vscode.ExtensionContext) {
     // saved (scheme:gemstone) method editor.
     vscode.languages.registerCodeActionsProvider(
       { scheme: 'gemstone', language: 'gemstone-smalltalk' },
-      new RenameTemporaryCodeActionProvider(),
-      { providedCodeActionKinds: RenameTemporaryCodeActionProvider.providedCodeActionKinds },
+      new RefactorCodeActionProvider(),
+      { providedCodeActionKinds: RefactorCodeActionProvider.providedCodeActionKinds },
     ),
   );
 
@@ -1107,8 +1122,11 @@ export function activate(context: vscode.ExtensionContext) {
       await runInstallServerSupport(sessionManager, context.extensionPath);
     }),
 
-    vscode.commands.registerCommand('gemstone.renameTemporary', async () => {
-      await renameTemporaryCommand(sessionManager);
+    vscode.commands.registerCommand('gemstone.renameTemporary', async (position?: unknown) => {
+      await renameTemporaryCommand(
+        sessionManager,
+        position instanceof vscode.Position ? position : undefined,
+      );
     }),
 
     vscode.commands.registerCommand('gemstone.resetGettingStarted', async () => {

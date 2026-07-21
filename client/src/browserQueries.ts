@@ -34,6 +34,7 @@ import { getInstVarNames as sharedGetInstVarNames } from './queries/getInstVarNa
 import { getDefinedInstVarNames as sharedGetDefinedInstVarNames } from './queries/getDefinedInstVarNames';
 import { getDefinedInstVarCounts as sharedGetDefinedInstVarCounts } from './queries/getDefinedInstVarCounts';
 import { getDefinedClassVarNames as sharedGetDefinedClassVarNames } from './queries/getDefinedClassVarNames';
+import { getVisibleClassVarNames as sharedGetVisibleClassVarNames } from './queries/getVisibleClassVarNames';
 import { getDefinedClassVarCounts as sharedGetDefinedClassVarCounts } from './queries/getDefinedClassVarCounts';
 import {
   getClassVersions as sharedGetClassVersions,
@@ -606,6 +607,14 @@ export function getDefinedClassVarNames(
   dict?: number | string,
 ): string[] {
   return sharedGetDefinedClassVarNames(bind(session), className, dict);
+}
+
+export function getVisibleClassVarNames(
+  session: ActiveSession,
+  className: string,
+  dict?: number | string,
+): string[] {
+  return sharedGetVisibleClassVarNames(bind(session), className, dict);
 }
 
 export function getDefinedClassVarCounts(
