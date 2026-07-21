@@ -82,33 +82,15 @@ describe('Browser Queries (integration)', () => {
     });
   });
 
-  describe('getMethodSelectors', () => {
-    it('returns selectors for a known category', () => {
-      // First get a real category name
-      const categories = queries.getMethodCategories(session, 'Array', false);
-      expect(categories.length).toBeGreaterThan(0);
-
-      const selectors = queries.getMethodSelectors(session, 'Array', false, categories[0]);
-      expect(Array.isArray(selectors)).toBe(true);
-      expect(selectors.length).toBeGreaterThan(0);
-    });
-
-    it('works on class side', () => {
-      const categories = queries.getMethodCategories(session, 'Array', true);
-      if (categories.length > 0) {
-        const selectors = queries.getMethodSelectors(session, 'Array', true, categories[0]);
-        expect(Array.isArray(selectors)).toBe(true);
-      }
-    });
-  });
-
   describe('getMethodSource', () => {
     it('returns source for a known method', () => {
-      const categories = queries.getMethodCategories(session, 'Array', false);
-      const selectors = queries.getMethodSelectors(session, 'Array', false, categories[0]);
-      expect(selectors.length).toBeGreaterThan(0);
+      // getAllSelectors includes inherited selectors, which getMethodSource
+      // can't look up (it only finds methods Array implements itself) — use
+      // getMethodList, which is scoped to locally-implemented methods.
+      const instanceMethods = queries.getMethodList(session, 'Array').filter((m) => !m.isMeta);
+      expect(instanceMethods.length).toBeGreaterThan(0);
 
-      const source = queries.getMethodSource(session, 'Array', false, selectors[0]);
+      const source = queries.getMethodSource(session, 'Array', false, instanceMethods[0].selector);
       expect(typeof source).toBe('string');
       expect(source.length).toBeGreaterThan(0);
     });
@@ -176,12 +158,12 @@ describe('Browser Queries (integration)', () => {
       const source = queries.getMethodSource(session, testClass, false, testSelector);
       expect(source).toContain(testSelector);
 
-      const afterCompile = queries.getMethodSelectors(session, testClass, false, testCategory);
+      const afterCompile = queries.getAllSelectors(session, testClass);
       expect(afterCompile).toContain(testSelector);
 
       queries.deleteMethod(session, testClass, false, testSelector);
 
-      const afterDelete = queries.getMethodSelectors(session, testClass, false, testCategory);
+      const afterDelete = queries.getAllSelectors(session, testClass);
       expect(afterDelete).not.toContain(testSelector);
     });
   });
