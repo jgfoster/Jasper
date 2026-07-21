@@ -57,6 +57,7 @@ import {
 } from './rowanTreeProvider';
 import { isRowanProjectRoot } from './rowanProject';
 import { RowanProjectTreeProvider } from './rowanProjectView';
+import { createRowanProject } from './rowanCreate';
 import { RowanDecorationProvider } from './rowanDecorations';
 import { findMethodInClass } from './commands/findMethodInClass';
 import { loadClassPickItems } from './commands/classPicker';
@@ -2539,6 +2540,29 @@ export function activate(context: vscode.ExtensionContext) {
     rowanProjectProvider.refresh();
     rowanProjectView.description = rowanProjectProvider.projectName();
   };
+  // Resolve a GemStone install that can run the Rowan solo scripts: prefer the
+  // connected session's version, else the first extracted version that ships the
+  // tooling. $GEMSTONE is the sysadmin path, or two dirs up from the GCI library
+  // (…/lib/libgci → install root).
+  // Open a freshly-created project's load-spec manifest with the project name
+  // selected, so the user names it there (the name is metadata, not the folder).
+  const openRowanManifestAtName = async (projectRoot: string, specName: string) => {
+    const manifest = path.join(projectRoot, 'rowan', 'specs', `${specName}.ston`);
+    let doc: vscode.TextDocument;
+    try {
+      doc = await vscode.workspace.openTextDocument(vscode.Uri.file(manifest));
+    } catch {
+      return;
+    }
+    const m = /(#projectName\s*:\s*')([^']*)'/.exec(doc.getText());
+    const selection = m
+      ? new vscode.Range(
+          doc.positionAt(m.index + m[1].length),
+          doc.positionAt(m.index + m[1].length + m[2].length),
+        )
+      : undefined;
+    await vscode.window.showTextDocument(doc, selection ? { selection } : {});
+  };
   // Recognize when the open workspace root is itself a Rowan project — gates the
   // Explorer section's visibility. Passive: no effect when it isn't one.
   const refreshRowanWorkspaceContext = () => {
@@ -2569,6 +2593,95 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('gemstone.rowanRefreshView', () => {
       rowanProvider.refresh();
+    }),
+
+    vscode.commands.registerCommand('gemstone.rowanNewProject', async () => {
+      const name = (
+        await vscode.window.showInputBox({
+          prompt: 'New Rowan project name',
+          placeHolder: 'MyProject',
+          ignoreFocusOut: true,
+          // The name becomes a folder, so only reject what breaks a folder name —
+          // the project's own name lives in the Rowan metadata, and Rowan itself
+          // accepts hyphens, dots, etc.
+          validateInput: (v) => {
+            const t = v.trim();
+            if (!t) return 'Enter a project name.';
+            if (/[\\/]/.test(t) || t === '.' || t === '..')
+              return 'Avoid /, \\, ".", and ".." — this becomes a folder name.';
+            return undefined;
+          },
+        })
+      )?.trim();
+      if (!name) return;
+
+      const openFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const picked = await vscode.window.showOpenDialog({
+        canSelectFolders: true,
+        canSelectFiles: false,
+        canSelectMany: false,
+        openLabel: 'Create Project Here',
+        title: `Choose where to create "${name}"`,
+        defaultUri: openFolder ? vscode.Uri.file(openFolder) : undefined,
+      });
+      if (!picked || picked.length === 0) return;
+      const dest = path.join(picked[0].fsPath, name);
+      if (fs.existsSync(dest)) {
+        vscode.window.showErrorMessage(`"${dest}" already exists.`);
+        return;
+      }
+      try {
+        fs.mkdirSync(dest, { recursive: true });
+      } catch (e: unknown) {
+        vscode.window.showErrorMessage(
+          `Could not create the folder: ${e instanceof Error ? e.message : String(e)}`,
+        );
+        return;
+      }
+
+      const result = createRowanProject(dest, name);
+      if (!result.success) {
+        vscode.window.showErrorMessage(`Could not create the project: ${result.error}`);
+        return;
+      }
+      const choice = await vscode.window.showInformationMessage(
+        `Created Rowan project "${name}".`,
+        'Open Project',
+      );
+      if (choice === 'Open Project' && result.projectDir) {
+        await vscode.commands.executeCommand(
+          'vscode.openFolder',
+          vscode.Uri.file(result.projectDir),
+        );
+      }
+    }),
+
+    vscode.commands.registerCommand('gemstone.rowanInitHere', async () => {
+      const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!folder) {
+        vscode.window.showErrorMessage(
+          'Open a folder first — this turns the open folder into a Rowan project.',
+        );
+        return;
+      }
+      if (isRowanProjectRoot(folder)) {
+        vscode.window.showInformationMessage('This folder is already a Rowan project.');
+        return;
+      }
+      // The open folder IS the project's containing folder; its name becomes the
+      // load spec's file name. The project's own name is metadata the user edits
+      // in the manifest we open right afterward.
+      const name = path.basename(folder);
+
+      const result = createRowanProject(folder, name);
+      if (!result.success) {
+        vscode.window.showErrorMessage(`Could not create the project: ${result.error}`);
+        return;
+      }
+      refreshRowanWorkspaceContext();
+      rowanProvider.refresh();
+      refreshRowanProjectView();
+      await openRowanManifestAtName(folder, name);
     }),
 
     vscode.commands.registerCommand('gemstone.rowanAddRepo', async () => {

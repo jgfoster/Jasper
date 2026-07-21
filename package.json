@@ -438,7 +438,18 @@
       },
       {
         "view": "gemstoneRowan",
-        "contents": "Not connected."
+        "contents": "Not connected.",
+        "when": "gemstone.workspaceIsRowanProject"
+      },
+      {
+        "view": "gemstoneRowan",
+        "contents": "This folder isn't a Rowan project.\n[Create Rowan Project](command:gemstone.rowanInitHere)",
+        "when": "!gemstone.workspaceIsRowanProject && workspaceFolderCount != 0"
+      },
+      {
+        "view": "gemstoneRowan",
+        "contents": "Open a folder to work with Rowan.\n[New Rowan Project…](command:gemstone.rowanNewProject)",
+        "when": "workspaceFolderCount == 0"
       },
       {
         "view": "gemstoneInspector",
@@ -816,6 +827,17 @@
         "title": "Refresh Rowan View",
         "category": "GemStone",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "gemstone.rowanNewProject",
+        "title": "New Rowan Project…",
+        "category": "GemStone",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "gemstone.rowanInitHere",
+        "title": "Create Rowan Project",
+        "category": "GemStone"
       },
       {
         "command": "gemstone.rowanFindClassPackage",
@@ -1458,6 +1480,11 @@
         {
           "command": "gemstone.openWalkthrough",
           "when": "view == gemstoneVersions",
+          "group": "navigation@0"
+        },
+        {
+          "command": "gemstone.rowanNewProject",
+          "when": "view == gemstoneRowan",
           "group": "navigation@0"
         },
         {
