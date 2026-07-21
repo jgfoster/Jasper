@@ -30,6 +30,7 @@ function createMockSession(executeFetchData = ''): ActiveSession {
     GciTsCompileMethod: vi.fn(() => ({ result: 5000n, err: { ...noErr } })),
     GciTsExecuteFetchBytes: vi.fn(() => ({ data: executeFetchData, err: { ...noErr } })),
     GciTsPerformFetchBytes: vi.fn(() => ({ data: '', err: { ...noErr } })),
+    executeAndFetchString: vi.fn(() => executeFetchData),
     GciTsCallInProgress: vi.fn(() => ({ result: 0 })),
     GciTsClearStack: vi.fn(),
   };
@@ -220,7 +221,7 @@ describe('browserQueries', () => {
       const session = createMockSession('');
       queries.getDictionaryClassFileOutOrder(session, 5);
 
-      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
       const code = mockExec.mock.calls[0][1] as string;
       expect(code).toContain('symbolList at: 5');
     });
@@ -273,7 +274,7 @@ describe('browserQueries', () => {
       const session = createMockSession('');
       queries.getGlobalsForDictionary(session, 3);
 
-      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
       const code = mockExec.mock.calls[0][1] as string;
       expect(code).toContain('symbolList at: 3');
     });
