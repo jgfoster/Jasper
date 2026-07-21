@@ -123,6 +123,7 @@ import { readMcpSetting } from './mcpSettings';
 import { ensureSelfSignedCert, trustCertCommand } from './tlsCert';
 import { ProcessTreeProvider, ProcessItem } from './processTreeProvider';
 import { OsConfigTreeProvider } from './sharedMemoryTreeProvider';
+import { ensureStonePreconditions } from './stonePreconditions';
 import { runQuickSetup } from './quickSetup';
 import {
   isWindows,
@@ -2487,14 +2488,21 @@ export function activate(context: vscode.ExtensionContext) {
   const versionManager = new VersionManager(sysadminStorage);
   const databaseManager = new DatabaseManager(sysadminStorage, processManager);
 
-  // OS Configuration (macOS, Linux, and Windows)
+  // OS Configuration. The "Configure OS" view is shown only on Windows/WSL,
+  // where it hosts several ongoing settings (WSL version, mirrored networking,
+  // gs64ldi services, …). On macOS and Linux the only prerequisites are shared
+  // memory (and RemoveIPC on Linux), which the Start Stone preflight handles
+  // inline — so no view is shown there. The setup-script commands are still
+  // registered on every platform because that preflight invokes them.
   if (process.platform === 'darwin' || process.platform === 'linux' || isWindows()) {
     const osConfigProvider = new OsConfigTreeProvider();
-    context.subscriptions.push(
-      vscode.window.createTreeView('gemstoneSharedMemory', {
-        treeDataProvider: osConfigProvider,
-      }),
-    );
+    if (isWindows()) {
+      context.subscriptions.push(
+        vscode.window.createTreeView('gemstoneSharedMemory', {
+          treeDataProvider: osConfigProvider,
+        }),
+      );
+    }
     osConfigProvider.registerCommands(context);
   }
 
@@ -3116,6 +3124,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('gemstone.startStone', async (node: DatabaseNode) => {
       if (node?.kind !== 'stone') return;
+      if (!(await ensureStonePreconditions())) return;
       try {
         await processManager.startStone(node.db);
         vscode.window.showInformationMessage(`Stone "${node.db.config.stoneName}" started.`);

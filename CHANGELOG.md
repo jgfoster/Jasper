@@ -4,6 +4,15 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+### Changed
+
+- **The "Configure OS" view is gone on macOS and Linux; its shared-memory setup now runs as part of Start Stone.** On those platforms the view only ever held one or two items (shared memory, plus `RemoveIPC` on Linux) that, once set, left it as permanent clutter in the sidebar. Starting a stone now checks those prerequisites first: if shared memory is under the 1 GB GemStone needs (or, on Linux, `RemoveIPC` isn't set to survive logout), Jasper explains that it will open a terminal and run a setup script with `sudo` — where you enter your password — and offers Continue/Cancel. Cancel, or a setup that doesn't bring shared memory up to 1 GB, cancels the start. The view is unchanged on Windows/WSL, where it still hosts the several ongoing settings (WSL version, mirrored networking, `gs64ldi` services) that don't fit a one-shot prompt.
+- **The "Get Started with GemStone" walkthrough now begins with getting a stone, not connecting to one.** A new first step introduces **Quick Setup**, which downloads a GemStone version, creates a database, starts the stone, and adds a login — so a brand-new user is no longer dropped at "connect to a stone" with nothing to connect to. The "Connect" step follows, explaining that Quick Setup's login is ready to click, with **Add a Login** for reaching a stone you set up yourself or a remote one. The Logins view's empty-state welcome gained a Quick Setup link to match.
+
+### Fixed
+
+- **The walkthrough's (and Logins view's) "Add a Login" button now works.** It was wired to `gemstone.login` — the command that connects a *selected* login — so clicking it from a static button (which passes no login) threw and did nothing. It now opens the new-login editor via `gemstone.addLogin`.
+
 ## [1.8.6] - 2026-07-20
 
 ### Changed
