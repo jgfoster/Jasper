@@ -62,6 +62,13 @@ import {
   clearRenameClassVarPreview as sharedClearRenameClassVarPreview,
 } from './queries/previewRenameClassVar';
 import {
+  startRenameTemporaryPreview as sharedStartRenameTemporaryPreview,
+  pageRenameTemporaryPreview as sharedPageRenameTemporaryPreview,
+  applyRenameTemporary as sharedApplyRenameTemporary,
+  clearRenameTemporaryPreview as sharedClearRenameTemporaryPreview,
+  renameTemporaryDeclineReason as sharedRenameTemporaryDeclineReason,
+} from './queries/previewRenameTemporary';
+import {
   getClassHistory as sharedGetClassHistory,
   revertClassToVersion as sharedRevertClassToVersion,
   removeClassVersion as sharedRemoveClassVersion,
@@ -773,6 +780,80 @@ export function applyRenameClassVar(session: ActiveSession, token: string): Prom
 
 export function clearRenameClassVarPreview(session: ActiveSession, token: string): string {
   return sharedClearRenameClassVarPreview(bind(session), token);
+}
+
+// Paginated rename-temporary/argument (R5) preview: method-local, a single
+// methodRecompile change, fetched NON-BLOCKING, server-side apply. All-or-nothing,
+// so the apply passes an empty deselected set.
+export function startRenameTemporaryPreview(
+  session: ActiveSession,
+  className: string,
+  selector: string,
+  isMeta: boolean,
+  oldName: string,
+  newName: string,
+  offset: number,
+  token: string,
+  maxBytes: number,
+  dict?: number | string,
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, `Previewing rename of ${oldName}…`);
+  return sharedStartRenameTemporaryPreview(
+    exec,
+    className,
+    selector,
+    isMeta,
+    oldName,
+    newName,
+    offset,
+    token,
+    maxBytes,
+    dict,
+  );
+}
+
+export function pageRenameTemporaryPreview(
+  session: ActiveSession,
+  token: string,
+  offset: number,
+  maxBytes: number,
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, 'Loading more changes…');
+  return sharedPageRenameTemporaryPreview(exec, token, offset, maxBytes);
+}
+
+export function applyRenameTemporary(session: ActiveSession, token: string): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, 'Applying rename…');
+  return sharedApplyRenameTemporary(exec, token);
+}
+
+export function clearRenameTemporaryPreview(session: ActiveSession, token: string): string {
+  return sharedClearRenameTemporaryPreview(bind(session), token);
+}
+
+export function renameTemporaryDeclineReason(
+  session: ActiveSession,
+  className: string,
+  selector: string,
+  isMeta: boolean,
+  oldName: string,
+  offset: number,
+  dict?: number | string,
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, 'Checking…');
+  return sharedRenameTemporaryDeclineReason(
+    exec,
+    className,
+    selector,
+    isMeta,
+    oldName,
+    offset,
+    dict,
+  );
 }
 
 // Class-definition history (native classHistory, this-stone-only, read-only) and

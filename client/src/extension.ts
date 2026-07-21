@@ -80,6 +80,8 @@ import { openTutorialNotebook } from './tutorialNotebook';
 import { GemStoneDebugSession } from './gemstoneDebugSession';
 import { InspectorTreeProvider, InspectorNode } from './inspectorTreeProvider';
 import { registerGemStoneExplorer } from './gemstoneExplorer';
+import { renameTemporaryCommand } from './renameTemporaryCommand';
+import { RenameTemporaryCodeActionProvider } from './renameTemporaryCodeAction';
 import { GemStoneWorkspaceSymbolProvider } from './gemstoneSymbolProvider';
 import { GemStoneDefinitionProvider } from './gemstoneDefinitionProvider';
 import { GemStoneHoverProvider } from './gemstoneHoverProvider';
@@ -707,6 +709,13 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.languages.registerCompletionItemProvider(providerSelectors, completionProvider),
     vscode.languages.registerCodeLensProvider(providerSelectors, codeLensProvider),
     codeLensProvider, // dispose() cancels pending count lookups + releases the emitter
+    // Hosts "Rename Temporary/Argument…" under the native "Refactor…" menu in a
+    // saved (scheme:gemstone) method editor.
+    vscode.languages.registerCodeActionsProvider(
+      { scheme: 'gemstone', language: 'gemstone-smalltalk' },
+      new RenameTemporaryCodeActionProvider(),
+      { providedCodeActionKinds: RenameTemporaryCodeActionProvider.providedCodeActionKinds },
+    ),
   );
 
   // ── Breakpoints + Debugger ───────────────────────────────
@@ -1089,6 +1098,10 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('gemstone.installServerSupport', async () => {
       await runInstallServerSupport(sessionManager, context.extensionPath);
+    }),
+
+    vscode.commands.registerCommand('gemstone.renameTemporary', async () => {
+      await renameTemporaryCommand(sessionManager);
     }),
 
     vscode.commands.registerCommand('gemstone.resetGettingStarted', async () => {

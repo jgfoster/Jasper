@@ -1072,6 +1072,12 @@
         "icon": "$(edit)"
       },
       {
+        "command": "gemstone.renameTemporary",
+        "title": "Rename Temporary/Argument…",
+        "category": "GemStone",
+        "icon": "$(edit)"
+      },
+      {
         "command": "gemstone.explorer.renameClass",
         "title": "Rename Class…",
         "category": "GemStone",

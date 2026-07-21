@@ -525,6 +525,22 @@ export class Location {
   ) {}
 }
 
+export class CodeActionKind {
+  constructor(public readonly value: string) {}
+  static readonly Empty = new CodeActionKind('');
+  static readonly QuickFix = new CodeActionKind('quickfix');
+  static readonly Refactor = new CodeActionKind('refactor');
+  static readonly Source = new CodeActionKind('source');
+}
+
+export class CodeAction {
+  command?: { command: string; title: string };
+  constructor(
+    public title: string,
+    public kind?: CodeActionKind,
+  ) {}
+}
+
 // ── SymbolInformation mock ───────────────────────────────
 
 export const SymbolKind = {
