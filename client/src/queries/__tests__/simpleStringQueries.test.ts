@@ -3,7 +3,6 @@ import { QueryExecutor } from '../types';
 import { getClassDefinition } from '../getClassDefinition';
 import { getClassComment } from '../getClassComment';
 import { canClassBeWritten } from '../canClassBeWritten';
-import { getSuperclassDictName } from '../getSuperclassDictName';
 import { fileOutClass } from '../fileOutClass';
 
 describe('getClassDefinition', () => {
@@ -61,26 +60,6 @@ describe('canClassBeWritten', () => {
     const code = execute.mock.calls[0][1];
     expect(code).toContain('System myUserProfile symbolList at: 5');
     expect(code).toContain('cls canBeWritten printString');
-  });
-});
-
-describe('getSuperclassDictName', () => {
-  it('trims the returned dict name', () => {
-    const execute = vi.fn<QueryExecutor>(() => 'Globals\n');
-    expect(getSuperclassDictName(execute, 1, 'Array')).toBe('Globals');
-  });
-
-  it('escapes single quotes in class names', () => {
-    const execute = vi.fn<QueryExecutor>(() => '');
-    getSuperclassDictName(execute, 1, "Foo'Bar");
-    const code = execute.mock.calls[0][1];
-    expect(code).toContain("#'Foo''Bar'");
-  });
-
-  it('embeds the dictIndex in the Smalltalk code', () => {
-    const execute = vi.fn<QueryExecutor>(() => '');
-    getSuperclassDictName(execute, 3, 'X');
-    expect(execute.mock.calls[0][1]).toContain('symbolList at: 3');
   });
 });
 

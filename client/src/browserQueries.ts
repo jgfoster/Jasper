@@ -22,7 +22,6 @@ import { getMethodSelectors as sharedGetMethodSelectors } from './queries/getMet
 import { getClassEnvironments as sharedGetClassEnvironments } from './queries/getClassEnvironments';
 import { getClassDefinition as sharedGetClassDefinition } from './queries/getClassDefinition';
 import { getClassComment as sharedGetClassComment } from './queries/getClassComment';
-import { getSuperclassDictName as sharedGetSuperclassDictName } from './queries/getSuperclassDictName';
 import { canClassBeWritten as sharedCanClassBeWritten } from './queries/canClassBeWritten';
 import { getAllClassNames as sharedGetAllClassNames } from './queries/getAllClassNames';
 import { getClassHierarchy as sharedGetClassHierarchy } from './queries/getClassHierarchy';
@@ -468,14 +467,6 @@ export function getClassComment(
   dict?: number | string,
 ): string {
   return sharedGetClassComment(bind(session), className, dict);
-}
-
-export function getSuperclassDictName(
-  session: ActiveSession,
-  dictIndex: number,
-  className: string,
-): string {
-  return sharedGetSuperclassDictName(bind(session), dictIndex, className);
 }
 
 export function canClassBeWritten(
