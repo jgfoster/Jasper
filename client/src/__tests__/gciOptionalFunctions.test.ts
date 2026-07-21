@@ -3,7 +3,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 // Functions that older / client GCI libraries do NOT export.
 // The GciTs* functions below (per a gcits.hf diff of 3.6.2 vs 3.7.5) were added
 // after 3.6.2; the NbLogin/Debug ones are also absent from Windows client DLLs.
+// GciTsEncrypt is absent from some libraries (e.g. GemStone 4.0); Jasper's login
+// path never calls it (passwords go in the clear via GciTsLogin), so it must not
+// abort library load.
 const OPTIONAL_FUNCTIONS = [
+  'GciTsEncrypt',
   'GciTsLogin_',
   'GciTsFetchNamedOops',
   'GciTsFetchVaryingOops',
@@ -70,6 +74,15 @@ describe('GciLibrary with Windows client DLL (missing optional functions)', () =
     expect(() =>
       gci.GciTsLogin_(null, null, null, false, null, 'user', 'pass', null, 0, 0),
     ).toThrow('GciTsLogin_ is not available in this GCI library');
+  });
+
+  // GciTsEncrypt is absent from GemStone 4.0. It is never used on the connect
+  // path, so its absence must not break login — but the ergonomic wrapper still
+  // reports clearly if something calls it on a library that lacks it.
+  it('throws descriptive error when calling GciTsEncrypt (absent in GemStone 4.0)', () => {
+    expect(() => gci.GciTsEncrypt('password')).toThrow(
+      'GciTsEncrypt is not available in this GCI library',
+    );
   });
 
   // Functions added after 3.6.2 (found via the gcits.hf diff) must not crash
