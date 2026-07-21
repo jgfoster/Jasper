@@ -46,7 +46,7 @@ describe('writeClaudeCodeUserMcpConfig', () => {
     expect(result.updated).toBe(true);
     expect(result.skipped).toBeUndefined();
     const writeCall = vi.mocked(fs.writeFileSync).mock.calls[0];
-    const written = JSON.parse(writeCall![1] as string);
+    const written = JSON.parse(writeCall[1] as string);
     expect(written.mcpServers.jasper).toEqual(desiredEntry('/ext', '/tmp/socket.sock'));
   });
 
@@ -74,7 +74,7 @@ describe('writeClaudeCodeUserMcpConfig', () => {
 
     expect(result.updated).toBe(true);
     const writeCall = vi.mocked(fs.writeFileSync).mock.calls[0];
-    const written = JSON.parse(writeCall![1] as string);
+    const written = JSON.parse(writeCall[1] as string);
     expect(written.mcpServers.jasper.args[0]).toContain('NEW-ext');
   });
 
@@ -90,7 +90,7 @@ describe('writeClaudeCodeUserMcpConfig', () => {
     writeClaudeCodeUserMcpConfig('/ext', '/tmp/socket.sock');
 
     const writeCall = vi.mocked(fs.writeFileSync).mock.calls[0];
-    const written = JSON.parse(writeCall![1] as string);
+    const written = JSON.parse(writeCall[1] as string);
     expect(written.mcpServers['claude-context']).toEqual({ command: 'other' });
     expect(written.mcpServers.jasper).toBeDefined();
   });
@@ -106,7 +106,7 @@ describe('writeClaudeCodeUserMcpConfig', () => {
     writeClaudeCodeUserMcpConfig('/ext', '/tmp/socket.sock');
 
     const writeCall = vi.mocked(fs.writeFileSync).mock.calls[0];
-    const written = JSON.parse(writeCall![1] as string);
+    const written = JSON.parse(writeCall[1] as string);
     expect(written.userID).toBe('abc-123');
     expect(written.projects['/some/path'].history).toEqual(['a', 'b']);
   });
@@ -122,7 +122,7 @@ describe('writeClaudeCodeUserMcpConfig', () => {
 
     expect(result.updated).toBe(true);
     const writeCall = vi.mocked(fs.writeFileSync).mock.calls[0];
-    const written = JSON.parse(writeCall![1] as string);
+    const written = JSON.parse(writeCall[1] as string);
     expect(written.mcpServers.gemstone).toBeUndefined();
     expect(written.mcpServers.jasper).toEqual(desiredEntry('/ext', '/tmp/socket.sock'));
   });
@@ -137,7 +137,7 @@ describe('writeClaudeCodeUserMcpConfig', () => {
     writeClaudeCodeUserMcpConfig('/ext', '/tmp/socket.sock');
 
     const writeCall = vi.mocked(fs.writeFileSync).mock.calls[0];
-    const written = JSON.parse(writeCall![1] as string);
+    const written = JSON.parse(writeCall[1] as string);
     expect(written.mcpServers.gemstone).toEqual(foreignGemstoneEntry);
     expect(written.mcpServers.jasper).toBeDefined();
   });
@@ -168,7 +168,7 @@ describe('writeClaudeCodeUserMcpConfig', () => {
 
     expect(result.updated).toBe(true);
     const writeCall = vi.mocked(fs.writeFileSync).mock.calls[0];
-    const written = JSON.parse(writeCall![1] as string);
+    const written = JSON.parse(writeCall[1] as string);
     expect(written.projects['/Users/me/Grail'].mcpServers.gemstone).toBeUndefined();
     expect(written.projects['/Users/me/Grail'].mcpServers['other-mcp']).toEqual({
       command: 'keep-me',
@@ -191,7 +191,7 @@ describe('writeClaudeCodeUserMcpConfig', () => {
     writeClaudeCodeUserMcpConfig('/ext', '/tmp/socket.sock');
 
     const writeCall = vi.mocked(fs.writeFileSync).mock.calls[0];
-    const written = JSON.parse(writeCall![1] as string);
+    const written = JSON.parse(writeCall[1] as string);
     expect(written.projects['/Users/me/Grail'].mcpServers.gemstone).toEqual(foreignGemstoneEntry);
   });
 

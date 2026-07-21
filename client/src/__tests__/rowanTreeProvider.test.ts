@@ -38,7 +38,7 @@ function fakeMemento(): vscode.Memento {
       store.set(key, value);
     },
     keys: () => [...store.keys()],
-  } as vscode.Memento;
+  };
 }
 
 // A real directory on disk, holding a Rowan load spec when asked — the
@@ -137,6 +137,22 @@ describe('RowanTreeProvider', () => {
       expect(item.label).toBe('my-repo');
       expect(item.description).toBe('MyProject');
       expect(item.contextValue).toBe('rowanRepo');
+    });
+
+    it('shows the open workspace project as a workspace repo, even when untracked', () => {
+      const root = makeRepoDir(true, 'WsApp');
+      fs.writeFileSync(
+        path.join(root, 'rowan', 'project.ston'),
+        "RwProjectSpecificationV3 { #specName : 'project' }",
+      );
+      __setWorkspaceFolders([root]);
+      const provider = makeProvider(registry, null);
+
+      const [item] = sectionChildren(provider, 'repositories') as RowanRepoItem[];
+
+      expect(item.contextValue).toBe('rowanRepoWorkspace');
+      expect(item.description).toContain('workspace');
+      expect((item.iconPath as { id?: string }).id).toBe('root-folder');
     });
 
     it('marks a git-backed repo so it can be updated from its remote', async () => {
@@ -316,7 +332,7 @@ describe('RowanTreeProvider', () => {
       const items = sectionChildren(provider, 'loaded');
 
       expect((items[0] as RowanLoadedProjectItem).label).toBe('Seaside');
-      const group = items[1] as RowanBuiltinGroupItem;
+      const group = items[1];
       expect(group).toBeInstanceOf(RowanBuiltinGroupItem);
       expect(group.description).toBe('2');
       const builtins = provider.getChildren(group) as RowanLoadedProjectItem[];

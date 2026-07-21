@@ -63,7 +63,7 @@ function buildColumnDom(col: Column): HTMLElement {
   root.className = 'column';
   root.dataset.colId = String(col.id);
   root.scrollIntoView = () => {}; // jsdom has no real scrollIntoView
-  col.el = { root } as Column['el'];
+  col.el = { root };
   return root;
 }
 

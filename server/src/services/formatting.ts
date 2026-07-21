@@ -337,7 +337,7 @@ function formatKeywordMessage(
   const allBlockArgs = blocks.every((b) => b !== null);
 
   if (allBlockArgs && msg.parts.length >= 2) {
-    const blockList = blocks as BlockNode[];
+    const blockList = blocks;
 
     // Tier 1: All blocks are trivial (empty or single variable/literal)
     // → keep everything on one line

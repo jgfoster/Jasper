@@ -13,7 +13,7 @@ function methodUri(over: Partial<ParsedUri> = {}): ParsedUri {
     selector: 'at:',
     environmentId: 0,
     ...over,
-  } as ParsedUri;
+  };
 }
 
 describe('classifyGemstoneUri', () => {

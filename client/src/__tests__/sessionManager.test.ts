@@ -145,7 +145,7 @@ describe('SessionManager', () => {
     manager.login({ ...DEFAULT_LOGIN, label: 'Test' }, '/mock/lib');
 
     const installCall = executeFetchBytes.mock.calls.find(
-      (c) => typeof c[1] === 'string' && (c[1] as string).includes('JasperTranscriptSink'),
+      (c) => typeof c[1] === 'string' && c[1].includes('JasperTranscriptSink'),
     );
     expect(installCall).toBeDefined();
     expect(installCall![1]).toContain('TranscriptStream_SessionStream');

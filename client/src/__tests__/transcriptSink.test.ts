@@ -36,7 +36,7 @@ function forwarderError(overrides: Partial<GciError> = {}): GciError {
     message: 'clientForwarderSend',
     reason: '',
     ...overrides,
-  } as GciError;
+  };
 }
 
 function makeGci(overrides: Record<string, unknown> = {}) {

@@ -928,7 +928,7 @@ describe('GciLibrary', () => {
     });
 
     it('cleans up the snapshot key when the callback succeeds', () => {
-      let snapshotNameToRemove;
+      let snapshotNameToRemove: string;
 
       gciLibrary.didPureExportSetGrow(session, (snapshotName) => {
         snapshotNameToRemove = snapshotName;

@@ -84,14 +84,14 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 
 connection.onInitialized(async () => {
   if (hasConfigurationCapability) {
-    connection.client.register(DidChangeConfigurationNotification.type, {
+    await connection.client.register(DidChangeConfigurationNotification.type, {
       section: 'gemstoneSmalltalk',
     });
     await updateFormatterSettings();
   }
 
   // Register file watchers for Smalltalk files
-  connection.client.register(DidChangeWatchedFilesNotification.type, {
+  await connection.client.register(DidChangeWatchedFilesNotification.type, {
     watchers: SMALLTALK_EXTENSIONS.map((ext) => ({
       globPattern: `**/*${ext}`,
     })),
@@ -169,7 +169,7 @@ documents.onDidChangeContent((change) => {
     change.document.getText(),
     format,
   );
-  connection.sendDiagnostics({
+  void connection.sendDiagnostics({
     uri: parsed.uri,
     diagnostics: toDiagnostics(parsed.errors),
   });
@@ -180,7 +180,7 @@ documents.onDidChangeContent((change) => {
 
 documents.onDidClose((event) => {
   documentManager.remove(event.document.uri);
-  connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
+  void connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
 });
 
 // ── File watcher ────────────────────────────────────────────

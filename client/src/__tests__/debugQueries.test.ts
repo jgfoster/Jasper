@@ -551,7 +551,7 @@ describe('debugQueries', () => {
         login: { label: 'T' } as GemStoneLogin,
         stoneVersion: '3.6.2',
         gci: gci as unknown as ActiveSession['gci'],
-      } as ActiveSession;
+      };
     }
 
     it('getNamedInstVarOops fetches absolute OOPs starting at index 1', () => {

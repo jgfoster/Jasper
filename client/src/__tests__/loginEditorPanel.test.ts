@@ -58,8 +58,8 @@ describe('LoginEditorPanel', () => {
   });
 
   describe('show', () => {
-    it('creates a new webview panel for a new login', () => {
-      LoginEditorPanel.show(storage, secretsArg, treeProvider);
+    it('creates a new webview panel for a new login', async () => {
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider);
       expect(window.createWebviewPanel).toHaveBeenCalledWith(
         'gemstoneLoginEditor',
         'New GemStone Login',
@@ -68,9 +68,9 @@ describe('LoginEditorPanel', () => {
       );
     });
 
-    it('creates a panel titled with login description when editing', () => {
+    it('creates a panel titled with login description when editing', async () => {
       const login = makeLogin({ gs_user: 'Admin', stone: 'prod', gem_host: 'db.example.com' });
-      LoginEditorPanel.show(storage, secretsArg, treeProvider, login);
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider, login);
       expect(window.createWebviewPanel).toHaveBeenCalledWith(
         'gemstoneLoginEditor',
         'Edit: Admin on prod (db.example.com)',
@@ -79,26 +79,36 @@ describe('LoginEditorPanel', () => {
       );
     });
 
-    it('reuses existing panel on subsequent calls', () => {
-      LoginEditorPanel.show(storage, secretsArg, treeProvider);
+    it('reuses existing panel on subsequent calls', async () => {
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider);
       const firstCallCount = window.createWebviewPanel.mock.calls.length;
 
-      LoginEditorPanel.show(storage, secretsArg, treeProvider, makeLogin({ label: 'Second' }));
+      await LoginEditorPanel.show(
+        storage,
+        secretsArg,
+        treeProvider,
+        makeLogin({ label: 'Second' }),
+      );
       expect(window.createWebviewPanel.mock.calls.length).toBe(firstCallCount);
     });
 
-    it('reveals existing panel on subsequent calls', () => {
-      LoginEditorPanel.show(storage, secretsArg, treeProvider);
+    it('reveals existing panel on subsequent calls', async () => {
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider);
       const panel = window.createWebviewPanel.mock.results[0].value;
 
-      LoginEditorPanel.show(storage, secretsArg, treeProvider, makeLogin({ label: 'Second' }));
+      await LoginEditorPanel.show(
+        storage,
+        secretsArg,
+        treeProvider,
+        makeLogin({ label: 'Second' }),
+      );
       expect(panel.reveal).toHaveBeenCalled();
     });
   });
 
   describe('webview HTML', () => {
-    it('sets webview html with form fields', () => {
-      LoginEditorPanel.show(storage, secretsArg, treeProvider);
+    it('sets webview html with form fields', async () => {
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider);
       const panel = window.createWebviewPanel.mock.results[0].value;
       const html = panel.webview.html;
 
@@ -113,8 +123,8 @@ describe('LoginEditorPanel', () => {
       expect(html).toContain('id="host_password"');
     });
 
-    it('includes Content-Security-Policy with nonce', () => {
-      LoginEditorPanel.show(storage, secretsArg, treeProvider);
+    it('includes Content-Security-Policy with nonce', async () => {
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider);
       const panel = window.createWebviewPanel.mock.results[0].value;
       const html = panel.webview.html;
 
@@ -122,8 +132,8 @@ describe('LoginEditorPanel', () => {
       expect(html).toMatch(/nonce-[a-f0-9]{32}/);
     });
 
-    it('includes save and cancel buttons', () => {
-      LoginEditorPanel.show(storage, secretsArg, treeProvider);
+    it('includes save and cancel buttons', async () => {
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider);
       const panel = window.createWebviewPanel.mock.results[0].value;
       const html = panel.webview.html;
 
@@ -133,8 +143,8 @@ describe('LoginEditorPanel', () => {
   });
 
   describe('message handling', () => {
-    it('sends loadData message after creating panel', () => {
-      LoginEditorPanel.show(storage, secretsArg, treeProvider);
+    it('sends loadData message after creating panel', async () => {
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider);
       const panel = window.createWebviewPanel.mock.results[0].value;
       expect(panel.webview.postMessage).toHaveBeenCalledWith({
         command: 'loadData',
@@ -144,9 +154,9 @@ describe('LoginEditorPanel', () => {
       });
     });
 
-    it('sends existing login data when editing', () => {
+    it('sends existing login data when editing', async () => {
       const login = makeLogin({ label: 'Server', gem_host: 'myhost' });
-      LoginEditorPanel.show(storage, secretsArg, treeProvider, login);
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider, login);
       const panel = window.createWebviewPanel.mock.results[0].value;
       expect(panel.webview.postMessage).toHaveBeenCalledWith({
         command: 'loadData',
@@ -158,52 +168,52 @@ describe('LoginEditorPanel', () => {
   });
 
   describe('version dropdown', () => {
-    it('includes extracted versions in loadData message', () => {
+    it('includes extracted versions in loadData message', async () => {
       const sysadmin = makeSysadminStorage(['3.7.4', '3.6.4']);
-      LoginEditorPanel.show(storage, secretsArg, treeProvider, undefined, sysadmin);
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider, undefined, sysadmin);
       const panel = window.createWebviewPanel.mock.results[0].value;
       expect(panel.webview.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({ versions: ['3.7.4', '3.6.4'] }),
       );
     });
 
-    it('includes versions from gciLibraries config', () => {
+    it('includes versions from gciLibraries config', async () => {
       __setConfig('gemstone', 'gciLibraries', { '3.5.0': '/path/to/lib' });
       const sysadmin = makeSysadminStorage([]);
-      LoginEditorPanel.show(storage, secretsArg, treeProvider, undefined, sysadmin);
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider, undefined, sysadmin);
       const panel = window.createWebviewPanel.mock.results[0].value;
       expect(panel.webview.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({ versions: ['3.5.0'] }),
       );
     });
 
-    it('deduplicates versions from both sources', () => {
+    it('deduplicates versions from both sources', async () => {
       __setConfig('gemstone', 'gciLibraries', { '3.7.4': '/path/to/lib' });
       const sysadmin = makeSysadminStorage(['3.7.4']);
-      LoginEditorPanel.show(storage, secretsArg, treeProvider, undefined, sysadmin);
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider, undefined, sysadmin);
       const panel = window.createWebviewPanel.mock.results[0].value;
       expect(panel.webview.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({ versions: ['3.7.4'] }),
       );
     });
 
-    it('sorts versions newest first', () => {
+    it('sorts versions newest first', async () => {
       __setConfig('gemstone', 'gciLibraries', { '3.5.0': '/path/a' });
       const sysadmin = makeSysadminStorage(['3.6.4', '3.7.4']);
-      LoginEditorPanel.show(storage, secretsArg, treeProvider, undefined, sysadmin);
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider, undefined, sysadmin);
       const panel = window.createWebviewPanel.mock.results[0].value;
       expect(panel.webview.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({ versions: ['3.7.4', '3.6.4', '3.5.0'] }),
       );
     });
 
-    it('includes GCI versions bundled with the extension on Windows', () => {
+    it('includes GCI versions bundled with the extension on Windows', async () => {
       const originalPlatform = process.platform;
       Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
       (bundledWindowsClientVersions as Mock).mockReturnValue(['3.6.2']);
       try {
         const sysadmin = makeSysadminStorage([]);
-        LoginEditorPanel.show(storage, secretsArg, treeProvider, undefined, sysadmin);
+        await LoginEditorPanel.show(storage, secretsArg, treeProvider, undefined, sysadmin);
         const panel = window.createWebviewPanel.mock.results[0].value;
         expect(panel.webview.postMessage).toHaveBeenCalledWith(
           expect.objectContaining({ versions: ['3.6.2'] }),
@@ -213,14 +223,14 @@ describe('LoginEditorPanel', () => {
       }
     });
 
-    it('omits bundled versions when the arch cannot load them (e.g. ARM64)', () => {
+    it('omits bundled versions when the arch cannot load them (e.g. ARM64)', async () => {
       const originalPlatform = process.platform;
       Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
       (bundledWindowsClientVersions as Mock).mockReturnValue(['3.6.2']);
       (bundledGciArchSupported as Mock).mockReturnValue(false);
       try {
         const sysadmin = makeSysadminStorage([]);
-        LoginEditorPanel.show(storage, secretsArg, treeProvider, undefined, sysadmin);
+        await LoginEditorPanel.show(storage, secretsArg, treeProvider, undefined, sysadmin);
         const panel = window.createWebviewPanel.mock.results[0].value;
         expect(panel.webview.postMessage).toHaveBeenCalledWith(
           expect.objectContaining({ versions: [] }),
@@ -230,15 +240,15 @@ describe('LoginEditorPanel', () => {
       }
     });
 
-    it('renders a select element for the version field', () => {
-      LoginEditorPanel.show(storage, secretsArg, treeProvider);
+    it('renders a select element for the version field', async () => {
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider);
       const panel = window.createWebviewPanel.mock.results[0].value;
       expect(panel.webview.html).toContain('<select id="version">');
     });
 
-    it('defaults new login version to the highest available version', () => {
+    it('defaults new login version to the highest available version', async () => {
       const sysadmin = makeSysadminStorage(['3.6.4', '3.7.4']);
-      LoginEditorPanel.show(storage, secretsArg, treeProvider, undefined, sysadmin);
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider, undefined, sysadmin);
       const panel = window.createWebviewPanel.mock.results[0].value;
       expect(panel.webview.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -247,9 +257,9 @@ describe('LoginEditorPanel', () => {
       );
     });
 
-    it('defaults to empty version when no versions are available', () => {
+    it('defaults to empty version when no versions are available', async () => {
       const sysadmin = makeSysadminStorage([]);
-      LoginEditorPanel.show(storage, secretsArg, treeProvider, undefined, sysadmin);
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider, undefined, sysadmin);
       const panel = window.createWebviewPanel.mock.results[0].value;
       expect(panel.webview.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -258,10 +268,10 @@ describe('LoginEditorPanel', () => {
       );
     });
 
-    it('preserves version from existing login rather than defaulting', () => {
+    it('preserves version from existing login rather than defaulting', async () => {
       const sysadmin = makeSysadminStorage(['3.7.4', '3.6.4']);
       const login = makeLogin({ version: '3.6.4' });
-      LoginEditorPanel.show(storage, secretsArg, treeProvider, login, sysadmin);
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider, login, sysadmin);
       const panel = window.createWebviewPanel.mock.results[0].value;
       expect(panel.webview.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -272,8 +282,8 @@ describe('LoginEditorPanel', () => {
   });
 
   describe('OS keychain option', () => {
-    it('renders a "Store password in OS keychain" checkbox in the HTML', () => {
-      LoginEditorPanel.show(storage, secretsArg, treeProvider);
+    it('renders a "Store password in OS keychain" checkbox in the HTML', async () => {
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider);
       const panel = window.createWebviewPanel.mock.results[0].value;
       const html = panel.webview.html;
 
@@ -281,8 +291,8 @@ describe('LoginEditorPanel', () => {
       expect(html).toContain('Store password in OS keychain');
     });
 
-    it('renders a hint about leaving the password blank to be prompted', () => {
-      LoginEditorPanel.show(storage, secretsArg, treeProvider);
+    it('renders a hint about leaving the password blank to be prompted', async () => {
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider);
       const panel = window.createWebviewPanel.mock.results[0].value;
       expect(panel.webview.html).toContain('Leave password blank to be prompted on each login');
     });
@@ -321,8 +331,8 @@ describe('LoginEditorPanel', () => {
   });
 
   describe('class sync option', () => {
-    it('renders a "Sync classes to local files" checkbox in the HTML', () => {
-      LoginEditorPanel.show(storage, secretsArg, treeProvider);
+    it('renders a "Sync classes to local files" checkbox in the HTML', async () => {
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider);
       const panel = window.createWebviewPanel.mock.results[0].value;
       const html = panel.webview.html;
       expect(html).toContain('id="sync_classes"');
@@ -331,8 +341,8 @@ describe('LoginEditorPanel', () => {
   });
 
   describe('read-only view', () => {
-    it('renders the read-only banner element in the HTML', () => {
-      LoginEditorPanel.show(storage, secretsArg, treeProvider);
+    it('renders the read-only banner element in the HTML', async () => {
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider);
       const panel = window.createWebviewPanel.mock.results[0].value;
       expect(panel.webview.html).toContain('id="readOnlyBanner"');
     });

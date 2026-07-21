@@ -75,7 +75,7 @@ function createSequencedSession(methodPayload = methodListPayload): ActiveSessio
 
 function lastQuickPick(): QuickPickHandle {
   const results = vi.mocked(vscode.window.createQuickPick).mock.results;
-  return results[results.length - 1].value as unknown as QuickPickHandle;
+  return results[results.length - 1].value;
 }
 
 // Kicks off the command, waits for the class picker to appear, and hands back

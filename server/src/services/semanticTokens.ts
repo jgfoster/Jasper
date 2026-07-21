@@ -8,8 +8,6 @@ import {
   BlockNode,
   LiteralNode,
   VariableNode,
-  KeywordMessageNode,
-  BinaryMessageNode,
   SelectionBlockNode,
 } from '../parser/ast';
 import { ScopeAnalyzer, ScopeNode } from '../utils/scopeAnalyzer';
@@ -199,9 +197,9 @@ export function collectSemanticTokens(
       if (selectorToken) {
         pushFromToken(selectorToken, 7);
       }
-      walkExpression((msg as BinaryMessageNode).argument);
+      walkExpression(msg.argument);
     } else if (msg.kind === 'KeywordMessage') {
-      const kwMsg = msg as KeywordMessageNode;
+      const kwMsg = msg;
       for (const part of kwMsg.parts) {
         const docPartRange = toDocRange(part.range);
         for (const token of tokens) {
@@ -221,10 +219,10 @@ export function collectSemanticTokens(
         walkVariable(primary);
         break;
       case 'Block':
-        walkBlock(primary as BlockNode);
+        walkBlock(primary);
         break;
       case 'SelectionBlock':
-        walkSelectionBlock(primary as SelectionBlockNode);
+        walkSelectionBlock(primary);
         break;
       case 'ParenExpression':
         walkStatement(primary.expression);
@@ -238,7 +236,7 @@ export function collectSemanticTokens(
       default:
         // Literal
         if (isLiteral(primary.kind)) {
-          walkLiteral(primary as LiteralNode);
+          walkLiteral(primary);
         }
         break;
     }

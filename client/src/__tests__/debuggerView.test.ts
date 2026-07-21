@@ -655,7 +655,7 @@ describe('DebuggerView.init — progress indicator (#9)', () => {
     try {
       const { refs } = setupIdle();
 
-      (refs.evalInput as HTMLInputElement).value = '3 + 4';
+      refs.evalInput.value = '3 + 4';
       refs.evalInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
       vi.advanceTimersByTime(500);
 

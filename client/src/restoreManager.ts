@@ -227,7 +227,7 @@ export async function runLogicalRestore(deps: LogicalRestoreDeps): Promise<boole
     await deps.startStone();
 
     step('restoring from the backup…');
-    const needsCommit = await runRestoreCall(await login(), backupFile!);
+    const needsCommit = await runRestoreCall(await login(), backupFile);
 
     if (needsCommit) {
       step('finalizing the restore…');

@@ -183,12 +183,11 @@ const ERROR_MSG = 'a UndefinedObject does not understand #foo';
 // Identify it by its themed base `backgroundColor` (unique to this decoration).
 const stepPointDecorationOptions = vi
   .mocked(vscode.window.createTextEditorDecorationType)
-  .mock.calls.map((c) => c[0] as vscode.DecorationRenderOptions)
+  .mock.calls.map((c) => c[0])
   .find(
     (opts) =>
       opts?.backgroundColor instanceof vscode.ThemeColor &&
-      (opts.backgroundColor as vscode.ThemeColor).id ===
-        'editor.focusedStackFrameHighlightBackground',
+      opts.backgroundColor.id === 'editor.focusedStackFrameHighlightBackground',
   );
 
 // Snapshot every debugQueries mock's factory implementation at module load —
@@ -212,7 +211,7 @@ function restoreDebugDefaults(): void {
     // mockReset() also flushes any leftover *Once override queued by a test that
     // didn't consume it; then re-install the captured factory implementation.
     fn.mockReset();
-    if (impl) fn.mockImplementation(impl as unknown as (...args: never[]) => never);
+    if (impl) fn.mockImplementation(impl);
   }
 }
 
@@ -229,7 +228,7 @@ function makeSession(): ActiveSession {
     stoneVersion: '3.7.2',
     enhancedInspectorAvailable: true,
     gci: { GciTsClearStack: vi.fn() } as unknown as ActiveSession['gci'],
-  } as ActiveSession;
+  };
 }
 
 /** The most recently created webview panel mock. */
@@ -641,7 +640,7 @@ describe('DebuggerPanel', () => {
   });
 
   it('disposeForSession disposes every panel created for the session', () => {
-    const s = { ...makeSession(), id: 4242 } as ActiveSession;
+    const s = { ...makeSession(), id: 4242 };
     DebuggerPanel.create(s, GS_PROCESS, ERROR_MSG);
     DebuggerPanel.create(s, 0x456n, 'another error');
     const results = vi.mocked(vscode.window.createWebviewPanel).mock.results;
@@ -718,7 +717,7 @@ describe('DebuggerPanel', () => {
       sendReady(panel); // fetches + caches the stack
       sendMessage(panel, { command: 'copyStack' });
 
-      const text = vi.mocked(vscode.env.clipboard.writeText).mock.calls[0][0] as string;
+      const text = vi.mocked(vscode.env.clipboard.writeText).mock.calls[0][0];
       // Header, error, then the short numbered stack ([1]..[5]) …
       expect(text.startsWith('Jasper Debugger stack dump')).toBe(true);
       expect(text).toContain('GemStone error: a UndefinedObject does not understand #foo');
@@ -832,7 +831,7 @@ describe('DebuggerPanel', () => {
       sendReady(panel);
       sendMessage(panel, { command: 'copyStack' });
 
-      const text = vi.mocked(vscode.env.clipboard.writeText).mock.calls[0][0] as string;
+      const text = vi.mocked(vscode.env.clipboard.writeText).mock.calls[0][0];
       expect(text).toContain('Receiver:\n    self = a JasperDebugDemo   {100}');
       expect(text).toContain('Instance variables:\n    total = 42   {84}');
       expect(text).toContain('Arguments & Temps:\n    each = 7   {14}');
@@ -899,7 +898,7 @@ describe('DebuggerPanel', () => {
       const panel = lastPanel();
       sendReady(panel);
       sendMessage(panel, { command: 'copyStack' });
-      const copied = vi.mocked(vscode.env.clipboard.writeText).mock.calls[0][0] as string;
+      const copied = vi.mocked(vscode.env.clipboard.writeText).mock.calls[0][0];
       sendMessage(panel, { command: 'dumpStackToFile' });
       await tick();
       const dumped = vi.mocked(fs.promises.writeFile).mock.calls[0][1] as string;
@@ -933,7 +932,7 @@ describe('DebuggerPanel', () => {
       sendReady(panel);
       sendMessage(panel, { command: 'copyStack' });
 
-      const text = vi.mocked(vscode.env.clipboard.writeText).mock.calls[0][0] as string;
+      const text = vi.mocked(vscode.env.clipboard.writeText).mock.calls[0][0];
       // Short stack + per-frame headings still render; just no variable groups.
       expect(text).toContain('[1] [] in JasperDebugDemo>>#finish  @2 line 12');
       expect(text).not.toContain('Receiver:'); // no rows → no groups, no crash
@@ -1451,9 +1450,8 @@ describe('DebuggerPanel', () => {
       };
       // Route getEditorLayout to our sample; everything else returns undefined.
       // mockImplementation persists past clearAllMocks, so restore it in finally.
-      vi.mocked(vscode.commands.executeCommand).mockImplementation(
-        (cmd: string) =>
-          Promise.resolve(cmd === 'vscode.getEditorLayout' ? layout : undefined) as never,
+      vi.mocked(vscode.commands.executeCommand).mockImplementation((cmd: string) =>
+        Promise.resolve(cmd === 'vscode.getEditorLayout' ? layout : undefined),
       );
       try {
         const panel = openPanelWithStack();
@@ -1496,7 +1494,7 @@ describe('DebuggerPanel', () => {
           return Promise.resolve();
         },
         keys: () => Array.from(store.keys()),
-      } as unknown as vscode.Memento;
+      };
     }
 
     it('reaps a debugger source tab a prior session left open, then re-arms the set', () => {
@@ -1561,7 +1559,7 @@ describe('DebuggerPanel', () => {
       closePanel(panel);
 
       // …and dropped on a clean dispose, so the next launch has nothing to reap.
-      expect((memento.get(ORPHAN_KEY) as string[] | undefined) ?? []).not.toContain(uri);
+      expect(memento.get(ORPHAN_KEY) ?? []).not.toContain(uri);
     });
 
     // ── Double-click-to-edit inline values (#5 Phase 2) ───────────────────
@@ -4068,7 +4066,7 @@ describe('DebuggerPanel', () => {
 
     it('opens nothing when the inheritance-chain QuickPick is cancelled', async () => {
       vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce(CHAIN);
-      vi.mocked(vscode.window.showQuickPick).mockResolvedValueOnce(undefined as never);
+      vi.mocked(vscode.window.showQuickPick).mockResolvedValueOnce(undefined);
       const panel = openPanel();
       vi.mocked(vscode.workspace.openTextDocument).mockClear();
       sendMessage(panel, { command: 'implementInReceiver', level: 2 });

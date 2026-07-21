@@ -55,6 +55,9 @@ import {
   RowanLoadedProjectItem,
   RowanChangesProjectItem,
 } from './rowanTreeProvider';
+import { isRowanProjectRoot } from './rowanProject';
+import { RowanProjectTreeProvider } from './rowanProjectView';
+import { createRowanProject } from './rowanCreate';
 import { RowanDecorationProvider } from './rowanDecorations';
 import { findMethodInClass } from './commands/findMethodInClass';
 import { loadClassPickItems } from './commands/classPicker';
@@ -551,6 +554,7 @@ export function activate(context: vscode.ExtensionContext) {
     clientOptions,
   );
 
+  // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
   client.start();
 
   // ── Login Management ─────────────────────────────────────
@@ -1037,6 +1041,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand('gemstone.addLogin', () => {
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       LoginEditorPanel.show(storage, context.secrets, treeProvider, undefined, sysadminStorage);
     }),
 
@@ -1044,6 +1049,7 @@ export function activate(context: vscode.ExtensionContext) {
       // A connected login opens read-only so its config can still be viewed;
       // the settings are only consumed at login, so editing a live one is
       // disabled (log out first) to avoid disturbing the session's tree row.
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       LoginEditorPanel.show(
         storage,
         context.secrets,
@@ -1077,6 +1083,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('gemstone.duplicateLogin', (item: GemStoneLoginItem) => {
       const copy = { ...item.login, label: '' };
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       LoginEditorPanel.show(storage, context.secrets, treeProvider, copy, sysadminStorage);
     }),
 
@@ -1235,6 +1242,7 @@ export function activate(context: vscode.ExtensionContext) {
               if (gciPath) {
                 await storage.setGciLibraryPath(login.version, gciPath);
               }
+              // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
               versionProvider.loadVersions();
             } catch (e) {
               vscode.window.showErrorMessage(
@@ -1310,6 +1318,7 @@ export function activate(context: vscode.ExtensionContext) {
           vscode.window.showInformationMessage(
             `Connected to ${login.stone} (${session.stoneVersion}) on ${login.gem_host} as ${login.gs_user}`,
           );
+          // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
           exportManager.exportSession(session, true);
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
@@ -1625,7 +1634,7 @@ export function activate(context: vscode.ExtensionContext) {
               title: `Unloading ${projectName}…`,
               cancellable: false,
             },
-            () => Promise.resolve(queries.unloadRowanProject(sys, projectName!)),
+            () => Promise.resolve(queries.unloadRowanProject(sys, projectName)),
           );
         } finally {
           try {
@@ -1753,6 +1762,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand('gemstone.copyDisplayItResult', () => {
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       codeExecutor.copyLastResult();
     }),
 
@@ -1765,6 +1775,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand('gemstone.expandDisplayResultInPlace', () => {
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       codeExecutor.expandResultInPlace();
     }),
 
@@ -2093,7 +2104,7 @@ export function activate(context: vscode.ExtensionContext) {
             title: `Fetching hierarchy for ${className}...`,
             cancellable: false,
           },
-          () => Promise.resolve(queries.getClassHierarchy(session, className!)),
+          () => Promise.resolve(queries.getClassHierarchy(session, className)),
         );
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -2197,6 +2208,7 @@ export function activate(context: vscode.ExtensionContext) {
   // will re-probe — giving the user a recovery path without reloading.
   if (isWindows()) {
     vscode.commands.executeCommand('setContext', 'gemstone.isWindows', true);
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
     (async () => {
       let wslInfo = await getWslInfoAsync();
       if (!wslInfo.available) {
@@ -2543,7 +2555,54 @@ export function activate(context: vscode.ExtensionContext) {
   const rowanProvider = new RowanTreeProvider(rowanRegistry, {
     getSession: () => sessionManager.getSelectedSession() ?? null,
   });
+  // The Rowan project at the open workspace root, shown as a section in the
+  // Explorer (contributed only when gemstone.workspaceIsRowanProject). Its
+  // packages are read from disk — co-located with the file tree, no stone.
+  const rowanProjectProvider = new RowanProjectTreeProvider();
+  const rowanProjectView = vscode.window.createTreeView('gemstoneRowanProject', {
+    treeDataProvider: rowanProjectProvider,
+  });
+  const refreshRowanProjectView = () => {
+    rowanProjectProvider.refresh();
+    rowanProjectView.description = rowanProjectProvider.projectName();
+  };
+  // Resolve a GemStone install that can run the Rowan solo scripts: prefer the
+  // connected session's version, else the first extracted version that ships the
+  // tooling. $GEMSTONE is the sysadmin path, or two dirs up from the GCI library
+  // (…/lib/libgci → install root).
+  // Open a freshly-created project's load-spec manifest with the project name
+  // selected, so the user names it there (the name is metadata, not the folder).
+  const openRowanManifestAtName = async (projectRoot: string, specName: string) => {
+    const manifest = path.join(projectRoot, 'rowan', 'specs', `${specName}.ston`);
+    let doc: vscode.TextDocument;
+    try {
+      doc = await vscode.workspace.openTextDocument(vscode.Uri.file(manifest));
+    } catch {
+      return;
+    }
+    const m = /(#projectName\s*:\s*')([^']*)'/.exec(doc.getText());
+    const selection = m
+      ? new vscode.Range(
+          doc.positionAt(m.index + m[1].length),
+          doc.positionAt(m.index + m[1].length + m[2].length),
+        )
+      : undefined;
+    await vscode.window.showTextDocument(doc, selection ? { selection } : {});
+  };
+  // Recognize when the open workspace root is itself a Rowan project — gates the
+  // Explorer section's visibility. Passive: no effect when it isn't one.
+  const refreshRowanWorkspaceContext = () => {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    vscode.commands.executeCommand(
+      'setContext',
+      'gemstone.workspaceIsRowanProject',
+      !!root && isRowanProjectRoot(root),
+    );
+  };
+  refreshRowanWorkspaceContext();
+  refreshRowanProjectView();
   context.subscriptions.push(
+    rowanProjectView,
     vscode.window.createTreeView('gemstoneRowan', {
       treeDataProvider: rowanProvider,
     }),
@@ -2551,9 +2610,104 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.window.registerFileDecorationProvider(new RowanDecorationProvider()),
     // Loaded-projects section tracks the connected stone.
     sessionManager.onDidChangeSelection(() => rowanProvider.refresh()),
+    // The workspace root defines the Rowan project — re-evaluate on folder change.
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      refreshRowanWorkspaceContext();
+      rowanProvider.refresh();
+      refreshRowanProjectView();
+    }),
 
     vscode.commands.registerCommand('gemstone.rowanRefreshView', () => {
       rowanProvider.refresh();
+    }),
+
+    vscode.commands.registerCommand('gemstone.rowanNewProject', async () => {
+      const name = (
+        await vscode.window.showInputBox({
+          prompt: 'New Rowan project name',
+          placeHolder: 'MyProject',
+          ignoreFocusOut: true,
+          // The name becomes a folder, so only reject what breaks a folder name —
+          // the project's own name lives in the Rowan metadata, and Rowan itself
+          // accepts hyphens, dots, etc.
+          validateInput: (v) => {
+            const t = v.trim();
+            if (!t) return 'Enter a project name.';
+            if (/[\\/]/.test(t) || t === '.' || t === '..')
+              return 'Avoid /, \\, ".", and ".." — this becomes a folder name.';
+            return undefined;
+          },
+        })
+      )?.trim();
+      if (!name) return;
+
+      const openFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const picked = await vscode.window.showOpenDialog({
+        canSelectFolders: true,
+        canSelectFiles: false,
+        canSelectMany: false,
+        openLabel: 'Create Project Here',
+        title: `Choose where to create "${name}"`,
+        defaultUri: openFolder ? vscode.Uri.file(openFolder) : undefined,
+      });
+      if (!picked || picked.length === 0) return;
+      const dest = path.join(picked[0].fsPath, name);
+      if (fs.existsSync(dest)) {
+        vscode.window.showErrorMessage(`"${dest}" already exists.`);
+        return;
+      }
+      try {
+        fs.mkdirSync(dest, { recursive: true });
+      } catch (e: unknown) {
+        vscode.window.showErrorMessage(
+          `Could not create the folder: ${e instanceof Error ? e.message : String(e)}`,
+        );
+        return;
+      }
+
+      const result = createRowanProject(dest, name);
+      if (!result.success) {
+        vscode.window.showErrorMessage(`Could not create the project: ${result.error}`);
+        return;
+      }
+      const choice = await vscode.window.showInformationMessage(
+        `Created Rowan project "${name}".`,
+        'Open Project',
+      );
+      if (choice === 'Open Project' && result.projectDir) {
+        await vscode.commands.executeCommand(
+          'vscode.openFolder',
+          vscode.Uri.file(result.projectDir),
+        );
+      }
+    }),
+
+    vscode.commands.registerCommand('gemstone.rowanInitHere', async () => {
+      const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!folder) {
+        vscode.window.showErrorMessage(
+          'Open a folder first — this turns the open folder into a Rowan project.',
+        );
+        return;
+      }
+      if (isRowanProjectRoot(folder)) {
+        vscode.window.showInformationMessage('This folder is already a Rowan project.');
+        return;
+      }
+      // The open folder IS the project's containing folder; its name becomes the
+      // load spec's file name. The project's own name is metadata the user edits
+      // in the manifest we open right afterward.
+      const name = path.basename(folder);
+
+      const result = createRowanProject(folder, name);
+      if (!result.success) {
+        vscode.window.showErrorMessage(`Could not create the project: ${result.error}`);
+        return;
+      }
+      refreshRowanWorkspaceContext();
+      rowanProvider.refresh();
+      refreshRowanProjectView();
+      await openRowanManifestAtName(folder, name);
     }),
 
     vscode.commands.registerCommand('gemstone.rowanAddRepo', async () => {
@@ -2780,6 +2934,7 @@ export function activate(context: vscode.ExtensionContext) {
         const wslInfo = await getWslInfoAsync();
         vscode.commands.executeCommand('setContext', 'gemstone.wslAvailable', wslInfo.available);
       }
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       versionProvider.loadVersions();
     }),
 
@@ -2796,6 +2951,7 @@ export function activate(context: vscode.ExtensionContext) {
         },
       );
       vscode.window.showInformationMessage(`GemStone ${version.version} downloaded.`);
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       versionProvider.loadVersions();
     }),
 
@@ -2807,6 +2963,7 @@ export function activate(context: vscode.ExtensionContext) {
       );
       if (confirmed !== 'Delete') return;
       await versionManager.deleteDownload(item.version);
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       versionProvider.loadVersions();
     }),
 
@@ -2821,6 +2978,7 @@ export function activate(context: vscode.ExtensionContext) {
         },
       );
       vscode.window.showInformationMessage(`GemStone ${item.version.version} extracted.`);
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       versionProvider.loadVersions();
     }),
 
@@ -2832,6 +2990,7 @@ export function activate(context: vscode.ExtensionContext) {
       );
       if (confirmed !== 'Delete') return;
       await versionManager.deleteExtracted(item.version);
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       versionProvider.loadVersions();
     }),
 
@@ -2865,6 +3024,7 @@ export function activate(context: vscode.ExtensionContext) {
       vscode.window.showInformationMessage(
         `Registered local GemStone ${info.version} (${info.description || 'local build'}).`,
       );
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       versionProvider.loadVersions();
     }),
 
@@ -2878,6 +3038,7 @@ export function activate(context: vscode.ExtensionContext) {
         );
         if (confirmed !== 'Unregister') return;
         await versionManager.deleteExtracted(item.version);
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
         versionProvider.loadVersions();
       },
     ),
@@ -2913,6 +3074,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showErrorMessage(
           `Windows client install failed: ${e instanceof Error ? e.message : e}`,
         );
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
         versionProvider.loadVersions();
         return;
       }
@@ -2922,6 +3084,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (gciPath) {
         await storage.setGciLibraryPath(version, gciPath);
       }
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       versionProvider.loadVersions();
       vscode.window.showInformationMessage(
         `Windows client for GemStone ${version} is ready.${gciPath ? ' GCI library registered.' : ''}`,
@@ -2945,6 +3108,7 @@ export function activate(context: vscode.ExtensionContext) {
         );
         if (confirmed !== 'Delete') return;
         await versionManager.deleteWindowsClientExtracted(item.version);
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
         versionProvider.loadVersions();
       },
     ),
@@ -3113,6 +3277,7 @@ export function activate(context: vscode.ExtensionContext) {
           }
         }
       }
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
       LoginEditorPanel.show(storage, context.secrets, treeProvider, login, sysadminStorage);
     }),
 
@@ -3298,7 +3463,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         db =
           db ??
-          sysadminStorage.getDatabases().find((d) => d.config.stoneName === session!.login.stone);
+          sysadminStorage.getDatabases().find((d) => d.config.stoneName === session.login.stone);
         if (!db) {
           vscode.window.showErrorMessage(
             `Full logical restore currently requires a database created through Jasper's Databases ` +
@@ -3334,7 +3499,7 @@ export function activate(context: vscode.ExtensionContext) {
           backupFile,
           hasFileControl: () =>
             hasFileControlPrivilege((label, code) =>
-              queries.executeFetchString(session!, label, code),
+              queries.executeFetchString(session, label, code),
             ),
           closeCurrentSession: async () => {
             sessionManager.logout(sessionId);
