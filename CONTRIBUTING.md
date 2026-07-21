@@ -81,6 +81,15 @@ Tests run in a random order on every run. The seed is printed at the top of the 
 
 Before pushing changes, ensure `npm run lint && npm run format:check && npm run compile && npm test` passes locally.
 
+### Manual dev window (`dev:fresh`)
+
+`npm run dev:fresh` (or `bash scripts/dev-fresh.sh`) launches a throwaway editor window loading the extension from this working copy, with an isolated profile (no personal settings/extensions/keychain) and an isolated `gemstone.rootPath` (pass `--keep-installs` / use `npm run dev:fresh:keep-installs` to reuse your real `~/Documents/GemStone` instead).
+
+It **only compiles `client/out` when that directory is missing** — if a build already exists (from another branch, or edits made without `watch`), it launches with that build as-is, even if it's stale. To make sure you're running current code:
+
+- Run `npm run watch` in another terminal for live reload (then "Developer: Reload Window" in the dev window after edits), or
+- Force a one-off rebuild first: `npm run compile:client` (or `rm -rf client/out` to guarantee a clean recompile).
+
 ### Optional local pre-commit hook
 
 If you'd like `eslint` and `prettier --check` to run on staged files automatically before each commit, install the [lefthook](https://github.com/evilmartians/lefthook) git hook:

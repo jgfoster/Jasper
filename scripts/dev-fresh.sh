@@ -61,6 +61,24 @@ if [ ! -f client/out/extension.js ]; then
   npm run compile:client
 fi
 
+# Warn (don't block) if the compiled bundle looks older than the TypeScript
+# sources - dev:fresh does NOT rebuild an existing client/out, so a stale
+# build would launch silently. mtime heuristic; see CONTRIBUTING for caveats.
+newer="$(find client/src server/src -name '*.ts' -newer client/out/extension.js -print -quit 2>/dev/null)"
+if [ -n "$newer" ]; then
+  bold="$(tput bold 2>/dev/null || true)"
+  yellow="$(tput setaf 3 2>/dev/null || true)"
+  reset="$(tput sgr0 2>/dev/null || true)"
+  echo ""
+  echo "${bold}${yellow}##########################################################${reset}"
+  echo "${bold}${yellow}#  ⚠️  WARNING: client/out may be STALE                   #${reset}"
+  echo "${bold}${yellow}##########################################################${reset}"
+  echo "${bold}${yellow}#${reset} $newer is newer than the compiled bundle."
+  echo "${bold}${yellow}#${reset} Run 'npm run watch' (live), 'npm run compile:client',"
+  echo "${bold}${yellow}#${reset} or 'rm -rf client/out' to force a rebuild."
+  echo ""
+fi
+
 PROFILE="$(mktemp -d "${TMPDIR:-/tmp}/jasper-dev.XXXXXX")"
 WORKSPACE="${WORKSPACE_ARG:-$(mktemp -d "${TMPDIR:-/tmp}/jasper-ws.XXXXXX")}"
 
