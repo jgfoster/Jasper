@@ -116,7 +116,7 @@ describe('showRenameClassVarPanel', () => {
       cleanup: vi.fn(),
     };
 
-    showRenameClassVarPanel('Rate', 'Multiplier', start, handlers);
+    void showRenameClassVarPanel('Rate', 'Multiplier', start, handlers);
     lastPanel().__emit({ command: 'loadMore' });
 
     await vi.waitFor(() => expect(handlers.loadPage).toHaveBeenCalledWith(2));
@@ -133,7 +133,7 @@ describe('showRenameClassVarPanel', () => {
       cleanup: vi.fn(),
     };
 
-    showRenameClassVarPanel('Rate', 'Multiplier', start, handlers);
+    void showRenameClassVarPanel('Rate', 'Multiplier', start, handlers);
     lastPanel().__emit({ command: 'loadAll' });
 
     await vi.waitFor(() => expect(handlers.loadPage).toHaveBeenCalledTimes(2));

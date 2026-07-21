@@ -119,7 +119,7 @@ describe('showRenameClassPanel', () => {
       cleanup: vi.fn(),
     };
 
-    showRenameClassPanel(
+    void showRenameClassPanel(
       'Foo',
       'Bar',
       start,
