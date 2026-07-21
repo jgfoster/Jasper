@@ -4,10 +4,6 @@
 
 Run a single test file: `cd client && npx vitest run src/__tests__/extension.test.ts`.
 
-## Manual dev workflow
-
-`npm run dev:fresh [-- <folder>]` (`scripts/dev-fresh.sh`) launches the editor (`codium`, falling back to `code`) with `--extensionDevelopmentPath` pointing at this repo and throwaway `--user-data-dir`/`--extensions-dir` — **none of your personal settings, extensions, or login keychain** (`--password-store=basic`, the keychain-isolation flag the acceptance harness also needs). It compiles the extension first if `client/out` is missing; use `npm run watch` + Reload Window for a live loop. It does **not** isolate `gemstone.rootPath`, so it still sees your real GemStone installs (to connect).
-
 ## Conventions (non-standard — read before editing these areas)
 
 - **Queries** (`client/src/queries/`) are pure functions `(execute: QueryExecutor, ...args) => string` that build a Smalltalk snippet and call `execute(label, code)`. `QueryExecutor` is `(label: string, code: string) => string`, supplied by the caller, so the same query runs in the extension (executor wraps `gciLibrary`) and in the MCP server (its own session). Shared helpers live in `util.ts` (`escapeString`, `classLookupExpr`, …).

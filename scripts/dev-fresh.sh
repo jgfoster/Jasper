@@ -4,15 +4,45 @@
 # personal settings, extensions, or login keychain. Loads Jasper from this
 # working copy (whatever branch is checked out).
 #
+# By default the GemStone install root (gemstone.rootPath) is isolated to an
+# empty throwaway dir, so the window opens in a clean, brand-new-user state:
+# no servers you've downloaded, no stones. Pass --keep-installs (or run
+# `npm run dev:fresh:keep-installs`) to reuse your real ~/Documents/GemStone so
+# you can connect to existing installs.
+#
+# We deliberately isolate ONLY gemstone.rootPath and leave HOME untouched, so
+# ~/.jasper and ~/.claude.json still resolve to your real home. Reasoning: the
+# common case is opening a Claude Code CLI in the integrated terminal to work
+# against this fresh window, and isolating HOME would (a) log that CLI out
+# (Claude Code keeps auth in ~/.claude.json) and (b) skip Jasper's MCP
+# registration entirely — Jasper only writes its MCP entry into an *existing*
+# ~/.claude.json, so a throwaway home means no auto-configured jasper MCP. For
+# now, keeping the CLI logged in with the MCP server auto-configured is more
+# useful than a perfectly pristine home. We may revisit this later (e.g. an
+# opt-in --isolate-home flag) if a true brand-new-machine repro is needed.
+#
 # Usage:
-#   npm run dev:fresh                 # empty throwaway workspace
-#   npm run dev:fresh -- /path/to/dir # open a specific folder
+#   npm run dev:fresh                          # clean state, empty workspace
+#   npm run dev:fresh -- /path/to/dir          # clean state, open a folder
+#   npm run dev:fresh:keep-installs            # reuse your real installs
+#   npm run dev:fresh -- --keep-installs /dir  # reuse installs + open a folder
 #
 # For live reload, run `npm run watch` in another terminal, then reload the
 # dev window (Cmd+R / "Developer: Reload Window") after edits.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+
+# Parse args (order-independent): the --keep-installs flag (also settable via
+# JASPER_DEV_KEEP_INSTALLS=1) and an optional workspace folder.
+KEEP_INSTALLS="${JASPER_DEV_KEEP_INSTALLS:-}"
+WORKSPACE_ARG=""
+for arg in "$@"; do
+  case "$arg" in
+    --keep-installs) KEEP_INSTALLS=1 ;;
+    *) WORKSPACE_ARG="$arg" ;;
+  esac
+done
 
 # Pick an editor CLI: VSCodium, then VS Code (and their Insiders builds).
 EDITOR_CLI=""
@@ -32,12 +62,27 @@ if [ ! -f client/out/extension.js ]; then
 fi
 
 PROFILE="$(mktemp -d "${TMPDIR:-/tmp}/jasper-dev.XXXXXX")"
-WORKSPACE="${1:-$(mktemp -d "${TMPDIR:-/tmp}/jasper-ws.XXXXXX")}"
+WORKSPACE="${WORKSPACE_ARG:-$(mktemp -d "${TMPDIR:-/tmp}/jasper-ws.XXXXXX")}"
+
+# Seed gemstone.rootPath into the throwaway profile's User settings (VS Code
+# reads <user-data-dir>/User/settings.json). Writing it here keeps your own
+# workspace folder untouched and always applies, regardless of the workspace.
+USER_SETTINGS_DIR="$PROFILE/user-data/User"
+mkdir -p "$USER_SETTINGS_DIR"
+if [ -n "$KEEP_INSTALLS" ]; then
+  INSTALLS_DESC="reusing your real installs (~/Documents/GemStone)"
+else
+  GEMSTONE_ROOT="$PROFILE/gemstone-root"
+  mkdir -p "$GEMSTONE_ROOT"
+  printf '{\n  "gemstone.rootPath": "%s"\n}\n' "$GEMSTONE_ROOT" > "$USER_SETTINGS_DIR/settings.json"
+  INSTALLS_DESC="isolated empty root ($GEMSTONE_ROOT) - use --keep-installs to reuse your real installs"
+fi
 
 echo "Launching $EDITOR_CLI with a fresh profile:"
 echo "  extension : $PWD (branch $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?'))"
 echo "  profile   : $PROFILE   (throwaway - no personal settings/extensions/keychain)"
 echo "  workspace : $WORKSPACE"
+echo "  installs  : $INSTALLS_DESC"
 
 exec "$EDITOR_CLI" \
   --extensionDevelopmentPath="$PWD" \
