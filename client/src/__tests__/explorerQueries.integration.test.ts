@@ -201,16 +201,6 @@ describe('explorer queries (integration)', () => {
     });
   });
 
-  describe('reclassifyClass', () => {
-    it('changes a class-category via the dictionary-index form', () => {
-      defineWidget();
-
-      q.reclassifyClass(session(), userIndex(), WIDGET, 'JasperIt-Reclassed');
-
-      expect(categoryOf(WIDGET)).toBe('JasperIt-Reclassed');
-    });
-  });
-
   describe('recategorizeMethod', () => {
     it('moves a method into another existing category', () => {
       defineWidget();

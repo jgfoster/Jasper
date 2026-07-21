@@ -70,7 +70,6 @@ import { copyMethodToClass as sharedCopyMethodToClass } from './queries/copyMeth
 import { renameCategory as sharedRenameCategory } from './queries/renameCategory';
 import { deleteClass as sharedDeleteClass } from './queries/deleteClass';
 import { moveClass as sharedMoveClass } from './queries/moveClass';
-import { reclassifyClass as sharedReclassifyClass } from './queries/reclassifyClass';
 import { addDictionary as sharedAddDictionary } from './queries/addDictionary';
 import { removeDictionary as sharedRemoveDictionary } from './queries/removeDictionary';
 import { moveDictionaryUp as sharedMoveDictionaryUp } from './queries/moveDictionaryUp';
@@ -649,7 +648,7 @@ export function referencesToObject(
 // All of these delegate to the shared layer. None auto-commit.
 
 export function compileClassDefinition(session: ActiveSession, source: string): string {
-  return sharedCompileClassDefinition(bind(session), source);
+  return sharedCompileClassDefinition(defaultQueryExecutorUsing(session), source);
 }
 
 export function compileMethod(
@@ -678,7 +677,7 @@ export function setClassComment(
   comment: string,
   dict?: number | string,
 ): string {
-  return sharedSetClassComment(bind(session), className, comment, dict);
+  return sharedSetClassComment(defaultQueryExecutorUsing(session), className, comment, dict);
 }
 
 export function recategorizeClass(
@@ -687,7 +686,7 @@ export function recategorizeClass(
   newCategory: string,
   dict?: number | string,
 ): string {
-  return sharedRecategorizeClass(bind(session), className, newCategory, dict);
+  return sharedRecategorizeClass(defaultQueryExecutorUsing(session), className, newCategory, dict);
 }
 
 export function copyMethodToClass(
@@ -747,7 +746,7 @@ export function deleteClass(
   dict: number | string,
   className: string,
 ): string {
-  return sharedDeleteClass(bind(session), dict, className);
+  return sharedDeleteClass(defaultQueryExecutorUsing(session), dict, className);
 }
 
 export function moveClass(
@@ -756,16 +755,12 @@ export function moveClass(
   destDictIndex: number,
   className: string,
 ): string {
-  return sharedMoveClass(bind(session), srcDictIndex, destDictIndex, className);
-}
-
-export function reclassifyClass(
-  session: ActiveSession,
-  dictIndex: number,
-  className: string,
-  newCategory: string,
-): string {
-  return sharedReclassifyClass(bind(session), dictIndex, className, newCategory);
+  return sharedMoveClass(
+    defaultQueryExecutorUsing(session),
+    srcDictIndex,
+    destDictIndex,
+    className,
+  );
 }
 
 export function addDictionary(session: ActiveSession, dictName: string): string {

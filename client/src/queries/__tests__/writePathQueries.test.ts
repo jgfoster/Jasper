@@ -11,7 +11,6 @@ import { copyMethodToClass } from '../copyMethodToClass';
 import { renameCategory } from '../renameCategory';
 import { deleteClass } from '../deleteClass';
 import { moveClass } from '../moveClass';
-import { reclassifyClass } from '../reclassifyClass';
 import { addDictionary } from '../addDictionary';
 import { removeDictionary } from '../removeDictionary';
 import { moveDictionaryUp } from '../moveDictionaryUp';
@@ -184,15 +183,6 @@ describe('moveClass', () => {
     const execute = vi.fn<QueryExecutor>(() => '');
     moveClass(execute, 1, 2, 'Foo');
     expect(execute.mock.calls[0][1]).toContain('Class not found in source dictionary');
-  });
-});
-
-describe('reclassifyClass', () => {
-  it('sets the class category metadata', () => {
-    const execute = vi.fn<QueryExecutor>(() => 'ok');
-    reclassifyClass(execute, 1, 'Foo', 'Kernel-Classes');
-    const code = execute.mock.calls[0][1];
-    expect(code).toContain("category: 'Kernel-Classes'");
   });
 });
 
