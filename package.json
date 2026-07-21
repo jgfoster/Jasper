@@ -83,6 +83,16 @@
           "text/x-gemstone-smalltalk"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "ston",
+        "aliases": [
+          "STON"
+        ],
+        "extensions": [
+          ".ston"
+        ],
+        "configuration": "./ston.language-configuration.json"
       }
     ],
     "grammars": [
@@ -100,6 +110,11 @@
         "language": "gemstone-smalltalk",
         "scopeName": "source.gemstone-smalltalk",
         "path": "./syntaxes/gemstone-smalltalk.tmLanguage.json"
+      },
+      {
+        "language": "ston",
+        "scopeName": "source.ston",
+        "path": "./syntaxes/ston.tmLanguage.json"
       }
     ],
     "configuration": [
@@ -2038,7 +2053,9 @@
     "ovsx": "^0.10.5",
     "prettier": "^3.9.5",
     "typescript": "^5.7.2",
-    "typescript-eslint": "^8.20.0"
+    "typescript-eslint": "^8.20.0",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
   },
   "dependencies": {
     "@vscode/debugadapter": "^1.68.0",
