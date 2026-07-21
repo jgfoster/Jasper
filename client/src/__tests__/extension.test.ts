@@ -584,7 +584,7 @@ describe('maybeOpenGettingStarted', () => {
     vi.mocked(vscode.commands.executeCommand).mockReset();
   });
 
-  it('opens the walkthrough the first time the GemStone view is revealed', () => {
+  it('opens the walkthrough on the first activation', () => {
     const { context, store } = fakeContext();
 
     extension.maybeOpenGettingStarted(context);
@@ -601,7 +601,7 @@ describe('maybeOpenGettingStarted', () => {
     expect(walkthroughOpenings()).toHaveLength(0);
   });
 
-  it('opens only once no matter how often the view is revealed', () => {
+  it('opens only once per machine, however many times it is called', () => {
     const { context } = fakeContext();
 
     extension.maybeOpenGettingStarted(context);

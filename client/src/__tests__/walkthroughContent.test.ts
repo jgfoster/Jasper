@@ -11,7 +11,8 @@ import * as path from 'path';
 //      *selected* login and dereferences that item — so from a static button
 //      (no item) it throws and nothing happens. Creating a new login is
 //      `gemstone.addLogin`.
-// These tests read the real package.json and guard both.
+// These tests read the real package.json and guard both, plus keep the Reset
+// command's title aligned with how the walkthrough actually re-triggers.
 
 describe('Getting Started walkthrough content', () => {
   const repoRoot = path.resolve(__dirname, '..', '..', '..');
@@ -27,6 +28,9 @@ describe('Getting Started walkthrough content', () => {
   const viewsWelcome: Array<{ view: string; contents: string }> =
     pkg.contributes?.viewsWelcome ?? [];
   const loginsWelcome = viewsWelcome.find((v) => v.view === 'gemstoneLogins');
+
+  const commands: Array<{ command: string; title: string }> = pkg.contributes?.commands ?? [];
+  const resetCommand = commands.find((c) => c.command === 'gemstone.resetGettingStarted');
 
   // Matches an "Add a Login" (or any) button wired to the item-only connect
   // command — the closing paren pins it to `gemstone.login` and not the
@@ -69,5 +73,13 @@ describe('Getting Started walkthrough content', () => {
 
   it('offers Quick Setup from the Logins view welcome text', () => {
     expect(loginsWelcome?.contents).toContain('command:gemstone.quickSetup');
+  });
+
+  // The walkthrough auto-opens on activation (startup), not on connecting or on
+  // revealing a view — so the Reset command's title must describe the real
+  // trigger rather than the stale "on Next Connect".
+  it('describes the reset command by its real trigger (startup)', () => {
+    expect(resetCommand?.title.toLowerCase()).toContain('startup');
+    expect(resetCommand?.title.toLowerCase()).not.toContain('connect');
   });
 });

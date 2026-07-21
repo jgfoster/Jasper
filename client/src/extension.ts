@@ -290,19 +290,19 @@ export async function openWorkspaceForSession(
 }
 
 // Getting Started onboarding. The walkthrough auto-opens once per machine the
-// first time the GemStone view is revealed; this globalState key records that it
-// has been shown. Clear it via the `gemstone.resetGettingStarted` command to make
-// it auto-open again the next time the view is revealed.
+// first time the extension activates; this globalState key records that it has
+// been shown. Clear it via the `gemstone.resetGettingStarted` command to make it
+// auto-open again on the next startup.
 const GETTING_STARTED_SEEN_KEY = 'gemstone.hasSeenGettingStarted';
 const GETTING_STARTED_WALKTHROUGH_ID = 'gemtalksystems.gemstone-ide#gemstoneGettingStarted';
 
-// Open the Getting Started walkthrough the first time the user reveals the
-// GemStone view. Revealing the view proves intent, and it happens *before* the
-// user connects — so the walkthrough's "how to connect" step arrives when it's
-// actually useful, not after they've already worked it out. Gated by
+// Open the Getting Started walkthrough on the first activation after install.
+// Keyed off activation (the extension declares onStartupFinished) rather than a
+// specific view's visibility, so no sidebar-layout change — e.g. marking a view
+// `"visibility": "collapsed"` — can silently disable onboarding. Gated by
 // GETTING_STARTED_SEEN_KEY so it fires once per machine; the flag is set before
-// opening so a rapid second reveal can't double-open. Idempotent — safe to call
-// on every visibility change.
+// opening so a re-entrant call can't double-open. Idempotent — safe to call on
+// every activation.
 export function maybeOpenGettingStarted(context: vscode.ExtensionContext): void {
   if (context.globalState.get<boolean>(GETTING_STARTED_SEEN_KEY)) return;
   void context.globalState.update(GETTING_STARTED_SEEN_KEY, true);
@@ -587,14 +587,10 @@ export function activate(context: vscode.ExtensionContext) {
   });
   context.subscriptions.push(treeView);
 
-  // Auto-open the Getting Started walkthrough the first time the GemStone view is
-  // revealed (see maybeOpenGettingStarted). Fires once per machine; reset via the
+  // Auto-open the Getting Started walkthrough on the first activation after
+  // install (see maybeOpenGettingStarted). Fires once per machine; reset via the
   // gemstone.resetGettingStarted command.
-  context.subscriptions.push(
-    treeView.onDidChangeVisibility((e) => {
-      if (e.visible) maybeOpenGettingStarted(context);
-    }),
-  );
+  maybeOpenGettingStarted(context);
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
@@ -1092,7 +1088,7 @@ export function activate(context: vscode.ExtensionContext) {
       await context.globalState.update(GETTING_STARTED_SEEN_KEY, undefined);
       const openNow = 'Open Walkthrough Now';
       const choice = await vscode.window.showInformationMessage(
-        'Getting Started reset — the walkthrough will open automatically the next time you open the GemStone view.',
+        'Getting Started reset — the walkthrough will open automatically the next time VS Code starts.',
         openNow,
       );
       if (choice === openNow) {
@@ -1302,7 +1298,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
         // We no longer auto-open a workspace on every connect (it left a dirty,
         // hot-exit-restored buffer behind), nor the Getting Started walkthrough —
-        // that now opens the first time the GemStone view is revealed (see
+        // that now opens on the first activation after install (see
         // maybeOpenGettingStarted), so its "how to connect" step arrives before the
         // user connects rather than after. The workspace stays available via the
         // gemstone.openWorkspace command and the Logins & Sessions welcome view.

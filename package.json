@@ -717,7 +717,7 @@
       },
       {
         "command": "gemstone.resetGettingStarted",
-        "title": "Reset Getting Started (Show Walkthrough on Next Connect)",
+        "title": "Reset Getting Started (Show Walkthrough on Next Startup)",
         "category": "GemStone"
       },
       {
