@@ -70,7 +70,6 @@ import { copyMethodToClass as sharedCopyMethodToClass } from './queries/copyMeth
 import { renameCategory as sharedRenameCategory } from './queries/renameCategory';
 import { deleteClass as sharedDeleteClass } from './queries/deleteClass';
 import { moveClass as sharedMoveClass } from './queries/moveClass';
-import { reclassifyClass as sharedReclassifyClass } from './queries/reclassifyClass';
 import { addDictionary as sharedAddDictionary } from './queries/addDictionary';
 import { removeDictionary as sharedRemoveDictionary } from './queries/removeDictionary';
 import { moveDictionaryUp as sharedMoveDictionaryUp } from './queries/moveDictionaryUp';
@@ -761,20 +760,6 @@ export function moveClass(
     srcDictIndex,
     destDictIndex,
     className,
-  );
-}
-
-export function reclassifyClass(
-  session: ActiveSession,
-  dictIndex: number,
-  className: string,
-  newCategory: string,
-): string {
-  return sharedReclassifyClass(
-    defaultQueryExecutorUsing(session),
-    dictIndex,
-    className,
-    newCategory,
   );
 }
 
