@@ -408,7 +408,15 @@ export class GciLibrary {
     );
     this._GciTsNbLogout = this.lib.func(`int GciTsNbLogout(GciSessionPtr, _Out_ GciErrSType *)`);
     this._GciTsSessionIsRemote = this.lib.func(`int GciTsSessionIsRemote(GciSessionPtr)`);
-    this._GciTsEncrypt = this.lib.func(`char* GciTsEncrypt(const char *, _Out_ char *, size_t)`);
+    // Optional: not exported by some libraries (e.g. GemStone 4.0). Jasper's
+    // login path passes the password in the clear (GciTsLogin with loginFlags
+    // 0), so GciTsEncrypt is never called during connect — binding it eagerly
+    // would abort library load for a library that lacks it. Only the ergonomic
+    // GciTsEncrypt() wrapper (used by tests) would throw if it were absent.
+    this._GciTsEncrypt = this.optionalFunc(
+      'GciTsEncrypt',
+      `char* GciTsEncrypt(const char *, _Out_ char *, size_t)`,
+    );
     this._GciTsAbort = this.lib.func(`int GciTsAbort(GciSessionPtr, _Out_ GciErrSType *)`);
     this._GciTsBegin = this.lib.func(`int GciTsBegin(GciSessionPtr, _Out_ GciErrSType *)`);
     this._GciTsCommit = this.lib.func(`int GciTsCommit(GciSessionPtr, _Out_ GciErrSType *)`);
