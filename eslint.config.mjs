@@ -3,19 +3,17 @@ import tseslint from 'typescript-eslint';
 import globals from 'globals';
 import eslintComments from '@eslint-community/eslint-plugin-eslint-comments';
 import eslintConfigPrettier from 'eslint-config-prettier';
+import gitignore from 'eslint-config-flat-gitignore';
 
 export default tseslint.config(
+  // Keep lint ignores in sync with every `.gitignore` in the repo, instead of
+  // a hand-maintained duplicate list that drifts (e.g. missed `.vscode-test/`
+  // choking the parser on a downloaded test binary).
+  gitignore({ recursive: true }),
   {
-    ignores: [
-      '**/out/**',
-      '**/node_modules/**',
-      '**/*.d.ts',
-      '**/*.vsix',
-      'resources/**',
-      '.gemstone/**',
-      'client/tmp/**',
-      'acceptance/test-results/**',
-    ],
+    // Tracked files that are intentionally excluded from lint, not from git —
+    // no `.gitignore` equivalent, so these stay explicit.
+    ignores: ['**/*.d.ts', 'resources/**'],
   },
   // `eslint .` only auto-targets extensions it has a language for by default;
   // this makes the intent explicit and future-proofs against config drift.
