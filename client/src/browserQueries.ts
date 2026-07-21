@@ -27,7 +27,6 @@ import { getAllClassNames as sharedGetAllClassNames } from './queries/getAllClas
 import { getClassHierarchy as sharedGetClassHierarchy } from './queries/getClassHierarchy';
 import { fileOutClass as sharedFileOutClass } from './queries/fileOutClass';
 import { describeClass as sharedDescribeClass } from './queries/describeClass';
-import { loadClassInfo as sharedLoadClassInfo } from './queries/loadClassInfo';
 import { getInstVarNames as sharedGetInstVarNames } from './queries/getInstVarNames';
 import { getDefinedInstVarNames as sharedGetDefinedInstVarNames } from './queries/getDefinedInstVarNames';
 import { getDefinedInstVarCounts as sharedGetDefinedInstVarCounts } from './queries/getDefinedInstVarCounts';
@@ -91,7 +90,6 @@ export type { ClassHierarchyEntry } from './queries/getClassHierarchy';
 export type { MethodEntry } from './queries/getMethodList';
 export type { StepPointSelectorInfo } from './queries/getStepPointSelectorRanges';
 export type { MethodSearchResult } from './queries/methodSearch';
-export type { ClassInfo } from './queries/loadClassInfo';
 export type { RowanProject, RowanProjectList } from './queries/rowan/listRowanProjects';
 export type { RowanExportResult } from './queries/rowan/exportRowanProject';
 export type { RowanClassOwner, RowanClassOwners } from './queries/rowan/findRowanClassOwners';
@@ -533,10 +531,6 @@ export function fileOutClass(
   dict?: number | string,
 ): string {
   return sharedFileOutClass(defaultQueryExecutorUsing(session), className, dict);
-}
-
-export function loadClassInfo(session: ActiveSession, dictIndex: number, className: string) {
-  return sharedLoadClassInfo(defaultQueryExecutorUsing(session), dictIndex, className);
 }
 
 export function describeClass(
