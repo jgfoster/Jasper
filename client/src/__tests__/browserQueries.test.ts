@@ -180,7 +180,7 @@ describe('browserQueries', () => {
       const session = createMockSession('');
       queries.fileOutClass(session, 'MyClass');
 
-      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
       const code = mockExec.mock.calls[0][1] as string;
       expect(code).toContain("objectNamed: #'MyClass'");
       expect(code).toContain('fileOutClass');
@@ -190,7 +190,7 @@ describe('browserQueries', () => {
       const session = createMockSession('');
       queries.fileOutClass(session, 'MyClass', 3);
 
-      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
       const code = mockExec.mock.calls[0][1] as string;
       expect(code).toContain('symbolList at: 3');
       expect(code).toContain("#'MyClass' ifAbsent: [nil]");
@@ -200,7 +200,7 @@ describe('browserQueries', () => {
       const session = createMockSession('');
       queries.fileOutClass(session, "Class'Name");
 
-      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
       const code = mockExec.mock.calls[0][1] as string;
       expect(code).toContain("#'Class''Name'");
     });

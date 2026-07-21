@@ -27,7 +27,6 @@ import { getAllClassNames as sharedGetAllClassNames } from './queries/getAllClas
 import { getClassHierarchy as sharedGetClassHierarchy } from './queries/getClassHierarchy';
 import { fileOutClass as sharedFileOutClass } from './queries/fileOutClass';
 import { describeClass as sharedDescribeClass } from './queries/describeClass';
-import { loadClassInfo as sharedLoadClassInfo } from './queries/loadClassInfo';
 import { getInstVarNames as sharedGetInstVarNames } from './queries/getInstVarNames';
 import { getDefinedInstVarNames as sharedGetDefinedInstVarNames } from './queries/getDefinedInstVarNames';
 import { getDefinedInstVarCounts as sharedGetDefinedInstVarCounts } from './queries/getDefinedInstVarCounts';
@@ -91,7 +90,6 @@ export type { ClassHierarchyEntry } from './queries/getClassHierarchy';
 export type { MethodEntry } from './queries/getMethodList';
 export type { StepPointSelectorInfo } from './queries/getStepPointSelectorRanges';
 export type { MethodSearchResult } from './queries/methodSearch';
-export type { ClassInfo } from './queries/loadClassInfo';
 export type { RowanProject, RowanProjectList } from './queries/rowan/listRowanProjects';
 export type { RowanExportResult } from './queries/rowan/exportRowanProject';
 export type { RowanClassOwner, RowanClassOwners } from './queries/rowan/findRowanClassOwners';
@@ -415,14 +413,14 @@ export function unloadRowanProject(session: ActiveSession, projectName: string) 
 }
 
 export function getClassNames(session: ActiveSession, dict: number | string): string[] {
-  return sharedGetClassNames(bind(session), dict);
+  return sharedGetClassNames(defaultQueryExecutorUsing(session), dict);
 }
 
 export function getClassesWithCategory(
   session: ActiveSession,
   dict: number | string,
 ): ClassCategoryEntry[] {
-  return sharedGetClassesWithCategory(bind(session), dict);
+  return sharedGetClassesWithCategory(defaultQueryExecutorUsing(session), dict);
 }
 
 export function getDictionaryClassFileOutOrder(
@@ -465,7 +463,12 @@ export function getClassEnvironments(
   className: string,
   maxEnv: number,
 ) {
-  return sharedGetClassEnvironments(bind(session), dictIndex, className, maxEnv);
+  return sharedGetClassEnvironments(
+    defaultQueryExecutorUsing(session),
+    dictIndex,
+    className,
+    maxEnv,
+  );
 }
 
 export function getMethodSource(
@@ -495,7 +498,7 @@ export function getClassDefinition(
   className: string,
   dict?: number | string,
 ): string {
-  return sharedGetClassDefinition(bind(session), className, dict);
+  return sharedGetClassDefinition(defaultQueryExecutorUsing(session), className, dict);
 }
 
 export function getClassComment(
@@ -503,7 +506,7 @@ export function getClassComment(
   className: string,
   dict?: number | string,
 ): string {
-  return sharedGetClassComment(bind(session), className, dict);
+  return sharedGetClassComment(defaultQueryExecutorUsing(session), className, dict);
 }
 
 export function canClassBeWritten(
@@ -511,15 +514,15 @@ export function canClassBeWritten(
   className: string,
   dict?: number | string,
 ): boolean {
-  return sharedCanClassBeWritten(bind(session), className, dict);
+  return sharedCanClassBeWritten(defaultQueryExecutorUsing(session), className, dict);
 }
 
 export function getAllClassNames(session: ActiveSession) {
-  return sharedGetAllClassNames(bind(session));
+  return sharedGetAllClassNames(defaultQueryExecutorUsing(session));
 }
 
 export function getClassHierarchy(session: ActiveSession, className: string) {
-  return sharedGetClassHierarchy(bind(session), className);
+  return sharedGetClassHierarchy(defaultQueryExecutorUsing(session), className);
 }
 
 export function fileOutClass(
@@ -527,11 +530,7 @@ export function fileOutClass(
   className: string,
   dict?: number | string,
 ): string {
-  return sharedFileOutClass(bind(session), className, dict);
-}
-
-export function loadClassInfo(session: ActiveSession, dictIndex: number, className: string) {
-  return sharedLoadClassInfo(bind(session), dictIndex, className);
+  return sharedFileOutClass(defaultQueryExecutorUsing(session), className, dict);
 }
 
 export function describeClass(
@@ -539,22 +538,22 @@ export function describeClass(
   className: string,
   dict?: number | string,
 ): string {
-  return sharedDescribeClass(bind(session), className, dict);
+  return sharedDescribeClass(defaultQueryExecutorUsing(session), className, dict);
 }
 
 export function getInstVarNames(session: ActiveSession, className: string): string[] {
-  return sharedGetInstVarNames(bind(session), className);
+  return sharedGetInstVarNames(defaultQueryExecutorUsing(session), className);
 }
 
 export function getDefinedInstVarNames(session: ActiveSession, className: string): string[] {
-  return sharedGetDefinedInstVarNames(bind(session), className);
+  return sharedGetDefinedInstVarNames(defaultQueryExecutorUsing(session), className);
 }
 
 export function getDefinedInstVarCounts(
   session: ActiveSession,
   dict: number | string,
 ): Map<string, number> {
-  return sharedGetDefinedInstVarCounts(bind(session), dict);
+  return sharedGetDefinedInstVarCounts(defaultQueryExecutorUsing(session), dict);
 }
 
 export function getGrailStubReflection(
@@ -562,11 +561,11 @@ export function getGrailStubReflection(
   className: string,
   dict?: number | string,
 ): GrailStubReflection {
-  return sharedGetGrailStubReflection(bind(session), className, dict);
+  return sharedGetGrailStubReflection(defaultQueryExecutorUsing(session), className, dict);
 }
 
 export function getAllSelectors(session: ActiveSession, className: string): string[] {
-  return sharedGetAllSelectors(bind(session), className);
+  return sharedGetAllSelectors(defaultQueryExecutorUsing(session), className);
 }
 
 export function getMethodList(session: ActiveSession, className: string) {
