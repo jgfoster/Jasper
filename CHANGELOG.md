@@ -15,6 +15,25 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 - **The walkthrough's (and Logins view's) "Add a Login" button now works.** It was wired to `gemstone.login` — the command that connects a *selected* login — so clicking it from a static button (which passes no login) threw and did nothing. It now opens the new-login editor via `gemstone.addLogin`.
 
+## [1.8.7] - 2026-07-21
+
+### Added
+
+- **STON syntax highlighting.** `.ston` files (STON — Smalltalk Object Notation) now get syntax highlighting, bracket matching, and folding, via a TextMate grammar following GemStone's STON dialect. ([#177](https://github.com/GemTalk/Jasper/pull/177))
+- **Rowan: create a new project.** A **New Rowan Project** action scaffolds `rowan/project.ston`, a load spec, a Core component, and `src/` by writing the files directly — matching the RowanV3 solo tool's default layout, with no solo gem or GemStone install required. New projects get a `.gitignore` for Jasper's local `.gemstone` class mirror. ([#180](https://github.com/GemTalk/Jasper/pull/180))
+- **Rowan: recognize the open workspace as a project.** When the workspace folder is itself a Rowan project (has `rowan/project.ston`), the Rowan view now leads with a **This Project** section listing the project's Tonel packages and lists it under Repositories as the workspace repo. ([#179](https://github.com/GemTalk/Jasper/pull/179))
+
+### Changed
+
+- **The Getting Started walkthrough now opens on first reveal of the GemStone view**, rather than after your first successful connect — so its "how to connect" guidance arrives before you connect rather than after you have already worked it out. Still shown once per machine. ([#173](https://github.com/GemTalk/Jasper/pull/173))
+
+### Fixed
+
+- **GemStone 4.0 client libraries can now connect.** `GciTsEncrypt` — the one required GCI symbol a 4.0 library does not export — was bound eagerly, so loading a 4.0 library aborted with "Cannot find function 'GciTsEncrypt'" before login could even start. It is now bound optionally (Jasper never calls it on the connect path), matching the other version-gated symbols.
+- **Display It renders non-ASCII results correctly.** Its result path fetched `printString`'s bytes raw, which only worked when the result was already single-byte-per-char and silently garbled real Unicode; it now uses the same UTF-8-safe fetch (`encodeAsUTF8` + paged fetch) used elsewhere. ([#176](https://github.com/GemTalk/Jasper/pull/176))
+- **Class-definition syntax highlighting no longer mis-colors the superclass name.** The synthetic wrapper the LSP uses to reuse the method parser over a class-definition region leaked a token onto the real expression, splitting the superclass name into two colors.
+- **Errors from Display/Execute/Debug/Inspect It are now surfaced instead of swallowed.** These command handlers did not await their async work, so a failure (an unresolved class oop, a failed GCI call, …) became an unhandled rejection logged only to the Extension Host console; they now flow through VS Code's command error handling and reach the user. ([#175](https://github.com/GemTalk/Jasper/pull/175))
+
 ## [1.8.6] - 2026-07-20
 
 ### Changed

@@ -2,7 +2,7 @@
   "name": "gemstone-ide",
   "displayName": "Jasper: A GemStone Smalltalk IDE",
   "description": "GemStone/S IDE for Visual Studio Code",
-  "version": "1.8.6",
+  "version": "1.8.7",
   "publisher": "gemtalksystems",
   "license": "MIT",
   "author": "James Foster",
@@ -83,6 +83,16 @@
           "text/x-gemstone-smalltalk"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "ston",
+        "aliases": [
+          "STON"
+        ],
+        "extensions": [
+          ".ston"
+        ],
+        "configuration": "./ston.language-configuration.json"
       }
     ],
     "grammars": [
@@ -100,6 +110,11 @@
         "language": "gemstone-smalltalk",
         "scopeName": "source.gemstone-smalltalk",
         "path": "./syntaxes/gemstone-smalltalk.tmLanguage.json"
+      },
+      {
+        "language": "ston",
+        "scopeName": "source.ston",
+        "path": "./syntaxes/ston.tmLanguage.json"
       }
     ],
     "configuration": [
@@ -2004,7 +2019,10 @@
     "compile:mcp": "tsc -p mcp-server/tsconfig.json",
     "bundle": "node esbuild.mjs",
     "watch": "tsc -b -w client/tsconfig.json server/tsconfig.json",
+    "//dev:fresh": "Launch a fresh, isolated dev editor window: isolates gemstone.rootPath to an empty dir so it opens in a clean brand-new-user state (no downloaded servers or stones). Leaves HOME untouched, so the jasper MCP integration keeps working.",
     "dev:fresh": "bash scripts/dev-fresh.sh",
+    "//dev:fresh:keep-installs": "Like dev:fresh but reuses your real ~/Documents/GemStone so you can connect to servers/stones you've already downloaded.",
+    "dev:fresh:keep-installs": "bash scripts/dev-fresh.sh --keep-installs",
     "serve:seaside": "bash scripts/serve-seaside.sh",
     "lint:github:workflows": "bash scripts/lint-workflow-timeouts.sh",
     "lint": "eslint .",
@@ -2043,13 +2061,16 @@
     "@vscode/vsce": "^3.7.1",
     "esbuild": "^0.28.1",
     "eslint": "^10.0.0",
+    "eslint-config-flat-gitignore": "^2.3.0",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^16.0.0",
     "lefthook": "^2.1.10",
     "ovsx": "^0.10.5",
     "prettier": "^3.9.5",
     "typescript": "^5.7.2",
-    "typescript-eslint": "^8.20.0"
+    "typescript-eslint": "^8.20.0",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
   },
   "dependencies": {
     "@vscode/debugadapter": "^1.68.0",

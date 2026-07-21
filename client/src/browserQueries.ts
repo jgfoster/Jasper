@@ -9,7 +9,6 @@ import { QueryExecutor } from './queries/types';
 import { getMethodSource as sharedGetMethodSource } from './queries/getMethodSource';
 import { getBaseMethodSource as sharedGetBaseMethodSource } from './queries/getBaseMethodSource';
 import { getDictionaryNames as sharedGetDictionaryNames } from './queries/getDictionaryNames';
-import { getPoolDictionaryNames as sharedGetPoolDictionaryNames } from './queries/getPoolDictionaryNames';
 import { getClassNames as sharedGetClassNames } from './queries/getClassNames';
 import {
   getClassesWithCategory as sharedGetClassesWithCategory,
@@ -23,7 +22,6 @@ import { getMethodSelectors as sharedGetMethodSelectors } from './queries/getMet
 import { getClassEnvironments as sharedGetClassEnvironments } from './queries/getClassEnvironments';
 import { getClassDefinition as sharedGetClassDefinition } from './queries/getClassDefinition';
 import { getClassComment as sharedGetClassComment } from './queries/getClassComment';
-import { getSuperclassDictName as sharedGetSuperclassDictName } from './queries/getSuperclassDictName';
 import { canClassBeWritten as sharedCanClassBeWritten } from './queries/canClassBeWritten';
 import { getAllClassNames as sharedGetAllClassNames } from './queries/getAllClassNames';
 import { getClassHierarchy as sharedGetClassHierarchy } from './queries/getClassHierarchy';
@@ -316,19 +314,52 @@ export function sessionNeedsCommit(session: ActiveSession): boolean | undefined 
   }
 }
 
-// Bind a session to the QueryExecutor shape that shared queries expect.
+/**
+ * Binds a session to the QueryExecutor shape that shared queries expect.
+ *
+ * @deprecated Backed by executeFetchString's raw GciTsExecuteFetchBytes
+ * call, which is prone to mis-decoding non-ASCII results and truncating
+ * large ones. Being replaced by {@link defaultQueryExecutorUsing} one call-site group at a time.
+ */
 function bind(session: ActiveSession): QueryExecutor {
   return (label, code) => executeFetchString(session, label, code);
+}
+
+/**
+ * Binds a session to the QueryExecutor shape that shared queries expect,
+ * backed by GciLibrary.executeAndFetchString.
+ *
+ * executeAndFetchString explicitly encodes the evaluated result as UTF-8 in
+ * Smalltalk before paging it out, so results decode correctly regardless of
+ * their original encoding and are not capped at a single fixed-size buffer.
+ */
+function defaultQueryExecutorUsing(session: ActiveSession): QueryExecutor {
+  return (label, code) => {
+    logQuery(session.id, label, code);
+
+    const { result: inProgress } = session.gci.GciTsCallInProgress(session.handle);
+    if (inProgress !== 0) {
+      const msg = 'Session is busy with another operation. Please wait or use a different session.';
+      logError(session.id, msg);
+      throw new BrowserQueryError(msg);
+    }
+
+    try {
+      const data = session.gci.executeAndFetchString(session.handle, code);
+      logResult(session.id, data);
+      return data;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logError(session.id, msg);
+      throw new BrowserQueryError(msg);
+    }
+  };
 }
 
 // ── Read-only queries (thin delegates to client/src/queries/) ─────────────
 
 export function getDictionaryNames(session: ActiveSession): string[] {
-  return sharedGetDictionaryNames(bind(session));
-}
-
-export function getPoolDictionaryNames(session: ActiveSession): string[] {
-  return sharedGetPoolDictionaryNames(bind(session));
+  return sharedGetDictionaryNames(defaultQueryExecutorUsing(session));
 }
 
 // ── Rowan browser queries ─────────────────────────────────────────────────
@@ -398,15 +429,15 @@ export function getDictionaryClassFileOutOrder(
   session: ActiveSession,
   dict: number | string,
 ): string[] {
-  return sharedGetDictionaryClassFileOutOrder(bind(session), dict);
+  return sharedGetDictionaryClassFileOutOrder(defaultQueryExecutorUsing(session), dict);
 }
 
 export function getDictionaryEntries(session: ActiveSession, dict: number | string) {
-  return sharedGetDictionaryEntries(bind(session), dict);
+  return sharedGetDictionaryEntries(defaultQueryExecutorUsing(session), dict);
 }
 
 export function getGlobalsForDictionary(session: ActiveSession, dictIndex: number) {
-  return sharedGetGlobalsForDictionary(bind(session), dictIndex);
+  return sharedGetGlobalsForDictionary(defaultQueryExecutorUsing(session), dictIndex);
 }
 
 export function getMethodCategories(
@@ -473,14 +504,6 @@ export function getClassComment(
   dict?: number | string,
 ): string {
   return sharedGetClassComment(bind(session), className, dict);
-}
-
-export function getSuperclassDictName(
-  session: ActiveSession,
-  dictIndex: number,
-  className: string,
-): string {
-  return sharedGetSuperclassDictName(bind(session), dictIndex, className);
 }
 
 export function canClassBeWritten(
@@ -747,19 +770,19 @@ export function reclassifyClass(
 }
 
 export function addDictionary(session: ActiveSession, dictName: string): string {
-  return sharedAddDictionary(bind(session), dictName);
+  return sharedAddDictionary(defaultQueryExecutorUsing(session), dictName);
 }
 
 export function removeDictionary(session: ActiveSession, dict: number | string): string {
-  return sharedRemoveDictionary(bind(session), dict);
+  return sharedRemoveDictionary(defaultQueryExecutorUsing(session), dict);
 }
 
 export function moveDictionaryUp(session: ActiveSession, dictIndex: number): string {
-  return sharedMoveDictionaryUp(bind(session), dictIndex);
+  return sharedMoveDictionaryUp(defaultQueryExecutorUsing(session), dictIndex);
 }
 
 export function moveDictionaryDown(session: ActiveSession, dictIndex: number): string {
-  return sharedMoveDictionaryDown(bind(session), dictIndex);
+  return sharedMoveDictionaryDown(defaultQueryExecutorUsing(session), dictIndex);
 }
 
 export function setBreakAtStepPoint(

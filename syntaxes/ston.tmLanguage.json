@@ -1,0 +1,87 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "STON",
+  "scopeName": "source.ston",
+  "patterns": [{ "include": "#value" }],
+  "repository": {
+    "value": {
+      "patterns": [
+        { "include": "#class-name" },
+        { "include": "#symbol-key" },
+        { "include": "#symbol" },
+        { "include": "#string" },
+        { "include": "#constant" },
+        { "include": "#character" },
+        { "include": "#reference" },
+        { "include": "#number" },
+        { "include": "#punctuation" }
+      ]
+    },
+    "class-name": {
+      "comment": "A class-tagged object or association value: ClassName { ... } / ClassName [ ... ]",
+      "match": "([A-Z]\\w*)\\s*(?=[\\[{])",
+      "captures": {
+        "1": { "name": "entity.name.type.class.ston" }
+      }
+    },
+    "symbol-key": {
+      "comment": "A symbol used as a map key (before a colon). A bare symbol may hold any simple-symbol character (letters, digits, - _ . /); anything else is quoted and, like a string, uses backslash escapes.",
+      "match": "(#[A-Za-z0-9_./-]+|#'(?:\\\\.|[^'\\\\])*')\\s*(?=:)",
+      "captures": {
+        "1": { "name": "entity.name.tag.ston" }
+      }
+    },
+    "symbol": {
+      "name": "constant.other.symbol.ston",
+      "match": "#[A-Za-z0-9_./-]+|#'(?:\\\\.|[^'\\\\])*'"
+    },
+    "string": {
+      "comment": "STON strings use backslash escapes (\\' \\\" \\\\ \\/ \\b \\f \\n \\r \\uXXXX), matching GemStone's STONWriter — not Smalltalk-style doubled quotes.",
+      "name": "string.quoted.single.ston",
+      "begin": "'",
+      "end": "'",
+      "applyEndPatternLast": true,
+      "patterns": [
+        {
+          "name": "constant.character.escape.ston",
+          "match": "\\\\(?:u[0-9A-Fa-f]{4}|['\\\"btnfr/\\\\])"
+        }
+      ]
+    },
+    "constant": {
+      "name": "constant.language.ston",
+      "match": "\\b(true|false|nil)\\b"
+    },
+    "character": {
+      "name": "constant.character.ston",
+      "match": "\\$(?:\\\\.|.)"
+    },
+    "reference": {
+      "comment": "STON object reference, e.g. @3",
+      "name": "constant.other.reference.ston",
+      "match": "@\\d+"
+    },
+    "number": {
+      "patterns": [
+        {
+          "comment": "radix integer, e.g. 16rFF",
+          "name": "constant.numeric.radix.ston",
+          "match": "(?<!\\w)\\d+r[0-9A-Za-z]+"
+        },
+        {
+          "comment": "integer / float / exponent, optionally negative",
+          "name": "constant.numeric.ston",
+          "match": "(?<!\\w)-?\\d+(?:\\.\\d+)?(?:[eE][-+]?\\d+)?"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        { "name": "punctuation.separator.key-value.ston", "match": ":" },
+        { "name": "punctuation.separator.comma.ston", "match": "," },
+        { "name": "punctuation.section.map.ston", "match": "[{}]" },
+        { "name": "punctuation.section.array.ston", "match": "[\\[\\]]" }
+      ]
+    }
+  }
+}
