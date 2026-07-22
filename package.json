@@ -1125,6 +1125,12 @@
         "icon": "$(edit)"
       },
       {
+        "command": "gemstone.explorer.extractMethod",
+        "title": "Extract Method…",
+        "category": "GemStone",
+        "icon": "$(edit)"
+      },
+      {
         "command": "gemstone.renameInstVarAtCursor",
         "title": "Rename Instance Variable at Cursor…",
         "category": "GemStone",
@@ -1967,6 +1973,11 @@
           "command": "gemstone.implementorsOf",
           "when": "editorTextFocus && resourceLangId == gemstone-smalltalk",
           "group": "2_navigation@1"
+        },
+        {
+          "command": "gemstone.explorer.extractMethod",
+          "when": "editorTextFocus && resourceScheme == gemstone && resourceLangId == gemstone-smalltalk && editorHasSelection",
+          "group": "2_navigation@2"
         },
         {
           "command": "gemstone.toggleSelectorBreakpoint",

@@ -68,6 +68,13 @@ import {
   renameTemporaryDeclineReason as sharedRenameTemporaryDeclineReason,
 } from './queries/previewRenameTemporary';
 import {
+  analyzeExtractSelection as sharedAnalyzeExtractSelection,
+  startExtractMethodPreview as sharedStartExtractMethodPreview,
+  pageExtractMethodPreview as sharedPageExtractMethodPreview,
+  applyExtractMethod as sharedApplyExtractMethod,
+  clearExtractMethodPreview as sharedClearExtractMethodPreview,
+} from './queries/previewExtractMethod';
+import {
   getClassHistory as sharedGetClassHistory,
   revertClassToVersion as sharedRevertClassToVersion,
   removeClassVersion as sharedRemoveClassVersion,
@@ -880,6 +887,78 @@ export function renameTemporaryDeclineReason(
     offset,
     dict,
   );
+}
+
+// Extract-method (M1) preview: pre-flight analysis, paginated start/page fetched
+// NON-BLOCKING, server-side apply. The two core changes always apply; the apply
+// passes the deselected DUPLICATE ids only.
+export function analyzeExtractSelection(
+  session: ActiveSession,
+  className: string,
+  selector: string,
+  isMeta: boolean,
+  selStart: number,
+  selStop: number,
+  dict?: number | string,
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, 'Analysing selection…');
+  return sharedAnalyzeExtractSelection(exec, className, selector, isMeta, selStart, selStop, dict);
+}
+
+export function startExtractMethodPreview(
+  session: ActiveSession,
+  className: string,
+  selector: string,
+  isMeta: boolean,
+  selStart: number,
+  selStop: number,
+  newSelector: string,
+  replaceSimilar: boolean,
+  token: string,
+  maxBytes: number,
+  dict?: number | string,
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, `Previewing extract of ${newSelector}…`);
+  return sharedStartExtractMethodPreview(
+    exec,
+    className,
+    selector,
+    isMeta,
+    selStart,
+    selStop,
+    newSelector,
+    replaceSimilar,
+    token,
+    maxBytes,
+    dict,
+  );
+}
+
+export function pageExtractMethodPreview(
+  session: ActiveSession,
+  token: string,
+  offset: number,
+  maxBytes: number,
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, 'Loading more changes…');
+  return sharedPageExtractMethodPreview(exec, token, offset, maxBytes);
+}
+
+export function applyExtractMethod(
+  session: ActiveSession,
+  token: string,
+  deselectedIds: string[],
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, 'Applying extraction…');
+  return sharedApplyExtractMethod(exec, token, deselectedIds);
+}
+
+export function clearExtractMethodPreview(session: ActiveSession, token: string): string {
+  return sharedClearExtractMethodPreview(bind(session), token);
 }
 
 // Class-definition history (native classHistory, this-stone-only, read-only) and

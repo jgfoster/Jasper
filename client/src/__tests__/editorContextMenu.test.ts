@@ -28,8 +28,15 @@ describe('editor/context menu', () => {
       'gemstone.debugIt',
       'gemstone.sendersOf',
       'gemstone.implementorsOf',
+      'gemstone.explorer.extractMethod',
       'gemstone.toggleSelectorBreakpoint',
     ]);
+  });
+
+  it('shows "Extract Method" only for a gemstone method editor with a selection', () => {
+    expect(getMenuItem('gemstone.explorer.extractMethod')?.when).toBe(
+      `editorTextFocus && resourceScheme == gemstone && resourceLangId == gemstone-smalltalk && editorHasSelection`,
+    );
   });
 
   it('shows "Display It" in gemstone documents when code execution is available', () => {

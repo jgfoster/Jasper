@@ -84,6 +84,7 @@ import { GemStoneDebugSession } from './gemstoneDebugSession';
 import { InspectorTreeProvider, InspectorNode } from './inspectorTreeProvider';
 import { registerGemStoneExplorer } from './gemstoneExplorer';
 import { renameTemporaryCommand } from './renameTemporaryCommand';
+import { extractMethodCommand } from './extractMethodCommand';
 import { RefactorCodeActionProvider } from './renameRefactorCodeActions';
 import { GemStoneWorkspaceSymbolProvider } from './gemstoneSymbolProvider';
 import { GemStoneDefinitionProvider } from './gemstoneDefinitionProvider';
@@ -1127,6 +1128,10 @@ export function activate(context: vscode.ExtensionContext) {
         sessionManager,
         position instanceof vscode.Position ? position : undefined,
       );
+    }),
+
+    vscode.commands.registerCommand('gemstone.explorer.extractMethod', async () => {
+      await extractMethodCommand(sessionManager);
     }),
 
     vscode.commands.registerCommand('gemstone.resetGettingStarted', async () => {
