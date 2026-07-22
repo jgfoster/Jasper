@@ -604,11 +604,11 @@ export function getStepPointSelectorRanges(
 }
 
 export function searchMethodSource(session: ActiveSession, term: string, ignoreCase: boolean) {
-  return sharedSearchMethodSource(bind(session), term, ignoreCase);
+  return sharedSearchMethodSource(defaultQueryExecutorUsing(session), term, ignoreCase);
 }
 
 export function sendersOf(session: ActiveSession, selector: string, environmentId: number = 0) {
-  return sharedSendersOf(bind(session), selector, environmentId);
+  return sharedSendersOf(defaultQueryExecutorUsing(session), selector, environmentId);
 }
 
 export function implementorsOf(
@@ -616,7 +616,7 @@ export function implementorsOf(
   selector: string,
   environmentId: number = 0,
 ) {
-  return sharedImplementorsOf(bind(session), selector, environmentId);
+  return sharedImplementorsOf(defaultQueryExecutorUsing(session), selector, environmentId);
 }
 
 export function hierarchyImplementorsOf(
@@ -629,7 +629,7 @@ export function hierarchyImplementorsOf(
   environmentId: number = 0,
 ) {
   return sharedHierarchyImplementorsOf(
-    bind(session),
+    defaultQueryExecutorUsing(session),
     dictIndex,
     className,
     selector,
@@ -644,7 +644,7 @@ export function referencesToObject(
   objectName: string,
   environmentId: number = 0,
 ) {
-  return sharedReferencesToObject(bind(session), objectName, environmentId);
+  return sharedReferencesToObject(defaultQueryExecutorUsing(session), objectName, environmentId);
 }
 
 // ── Write-path queries (mutations) ─────────────────────────────────────────

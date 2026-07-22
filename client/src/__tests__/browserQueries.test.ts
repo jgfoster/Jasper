@@ -103,7 +103,7 @@ describe('browserQueries', () => {
       const session = createMockSession('');
       queries.sendersOf(session, 'size', 2);
 
-      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
       const code = mockExec.mock.calls[0][1] as string;
       expect(code).toContain('environmentId: 2');
     });
@@ -135,7 +135,7 @@ describe('browserQueries', () => {
       const session = createMockSession('');
       queries.implementorsOf(session, 'size');
 
-      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
       const code = mockExec.mock.calls[0][1] as string;
       expect(code).toContain('asArray');
     });
