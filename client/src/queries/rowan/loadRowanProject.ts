@@ -1,4 +1,3 @@
-import { QueryExecutor } from '../types';
 import { escapeString } from '../util';
 
 export interface RowanLoadResult {
@@ -17,10 +16,11 @@ export interface RowanLoadResult {
 // Must run on a SystemUser session: loading mutates Rowan's system-owned
 // registry (objectSecurityPolicyId 1), which DataCurator cannot write.
 //
-// The Smalltalk builder and result parser are exported separately so the
-// extension can run this long operation over the NON-BLOCKING execute path
-// (executeFetchStringNb) — project loads can take minutes, and the synchronous
-// call would freeze the extension host for the duration.
+// The builder and result parser are exported separately (rather than composed
+// into one function here) because the extension runs this long operation over
+// the NON-BLOCKING execute path (executeFetchStringNb, see
+// browserQueries.ts's loadRowanProjectNb) — project loads can take minutes,
+// and a synchronous call would freeze the extension host for the duration.
 export function buildLoadRowanProjectCode(specPath: string, diskPath: string): string {
   return `| r sep resolved name |
 sep := String with: Character tab.
@@ -39,16 +39,4 @@ export function parseRowanLoadResult(raw: string): RowanLoadResult {
   const status = tab === -1 ? raw.trim() : raw.slice(0, tab);
   const detail = tab === -1 ? '' : raw.slice(tab + 1).trim();
   return { success: status === 'OK', detail };
-}
-
-export function loadRowanProject(
-  execute: QueryExecutor,
-  specPath: string,
-  diskPath: string,
-): RowanLoadResult {
-  const raw = execute(
-    `loadRowanProject(${specPath})`,
-    buildLoadRowanProjectCode(specPath, diskPath),
-  );
-  return parseRowanLoadResult(raw);
 }

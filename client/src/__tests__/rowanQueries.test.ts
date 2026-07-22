@@ -4,7 +4,7 @@ import { getGemCacheKB } from '../queries/rowan/getGemCacheKB';
 import { exportRowanProject } from '../queries/rowan/exportRowanProject';
 import { findRowanClassOwners } from '../queries/rowan/findRowanClassOwners';
 import { listAllRowanClasses } from '../queries/rowan/listAllRowanClasses';
-import { loadRowanProject } from '../queries/rowan/loadRowanProject';
+import { buildLoadRowanProjectCode, parseRowanLoadResult } from '../queries/rowan/loadRowanProject';
 import { diffRowanProject, formatRowanDiff } from '../queries/rowan/diffRowanProject';
 import { unloadRowanProject } from '../queries/rowan/unloadRowanProject';
 import type { QueryExecutor } from '../queries/types';
@@ -75,25 +75,20 @@ describe('findRowanClassOwners', () => {
   });
 });
 
-describe('loadRowanProject', () => {
+describe('parseRowanLoadResult', () => {
   it('reports the loaded project name on OK', () => {
-    const result = loadRowanProject(executor('OK\tLoadMe'), '/p/rowan/specs/LoadMe.ston', '/p');
-
-    expect(result).toEqual({ success: true, detail: 'LoadMe' });
+    expect(parseRowanLoadResult('OK\tLoadMe')).toEqual({ success: true, detail: 'LoadMe' });
   });
 
-  it('reports the error and aborts on ERR', () => {
-    const result = loadRowanProject(executor('ERR\tbad spec'), '/p/x.ston', '/p');
-
-    expect(result).toEqual({ success: false, detail: 'bad spec' });
+  it('reports the error message on ERR', () => {
+    expect(parseRowanLoadResult('ERR\tbad spec')).toEqual({ success: false, detail: 'bad spec' });
   });
+});
 
+describe('buildLoadRowanProjectCode', () => {
   it('loads via projectFromUrl:diskUrl: and commits', () => {
-    const execute = executor('');
+    const code = buildLoadRowanProjectCode('/p/specs/LoadMe.ston', '/p');
 
-    loadRowanProject(execute, '/p/specs/LoadMe.ston', '/p');
-
-    const code = execute.mock.calls[0][1];
     expect(code).toContain("projectFromUrl: 'file:/p/specs/LoadMe.ston' diskUrl: 'file:/p'");
     expect(code).toContain('System commitTransaction');
     expect(code).toContain('System abortTransaction');
