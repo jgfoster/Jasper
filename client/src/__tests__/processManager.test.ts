@@ -629,17 +629,33 @@ describe('ProcessManager', () => {
       expect(terminal.show).toHaveBeenCalled();
     });
 
-    it('sets only GEMSTONE and GEMSTONE_GLOBAL_DIR, not the full stone environment', () => {
+    it('puts the version bin on PATH so its tools run, without any stone-specific vars', () => {
+      setPlatform('darwin');
       const manager = new ProcessManager(makeStorage('/gs/3.7.4'));
 
       manager.openVersionTerminal('3.7.4');
 
       const options = vi.mocked(vscode.window.createTerminal).mock
         .calls[0][0] as vscode.TerminalOptions;
-      expect(options.env).toEqual({
-        GEMSTONE: '/gs/3.7.4',
-        GEMSTONE_GLOBAL_DIR: '/home/user/gemstone',
-      });
+      expect(options.env?.PATH).toContain('/gs/3.7.4/bin');
+      expect(options.env?.GEMSTONE).toBe('/gs/3.7.4');
+      expect(options.env?.GEMSTONE_GLOBAL_DIR).toBe('/home/user/gemstone');
+      expect(options.env?.DYLD_LIBRARY_PATH).toBe('/gs/3.7.4/lib');
+      // Still not tied to a particular stone.
+      expect(options.env?.GEMSTONE_SYS_CONF).toBeUndefined();
+      expect(options.env?.GEMSTONE_NRS_ALL).toBeUndefined();
+    });
+
+    it('uses LD_LIBRARY_PATH (not DYLD_LIBRARY_PATH) on Linux', () => {
+      setPlatform('linux');
+      const manager = new ProcessManager(makeStorage('/gs/3.7.4'));
+
+      manager.openVersionTerminal('3.7.4');
+
+      const options = vi.mocked(vscode.window.createTerminal).mock
+        .calls[0][0] as vscode.TerminalOptions;
+      expect(options.env?.LD_LIBRARY_PATH).toBe('/gs/3.7.4/lib');
+      expect(options.env?.DYLD_LIBRARY_PATH).toBeUndefined();
     });
 
     it('refuses when the requested version has not been extracted', () => {
@@ -654,6 +670,7 @@ describe('ProcessManager', () => {
     });
 
     it('under WSL launches a bash shell that cds and exports the version paths', () => {
+      setPlatform('win32');
       vi.mocked(wslBridge.needsWsl).mockReturnValue(true);
       const storage = {
         ...rawStorage(),
@@ -672,6 +689,29 @@ describe('ProcessManager', () => {
       expect(sent).toContain("cd '/mnt/c/gs/3.7.4'");
       expect(sent).toContain("export GEMSTONE='/mnt/c/gs/3.7.4'");
       expect(sent).toContain("export GEMSTONE_GLOBAL_DIR='/mnt/c/gemstone'");
+      expect(sent).toContain("export PATH='/mnt/c/gs/3.7.4/bin:");
+      expect(sent).toContain("export LD_LIBRARY_PATH='/mnt/c/gs/3.7.4/lib'");
+    });
+  });
+
+  describe('openTerminal (database)', () => {
+    beforeEach(() => {
+      vi.mocked(vscode.window.createTerminal).mockClear();
+      vi.mocked(wslBridge.needsWsl).mockReturnValue(false);
+    });
+
+    it('sets PATH to the version bin alongside the stone-specific environment', () => {
+      setPlatform('darwin');
+      const manager = new ProcessManager(makeStorage('/gs/3.7.4'));
+
+      manager.openTerminal(makeDatabase());
+
+      const options = vi.mocked(vscode.window.createTerminal).mock
+        .calls[0][0] as vscode.TerminalOptions;
+      expect(options.env?.PATH).toContain('/gs/3.7.4/bin');
+      expect(options.env?.DYLD_LIBRARY_PATH).toBe('/gs/3.7.4/lib');
+      expect(options.env?.GEMSTONE_SYS_CONF).toBe('/home/user/gemstone/db-1/conf');
+      expect(options.env?.GEMSTONE_NRS_ALL).toContain('#netldi:gs64ldi');
     });
   });
 

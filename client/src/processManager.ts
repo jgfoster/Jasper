@@ -119,16 +119,7 @@ export class ProcessManager {
     try {
       const gsPath = gslistPath.replace(/\/bin\/gslist$/, '');
       const rootPath = needsWsl() ? this.storage.getWslRootPath() : this.storage.getRootPath();
-      const env: Record<string, string> = {
-        GEMSTONE: gsPath,
-        PATH: `${gsPath}/bin:/usr/local/bin:/usr/bin:/bin`,
-        GEMSTONE_GLOBAL_DIR: rootPath,
-      };
-      if (process.platform === 'darwin') {
-        env.DYLD_LIBRARY_PATH = `${gsPath}/lib`;
-      } else {
-        env.LD_LIBRARY_PATH = `${gsPath}/lib`;
-      }
+      const env = this.versionEnvironment(gsPath, rootPath);
       const output = wslExecSync(`"${gslistPath}" -cvl`, env);
       this.cachedProcesses = parseGslist(output);
     } catch {
@@ -213,21 +204,18 @@ export class ProcessManager {
     return undefined;
   }
 
-  private getEnvironment(db: GemStoneDatabase): Record<string, string> {
-    const gsPath = needsWsl()
-      ? this.storage.getWslGemstonePath(db.config.version)
-      : this.storage.getGemstonePath(db.config.version);
-    if (!gsPath)
-      throw new Error(`GemStone ${db.config.version} not found. Please extract it first.`);
-    const dbPath = needsWsl() ? windowsPathToWsl(db.path) : db.path;
-    const rootPath = needsWsl() ? this.storage.getWslRootPath() : this.storage.getRootPath();
+  /**
+   * Environment for a GemStone version's product directory: the product dir,
+   * the global dir, and the PATH / dynamic-library / man paths its binaries
+   * need. Shared by the version terminal, the per-database environment, and
+   * process listing so the three cannot drift — a version terminal that omitted
+   * PATH could not find binaries in `$GEMSTONE/bin`. Callers layer any
+   * stone-specific vars (GEMSTONE_SYS_CONF, GEMSTONE_LOG, …) on top.
+   */
+  private versionEnvironment(gsPath: string, rootPath: string): Record<string, string> {
     const env: Record<string, string> = {
       GEMSTONE: gsPath,
-      GEMSTONE_SYS_CONF: `${dbPath}/conf`,
       GEMSTONE_GLOBAL_DIR: rootPath,
-      GEMSTONE_LOG: `${dbPath}/log/${db.config.stoneName}.log`,
-      GEMSTONE_EXE_CONF: `${dbPath}/conf`,
-      GEMSTONE_NRS_ALL: `#netldi:${db.config.ldiName}#dir:${dbPath}#log:${dbPath}/log/%N_%P.log`,
       PATH: `${gsPath}/bin:/usr/local/bin:/usr/bin:/bin`,
     };
     if (process.platform === 'darwin') {
@@ -237,6 +225,23 @@ export class ProcessManager {
     }
     env.MANPATH = `${gsPath}/doc`;
     return env;
+  }
+
+  private getEnvironment(db: GemStoneDatabase): Record<string, string> {
+    const gsPath = needsWsl()
+      ? this.storage.getWslGemstonePath(db.config.version)
+      : this.storage.getGemstonePath(db.config.version);
+    if (!gsPath)
+      throw new Error(`GemStone ${db.config.version} not found. Please extract it first.`);
+    const dbPath = needsWsl() ? windowsPathToWsl(db.path) : db.path;
+    const rootPath = needsWsl() ? this.storage.getWslRootPath() : this.storage.getRootPath();
+    return {
+      ...this.versionEnvironment(gsPath, rootPath),
+      GEMSTONE_SYS_CONF: `${dbPath}/conf`,
+      GEMSTONE_LOG: `${dbPath}/log/${db.config.stoneName}.log`,
+      GEMSTONE_EXE_CONF: `${dbPath}/conf`,
+      GEMSTONE_NRS_ALL: `#netldi:${db.config.ldiName}#dir:${dbPath}#log:${dbPath}/log/%N_%P.log`,
+    };
   }
 
   /** Start a stone */
@@ -388,10 +393,10 @@ export class ProcessManager {
   }
 
   /**
-   * Open a terminal in a version's product directory. Unlike a database
-   * terminal, this configures only GEMSTONE (the version's product directory)
-   * and GEMSTONE_GLOBAL_DIR (the root path) — nothing that ties it to a
-   * particular stone.
+   * Open a terminal in a version's product directory, with PATH (and the
+   * dynamic-library / man paths) set so `$GEMSTONE/bin` tools are runnable —
+   * the same version environment the database terminal gets, minus the
+   * stone-specific vars, so nothing ties it to a particular stone.
    */
   openVersionTerminal(version: string): void {
     const gsPath = needsWsl()
@@ -399,10 +404,7 @@ export class ProcessManager {
       : this.storage.getGemstonePath(version);
     if (!gsPath) throw new Error(`GemStone ${version} not found. Please extract it first.`);
     const rootPath = needsWsl() ? this.storage.getWslRootPath() : this.storage.getRootPath();
-    const env: Record<string, string> = {
-      GEMSTONE: gsPath,
-      GEMSTONE_GLOBAL_DIR: rootPath,
-    };
+    const env = this.versionEnvironment(gsPath, rootPath);
     if (needsWsl()) {
       const envExports = Object.entries(env)
         .map(([k, v]) => `export ${k}='${v}'`)

@@ -11,21 +11,9 @@ import { GemStoneLogin } from '../loginTypes';
 import * as queries from '../browserQueries';
 import { refreshEnhancedInspectorAvailable } from '../enhancedInspectorAvailability';
 
-const noErr = {
-  number: 0,
-  message: '',
-  context: 0n,
-  category: 0,
-  fatal: false,
-  argCount: 0,
-  exceptionObj: 0n,
-  args: [],
-};
-
 function createMockSession(executeFetchData = '', stoneVersion = '3.7.5'): ActiveSession {
   const mockGci = {
-    GciTsResolveSymbol: vi.fn(() => ({ result: 1000n, err: { ...noErr } })),
-    GciTsExecuteFetchBytes: vi.fn(() => ({ data: executeFetchData, err: { ...noErr } })),
+    executeAndFetchString: vi.fn(() => executeFetchData),
     GciTsCallInProgress: vi.fn(() => ({ result: 0 })),
   };
 
@@ -61,17 +49,19 @@ describe('checkEnhancedInspectorAvailable', () => {
 
   it('returns false when GCI returns an error', () => {
     const session = createMockSession('');
-    (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mockReturnValue({
-      data: '',
-      err: { ...noErr, number: 2010, message: 'GCI error' },
+    (session.gci.executeAndFetchString as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new Error('GCI error');
     });
+
     expect(queries.checkEnhancedInspectorAvailable(session)).toBe(false);
   });
 
   it('emitted Smalltalk references GtRemotePhlowViewedObject', () => {
     const session = createMockSession('true');
+
     queries.checkEnhancedInspectorAvailable(session);
-    const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+
+    const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
     const code = mockExec.mock.calls[0][1] as string;
     expect(code).toContain('GtRemotePhlowViewedObject');
   });
@@ -110,6 +100,6 @@ describe('refreshEnhancedInspectorAvailable', () => {
 
     refreshEnhancedInspectorAvailable(session);
 
-    expect(session.gci.GciTsExecuteFetchBytes).not.toHaveBeenCalled();
+    expect(session.gci.executeAndFetchString).not.toHaveBeenCalled();
   });
 });
