@@ -4,6 +4,10 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.8.8] - 2026-07-21
+
+Maintenance release — no user-facing changes. Internal refactoring (migrating the shared query layer onto `defaultQueryExecutorUsing`, plus dead-code removal), developer-tooling tweaks (`dev:fresh`, ESLint ignore sync), and transitive dependency (lockfile) updates including `hono` and `linkify-it`.
+
 ## [1.8.7] - 2026-07-21
 
 ### Added
