@@ -317,7 +317,7 @@ export function sessionNeedsCommit(session: ActiveSession): boolean | undefined 
  * Smalltalk before paging it out, so results decode correctly regardless of
  * their original encoding and are not capped at a single fixed-size buffer.
  */
-function defaultQueryExecutorUsing(session: ActiveSession): QueryExecutor {
+export function defaultQueryExecutorUsing(session: ActiveSession): QueryExecutor {
   return (label, code) => {
     logQuery(session.id, label, code);
 
