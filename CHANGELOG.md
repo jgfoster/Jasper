@@ -14,6 +14,7 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 ### Fixed
 
 - **The walkthrough's (and Logins view's) "Add a Login" button now works.** It was wired to `gemstone.login` — the command that connects a *selected* login — so clicking it from a static button (which passes no login) threw and did nothing. It now opens the new-login editor via `gemstone.addLogin`.
+- **The Versions view's "Open Terminal" button now puts `$GEMSTONE/bin` on `PATH`.** It set `GEMSTONE` but not `PATH` (nor the dynamic-library/man paths), so tools like `topaz` weren't found — unlike the Databases view's terminal, which set them correctly. Both terminals (and the internal process listing) now share one version-environment builder, so `$GEMSTONE/bin` binaries are runnable from either and the two can't drift apart again.
 
 ### Security
 
