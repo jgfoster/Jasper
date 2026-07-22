@@ -2064,5 +2064,10 @@
   "dependencies": {
     "@vscode/debugadapter": "^1.68.0",
     "koffi": "^2.15.1"
+  },
+  "overrides": {
+    "fast-uri": "^3.1.4",
+    "@hono/node-server": "^2.0.5",
+    "js-yaml": "^4.3.0"
   }
 }
