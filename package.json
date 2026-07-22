@@ -389,7 +389,7 @@
           "name": "Configure OS",
           "type": "tree",
           "icon": "$(memory)",
-          "when": "isMac || isLinux || gemstone.isWindows",
+          "when": "gemstone.isWindows",
           "visibility": "collapsed"
         },
         {
@@ -449,7 +449,7 @@
     "viewsWelcome": [
       {
         "view": "gemstoneLogins",
-        "contents": "New to GemStone? Start with the guided walkthrough.\n[Get Started with GemStone](command:gemstone.openWalkthrough)\nOr learn the language in the interactive tutorial notebook.\n[Open Tutorial Notebook](command:gemstone.openTutorial)\nOr jump straight into a scratch workspace.\n[Open Getting Started Workspace](command:gemstone.openWorkspace)\nThen add a login to connect to a stone.\n[Add a Login](command:gemstone.login)"
+        "contents": "Add a login to connect to a stone.\n[Add a Login](command:gemstone.addLogin)\nNo database yet? Create one from the Databases view."
       },
       {
         "view": "gemstoneRowan",
@@ -487,7 +487,7 @@
       },
       {
         "view": "gemstoneDatabases",
-        "contents": "No databases found.\n[Create Database](command:gemstone.createDatabase)",
+        "contents": "No databases yet.\nSet one up in one step — Quick Setup downloads a version, creates a database, starts the stone, and adds a login.\n[Quick Setup](command:gemstone.quickSetup)\nOr create one from a version you've already installed.\n[Create Database](command:gemstone.createDatabase)",
         "when": "!gemstone.isWindows || gemstone.wslAvailable"
       },
       {
@@ -505,12 +505,23 @@
       {
         "id": "gemstoneGettingStarted",
         "title": "Get Started with GemStone",
-        "description": "Connect to a stone and explore Smalltalk expressions in Jasper.",
+        "description": "Download GemStone, create a database, connect, and explore Smalltalk expressions in Jasper.",
         "steps": [
+          {
+            "id": "setup",
+            "title": "Download GemStone and create a database",
+            "description": "New here? Quick Setup downloads a GemStone version, creates a database, starts the stone, and adds a login — all in one step.\n[Quick Setup](command:gemstone.quickSetup)",
+            "media": {
+              "markdown": "resources/walkthrough/setup.md"
+            },
+            "completionEvents": [
+              "onCommand:gemstone.quickSetup"
+            ]
+          },
           {
             "id": "connect",
             "title": "Connect to a stone",
-            "description": "Add a login in the Logins & Sessions view and click it to connect.\n[Add a Login](command:gemstone.login)",
+            "description": "Quick Setup already added a login — click it in Logins & Sessions to connect. To reach a stone you set up yourself, or a remote one, add a login first.\n[Add a Login](command:gemstone.addLogin)",
             "media": {
               "markdown": "resources/walkthrough/connect.md"
             },
@@ -717,7 +728,7 @@
       },
       {
         "command": "gemstone.resetGettingStarted",
-        "title": "Reset Getting Started (Show Walkthrough on Next Connect)",
+        "title": "Reset Getting Started (Show Walkthrough on Next Startup)",
         "category": "GemStone"
       },
       {
