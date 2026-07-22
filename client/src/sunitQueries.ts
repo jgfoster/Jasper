@@ -1,6 +1,7 @@
 import { ActiveSession } from './sessionManager';
-import { executeFetchString, BrowserQueryError } from './browserQueries';
+import { BrowserQueryError } from './browserQueries';
 import { QueryExecutor } from './queries/types';
+import { logQuery, logResult, logError } from './gciLog';
 
 import { discoverTestClasses as sharedDiscoverTestClasses } from './queries/discoverTestClasses';
 import { discoverTestMethods as sharedDiscoverTestMethods } from './queries/discoverTestMethods';
@@ -18,16 +19,43 @@ export type { TestRunResult } from './queries/runTestMethod';
 // reference it in mocks.
 export const SunitQueryError = BrowserQueryError;
 
-function bind(session: ActiveSession): QueryExecutor {
-  return (label, code) => executeFetchString(session, label, code);
+/**
+ * Binds a session to the QueryExecutor shape that shared queries expect,
+ * backed by GciLibrary.executeAndFetchString.
+ *
+ * executeAndFetchString explicitly encodes the evaluated result as UTF-8 in
+ * Smalltalk before paging it out, so results decode correctly regardless of
+ * their original encoding and are not capped at a single fixed-size buffer.
+ */
+function defaultQueryExecutorUsing(session: ActiveSession): QueryExecutor {
+  return (label, code) => {
+    logQuery(session.id, label, code);
+
+    const { result: inProgress } = session.gci.GciTsCallInProgress(session.handle);
+    if (inProgress !== 0) {
+      const msg = 'Session is busy with another operation. Please wait or use a different session.';
+      logError(session.id, msg);
+      throw new BrowserQueryError(msg);
+    }
+
+    try {
+      const data = session.gci.executeAndFetchString(session.handle, code);
+      logResult(session.id, data);
+      return data;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logError(session.id, msg);
+      throw new BrowserQueryError(msg);
+    }
+  };
 }
 
 export function discoverTestClasses(session: ActiveSession) {
-  return sharedDiscoverTestClasses(bind(session));
+  return sharedDiscoverTestClasses(defaultQueryExecutorUsing(session));
 }
 
 export function discoverTestMethods(session: ActiveSession, className: string, dictName?: string) {
-  return sharedDiscoverTestMethods(bind(session), className, dictName);
+  return sharedDiscoverTestMethods(defaultQueryExecutorUsing(session), className, dictName);
 }
 
 export function runTestMethod(
@@ -36,11 +64,11 @@ export function runTestMethod(
   selector: string,
   dictName?: string,
 ) {
-  return sharedRunTestMethod(bind(session), className, selector, dictName);
+  return sharedRunTestMethod(defaultQueryExecutorUsing(session), className, selector, dictName);
 }
 
 export function runTestClass(session: ActiveSession, className: string, dictName?: string) {
-  return sharedRunTestClass(bind(session), className, dictName);
+  return sharedRunTestClass(defaultQueryExecutorUsing(session), className, dictName);
 }
 
 export function runFailingTests(
@@ -48,9 +76,9 @@ export function runFailingTests(
   classNames?: string[],
   classNamePattern?: string,
 ) {
-  return sharedRunFailingTests(bind(session), classNames, classNamePattern);
+  return sharedRunFailingTests(defaultQueryExecutorUsing(session), classNames, classNamePattern);
 }
 
 export function describeTestFailure(session: ActiveSession, className: string, selector: string) {
-  return sharedDescribeTestFailure(bind(session), className, selector);
+  return sharedDescribeTestFailure(defaultQueryExecutorUsing(session), className, selector);
 }
