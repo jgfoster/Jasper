@@ -23,11 +23,14 @@ import {
   orderChangesClassDefFirst,
   planRenameApply,
   validateNewIvarName,
-} from './renameInstVarPreview';
-import { showRenameInstVarPanel } from './renameInstVarPanel';
-import { renameInstVarAtCursorCommand } from './renameInstVarAtCursorCommand';
-import { renameClassVarAtCursorCommand } from './renameClassVarAtCursorCommand';
-import { renameMethodAtCursorCommand, SelectorAtPosition } from './renameMethodAtCursorCommand';
+} from './refactoring/renameInstVarPreview';
+import { showRenameInstVarPanel } from './refactoring/renameInstVarPanel';
+import { renameInstVarAtCursorCommand } from './refactoring/renameInstVarAtCursorCommand';
+import { renameClassVarAtCursorCommand } from './refactoring/renameClassVarAtCursorCommand';
+import {
+  renameMethodAtCursorCommand,
+  SelectorAtPosition,
+} from './refactoring/renameMethodAtCursorCommand';
 import {
   parseStartPreview,
   parsePage,
@@ -36,28 +39,32 @@ import {
   buildSelector,
   permutationFromOriginalIndices,
   parseArgNames,
-} from './renameMethodPreview';
-import { PREVIEW_PAGE_BYTES } from './queries/previewRenameMethod';
-import { showRenameMethodEditor } from './renameMethodEditor';
-import { showRenameMethodPanel } from './renameMethodPanel';
+} from './refactoring/renameMethodPreview';
+import { PREVIEW_PAGE_BYTES } from './refactoring/queries/previewRenameMethod';
+import { showRenameMethodEditor } from './refactoring/renameMethodEditor';
+import { showRenameMethodPanel } from './refactoring/renameMethodPanel';
 import {
   parseStartPreview as parseStartClassPreview,
   parsePage as parseClassPage,
   parseApplyResult as parseClassApplyResult,
   validateNewClassName,
-} from './renameClassPreview';
-import { showRenameClassEditor } from './renameClassEditor';
-import { showRenameClassPanel } from './renameClassPanel';
+} from './refactoring/renameClassPreview';
+import { showRenameClassEditor } from './refactoring/renameClassEditor';
+import { showRenameClassPanel } from './refactoring/renameClassPanel';
 import {
   parseStartPreview as parseStartClassVarPreview,
   parsePage as parseClassVarPage,
   parseApplyResult as parseClassVarApplyResult,
   validateNewClassVarName,
-} from './renameClassVarPreview';
-import { showRenameClassVarPanel } from './renameClassVarPanel';
+} from './refactoring/renameClassVarPreview';
+import { showRenameClassVarPanel } from './refactoring/renameClassVarPanel';
 import { variableSides, defaultDictionaryIndex } from './explorerTreeHelpers';
-import { parseClassHistory, parseRevertResult, parseRemoveResult } from './classHistoryModel';
-import { showClassHistoryPanel } from './classHistoryPanel';
+import {
+  parseClassHistory,
+  parseRevertResult,
+  parseRemoveResult,
+} from './refactoring/classHistoryModel';
+import { showClassHistoryPanel } from './refactoring/classHistoryPanel';
 
 const VIEW_DICTS = 'gemstoneExplorerDicts';
 const VIEW_CATEGORIES = 'gemstoneExplorerCategories';

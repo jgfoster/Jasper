@@ -34,7 +34,9 @@ vi.mock('vscode', () => ({
 vi.mock('../enhancedInspectorCommand', () => ({
   installEnhancedInspectorFeature: mocks.installEI,
 }));
-vi.mock('../refactoringInstallCommand', () => ({ installRefactoringFeature: mocks.installRB }));
+vi.mock('../refactoring/refactoringInstallCommand', () => ({
+  installRefactoringFeature: mocks.installRB,
+}));
 
 import { ActiveSession, SessionManager } from '../sessionManager';
 import { maybeOfferServerSupport, runInstallServerSupport } from '../optionalSupportOffer';
