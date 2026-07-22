@@ -1,6 +1,6 @@
 import { ActiveSession } from './sessionManager';
 import { OOP_NIL, OOP_ILLEGAL } from './gciConstants';
-import { logQuery, logResult, logError, logGciCall, logGciResult } from './gciLog';
+import { logQuery, logResult, logError } from './gciLog';
 import { runNbCall } from './nbRunner';
 
 import { QueryExecutor } from './queries/types';
@@ -177,6 +177,11 @@ function resolveClassUtf8(session: ActiveSession): bigint {
   return oop;
 }
 
+// Evaluates `code` and fetches its result as a UTF-8 string via
+// GciLibrary.executeAndFetchString, which explicitly encodes the evaluated
+// result as UTF-8 in Smalltalk before paging it out, so results decode
+// correctly regardless of their original encoding and are not capped at a
+// single fixed-size buffer.
 export function executeFetchString(session: ActiveSession, label: string, code: string): string {
   logQuery(session.id, label, code);
 
@@ -188,47 +193,15 @@ export function executeFetchString(session: ActiveSession, label: string, code: 
     throw new BrowserQueryError(msg);
   }
 
-  const oopClassUtf8 = resolveClassUtf8(session);
-
-  logGciCall(session.id, 'GciTsExecuteFetchBytes', {
-    sourceStr: code,
-    sourceSize: -1,
-    sourceOop: oopClassUtf8,
-    contextObject: OOP_ILLEGAL,
-    symbolList: OOP_NIL,
-    maxResultSize: MAX_RESULT,
-  });
-
-  const { bytesReturned, data, err } = session.gci.GciTsExecuteFetchBytes(
-    session.handle,
-    code,
-    -1,
-    oopClassUtf8,
-    OOP_ILLEGAL,
-    OOP_NIL,
-    MAX_RESULT,
-  );
-
-  logGciResult(session.id, 'GciTsExecuteFetchBytes', {
-    bytesReturned,
-    data,
-    'err.number': err.number,
-    'err.category': err.category,
-    'err.context': err.context,
-    'err.exceptionObj': err.exceptionObj,
-    'err.args': err.args,
-    'err.message': err.message,
-    'err.reason': err.reason,
-    'err.fatal': err.fatal,
-  });
-
-  if (err.number !== 0) {
-    const msg = err.message || `GCI error ${err.number}`;
+  try {
+    const result = session.gci.executeAndFetchString(session.handle, code);
+    logResult(session.id, result);
+    return result;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
     logError(session.id, msg);
-    throw new BrowserQueryError(msg, err.number);
+    throw new BrowserQueryError(msg);
   }
-  logResult(session.id, data);
-  return data;
 }
 
 // Non-blocking variant of executeFetchString for LONG-RUNNING queries (e.g. a
@@ -283,10 +256,12 @@ export async function executeFetchStringNb(
   return data;
 }
 
-// Like executeFetchString but with a caller-chosen result-buffer size. The
-// class-sync transport (see client/src/sync/) moves multi-MB chunks well above
-// the default 256 KB cap, slicing on code-point boundaries so the UTF-8 decode
-// here is always lossless. Result data is not logged — chunks can be megabytes.
+// Like executeFetchString but with a caller-chosen result-buffer size instead
+// of executeAndFetchString's own paging. The class-sync transport (see
+// client/src/sync/) moves multi-MB chunks well above the 256 KB size used
+// elsewhere in this file, slicing on code-point boundaries so the UTF-8
+// decode here is always lossless. Result data is not logged — chunks can be
+// megabytes.
 export function executeFetchStringWithLimit(
   session: ActiveSession,
   label: string,
@@ -390,34 +365,18 @@ export function sessionNeedsCommit(session: ActiveSession): boolean | undefined 
 }
 
 /**
- * Binds a session to the QueryExecutor shape that shared queries expect,
- * backed by GciLibrary.executeAndFetchString.
+ * Binds a session to the {@link QueryExecutor} shape shared queries expect,
+ * backed by {@link executeFetchString}. This is the shared entry point used
+ * across browserQueries, pythonQueries, and sunitQueries.
  *
- * executeAndFetchString explicitly encodes the evaluated result as UTF-8 in
- * Smalltalk before paging it out, so results decode correctly regardless of
- * their original encoding and are not capped at a single fixed-size buffer.
+ * @param activeSession - The active GCI session to execute against.
+ * @returns A {@link QueryExecutor} that runs `code` in `session` and returns
+ * its String result.
+ * @throws {@link BrowserQueryError} if the session is busy, the code fails to
+ * compile or execute, or the result cannot be resolved to a String.
  */
-function defaultQueryExecutorUsing(session: ActiveSession): QueryExecutor {
-  return (label, code) => {
-    logQuery(session.id, label, code);
-
-    const { result: inProgress } = session.gci.GciTsCallInProgress(session.handle);
-    if (inProgress !== 0) {
-      const msg = 'Session is busy with another operation. Please wait or use a different session.';
-      logError(session.id, msg);
-      throw new BrowserQueryError(msg);
-    }
-
-    try {
-      const data = session.gci.executeAndFetchString(session.handle, code);
-      logResult(session.id, data);
-      return data;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      logError(session.id, msg);
-      throw new BrowserQueryError(msg);
-    }
-  };
+export function defaultQueryExecutorUsing(activeSession: ActiveSession): QueryExecutor {
+  return (label, code) => executeFetchString(activeSession, label, code);
 }
 
 // ── Read-only queries (thin delegates to client/src/queries/) ─────────────
