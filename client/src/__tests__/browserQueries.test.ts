@@ -52,7 +52,7 @@ describe('browserQueries', () => {
       queries.compileMethod(session, 'Array', false, 'test', 'foo\n  ^ 42');
 
       const mockPerform = session.gci.GciTsPerform as ReturnType<typeof vi.fn>;
-      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
       expect(mockPerform).not.toHaveBeenCalled();
       expect(mockExec).toHaveBeenCalledTimes(1);
       const code = mockExec.mock.calls[0][1] as string;
@@ -63,7 +63,7 @@ describe('browserQueries', () => {
     it('branches on isMeta inside the Smalltalk, not via a GCI perform', () => {
       const session = createMockSession('ok');
       queries.compileMethod(session, 'Array', true, 'test', 'foo');
-      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
       const code = mockExec.mock.calls[0][1] as string;
       expect(code).toContain('target := base class');
     });

@@ -671,7 +671,7 @@ export function compileMethod(
   dict?: number | string,
 ): string {
   return sharedCompileMethod(
-    bind(session),
+    defaultQueryExecutorUsing(session),
     className,
     isMeta,
     category,
@@ -709,7 +709,7 @@ export function copyMethodToClass(
   dict?: number | string,
 ): string {
   return sharedCopyMethodToClass(
-    bind(session),
+    defaultQueryExecutorUsing(session),
     sourceClass,
     targetClass,
     isMeta,
@@ -726,7 +726,7 @@ export function deleteMethod(
   selector: string,
   dict?: number | string,
 ): string {
-  return sharedDeleteMethod(bind(session), className, isMeta, selector, dict);
+  return sharedDeleteMethod(defaultQueryExecutorUsing(session), className, isMeta, selector, dict);
 }
 
 export function recategorizeMethod(
@@ -737,7 +737,14 @@ export function recategorizeMethod(
   newCategory: string,
   dict?: number | string,
 ): string {
-  return sharedRecategorizeMethod(bind(session), className, isMeta, selector, newCategory, dict);
+  return sharedRecategorizeMethod(
+    defaultQueryExecutorUsing(session),
+    className,
+    isMeta,
+    selector,
+    newCategory,
+    dict,
+  );
 }
 
 export function renameCategory(
@@ -748,7 +755,14 @@ export function renameCategory(
   newCategory: string,
   dict?: number | string,
 ): string {
-  return sharedRenameCategory(bind(session), className, isMeta, oldCategory, newCategory, dict);
+  return sharedRenameCategory(
+    defaultQueryExecutorUsing(session),
+    className,
+    isMeta,
+    oldCategory,
+    newCategory,
+    dict,
+  );
 }
 
 export function deleteClass(
