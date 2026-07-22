@@ -1319,8 +1319,11 @@ export function activate(context: vscode.ExtensionContext) {
                 await maybeStartDatabaseAndRetry(login, `Login failed: ${msg}`, {
                   getDatabases: () => sysadminStorage.getDatabases(),
                   refreshProcesses: () => processManager.refreshProcesses(),
-                  startStone: (db) => processManager.startStone(db),
-                  startNetldi: (db) => processManager.startNetldi(db),
+                  // Quiet: the connect's own progress notification and the
+                  // spinner on the login row are the feedback here. Revealing
+                  // the Admin panel mid-login would yank focus off the editor.
+                  startStone: (db) => processManager.startStone(db, { reveal: false }),
+                  startNetldi: (db) => processManager.startNetldi(db, { reveal: false }),
                   getMode: getAutoStartMode,
                   setMode: async (mode) => {
                     await setAutoStartMode(mode);

@@ -13,6 +13,14 @@ import { versionsMatch } from './versionsMatch';
 // import site; the implementation now lives in a vscode-free module.
 export { versionsMatch };
 
+/** Options shared by the process-start commands. */
+export interface StartOptions {
+  /** Whether to reveal the GemStone Admin output channel. Defaults to true —
+   *  pass false when the start is a step inside a larger flow that owns the
+   *  user's attention (see the login auto-start recovery). */
+  reveal?: boolean;
+}
+
 export interface StaleLockReport {
   /** Path to the .LCK file on the host filesystem (a WSL path under Windows). */
   lockPath: string;
@@ -233,7 +241,7 @@ export class ProcessManager {
   }
 
   /** Start a stone */
-  async startStone(db: GemStoneDatabase): Promise<string> {
+  async startStone(db: GemStoneDatabase, opts?: StartOptions): Promise<string> {
     const env = this.getEnvironment(db);
     const gsPath = env.GEMSTONE;
     const dbPath = needsWsl() ? windowsPathToWsl(db.path) : db.path;
@@ -243,6 +251,7 @@ export class ProcessManager {
       ['-l', logPath, db.config.stoneName],
       env,
       `Starting stone ${db.config.stoneName}`,
+      opts,
     );
   }
 
@@ -353,7 +362,7 @@ export class ProcessManager {
     }
   }
 
-  async startNetldi(db: GemStoneDatabase): Promise<string> {
+  async startNetldi(db: GemStoneDatabase, opts?: StartOptions): Promise<string> {
     this.ensureAdequateGemCache(db);
     const env = this.getEnvironment(db);
     const gsPath = env.GEMSTONE;
@@ -365,6 +374,7 @@ export class ProcessManager {
       ['-a', user, '-g', '-l', logPath, db.config.ldiName],
       env,
       `Starting NetLDI ${db.config.ldiName}`,
+      opts,
     );
   }
 
@@ -444,10 +454,15 @@ export class ProcessManager {
     args: string[],
     env: Record<string, string>,
     label: string,
+    opts?: StartOptions,
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       appendSysadmin(`\n--- ${label} ---`);
-      showSysadmin();
+      // Revealing the Admin channel takes focus off the editor. Right for an
+      // explicit Start Stone click; wrong when the start is one step inside a
+      // connect the user is waiting on. Either way the output is still
+      // recorded, so a caller that stays quiet loses nothing but the interruption.
+      if (opts?.reveal !== false) showSysadmin();
       const proc = wslSpawn(cmd, args, env);
       let output = '';
 

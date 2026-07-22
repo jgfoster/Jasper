@@ -27,6 +27,7 @@ import {
   versionsMatch,
 } from '../processManager';
 import { GemStoneDatabase, GemStoneProcess } from '../sysadminTypes';
+import { appendSysadmin, showSysadmin } from '../sysadminChannel';
 import * as wslBridge from '../wslBridge';
 import { SysadminStorage } from '../sysadminStorage';
 
@@ -445,6 +446,67 @@ describe('ProcessManager', () => {
       proc.finish();
 
       await expect(promise).rejects.toThrow(/killed by the operating system|memory|log/i);
+    });
+
+    // The Admin output channel is force-revealed on every start, which yanks
+    // focus off the editor. That is fine for an explicit "Start Stone" click,
+    // but not when the start is a step inside a connect the user is waiting on.
+    it('reveals the Admin channel by default', async () => {
+      setPlatform('darwin');
+      vi.mocked(showSysadmin).mockClear();
+      const proc = makeChildProcess(0);
+      mockSpawnReturn(proc);
+
+      const manager = new ProcessManager(makeStorage());
+      const promise = manager.startNetldi(makeDatabase());
+      proc.finish();
+      await promise;
+
+      expect(vi.mocked(showSysadmin)).toHaveBeenCalled();
+    });
+
+    it('does not steal focus when the caller asks to stay quiet', async () => {
+      setPlatform('darwin');
+      vi.mocked(showSysadmin).mockClear();
+      vi.mocked(appendSysadmin).mockClear();
+      const proc = makeChildProcess(0);
+      mockSpawnReturn(proc);
+
+      const manager = new ProcessManager(makeStorage());
+      const promise = manager.startNetldi(makeDatabase(), { reveal: false });
+      proc.finish();
+      await promise;
+
+      expect(vi.mocked(showSysadmin)).not.toHaveBeenCalled();
+    });
+
+    it('still records the output when quiet, so the log is not lost', async () => {
+      setPlatform('darwin');
+      vi.mocked(showSysadmin).mockClear();
+      vi.mocked(appendSysadmin).mockClear();
+      const proc = makeChildProcess(0);
+      mockSpawnReturn(proc);
+
+      const manager = new ProcessManager(makeStorage());
+      const promise = manager.startNetldi(makeDatabase(), { reveal: false });
+      proc.finish();
+      await promise;
+
+      expect(vi.mocked(appendSysadmin)).toHaveBeenCalled();
+    });
+
+    it('stays quiet for a quiet stone start too', async () => {
+      setPlatform('darwin');
+      vi.mocked(showSysadmin).mockClear();
+      const proc = makeChildProcess(0);
+      mockSpawnReturn(proc);
+
+      const manager = new ProcessManager(makeStorage());
+      const promise = manager.startStone(makeDatabase(), { reveal: false });
+      proc.finish();
+      await promise;
+
+      expect(vi.mocked(showSysadmin)).not.toHaveBeenCalled();
     });
 
     it('still reports a plain non-zero exit with its code', async () => {
