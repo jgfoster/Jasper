@@ -38,15 +38,15 @@ echo "1/5 AST substrate -> ast-core.gs"
 "$BUILD/build-ast-payload.sh" --dict "$DICT"
 
 echo "2/5 compat backports (feature-detected) -> compat.gs"
-node "$CONVERTER" --dict "$DICT" --feature-detect \
+node "$CONVERTER" --header "$BUILD/generated-header.gs" --dict "$DICT" --feature-detect \
   --out "$OUT/compat.gs" "$SRC/compat/362"
 
 echo "3/5 engine (Gs* classes) -> engine.gs"
-node "$CONVERTER" --dict "$DICT" \
+node "$CONVERTER" --header "$BUILD/generated-header.gs" --dict "$DICT" \
   --out "$OUT/engine.gs" "$SRC/engine"
 
 echo "4/5 loader class -> refactoring-loader.gs (into UserGlobals)"
-node "$CONVERTER" --dict "UserGlobals" \
+node "$CONVERTER" --header "$BUILD/generated-header.gs" --dict "UserGlobals" \
   --out "$OUT/refactoring-loader.gs" "$SRC/loader"
 
 echo "5/5 load manifest (expected classes + method counts) -> manifest.gs"
@@ -61,7 +61,7 @@ node "$CONVERTER" --dict "$DICT" --manifest "$OUT/manifest.gs" \
 # NOT part of the production loader and NOT shipped in the .vsix (see
 # .vscodeignore); source-of-truth is gs-src/refactoring/tests/.
 echo "+ engine SUnit tests (test-only) -> engine-tests.gs"
-node "$CONVERTER" --dict "UserGlobals" --out "$OUT/engine-tests.gs" "$SRC/tests"
+node "$CONVERTER" --header "$BUILD/generated-header.gs" --dict "UserGlobals" --out "$OUT/engine-tests.gs" "$SRC/tests"
 
 echo "Done. Payloads in $OUT:"
 ls -1 "$OUT"

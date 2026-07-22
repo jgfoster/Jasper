@@ -17,7 +17,7 @@ arguments -- all expressed as (newParts, permutation):
 
 The rewrite preserves comments, string literals, and surrounding formatting: it
 mutates the AST and registers RBStringReplacements so RBMethodNode>>newSource
-splices the change into the original source (see R2-RenameMethod-Design.md). A
+splices the change into the original source. A
 selector spelling inside a comment or string literal is never a message-send
 node, so it is left untouched; symbol literals (#sel) and perform: sends are NOT
 rewritten (they carry the selector as data, not as a send).
