@@ -45,9 +45,9 @@ describe('rename instance variable (integration)', () => {
     q.executeFetchString(session(), label, code);
 
   const engineLoaded = (): boolean => q.checkRefactoringSupportAvailable(session());
-  const engineClassPresent = (): boolean =>
+  const rbEnginePresent = (): boolean =>
     exec(
-      '(System myUserProfile symbolList objectNamed: #GsRenameInstanceVariableRefactoring) notNil printString',
+      "(System myUserProfile symbolList objectNamed: 'GsRenameInstanceVariableRefactoring') notNil printString",
     ).trim() === 'true';
 
   const dictIndexOf = (name: string): number =>
@@ -94,7 +94,7 @@ describe('rename instance variable (integration)', () => {
   it('reports engine availability that matches whether the engine class is present', () => {
     const available = engineLoaded();
 
-    expect(available).toBe(engineClassPresent());
+    expect(available).toBe(rbEnginePresent());
   });
 
   it('rewrites references across the defining class and its subclass', (ctx) => {

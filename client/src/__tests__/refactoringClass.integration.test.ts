@@ -41,9 +41,9 @@ describe('rename class + class history (integration)', () => {
   const exec = (code: string): string => q.executeFetchString(session(), 'rename-class-it', code);
   const asyncExec = (_label: string, code: string): Promise<string> => Promise.resolve(exec(code));
 
-  const enginePresent = (): boolean =>
+  const rbEnginePresent = (): boolean =>
     exec(
-      '(System myUserProfile symbolList objectNamed: #GsRenameClassRefactoring) notNil printString',
+      "(System myUserProfile symbolList objectNamed: 'GsRenameClassRefactoring') notNil printString",
     ).trim() === 'true';
 
   const engineTestsPayload = (): string =>
@@ -55,11 +55,11 @@ describe('rename class + class history (integration)', () => {
   };
 
   it('reports rename-class engine availability matching the shared refactoring probe', () => {
-    expect(enginePresent()).toBe(q.checkRefactoringSupportAvailable(session()));
+    expect(rbEnginePresent()).toBe(q.checkRefactoringSupportAvailable(session()));
   });
 
   it('runs the rename-class and class-history GS SUnit suites in-stone with zero failures', (ctx) => {
-    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
+    if (!rbEnginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     const code = `| failuresAndErrors |
 ${fileInTests()}
@@ -105,7 +105,7 @@ failuresAndErrors printString`;
   };
 
   it('previews a whole-system class rename, then applies it server-side', async (ctx) => {
-    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
+    if (!rbEnginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     defineFixture();
     const token = `rcit-${BASE}`;
@@ -155,7 +155,7 @@ failuresAndErrors printString`;
   });
 
   it('reads a class definition history and restores a prior version as a new one', async (ctx) => {
-    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
+    if (!rbEnginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     // Two-version fixture: shape a, then shape a+y (new version).
     q.compileClassDefinition(

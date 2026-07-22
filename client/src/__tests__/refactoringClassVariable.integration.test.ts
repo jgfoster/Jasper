@@ -40,9 +40,9 @@ describe('rename class variable (integration)', () => {
     q.executeFetchString(session(), 'rename-classvar-it', code);
   const asyncExec = (_label: string, code: string): Promise<string> => Promise.resolve(exec(code));
 
-  const enginePresent = (): boolean =>
+  const rbEnginePresent = (): boolean =>
     exec(
-      '(System myUserProfile symbolList objectNamed: #GsRenameClassVariableRefactoring) notNil printString',
+      "(System myUserProfile symbolList objectNamed: 'GsRenameClassVariableRefactoring') notNil printString",
     ).trim() === 'true';
 
   const engineTestsPayload = (): string =>
@@ -90,11 +90,11 @@ describe('rename class variable (integration)', () => {
   };
 
   it('reports rename-class-variable engine availability matching the shared refactoring probe', () => {
-    expect(enginePresent()).toBe(q.checkRefactoringSupportAvailable(session()));
+    expect(rbEnginePresent()).toBe(q.checkRefactoringSupportAvailable(session()));
   });
 
   it('runs the rename-class-variable GS SUnit suite in-stone with zero failures', (ctx) => {
-    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
+    if (!rbEnginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     const code = `| r |
 ${fileInTests()}
@@ -105,7 +105,7 @@ r := (System myUserProfile symbolList objectNamed: #GsRenameClassVariableRefacto
   });
 
   it('previews the rename across both sides and the subclass, and stages the class-def edit', async (ctx) => {
-    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
+    if (!rbEnginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     defineFixture();
 
@@ -135,7 +135,7 @@ r := (System myUserProfile symbolList objectNamed: #GsRenameClassVariableRefacto
   });
 
   it('applies the rename server-side, preserving the value and creating no new version', async (ctx) => {
-    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
+    if (!rbEnginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     defineFixture();
     const token = `rcvit-apply-${BASE}`;

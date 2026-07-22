@@ -25,11 +25,11 @@ describe('rename class variable end-to-end (live GCI)', () => {
   const asyncExec = (label: string, code: string): Promise<string> =>
     Promise.resolve(s.exec(label, code));
 
-  const enginePresent = (): boolean =>
+  const rbEnginePresent = (): boolean =>
     s
       .exec(
         'engine-present',
-        '(System myUserProfile symbolList objectNamed: #GsRenameClassVariableRefactoring) notNil printString',
+        "(System myUserProfile symbolList objectNamed: 'GsRenameClassVariableRefactoring') notNil printString",
       )
       .trim() === 'true';
 
@@ -85,11 +85,11 @@ describe('rename class variable end-to-end (live GCI)', () => {
   });
 
   it('reports engine availability consistently', () => {
-    expect(typeof enginePresent()).toBe('boolean');
+    expect(typeof rbEnginePresent()).toBe('boolean');
   });
 
   it('rewrites a genuine reference but leaves a shadowing block temporary alone', async (ctx) => {
-    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
+    if (!rbEnginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     defineFixture();
 
@@ -112,7 +112,7 @@ describe('rename class variable end-to-end (live GCI)', () => {
   });
 
   it('applies the rename, preserving the shared value and creating no new class version', async (ctx) => {
-    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
+    if (!rbEnginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     defineFixture();
     const token = `cve2e-apply-${BASE}`;
