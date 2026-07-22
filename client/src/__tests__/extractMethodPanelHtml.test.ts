@@ -63,9 +63,12 @@ describe('extractMethodPanelHtml.renderExtractPanelHtml', () => {
       nonce: 'n',
       script: '/*js*/',
     });
-    // exactly the two core rows are disabled; the duplicate row is a normal checkbox
+    // exactly the two core rows are disabled (required)...
     expect(html.match(/class="sel" checked disabled/g)).toHaveLength(2);
-    expect(html).toContain('class="sel" checked aria-label="Include');
+    // ...and the duplicate row is opt-in: unchecked, applied only if the user ticks it
+    expect(html).toContain('class="sel" aria-label="Also replace');
+    expect(html).not.toContain('class="sel" checked aria-label');
+    expect(html).toContain('1 similar fragment');
   });
 
   it('shows a soft collision banner but not a decline (decline blocks earlier)', () => {

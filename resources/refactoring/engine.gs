@@ -852,17 +852,24 @@ selectedStatementsIn: tree
 	"The statements of the deepest sequence covering the selection that OVERLAP the
 	 selection interval, in source order. Empty when the selection is not a statement
 	 run (it may be a single expression, resolved separately)."
-	| best |
+	"The statements FULLY inside the selection, taken from the OUTERMOST sequence that
+	 has any. Only whole-statement containment matters -- NOT where the sequence itself
+	 begins -- so selecting the leading indentation of the first line (or a trailing
+	 newline) still resolves. A selection lying strictly within a single statement
+	 (e.g. the inner expression of a ^-return) covers no whole statement here and is
+	 handled as a single-expression extract instead. Picking the outermost qualifying
+	 sequence means selecting a whole control-flow statement extracts that statement,
+	 not the contents of the block nested inside it."
+	| best bestStmts |
 	best := nil.
+	bestStmts := nil.
 	tree nodesDo: [:n |
 		n isSequence ifTrue: [
-			(n start <= selStart and: [n stop >= selStop]) ifTrue: [
-				(best isNil or: [n start >= best start]) ifTrue: [best := n]]]].
-	best isNil ifTrue: [^OrderedCollection new].
-	"Only statements FULLY inside the selection count. A selection that lands strictly
-	 within one statement (e.g. the inner expression of a ^-return) covers no whole
-	 statement here and is handled as a single-expression extract instead."
-	^best statements select: [:s | s start >= selStart and: [s stop <= selStop]]
+			| covered |
+			covered := n statements select: [:s | s start >= selStart and: [s stop <= selStop]].
+			covered notEmpty ifTrue: [
+				(best isNil or: [n start < best start]) ifTrue: [best := n. bestStmts := covered]]]].
+	^bestStmts ifNil: [OrderedCollection new]
 %
 
 category: 'private - analysis'
@@ -1045,11 +1052,33 @@ category: 'private - source'
 method: GsExtractMethodRefactoring
 callText
 	"The text that replaces the selection in the original method: a bare send, an
-	 assignment of the send to the return variable, or the send parenthesised in place
-	 of the extracted expression."
-	isExpression ifTrue: [^'(', self callSendSource, ')'].
+	 assignment of the send to the return variable, or (for an expression extract) the
+	 send, parenthesised ONLY when precedence requires it."
+	isExpression ifTrue: [
+		^self expressionNeedsParens
+			ifTrue: ['(', self callSendSource, ')']
+			ifFalse: [self callSendSource]].
 	returnVar notNil ifTrue: [^returnVar, ' := ', self callSendSource].
 	^self callSendSource
+%
+
+category: 'private - source'
+method: GsExtractMethodRefactoring
+expressionNeedsParens
+	"Whether the send replacing an extracted expression must be parenthesised to
+	 preserve meaning. A unary send never needs them; a keyword or binary send does
+	 only when it replaces a SUB-expression (an argument, a receiver, a binary
+	 operand). Replacing a whole return value, assignment value, or statement does
+	 not, so ^total * factor becomes ^self factor: factor -- not ^(self factor: factor)."
+	| node parent |
+	argNames isEmpty ifTrue: [^false].
+	node := selectedNodes first.
+	parent := node parent.
+	parent isNil ifTrue: [^false].
+	parent isReturn ifTrue: [^false].
+	parent isSequence ifTrue: [^false].
+	(parent isAssignment and: [parent value == node]) ifTrue: [^false].
+	^true
 %
 
 category: 'private - source'
@@ -1088,7 +1117,19 @@ newMethodSource
 		ifFalse: [
 			ws nextPutAll: self extractedSource.
 			returnVar notNil ifTrue: [ws nextPut: $.; nextPut: lf; tab; nextPut: $^; nextPutAll: returnVar]].
-	^ws contents
+	^self formatMethod: ws contents
+%
+
+category: 'private - source'
+method: GsExtractMethodRefactoring
+formatMethod: aSource
+	"Reformat a generated method to the canonical RB layout (consistent indentation,
+	 one statement per line) so the extracted method is presented tidily in the
+	 preview and stored tidily on apply. The verbatim source we splice together keeps
+	 each statement's ORIGINAL indentation, which reads raggedly under the new pattern
+	 line; reparsing and reformatting fixes that. Falls back to the raw source if it
+	 does not parse."
+	^[(RBParser parseMethod: aSource) formattedCode] on: Error do: [:e | aSource]
 %
 
 category: 'private - source'
@@ -1150,6 +1191,12 @@ declineReason
 	self ensureAnalysis.
 	structuralDecline notNil ifTrue: [^structuralDecline].
 	(newSelector isNil or: [newSelector isEmpty]) ifTrue: [^nil].
+	"Naming the extracted method after the method being extracted FROM is broken: the
+	 new method and the rewritten original would be the same method, so the rewrite
+	 would just call itself. Refuse it outright (not merely the soft collision warning)."
+	self newSelectorSymbol == selector ifTrue: [
+		^'The new method cannot use the same selector as ', selector,
+			' -- that is the method you are extracting from. Choose a different name.'].
 	self expectedArgCount = argNames size ifFalse: [
 		^'The selector ', newSelector, ' expects ', self expectedArgCount printString,
 			' argument(s) but the selection needs ', argNames size printString, '.'].

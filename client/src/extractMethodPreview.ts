@@ -228,9 +228,16 @@ export function selectorArity(sel: string): number {
  * single keyword, N ⇒ an N-keyword selector). Collisions with existing selectors
  * are a soft, server-side warning, not a validation error.
  */
-export function validateNewSelector(value: string, argCount: number): string | undefined {
+export function validateNewSelector(
+  value: string,
+  argCount: number,
+  sourceSelector?: string,
+): string | undefined {
   const sel = value.trim();
   if (sel.length === 0) return 'Enter a selector for the new method.';
+  if (sourceSelector !== undefined && sel === sourceSelector) {
+    return `The new method must have a different selector than ${sourceSelector}, the method you are extracting from.`;
+  }
   const arity = selectorArity(sel);
   if (arity < 0) return 'That is not a valid Smalltalk selector.';
   if (arity !== argCount) {

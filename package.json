@@ -1039,6 +1039,11 @@
         "icon": "$(add)"
       },
       {
+        "command": "gemstone.explorer.removeDictionary",
+        "title": "Remove Dictionary",
+        "category": "GemStone"
+      },
+      {
         "command": "gemstone.explorer.newClassCategory",
         "title": "New Class Category",
         "category": "GemStone",
@@ -1400,6 +1405,10 @@
           "when": "false"
         },
         {
+          "command": "gemstone.explorer.removeDictionary",
+          "when": "false"
+        },
+        {
           "command": "gemstone.explorer.renameIvar",
           "when": "false"
         },
@@ -1626,6 +1635,11 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "gemstone.explorer.removeDictionary",
+          "when": "view == gemstoneExplorerDicts && viewItem == explorerDict",
+          "group": "9_danger@0"
+        },
         {
           "command": "gemstone.explorer.openMethodToSide",
           "when": "view == gemstoneExplorerMethods && viewItem =~ /^explorerMethod/",

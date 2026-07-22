@@ -25,6 +25,7 @@ import {
   validateNewSelector,
 } from './extractMethodPreview';
 import { showExtractMethodPanel } from './extractMethodPanel';
+import { buildMethodUri } from './gemstoneFileSystemProvider';
 import { logInfo } from './gciLog';
 import {
   resolveMethodEditor,
@@ -119,7 +120,7 @@ export async function extractMethodCommand(sessions: SessionManager): Promise<vo
         ? 'Name for the new (unary) method.'
         : `Selector for the new method (${analysis.argCount} argument${analysis.argCount === 1 ? '' : 's'}: ${analysis.argNames.join(', ')}).`,
     value: suggestSelector(analysis.argNames),
-    validateInput: (v) => validateNewSelector(v, analysis.argCount),
+    validateInput: (v) => validateNewSelector(v, analysis.argCount, parsed.selector),
   });
   if (entered === undefined) {
     focusEditor();
@@ -127,22 +128,10 @@ export async function extractMethodCommand(sessions: SessionManager): Promise<vo
   }
   const newSelector = entered.trim();
 
-  // Offer the replace-similar pass only when it is applicable (a safe void shape).
-  let replaceSimilar = false;
-  if (analysis.safeVoidShape) {
-    const pick = await vscode.window.showQuickPick(
-      [
-        { label: 'Just this selection', similar: false },
-        { label: 'Also replace similar code in the hierarchy', similar: true },
-      ],
-      { title: 'Extract Method', placeHolder: 'Replace duplicate code fragments too?' },
-    );
-    if (pick === undefined) {
-      focusEditor();
-      return;
-    }
-    replaceSimilar = pick.similar;
-  }
+  // For a safe void extraction, find structurally-similar sites in the hierarchy and
+  // present them in the preview as opt-in (unchecked) rows — so there is no separate
+  // up-front dialog; the choice lives in the panel, off by default.
+  const replaceSimilar = analysis.safeVoidShape;
 
   const token = `xtm_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const safeClear = (): void => {
@@ -214,7 +203,35 @@ export async function extractMethodCommand(sessions: SessionManager): Promise<vo
   }
 
   // The new method + rewritten original were compiled server-side (no commit).
-  // Reload the editor from the stone so it shows the rewritten source, and re-focus.
+  // Reload the original editor so it shows the rewritten body (now a send to the
+  // new method).
   await reloadMethodEditor(editor);
+
+  // Surface the newly-created method: refresh the Explorer so its method tree lists
+  // it, then open + focus its source editor (which also lands it in the Explorer's
+  // Open Editors pane). The new method carries the source method's category.
+  try {
+    await vscode.commands.executeCommand('gemstone.explorer.refresh');
+  } catch {
+    /* the Explorer may not be active; opening the editor still surfaces it */
+  }
+  try {
+    const newUri = buildMethodUri({
+      kind: 'method',
+      sessionId: parsed.sessionId,
+      dictName: parsed.dictName,
+      className: parsed.className,
+      isMeta: parsed.isMeta,
+      category: parsed.category,
+      selector: newSelector,
+      environmentId: parsed.environmentId,
+      dictIndex: parsed.dictIndex,
+    });
+    await vscode.window.showTextDocument(newUri, { preview: false });
+  } catch (e: unknown) {
+    logInfo(
+      `[extractMethod] could not open the new method editor: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
   void vscode.window.setStatusBarMessage(`Extracted ${newSelector}`, 4000);
 }

@@ -46,10 +46,12 @@ function renderCard(change: ExtractChange, isCore: boolean): string {
       : renderDiff(lineDiff(change.oldSource, change.newSource));
   // Core changes are required: a checked, DISABLED checkbox stays checked, so the
   // shared view JS (which derives the deselected set from UNCHECKED boxes) never
-  // reports it — the two core changes always apply.
+  // reports it — the two core changes always apply. A duplicate-replacement row is
+  // OPT-IN: rendered UNCHECKED so it applies only if the user ticks it (off by
+  // default, no up-front dialog).
   const cb = isCore
     ? `<input type="checkbox" class="sel" checked disabled title="This change is required" aria-label="${label} (required)">`
-    : `<input type="checkbox" class="sel" checked aria-label="Include ${label}">`;
+    : `<input type="checkbox" class="sel" aria-label="Also replace ${label}">`;
   return `<li class="change" data-id="${escapeHtml(change.id)}">
   <div class="change-head">
     ${cb}
@@ -200,8 +202,13 @@ export function renderExtractPanelHtml(opts: ExtractPanelHtmlOptions): string {
     </div>
   </header>
   ${renderBanner(outOfScope)}
+  ${
+    total > coreCount
+      ? `<div class="summary">${total - coreCount} similar fragment${total - coreCount === 1 ? '' : 's'} found — tick any you also want replaced.</div>`
+      : ''
+  }
   <div class="summary">
-    <span id="selcount">${total}</span> of ${total} change${total === 1 ? '' : 's'} selected
+    <span id="selcount">${coreCount}</span> of ${total} change${total === 1 ? '' : 's'} selected
     <button id="toggleAll" class="linkish" aria-expanded="false">Expand all</button>
   </div>
   <ul class="changes">

@@ -126,6 +126,8 @@ GsExtractMethodRefactoringTest >> setUp [
 	"single-expression extract (no arg / one arg)"
 	self compile: 'computeArea ^count * count' in: base.
 	self compile: 'scaleBy: factor ^count * factor' in: base.
+	"an expression extract that is a SUB-expression (a binary operand): parens kept"
+	self compile: 'subExprArg: n ^1 + (n * n)' in: base.
 	"temporary used only inside the selection"
 	self compile: 'report | tmp | tmp := self hash. tmp printString. ^count' in: base.
 	"hard declines"
@@ -160,7 +162,9 @@ GsExtractMethodRefactoringTest >> testExtractsVoidRunToUnaryMethod [
 	self assert: add notNil.
 	self assert: add selector equals: #sideEffects.
 	self assert: add newSource includesSubstring: 'sideEffects'.
-	self assert: add newSource includesSubstring: 'self yourself. self hash'.
+	"The extracted method is reformatted (one statement per line), so assert each."
+	self assert: add newSource includesSubstring: 'self yourself'.
+	self assert: add newSource includesSubstring: 'self hash'.
 	self assert: recompile newSource includesSubstring: 'self sideEffects'.
 	self assert: recompile newSource includesSubstring: '^count'.
 	self deny: recompile newSource includesSubstring: 'self yourself'
@@ -181,7 +185,7 @@ GsExtractMethodRefactoringTest >> testExtractsArgumentsAndReturnValue [
 	self assert: add newSource includesSubstring: 'sumScaledA: a b: b'.
 	self assert: add newSource includesSubstring: '| r |'.
 	self assert: add newSource includesSubstring: 'r := a + b'.
-	self assert: add newSource includesSubstring: '^r'.
+	self assert: add newSource includesSubstring: '^ r'.
 	"call site assigns the return to r"
 	self assert: recompile newSource includesSubstring: 'r := self sumScaledA: a b: b'.
 	self assert: recompile newSource includesSubstring: '^r'
@@ -195,8 +199,10 @@ GsExtractMethodRefactoringTest >> testExtractsSingleExpressionWithNoArguments [
 	add := self addChangeIn: cs.
 	recompile := self recompileFor: #computeArea in: cs.
 
-	self assert: add newSource includesSubstring: '^count * count'.
-	self assert: recompile newSource includesSubstring: '(self areaValue)'
+	self assert: add newSource includesSubstring: '^ count * count'.
+	"The send replaces a whole return value, so no parentheses are added."
+	self assert: recompile newSource includesSubstring: '^self areaValue'.
+	self deny: recompile newSource includesSubstring: '(self areaValue)'
 ]
 
 { #category : 'tests - staging' }
@@ -209,8 +215,21 @@ GsExtractMethodRefactoringTest >> testExtractsSingleExpressionWithAnArgument [
 
 	self assert: (ref argNames asArray) equals: #('factor').
 	self assert: add newSource includesSubstring: 'scaled: factor'.
-	self assert: add newSource includesSubstring: '^count * factor'.
-	self assert: (self recompileFor: #scaleBy: in: cs) newSource includesSubstring: '(self scaled: factor)'
+	self assert: add newSource includesSubstring: '^ count * factor'.
+	"A keyword send replacing a whole return value needs no parentheses."
+	self assert: (self recompileFor: #scaleBy: in: cs) newSource includesSubstring: '^self scaled: factor'.
+	self deny: (self recompileFor: #scaleBy: in: cs) newSource includesSubstring: '(self scaled: factor)'
+]
+
+{ #category : 'tests - staging' }
+GsExtractMethodRefactoringTest >> testExpressionThatIsASubExpressionKeepsParentheses [
+	"Extracting a sub-expression (a binary operand) into a keyword send DOES need
+	 parentheses to preserve precedence: 1 + (n * n) -> 1 + (self squared: n)."
+	| cs |
+	cs := (self extractFrom: self baseFixture selector: #subExprArg:
+		select: 'n * n' newSelector: 'squared:') changeSet.
+
+	self assert: (self recompileFor: #subExprArg: in: cs) newSource includesSubstring: '(self squared: n)'
 ]
 
 { #category : 'tests - staging' }
@@ -226,6 +245,19 @@ GsExtractMethodRefactoringTest >> testTemporaryUsedOnlyInsideIsMovedIntoNewMetho
 	"the temporary is gone from the original method"
 	self deny: recompile newSource includesSubstring: 'tmp'.
 	self assert: recompile newSource includesSubstring: 'self doReport'
+]
+
+{ #category : 'tests - staging' }
+GsExtractMethodRefactoringTest >> testSelectionIncludingLeadingWhitespaceStillResolves [
+	"A selection that starts in the whitespace before the first statement (e.g. the
+	 user dragged from column 0) must still extract -- only whole-statement containment
+	 matters, not where the selection begins relative to the sequence."
+	| cs |
+	cs := (self extractFrom: self baseFixture selector: #doStuff
+		select: ' self yourself. self hash' newSelector: 'sideEffects') changeSet.
+
+	self assert: cs size equals: 2.
+	self assert: (self addChangeIn: cs) notNil
 ]
 
 { #category : 'tests - staging' }
@@ -299,6 +331,18 @@ GsExtractMethodRefactoringTest >> testSelectorArityMismatchIsDeclined [
 	| ref |
 	ref := self extractFrom: self baseFixture selector: #combine:with:
 		select: 'r := a + b. r := r * a' newSelector: 'oneWord'.
+
+	self assert: ref declineReason notNil.
+	self assert: ref changeSet isEmpty
+]
+
+{ #category : 'tests - decline' }
+GsExtractMethodRefactoringTest >> testNewSelectorSameAsSourceMethodIsDeclined [
+	"Naming the extracted method after the method being extracted from would make the
+	 rewritten original call itself -- a hard decline, not the soft collision warning."
+	| ref |
+	ref := self extractFrom: self baseFixture selector: #doStuff
+		select: 'self yourself. self hash' newSelector: 'doStuff'.
 
 	self assert: ref declineReason notNil.
 	self assert: ref changeSet isEmpty
@@ -413,9 +457,50 @@ GsExtractMethodRefactoringTest >> testApplyCreatesNewMethodAndRewritesOriginal [
 
 	self assert: (self baseFixture includesSelector: #sideEffects).
 	self assert: (self baseFixture compiledMethodAt: #sideEffects) sourceString
-		includesSubstring: 'self yourself. self hash'.
+		includesSubstring: 'self yourself'.
+	self assert: (self baseFixture compiledMethodAt: #sideEffects) sourceString
+		includesSubstring: 'self hash'.
 	self assert: (self baseFixture compiledMethodAt: #doStuff) sourceString
 		includesSubstring: 'self sideEffects'
+]
+
+{ #category : 'tests - apply' }
+GsExtractMethodRefactoringTest >> testTokenRoundTripStartThenApplyRecompilesBothMethods [
+	"The client path: startPreviewToken stashes the refactoring under a token; a later
+	 applyForToken:deselected: retrieves and applies it. No commit."
+	| ref json before |
+	before := System needsCommit.
+	ref := self extractFrom: self baseFixture selector: #doStuff
+		select: 'self yourself. self hash' newSelector: 'sideEffects'.
+	ref startPreviewToken: 'm1rt' maxBytes: 100000.
+	[json := GsExtractMethodRefactoring applyForToken: 'm1rt' deselected: #().
+	 self assert: json includesSubstring: '"applied":2'.
+	 self assert: (self baseFixture includesSelector: #sideEffects).
+	 self assert: System needsCommit equals: before]
+		ensure: [GsExtractMethodRefactoring clearToken: 'm1rt']
+]
+
+{ #category : 'tests - apply' }
+GsExtractMethodRefactoringTest >> testPageForTokenReturnsAPageForALiveSession [
+	| ref json |
+	ref := self extractFrom: self baseFixture selector: #doStuff
+		select: 'self yourself. self hash' newSelector: 'sideEffects'.
+	ref startPreviewToken: 'm1pg' maxBytes: 100000.
+	[json := GsExtractMethodRefactoring pageForToken: 'm1pg' from: 1 maxBytes: 100000.
+	 self assert: json includesSubstring: '"changes":']
+		ensure: [GsExtractMethodRefactoring clearToken: 'm1pg']
+]
+
+{ #category : 'tests - apply' }
+GsExtractMethodRefactoringTest >> testPageForTokenOnAnExpiredSessionAnswersAnError [
+	self assert: (GsExtractMethodRefactoring pageForToken: 'nope' from: 1 maxBytes: 100)
+		includesSubstring: 'expired'
+]
+
+{ #category : 'tests - apply' }
+GsExtractMethodRefactoringTest >> testApplyForTokenOnAnExpiredSessionAnswersAnError [
+	self assert: (GsExtractMethodRefactoring applyForToken: 'nope' deselected: #())
+		includesSubstring: 'expired'
 ]
 
 { #category : 'tests - apply' }

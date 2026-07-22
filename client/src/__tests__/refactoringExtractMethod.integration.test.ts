@@ -157,7 +157,9 @@ r := (System myUserProfile symbolList objectNamed: #GsExtractMethodRefactoringTe
     const newSrc = exec(
       `(${BASE} compiledMethodAt: #sideEffects environmentId: 0 otherwise: nil) sourceString`,
     );
-    expect(newSrc).toContain('self yourself. self hash');
+    // The extracted method is reformatted (one statement per line).
+    expect(newSrc).toContain('self yourself');
+    expect(newSrc).toContain('self hash');
     const original = exec(
       `(${BASE} compiledMethodAt: #doStuff environmentId: 0 otherwise: nil) sourceString`,
     );

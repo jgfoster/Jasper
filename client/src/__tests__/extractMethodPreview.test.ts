@@ -146,6 +146,11 @@ describe('extractMethodPreview.selectorArity / validateNewSelector', () => {
     expect(validateNewSelector('extractedMethod', 2)).toMatch(/needs 2 arguments/);
     expect(validateNewSelector('at:put:', 0)).toMatch(/no arguments/);
   });
+
+  it('rejects reusing the source method’s own selector', () => {
+    expect(validateNewSelector('doStuff', 0, 'doStuff')).toMatch(/different selector/);
+    expect(validateNewSelector('somethingElse', 0, 'doStuff')).toBeUndefined();
+  });
 });
 
 describe('extractMethodPreview.extractChangeLabel / isCoreChange', () => {
