@@ -18,7 +18,6 @@ import { getDictionaryClassFileOutOrder as sharedGetDictionaryClassFileOutOrder 
 import { getDictionaryEntries as sharedGetDictionaryEntries } from './queries/getDictionaryEntries';
 import { getGlobalsForDictionary as sharedGetGlobalsForDictionary } from './queries/getGlobalsForDictionary';
 import { getMethodCategories as sharedGetMethodCategories } from './queries/getMethodCategories';
-import { getMethodSelectors as sharedGetMethodSelectors } from './queries/getMethodSelectors';
 import { getClassEnvironments as sharedGetClassEnvironments } from './queries/getClassEnvironments';
 import { getClassDefinition as sharedGetClassDefinition } from './queries/getClassDefinition';
 import { getClassComment as sharedGetClassComment } from './queries/getClassComment';
@@ -27,7 +26,6 @@ import { getAllClassNames as sharedGetAllClassNames } from './queries/getAllClas
 import { getClassHierarchy as sharedGetClassHierarchy } from './queries/getClassHierarchy';
 import { fileOutClass as sharedFileOutClass } from './queries/fileOutClass';
 import { describeClass as sharedDescribeClass } from './queries/describeClass';
-import { loadClassInfo as sharedLoadClassInfo } from './queries/loadClassInfo';
 import { getInstVarNames as sharedGetInstVarNames } from './queries/getInstVarNames';
 import { getDefinedInstVarNames as sharedGetDefinedInstVarNames } from './queries/getDefinedInstVarNames';
 import { getDefinedInstVarCounts as sharedGetDefinedInstVarCounts } from './queries/getDefinedInstVarCounts';
@@ -95,7 +93,6 @@ import { exportRowanProject as sharedExportRowanProject } from './queries/rowan/
 import { findRowanClassOwners as sharedFindRowanClassOwners } from './queries/rowan/findRowanClassOwners';
 import { listAllRowanClasses as sharedListAllRowanClasses } from './queries/rowan/listAllRowanClasses';
 import {
-  loadRowanProject as sharedLoadRowanProject,
   buildLoadRowanProjectCode,
   parseRowanLoadResult,
   RowanLoadResult,
@@ -121,7 +118,6 @@ import { copyMethodToClass as sharedCopyMethodToClass } from './queries/copyMeth
 import { renameCategory as sharedRenameCategory } from './queries/renameCategory';
 import { deleteClass as sharedDeleteClass } from './queries/deleteClass';
 import { moveClass as sharedMoveClass } from './queries/moveClass';
-import { reclassifyClass as sharedReclassifyClass } from './queries/reclassifyClass';
 import { addDictionary as sharedAddDictionary } from './queries/addDictionary';
 import { removeDictionary as sharedRemoveDictionary } from './queries/removeDictionary';
 import { moveDictionaryUp as sharedMoveDictionaryUp } from './queries/moveDictionaryUp';
@@ -141,7 +137,6 @@ export type { ClassHierarchyEntry } from './queries/getClassHierarchy';
 export type { MethodEntry } from './queries/getMethodList';
 export type { StepPointSelectorInfo } from './queries/getStepPointSelectorRanges';
 export type { MethodSearchResult } from './queries/methodSearch';
-export type { ClassInfo } from './queries/loadClassInfo';
 export type { RowanProject, RowanProjectList } from './queries/rowan/listRowanProjects';
 export type { RowanExportResult } from './queries/rowan/exportRowanProject';
 export type { RowanClassOwner, RowanClassOwners } from './queries/rowan/findRowanClassOwners';
@@ -345,15 +340,22 @@ export function checkEnhancedInspectorAvailable(session: ActiveSession): boolean
 
 /** Whether the server-side refactoring engine is loaded in this session's stone.
  *  Probes for the rename-instance-variable refactoring class, the entry point the
- *  Explorer's rename command drives. Resolving the name via the symbol list avoids
- *  a compile-time reference to a class that may be absent (the engine ships as an
- *  optional, separately-installed payload — see the loader stage). */
+ *  Explorer's rename command drives. The engine ships as an optional, separately-
+ *  installed payload, so the class name is looked up through the symbol list rather
+ *  than referenced directly.
+ *
+ *  The lookup passes the class name as a STRING, not a `#symbol` literal: an
+ *  uninterned symbol literal forces symbol creation when the expression is
+ *  compiled, which throws (error 2391) on a stone whose symbol-creation gem is
+ *  down — so a `#symbol` probe would blow up on exactly the bare stones this is
+ *  meant to report `false` for. A String literal never creates a symbol, and
+ *  `objectNamed:` resolves it against existing symbols only. */
 export function checkRefactoringSupportAvailable(session: ActiveSession): boolean {
   try {
     const result = executeFetchString(
       session,
       'checkRefactoringSupportAvailable',
-      "[(System myUserProfile symbolList objectNamed: #GsRenameInstanceVariableRefactoring) notNil printString] on: Error do: [:e | 'false']",
+      "(System myUserProfile symbolList objectNamed: 'GsRenameInstanceVariableRefactoring') notNil printString",
     );
     return result.trim() === 'true';
   } catch {
@@ -382,17 +384,6 @@ export function sessionNeedsCommit(session: ActiveSession): boolean | undefined 
   } catch {
     return undefined;
   }
-}
-
-/**
- * Binds a session to the QueryExecutor shape that shared queries expect.
- *
- * @deprecated Backed by executeFetchString's raw GciTsExecuteFetchBytes
- * call, which is prone to mis-decoding non-ASCII results and truncating
- * large ones. Being replaced by {@link defaultQueryExecutorUsing} one call-site group at a time.
- */
-function bind(session: ActiveSession): QueryExecutor {
-  return (label, code) => executeFetchString(session, label, code);
 }
 
 /**
@@ -435,27 +426,23 @@ export function getDictionaryNames(session: ActiveSession): string[] {
 // ── Rowan browser queries ─────────────────────────────────────────────────
 
 export function getGemCacheKB(session: ActiveSession) {
-  return sharedGetGemCacheKB(bind(session));
+  return sharedGetGemCacheKB(defaultQueryExecutorUsing(session));
 }
 
 export function listRowanProjects(session: ActiveSession) {
-  return sharedListRowanProjects(bind(session));
+  return sharedListRowanProjects(defaultQueryExecutorUsing(session));
 }
 
 export function exportRowanProject(session: ActiveSession, projectName: string, targetDir: string) {
-  return sharedExportRowanProject(bind(session), projectName, targetDir);
+  return sharedExportRowanProject(defaultQueryExecutorUsing(session), projectName, targetDir);
 }
 
 export function findRowanClassOwners(session: ActiveSession, className: string) {
-  return sharedFindRowanClassOwners(bind(session), className);
+  return sharedFindRowanClassOwners(defaultQueryExecutorUsing(session), className);
 }
 
 export function listAllRowanClasses(session: ActiveSession) {
-  return sharedListAllRowanClasses(bind(session));
-}
-
-export function loadRowanProject(session: ActiveSession, specPath: string, diskPath: string) {
-  return sharedLoadRowanProject(bind(session), specPath, diskPath);
+  return sharedListAllRowanClasses(defaultQueryExecutorUsing(session));
 }
 
 // Non-blocking load for the extension: same Smalltalk, run via
@@ -477,22 +464,22 @@ export async function loadRowanProjectNb(
 }
 
 export function diffRowanProject(session: ActiveSession, projectName: string) {
-  return sharedDiffRowanProject(bind(session), projectName);
+  return sharedDiffRowanProject(defaultQueryExecutorUsing(session), projectName);
 }
 
 export function unloadRowanProject(session: ActiveSession, projectName: string) {
-  return sharedUnloadRowanProject(bind(session), projectName);
+  return sharedUnloadRowanProject(defaultQueryExecutorUsing(session), projectName);
 }
 
 export function getClassNames(session: ActiveSession, dict: number | string): string[] {
-  return sharedGetClassNames(bind(session), dict);
+  return sharedGetClassNames(defaultQueryExecutorUsing(session), dict);
 }
 
 export function getClassesWithCategory(
   session: ActiveSession,
   dict: number | string,
 ): ClassCategoryEntry[] {
-  return sharedGetClassesWithCategory(bind(session), dict);
+  return sharedGetClassesWithCategory(defaultQueryExecutorUsing(session), dict);
 }
 
 export function getDictionaryClassFileOutOrder(
@@ -516,17 +503,7 @@ export function getMethodCategories(
   isMeta: boolean,
   dict?: number | string,
 ): string[] {
-  return sharedGetMethodCategories(bind(session), className, isMeta, dict);
-}
-
-export function getMethodSelectors(
-  session: ActiveSession,
-  className: string,
-  isMeta: boolean,
-  category: string,
-  dict?: number | string,
-): string[] {
-  return sharedGetMethodSelectors(bind(session), className, isMeta, category, dict);
+  return sharedGetMethodCategories(defaultQueryExecutorUsing(session), className, isMeta, dict);
 }
 
 export function getClassEnvironments(
@@ -535,7 +512,12 @@ export function getClassEnvironments(
   className: string,
   maxEnv: number,
 ) {
-  return sharedGetClassEnvironments(bind(session), dictIndex, className, maxEnv);
+  return sharedGetClassEnvironments(
+    defaultQueryExecutorUsing(session),
+    dictIndex,
+    className,
+    maxEnv,
+  );
 }
 
 export function getMethodSource(
@@ -546,7 +528,14 @@ export function getMethodSource(
   environmentId: number = 0,
   dict?: number | string,
 ): string {
-  return sharedGetMethodSource(bind(session), className, isMeta, selector, environmentId, dict);
+  return sharedGetMethodSource(
+    defaultQueryExecutorUsing(session),
+    className,
+    isMeta,
+    selector,
+    environmentId,
+    dict,
+  );
 }
 
 export function getBaseMethodSource(
@@ -557,7 +546,14 @@ export function getBaseMethodSource(
   environmentId: number = 0,
   dict?: number | string,
 ): string {
-  return sharedGetBaseMethodSource(bind(session), className, isMeta, selector, environmentId, dict);
+  return sharedGetBaseMethodSource(
+    defaultQueryExecutorUsing(session),
+    className,
+    isMeta,
+    selector,
+    environmentId,
+    dict,
+  );
 }
 
 export function getClassDefinition(
@@ -565,7 +561,7 @@ export function getClassDefinition(
   className: string,
   dict?: number | string,
 ): string {
-  return sharedGetClassDefinition(bind(session), className, dict);
+  return sharedGetClassDefinition(defaultQueryExecutorUsing(session), className, dict);
 }
 
 export function getClassComment(
@@ -573,7 +569,7 @@ export function getClassComment(
   className: string,
   dict?: number | string,
 ): string {
-  return sharedGetClassComment(bind(session), className, dict);
+  return sharedGetClassComment(defaultQueryExecutorUsing(session), className, dict);
 }
 
 export function canClassBeWritten(
@@ -581,15 +577,15 @@ export function canClassBeWritten(
   className: string,
   dict?: number | string,
 ): boolean {
-  return sharedCanClassBeWritten(bind(session), className, dict);
+  return sharedCanClassBeWritten(defaultQueryExecutorUsing(session), className, dict);
 }
 
 export function getAllClassNames(session: ActiveSession) {
-  return sharedGetAllClassNames(bind(session));
+  return sharedGetAllClassNames(defaultQueryExecutorUsing(session));
 }
 
 export function getClassHierarchy(session: ActiveSession, className: string) {
-  return sharedGetClassHierarchy(bind(session), className);
+  return sharedGetClassHierarchy(defaultQueryExecutorUsing(session), className);
 }
 
 export function fileOutClass(
@@ -597,11 +593,7 @@ export function fileOutClass(
   className: string,
   dict?: number | string,
 ): string {
-  return sharedFileOutClass(bind(session), className, dict);
-}
-
-export function loadClassInfo(session: ActiveSession, dictIndex: number, className: string) {
-  return sharedLoadClassInfo(bind(session), dictIndex, className);
+  return sharedFileOutClass(defaultQueryExecutorUsing(session), className, dict);
 }
 
 export function describeClass(
@@ -609,11 +601,11 @@ export function describeClass(
   className: string,
   dict?: number | string,
 ): string {
-  return sharedDescribeClass(bind(session), className, dict);
+  return sharedDescribeClass(defaultQueryExecutorUsing(session), className, dict);
 }
 
 export function getInstVarNames(session: ActiveSession, className: string): string[] {
-  return sharedGetInstVarNames(bind(session), className);
+  return sharedGetInstVarNames(defaultQueryExecutorUsing(session), className);
 }
 
 export function getDefinedInstVarNames(
@@ -621,14 +613,14 @@ export function getDefinedInstVarNames(
   className: string,
   dict?: number | string,
 ): string[] {
-  return sharedGetDefinedInstVarNames(bind(session), className, dict);
+  return sharedGetDefinedInstVarNames(defaultQueryExecutorUsing(session), className, dict);
 }
 
 export function getDefinedInstVarCounts(
   session: ActiveSession,
   dict: number | string,
 ): Map<string, number> {
-  return sharedGetDefinedInstVarCounts(bind(session), dict);
+  return sharedGetDefinedInstVarCounts(defaultQueryExecutorUsing(session), dict);
 }
 
 export function getDefinedClassVarNames(
@@ -636,7 +628,7 @@ export function getDefinedClassVarNames(
   className: string,
   dict?: number | string,
 ): string[] {
-  return sharedGetDefinedClassVarNames(bind(session), className, dict);
+  return sharedGetDefinedClassVarNames(defaultQueryExecutorUsing(session), className, dict);
 }
 
 export function getVisibleClassVarNames(
@@ -644,21 +636,21 @@ export function getVisibleClassVarNames(
   className: string,
   dict?: number | string,
 ): string[] {
-  return sharedGetVisibleClassVarNames(bind(session), className, dict);
+  return sharedGetVisibleClassVarNames(defaultQueryExecutorUsing(session), className, dict);
 }
 
 export function getDefinedClassVarCounts(
   session: ActiveSession,
   dict: number | string,
 ): Map<string, number> {
-  return sharedGetDefinedClassVarCounts(bind(session), dict);
+  return sharedGetDefinedClassVarCounts(defaultQueryExecutorUsing(session), dict);
 }
 
 export function getClassVersions(
   session: ActiveSession,
   dict: number | string,
 ): Map<string, ClassVersionInfo> {
-  return sharedGetClassVersions(bind(session), dict);
+  return sharedGetClassVersions(defaultQueryExecutorUsing(session), dict);
 }
 
 export function previewRenameInstVar(
@@ -668,7 +660,13 @@ export function previewRenameInstVar(
   newName: string,
   dict?: number | string,
 ): string {
-  return sharedPreviewRenameInstVar(bind(session), className, oldName, newName, dict);
+  return sharedPreviewRenameInstVar(
+    defaultQueryExecutorUsing(session),
+    className,
+    oldName,
+    newName,
+    dict,
+  );
 }
 
 // Paginated rename-method preview: fetched NON-BLOCKING so a slow build shows a
@@ -722,7 +720,7 @@ export function applyRenameMethod(
 }
 
 export function clearRenameMethodPreview(session: ActiveSession, token: string): string {
-  return sharedClearRenameMethodPreview(bind(session), token);
+  return sharedClearRenameMethodPreview(defaultQueryExecutorUsing(session), token);
 }
 
 // Paginated rename-class preview: fetched NON-BLOCKING (progress + responsive),
@@ -773,7 +771,7 @@ export function applyRenameClass(
 }
 
 export function clearRenameClassPreview(session: ActiveSession, token: string): string {
-  return sharedClearRenameClassPreview(bind(session), token);
+  return sharedClearRenameClassPreview(defaultQueryExecutorUsing(session), token);
 }
 
 // Paginated rename-class-variable preview: fetched NON-BLOCKING (progress +
@@ -812,7 +810,7 @@ export function applyRenameClassVar(session: ActiveSession, token: string): Prom
 }
 
 export function clearRenameClassVarPreview(session: ActiveSession, token: string): string {
-  return sharedClearRenameClassVarPreview(bind(session), token);
+  return sharedClearRenameClassVarPreview(defaultQueryExecutorUsing(session), token);
 }
 
 // Paginated rename-temporary/argument (R5) preview: method-local, a single
@@ -864,7 +862,7 @@ export function applyRenameTemporary(session: ActiveSession, token: string): Pro
 }
 
 export function clearRenameTemporaryPreview(session: ActiveSession, token: string): string {
-  return sharedClearRenameTemporaryPreview(bind(session), token);
+  return sharedClearRenameTemporaryPreview(defaultQueryExecutorUsing(session), token);
 }
 
 export function renameTemporaryDeclineReason(
@@ -958,13 +956,13 @@ export function applyExtractMethod(
 }
 
 export function clearExtractMethodPreview(session: ActiveSession, token: string): string {
-  return sharedClearExtractMethodPreview(bind(session), token);
+  return sharedClearExtractMethodPreview(defaultQueryExecutorUsing(session), token);
 }
 
 // Class-definition history (native classHistory, this-stone-only, read-only) and
 // the redo (restore a historical version as a new version, no commit).
 export function getClassHistory(session: ActiveSession, className: string): string {
-  return sharedGetClassHistory(bind(session), className);
+  return sharedGetClassHistory(defaultQueryExecutorUsing(session), className);
 }
 
 export function revertClassToVersion(
@@ -972,15 +970,15 @@ export function revertClassToVersion(
   className: string,
   index: number,
 ): string {
-  return sharedRevertClassToVersion(bind(session), className, index);
+  return sharedRevertClassToVersion(defaultQueryExecutorUsing(session), className, index);
 }
 
 export function globalNameInUse(session: ActiveSession, name: string): boolean {
-  return sharedGlobalNameInUse(bind(session), name);
+  return sharedGlobalNameInUse(defaultQueryExecutorUsing(session), name);
 }
 
 export function isKernelClass(session: ActiveSession, name: string): boolean {
-  return sharedIsKernelClass(bind(session), name);
+  return sharedIsKernelClass(defaultQueryExecutorUsing(session), name);
 }
 
 export function removeClassVersion(
@@ -988,7 +986,7 @@ export function removeClassVersion(
   className: string,
   index: number,
 ): string {
-  return sharedRemoveClassVersion(bind(session), className, index);
+  return sharedRemoveClassVersion(defaultQueryExecutorUsing(session), className, index);
 }
 
 export function getGrailStubReflection(
@@ -996,15 +994,15 @@ export function getGrailStubReflection(
   className: string,
   dict?: number | string,
 ): GrailStubReflection {
-  return sharedGetGrailStubReflection(bind(session), className, dict);
+  return sharedGetGrailStubReflection(defaultQueryExecutorUsing(session), className, dict);
 }
 
 export function getAllSelectors(session: ActiveSession, className: string): string[] {
-  return sharedGetAllSelectors(bind(session), className);
+  return sharedGetAllSelectors(defaultQueryExecutorUsing(session), className);
 }
 
 export function getMethodList(session: ActiveSession, className: string) {
-  return sharedGetMethodList(bind(session), className);
+  return sharedGetMethodList(defaultQueryExecutorUsing(session), className);
 }
 
 export function getSourceOffsets(
@@ -1015,7 +1013,14 @@ export function getSourceOffsets(
   environmentId: number = 0,
   dict?: number | string,
 ): number[] {
-  return sharedGetSourceOffsets(bind(session), className, isMeta, selector, environmentId, dict);
+  return sharedGetSourceOffsets(
+    defaultQueryExecutorUsing(session),
+    className,
+    isMeta,
+    selector,
+    environmentId,
+    dict,
+  );
 }
 
 export function getStepPointSelectorRanges(
@@ -1027,7 +1032,7 @@ export function getStepPointSelectorRanges(
   dict?: number | string,
 ) {
   return sharedGetStepPointSelectorRanges(
-    bind(session),
+    defaultQueryExecutorUsing(session),
     className,
     isMeta,
     selector,
@@ -1037,11 +1042,11 @@ export function getStepPointSelectorRanges(
 }
 
 export function searchMethodSource(session: ActiveSession, term: string, ignoreCase: boolean) {
-  return sharedSearchMethodSource(bind(session), term, ignoreCase);
+  return sharedSearchMethodSource(defaultQueryExecutorUsing(session), term, ignoreCase);
 }
 
 export function sendersOf(session: ActiveSession, selector: string, environmentId: number = 0) {
-  return sharedSendersOf(bind(session), selector, environmentId);
+  return sharedSendersOf(defaultQueryExecutorUsing(session), selector, environmentId);
 }
 
 export function implementorsOf(
@@ -1049,7 +1054,7 @@ export function implementorsOf(
   selector: string,
   environmentId: number = 0,
 ) {
-  return sharedImplementorsOf(bind(session), selector, environmentId);
+  return sharedImplementorsOf(defaultQueryExecutorUsing(session), selector, environmentId);
 }
 
 export function hierarchyImplementorsOf(
@@ -1062,7 +1067,7 @@ export function hierarchyImplementorsOf(
   environmentId: number = 0,
 ) {
   return sharedHierarchyImplementorsOf(
-    bind(session),
+    defaultQueryExecutorUsing(session),
     dictIndex,
     className,
     selector,
@@ -1077,14 +1082,14 @@ export function referencesToObject(
   objectName: string,
   environmentId: number = 0,
 ) {
-  return sharedReferencesToObject(bind(session), objectName, environmentId);
+  return sharedReferencesToObject(defaultQueryExecutorUsing(session), objectName, environmentId);
 }
 
 // ── Write-path queries (mutations) ─────────────────────────────────────────
 // All of these delegate to the shared layer. None auto-commit.
 
 export function compileClassDefinition(session: ActiveSession, source: string): string {
-  return sharedCompileClassDefinition(bind(session), source);
+  return sharedCompileClassDefinition(defaultQueryExecutorUsing(session), source);
 }
 
 export function compileMethod(
@@ -1097,7 +1102,7 @@ export function compileMethod(
   dict?: number | string,
 ): string {
   return sharedCompileMethod(
-    bind(session),
+    defaultQueryExecutorUsing(session),
     className,
     isMeta,
     category,
@@ -1113,7 +1118,7 @@ export function setClassComment(
   comment: string,
   dict?: number | string,
 ): string {
-  return sharedSetClassComment(bind(session), className, comment, dict);
+  return sharedSetClassComment(defaultQueryExecutorUsing(session), className, comment, dict);
 }
 
 export function recategorizeClass(
@@ -1122,7 +1127,7 @@ export function recategorizeClass(
   newCategory: string,
   dict?: number | string,
 ): string {
-  return sharedRecategorizeClass(bind(session), className, newCategory, dict);
+  return sharedRecategorizeClass(defaultQueryExecutorUsing(session), className, newCategory, dict);
 }
 
 export function copyMethodToClass(
@@ -1135,7 +1140,7 @@ export function copyMethodToClass(
   dict?: number | string,
 ): string {
   return sharedCopyMethodToClass(
-    bind(session),
+    defaultQueryExecutorUsing(session),
     sourceClass,
     targetClass,
     isMeta,
@@ -1152,7 +1157,7 @@ export function deleteMethod(
   selector: string,
   dict?: number | string,
 ): string {
-  return sharedDeleteMethod(bind(session), className, isMeta, selector, dict);
+  return sharedDeleteMethod(defaultQueryExecutorUsing(session), className, isMeta, selector, dict);
 }
 
 export function recategorizeMethod(
@@ -1163,7 +1168,14 @@ export function recategorizeMethod(
   newCategory: string,
   dict?: number | string,
 ): string {
-  return sharedRecategorizeMethod(bind(session), className, isMeta, selector, newCategory, dict);
+  return sharedRecategorizeMethod(
+    defaultQueryExecutorUsing(session),
+    className,
+    isMeta,
+    selector,
+    newCategory,
+    dict,
+  );
 }
 
 export function renameCategory(
@@ -1174,7 +1186,14 @@ export function renameCategory(
   newCategory: string,
   dict?: number | string,
 ): string {
-  return sharedRenameCategory(bind(session), className, isMeta, oldCategory, newCategory, dict);
+  return sharedRenameCategory(
+    defaultQueryExecutorUsing(session),
+    className,
+    isMeta,
+    oldCategory,
+    newCategory,
+    dict,
+  );
 }
 
 export function deleteClass(
@@ -1182,7 +1201,7 @@ export function deleteClass(
   dict: number | string,
   className: string,
 ): string {
-  return sharedDeleteClass(bind(session), dict, className);
+  return sharedDeleteClass(defaultQueryExecutorUsing(session), dict, className);
 }
 
 export function moveClass(
@@ -1191,16 +1210,12 @@ export function moveClass(
   destDictIndex: number,
   className: string,
 ): string {
-  return sharedMoveClass(bind(session), srcDictIndex, destDictIndex, className);
-}
-
-export function reclassifyClass(
-  session: ActiveSession,
-  dictIndex: number,
-  className: string,
-  newCategory: string,
-): string {
-  return sharedReclassifyClass(bind(session), dictIndex, className, newCategory);
+  return sharedMoveClass(
+    defaultQueryExecutorUsing(session),
+    srcDictIndex,
+    destDictIndex,
+    className,
+  );
 }
 
 export function addDictionary(session: ActiveSession, dictName: string): string {
@@ -1229,7 +1244,7 @@ export function setBreakAtStepPoint(
   dict?: number | string,
 ): string {
   return sharedSetBreakAtStepPoint(
-    bind(session),
+    defaultQueryExecutorUsing(session),
     className,
     isMeta,
     selector,
@@ -1249,7 +1264,7 @@ export function clearBreakAtStepPoint(
   dict?: number | string,
 ): string {
   return sharedClearBreakAtStepPoint(
-    bind(session),
+    defaultQueryExecutorUsing(session),
     className,
     isMeta,
     selector,
@@ -1267,5 +1282,12 @@ export function clearAllBreaks(
   environmentId: number = 0,
   dict?: number | string,
 ): string {
-  return sharedClearAllBreaks(bind(session), className, isMeta, selector, environmentId, dict);
+  return sharedClearAllBreaks(
+    defaultQueryExecutorUsing(session),
+    className,
+    isMeta,
+    selector,
+    environmentId,
+    dict,
+  );
 }

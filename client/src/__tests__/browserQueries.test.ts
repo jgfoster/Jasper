@@ -52,7 +52,7 @@ describe('browserQueries', () => {
       queries.compileMethod(session, 'Array', false, 'test', 'foo\n  ^ 42');
 
       const mockPerform = session.gci.GciTsPerform as ReturnType<typeof vi.fn>;
-      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
       expect(mockPerform).not.toHaveBeenCalled();
       expect(mockExec).toHaveBeenCalledTimes(1);
       const code = mockExec.mock.calls[0][1] as string;
@@ -63,7 +63,7 @@ describe('browserQueries', () => {
     it('branches on isMeta inside the Smalltalk, not via a GCI perform', () => {
       const session = createMockSession('ok');
       queries.compileMethod(session, 'Array', true, 'test', 'foo');
-      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
       const code = mockExec.mock.calls[0][1] as string;
       expect(code).toContain('target := base class');
     });
@@ -103,7 +103,7 @@ describe('browserQueries', () => {
       const session = createMockSession('');
       queries.sendersOf(session, 'size', 2);
 
-      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
       const code = mockExec.mock.calls[0][1] as string;
       expect(code).toContain('environmentId: 2');
     });
@@ -135,7 +135,7 @@ describe('browserQueries', () => {
       const session = createMockSession('');
       queries.implementorsOf(session, 'size');
 
-      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
       const code = mockExec.mock.calls[0][1] as string;
       expect(code).toContain('asArray');
     });
@@ -180,7 +180,7 @@ describe('browserQueries', () => {
       const session = createMockSession('');
       queries.fileOutClass(session, 'MyClass');
 
-      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
       const code = mockExec.mock.calls[0][1] as string;
       expect(code).toContain("objectNamed: #'MyClass'");
       expect(code).toContain('fileOutClass');
@@ -190,7 +190,7 @@ describe('browserQueries', () => {
       const session = createMockSession('');
       queries.fileOutClass(session, 'MyClass', 3);
 
-      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
       const code = mockExec.mock.calls[0][1] as string;
       expect(code).toContain('symbolList at: 3');
       expect(code).toContain("#'MyClass' ifAbsent: [nil]");
@@ -200,7 +200,7 @@ describe('browserQueries', () => {
       const session = createMockSession('');
       queries.fileOutClass(session, "Class'Name");
 
-      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
       const code = mockExec.mock.calls[0][1] as string;
       expect(code).toContain("#'Class''Name'");
     });
@@ -329,7 +329,7 @@ describe('browserQueries', () => {
       const session = createMockSession('');
       queries.getMethodList(session, 'MyClass');
 
-      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
       const code = mockExec.mock.calls[0][1] as string;
       expect(code).toContain('class := MyClass');
     });

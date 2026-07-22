@@ -43,9 +43,9 @@ describe('rename temporary/argument (integration)', () => {
   const exec = (code: string): string => q.executeFetchString(session(), 'rename-temp-it', code);
   const asyncExec = (_label: string, code: string): Promise<string> => Promise.resolve(exec(code));
 
-  const enginePresent = (): boolean =>
+  const rbEnginePresent = (): boolean =>
     exec(
-      '(System myUserProfile symbolList objectNamed: #GsRenameTemporaryRefactoring) notNil printString',
+      "(System myUserProfile symbolList objectNamed: 'GsRenameTemporaryRefactoring') notNil printString",
     ).trim() === 'true';
 
   const engineTestsPayload = (): string =>
@@ -92,11 +92,11 @@ describe('rename temporary/argument (integration)', () => {
   };
 
   it('reports rename-temporary engine availability matching the shared refactoring probe', () => {
-    expect(enginePresent()).toBe(q.checkRefactoringSupportAvailable(session()));
+    expect(rbEnginePresent()).toBe(q.checkRefactoringSupportAvailable(session()));
   });
 
   it('runs the rename-temporary GS SUnit suite in-stone with zero failures', (ctx) => {
-    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
+    if (!rbEnginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     const code = `| r |
 ${fileInTests()}
@@ -107,7 +107,7 @@ r := (System myUserProfile symbolList objectNamed: #GsRenameTemporaryRefactoring
   });
 
   it('previews the single method recompile, renaming the outer temporary only', async (ctx) => {
-    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
+    if (!rbEnginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     defineFixture();
 
@@ -139,7 +139,7 @@ r := (System myUserProfile symbolList objectNamed: #GsRenameTemporaryRefactoring
   });
 
   it('applies the rename server-side, rewriting only the outer temporary', async (ctx) => {
-    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
+    if (!rbEnginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     defineFixture();
     const token = `rtit-apply-${BASE}`;

@@ -28,7 +28,12 @@ vi.mock('../wslBridge', () => ({
 import { exec } from 'child_process';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
-import { OsConfigTreeProvider, type OsConfigNode } from '../sharedMemoryTreeProvider';
+import {
+  OsConfigTreeProvider,
+  isSharedMemoryConfigured,
+  getRemoveIpcConfigured,
+  type OsConfigNode,
+} from '../sharedMemoryTreeProvider';
 import * as wslBridge from '../wslBridge';
 import { type WslNetworkInfo } from '../wslBridge';
 
@@ -1249,5 +1254,74 @@ describe('OsConfigTreeProvider', () => {
       // Still surfaces an info message so the user learns the state.
       expect(vscode.window.showInformationMessage).toHaveBeenCalled();
     });
+  });
+});
+
+// ── Exported prerequisite checks ────────────────────────────
+
+describe('isSharedMemoryConfigured', () => {
+  let originalPlatform: NodeJS.Platform;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    originalPlatform = process.platform;
+    vi.mocked(wslBridge.needsWsl).mockReturnValue(false);
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+  });
+
+  it('is true when both shmmax and shmall reach 1 GB', async () => {
+    setPlatform('darwin');
+    mockExec(MACOS_SYSCTL_4GB);
+
+    expect(await isSharedMemoryConfigured()).toBe(true);
+  });
+
+  it('is false when shared memory is below 1 GB', async () => {
+    setPlatform('darwin');
+    mockExec(MACOS_SYSCTL_SMALL);
+
+    expect(await isSharedMemoryConfigured()).toBe(false);
+  });
+
+  it('treats an unreadable sysctl as not configured', async () => {
+    setPlatform('darwin');
+    mockExecError();
+
+    expect(await isSharedMemoryConfigured()).toBe(false);
+  });
+});
+
+describe('getRemoveIpcConfigured', () => {
+  let originalPlatform: NodeJS.Platform;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    originalPlatform = process.platform;
+    vi.mocked(wslBridge.needsWsl).mockReturnValue(false);
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    vi.mocked(fs.readdirSync).mockReturnValue([]);
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+  });
+
+  it('is true when logind.conf sets RemoveIPC=no', () => {
+    setPlatform('linux');
+    vi.mocked(fs.readFileSync).mockReturnValue('[Login]\nRemoveIPC=no\n');
+
+    expect(getRemoveIpcConfigured()).toBe(true);
+  });
+
+  it('is false when no logind config is present', () => {
+    setPlatform('linux');
+    vi.mocked(fs.readFileSync).mockImplementation(() => {
+      throw new Error('ENOENT');
+    });
+
+    expect(getRemoveIpcConfigured()).toBe(false);
   });
 });

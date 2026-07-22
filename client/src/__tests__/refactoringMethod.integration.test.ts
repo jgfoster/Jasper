@@ -47,20 +47,20 @@ describe('rename method (integration)', () => {
   // fine here (small fixture), so wrap it in a resolved promise.
   const asyncExec = (_label: string, code: string): Promise<string> => Promise.resolve(exec(code));
 
-  const enginePresent = (): boolean =>
+  const rbEnginePresent = (): boolean =>
     exec(
-      '(System myUserProfile symbolList objectNamed: #GsRenameMethodRefactoring) notNil printString',
+      "(System myUserProfile symbolList objectNamed: 'GsRenameMethodRefactoring') notNil printString",
     ).trim() === 'true';
 
   const engineTestsPayload = (): string =>
     path.resolve(__dirname, '../../../resources/refactoring/engine-tests.gs');
 
   it('reports rename-method engine availability matching the ivar engine probe', () => {
-    expect(enginePresent()).toBe(q.checkRefactoringSupportAvailable(session()));
+    expect(rbEnginePresent()).toBe(q.checkRefactoringSupportAvailable(session()));
   });
 
   it('runs the engine GS SUnit suites in-stone with zero failures', (ctx) => {
-    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
+    if (!rbEnginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     // File in the test classes (in-image compile — robust) then run every engine
     // suite, answering the total failure+error count across all of them.
@@ -79,7 +79,7 @@ failuresAndErrors printString`;
   });
 
   it('runs the rename-method suite alone and reports its test count', (ctx) => {
-    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
+    if (!rbEnginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     const p = escapeString(engineTestsPayload());
     // The class isn't defined at this doit's compile time (it is filed in at run
@@ -113,7 +113,7 @@ r runCount printString, ' ', (r failures size + r errors size) printString`;
   };
 
   it('previews a keyword rename+reorder through the paginated query, then applies it server-side', async (ctx) => {
-    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
+    if (!rbEnginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     defineFixture();
     const token = `rmit-${BASE}`;
@@ -158,7 +158,7 @@ r runCount printString, ' ', (r failures size + r errors size) printString`;
   });
 
   it('pages a preview and honours a deselected change on apply', async (ctx) => {
-    if (!enginePresent()) ctx.skip('refactoring engine not loaded in this stone');
+    if (!rbEnginePresent()) ctx.skip('refactoring engine not loaded in this stone');
 
     defineFixture();
     const token = `rmit-page-${BASE}`;
