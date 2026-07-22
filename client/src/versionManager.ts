@@ -64,12 +64,14 @@ export class VersionManager {
       });
     }
 
+    const catalogVersions = new Set<string>();
     let match;
     while ((match = regex.exec(html)) !== null) {
       const fileName = match[1];
       const version = match[2];
       const date = match[3];
       const size = parseInt(match[4], 10);
+      catalogVersions.add(version);
       const isDownloaded = downloaded.has(version) && downloaded.get(version) === size;
       const extractedKind = extractedMap.get(version);
       versions.push({
@@ -82,6 +84,30 @@ export class VersionManager {
         extracted: extractedKind === false, // dir, not symlink
         clientExtracted: clientExtracted.has(version),
         bundled: bundled.has(version),
+      });
+    }
+
+    // A locally-built product directory copied straight into rootPath (a real
+    // directory, not a symlink) for a version the download catalog doesn't list
+    // — e.g. a private 4.0 build. Symlinked local builds are handled by the
+    // "local versions first" loop above, and catalog versions (downloaded or
+    // extracted) by the loop just above; this surfaces the remaining case as a
+    // present, extracted version so it shows in the list and can create
+    // databases, instead of being silently dropped.
+    for (const info of extractedInfos) {
+      if (info.isLocal) continue;
+      if (catalogVersions.has(info.version)) continue;
+      const gsPath = this.storage.getGemstonePath(info.version);
+      const txt = gsPath ? SysadminStorage.readVersionTxt(gsPath) : undefined;
+      versions.push({
+        version: info.version,
+        fileName: '',
+        url: '',
+        size: 0,
+        date: txt?.date ?? '',
+        downloaded: false,
+        extracted: true,
+        buildDescription: txt?.description,
       });
     }
 
