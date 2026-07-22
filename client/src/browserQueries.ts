@@ -582,7 +582,14 @@ export function getSourceOffsets(
   environmentId: number = 0,
   dict?: number | string,
 ): number[] {
-  return sharedGetSourceOffsets(bind(session), className, isMeta, selector, environmentId, dict);
+  return sharedGetSourceOffsets(
+    defaultQueryExecutorUsing(session),
+    className,
+    isMeta,
+    selector,
+    environmentId,
+    dict,
+  );
 }
 
 export function getStepPointSelectorRanges(
@@ -594,7 +601,7 @@ export function getStepPointSelectorRanges(
   dict?: number | string,
 ) {
   return sharedGetStepPointSelectorRanges(
-    bind(session),
+    defaultQueryExecutorUsing(session),
     className,
     isMeta,
     selector,
@@ -792,7 +799,7 @@ export function setBreakAtStepPoint(
   dict?: number | string,
 ): string {
   return sharedSetBreakAtStepPoint(
-    bind(session),
+    defaultQueryExecutorUsing(session),
     className,
     isMeta,
     selector,
@@ -812,7 +819,7 @@ export function clearBreakAtStepPoint(
   dict?: number | string,
 ): string {
   return sharedClearBreakAtStepPoint(
-    bind(session),
+    defaultQueryExecutorUsing(session),
     className,
     isMeta,
     selector,
@@ -830,5 +837,12 @@ export function clearAllBreaks(
   environmentId: number = 0,
   dict?: number | string,
 ): string {
-  return sharedClearAllBreaks(bind(session), className, isMeta, selector, environmentId, dict);
+  return sharedClearAllBreaks(
+    defaultQueryExecutorUsing(session),
+    className,
+    isMeta,
+    selector,
+    environmentId,
+    dict,
+  );
 }
