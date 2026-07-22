@@ -4,7 +4,6 @@ import { getDictionaryNames } from '../getDictionaryNames';
 import { getClassNames } from '../getClassNames';
 import { getDictionaryClassFileOutOrder } from '../getDictionaryClassFileOutOrder';
 import { getMethodCategories } from '../getMethodCategories';
-import { getMethodSelectors } from '../getMethodSelectors';
 import { getInstVarNames } from '../getInstVarNames';
 import { getAllSelectors } from '../getAllSelectors';
 import { getSourceOffsets } from '../getSourceOffsets';
@@ -101,14 +100,6 @@ describe('getMethodCategories', () => {
     const execute = vi.fn<QueryExecutor>(() => '');
     getMethodCategories(execute, 'Array', true);
     expect(execute.mock.calls[0][1]).toContain('Array class categoryNames');
-  });
-});
-
-describe('getMethodSelectors', () => {
-  it('escapes single quotes in the category', () => {
-    const execute = vi.fn<QueryExecutor>(() => '');
-    getMethodSelectors(execute, 'Array', false, "foo's");
-    expect(execute.mock.calls[0][1]).toContain("'foo''s'");
   });
 });
 

@@ -41,6 +41,7 @@ function createMockSession(): ActiveSession {
     GciTsCompileMethod: vi.fn(() => ({ result: 5000n, err: { ...noErr } })),
     GciTsExecuteFetchBytes: vi.fn(() => ({ data: '', err: { ...noErr } })),
     GciTsPerformFetchBytes: vi.fn(() => ({ data: '', err: { ...noErr } })),
+    executeAndFetchString: vi.fn(() => ''),
     GciTsCallInProgress: vi.fn(() => ({ result: 0 })),
     GciTsClearStack: vi.fn(),
   };
@@ -54,22 +55,15 @@ function createMockSession(): ActiveSession {
   };
 }
 
-// The command loads the class list, then the method list — so the fake GCI
-// answers the first FetchBytes with the class payload and the second with the
-// method payload (empty by default = a class with no methods).
+// The command loads the class list (via getAllClassNames), then the method
+// list (via getMethodList) — both now go through executeAndFetchString, so
+// the fake GCI answers the first call with the class payload and the second
+// with the method payload.
 function createSequencedSession(methodPayload = methodListPayload): ActiveSession {
   const session = createMockSession();
-  vi.mocked(session.gci.GciTsExecuteFetchBytes)
-    .mockReturnValueOnce({
-      bytesReturned: classListPayload.length,
-      data: classListPayload,
-      err: { ...noErr },
-    })
-    .mockReturnValueOnce({
-      bytesReturned: methodPayload.length,
-      data: methodPayload,
-      err: { ...noErr },
-    });
+  vi.mocked(session.gci.executeAndFetchString)
+    .mockReturnValueOnce(classListPayload)
+    .mockReturnValueOnce(methodPayload);
   return session;
 }
 
