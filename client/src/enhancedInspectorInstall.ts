@@ -181,9 +181,9 @@ export async function installEnhancedInspectorSupport(
         // variant decodes correctly in both String and Unicode16 modes
         // (UTF-8 decode of the all-ASCII files is the identity).
         //
-        // Must end in a byte object (String): executeFetchString fetches the
-        // result via GciTsExecuteFetchBytes, and a non-byte result (e.g. the
-        // boolean `true`) raises ArgumentTypeError 2103 ("not a byte object").
+        // Must end in a String: executeFetchString sends #encodeAsUTF8 to the
+        // result before fetching it, and a non-String result (e.g. the
+        // boolean `true`) raises an error attempting that send.
         `GsFileIn fromPath: ${gsStringLiteral(serverPath(file))} on: #serverUtf8File to: nil. 'ok'`,
       );
       filedIn.push(file);

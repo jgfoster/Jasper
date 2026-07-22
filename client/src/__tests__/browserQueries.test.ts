@@ -10,29 +10,11 @@ import { ActiveSession } from '../sessionManager';
 import { GemStoneLogin } from '../loginTypes';
 import * as queries from '../browserQueries';
 
-const noErr = {
-  number: 0,
-  message: '',
-  context: 0n,
-  category: 0,
-  fatal: false,
-  argCount: 0,
-  exceptionObj: 0n,
-  args: [],
-};
-
 function createMockSession(executeFetchData = ''): ActiveSession {
   const mockGci = {
-    GciTsResolveSymbol: vi.fn(() => ({ result: 1000n, err: { ...noErr } })),
-    GciTsPerform: vi.fn(() => ({ result: 2000n, err: { ...noErr } })),
-    GciTsNewString: vi.fn(() => ({ result: 3000n, err: { ...noErr } })),
-    GciTsNewSymbol: vi.fn(() => ({ result: 4000n, err: { ...noErr } })),
-    GciTsCompileMethod: vi.fn(() => ({ result: 5000n, err: { ...noErr } })),
-    GciTsExecuteFetchBytes: vi.fn(() => ({ data: executeFetchData, err: { ...noErr } })),
-    GciTsPerformFetchBytes: vi.fn(() => ({ data: '', err: { ...noErr } })),
     executeAndFetchString: vi.fn(() => executeFetchData),
     GciTsCallInProgress: vi.fn(() => ({ result: 0 })),
-    GciTsClearStack: vi.fn(),
+    GciTsPerform: vi.fn(),
   };
 
   return {
@@ -364,8 +346,10 @@ describe('browserQueries', () => {
 
     it('asks the image via System needsCommit', () => {
       const session = createMockSession('false');
+
       queries.sessionNeedsCommit(session);
-      const mockExec = session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>;
+
+      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
       expect(mockExec.mock.calls[0][1]).toContain('System needsCommit');
     });
   });
