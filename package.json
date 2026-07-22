@@ -237,6 +237,21 @@
             "default": "ask",
             "description": "What to do on connecting to a stone that does not have enhanced inspector support installed. Only applies to GemStone 3.7.5 and later, which the enhanced inspector requires; older stones are never offered it. The buttons on the install prompt update this setting."
           },
+          "gemstone.autoStartDatabase": {
+            "type": "string",
+            "enum": [
+              "ask",
+              "always",
+              "never"
+            ],
+            "enumDescriptions": [
+              "When a login fails because its database is not running, offer to start the database and then connect.",
+              "Start a stopped database and connect, without asking.",
+              "Never offer to start a database; report the login failure as-is."
+            ],
+            "default": "ask",
+            "description": "What to do when a login fails because the database it connects to is not running. Only applies to local databases Jasper manages — a remote or hand-rolled stone is never started. Starting a database starts both its stone and its NetLDI. The buttons on the prompt update this setting."
+          },
           "gemstone.displayItMode": {
             "type": "string",
             "enum": [
@@ -722,6 +737,11 @@
       {
         "command": "gemstone.configureEnhancedInspectorAutoInstall",
         "title": "Enhanced Inspector Auto-Install…",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.configureAutoStartDatabase",
+        "title": "Configure Database Auto-Start…",
         "category": "GemStone"
       },
       {
