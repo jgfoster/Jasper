@@ -241,6 +241,25 @@ describe('VersionItem (local version)', () => {
     expect(item.description).toContain('bundled');
     expect(item.tooltip).toContain('bundled');
   });
+
+  it('renders a hand-placed product directory as extracted and ready to use', () => {
+    const version: GemStoneVersion = {
+      version: '4.0.0',
+      fileName: '',
+      url: '',
+      size: 0,
+      date: '2026-07-01',
+      downloaded: false,
+      extracted: true,
+      buildDescription: 'private 4.0 build',
+    };
+
+    const item = new VersionItem(version);
+
+    // ServerExtracted context is what offers Create Database / Delete Extracted.
+    expect(item.contextValue).toBe('gemstoneVersionServerExtracted');
+    expect((item.iconPath as vscode.ThemeIcon).id).toBe('check');
+  });
 });
 
 // ── VersionManager.fetchAvailableVersions (local inclusion) ──
@@ -376,6 +395,58 @@ describe('VersionManager.fetchAvailableVersions', () => {
     expect(versions[0].version).toBe('3.5.0');
     expect(versions[0].local).toBe(true);
   });
+
+  itUnlessWin32(
+    'includes a locally-built product directory the download catalog does not list',
+    async () => {
+      const storage = new SysadminStorage();
+      const manager = new VersionManager(storage);
+      const suffix = storage.getPlatformSuffix();
+
+      // A real product directory (not a symlink) dropped straight into rootPath
+      // for a version the catalog has never heard of — e.g. a private 4.0 build.
+      const versionDir = path.join(tmpDir, `GemStone64Bit4.0.0${suffix}`);
+      fs.mkdirSync(versionDir);
+      writeVersionTxt(
+        versionDir,
+        'GemStone/S 64 Bit\n4.0.0 Build: 2026-07-01T10:00:00-07:00 abcdef\nprivate 4.0 build',
+      );
+
+      vi.spyOn(manager as unknown as FetchUrlHost, 'fetchUrl').mockResolvedValue('');
+
+      const versions = await manager.fetchAvailableVersions();
+
+      expect(versions).toHaveLength(1);
+      expect(versions[0].version).toBe('4.0.0');
+      expect(versions[0].extracted).toBe(true);
+      expect(versions[0].local).toBeFalsy(); // a real dir, not a symlink — not "(local)"
+      expect(versions[0].date).toBe('2026-07-01');
+    },
+  );
+
+  itUnlessWin32(
+    'lists a catalog version present as a real directory only once, marked extracted',
+    async () => {
+      const storage = new SysadminStorage();
+      const manager = new VersionManager(storage);
+      const suffix = storage.getPlatformSuffix();
+      const platformKey = storage.getPlatformKey();
+      const ext = storage.getDownloadExtension();
+
+      const versionDir = path.join(tmpDir, `GemStone64Bit3.7.4${suffix}`);
+      fs.mkdirSync(versionDir);
+      writeVersionTxt(versionDir, 'GemStone/S 64 Bit\n3.7.4 Build: 2026-01-01T10:00:00-07:00 abc');
+
+      const html = `<a href="GemStone64Bit3.7.4-${platformKey}.${ext}">file</a>  01-Jan-2026 12:00  200000000`;
+      vi.spyOn(manager as unknown as FetchUrlHost, 'fetchUrl').mockResolvedValue(html);
+
+      const versions = await manager.fetchAvailableVersions();
+
+      const matching = versions.filter((v) => v.version === '3.7.4');
+      expect(matching).toHaveLength(1);
+      expect(matching[0].extracted).toBe(true);
+    },
+  );
 });
 
 // ── GCI library auto-detection ───────────────────────────────
