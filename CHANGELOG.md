@@ -15,6 +15,14 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 - **The walkthrough's (and Logins view's) "Add a Login" button now works.** It was wired to `gemstone.login` — the command that connects a *selected* login — so clicking it from a static button (which passes no login) threw and did nothing. It now opens the new-login editor via `gemstone.addLogin`.
 
+### Security
+
+- **Patched three transitive dependency vulnerabilities flagged by Dependabot.** Added root `overrides` pinning `fast-uri` to `^3.1.4` (host-confusion, high — pulled in via the MCP SDK's `ajv`), `js-yaml` to `^4.3.0` (quadratic-CPU merge keys, high — dev-only, via `@vscode/vsce`), and `@hono/node-server` to `^2.0.5` (`serve-static` path traversal on Windows, moderate — via the MCP SDK; the vulnerable path is unreachable since Jasper's MCP server uses the SSE transport, not the hono-based Streamable-HTTP transport). `npm audit` now reports zero vulnerabilities, guarded by a new `dependencyVulnFloors` test so a lockfile refresh can't silently regress below the patched floors.
+
+## [1.8.8] - 2026-07-21
+
+Maintenance release — no user-facing changes. Internal refactoring (migrating the shared query layer onto `defaultQueryExecutorUsing`, plus dead-code removal), developer-tooling tweaks (`dev:fresh`, ESLint ignore sync), and transitive dependency (lockfile) updates including `hono` and `linkify-it`.
+
 ## [1.8.7] - 2026-07-21
 
 ### Added
