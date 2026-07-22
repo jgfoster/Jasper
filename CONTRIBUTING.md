@@ -90,16 +90,19 @@ It **only compiles `client/out` when that directory is missing** — if a build 
 - Run `npm run watch` in another terminal for live reload (then "Developer: Reload Window" in the dev window after edits), or
 - Force a one-off rebuild first: `npm run compile:client` (or `rm -rf client/out` to guarantee a clean recompile).
 
-### Optional local pre-commit hook
+### Optional local git hooks
 
-If you'd like `eslint` and `prettier --check` to run on staged files automatically before each commit, install the [lefthook](https://github.com/evilmartians/lefthook) git hook:
+If you'd like, you can install some optional [lefthook](https://github.com/evilmartians/lefthook) git hooks:
 
 ```sh
 npm run hooks:install    # opt in
 npm run hooks:uninstall  # opt out
 ```
 
-This is entirely optional and not run by `npm install` — CI's `lint` job is the real gate regardless.
+- **pre-commit**: runs `eslint` and `prettier --check` on staged files
+- **post-checkout** / **post-merge** / **post-rewrite**: warns (non-blocking) when the root `package-lock.json` changed, as a reminder to run `npm install`
+
+If you've already installed the hooks, re-run `npm run hooks:install` after pulling changes to `lefthook.yml` to pick up any new/changed hooks.
 
 ## Running integration tests against a custom GemStone instance
 
