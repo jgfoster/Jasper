@@ -43,7 +43,6 @@ import { exportRowanProject as sharedExportRowanProject } from './queries/rowan/
 import { findRowanClassOwners as sharedFindRowanClassOwners } from './queries/rowan/findRowanClassOwners';
 import { listAllRowanClasses as sharedListAllRowanClasses } from './queries/rowan/listAllRowanClasses';
 import {
-  loadRowanProject as sharedLoadRowanProject,
   buildLoadRowanProjectCode,
   parseRowanLoadResult,
   RowanLoadResult,
@@ -311,17 +310,6 @@ export function sessionNeedsCommit(session: ActiveSession): boolean | undefined 
 }
 
 /**
- * Binds a session to the QueryExecutor shape that shared queries expect.
- *
- * @deprecated Backed by executeFetchString's raw GciTsExecuteFetchBytes
- * call, which is prone to mis-decoding non-ASCII results and truncating
- * large ones. Being replaced by {@link defaultQueryExecutorUsing} one call-site group at a time.
- */
-function bind(session: ActiveSession): QueryExecutor {
-  return (label, code) => executeFetchString(session, label, code);
-}
-
-/**
  * Binds a session to the QueryExecutor shape that shared queries expect,
  * backed by GciLibrary.executeAndFetchString.
  *
@@ -361,27 +349,23 @@ export function getDictionaryNames(session: ActiveSession): string[] {
 // ── Rowan browser queries ─────────────────────────────────────────────────
 
 export function getGemCacheKB(session: ActiveSession) {
-  return sharedGetGemCacheKB(bind(session));
+  return sharedGetGemCacheKB(defaultQueryExecutorUsing(session));
 }
 
 export function listRowanProjects(session: ActiveSession) {
-  return sharedListRowanProjects(bind(session));
+  return sharedListRowanProjects(defaultQueryExecutorUsing(session));
 }
 
 export function exportRowanProject(session: ActiveSession, projectName: string, targetDir: string) {
-  return sharedExportRowanProject(bind(session), projectName, targetDir);
+  return sharedExportRowanProject(defaultQueryExecutorUsing(session), projectName, targetDir);
 }
 
 export function findRowanClassOwners(session: ActiveSession, className: string) {
-  return sharedFindRowanClassOwners(bind(session), className);
+  return sharedFindRowanClassOwners(defaultQueryExecutorUsing(session), className);
 }
 
 export function listAllRowanClasses(session: ActiveSession) {
-  return sharedListAllRowanClasses(bind(session));
-}
-
-export function loadRowanProject(session: ActiveSession, specPath: string, diskPath: string) {
-  return sharedLoadRowanProject(bind(session), specPath, diskPath);
+  return sharedListAllRowanClasses(defaultQueryExecutorUsing(session));
 }
 
 // Non-blocking load for the extension: same Smalltalk, run via
@@ -403,11 +387,11 @@ export async function loadRowanProjectNb(
 }
 
 export function diffRowanProject(session: ActiveSession, projectName: string) {
-  return sharedDiffRowanProject(bind(session), projectName);
+  return sharedDiffRowanProject(defaultQueryExecutorUsing(session), projectName);
 }
 
 export function unloadRowanProject(session: ActiveSession, projectName: string) {
-  return sharedUnloadRowanProject(bind(session), projectName);
+  return sharedUnloadRowanProject(defaultQueryExecutorUsing(session), projectName);
 }
 
 export function getClassNames(session: ActiveSession, dict: number | string): string[] {
