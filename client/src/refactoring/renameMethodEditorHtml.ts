@@ -4,7 +4,7 @@
  * WITH the argument it binds, and reorderable as a unit (↑/↓). Renaming a part
  * and reordering arguments are therefore the same gesture — unlike Pharo's
  * Method-name editor, which splits a free-text selector box from a separate
- * arguments list (see R2-RenameMethod-Design.md).
+ * arguments list.
  *
  * Kept free of any `vscode` dependency so it unit-tests directly; the webview
  * plumbing lives in renameMethodEditor.ts. The DOM behaviour (reorder, live

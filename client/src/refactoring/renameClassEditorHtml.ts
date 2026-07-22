@@ -3,7 +3,7 @@
  * a reference-scope dropdown (default Whole system). This mirrors the
  * rename-method editor's look and flow deliberately — a consistent "edit the new
  * name, pick a scope, Preview…" gesture across the rename refactorings — even
- * though a class rename needs only one field (see R3-RenameClass-Design.md).
+ * though a class rename needs only one field.
  *
  * Kept free of any `vscode` dependency so it unit-tests directly; the webview
  * plumbing lives in renameClassEditor.ts and the DOM behaviour (live validation,

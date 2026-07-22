@@ -1,7 +1,7 @@
 /**
  * A webview panel that edits a class's new name and the reference scope,
  * resolving with `{ newName, scope }` or undefined if cancelled/closed. Mirrors
- * the rename-method editor for a consistent rename UX (see R3-RenameClass-Design.md).
+ * the rename-method editor for a consistent rename UX.
  *
  * On submit the host runs `validate(newName)` — a synchronous check that includes
  * "is this name already in use in the stone?" — and, if it returns an error,
