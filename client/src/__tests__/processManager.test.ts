@@ -59,10 +59,13 @@ function makeStorage(gsPath = '/gs/3.7.4'): SysadminStorage {
 }
 
 /** Create a mock ChildProcess that emits 'close' with the given exit code. */
-function makeChildProcess(exitCode = 0) {
+// `signal` models a process killed by a signal, which Node reports as a null
+// exit code plus the signal name — what macOS jetsam does under memory
+// pressure, and what the OS does to an unsigned/quarantined binary.
+function makeChildProcess(exitCode: number | null = 0, signal: string | null = null) {
   const stdoutListeners: Array<(data: Buffer) => void> = [];
   const stderrListeners: Array<(data: Buffer) => void> = [];
-  let closeCallback: ((code: number) => void) | undefined;
+  let closeCallback: ((code: number | null, signal: string | null) => void) | undefined;
 
   const proc = {
     stdout: {
@@ -75,12 +78,12 @@ function makeChildProcess(exitCode = 0) {
         if (event === 'data') stderrListeners.push(cb);
       }),
     },
-    on: vi.fn((event: string, cb: (code: number) => void) => {
+    on: vi.fn((event: string, cb: (code: number | null, signal: string | null) => void) => {
       if (event === 'close') closeCallback = cb;
     }),
     // Call this to simulate the process finishing
     finish() {
-      closeCallback?.(exitCode);
+      closeCallback?.(exitCode, signal);
     },
   };
   return proc;
@@ -413,6 +416,47 @@ describe('ProcessManager', () => {
 
       const [cmd] = vi.mocked(spawn).mock.calls[0];
       expect(cmd).toContain('startnetldi');
+    });
+
+    // A signal-killed process reports a null exit code, so the plain
+    // "exit code ${code}" wording renders as the useless "exit code null" —
+    // and such a process usually dies before writing any output at all, so
+    // there is nothing else in the message to go on.
+    it('names the signal when the process was killed, instead of "exit code null"', async () => {
+      setPlatform('darwin');
+      const proc = makeChildProcess(null, 'SIGKILL');
+      mockSpawnReturn(proc);
+
+      const manager = new ProcessManager(makeStorage());
+      const promise = manager.startNetldi(makeDatabase());
+      proc.finish();
+
+      await expect(promise).rejects.toThrow(/SIGKILL/);
+      await expect(promise).rejects.not.toThrow(/exit code null/);
+    });
+
+    it('explains a silent kill, since the process wrote nothing to go on', async () => {
+      setPlatform('darwin');
+      const proc = makeChildProcess(null, 'SIGKILL');
+      mockSpawnReturn(proc);
+
+      const manager = new ProcessManager(makeStorage());
+      const promise = manager.startNetldi(makeDatabase());
+      proc.finish();
+
+      await expect(promise).rejects.toThrow(/killed by the operating system|memory|log/i);
+    });
+
+    it('still reports a plain non-zero exit with its code', async () => {
+      setPlatform('darwin');
+      const proc = makeChildProcess(1);
+      mockSpawnReturn(proc);
+
+      const manager = new ProcessManager(makeStorage());
+      const promise = manager.startNetldi(makeDatabase());
+      proc.finish();
+
+      await expect(promise).rejects.toThrow(/exit code 1/);
     });
   });
 
