@@ -10,3 +10,18 @@ pre-commit:
     - name: prettier
       glob: '*.{ts,mts,cts,js,mjs,cjs}'
       run: npx prettier --check {staged_files}
+
+post-checkout:
+  jobs:
+    - name: warn-outdated-packages
+      run: bash scripts/warn-outdated-packages.sh post-checkout {1} {2} {3}
+
+post-merge:
+  jobs:
+    - name: warn-outdated-packages
+      run: bash scripts/warn-outdated-packages.sh post-merge
+
+post-rewrite:
+  jobs:
+    - name: warn-outdated-packages
+      run: bash scripts/warn-outdated-packages.sh post-rewrite
