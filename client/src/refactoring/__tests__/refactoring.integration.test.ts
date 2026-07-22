@@ -1,0 +1,139 @@
+import { describe, it, expect } from 'vitest';
+
+// Real GCI, but stub the `vscode` module the query layer pulls in via gciLog.
+import { vi } from 'vitest';
+vi.mock('vscode', () => import('../../__mocks__/vscode'));
+
+import { useIntegrationTest } from '../../__tests__/useIntegrationTest';
+import { GciLibrary } from '../../gciLibrary';
+import * as q from '../../browserQueries';
+import { previewRenameInstVar } from '../queries/previewRenameInstVar';
+import { parseRenameChanges, RenameChange } from '../renameInstVarPreview';
+import type { ActiveSession } from '../../sessionManager';
+
+/**
+ * Automatic GCI integration test for the rename-instance-variable round trip:
+ * client query -> server-side refactoring engine -> change-set JSON -> client
+ * parser. Exercises the real GCI transport, not a mock.
+ *
+ * The engine is an optional, separately-installed payload (its loader is a later
+ * stage), so a bare stone does not have it. Following the Enhanced Inspector
+ * routing smoke test, the availability probe is asserted on every stone, and the
+ * full round trip runs only where the engine is present (a dev stone with the
+ * payload loaded, or any stone once the loader ships). Both branches stay green
+ * across the CI matrix rather than hard-failing on a bare stone.
+ *
+ * Fully transient: the useIntegrationTest harness wraps each test in a
+ * begin/abort pair, so the throwaway fixture classes are rolled back and nothing
+ * is ever committed. All emitted Smalltalk is ASCII-only for the 3.6.x matrix.
+ */
+describe('rename instance variable (integration)', () => {
+  let gci: GciLibrary;
+  let handle: unknown;
+  useIntegrationTest((testContext) => {
+    gci = testContext.gciLibrary;
+    handle = testContext.session;
+  });
+
+  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const exec = (code: string): string => q.executeFetchString(session(), 'refactoring-it', code);
+  // previewRenameInstVar wants a QueryExecutor `(label, code) => string` and calls it
+  // as `execute(label, code)`. Adapt to the two-arg shape (a single-arg `exec` would
+  // send the label as code), forwarding the descriptive label so query logging matches
+  // production.
+  const execQuery = (label: string, code: string): string =>
+    q.executeFetchString(session(), label, code);
+
+  const engineLoaded = (): boolean => q.checkRefactoringSupportAvailable(session());
+  const rbEnginePresent = (): boolean =>
+    exec(
+      "(System myUserProfile symbolList objectNamed: 'GsRenameInstanceVariableRefactoring') notNil printString",
+    ).trim() === 'true';
+
+  const dictIndexOf = (name: string): number =>
+    parseInt(
+      exec(
+        `| sl d | sl := System myUserProfile symbolList. ` +
+          `d := sl detect: [:x | x name = #'${name}'] ifNone: [nil]. ` +
+          `(d ifNil: [0] ifNotNil: [sl indexOf: d]) printString`,
+      ),
+      10,
+    );
+  const userIndex = (): number => dictIndexOf('UserGlobals');
+
+  const COUNTER = 'JasperRivCounter';
+  const SUB = 'JasperRivSub';
+
+  // A superclass owning the `count` instance variable with a method that both
+  // reads and writes it, plus a subclass whose own method also references it —
+  // so the preview must reach across the hierarchy, not just the defining class.
+  const defineCounterHierarchy = (): void => {
+    q.compileClassDefinition(
+      session(),
+      `Object subclass: '${COUNTER}' instVarNames: #('count') classVars: #() ` +
+        'classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals',
+    );
+    q.compileMethod(session(), COUNTER, false, 'accessing', 'increment count := count + 1');
+    q.compileClassDefinition(
+      session(),
+      `${COUNTER} subclass: '${SUB}' instVarNames: #() classVars: #() ` +
+        'classInstVars: #() poolDictionaries: #() inDictionary: UserGlobals',
+    );
+    q.compileMethod(session(), SUB, false, 'accessing', 'doubleCount ^count * 2');
+  };
+
+  const changeFor = (
+    changes: RenameChange[],
+    className: string,
+    selector: string,
+  ): RenameChange | undefined =>
+    changes.find(
+      (c) => c.kind === 'methodRecompile' && c.className === className && c.selector === selector,
+    );
+
+  it('reports engine availability that matches whether the engine class is present', () => {
+    const available = engineLoaded();
+
+    expect(available).toBe(rbEnginePresent());
+  });
+
+  it('rewrites references across the defining class and its subclass', (ctx) => {
+    if (!engineLoaded()) ctx.skip('refactoring engine not loaded in this stone');
+
+    defineCounterHierarchy();
+
+    const changes = parseRenameChanges(
+      previewRenameInstVar(execQuery, COUNTER, 'count', 'tally', userIndex()),
+    );
+
+    expect(changeFor(changes, COUNTER, 'increment')?.newSource).toContain('tally := tally + 1');
+    expect(changeFor(changes, SUB, 'doubleCount')?.newSource).toContain('tally * 2');
+    expect(changes.some((c) => c.newSource.includes('count'))).toBe(false);
+  });
+
+  it('rewrites the instance-variable list in the class definition', (ctx) => {
+    if (!engineLoaded()) ctx.skip('refactoring engine not loaded in this stone');
+
+    defineCounterHierarchy();
+
+    const changes = parseRenameChanges(
+      previewRenameInstVar(execQuery, COUNTER, 'count', 'tally', userIndex()),
+    );
+
+    const classDef = changes.find((c) => c.kind === 'classDefinitionEdit');
+    expect(classDef?.className).toBe(COUNTER);
+    expect(classDef?.newSource).toContain('tally');
+    expect(classDef?.newSource).not.toContain('count');
+  });
+
+  it('builds the preview without committing', (ctx) => {
+    if (!engineLoaded()) ctx.skip('refactoring engine not loaded in this stone');
+
+    defineCounterHierarchy();
+    const needsCommitBefore = exec('System needsCommit printString').trim();
+
+    previewRenameInstVar(execQuery, COUNTER, 'count', 'tally', userIndex());
+
+    expect(exec('System needsCommit printString').trim()).toBe(needsCommitBefore);
+  });
+});

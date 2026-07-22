@@ -29,21 +29,21 @@ import { describeClass as sharedDescribeClass } from './queries/describeClass';
 import { getInstVarNames as sharedGetInstVarNames } from './queries/getInstVarNames';
 import { getDefinedInstVarNames as sharedGetDefinedInstVarNames } from './queries/getDefinedInstVarNames';
 import { getDefinedInstVarCounts as sharedGetDefinedInstVarCounts } from './queries/getDefinedInstVarCounts';
-import { getDefinedClassVarNames as sharedGetDefinedClassVarNames } from './queries/getDefinedClassVarNames';
-import { getVisibleClassVarNames as sharedGetVisibleClassVarNames } from './queries/getVisibleClassVarNames';
-import { getDefinedClassVarCounts as sharedGetDefinedClassVarCounts } from './queries/getDefinedClassVarCounts';
+import { getDefinedClassVarNames as sharedGetDefinedClassVarNames } from './refactoring/queries/getDefinedClassVarNames';
+import { getVisibleClassVarNames as sharedGetVisibleClassVarNames } from './refactoring/queries/getVisibleClassVarNames';
+import { getDefinedClassVarCounts as sharedGetDefinedClassVarCounts } from './refactoring/queries/getDefinedClassVarCounts';
 import {
   getClassVersions as sharedGetClassVersions,
   ClassVersionInfo,
-} from './queries/getClassVersions';
-import { previewRenameInstVar as sharedPreviewRenameInstVar } from './queries/previewRenameInstVar';
+} from './refactoring/queries/getClassVersions';
+import { previewRenameInstVar as sharedPreviewRenameInstVar } from './refactoring/queries/previewRenameInstVar';
 import {
   startRenameMethodPreview as sharedStartRenameMethodPreview,
   pageRenameMethodPreview as sharedPageRenameMethodPreview,
   applyRenameMethod as sharedApplyRenameMethod,
   clearRenameMethodPreview as sharedClearRenameMethodPreview,
   RenameMethodScope,
-} from './queries/previewRenameMethod';
+} from './refactoring/queries/previewRenameMethod';
 import {
   startRenameClassPreview as sharedStartRenameClassPreview,
   pageRenameClassPreview as sharedPageRenameClassPreview,
@@ -51,27 +51,27 @@ import {
   clearRenameClassPreview as sharedClearRenameClassPreview,
   RenameClassScope,
   RenameClassOptions,
-} from './queries/previewRenameClass';
+} from './refactoring/queries/previewRenameClass';
 import {
   startRenameClassVarPreview as sharedStartRenameClassVarPreview,
   pageRenameClassVarPreview as sharedPageRenameClassVarPreview,
   applyRenameClassVar as sharedApplyRenameClassVar,
   clearRenameClassVarPreview as sharedClearRenameClassVarPreview,
-} from './queries/previewRenameClassVar';
+} from './refactoring/queries/previewRenameClassVar';
 import {
   startRenameTemporaryPreview as sharedStartRenameTemporaryPreview,
   pageRenameTemporaryPreview as sharedPageRenameTemporaryPreview,
   applyRenameTemporary as sharedApplyRenameTemporary,
   clearRenameTemporaryPreview as sharedClearRenameTemporaryPreview,
   renameTemporaryDeclineReason as sharedRenameTemporaryDeclineReason,
-} from './queries/previewRenameTemporary';
+} from './refactoring/queries/previewRenameTemporary';
 import {
   getClassHistory as sharedGetClassHistory,
   revertClassToVersion as sharedRevertClassToVersion,
   removeClassVersion as sharedRemoveClassVersion,
-} from './queries/classHistory';
-import { globalNameInUse as sharedGlobalNameInUse } from './queries/globalNameInUse';
-import { isKernelClass as sharedIsKernelClass } from './queries/isKernelClass';
+} from './refactoring/queries/classHistory';
+import { globalNameInUse as sharedGlobalNameInUse } from './refactoring/queries/globalNameInUse';
+import { isKernelClass as sharedIsKernelClass } from './refactoring/queries/isKernelClass';
 import {
   getGrailStubReflection as sharedGetGrailStubReflection,
   GrailStubReflection,
@@ -138,8 +138,11 @@ export type { RowanLoadResult } from './queries/rowan/loadRowanProject';
 export type { RowanDiff, RowanDiffOp } from './queries/rowan/diffRowanProject';
 export { formatRowanDiff } from './queries/rowan/diffRowanProject';
 export type { RowanUnloadResult } from './queries/rowan/unloadRowanProject';
-export type { RenameClassScope, RenameClassOptions } from './queries/previewRenameClass';
-export type { ClassVersionInfo } from './queries/getClassVersions';
+export type {
+  RenameClassScope,
+  RenameClassOptions,
+} from './refactoring/queries/previewRenameClass';
+export type { ClassVersionInfo } from './refactoring/queries/getClassVersions';
 
 const MAX_RESULT = 256 * 1024;
 

@@ -28,7 +28,7 @@ import * as vscode from 'vscode';
 import { ActiveSession, SessionManager } from './sessionManager';
 import { supportsEnhancedInspector } from './enhancedInspectorInstall';
 import { installEnhancedInspectorFeature } from './enhancedInspectorCommand';
-import { installRefactoringFeature } from './refactoringInstallCommand';
+import { installRefactoringFeature } from './refactoring/refactoringInstallCommand';
 
 export type AutoInstallMode = 'ask' | 'always' | 'never';
 

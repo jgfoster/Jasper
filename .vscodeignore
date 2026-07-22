@@ -65,11 +65,11 @@ client/src/**
 !client/src/debuggerView.js
 !client/src/enhancedInspectorColumns.js
 !client/src/browserColumnResize.js
-!client/src/renameInstVarPanelView.js
-!client/src/renameMethodEditorView.js
-!client/src/renameMethodPanelView.js
-!client/src/renameClassEditorView.js
-!client/src/classHistoryPanelView.js
+!client/src/refactoring/renameInstVarPanelView.js
+!client/src/refactoring/renameMethodEditorView.js
+!client/src/refactoring/renameMethodPanelView.js
+!client/src/refactoring/renameClassEditorView.js
+!client/src/refactoring/classHistoryPanelView.js
 server/src/**
 mcp-server/src/**
 
