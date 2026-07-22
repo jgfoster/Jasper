@@ -88,6 +88,80 @@ export function getSharedMemory(): Promise<{ shmmax: number; shmall: number } | 
   });
 }
 
+/** Is shared memory at least the 1 GB GemStone needs (both shmmax and shmall)?
+ *  Treats an unreadable sysctl as "not configured". */
+export async function isSharedMemoryConfigured(): Promise<boolean> {
+  const mem = await getSharedMemory();
+  if (!mem) return false;
+  const shmmaxGb = mem.shmmax / Math.pow(2, 30);
+  const shmallGb = mem.shmall / Math.pow(2, 18);
+  return shmmaxGb >= 1 && shmallGb >= 1;
+}
+
+/** Does the systemd logind config set `RemoveIPC=no`? Without it, systemd
+ *  destroys GemStone shared memory (killing the Stone) when the session that
+ *  started it logs out.
+ *
+ *  Routes through WSL on Windows so we inspect the WSL distro's systemd config
+ *  rather than nonexistent Windows paths. systemd applies drop-ins in
+ *  alphabetical order after the main file; last RemoveIPC= wins. */
+export function getRemoveIpcConfigured(): boolean {
+  const wsl = needsWsl();
+  const readText = wsl
+    ? (p: string): string | undefined => {
+        try {
+          return wslExecSync(`cat ${shQuote(p)} 2>/dev/null`);
+        } catch {
+          return undefined;
+        }
+      }
+    : (p: string): string | undefined => {
+        try {
+          return fs.readFileSync(p, 'utf-8');
+        } catch {
+          return undefined;
+        }
+      };
+  const listConfs = wsl
+    ? (dir: string): string[] => {
+        try {
+          return wslExecSync(`ls -A1 ${shQuote(dir)} 2>/dev/null`)
+            .split('\n')
+            .map((s) => s.trim())
+            .filter(Boolean);
+        } catch {
+          return [];
+        }
+      }
+    : (dir: string): string[] => {
+        try {
+          return fs.existsSync(dir) ? fs.readdirSync(dir) : [];
+        } catch {
+          return [];
+        }
+      };
+
+  const dropInDir = '/etc/systemd/logind.conf.d';
+  const files = [
+    '/etc/systemd/logind.conf',
+    ...listConfs(dropInDir)
+      .filter((f) => f.endsWith('.conf'))
+      .sort()
+      .map((f) => `${dropInDir}/${f}`),
+  ];
+
+  let removeIpc: boolean | undefined;
+  for (const file of files) {
+    const content = readText(file);
+    if (content === undefined) continue;
+    for (const line of content.split('\n')) {
+      const match = line.match(/^\s*RemoveIPC\s*=\s*(\w+)\s*$/i);
+      if (match) removeIpc = match[1].toLowerCase() === 'no';
+    }
+  }
+  return removeIpc === true;
+}
+
 export class OsConfigTreeProvider implements vscode.TreeDataProvider<OsConfigNode> {
   private _onDidChangeTreeData = new vscode.EventEmitter<OsConfigNode | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
@@ -97,66 +171,6 @@ export class OsConfigTreeProvider implements vscode.TreeDataProvider<OsConfigNod
   refresh(): void {
     this._cache = undefined;
     this._onDidChangeTreeData.fire(undefined);
-  }
-
-  private getRemoveIpc(): boolean {
-    // Routes through WSL on Windows so we inspect the WSL distro's systemd
-    // config rather than nonexistent Windows paths. systemd applies drop-ins
-    // in alphabetical order after the main file; last RemoveIPC= wins.
-    const wsl = needsWsl();
-    const readText = wsl
-      ? (p: string): string | undefined => {
-          try {
-            return wslExecSync(`cat ${shQuote(p)} 2>/dev/null`);
-          } catch {
-            return undefined;
-          }
-        }
-      : (p: string): string | undefined => {
-          try {
-            return fs.readFileSync(p, 'utf-8');
-          } catch {
-            return undefined;
-          }
-        };
-    const listConfs = wsl
-      ? (dir: string): string[] => {
-          try {
-            return wslExecSync(`ls -A1 ${shQuote(dir)} 2>/dev/null`)
-              .split('\n')
-              .map((s) => s.trim())
-              .filter(Boolean);
-          } catch {
-            return [];
-          }
-        }
-      : (dir: string): string[] => {
-          try {
-            return fs.existsSync(dir) ? fs.readdirSync(dir) : [];
-          } catch {
-            return [];
-          }
-        };
-
-    const dropInDir = '/etc/systemd/logind.conf.d';
-    const files = [
-      '/etc/systemd/logind.conf',
-      ...listConfs(dropInDir)
-        .filter((f) => f.endsWith('.conf'))
-        .sort()
-        .map((f) => `${dropInDir}/${f}`),
-    ];
-
-    let removeIpc: boolean | undefined;
-    for (const file of files) {
-      const content = readText(file);
-      if (content === undefined) continue;
-      for (const line of content.split('\n')) {
-        const match = line.match(/^\s*RemoveIPC\s*=\s*(\w+)\s*$/i);
-        if (match) removeIpc = match[1].toLowerCase() === 'no';
-      }
-    }
-    return removeIpc === true;
   }
 
   getTreeItem(node: OsConfigNode): vscode.TreeItem {
@@ -465,7 +479,7 @@ export class OsConfigTreeProvider implements vscode.TreeDataProvider<OsConfigNod
     }
 
     if (showLinuxChecks) {
-      nodes.push({ kind: 'removeIpcStatus', configured: this.getRemoveIpc() });
+      nodes.push({ kind: 'removeIpcStatus', configured: getRemoveIpcConfigured() });
     }
 
     this._cache = nodes;
