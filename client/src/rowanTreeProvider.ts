@@ -439,15 +439,19 @@ export class RowanTreeProvider implements vscode.TreeDataProvider<RowanTreeNode>
     return this.loadedQuery;
   }
 
-  /** Loaded project names, or empty when disconnected/unavailable/erroring. */
-  private loadedProjectNames(): Set<string> {
+  /**
+   * Loaded project names, or undefined when nothing can answer — disconnected,
+   * Rowan unavailable, or the query failed. Undefined is not "nothing loaded":
+   * callers that show the distinction to a user must not conflate the two.
+   */
+  loadedProjectNames(): Set<string> | undefined {
     const q = this.queryLoaded();
-    return q.state === 'ok' && q.available ? new Set(q.projects.map((p) => p.name)) : new Set();
+    return q.state === 'ok' && q.available ? new Set(q.projects.map((p) => p.name)) : undefined;
   }
 
   private describe(
     repo: TrackedRepo,
-    loadedNames: Set<string>,
+    loadedNames: Set<string> | undefined,
     isWorkspace = false,
     isTracked = true,
   ): RowanRepoItem {
@@ -456,7 +460,7 @@ export class RowanTreeProvider implements vscode.TreeDataProvider<RowanTreeNode>
     }
     const specs = findRowanLoadSpecs(repo.path);
     const specNames = specs.map((s) => s.name);
-    const loaded = specNames.some((name) => loadedNames.has(name));
+    const loaded = specNames.some((name) => loadedNames?.has(name) ?? false);
     // Warn when a spec declares a bigger gem cache than the connected gem has —
     // only meaningful while connected and after the gem-cache probe succeeds.
     const gemKB = this.queryGemCacheKB();

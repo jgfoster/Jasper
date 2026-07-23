@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFile } from 'child_process';
 import * as vscode from 'vscode';
 import {
   LanguageClient,
@@ -33,7 +34,6 @@ import {
 } from './enhancedInspectorPerfTracker';
 import { CodeExecutor } from './codeExecutor';
 import { SystemBrowser } from './systemBrowser';
-import { obtainSystemUserSession, refreshWorkingSession } from './systemUserSession';
 import {
   startSeasideServer,
   stopSeasideServer,
@@ -58,6 +58,12 @@ import {
 import { isRowanProjectRoot } from './rowanProject';
 import { RowanProjectTreeProvider } from './rowanProjectView';
 import { createRowanProject } from './rowanCreate';
+import {
+  addProjectDependency,
+  dependencyNameFromGitUrl,
+  ProjectDependency,
+} from './rowanDependency';
+import { shouldLoadAfterAddingDependency } from './rowanLoadPrompt';
 import { RowanDecorationProvider } from './rowanDecorations';
 import { findMethodInClass } from './commands/findMethodInClass';
 import { loadClassPickItems } from './commands/classPicker';
@@ -303,6 +309,9 @@ const GETTING_STARTED_WALKTHROUGH_ID = 'gemtalksystems.gemstone-ide#gemstoneGett
 // opening so a re-entrant call can't double-open. Idempotent — safe to call on
 // every activation.
 export function maybeOpenGettingStarted(context: vscode.ExtensionContext): void {
+  // The acceptance harness reveals the GemStone view every run from a throwaway
+  // profile, so without this the first-run walkthrough pops over every test.
+  if (process.env.GEMSTONE_SUPPRESS_WALKTHROUGH) return;
   if (context.globalState.get<boolean>(GETTING_STARTED_SEEN_KEY)) return;
   void context.globalState.update(GETTING_STARTED_SEEN_KEY, true);
   void vscode.commands.executeCommand(
@@ -374,13 +383,19 @@ function isInsideWorkspace(p: string): boolean {
 }
 
 // Load a Rowan project from an on-disk directory: find its load spec (picking
-// among several), load it over a transient SystemUser session, then refresh the
-// working session's view and the browser. Shared by the local-directory and
-// git-clone load commands.
+// among several) and load it on the working session. Shared by the
+// local-directory and git-clone load commands.
+//
+// It loads as the user who asked, because Rowan's registry is per-user:
+// `System myUserProfile symbolList objectNamed: #'Rowan'` answers a different
+// Rowan for SystemUser than for DataCurator. Loading over a privileged session
+// therefore registers the project where the user's own session will never look
+// for it — the project loads, commits, reports success, and is invisible in the
+// view. No privilege is needed: the working user loads and commits this itself.
 async function loadRowanFromDirectory(
   session: ActiveSession,
   dir: string,
-  sessionManager: SessionManager,
+  onLoaded: () => void,
 ): Promise<void> {
   const specs = findRowanLoadSpecs(dir);
   if (specs.length === 0) {
@@ -425,17 +440,13 @@ async function loadRowanFromDirectory(
     }
   }
 
-  // Loading mutates Rowan's system registry — needs SystemUser.
-  const sys = await obtainSystemUserSession(session, `load Rowan project "${spec.name}"`);
-  if (!sys) return;
-
   // Runs over the non-blocking execute: big projects load for minutes, and the
   // nb runner keeps the extension responsive and shows a cancellable progress
-  // notification. Cancelling hard-breaks the gem; the logout below then discards
-  // the aborted transaction, so nothing partial is committed.
+  // notification. Cancelling hard-breaks the gem, and the query aborts its own
+  // transaction on error, so nothing partial is committed.
   let result;
   try {
-    result = await queries.loadRowanProjectNb(sys, spec.path, dir, `Loading ${spec.name}…`);
+    result = await queries.loadRowanProjectNb(session, spec.path, dir, `Loading ${spec.name}…`);
   } catch (e: unknown) {
     if (e instanceof NbCancelledError) {
       vscode.window.showInformationMessage(`Load of "${spec.name}" cancelled.`);
@@ -445,21 +456,85 @@ async function loadRowanFromDirectory(
       );
     }
     return;
-  } finally {
-    try {
-      session.gci.GciTsLogout(sys.handle);
-    } catch {
-      /* transient session */
-    }
   }
 
   if (!result.success) {
     vscode.window.showErrorMessage(`Load of "${spec.name}" failed: ${result.detail}`);
     return;
   }
-  // The load committed on the SystemUser session; refresh the working session's
-  // view so the new project is visible.
-  await refreshWorkingSession(session, sessionManager, `Rowan project "${result.detail}" loaded.`);
+  // Loaded and committed on this very session, so it is already visible — no
+  // session to reconcile, and nothing for the user to be asked about.
+  onLoaded();
+  vscode.window.showInformationMessage(`Rowan project "${result.detail}" loaded.`);
+}
+
+// List a git remote's branches and tags (via `git ls-remote`), newest-looking
+// first isn't attempted — Rowan just needs the ref name. Returns [] when the
+// remote can't be reached (private without auth, offline, bad URL).
+function listRemoteRefs(url: string): Promise<{ branches: string[]; tags: string[] }> {
+  return new Promise((resolve) => {
+    execFile('git', ['ls-remote', '--heads', '--tags', url], { timeout: 20_000 }, (err, stdout) => {
+      if (err) {
+        resolve({ branches: [], tags: [] });
+        return;
+      }
+      const branches: string[] = [];
+      const tags: string[] = [];
+      for (const line of stdout.split('\n')) {
+        // `<sha>\trefs/heads/<branch>` or `refs/tags/<tag>` (skip `^{}` peels).
+        const m = /^[0-9a-f]+\s+refs\/(heads|tags)\/(.+?)(\^\{\})?$/.exec(line.trim());
+        if (!m || m[3]) continue;
+        (m[1] === 'heads' ? branches : tags).push(m[2]);
+      }
+      resolve({ branches, tags });
+    });
+  });
+}
+
+// Ask the user which revision of a git dependency to pin. Lists the remote's
+// branches and tags to pick from; falls back to free text when it can't reach
+// the remote. Returns undefined if the user cancels.
+async function pickGitRevision(url: string): Promise<string | undefined> {
+  const name = dependencyNameFromGitUrl(url);
+  const { branches, tags } = await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: `Fetching refs for ${name}…` },
+    () => listRemoteRefs(url),
+  );
+  if (branches.length === 0 && tags.length === 0) {
+    return (
+      await vscode.window.showInputBox({
+        title: `Revision for ${name}`,
+        prompt: `Couldn't list refs for ${url}. Enter a branch, tag, or commit`,
+        ignoreFocusOut: true,
+      })
+    )?.trim();
+  }
+  // A branch moves, so pinning to one isn't really pinning. `git ls-remote`
+  // only lists refs, never commits, so offer a way to name one: a project is
+  // reproducible only when it records the exact commit it was built against.
+  const ENTER_REVISION = 'Enter a commit or other revision…';
+  const items: vscode.QuickPickItem[] = [
+    { label: ENTER_REVISION, description: 'exact commit', alwaysShow: true },
+  ];
+  if (branches.length) items.push({ label: 'Branches', kind: vscode.QuickPickItemKind.Separator });
+  for (const b of branches) items.push({ label: b, description: 'branch' });
+  if (tags.length) items.push({ label: 'Tags', kind: vscode.QuickPickItemKind.Separator });
+  for (const t of tags) items.push({ label: t, description: 'tag' });
+  const picked = await vscode.window.showQuickPick(items, {
+    title: `Revision for ${name}`,
+    placeHolder: 'Pick a branch or tag, or name an exact commit',
+  });
+  if (!picked) return undefined;
+  if (picked.label !== ENTER_REVISION) return picked.label;
+
+  return (
+    await vscode.window.showInputBox({
+      title: `Revision for ${name}`,
+      prompt: 'Enter a commit, branch, or tag',
+      placeHolder: '88835be',
+      ignoreFocusOut: true,
+    })
+  )?.trim();
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -1565,7 +1640,10 @@ export function activate(context: vscode.ExtensionContext) {
       });
       if (!folder || folder.length === 0) return;
 
-      await loadRowanFromDirectory(session, folder[0].fsPath, sessionManager);
+      await loadRowanFromDirectory(session, folder[0].fsPath, () => {
+        rowanProvider.refresh();
+        refreshRowanProjectView();
+      });
       void vscode.commands.executeCommand('gemstone.rowanRefreshView');
     }),
 
@@ -1605,7 +1683,10 @@ export function activate(context: vscode.ExtensionContext) {
         }
       }
 
-      await loadRowanFromDirectory(session, dest, sessionManager);
+      await loadRowanFromDirectory(session, dest, () => {
+        rowanProvider.refresh();
+        refreshRowanProjectView();
+      });
       void vscode.commands.executeCommand('gemstone.rowanRefreshView');
     }),
 
@@ -1638,36 +1719,23 @@ export function activate(context: vscode.ExtensionContext) {
         );
         if (confirm !== 'Unload') return;
 
-        const sys = await obtainSystemUserSession(session, `unload Rowan project "${projectName}"`);
-        if (!sys) return;
-
-        let result;
-        try {
-          result = await vscode.window.withProgress(
-            {
-              location: vscode.ProgressLocation.Notification,
-              title: `Unloading ${projectName}…`,
-              cancellable: false,
-            },
-            () => Promise.resolve(queries.unloadRowanProject(sys, projectName)),
-          );
-        } finally {
-          try {
-            session.gci.GciTsLogout(sys.handle);
-          } catch {
-            /* transient session */
-          }
-        }
+        // Unloads as the user who asked, for the same reason loading does:
+        // Rowan's registry is per-user, so a privileged session would be
+        // unloading from a registry this project was never in.
+        const result = await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Unloading ${projectName}…`,
+            cancellable: false,
+          },
+          () => Promise.resolve(queries.unloadRowanProject(session, projectName)),
+        );
 
         if (!result.success) {
           vscode.window.showErrorMessage(`Unload of "${projectName}" failed: ${result.detail}`);
           return;
         }
-        await refreshWorkingSession(
-          session,
-          sessionManager,
-          `Rowan project "${projectName}" unloaded.`,
-        );
+        vscode.window.showInformationMessage(`Rowan project "${projectName}" unloaded.`);
         void vscode.commands.executeCommand('gemstone.rowanRefreshView');
       },
     ),
@@ -1774,6 +1842,46 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('gemstone.debugIt', async () => {
       await codeExecutor.debugIt();
+    }),
+
+    // Some expressions never return — a web server's listen loop, say — so they
+    // can't run on this session without wedging it. Give them a gem of their own.
+    vscode.commands.registerCommand('gemstone.runInNewGem', async () => {
+      const session = await sessionManager.resolveSession();
+      if (!session) return;
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showErrorMessage('No active text editor.');
+        return;
+      }
+      const selection = editor.selection.isEmpty
+        ? editor.document.lineAt(editor.selection.active.line).range
+        : editor.selection;
+      const code = editor.document.getText(selection).trim();
+      if (!code) {
+        vscode.window.showWarningMessage('No code to run.');
+        return;
+      }
+
+      try {
+        if (!queries.canForkGem(session)) {
+          vscode.window.showErrorMessage(
+            `This database (GemStone ${session.stoneVersion}) cannot start a gem this way — ` +
+              'it needs one-time password logins, which arrived in a later release.',
+          );
+          return;
+        }
+        const gemSession = queries.forkGemRunning(session, code);
+        // Say plainly that it is now unmanaged: nothing lists or stops a gem
+        // started this way, so the id is all the user has to go on.
+        vscode.window.showInformationMessage(
+          `Running in gem session ${gemSession}. It keeps running until the database stops — Jasper cannot stop it for you yet.`,
+        );
+      } catch (e: unknown) {
+        vscode.window.showErrorMessage(
+          `Could not start a gem: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
     }),
 
     vscode.commands.registerCommand('gemstone.copyDisplayItResult', () => {
@@ -2580,7 +2688,9 @@ export function activate(context: vscode.ExtensionContext) {
   // The Rowan project at the open workspace root, shown as a section in the
   // Explorer (contributed only when gemstone.workspaceIsRowanProject). Its
   // packages are read from disk — co-located with the file tree, no stone.
-  const rowanProjectProvider = new RowanProjectTreeProvider();
+  // Fed by the Rowan view's own image query, so "loaded" is decided in one place
+  // rather than asked of the stone twice.
+  const rowanProjectProvider = new RowanProjectTreeProvider(rowanProvider);
   const rowanProjectView = vscode.window.createTreeView('gemstoneRowanProject', {
     treeDataProvider: rowanProjectProvider,
   });
@@ -2620,6 +2730,11 @@ export function activate(context: vscode.ExtensionContext) {
       'gemstone.workspaceIsRowanProject',
       !!root && isRowanProjectRoot(root),
     );
+    // Gate the "isn't a Rowan project" welcome on having actually looked. Until
+    // the extension activates, workspaceIsRowanProject is undefined — which a
+    // `!` clause reads as "not a project", flashing that welcome over a project
+    // we simply hadn't checked yet. Set last, so it never precedes the answer.
+    vscode.commands.executeCommand('setContext', 'gemstone.rowanProjectChecked', true);
   };
   refreshRowanWorkspaceContext();
   refreshRowanProjectView();
@@ -2630,8 +2745,12 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     // Git-view-style M/A/D badges + label tinting for Rowan rows.
     vscode.window.registerFileDecorationProvider(new RowanDecorationProvider()),
-    // Loaded-projects section tracks the connected stone.
-    sessionManager.onDidChangeSelection(() => rowanProvider.refresh()),
+    // Loaded-projects section tracks the connected stone; so does whether each
+    // dependency is marked as being in the image.
+    sessionManager.onDidChangeSelection(() => {
+      rowanProvider.refresh();
+      refreshRowanProjectView();
+    }),
     // The workspace root defines the Rowan project — re-evaluate on folder change.
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       refreshRowanWorkspaceContext();
@@ -2641,6 +2760,73 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('gemstone.rowanRefreshView', () => {
       rowanProvider.refresh();
+    }),
+
+    vscode.commands.registerCommand('gemstone.rowanAddDependency', async () => {
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!root || !isRowanProjectRoot(root)) {
+        vscode.window.showErrorMessage(
+          'Open a Rowan project first — the dependency is added to its Core component.',
+        );
+        return;
+      }
+
+      const input = (
+        await vscode.window.showInputBox({
+          title: 'Add Dependency',
+          prompt: 'Paste a git URL (https or ssh) or a local directory path',
+          placeHolder:
+            'https://github.com/owner/repo.git · git@github.com:owner/repo.git · /path/to/project',
+          ignoreFocusOut: true,
+        })
+      )?.trim();
+      if (!input) return;
+
+      let dep: ProjectDependency;
+      if (/^(https?|ssh|git):\/\//.test(input) || /^git@/.test(input) || input.endsWith('.git')) {
+        const revision = await pickGitRevision(input);
+        if (!revision) return;
+        dep = { kind: 'git', name: dependencyNameFromGitUrl(input), gitUrl: input, revision };
+      } else {
+        const dir = path.resolve(input);
+        if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+          vscode.window.showErrorMessage(`Not a git URL or an existing directory: ${input}`);
+          return;
+        }
+        dep = { kind: 'disk', name: path.basename(dir), diskUrl: dir };
+      }
+
+      const result = addProjectDependency(root, dep);
+      if (!result.success) {
+        vscode.window.showErrorMessage(`Could not add ${dep.name}: ${result.error}`);
+        return;
+      }
+      rowanProvider.refresh();
+      refreshRowanProjectView();
+
+      // Adding a dependency only writes a file. If a database is connected,
+      // offer to load so it actually has the code — the load reports its own
+      // result, so it stands in for the "Added …" notification below.
+      const connected = sessionManager.getSelectedSession();
+      if (connected && (await shouldLoadAfterAddingDependency(dep.name))) {
+        await loadRowanFromDirectory(connected, root, () => {
+          rowanProvider.refresh();
+          refreshRowanProjectView();
+        });
+        return;
+      }
+
+      const choice = await vscode.window.showInformationMessage(
+        result.alreadyPresent
+          ? `Updated the ${dep.name} dependency.`
+          : `Added ${dep.name} as a dependency of this project.`,
+        'Open Reference',
+      );
+      if (choice === 'Open Reference' && result.referenceFile) {
+        await vscode.window.showTextDocument(
+          await vscode.workspace.openTextDocument(vscode.Uri.file(result.referenceFile)),
+        );
+      }
     }),
 
     vscode.commands.registerCommand('gemstone.rowanNewProject', async () => {
@@ -2889,7 +3075,10 @@ export function activate(context: vscode.ExtensionContext) {
       if (!item) return;
       const session = await sessionManager.resolveSession();
       if (!session) return;
-      await loadRowanFromDirectory(session, item.repo.path, sessionManager);
+      await loadRowanFromDirectory(session, item.repo.path, () => {
+        rowanProvider.refresh();
+        refreshRowanProjectView();
+      });
       rowanProvider.refresh();
     }),
 

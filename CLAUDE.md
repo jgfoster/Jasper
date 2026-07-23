@@ -40,8 +40,6 @@ npm run dev:fresh:keep-installs # same, but reuse your real ~/Documents/GemStone
 # End-user acceptance tests (Playwright drives a real editor window; see acceptance/)
 npm run test:acceptance         # run the specs locally (opens a window — macOS can't headless it)
 npm run test:acceptance:docker  # run them headless in a Linux container (no window)
-npm run test:acceptance:rowan   # the Rowan add-from-git → load e2e (in-container stone)
-npm run test:acceptance:seaside # the Seaside Hello World e2e (install → serve → integrated browser)
 npm run test:acceptance:report  # open the HTML report / flip through per-step screenshots
 ```
 
