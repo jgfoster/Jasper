@@ -1,6 +1,6 @@
 import { ActiveSession } from './sessionManager';
-import { OOP_NIL, OOP_ILLEGAL } from './gciConstants';
-import { logQuery, logResult, logError } from './gciLog';
+import { OOP_ILLEGAL, OOP_NIL } from './gciConstants';
+import { logError } from './gciLog';
 import { runNbCall } from './nbRunner';
 
 import { QueryExecutor } from './queries/types';
@@ -11,8 +11,8 @@ import { getBaseMethodSource as sharedGetBaseMethodSource } from './queries/getB
 import { getDictionaryNames as sharedGetDictionaryNames } from './queries/getDictionaryNames';
 import { getClassNames as sharedGetClassNames } from './queries/getClassNames';
 import {
-  getClassesWithCategory as sharedGetClassesWithCategory,
   ClassCategoryEntry,
+  getClassesWithCategory as sharedGetClassesWithCategory,
 } from './queries/getClassesWithCategory';
 import { getDictionaryClassFileOutOrder as sharedGetDictionaryClassFileOutOrder } from './queries/getDictionaryClassFileOutOrder';
 import { getDictionaryEntries as sharedGetDictionaryEntries } from './queries/getDictionaryEntries';
@@ -50,11 +50,11 @@ import {
 import { diffRowanProject as sharedDiffRowanProject } from './queries/rowan/diffRowanProject';
 import { unloadRowanProject as sharedUnloadRowanProject } from './queries/rowan/unloadRowanProject';
 import {
+  hierarchyImplementorsOf as sharedHierarchyImplementorsOf,
+  implementorsOf as sharedImplementorsOf,
+  referencesToObject as sharedReferencesToObject,
   searchMethodSource as sharedSearchMethodSource,
   sendersOf as sharedSendersOf,
-  implementorsOf as sharedImplementorsOf,
-  hierarchyImplementorsOf as sharedHierarchyImplementorsOf,
-  referencesToObject as sharedReferencesToObject,
 } from './queries/methodSearch';
 
 // Write-path shared queries.
@@ -128,8 +128,6 @@ function resolveClassUtf8(session: ActiveSession): bigint {
 // correctly regardless of their original encoding and are not capped at a
 // single fixed-size buffer.
 export function executeFetchString(session: ActiveSession, label: string, code: string): string {
-  logQuery(session.id, label, code);
-
   // Check if session is busy with an async operation (e.g., Display It)
   const { result: inProgress } = session.gci.GciTsCallInProgress(session.handle);
   if (inProgress !== 0) {
@@ -139,9 +137,7 @@ export function executeFetchString(session: ActiveSession, label: string, code: 
   }
 
   try {
-    const result = session.gci.executeAndFetchString(session.handle, code);
-    logResult(session.id, result);
-    return result;
+    return session.gci.executeAndFetchString(session.handle, code);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     logError(session.id, msg);
@@ -164,8 +160,6 @@ export async function executeFetchStringNb(
   progressTitle?: string,
   suppressNotification = false,
 ): Promise<string> {
-  logQuery(session.id, label, code);
-
   const { result: inProgress } = session.gci.GciTsCallInProgress(session.handle);
   if (inProgress !== 0) {
     const msg = 'Session is busy with another operation. Please wait or use a different session.';
@@ -197,7 +191,6 @@ export async function executeFetchStringNb(
     { title: progressTitle ?? `GemStone: ${label}…`, suppressNotification },
   );
 
-  logResult(session.id, data);
   return data;
 }
 
@@ -213,8 +206,6 @@ export function executeFetchStringWithLimit(
   code: string,
   maxBytes: number,
 ): string {
-  logQuery(session.id, label, code);
-
   const { result: inProgress } = session.gci.GciTsCallInProgress(session.handle);
   if (inProgress !== 0) {
     const msg = 'Session is busy with another operation. Please wait or use a different session.';
