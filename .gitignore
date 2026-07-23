@@ -37,3 +37,6 @@ topazerrors.log
 acceptance/playwright-report/
 acceptance/test-results/
 acceptance/.vscode-test/
+
+# Refactoring design / TDD stage docs — local working notes, kept out of the repo
+gs-src/refactoring/design/

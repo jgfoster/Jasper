@@ -8,6 +8,8 @@ import {
   buildClassDefinitionUri,
   buildNewMethodUri,
   buildMethodUri,
+  parseUri,
+  listOpenGemstoneTabs,
 } from './gemstoneFileSystemProvider';
 import { filterMatches } from './explorerFilter';
 import { DoubleClickDetector } from './explorerDoubleClick';
@@ -15,6 +17,54 @@ import { categoryChildNodes, categoryParentPath, categoryMatches } from './explo
 import { registerExplorerOpenEditors } from './explorerOpenEditors';
 import { SourceEditorPlacement } from './sourceEditorPlacement';
 import { generateAndSaveGrailStub } from './grailStubGenerator';
+import {
+  RenameChange,
+  parseRenameChanges,
+  orderChangesClassDefFirst,
+  planRenameApply,
+  validateNewIvarName,
+} from './refactoring/renameInstVarPreview';
+import { showRenameInstVarPanel } from './refactoring/renameInstVarPanel';
+import { renameInstVarAtCursorCommand } from './refactoring/renameInstVarAtCursorCommand';
+import { renameClassVarAtCursorCommand } from './refactoring/renameClassVarAtCursorCommand';
+import {
+  renameMethodAtCursorCommand,
+  SelectorAtPosition,
+} from './refactoring/renameMethodAtCursorCommand';
+import {
+  parseStartPreview,
+  parsePage,
+  parseApplyResult,
+  validateNewParts,
+  buildSelector,
+  permutationFromOriginalIndices,
+  parseArgNames,
+} from './refactoring/renameMethodPreview';
+import { PREVIEW_PAGE_BYTES } from './refactoring/queries/previewRenameMethod';
+import { showRenameMethodEditor } from './refactoring/renameMethodEditor';
+import { showRenameMethodPanel } from './refactoring/renameMethodPanel';
+import {
+  parseStartPreview as parseStartClassPreview,
+  parsePage as parseClassPage,
+  parseApplyResult as parseClassApplyResult,
+  validateNewClassName,
+} from './refactoring/renameClassPreview';
+import { showRenameClassEditor } from './refactoring/renameClassEditor';
+import { showRenameClassPanel } from './refactoring/renameClassPanel';
+import {
+  parseStartPreview as parseStartClassVarPreview,
+  parsePage as parseClassVarPage,
+  parseApplyResult as parseClassVarApplyResult,
+  validateNewClassVarName,
+} from './refactoring/renameClassVarPreview';
+import { showRenameClassVarPanel } from './refactoring/renameClassVarPanel';
+import { variableSides, defaultDictionaryIndex } from './explorerTreeHelpers';
+import {
+  parseClassHistory,
+  parseRevertResult,
+  parseRemoveResult,
+} from './refactoring/classHistoryModel';
+import { showClassHistoryPanel } from './refactoring/classHistoryPanel';
 
 const VIEW_DICTS = 'gemstoneExplorerDicts';
 const VIEW_CATEGORIES = 'gemstoneExplorerCategories';
@@ -141,11 +191,14 @@ class ClassItem extends vscode.TreeItem {
   constructor(
     public readonly className: string,
     hasIvars = false,
+    versionTag?: string,
   ) {
     super(
-      className,
+      versionTag === undefined ? className : `${className}[${versionTag}]`,
       hasIvars ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
     );
+    // The displayed label may carry a `[n]` version tag, but the node's identity
+    // (id, click argument, ivar sub-tree) always uses the raw class name.
     this.id = `k:${className}`;
     this.contextValue = 'explorerClass';
     this.iconPath = new vscode.ThemeIcon('symbol-class');
@@ -159,8 +212,9 @@ class ClassItem extends vscode.TreeItem {
   }
 }
 
-// A locally-defined instance variable, shown as a child of its ClassItem. The
-// pencil (inline) action renames it; selecting the row does not navigate.
+// A locally-defined instance variable, shown under its class's "instance"
+// variable-side node. The pencil (inline) action renames it; selecting the row
+// does not navigate.
 class IvarItem extends vscode.TreeItem {
   constructor(
     public readonly className: string,
@@ -174,7 +228,42 @@ class IvarItem extends vscode.TreeItem {
   }
 }
 
-type ClassNode = ClassItem | IvarItem;
+// A locally-defined class variable, shown under its class's "class" variable-side
+// node. The pencil (inline) action renames it across the class and its subclasses;
+// selecting the row does not navigate.
+class ClassVarItem extends vscode.TreeItem {
+  constructor(
+    public readonly className: string,
+    public readonly classVarName: string,
+  ) {
+    super(classVarName, vscode.TreeItemCollapsibleState.None);
+    this.id = `k:${className}/cv:${classVarName}`;
+    this.contextValue = 'explorerClassVar';
+    this.iconPath = new vscode.ThemeIcon('symbol-constant');
+    this.tooltip = `Class variable defined in ${className}`;
+  }
+}
+
+// The "instance" / "class" grouping node under a ClassItem that separates instance
+// variables from class variables — mirroring the Methods pane's instance/class
+// sides. isMeta=false holds the IvarItem rows; isMeta=true holds the ClassVarItem
+// rows. A side node is only created when that side has at least one variable.
+class VarSideItem extends vscode.TreeItem {
+  constructor(
+    public readonly className: string,
+    public readonly isMeta: boolean,
+  ) {
+    super(isMeta ? 'class' : 'instance', vscode.TreeItemCollapsibleState.Expanded);
+    this.id = `k:${className}/vside:${isMeta}`;
+    this.contextValue = 'explorerVarSide';
+    this.iconPath = new vscode.ThemeIcon('symbol-class');
+    this.tooltip = isMeta
+      ? `Class variables of ${className}`
+      : `Instance variables of ${className}`;
+  }
+}
+
+type ClassNode = ClassItem | VarSideItem | IvarItem | ClassVarItem;
 
 // Method pane is a 3-level tree: side ▸ method-category ▸ selector.
 class MethodSideItem extends vscode.TreeItem {
@@ -288,9 +377,12 @@ class HierarchyItem extends vscode.TreeItem {
     // Position in the ancestor→self chain; -1 for subclasses.
     public readonly chainIndex: number,
     hasChildren: boolean,
+    // A `[current/total]` class-history version tag, when the class has more than
+    // one version (same rule as the Classes pane). Affects only the label, never the id.
+    versionTag?: string,
   ) {
     super(
-      className,
+      versionTag === undefined ? className : `${className}[${versionTag}]`,
       hasChildren ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None,
     );
     this.id = `h:${role}:${chainIndex}:${className}`;
@@ -351,6 +443,14 @@ class ExplorerController {
   // expansion caret. Names are fetched lazily on expand and memoized here.
   private definedIvarCounts = new Map<string, number>();
   private readonly definedIvarNamesCache = new Map<string, string[]>();
+  // Same, for locally-defined CLASS variables (drives the class-variable sub-tree).
+  private definedClassVarCounts = new Map<string, number>();
+  private readonly definedClassVarNamesCache = new Map<string, string[]>();
+  // className → {current,total} position in its class history, for classes with
+  // more than one version in the current dictionary; fetched once per dict so a
+  // reshaped class row can render `Foo[2/3]`. Single-version classes are absent
+  // (they render with no version tag).
+  private classVersions = new Map<string, queries.ClassVersionInfo>();
   // Per-method metadata for the selected class; fetched once per class.
   private envLines: queries.EnvCategoryLine[] = [];
   private views?: ExplorerViews;
@@ -505,7 +605,10 @@ class ExplorerController {
     this.state.selectedMethodCategory = undefined;
     this.classCategoryEntries = [];
     this.definedIvarCounts = new Map();
+    this.classVersions = new Map();
     this.definedIvarNamesCache.clear();
+    this.definedClassVarCounts = new Map();
+    this.definedClassVarNamesCache.clear();
     this.envLines = [];
     this.hierChain = [];
     this.hierSubs = [];
@@ -519,6 +622,35 @@ class ExplorerController {
     this.hierarchyProvider.refresh();
     this.methodProvider.refresh();
     this.syncTitles();
+    // Auto-select a default dictionary so the class/category panes are populated on
+    // first open. A programmatic tree selection does NOT fire the view's selection
+    // handler (which is what runs selectDict), so without this the panes stay empty
+    // until the user clicks a dictionary even though one looks highlighted.
+    this.autoSelectDefaultDict();
+  }
+
+  // Select a sensible default dictionary (UserGlobals if present, else the first)
+  // and populate + reveal it. Called ONLY from reset() — i.e. on a session switch,
+  // which has already cleared any prior selection — so it never stomps a user's
+  // current selection (the manual Refresh button uses refreshRetainingSelection,
+  // which does NOT call this). Lets a freshly-connected session land on a populated
+  // dictionary instead of empty class/category panes. No-op without a session or
+  // dictionaries.
+  private autoSelectDefaultDict(): void {
+    const session = this.session();
+    if (session === undefined) return;
+    let names: string[];
+    try {
+      names = queries.getDictionaryNames(session);
+    } catch {
+      return;
+    }
+    const i = defaultDictionaryIndex(names);
+    if (i < 0) return;
+    const item = new DictItem(names[i], i + 1);
+    this.selectDict(item);
+    const views = this.views;
+    if (views) views.dict.reveal(item, { select: true }).then(undefined, () => {});
   }
 
   // Re-fetch everything for the CURRENT selection WITHOUT clearing it — the
@@ -605,7 +737,7 @@ class ExplorerController {
     if (className !== undefined) {
       try {
         await this.views?.klass.reveal(
-          new ClassItem(className, this.classHasDefinedIvars(className)),
+          new ClassItem(className, this.classHasDefinedVars(className)),
           { select: true },
         );
       } catch {
@@ -686,6 +818,77 @@ class ExplorerController {
   recordMethodContext(isMeta: boolean, category?: string): void {
     this.state.selectedIsMeta = isMeta;
     this.state.selectedMethodCategory = category;
+  }
+
+  // Reload the current class's method/environment data (the source the Methods
+  // pane renders from) and refresh the affected panes. Called after a change that
+  // alters the visible class's selectors — e.g. a method rename — so the method
+  // list, override arrows, and class list reflect it without reselecting the class.
+  reloadCurrentClassMethods(): void {
+    const session = this.session();
+    this.envLines =
+      session && this.state.dictIndex !== undefined && this.state.className !== undefined
+        ? queries.getClassEnvironments(
+            session,
+            this.state.dictIndex,
+            this.state.className,
+            this.maxEnv(),
+          )
+        : [];
+    this.methodProvider.refresh();
+    this.hierarchyProvider.refresh();
+    this.classProvider.refresh();
+  }
+
+  // After a method rename, bring already-open editors on the affected methods up
+  // to date: a recompiled sender is reopened on the same URI (re-reading its new
+  // body), a renamed implementor is reopened on its NEW selector's URI (the old
+  // one no longer exists). An editor with UNSAVED changes is left alone — we
+  // never discard the user's in-progress edits. Best-effort and clean-only.
+  private async refreshRenamedSelectorEditors(
+    oldSelector: string,
+    newSelector: string,
+  ): Promise<void> {
+    const session = this.session();
+    if (!session) return;
+    if (oldSelector === newSelector) return; // pure reorder: same selector, same URI
+
+    for (const { tab, uri } of listOpenGemstoneTabs()) {
+      if (tab.isDirty) continue; // never clobber unsaved edits
+
+      let parsed;
+      try {
+        parsed = parseUri(uri);
+      } catch {
+        continue;
+      }
+      if (parsed.kind !== 'method' || parsed.sessionId !== session.id) continue;
+      if (parsed.base || parsed.diffView) continue; // read-only override-diff views
+
+      // The rename maps oldSelector → newSelector uniformly, so an editor open on
+      // an implementor of the old selector should reopen on the new one (the old
+      // method no longer exists). Senders keep their own selector — left as is.
+      if (unescapeSelectorSlashes(parsed.selector) !== oldSelector) continue;
+
+      const targetUri = buildMethodUri({
+        kind: 'method',
+        sessionId: parsed.sessionId,
+        dictName: parsed.dictName,
+        className: parsed.className,
+        isMeta: parsed.isMeta,
+        category: parsed.category,
+        selector: escapeSelectorSlashes(newSelector),
+        environmentId: parsed.environmentId,
+        dictIndex: parsed.dictIndex,
+      });
+      const viewColumn = tab.group.viewColumn;
+      try {
+        await vscode.window.tabGroups.close(tab);
+        await vscode.window.showTextDocument(targetUri, { viewColumn, preview: false });
+      } catch {
+        // Best-effort: a failed reopen just leaves the tab closed.
+      }
+    }
   }
 
   selectClass(item: ClassItem): void {
@@ -887,6 +1090,7 @@ class ExplorerController {
         isSelf ? 'self' : 'ancestor',
         i,
         hasChildren,
+        this.classVersion(e.className),
       );
     };
     if (!element) return [chainItem(0)];
@@ -894,7 +1098,15 @@ class ExplorerController {
     if (element.chainIndex < lastIdx) return [chainItem(element.chainIndex + 1)];
     // element is the current class → list its subclasses.
     return this.hierSubs.map(
-      (s) => new HierarchyItem(s.className, s.dictName, 'subclass', -1, false),
+      (s) =>
+        new HierarchyItem(
+          s.className,
+          s.dictName,
+          'subclass',
+          -1,
+          false,
+          this.classVersion(s.className),
+        ),
     );
   }
 
@@ -998,15 +1210,19 @@ class ExplorerController {
 
   // ── Instance-variable sub-tree (Classes pane) ────────────────────────────────
 
-  // Reload the per-class defined-ivar counts for the current dictionary (one
-  // round trip) and drop any memoized name lists. Called wherever the class
-  // listing itself is (re)loaded. A failed probe leaves the counts empty rather
-  // than breaking navigation — classes just render flat.
+  // Reload the per-class Classes-pane row metadata for the current dictionary
+  // (defined-ivar counts and version numbers, one round trip each) and drop any
+  // memoized name lists. Called wherever the class listing itself is (re)loaded.
+  // A failed probe leaves the maps empty rather than breaking navigation —
+  // classes just render flat and untagged.
   private loadDefinedIvarCounts(): void {
     const session = this.session();
     this.definedIvarNamesCache.clear();
+    this.definedClassVarNamesCache.clear();
     if (!session || this.state.dictIndex === undefined) {
       this.definedIvarCounts = new Map();
+      this.definedClassVarCounts = new Map();
+      this.classVersions = new Map();
       return;
     }
     try {
@@ -1014,11 +1230,37 @@ class ExplorerController {
     } catch {
       this.definedIvarCounts = new Map();
     }
+    try {
+      this.definedClassVarCounts = queries.getDefinedClassVarCounts(session, this.state.dictIndex);
+    } catch {
+      this.definedClassVarCounts = new Map();
+    }
+    try {
+      this.classVersions = queries.getClassVersions(session, this.state.dictIndex);
+    } catch {
+      this.classVersions = new Map();
+    }
   }
 
   // Whether a class has locally-defined instance variables (drives the caret).
   classHasDefinedIvars(className: string): boolean {
     return (this.definedIvarCounts.get(className) ?? 0) > 0;
+  }
+
+  // Whether a class has locally-defined variables of EITHER kind — the class row
+  // shows an expansion caret when it has instance OR class variables to reveal.
+  classHasDefinedVars(className: string): boolean {
+    return (
+      this.classHasDefinedIvars(className) || (this.definedClassVarCounts.get(className) ?? 0) > 0
+    );
+  }
+
+  // The class's `current/total` version tag when it has more than one version in
+  // the current dictionary (so the row renders `Foo[2/3]`), or undefined for a
+  // single-version class (rendered as a plain `Foo`).
+  classVersion(className: string): string | undefined {
+    const v = this.classVersions.get(className);
+    return v ? `${v.current}/${v.total}` : undefined;
   }
 
   // Locally-defined instance variable names for a class, memoized per dict load.
@@ -1029,7 +1271,7 @@ class ExplorerController {
     let names: string[] = [];
     if (session) {
       try {
-        names = queries.getDefinedInstVarNames(session, className);
+        names = queries.getDefinedInstVarNames(session, className, this.state.dictIndex);
       } catch {
         /* leave empty — the row simply shows no children */
       }
@@ -1038,27 +1280,730 @@ class ExplorerController {
     return names;
   }
 
-  // Stage A stub: prove the pencil fires with the right (class, ivar), but the
-  // rename itself isn't wired yet — the server-side refactoring engine lands with
-  // the refactoring branch. The dialog is shown (and made explicit that nothing
-  // happens on accept) so the UX flow can be exercised end to end.
+  // Locally-defined class variable names for a class, memoized per dict load.
+  definedClassVarNames(className: string): string[] {
+    const cached = this.definedClassVarNamesCache.get(className);
+    if (cached) return cached;
+    const session = this.session();
+    let names: string[] = [];
+    if (session) {
+      try {
+        names = queries.getDefinedClassVarNames(session, className, this.state.dictIndex);
+      } catch {
+        /* leave empty — the row simply shows no class-variable children */
+      }
+    }
+    this.definedClassVarNamesCache.set(className, names);
+    return names;
+  }
+
+  // Rename this instance variable across its defining class and every subclass,
+  // over all symbol-list dictionaries, via the server-side refactoring engine.
+  // The engine stages a non-committing change set (a recompile per affected
+  // method plus the class-definition edit); we show VS Code's native refactor
+  // preview so the user can uncheck any change and see per-change diffs, then
+  // apply — which recompiles the kept changes in the stone (class definition
+  // first) WITHOUT committing. The user commits explicitly, as everywhere else.
   async renameInstVar(item: IvarItem): Promise<void> {
+    await this.renameInstVarNamed(item.className, item.ivarName, this.state.dictIndex);
+  }
+
+  // The rename-instance-variable flow, addressed by NAME rather than a tree row so
+  // both entry points share it: the Explorer's ivar-row pencil (above) and the
+  // source editor's Refactor… code action (renameInstVarAtCursorCommand). Answers
+  // true when the rename was APPLIED (so an editor-triggered caller knows to
+  // reload the method source), false on any cancel/decline path.
+  async renameInstVarNamed(
+    className: string,
+    ivarName: string,
+    dict: number | string | undefined,
+  ): Promise<boolean> {
+    const session = this.session();
+    if (!session) return false;
+
+    // The engine ships as an optional, separately-installed payload (bundled with
+    // the Enhanced Inspector). When it isn't loaded, offer to install the optional
+    // GemStone support; the install relatches the probe, so re-read it and only
+    // continue if the engine is now present.
+    if (!session.rbSupportAvailable) {
+      const LOAD = 'Install GemStone Support…';
+      const choice = await vscode.window.showInformationMessage(
+        'Renaming instance variables needs the GemStone refactoring engine, which ' +
+          "isn't loaded in this stone yet.",
+        LOAD,
+      );
+      if (choice !== LOAD) return false;
+      await vscode.commands.executeCommand('gemstone.installServerSupport');
+      if (!this.session()?.rbSupportAvailable) return false;
+    }
+
+    const oldName = ivarName;
     const entered = await vscode.window.showInputBox({
-      title: 'Rename Instance Variable — not available yet',
-      prompt:
-        `'${item.ivarName}' in ${item.className}. ` +
-        'Renaming is not implemented yet; accepting will not change anything.',
-      value: item.ivarName,
-      valueSelection: [0, item.ivarName.length],
+      title: 'Rename Instance Variable',
+      prompt: `Rename '${oldName}' in ${className} (and its subclasses).`,
+      value: oldName,
+      valueSelection: [0, oldName.length],
+      validateInput: (v) => validateNewIvarName(v, oldName),
     });
-    // Only stay silent if the user dismissed the box (Esc). Accepting it — whether
-    // they changed the name or just pressed Enter — surfaces the not-yet message.
-    if (entered === undefined) return;
-    void vscode.window.showInformationMessage(
-      `Renaming instance variables isn't available yet — '${item.ivarName}' in ` +
-        `${item.className} was left unchanged. The refactoring engine wiring lands ` +
-        'in the next stage.',
+    if (entered === undefined) return false;
+    const newName = entered.trim();
+    if (newName === oldName) return false;
+
+    let json: string;
+    try {
+      json = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `Previewing rename of '${oldName}'…`,
+          cancellable: false,
+        },
+        () =>
+          Promise.resolve(queries.previewRenameInstVar(session, className, oldName, newName, dict)),
+      );
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      void vscode.window.showErrorMessage(`Rename preview failed: ${msg}`);
+      return false;
+    }
+
+    let changes: RenameChange[];
+    try {
+      changes = parseRenameChanges(json);
+    } catch {
+      const detail = json.length > 200 ? `${json.slice(0, 200)}…` : json;
+      void vscode.window.showErrorMessage(`Rename preview failed: ${detail}`);
+      return false;
+    }
+
+    if (changes.length === 0) {
+      void vscode.window.showInformationMessage(
+        `No references to '${oldName}' were found in ${className} or its ` +
+          'subclasses; nothing to rename.',
+      );
+      return false;
+    }
+
+    // Preview in the custom panel (all changes pre-checked, before/after diffs);
+    // the user unchecks any they don't want and hits Apply.
+    const ordered = orderChangesClassDefFirst(changes);
+    const selectedIds = await showRenameInstVarPanel(oldName, newName, ordered);
+    if (!selectedIds || selectedIds.length === 0) return false;
+
+    await this.applyRename(session, ordered, selectedIds, oldName, newName);
+    return true;
+  }
+
+  // Recompile the selected changes in the stone: the class-definition edit first
+  // (so methods recompile against the new class shape), then each method under
+  // its own category. Everything compiles in the stone but NOTHING is committed —
+  // the user commits explicitly, as everywhere else in Jasper.
+  private async applyRename(
+    session: ActiveSession,
+    ordered: RenameChange[],
+    selectedIds: string[],
+    oldName: string,
+    newName: string,
+  ): Promise<void> {
+    // Ordering (class definition first), dictionary-index resolution, and the
+    // category default are computed as a pure plan so those rules are unit-tested
+    // directly; here we just execute each step with no commit.
+    const steps = planRenameApply(
+      ordered,
+      selectedIds,
+      queries.getDictionaryNames(session),
+      this.state.dictName,
     );
+    const failures: string[] = [];
+    let applied = 0;
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Applying rename '${oldName}' → '${newName}'…`,
+        cancellable: false,
+      },
+      async () => {
+        for (const step of steps) {
+          try {
+            if (step.kind === 'classDefinitionEdit') {
+              queries.compileClassDefinition(session, step.newSource);
+            } else {
+              queries.compileMethod(
+                session,
+                step.className,
+                step.isMeta,
+                step.category,
+                step.newSource,
+                0,
+                step.dictIndex,
+              );
+            }
+            applied += 1;
+          } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e);
+            failures.push(`${step.label}: ${msg}`);
+          }
+        }
+      },
+    );
+
+    // The class was just reshaped/recompiled — reload the defined-ivar data
+    // (dropping the memoized names) and refresh so the ivar sub-tree and method
+    // list reflect the new name.
+    this.loadDefinedIvarCounts();
+    this.classProvider.refresh();
+    this.methodProvider.refresh();
+
+    if (failures.length > 0) {
+      void vscode.window.showErrorMessage(
+        `Rename applied ${applied} of ${steps.length} change(s); ` +
+          `${failures.length} failed: ${failures[0]}` +
+          (failures.length > 1 ? ` (+${failures.length - 1} more)` : ''),
+      );
+      return;
+    }
+    void vscode.window.showInformationMessage(
+      `Renamed '${oldName}' → '${newName}' (${applied} change${applied === 1 ? '' : 's'}). ` +
+        'Compiled but NOT committed — commit when ready.',
+    );
+  }
+
+  // Rename this method / selector across its implementors and senders, within a
+  // chosen scope, via the server-side refactoring engine (R2). The user edits the
+  // selector as reorderable keyword-part rows, we preview the non-committing
+  // change set (a methodRename per implementor, a methodRecompile per sender), the
+  // user unchecks any change, and Apply recompiles the kept changes — deleting the
+  // old-selector implementors — WITHOUT committing.
+  async renameMethod(item: MethodItem): Promise<void> {
+    const className = this.state.className;
+    if (!className) return;
+    await this.renameMethodNamed(
+      className,
+      item.info.selector,
+      item.isMeta,
+      this.state.dictIndex,
+      this.state.dictName,
+    );
+  }
+
+  // The rename-method flow, addressed by NAME rather than a tree row so both
+  // entry points share it: the Explorer's method-row pencil (above) and the
+  // source editor's Refactor… code action (renameMethodAtCursorCommand). Answers
+  // true when the rename was APPLIED, false on any cancel/decline path.
+  async renameMethodNamed(
+    className: string,
+    selector: string,
+    isMeta: boolean,
+    dictIndex: number | undefined,
+    dictName: string | undefined,
+  ): Promise<boolean> {
+    const session = this.session();
+    if (!session) return false;
+
+    if (!session.rbSupportAvailable) {
+      const LOAD = 'Install GemStone Support…';
+      const choice = await vscode.window.showInformationMessage(
+        "Renaming a method needs the GemStone refactoring engine, which isn't " +
+          'loaded in this stone yet.',
+        LOAD,
+      );
+      if (choice !== LOAD) return false;
+      await vscode.commands.executeCommand('gemstone.installServerSupport');
+      if (!this.session()?.rbSupportAvailable) return false;
+    }
+
+    const oldSelector = selector;
+
+    // Best-effort argument names for the editor rows (display only).
+    let argNames: string[];
+    try {
+      const src = queries.getMethodSource(session, className, isMeta, oldSelector, 0, dictIndex);
+      argNames = parseArgNames(src, oldSelector);
+    } catch {
+      argNames = parseArgNames('', oldSelector);
+    }
+
+    const edit = await showRenameMethodEditor({
+      className,
+      oldSelector,
+      isMeta,
+      argNames,
+      dictName,
+    });
+    if (!edit) return false;
+
+    const err = validateNewParts(edit.parts, oldSelector);
+    if (err) {
+      void vscode.window.showErrorMessage(`Rename: ${err}`);
+      return false;
+    }
+    const newSelector = buildSelector(edit.parts);
+    const permutation = permutationFromOriginalIndices(edit.originalIndices);
+    const noReorder = permutation.every((v, i) => v === i + 1);
+    if (newSelector === oldSelector && noReorder) return false; // nothing to do
+
+    // A client-generated token keys this preview's server-side state (the built
+    // change set stored in SessionTemps) for paging and the eventual apply.
+    const token = `rmp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const safeClear = (): void => {
+      try {
+        queries.clearRenameMethodPreview(session, token);
+      } catch {
+        /* best-effort cleanup */
+      }
+    };
+
+    let start;
+    try {
+      // Non-blocking: shows a progress notification and keeps the UI responsive
+      // while the engine builds the (possibly large) change set.
+      const json = await queries.startRenameMethodPreview(
+        session,
+        className,
+        oldSelector,
+        edit.parts,
+        permutation,
+        edit.scope,
+        token,
+        PREVIEW_PAGE_BYTES,
+        dictIndex,
+      );
+      start = parseStartPreview(json);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      void vscode.window.showErrorMessage(`Rename preview failed: ${msg}`);
+      safeClear();
+      return false;
+    }
+
+    if (start.total === 0) {
+      safeClear();
+      void vscode.window.showInformationMessage(
+        `No implementors or senders of '${oldSelector}' were found in the chosen scope; ` +
+          'nothing to rename.',
+      );
+      return false;
+    }
+
+    // The preview is paginated (each page bounded to fit the GCI buffer) and the
+    // apply runs server-side (skipping only the deselected ids), so an arbitrarily
+    // large rename previews and applies without loading every page client-side.
+    const result = await showRenameMethodPanel(oldSelector, newSelector, start, {
+      loadPage: async (offset) =>
+        parsePage(
+          await queries.pageRenameMethodPreview(session, token, offset, PREVIEW_PAGE_BYTES),
+        ),
+      apply: async (deselected) =>
+        parseApplyResult(await queries.applyRenameMethod(session, token, deselected)),
+      cleanup: safeClear,
+    });
+    if (!result) return false; // cancelled/closed
+
+    // Selectors changed, so the current class's cached method environment is
+    // stale — reload it and reopen any editor that was on the renamed selector.
+    this.reloadCurrentClassMethods();
+    await this.refreshRenamedSelectorEditors(oldSelector, newSelector);
+
+    if (result.failed.length > 0) {
+      const first = result.failed[0];
+      void vscode.window.showErrorMessage(
+        `Rename applied ${result.applied} change(s); ${result.failed.length} failed: ` +
+          `${first.label}: ${first.error}` +
+          (result.failed.length > 1 ? ` (+${result.failed.length - 1} more)` : ''),
+      );
+      return true;
+    }
+    void vscode.window.showInformationMessage(
+      `Renamed '${oldSelector}' → '${newSelector}' (${result.applied} change` +
+        `${result.applied === 1 ? '' : 's'}). Compiled but NOT committed — commit when ready.`,
+    );
+    return true;
+  }
+
+  // Ensure the refactoring engine is loaded, offering to install it if not.
+  // Returns true when it is (now) available. Shared by rename-class and history.
+  private async ensureRbSupport(action: string): Promise<boolean> {
+    const session = this.session();
+    if (!session) return false;
+    if (session.rbSupportAvailable) return true;
+    const LOAD = 'Install GemStone Support…';
+    const choice = await vscode.window.showInformationMessage(
+      `${action} needs the GemStone refactoring engine, which isn't loaded in this stone yet.`,
+      LOAD,
+    );
+    if (choice !== LOAD) return false;
+    await vscode.commands.executeCommand('gemstone.installServerSupport');
+    return this.session()?.rbSupportAvailable === true;
+  }
+
+  // Validate a proposed rename target: the name's format AND that it isn't already
+  // bound to another global in the stone (so we reject a collision up front and let
+  // the user pick another name, per Eric's UX). Returns an error string or undefined.
+  private validateRenameTarget(newName: string, oldName: string): string | undefined {
+    const fmt = validateNewClassName(newName, oldName);
+    if (fmt) return fmt;
+    const session = this.session();
+    if (session && queries.globalNameInUse(session, newName)) {
+      return `The name ${newName} is already in use. Choose another.`;
+    }
+    return undefined;
+  }
+
+  // Re-cascade the class panes onto a (renamed or reshaped) class so the Classes
+  // and Hierarchy panes show the new name / version tag. When the class is in the
+  // current dictionary, revealClass does the full reload+reveal; otherwise reload
+  // what we can from the current view.
+  private async refreshAfterClassReshape(className: string): Promise<void> {
+    const session = this.session();
+    const { dictName, dictIndex } = this.state;
+    if (!session || dictName === undefined || dictIndex === undefined) {
+      this.classProvider.refresh();
+      this.hierarchyProvider.refresh();
+      return;
+    }
+    let entries: queries.ClassCategoryEntry[];
+    try {
+      entries = queries.getClassesWithCategory(session, dictIndex);
+    } catch {
+      this.classProvider.refresh();
+      this.hierarchyProvider.refresh();
+      return;
+    }
+    if (entries.some((e) => e.className === className)) {
+      await this.revealClass(dictName, dictIndex, className);
+      return;
+    }
+    this.classCategoryEntries = entries;
+    this.loadDefinedIvarCounts();
+    this.loadHierarchy();
+    this.categoryProvider.refresh();
+    this.classProvider.refresh();
+    this.hierarchyProvider.refresh();
+    this.methodProvider.refresh();
+    this.syncTitles();
+  }
+
+  // Rename this class across the image via the server-side engine (R3): a new
+  // class version under the new name (bumping the class history), methods copied
+  // forward, descendants re-parented, and references rewritten — WITHOUT
+  // committing. The name + reference scope are chosen in a rename-method-style
+  // editor (default scope: whole system); then the (paginated, non-committing)
+  // change set is previewed, any optional reference unchecked, and applied.
+  // Invokable from a class row OR a hierarchy-pane class node.
+  async renameClass(item: ClassItem | HierarchyItem): Promise<void> {
+    const session = this.session();
+    if (!session) return;
+    const oldName = item.className;
+    if (!(await this.ensureRbSupport('Renaming a class'))) return;
+
+    // Renaming a kernel/system class is hazardous (pervasive references; some
+    // kernel histories are deliberately size 1) — warn before proceeding.
+    let isKernel = false;
+    try {
+      isKernel = queries.isKernelClass(session, oldName);
+    } catch {
+      /* if the probe fails, don't block the rename */
+    }
+    if (isKernel) {
+      const PROCEED = 'Rename anyway';
+      const choice = await vscode.window.showWarningMessage(
+        `${oldName} looks like a kernel/system class. Renaming it is risky — it is referenced ` +
+          'pervasively across the image and may destabilize the stone. Continue?',
+        { modal: true },
+        PROCEED,
+      );
+      if (choice !== PROCEED) return;
+    }
+
+    const edit = await showRenameClassEditor(
+      { oldName, dictName: this.state.dictName },
+      (newName) => this.validateRenameTarget(newName, oldName),
+    );
+    if (!edit) return;
+    const { newName, scope, options } = edit;
+
+    // A hierarchy node may name a class outside the current dictionary, so resolve
+    // it across the whole symbol list; a class-row uses the current dictionary.
+    const dictArg = item instanceof HierarchyItem ? undefined : this.state.dictIndex;
+
+    const token = `rcp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const safeClear = (): void => {
+      try {
+        queries.clearRenameClassPreview(session, token);
+      } catch {
+        /* best-effort cleanup */
+      }
+    };
+
+    let start;
+    try {
+      const json = await queries.startRenameClassPreview(
+        session,
+        oldName,
+        newName,
+        scope,
+        options,
+        token,
+        PREVIEW_PAGE_BYTES,
+        dictArg,
+      );
+      start = parseStartClassPreview(json);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      void vscode.window.showErrorMessage(`Rename preview failed: ${msg}`);
+      safeClear();
+      return;
+    }
+
+    if (start.total === 0) {
+      safeClear();
+      void vscode.window.showInformationMessage(`Nothing to rename for '${oldName}'.`);
+      return;
+    }
+
+    const result = await showRenameClassPanel(
+      oldName,
+      newName,
+      start,
+      {
+        recompileSubclasses: options.recompileSubclasses,
+        migrateInstances: options.migrateInstances,
+      },
+      {
+        loadPage: async (offset) =>
+          parseClassPage(
+            await queries.pageRenameClassPreview(session, token, offset, PREVIEW_PAGE_BYTES),
+          ),
+        apply: async (deselected) =>
+          parseClassApplyResult(await queries.applyRenameClass(session, token, deselected)),
+        cleanup: safeClear,
+      },
+    );
+    if (!result) return;
+
+    // The class was reshaped/rebound — re-cascade so both panes show the new name
+    // and version tag.
+    await this.refreshAfterClassReshape(newName);
+
+    if (result.failed.length > 0) {
+      const first = result.failed[0];
+      void vscode.window.showErrorMessage(
+        `Rename applied ${result.applied} change(s); ${result.failed.length} failed: ` +
+          `${first.label}: ${first.error}` +
+          (result.failed.length > 1 ? ` (+${result.failed.length - 1} more)` : ''),
+      );
+      return;
+    }
+    const migrateNote =
+      result.migratedFailures && result.migratedFailures > 0
+        ? ` (${result.migratedFailures} instance(s) could not be migrated)`
+        : '';
+    const commitNote = result.committed
+      ? `Migrated and COMMITTED${migrateNote}.`
+      : 'Compiled but NOT committed — commit when ready.';
+    void vscode.window.showInformationMessage(
+      `Renamed class '${oldName}' → '${newName}' (${result.applied} change` +
+        `${result.applied === 1 ? '' : 's'}). ${commitNote}`,
+    );
+  }
+
+  // Rename this class variable across its defining class and every subclass — both
+  // the instance and class side — via the server-side engine (R4). The apply is
+  // value-preserving (the shared class-variable VALUE carries across) and
+  // all-or-nothing: every reference is rewritten (no per-change deselection), so a
+  // method is never left naming a removed variable. Nothing is committed.
+  async renameClassVariable(item: ClassVarItem): Promise<void> {
+    await this.renameClassVarNamed(item.className, item.classVarName, this.state.dictIndex);
+  }
+
+  // The rename-class-variable flow, addressed by NAME rather than a tree row so
+  // both entry points share it: the Explorer's class-var-row pencil (above) and
+  // the source editor's Refactor… code action (renameClassVarAtCursorCommand).
+  // Answers true when the rename was APPLIED (so an editor-triggered caller knows
+  // to reload the method source), false on any cancel/decline path.
+  async renameClassVarNamed(
+    className: string,
+    classVarName: string,
+    dict: number | string | undefined,
+  ): Promise<boolean> {
+    const session = this.session();
+    if (!session) return false;
+    if (!(await this.ensureRbSupport('Renaming a class variable'))) return false;
+
+    const oldName = classVarName;
+    // Re-select the class-variable row the rename started from. Opening the input
+    // box or the preview webview moves focus off the tree, so on any cancel/no-op
+    // exit we put focus back on the original row (otherwise the row is left
+    // unfocused — inconsistently, since only the webview steals focus). Best-effort.
+    const reselect = (): void => {
+      const views = this.views;
+      if (views)
+        views.klass
+          .reveal(new ClassVarItem(className, oldName), { select: true, focus: true })
+          .then(undefined, () => {});
+    };
+
+    const entered = await vscode.window.showInputBox({
+      title: 'Rename Class Variable',
+      prompt: `Rename '${oldName}' in ${className} (and its subclasses).`,
+      value: oldName,
+      valueSelection: [0, oldName.length],
+      validateInput: (v) => validateNewClassVarName(v, oldName),
+    });
+    if (entered === undefined) {
+      reselect();
+      return false;
+    }
+    const newName = entered.trim();
+    if (newName === oldName) {
+      reselect();
+      return false;
+    }
+
+    const token = `rcvp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const safeClear = (): void => {
+      try {
+        queries.clearRenameClassVarPreview(session, token);
+      } catch {
+        /* best-effort cleanup */
+      }
+    };
+
+    let start;
+    try {
+      const json = await queries.startRenameClassVarPreview(
+        session,
+        className,
+        oldName,
+        newName,
+        token,
+        PREVIEW_PAGE_BYTES,
+        dict,
+      );
+      start = parseStartClassVarPreview(json);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      void vscode.window.showErrorMessage(`Rename preview failed: ${msg}`);
+      safeClear();
+      reselect();
+      return false;
+    }
+
+    if (start.total === 0) {
+      safeClear();
+      void vscode.window.showInformationMessage(
+        `No references to '${oldName}' were found in ${className} or its subclasses; ` +
+          'nothing to rename.',
+      );
+      reselect();
+      return false;
+    }
+
+    const result = await showRenameClassVarPanel(oldName, newName, start, {
+      loadPage: async (offset) =>
+        parseClassVarPage(
+          await queries.pageRenameClassVarPreview(session, token, offset, PREVIEW_PAGE_BYTES),
+        ),
+      // All-or-nothing: the query ignores deselection, so we don't thread it.
+      apply: async () =>
+        parseClassVarApplyResult(await queries.applyRenameClassVar(session, token)),
+      cleanup: safeClear,
+    });
+    if (!result) {
+      reselect();
+      return false;
+    }
+
+    // The class variable and any referencing methods changed (the class name and
+    // its [n] version tag do NOT — a class-variable change makes no new version).
+    await this.refreshAfterClassReshape(className);
+    // Keep the (now-renamed) class variable selected: refreshAfterClassReshape
+    // re-reveals the CLASS, which would otherwise steal the selection, so re-reveal
+    // the renamed class-variable row last. Best-effort — the row must be in the
+    // rebuilt tree (same dictionary), else this is a no-op.
+    try {
+      await this.views?.klass.reveal(new ClassVarItem(className, newName), {
+        select: true,
+        focus: false,
+      });
+    } catch {
+      // The renamed leaf resolves through two getParent hops (class → class-side →
+      // row); if it can't be revealed, fall back to selecting the "class" side node
+      // so focus at least lands near the renamed variable.
+      try {
+        await this.views?.klass.reveal(new VarSideItem(className, true), {
+          select: true,
+          focus: false,
+        });
+      } catch {
+        /* best-effort — leave the class selected if neither row can be revealed */
+      }
+    }
+
+    if (result.failed.length > 0) {
+      const first = result.failed[0];
+      void vscode.window.showErrorMessage(
+        `Rename applied ${result.applied} change(s); ${result.failed.length} failed: ` +
+          `${first.label}: ${first.error}` +
+          (result.failed.length > 1 ? ` (+${result.failed.length - 1} more)` : ''),
+      );
+      return true;
+    }
+    void vscode.window.showInformationMessage(
+      `Renamed class variable '${oldName}' → '${newName}' (${result.applied} change` +
+        `${result.applied === 1 ? '' : 's'}). Compiled but NOT committed — commit when ready.`,
+    );
+    return true;
+  }
+
+  // Open the (read-only, this-stone-only) class-definition history viewer for a
+  // class: every version with its timestamp, the name it had then, its oop, and
+  // the methods that changed. Offers a redo — restore a prior version as a new
+  // version (no commit). Invokable from a class row OR a hierarchy-pane class node.
+  async classHistory(item: ClassItem | HierarchyItem): Promise<void> {
+    const session = this.session();
+    if (!session) return;
+    const className = item.className;
+    if (!(await this.ensureRbSupport('Viewing class history'))) return;
+
+    let versions;
+    try {
+      versions = parseClassHistory(queries.getClassHistory(session, className));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      void vscode.window.showErrorMessage(`Class history failed: ${msg}`);
+      return;
+    }
+    if (versions.length === 0) {
+      void vscode.window.showInformationMessage(`No definition history for ${className}.`);
+      return;
+    }
+
+    // Restoring across a rename renames the class back, so the current name can
+    // change between restores; track it so the follow-up history fetch, the tree
+    // refresh, and a second restore all target the right (current) name.
+    let currentName = className;
+    showClassHistoryPanel(className, versions, {
+      restore: async (index) => {
+        const result = parseRevertResult(queries.revertClassToVersion(session, currentName, index));
+        if (result.reverted && result.name) currentName = result.name;
+        const refreshed = result.reverted
+          ? parseClassHistory(queries.getClassHistory(session, currentName))
+          : versions;
+        // The class was reshaped/renamed (a new version) — re-cascade so the
+        // Explorer's Classes + Hierarchy panes show the restored name and version.
+        if (result.reverted) await this.refreshAfterClassReshape(currentName);
+        return { result, versions: refreshed };
+      },
+      remove: async (index) => {
+        const result = parseRemoveResult(queries.removeClassVersion(session, currentName, index));
+        const refreshed = result.removed
+          ? parseClassHistory(queries.getClassHistory(session, currentName))
+          : versions;
+        // The version count / tag changed — refresh the tree's version tags.
+        if (result.removed) await this.refreshAfterClassReshape(currentName);
+        return { result, versions: refreshed };
+      },
+    });
   }
 
   // Method categories for one side, with the computed ALL/SESSION rows on top,
@@ -1731,18 +2676,35 @@ class ClassProvider extends RefreshableProvider<ClassNode> {
     super();
   }
   getParent(element: ClassNode): ClassNode | undefined {
-    return element instanceof IvarItem ? new ClassItem(element.className) : undefined;
+    if (element instanceof IvarItem) return new VarSideItem(element.className, false);
+    if (element instanceof ClassVarItem) return new VarSideItem(element.className, true);
+    if (element instanceof VarSideItem) return new ClassItem(element.className);
+    return undefined;
   }
   getChildren(element?: ClassNode): ClassNode[] {
     if (this.ctl.state.dictName === undefined) return [];
     if (!element) {
-      return this.ctl.classNames().map((n) => new ClassItem(n, this.ctl.classHasDefinedIvars(n)));
-    }
-    // Expand a class to its locally-defined instance variables; ivar rows are leaves.
-    if (element instanceof ClassItem) {
       return this.ctl
-        .definedIvarNames(element.className)
-        .map((iv) => new IvarItem(element.className, iv));
+        .classNames()
+        .map((n) => new ClassItem(n, this.ctl.classHasDefinedVars(n), this.ctl.classVersion(n)));
+    }
+    // A class expands to an "instance" and/or "class" variable-side node (like the
+    // Methods pane's sides), each shown only when that side has variables.
+    if (element instanceof ClassItem) {
+      return variableSides(
+        this.ctl.definedIvarNames(element.className),
+        this.ctl.definedClassVarNames(element.className),
+      ).map((side) => new VarSideItem(element.className, side.isMeta));
+    }
+    // A side node expands to its variable rows (each with an inline rename pencil).
+    if (element instanceof VarSideItem) {
+      return element.isMeta
+        ? this.ctl
+            .definedClassVarNames(element.className)
+            .map((cv) => new ClassVarItem(element.className, cv))
+        : this.ctl
+            .definedIvarNames(element.className)
+            .map((iv) => new IvarItem(element.className, iv));
     }
     return [];
   }
@@ -1870,6 +2832,10 @@ export interface ExplorerHandle {
 export function registerGemStoneExplorer(
   context: vscode.ExtensionContext,
   sessionManager: SessionManager,
+  // LSP-backed "full selector at this position" resolver, used by the editor-
+  // triggered Rename Method to target a SENT selector under the cursor. Optional
+  // so tests (and a not-yet-started LSP) degrade to renaming the edited method.
+  selectorAtPosition: SelectorAtPosition = () => Promise.resolve(null),
 ): ExplorerHandle {
   const ctl = new ExplorerController(sessionManager);
 
@@ -2021,6 +2987,83 @@ export function registerGemStoneExplorer(
     vscode.commands.registerCommand('gemstone.explorer.renameIvar', (item?: IvarItem) => {
       if (item instanceof IvarItem) void ctl.renameInstVar(item);
     }),
+    // Rename the instance variable at the cursor in a method source editor (the
+    // Refactor… code action / palette) — routes into the same shared flow.
+    vscode.commands.registerCommand('gemstone.renameInstVarAtCursor', (position?: unknown) => {
+      void renameInstVarAtCursorCommand(
+        sessionManager,
+        (target) => ctl.renameInstVarNamed(target.className, target.ivarName, target.dict),
+        position instanceof vscode.Position ? position : undefined,
+      );
+    }),
+    // Rename the class variable at the cursor in a method source editor — routes
+    // into the same shared flow as the Explorer's class-var-row pencil.
+    vscode.commands.registerCommand('gemstone.renameClassVarAtCursor', (position?: unknown) => {
+      void renameClassVarAtCursorCommand(
+        sessionManager,
+        (target) => ctl.renameClassVarNamed(target.className, target.classVarName, target.dict),
+        position instanceof vscode.Position ? position : undefined,
+      );
+    }),
+    // Rename the method at the cursor in a source editor: a SENT selector under
+    // the cursor renames that selector; the header (or a non-send position)
+    // renames the edited method. Routes into the same shared flow as the
+    // Explorer's method-row pencil (which also reopens editors under the new
+    // selector).
+    vscode.commands.registerCommand('gemstone.renameMethodInEditor', (position?: unknown) => {
+      void renameMethodAtCursorCommand(
+        (target) =>
+          ctl.renameMethodNamed(
+            target.className,
+            target.selector,
+            target.isMeta,
+            target.dictIndex,
+            target.dictName,
+          ),
+        selectorAtPosition,
+        position instanceof vscode.Position ? position : undefined,
+      );
+    }),
+    // Rename a locally-defined class variable (pencil on the class-variable row).
+    vscode.commands.registerCommand(
+      'gemstone.explorer.renameClassVariable',
+      (item?: ClassVarItem) => {
+        if (item instanceof ClassVarItem) void ctl.renameClassVariable(item);
+      },
+    ),
+    // Rename a method / selector across implementors and senders (pencil on the
+    // method row).
+    vscode.commands.registerCommand('gemstone.explorer.renameMethod', (item?: MethodItem) => {
+      if (!(item instanceof MethodItem)) return;
+      // Surface any error rather than letting a fire-and-forget rejection vanish
+      // (which looked like the editor "just closing" with no preview).
+      void ctl.renameMethod(item).catch((e: unknown) => {
+        const msg = e instanceof Error ? e.message : String(e);
+        void vscode.window.showErrorMessage(`Rename method failed: ${msg}`);
+      });
+    }),
+    // Rename a class across the image (pencil on a class row OR a hierarchy node).
+    vscode.commands.registerCommand(
+      'gemstone.explorer.renameClass',
+      (item?: ClassItem | HierarchyItem) => {
+        if (!(item instanceof ClassItem) && !(item instanceof HierarchyItem)) return;
+        void ctl.renameClass(item).catch((e: unknown) => {
+          const msg = e instanceof Error ? e.message : String(e);
+          void vscode.window.showErrorMessage(`Rename class failed: ${msg}`);
+        });
+      },
+    ),
+    // Show a class's definition history (context menu on a class row or hierarchy node).
+    vscode.commands.registerCommand(
+      'gemstone.explorer.classHistory',
+      (item?: ClassItem | HierarchyItem) => {
+        if (!(item instanceof ClassItem) && !(item instanceof HierarchyItem)) return;
+        void ctl.classHistory(item).catch((e: unknown) => {
+          const msg = e instanceof Error ? e.message : String(e);
+          void vscode.window.showErrorMessage(`Class history failed: ${msg}`);
+        });
+      },
+    ),
     // New (+) actions, one per pane.
     vscode.commands.registerCommand('gemstone.explorer.newDictionary', () => ctl.newDictionary()),
     vscode.commands.registerCommand('gemstone.explorer.newClassCategory', () =>

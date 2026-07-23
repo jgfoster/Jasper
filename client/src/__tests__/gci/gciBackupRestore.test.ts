@@ -43,6 +43,24 @@ const ROUND_TRIP_TIMEOUT_MS = 180_000;
 const KEY_BEFORE = 'JasperRoundTripCommittedBeforeBackup';
 const KEY_AFTER = 'JasperRoundTripCommittedAfterBackup';
 
+// The two users that back the always-present system gems (symbol + garbage
+// collection). They never block a restore; any OTHER session sharing the stone
+// does. A logical restore replaces the whole repository and demands exclusive
+// access — a second user session makes `restoreFromBackup:` fail with error 2734.
+const SYSTEM_GEM_USERS = "#('GcUser' 'SymbolUser')";
+
+// Smalltalk that returns the user sessions other than our own and the system
+// gems, as `userId(sid)` joined by commas — an empty string when the stone is
+// ours alone. Used to skip (rather than fail) the destructive round-trip when
+// someone else — e.g. the VS Code extension connected to the same stone — holds
+// a session.
+const OTHER_USER_SESSIONS_CODE =
+  `| mine sys | mine := System session. sys := ${SYSTEM_GEM_USERS}. ` +
+  `((System currentSessions ` +
+  `reject: [:sid | (sid = mine) or: [sys includes: (((System descriptionOfSession: sid) at: 1) userId)]]) ` +
+  `collect: [:sid | ((System descriptionOfSession: sid) at: 1) userId, '(', sid printString, ')']) ` +
+  `inject: '' into: [:a :b | a isEmpty ifTrue: [b] ifFalse: [a, ', ', b]]`;
+
 interface RunResult {
   data: string;
   errNumber: number;
@@ -82,7 +100,7 @@ function run(gci: GciLibrary, session: unknown, src: bigint, code: string): RunR
 describe('full logical backup + restore round-trip', () => {
   it(
     'restores committed state as of the backup and drops changes committed after it',
-    () => {
+    (ctx) => {
       const gci = new GciLibrary(GCI_LIBRARY_PATH);
       const backupFile = path.join(os.tmpdir(), `jasper-restore-roundtrip-${process.pid}.dbf`);
 
@@ -90,6 +108,22 @@ describe('full logical backup + restore round-trip', () => {
         // ── Commit a marker, back up, then commit a second marker ──
         let session = connect(gci);
         let src = sourceClass(gci, session);
+
+        // A restore needs the stone to itself; another user session makes it
+        // fail with error 2734. Skip rather than fail so a stray login (commonly
+        // the VS Code extension pointed at the same stone) is not a false red.
+        const otherSessions = run(gci, session, src, OTHER_USER_SESSIONS_CODE);
+        if (otherSessions.data.length > 0) {
+          try {
+            gci.GciTsLogout(session);
+          } catch {
+            /* ignore */
+          }
+          ctx.skip(
+            `another session is logged into the stone (${otherSessions.data}); ` +
+              `a logical restore needs exclusive access`,
+          );
+        }
 
         const committedBefore = run(
           gci,

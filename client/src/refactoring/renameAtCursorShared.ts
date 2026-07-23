@@ -1,0 +1,149 @@
+/**
+ * Shared plumbing for the "rename at cursor" family (temp/arg, instance variable,
+ * class variable, method) driven from a GemStone method source editor via the
+ * native Refactor… menu / command palette. Each command differs only in what it
+ * renames; the editor→target resolution, engine gating, and refusal feedback are
+ * identical, so they live here (one copy, not five) — which is also what keeps the
+ * commands from diverging on dict-scope and gating order.
+ */
+import * as vscode from 'vscode';
+import { SessionManager, ActiveSession } from '../sessionManager';
+import { parseUri, ParsedUri } from '../gemstoneFileSystemProvider';
+import { logInfo } from '../gciLog';
+
+// A Smalltalk identifier at the cursor: letter/underscore then word chars. (Also
+// matches inside a string/comment — harmless: the engine renames only real
+// references, and the membership pre-checks resolve what the word actually is.)
+const IDENTIFIER = /[A-Za-z_][A-Za-z0-9_]*/;
+
+type ParsedMethodUri = Extract<ParsedUri, { kind: 'method' }>;
+
+/** A refusal the user should see: a warning toast, breadcrumbed to the GemStone
+ *  GCI output channel. (With Do Not Disturb filtering this extension, VS Code
+ *  routes the toast silently to the notification center — it still lands there and
+ *  in the log.) */
+export function refuse(message: string): void {
+  logInfo(`[renameAtCursor] refused: ${message}`);
+  void vscode.window.showWarningMessage(message);
+}
+
+/** Gate on the refactoring engine being loaded; offer to install it if not.
+ *  Answers true when it is (now) available. Shared so all four cursor commands
+ *  gate identically, BEFORE any engine-dependent query. */
+export async function ensureRbSupport(
+  available: boolean | undefined,
+  action: string,
+): Promise<boolean> {
+  if (available) return true;
+  const LOAD = 'Install GemStone Support…';
+  const choice = await vscode.window.showInformationMessage(
+    `${action} needs the GemStone refactoring engine, which isn't loaded in this stone yet.`,
+    LOAD,
+  );
+  if (choice !== LOAD) return false;
+  await vscode.commands.executeCommand('gemstone.installServerSupport');
+  return true;
+}
+
+export interface MethodEditorTarget {
+  editor: vscode.TextEditor;
+  parsed: ParsedMethodUri;
+  session: ActiveSession;
+  /** The position the action is anchored at (code-action position, else cursor). */
+  at: vscode.Position;
+  /** The dict scope for class lookups: the 1-based SymbolList index when the URI
+   *  carries one, else the dictionary name — so a class shadowed across
+   *  dictionaries resolves the SAME way for a membership pre-check AND the rename
+   *  itself (never scoped one way and run the other). */
+  dict: number | string;
+}
+
+/** Resolve the active editor as a saved gemstone method, refusing (and answering
+ *  undefined) when it is not one. `subject` names what the caller renames, for the
+ *  refusal messages (e.g. "an instance variable"). */
+export function resolveMethodEditor(
+  sessions: SessionManager,
+  position: vscode.Position | undefined,
+  subject: string,
+): MethodEditorTarget | undefined {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.uri.scheme !== 'gemstone') {
+    refuse(`Open a GemStone method and place the cursor on ${subject} to rename it.`);
+    return undefined;
+  }
+
+  let parsed: ParsedUri | undefined;
+  try {
+    parsed = parseUri(editor.document.uri);
+  } catch {
+    parsed = undefined;
+  }
+  if (!parsed || parsed.kind !== 'method') {
+    refuse('This rename works in a method source editor.');
+    return undefined;
+  }
+
+  const session = sessions.getSession(parsed.sessionId);
+  if (!session) {
+    refuse('No GemStone session for this editor.');
+    return undefined;
+  }
+
+  return {
+    editor,
+    parsed,
+    session,
+    at: position ?? editor.selection.active,
+    dict: parsed.dictIndex ?? parsed.dictName,
+  };
+}
+
+/** The identifier at the target's position (with its 1-based source offset), or
+ *  undefined after refusing when the position is not on an identifier. `subject`
+ *  names what the caller renames, for the refusal message. */
+export function wordAt(
+  target: MethodEditorTarget,
+  subject: string,
+): { name: string; wordRange: vscode.Range; offset: number } | undefined {
+  const document = target.editor.document;
+  const wordRange = document.getWordRangeAtPosition(target.at, IDENTIFIER);
+  if (!wordRange) {
+    refuse(`Place the cursor on ${subject} name (that spot is not a variable).`);
+    return undefined;
+  }
+  // 1-based source offset. The engine indexes the stored source by CHARACTER (a
+  // GemStone Character is a full code point), but VS Code offsets count UTF-16
+  // code units — they differ once a non-BMP character (emoji, astral) appears
+  // before the cursor. Count code points in the prefix (`Array.from` iterates by
+  // code point) so the offset stays aligned; for the common all-ASCII/BMP source
+  // this equals the plain length, so nothing changes.
+  const prefix = document.getText(new vscode.Range(new vscode.Position(0, 0), wordRange.start));
+  return {
+    name: document.getText(wordRange),
+    wordRange,
+    offset: Array.from(prefix).length + 1,
+  };
+}
+
+/** Save the editor if it has unsaved edits, so the rename operates on (and later
+ *  reloads) the STORED source — never silently discarding the user's edits via the
+ *  post-rename reload, and (for the offset-based temp rename) keeping the offset
+ *  aligned with what the stone compiled. Answers false (and refuses) if the save
+ *  fails. */
+export async function saveIfDirty(editor: vscode.TextEditor): Promise<boolean> {
+  if (!editor.document.isDirty) return true;
+  const saved = await editor.document.save();
+  if (!saved) refuse('Save the method before renaming.');
+  return saved;
+}
+
+/** After an applied rename, reload the method editor from the stone (so it shows
+ *  the recompiled source) and put focus back on it. */
+export async function reloadMethodEditor(editor: vscode.TextEditor): Promise<void> {
+  await vscode.window.showTextDocument(editor.document, { preserveFocus: false });
+  try {
+    await vscode.commands.executeCommand('workbench.action.files.revert');
+  } catch {
+    /* best-effort: the editor is focused even if revert is unavailable */
+  }
+}
