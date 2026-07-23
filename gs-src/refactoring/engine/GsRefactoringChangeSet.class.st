@@ -62,6 +62,19 @@ GsRefactoringChangeSet >> addMethodAddInDictionary: dn className: cn isMeta: aBo
 ]
 
 { #category : 'building' }
+GsRefactoringChangeSet >> addMethodRemoveInDictionary: dn className: cn isMeta: aBool selector: sel category: cat oldSource: os [
+	"Stage the removal of a method (inline-method deletes a now-unused target).
+	 Records the change only; NEVER compiles or commits. Apply calls removeSelector:.
+	 Returns the new GsRefactoringChange."
+	| change |
+	change := GsRefactoringChange
+		methodRemoveId: self nextIdString dictName: dn className: cn
+		isMeta: aBool selector: sel category: cat oldSource: os.
+	changes add: change.
+	^change
+]
+
+{ #category : 'building' }
 GsRefactoringChangeSet >> addMethodRenameInDictionary: dn className: cn isMeta: aBool oldSelector: oldSel newSelector: newSel category: cat oldSource: os newSource: ns [
 	"Stage a method rename (selector changes). Records the change only; NEVER
 	 compiles or commits. The client applies it as compile-new-then-remove-old.
