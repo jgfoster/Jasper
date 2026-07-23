@@ -14,7 +14,7 @@ describe("a class's locally-defined instance variable names", () => {
 
     getDefinedInstVarNames(execute, 'Point');
 
-    const code = execute.mock.calls[0][1];
+    const code = execute.mock.calls[0][0];
     expect(code).toContain('Point instVarNames');
     expect(code).not.toContain('allInstVarNames');
   });
@@ -42,10 +42,7 @@ describe('counting locally-defined instance variables across a dictionary', () =
 
     getDefinedInstVarCounts(execute, 'UserGlobals');
 
-    expect(execute).toHaveBeenCalledWith(
-      expect.stringContaining('UserGlobals'),
-      expect.stringContaining("objectNamed: #'UserGlobals'"),
-    );
+    expect(execute).toHaveBeenCalledWith(expect.stringContaining("objectNamed: #'UserGlobals'"));
   });
 
   it('has no entries for an empty dictionary', () => {
