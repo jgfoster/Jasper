@@ -4,6 +4,8 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.8.9] - 2026-07-22
+
 ### Changed
 
 - **The "Configure OS" view is gone on macOS and Linux; its shared-memory setup now runs as part of Start Stone.** On those platforms the view only ever held one or two items (shared memory, plus `RemoveIPC` on Linux) that, once set, left it as permanent clutter in the sidebar. Starting a stone now checks those prerequisites first: if shared memory is under the 1 GB GemStone needs (or, on Linux, `RemoveIPC` isn't set to survive logout), Jasper explains that it will open a terminal and run a setup script with `sudo` — where you enter your password — and offers Continue/Cancel. Cancel, or a setup that doesn't bring shared memory up to 1 GB, cancels the start. The view is unchanged on Windows/WSL, where it still hosts the several ongoing settings (WSL version, mirrored networking, `gs64ldi` services) that don't fit a one-shot prompt.
@@ -19,7 +21,7 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ### Security
 
-- **Patched three transitive dependency vulnerabilities flagged by Dependabot.** Added root `overrides` pinning `fast-uri` to `^3.1.4` (host-confusion, high — pulled in via the MCP SDK's `ajv`), `js-yaml` to `^4.3.0` (quadratic-CPU merge keys, high — dev-only, via `@vscode/vsce`), and `@hono/node-server` to `^2.0.5` (`serve-static` path traversal on Windows, moderate — via the MCP SDK; the vulnerable path is unreachable since Jasper's MCP server uses the SSE transport, not the hono-based Streamable-HTTP transport). `npm audit` now reports zero vulnerabilities, guarded by a new `dependencyVulnFloors` test so a lockfile refresh can't silently regress below the patched floors.
+- **Patched the transitive dependency vulnerabilities flagged by Dependabot.** Added root `overrides` pinning `fast-uri` to `^3.1.4` (host-confusion, high — pulled in via the MCP SDK's `ajv`) and `js-yaml` to `^4.3.0` (quadratic-CPU merge keys, high — dev-only, via `@vscode/vsce`), guarded by a new `dependencyVulnFloors` test so a lockfile refresh can't silently regress below the patched floors. The `@hono/node-server` `serve-static` path-traversal advisory (moderate, Windows-only) is **not applicable**: `@hono/node-server` is not bundled into the extension, and Jasper's MCP server uses the SSE transport, not the hono-based Streamable-HTTP transport that reaches the vulnerable code. Its only fix is a 2.x major bump outside the MCP SDK's declared `^1.19.9` range, which marks the package "invalid" and breaks extension packaging (`vsce`'s dependency walk that ships koffi's native binary), so it is left at the SDK's version and the alert dismissed as not-affected.
 
 ## [1.8.8] - 2026-07-21
 

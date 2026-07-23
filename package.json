@@ -2,7 +2,7 @@
   "name": "gemstone-ide",
   "displayName": "Jasper: A GemStone Smalltalk IDE",
   "description": "GemStone/S IDE for Visual Studio Code",
-  "version": "1.8.8",
+  "version": "1.8.9",
   "publisher": "gemtalksystems",
   "license": "MIT",
   "author": "James Foster",
@@ -2168,7 +2168,6 @@
   },
   "overrides": {
     "fast-uri": "^3.1.4",
-    "@hono/node-server": "^2.0.5",
     "js-yaml": "^4.3.0"
   }
 }
