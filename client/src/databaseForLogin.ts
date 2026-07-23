@@ -1,6 +1,6 @@
 import { GemStoneLogin } from './loginTypes';
 import { GemStoneDatabase } from './sysadminTypes';
-import { versionsMatch } from './versionsMatch';
+import { versionsMatch } from './processManager';
 
 /**
  * True when a login targets a stone on this machine. Only a local stone can be

@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+// autoStartDecision now imports versionsMatch from processManager, which pulls
+// in vscode; mock it so these pure-logic cases still run headless.
+vi.mock('vscode', () => import('../__mocks__/vscode'));
 import { inspectDatabaseProcesses, classifyStartNeed } from '../autoStartDecision';
 import { GemStoneDatabase, GemStoneProcess } from '../sysadminTypes';
 
@@ -144,5 +147,17 @@ describe('classifyStartNeed', () => {
         netldi: { running: true, responding: false },
       }),
     ).toEqual({ kind: 'not-responding', what: 'stone' });
+  });
+
+  it('offers to start a down side even when the other is wedged', () => {
+    // Stone is stopped, NetLDI is running-but-wedged. Starting the stone is
+    // still worth offering — the wedged NetLDI is a separate problem and does
+    // not block bringing the stone back up.
+    expect(
+      classifyStartNeed({
+        stone: { running: false, responding: false },
+        netldi: { running: true, responding: false },
+      }),
+    ).toEqual({ kind: 'can-start', startStone: true, startNetldi: false });
   });
 });

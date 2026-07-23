@@ -7,11 +7,23 @@ import { GemStoneDatabase, GemStoneProcess } from './sysadminTypes';
 import { DEFAULT_GS_PW } from './loginTypes';
 import { appendSysadmin, showSysadmin } from './sysadminChannel';
 import { needsWsl, windowsPathToWsl, wslSpawn, wslExecSync } from './wslBridge';
-import { versionsMatch } from './versionsMatch';
 
-// Re-exported so existing importers (databaseTreeProvider, tests) keep their
-// import site; the implementation now lives in a vscode-free module.
-export { versionsMatch };
+/** Decide whether a gslist-reported version matches a database's configured
+ *  version. They usually come from different sources (the gslist Version column
+ *  vs. the version parsed out of the product directory name), so we treat them
+ *  as matching when the shorter one is a dotted-component prefix of the longer
+ *  (e.g. "3.7.4" matches "3.7.4.3"). This keeps genuinely different installs —
+ *  "3.6.2" vs "3.7.5" — distinct, which is what lets the Databases panel tie a
+ *  running stone to the version that actually started it. */
+export function versionsMatch(a: string, b: string): boolean {
+  const as = a.split('.');
+  const bs = b.split('.');
+  const shared = Math.min(as.length, bs.length);
+  for (let i = 0; i < shared; i++) {
+    if (as[i] !== bs[i]) return false;
+  }
+  return shared > 0;
+}
 
 /** Options shared by the process-start commands. */
 export interface StartOptions {

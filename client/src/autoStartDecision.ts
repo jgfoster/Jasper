@@ -1,5 +1,5 @@
 import { GemStoneDatabase, GemStoneProcess } from './sysadminTypes';
-import { versionsMatch } from './versionsMatch';
+import { versionsMatch } from './processManager';
 
 /** Whether one of a database's two processes is up, and whether it is healthy.
  *  `running` mirrors what the Databases view shows; `responding` is the gslist
@@ -62,24 +62,27 @@ export function inspectDatabaseProcesses(
 /**
  * Decide what the recovery flow should do about a database's process state.
  *
- * A login needs both the stone and the NetLDI, so either being down is
- * actionable. An unresponsive process is called out separately because
- * starting it would just fail — that case wants the stale-lock tooling, not a
- * second `startstone`.
+ * A login needs both the stone and the NetLDI, and the two are started
+ * independently, so anything that is *down* is offered first — a process that
+ * is merely wedged on one side is no reason to leave a stopped process on the
+ * other side stopped. Only when nothing can be started does an unresponsive
+ * process get called out on its own: starting it would just fail, so that case
+ * wants the stale-lock tooling, not a second `startstone`.
  */
 export function classifyStartNeed(state: DatabaseProcessState): StartNeed {
-  if (state.stone.running && !state.stone.responding) {
+  if (!state.stone.running || !state.netldi.running) {
+    return {
+      kind: 'can-start',
+      startStone: !state.stone.running,
+      startNetldi: !state.netldi.running,
+    };
+  }
+  // Both are up; if one is wedged, starting cannot help it (stone first).
+  if (!state.stone.responding) {
     return { kind: 'not-responding', what: 'stone' };
   }
-  if (state.netldi.running && !state.netldi.responding) {
+  if (!state.netldi.responding) {
     return { kind: 'not-responding', what: 'netldi' };
   }
-  if (state.stone.running && state.netldi.running) {
-    return { kind: 'already-running' };
-  }
-  return {
-    kind: 'can-start',
-    startStone: !state.stone.running,
-    startNetldi: !state.netldi.running,
-  };
+  return { kind: 'already-running' };
 }

@@ -78,8 +78,8 @@ const AUTO_START_MODES: { mode: AutoStartMode; label: string; detail: string }[]
 
 /**
  * Command Palette entry point for the preference, so someone who chose "Always"
- * at the prompt can change their mind without hunting through Settings — and so
- * "Never", which the prompt has no button for, is reachable at all.
+ * or "Never" at the prompt can change their mind later without hunting through
+ * Settings.
  */
 export async function configureAutoStartDatabase(): Promise<void> {
   const current = getAutoStartMode();
