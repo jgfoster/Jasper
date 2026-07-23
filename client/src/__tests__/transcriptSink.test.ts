@@ -19,6 +19,7 @@ import {
 } from '../transcriptSink';
 import type { ActiveSession } from '../sessionManager';
 import type { GciError } from '../gciLibrary';
+import { GciLibraryError } from '../gciLibraryError';
 
 const OOP_ILLEGAL = 0x01n;
 
@@ -55,6 +56,7 @@ function makeGci(overrides: Record<string, unknown> = {}) {
     ),
     GciTsFetchOops: vi.fn(() => ({ result: 1, oops: [0x77n], err: { number: 0 } })),
     GciTsExecuteFetchBytes: vi.fn(() => ({ data: '', err: { number: 0 } })),
+    executeAndFetchString: vi.fn(() => ''),
     GciTsNbResult: vi.fn(() => ({ result: 42n, err: { number: 0, context: 0n } })),
     GciTsContinueWithAsync: vi.fn(async () => ({ result: 42n, err: { number: 0, context: 0n } })),
     ...overrides,
@@ -106,7 +108,7 @@ describe('transcriptSink', () => {
   describe('installTranscriptSink', () => {
     it('reports success when the install doit runs cleanly', () => {
       const gci = makeGci({
-        GciTsExecuteFetchBytes: vi.fn(() => ({ data: 'installed', err: { number: 0 } })),
+        executeAndFetchString: vi.fn(() => 'installed'),
       });
 
       expect(installTranscriptSink(makeSession(gci))).toBe(true);
@@ -114,7 +116,9 @@ describe('transcriptSink', () => {
 
     it('is non-fatal when the server rejects the install', () => {
       const gci = makeGci({
-        GciTsExecuteFetchBytes: vi.fn(() => ({ data: '', err: { number: 4001, message: 'nope' } })),
+        executeAndFetchString: vi.fn(() => {
+          throw GciLibraryError.withMessage('nope');
+        }),
       });
 
       expect(installTranscriptSink(makeSession(gci))).toBe(false);
@@ -122,7 +126,7 @@ describe('transcriptSink', () => {
 
     it('is non-fatal when the GCI call throws', () => {
       const gci = makeGci({
-        GciTsExecuteFetchBytes: vi.fn(() => {
+        executeAndFetchString: vi.fn(() => {
           throw new Error('socket closed');
         }),
       });

@@ -140,20 +140,9 @@ sink == nil ifTrue: [''] ifFalse: [(sink jasperLive: ${live}) encodeAsUTF8]`;
  */
 export function installTranscriptSink(session: ActiveSession): boolean {
   try {
-    const { data, err } = session.gci.GciTsExecuteFetchBytes(
-      session.handle,
-      TRANSCRIPT_SINK_INSTALL_CODE,
-      -1,
-      OOP_CLASS_STRING,
-      OOP_ILLEGAL,
-      OOP_NIL,
-      256,
-    );
-    if (err.number !== 0) {
-      logError(session.id, `Transcript sink install failed: ${err.message || err.number}`);
-      return false;
-    }
-    logInfo(`[Session ${session.id}] Transcript sink ${data}`);
+    const result = session.gci.executeAndFetchString(session.handle, TRANSCRIPT_SINK_INSTALL_CODE);
+
+    logInfo(`[Session ${session.id}] Transcript sink ${result}`);
     return true;
   } catch (e) {
     logError(
