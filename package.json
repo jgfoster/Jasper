@@ -222,6 +222,22 @@
             "default": false,
             "description": "Enable enhanced inspector perf tracking: count GCI round trips in the enhanced inspector. When enabled, shows a status bar counter and logs to the 'GemStone Enhanced Inspector Perf' output channel. Intended for performance tuning only."
           },
+          "gemstone.rowan.loadAfterAddingDependency": {
+            "type": "string",
+            "enum": [
+              "ask",
+              "always",
+              "never"
+            ],
+            "enumDescriptions": [
+              "After adding a dependency while connected, offer to load the project so the database has its code.",
+              "Load the project automatically after adding a dependency.",
+              "Never offer to load after adding a dependency."
+            ],
+            "default": "ask",
+            "description": "What to do after adding a dependency to the open Rowan project while a database is connected. Adding a dependency only writes files on disk; the database does not have the code until the project is loaded. Only applies while connected. The buttons on the prompt update this setting.",
+            "scope": "window"
+          },
           "gemstone.displayItMode": {
             "type": "string",
             "enum": [
@@ -459,7 +475,7 @@
       {
         "view": "gemstoneRowan",
         "contents": "This folder isn't a Rowan project.\n[Create Rowan Project](command:gemstone.rowanInitHere)",
-        "when": "!gemstone.workspaceIsRowanProject && workspaceFolderCount != 0"
+        "when": "gemstone.rowanProjectChecked && !gemstone.workspaceIsRowanProject && workspaceFolderCount != 0"
       },
       {
         "view": "gemstoneRowan",
@@ -750,6 +766,12 @@
         "icon": "$(debug-alt)"
       },
       {
+        "command": "gemstone.runInNewGem",
+        "title": "Run in a New Gem",
+        "category": "GemStone",
+        "icon": "$(server-process)"
+      },
+      {
         "command": "gemstone.toggleInlineValues",
         "title": "Toggle Inline Variable Values",
         "category": "GemStone",
@@ -860,6 +882,12 @@
         "command": "gemstone.rowanInitHere",
         "title": "Create Rowan Project",
         "category": "GemStone"
+      },
+      {
+        "command": "gemstone.rowanAddDependency",
+        "title": "Add Dependency…",
+        "category": "GemStone",
+        "icon": "$(add)"
       },
       {
         "command": "gemstone.rowanFindClassPackage",
@@ -1595,6 +1623,11 @@
           "group": "navigation@0"
         },
         {
+          "command": "gemstone.rowanAddDependency",
+          "when": "view == gemstoneRowanProject",
+          "group": "navigation@0"
+        },
+        {
           "command": "gemstone.rowanAddRepo",
           "when": "view == gemstoneRowan",
           "group": "navigation@1"
@@ -1996,6 +2029,11 @@
           "group": "1_gemstone@4"
         },
         {
+          "command": "gemstone.runInNewGem",
+          "when": "editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing",
+          "group": "1_gemstone@5"
+        },
+        {
           "command": "gemstone.sendersOf",
           "when": "editorTextFocus && resourceLangId == gemstone-smalltalk",
           "group": "2_navigation@0"
@@ -2168,11 +2206,9 @@
     "//test:gci": "Runs only the on-demand 'gci' vitest project (client/vitest.config.ts); needs a live test stone (npm run test:server:start). `npm test` runs the 'default' project and excludes these.",
     "test:gci": "cd client && npx vitest run --project gci",
     "//test:acceptance": "End-user acceptance tests that drive a real VS Code window (Playwright + Electron). Slow and GUI-bound, so excluded from `npm test`. Run `npm run compile` first.",
-    "test:acceptance": "playwright test -c acceptance/playwright.config.ts",
+    "test:acceptance": "bddgen -c acceptance/playwright.config.ts && playwright test -c acceptance/playwright.config.ts",
     "test:acceptance:report": "playwright show-report acceptance/playwright-report",
     "test:acceptance:docker": "bash acceptance/docker-test.sh",
-    "test:acceptance:rowan": "bash acceptance/docker-test-rowan.sh",
-    "test:acceptance:seaside": "bash acceptance/docker-test-seaside.sh",
     "package": "vsce package",
     "publish": "npm run publish:vsce && npm run publish:ovsx",
     "publish:vsce": "vsce publish",
@@ -2192,6 +2228,7 @@
     "globals": "^16.0.0",
     "lefthook": "^2.1.10",
     "ovsx": "^0.10.5",
+    "playwright-bdd": "^9.2.0",
     "prettier": "^3.9.5",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.20.0",

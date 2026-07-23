@@ -36,7 +36,14 @@ echo "Starting Stone (${STONE_NAME})..."
 startstone "$STONE_NAME"
 
 echo "Starting NetLDI in guest mode (${LDI_NAME})..."
-startnetldi "$LDI_NAME" -g
+# -D keeps forked gems out of your home directory. Without it a gem's working
+# directory is the child's home, so every RPC login drops a
+# gemnetobject<hex>.log there and they accumulate silently. -D makes that
+# directory the gem's cwd instead, so the logs land beside the rest of this
+# instance's files, under the (gitignored) install tree.
+GEM_LOG_DIR="$GEMSTONE_GLOBAL_DIR/log"
+mkdir -p "$GEM_LOG_DIR"
+startnetldi "$LDI_NAME" -g -D "$GEM_LOG_DIR"
 
 # Both processes started successfully — no cleanup needed on exit.
 trap - EXIT

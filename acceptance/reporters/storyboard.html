@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Jasper — Acceptance Storyboard</title>
+
+    <!--
+      This is the storyboard's whole appearance. It is a working standalone
+      page: the reporter (storyboard.ts) swaps the placeholder below for the
+      run's JSON and writes the result next to the Playwright report. Edit this
+      file to restyle the storyboard — nothing here needs a build step, and the
+      TypeScript never renders markup.
+
+      The data shape is:
+        { status, generatedAt, logo, marks: { acted, checked }, sections: [
+            { name, preamble, features: [
+                { name, description, scenarios: [
+                    { name, status, steps: [
+                        { keyword, title, frames: [
+                            { label, actions: [{ text, kind }], image } ] } ] } ] } ] } ] }
+
+      A section is a folder under features/; `preamble` is its README.md,
+      already rendered to HTML.
+
+      A step's `frames` are the moments captured while it ran, in order; the
+      last one is the state it finished in. A frame's `actions` are what the run
+      did to produce it, and are the only thing said about it — `label` is not
+      shown, surviving as the image's alt text and as the attachment's name in
+      Playwright's own report.
+    -->
+    <style>
+      :root {
+        color-scheme: light dark;
+        --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M6 3.5L10.5 8L6 12.5' fill='none' stroke='%23000' stroke-width='2.1' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+        --bg: #fbfaf9;
+        --surface: #fff;
+        --ink: #1b1a19;
+        --ink-soft: #5d5955;
+        --line: #e4e0db;
+        --accent: #b4453a;
+        --ok: #2f7d4f;
+        --bad: #c0392b;
+        /* Fallbacks only: the reporter overrides these with the exact colours it
+           drew into the frames, which are fixed and do not follow the theme. */
+        --acted: #ff2bd1;
+        --checked: #2bd7ff;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #141614;
+          --surface: #1c1f1d;
+          --ink: #ecebe8;
+          --ink-soft: #a3a09b;
+          --line: #2e332f;
+          --accent: #e0705f;
+          --ok: #6fbb8a;
+          --bad: #e8776a;
+        }
+      }
+      :root[data-theme='dark'] {
+        --bg: #141614;
+        --surface: #1c1f1d;
+        --ink: #ecebe8;
+        --ink-soft: #a3a09b;
+        --line: #2e332f;
+        --accent: #e0705f;
+        --ok: #6fbb8a;
+        --bad: #e8776a;
+      }
+      :root[data-theme='light'] {
+        --bg: #fbfaf9;
+        --surface: #fff;
+        --ink: #1b1a19;
+        --ink-soft: #5d5955;
+        --line: #e4e0db;
+        --accent: #b4453a;
+        --ok: #2f7d4f;
+        --bad: #c0392b;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 16px/1.6 ui-sans-serif, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 20rem minmax(0, 1fr);
+      }
+      main {
+        max-width: 62rem;
+        padding: 1.75rem 2rem 4rem;
+      }
+      .feature + .feature {
+        padding-top: 0.5rem;
+      }
+
+      /* Contents: the run's shape, and the way around a very long page. */
+      .nav {
+        position: sticky;
+        top: 0;
+        align-self: start;
+        height: 100vh;
+        overflow-y: auto;
+        padding: 1.1rem 1rem 2.5rem;
+        border-right: 1px solid var(--line);
+        font-size: 0.82rem;
+      }
+      /* Masthead, compacted into the rail: who this is and how the run went. */
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.6rem;
+      }
+      .brand img {
+        width: 1.4rem;
+        height: 1.4rem;
+      }
+      .brand__name {
+        font-weight: 650;
+        letter-spacing: -0.01em;
+      }
+      .brand__what {
+        color: var(--ink-soft);
+        font-size: 0.78rem;
+      }
+      .run {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        padding-bottom: 0.9rem;
+        margin-bottom: 0.6rem;
+        border-bottom: 1px solid var(--line);
+        font-size: 0.78rem;
+        color: var(--ink-soft);
+      }
+      .nav details {
+        margin-bottom: 0.15rem;
+      }
+      .nav summary {
+        display: flex;
+        align-items: baseline;
+        gap: 0.4rem;
+        padding: 0.25rem 0;
+        cursor: pointer;
+        list-style: none;
+        border-radius: 4px;
+      }
+      .nav summary::-webkit-details-marker {
+        display: none;
+      }
+      /* A chevron twistie, drawn from an SVG mask so it stays crisp at any size
+         and takes its colour from the text it sits beside. */
+      .nav summary::before {
+        content: '';
+        flex: none;
+        width: 0.8rem;
+        height: 0.8rem;
+        align-self: center;
+        background: currentColor;
+        opacity: 0.75;
+        transition: transform 0.15s ease;
+        -webkit-mask: var(--chevron) center / contain no-repeat;
+        mask: var(--chevron) center / contain no-repeat;
+      }
+      .nav details[open] > summary::before {
+        transform: rotate(90deg);
+      }
+      .nav summary:hover::before {
+        opacity: 1;
+      }
+      .nav__part > summary {
+        font-weight: 650;
+      }
+      .nav__feature {
+        margin-left: 0.75rem;
+      }
+      .nav__feature > summary {
+        font-weight: 550;
+      }
+      .nav__scenario {
+        margin-left: 1.5rem;
+      }
+      .nav__steps {
+        padding-left: 2.6rem;
+      }
+      .nav__steps {
+        list-style: none;
+        margin: 0.1rem 0 0.5rem;
+        padding-left: 1.85rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.1rem;
+      }
+      .nav a {
+        display: block;
+        padding: 0.2rem 0.45rem;
+        border-radius: 4px;
+        color: var(--ink-soft);
+        text-decoration: none;
+        border-left: 2px solid transparent;
+      }
+      .nav a:hover {
+        color: var(--ink);
+        background: color-mix(in srgb, var(--ink) 6%, transparent);
+      }
+      .nav a.is-current {
+        color: var(--ink);
+        border-left-color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 10%, transparent);
+      }
+      .nav a:focus-visible,
+      .nav summary:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      /* Anchored headings shouldn't land flush against the top of the window. */
+      .part,
+      .feature,
+      .scenario,
+      .step {
+        scroll-margin-top: 1.5rem;
+      }
+
+      @media (max-width: 60rem) {
+        .layout {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .nav {
+          position: static;
+          height: auto;
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+        main {
+          padding: 1.25rem 1.25rem 3rem;
+        }
+      }
+
+
+      /* A part of the manual: one folder of features, introduced by its README. */
+      .part {
+        margin: 0 0 3.5rem;
+      }
+      .part__title {
+        margin: 0;
+        font-size: 1.85rem;
+        letter-spacing: -0.02em;
+        text-wrap: balance;
+        padding-bottom: 0.7rem;
+        border-bottom: 2px solid var(--accent);
+      }
+      .preamble {
+        margin: 1.4rem 0 2.5rem;
+        max-width: 64ch;
+      }
+      .preamble > *:first-child {
+        margin-top: 0;
+      }
+      .preamble p {
+        margin: 0 0 0.9rem;
+      }
+      .preamble h3 {
+        margin: 1.9rem 0 0.7rem;
+        font-size: 1rem;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: var(--ink-soft);
+      }
+      .preamble ul {
+        margin: 0 0 0.9rem;
+        padding-left: 1.1rem;
+      }
+      .preamble li {
+        margin-bottom: 0.45rem;
+      }
+      .preamble li::marker {
+        color: var(--accent);
+      }
+      .preamble a {
+        color: inherit;
+        text-decoration-color: var(--accent);
+        text-underline-offset: 2px;
+      }
+      .preamble a:hover {
+        color: var(--accent);
+      }
+      .preamble code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.86em;
+        padding: 0.1em 0.32em;
+        border-radius: 4px;
+        background: color-mix(in srgb, var(--ink) 7%, transparent);
+      }
+
+      .feature {
+        display: block;
+        margin: 0 0 2.5rem;
+      }
+      .feature > h3 {
+        margin: 0;
+        font-size: 1.22rem;
+        letter-spacing: -0.01em;
+      }
+      .lede {
+        margin: 0.5rem 0 0;
+        color: var(--ink-soft);
+        max-width: 62ch;
+      }
+
+      .scenario {
+        margin-top: 1.6rem;
+      }
+      .scenario > h3 {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        margin: 0 0 1rem;
+        font-size: 0.98rem;
+        font-weight: 600;
+        color: var(--ink-soft);
+      }
+
+      .status {
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        padding: 0.2rem 0.5rem;
+        border-radius: 999px;
+        border: 1px solid currentColor;
+        font-weight: 600;
+      }
+      .status--failed,
+      .status--timedOut,
+      .status--interrupted {
+        color: var(--bad);
+      }
+
+      .steps {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 1.1rem;
+      }
+      .step__head {
+        display: flex;
+        align-items: baseline;
+        gap: 0.75rem;
+        margin-bottom: 0.6rem;
+      }
+      .step__n {
+        flex: none;
+        width: 1.55rem;
+        height: 1.55rem;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        border: 1px solid var(--line);
+        color: var(--ink-soft);
+        font-size: 0.78rem;
+        font-variant-numeric: tabular-nums;
+      }
+      .step__text {
+        margin: 0;
+      }
+      /* The step is written in the colour of the ring its frames draw. The
+         keyword keeps the page's accent so Given/When/Then still scan as
+         structure rather than as part of the claim. */
+      .step__text--act {
+        color: var(--acted);
+      }
+      .step__text--check {
+        color: var(--checked);
+      }
+      .kw {
+        color: var(--accent);
+        font-weight: 600;
+      }
+
+      /* A step's frames are its beats, indented under it and read top to bottom. */
+      .frames {
+        display: flex;
+        flex-direction: column;
+        gap: 0.85rem;
+        margin-left: 2.3rem;
+      }
+      .shot {
+        margin: 0;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        overflow: hidden;
+        background: var(--surface);
+      }
+      .shot img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      /* What the run actually did to arrive at the picture below. */
+      .actions {
+        margin: 0;
+        padding: 0.55rem 0.8rem 0.55rem 2.4rem;
+        border-bottom: 1px solid var(--line);
+        color: var(--ink-soft);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.76rem;
+        line-height: 1.7;
+      }
+      /* The two ring colours the run draws on the window, reused here so a
+         sentence and the control it is about read as the same thing. */
+      /* 'plain' keeps the list's own colour: nothing in the picture is marked. */
+      .action--act {
+        color: var(--acted);
+      }
+      .action--check {
+        color: var(--checked);
+      }
+      .actions li::marker {
+        color: currentColor;
+      }
+
+      .empty {
+        color: var(--ink-soft);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="nav">
+        <header class="brand">
+          <img id="logo" alt="" />
+          <span>
+            <span class="brand__name">Jasper</span><br />
+            <span class="brand__what">Acceptance Storyboard</span>
+          </span>
+        </header>
+        <p class="run" id="run"></p>
+        <nav id="contents"></nav>
+      </aside>
+      <div class="content">
+        <main id="storyboard"></main>
+      </div>
+    </div>
+
+    <script id="storyboard-data" type="application/json">
+      __STORYBOARD_DATA__
+    </script>
+
+    <script>
+      function el(tag, className, text) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined) node.textContent = text;
+        return node;
+      }
+
+      function renderFrame(frame, stepTitle) {
+        const figure = el('figure', 'shot');
+
+        if (frame.actions.length) {
+          const actions = el('ol', 'actions');
+          frame.actions.forEach((action) =>
+            // Coloured to match the ring the action drew in the picture below.
+            actions.append(el('li', 'action action--' + action.kind, action.text)),
+          );
+          figure.append(actions);
+        }
+
+        const img = el('img');
+        img.src = frame.image;
+        img.alt = frame.label || stepTitle;
+        img.loading = 'lazy';
+        figure.append(img);
+        return figure;
+      }
+
+      function renderStep(step, index) {
+        const item = el('li', 'step');
+        item.id = step.anchor;
+
+        const head = el('div', 'step__head');
+        head.append(el('span', 'step__n', String(index + 1)));
+
+        // Written in the colour of the ring its frames draw, so the sentence
+        // and the marked control read as one claim.
+        const text = el('p', 'step__text step__text--' + (step.kind || 'plain'));
+        if (step.keyword) {
+          text.append(el('span', 'kw', step.keyword), ' ' + step.title);
+        } else {
+          text.textContent = step.title;
+        }
+        head.append(text);
+
+        const frames = el('div', 'frames');
+        step.frames.forEach((frame) => frames.append(renderFrame(frame, step.title)));
+
+        item.append(head, frames);
+        return item;
+      }
+
+      function renderScenario(scenario) {
+        const article = el('article', 'scenario');
+        article.id = scenario.anchor;
+
+        const heading = el('h3');
+        heading.append(scenario.name);
+        // Passing is the premise: a scenario is here because it ran green, so
+        // badging every one of them says nothing. Anything else still shows.
+        if (scenario.status !== 'passed') {
+          heading.append(el('span', 'status status--' + scenario.status, scenario.status));
+        }
+
+        const steps = el('ol', 'steps');
+        scenario.steps.forEach((step, i) => steps.append(renderStep(step, i)));
+
+        article.append(heading, steps);
+        return article;
+      }
+
+      function renderFeature(feature) {
+        const article = el('article', 'feature');
+        article.id = feature.anchor;
+        article.append(el('h3', null, feature.name));
+        if (feature.description) article.append(el('p', 'lede', feature.description));
+        feature.scenarios.forEach((scenario) => article.append(renderScenario(scenario)));
+        return article;
+      }
+
+      function renderSection(section) {
+        const node = el('section', 'part');
+        node.id = section.anchor;
+
+        if (section.name) node.append(el('h2', 'part__title', section.name));
+        if (section.preamble) {
+          const preamble = el('div', 'preamble');
+          // Authored prose from the folder's own README, rendered by the reporter.
+          preamble.innerHTML = section.preamble;
+          node.append(preamble);
+        }
+
+        section.features.forEach((feature) => node.append(renderFeature(feature)));
+        return node;
+      }
+
+      /** A link into the page, plus the <details> that must be open to reveal it. */
+      function navLink(target, label, keyword) {
+        const link = el('a');
+        link.href = '#' + target;
+        if (keyword) link.append(el('span', 'kw', keyword), ' ' + label);
+        else link.textContent = label;
+        return link;
+      }
+
+      function collapsible(className, anchor, label, open) {
+        const node = el('details', className);
+        node.open = open;
+        const summary = el('summary');
+        summary.append(navLink(anchor, label));
+        node.append(summary);
+        return node;
+      }
+
+      function renderContents(sections) {
+        const nav = document.getElementById('contents');
+
+        sections.forEach((section) => {
+          const sectionNode = section.name
+            ? collapsible('nav__part', section.anchor, section.name, true)
+            : nav;
+
+          section.features.forEach((feature) => {
+            const featureNode = collapsible('nav__feature', feature.anchor, feature.name, true);
+
+            feature.scenarios.forEach((scenario) => {
+              const scenarioNode = collapsible(
+                'nav__scenario',
+                scenario.anchor,
+                scenario.name,
+                true,
+              );
+
+              const steps = el('ol', 'nav__steps');
+              scenario.steps.forEach((step) => {
+                const li = el('li');
+                li.append(navLink(step.anchor, step.title, step.keyword));
+                steps.append(li);
+              });
+
+              scenarioNode.append(steps);
+              featureNode.append(scenarioNode);
+            });
+
+            sectionNode.append(featureNode);
+          });
+
+          if (sectionNode !== nav) nav.append(sectionNode);
+        });
+      }
+
+      /** Mark the step nearest the top of the viewport, so the tree tracks reading. */
+      function followScroll() {
+        const links = new Map();
+        document
+          .querySelectorAll('.nav__steps a')
+          .forEach((a) => links.set(a.getAttribute('href').slice(1), a));
+
+        let current = null;
+        const observer = new IntersectionObserver(
+          (entries) => {
+            entries.forEach((entry) => {
+              if (!entry.isIntersecting) return;
+              const link = links.get(entry.target.id);
+              if (!link || link === current) return;
+              if (current) current.classList.remove('is-current');
+              link.classList.add('is-current');
+              current = link;
+            });
+          },
+          { rootMargin: '0px 0px -75% 0px' },
+        );
+        document.querySelectorAll('.step').forEach((step) => observer.observe(step));
+      }
+
+      const data = JSON.parse(document.getElementById('storyboard-data').textContent);
+      const root = document.getElementById('storyboard');
+
+      // Anchors are positional, so they stay stable while the run's shape does.
+      data.sections.forEach((section, p) => {
+        section.anchor = 'p' + p;
+        section.features.forEach((feature, f) => {
+          feature.anchor = 'p' + p + 'f' + f;
+          feature.scenarios.forEach((scenario, s) => {
+            scenario.anchor = feature.anchor + 's' + s;
+            scenario.steps.forEach((step, t) => {
+              step.anchor = scenario.anchor + 't' + t;
+            });
+          });
+        });
+      });
+
+      const features = data.sections.flatMap((section) => section.features);
+      const scenarios = features.reduce((n, f) => n + f.scenarios.length, 0);
+      const steps = features.reduce(
+        (n, f) => n + f.scenarios.reduce((m, s) => m + s.steps.length, 0),
+        0,
+      );
+      // Take the ring colours from the run, so a sentence and the ring it is
+      // about are the same colour in either theme.
+      if (data.marks) {
+        document.documentElement.style.setProperty('--acted', data.marks.acted);
+        document.documentElement.style.setProperty('--checked', data.marks.checked);
+      }
+      if (data.logo) document.getElementById('logo').src = data.logo;
+      const run = document.getElementById('run');
+      if (data.status !== 'passed') {
+        run.append(el('span', 'status status--' + data.status, data.status));
+      }
+      run.append(el('span', null, scenarios + ' scenarios · ' + steps + ' steps'));
+
+      if (features.length === 0) {
+        root.append(el('p', 'empty', 'No steps were captured in this run.'));
+      } else {
+        data.sections.forEach((section) => root.append(renderSection(section)));
+        renderContents(data.sections);
+        followScroll();
+      }
+    </script>
+  </body>
+</html>

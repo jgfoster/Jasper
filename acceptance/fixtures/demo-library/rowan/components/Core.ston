@@ -1,0 +1,9 @@
+RwLoadComponent {
+	#name : 'Core',
+	#projectNames : [ ],
+	#componentNames : [ ],
+	#packageNames : [
+		'DemoLibrary-Core'
+	],
+	#comment : ''
+}

@@ -26,6 +26,7 @@ describe('editor/context menu', () => {
       'gemstone.inspectIt',
       'gemstone.executeIt',
       'gemstone.debugIt',
+      'gemstone.runInNewGem',
       'gemstone.sendersOf',
       'gemstone.implementorsOf',
       'gemstone.explorer.extractMethod',

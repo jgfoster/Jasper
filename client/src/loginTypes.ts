@@ -1,3 +1,13 @@
+/**
+ * The NRS naming the gem process to start for `login` — the host, the NetLDI
+ * that spawns it, and the service it runs. The NetLDI name comes from the login
+ * because it is a deployment fact: GemStone's own default is `gs64ldi`, and
+ * anything named otherwise cannot be reached without saying so.
+ */
+export function gemNrsFor(login: Pick<GemStoneLogin, 'gem_host' | 'netldi'>): string {
+  return `!tcp@${login.gem_host}#netldi:${login.netldi}#task!gemnetobject`;
+}
+
 export interface GemStoneLogin {
   label: string;
   version: string;

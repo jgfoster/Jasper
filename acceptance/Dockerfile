@@ -40,6 +40,14 @@ RUN npm ci
 COPY client/bin ./client/bin
 RUN cd client && bash bin/gs-install.sh 3.7.5
 
+# Fonts so VS Code's codicon glyphs render instead of tofu boxes. Its own layer,
+# after the heavy GemStone download, so adding it doesn't bust that cache.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      fonts-liberation \
+      fontconfig \
+ && rm -rf /var/lib/apt/lists/* \
+ && fc-cache -f
+
 COPY . .
 
 # The extension must be built for VS Code to load it from source.
