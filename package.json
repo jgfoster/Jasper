@@ -1147,6 +1147,12 @@
         "icon": "$(edit)"
       },
       {
+        "command": "gemstone.explorer.inlineMethod",
+        "title": "Inline Method…",
+        "category": "GemStone",
+        "icon": "$(edit)"
+      },
+      {
         "command": "gemstone.renameInstVarAtCursor",
         "title": "Rename Instance Variable at Cursor…",
         "category": "GemStone",
@@ -2003,6 +2009,11 @@
           "command": "gemstone.explorer.extractMethod",
           "when": "editorTextFocus && resourceScheme == gemstone && resourceLangId == gemstone-smalltalk && editorHasSelection",
           "group": "2_navigation@2"
+        },
+        {
+          "command": "gemstone.explorer.inlineMethod",
+          "when": "editorTextFocus && resourceScheme == gemstone && resourceLangId == gemstone-smalltalk",
+          "group": "2_navigation@3"
         },
         {
           "command": "gemstone.toggleSelectorBreakpoint",
