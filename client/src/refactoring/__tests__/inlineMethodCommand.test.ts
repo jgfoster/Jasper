@@ -120,6 +120,55 @@ describe('inline-method command', () => {
     expect(queries.analyzeInlineSend).not.toHaveBeenCalled();
   });
 
+  it('reports a failed pre-flight and never opens the preview', async () => {
+    installEditor();
+    vi.mocked(queries.analyzeInlineSend).mockRejectedValue(new Error('boom'));
+
+    await inlineMethodCommand(sessions);
+
+    expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining('boom'));
+    expect(queries.startInlineMethodPreview).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed preview and never opens the panel', async () => {
+    installEditor();
+    vi.mocked(queries.analyzeInlineSend).mockResolvedValue(analysis());
+    vi.mocked(queries.startInlineMethodPreview).mockRejectedValue(new Error('kaboom'));
+
+    await inlineMethodCommand(sessions);
+
+    expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining('kaboom'));
+    expect(showInlineMethodPanel).not.toHaveBeenCalled();
+  });
+
+  it('refuses (and does not open the panel) on a hard decline from the preview', async () => {
+    installEditor();
+    vi.mocked(queries.analyzeInlineSend).mockResolvedValue(analysis());
+    vi.mocked(queries.startInlineMethodPreview).mockResolvedValue(
+      startEnvelope({ total: 0, outOfScope: { collision: null, decline: 'cannot inline' } }),
+    );
+
+    await inlineMethodCommand(sessions);
+
+    expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
+      expect.stringContaining('cannot inline'),
+    );
+    expect(showInlineMethodPanel).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the preview finds nothing to inline', async () => {
+    installEditor();
+    vi.mocked(queries.analyzeInlineSend).mockResolvedValue(analysis());
+    vi.mocked(queries.startInlineMethodPreview).mockResolvedValue(startEnvelope({ total: 0 }));
+
+    await inlineMethodCommand(sessions);
+
+    expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
+      expect.stringContaining('Nothing to inline'),
+    );
+    expect(showInlineMethodPanel).not.toHaveBeenCalled();
+  });
+
   it('does nothing further when the user cancels the preview', async () => {
     installEditor();
     vi.mocked(queries.analyzeInlineSend).mockResolvedValue(analysis());

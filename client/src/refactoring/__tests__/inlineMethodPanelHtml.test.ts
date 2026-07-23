@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderInlinePanelHtml } from '../inlineMethodPanelHtml';
+import { renderInlinePanelHtml, renderInlineCards } from '../inlineMethodPanelHtml';
 import { InlineChange } from '../inlineMethodPreview';
 
 /**
@@ -88,5 +88,14 @@ describe('inline-method preview panel HTML', () => {
     const html = render();
 
     expect(html).toContain('<code>total</code>');
+  });
+});
+
+describe('inlineMethodPanelHtml.renderInlineCards', () => {
+  it('disables only rows whose global index is below the core count', () => {
+    const cards = renderInlineCards([removal], 1, 1);
+
+    expect(cards).not.toContain('disabled');
+    expect(cards).toContain('data-id="2"');
   });
 });
