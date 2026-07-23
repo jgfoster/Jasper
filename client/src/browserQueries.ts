@@ -1,6 +1,6 @@
 import { ActiveSession } from './sessionManager';
-import { OOP_NIL, OOP_ILLEGAL } from './gciConstants';
-import { logQuery, logResult, logError } from './gciLog';
+import { OOP_ILLEGAL, OOP_NIL } from './gciConstants';
+import { logError } from './gciLog';
 import { runNbCall } from './nbRunner';
 
 import { QueryExecutor } from './queries/types';
@@ -11,8 +11,8 @@ import { getBaseMethodSource as sharedGetBaseMethodSource } from './queries/getB
 import { getDictionaryNames as sharedGetDictionaryNames } from './queries/getDictionaryNames';
 import { getClassNames as sharedGetClassNames } from './queries/getClassNames';
 import {
-  getClassesWithCategory as sharedGetClassesWithCategory,
   ClassCategoryEntry,
+  getClassesWithCategory as sharedGetClassesWithCategory,
 } from './queries/getClassesWithCategory';
 import { getDictionaryClassFileOutOrder as sharedGetDictionaryClassFileOutOrder } from './queries/getDictionaryClassFileOutOrder';
 import { getDictionaryEntries as sharedGetDictionaryEntries } from './queries/getDictionaryEntries';
@@ -29,6 +29,49 @@ import { describeClass as sharedDescribeClass } from './queries/describeClass';
 import { getInstVarNames as sharedGetInstVarNames } from './queries/getInstVarNames';
 import { getDefinedInstVarNames as sharedGetDefinedInstVarNames } from './queries/getDefinedInstVarNames';
 import { getDefinedInstVarCounts as sharedGetDefinedInstVarCounts } from './queries/getDefinedInstVarCounts';
+import { getDefinedClassVarNames as sharedGetDefinedClassVarNames } from './refactoring/queries/getDefinedClassVarNames';
+import { getVisibleClassVarNames as sharedGetVisibleClassVarNames } from './refactoring/queries/getVisibleClassVarNames';
+import { getDefinedClassVarCounts as sharedGetDefinedClassVarCounts } from './refactoring/queries/getDefinedClassVarCounts';
+import {
+  getClassVersions as sharedGetClassVersions,
+  ClassVersionInfo,
+} from './refactoring/queries/getClassVersions';
+import { previewRenameInstVar as sharedPreviewRenameInstVar } from './refactoring/queries/previewRenameInstVar';
+import {
+  startRenameMethodPreview as sharedStartRenameMethodPreview,
+  pageRenameMethodPreview as sharedPageRenameMethodPreview,
+  applyRenameMethod as sharedApplyRenameMethod,
+  clearRenameMethodPreview as sharedClearRenameMethodPreview,
+  RenameMethodScope,
+} from './refactoring/queries/previewRenameMethod';
+import {
+  startRenameClassPreview as sharedStartRenameClassPreview,
+  pageRenameClassPreview as sharedPageRenameClassPreview,
+  applyRenameClass as sharedApplyRenameClass,
+  clearRenameClassPreview as sharedClearRenameClassPreview,
+  RenameClassScope,
+  RenameClassOptions,
+} from './refactoring/queries/previewRenameClass';
+import {
+  startRenameClassVarPreview as sharedStartRenameClassVarPreview,
+  pageRenameClassVarPreview as sharedPageRenameClassVarPreview,
+  applyRenameClassVar as sharedApplyRenameClassVar,
+  clearRenameClassVarPreview as sharedClearRenameClassVarPreview,
+} from './refactoring/queries/previewRenameClassVar';
+import {
+  startRenameTemporaryPreview as sharedStartRenameTemporaryPreview,
+  pageRenameTemporaryPreview as sharedPageRenameTemporaryPreview,
+  applyRenameTemporary as sharedApplyRenameTemporary,
+  clearRenameTemporaryPreview as sharedClearRenameTemporaryPreview,
+  renameTemporaryDeclineReason as sharedRenameTemporaryDeclineReason,
+} from './refactoring/queries/previewRenameTemporary';
+import {
+  getClassHistory as sharedGetClassHistory,
+  revertClassToVersion as sharedRevertClassToVersion,
+  removeClassVersion as sharedRemoveClassVersion,
+} from './refactoring/queries/classHistory';
+import { globalNameInUse as sharedGlobalNameInUse } from './refactoring/queries/globalNameInUse';
+import { isKernelClass as sharedIsKernelClass } from './refactoring/queries/isKernelClass';
 import {
   getGrailStubReflection as sharedGetGrailStubReflection,
   GrailStubReflection,
@@ -50,11 +93,16 @@ import {
 import { diffRowanProject as sharedDiffRowanProject } from './queries/rowan/diffRowanProject';
 import { unloadRowanProject as sharedUnloadRowanProject } from './queries/rowan/unloadRowanProject';
 import {
+  canForkGem as sharedCanForkGem,
+  forkGemRunning as sharedForkGemRunning,
+} from './queries/forkGem';
+import { gemNrsFor } from './loginTypes';
+import {
+  hierarchyImplementorsOf as sharedHierarchyImplementorsOf,
+  implementorsOf as sharedImplementorsOf,
+  referencesToObject as sharedReferencesToObject,
   searchMethodSource as sharedSearchMethodSource,
   sendersOf as sharedSendersOf,
-  implementorsOf as sharedImplementorsOf,
-  hierarchyImplementorsOf as sharedHierarchyImplementorsOf,
-  referencesToObject as sharedReferencesToObject,
 } from './queries/methodSearch';
 
 // Write-path shared queries.
@@ -95,6 +143,11 @@ export type { RowanLoadResult } from './queries/rowan/loadRowanProject';
 export type { RowanDiff, RowanDiffOp } from './queries/rowan/diffRowanProject';
 export { formatRowanDiff } from './queries/rowan/diffRowanProject';
 export type { RowanUnloadResult } from './queries/rowan/unloadRowanProject';
+export type {
+  RenameClassScope,
+  RenameClassOptions,
+} from './refactoring/queries/previewRenameClass';
+export type { ClassVersionInfo } from './refactoring/queries/getClassVersions';
 
 const MAX_RESULT = 256 * 1024;
 
@@ -128,8 +181,6 @@ function resolveClassUtf8(session: ActiveSession): bigint {
 // correctly regardless of their original encoding and are not capped at a
 // single fixed-size buffer.
 export function executeFetchString(session: ActiveSession, label: string, code: string): string {
-  logQuery(session.id, label, code);
-
   // Check if session is busy with an async operation (e.g., Display It)
   const { result: inProgress } = session.gci.GciTsCallInProgress(session.handle);
   if (inProgress !== 0) {
@@ -139,9 +190,7 @@ export function executeFetchString(session: ActiveSession, label: string, code: 
   }
 
   try {
-    const result = session.gci.executeAndFetchString(session.handle, code);
-    logResult(session.id, result);
-    return result;
+    return session.gci.executeAndFetchString(session.handle, code);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     logError(session.id, msg);
@@ -164,8 +213,6 @@ export async function executeFetchStringNb(
   progressTitle?: string,
   suppressNotification = false,
 ): Promise<string> {
-  logQuery(session.id, label, code);
-
   const { result: inProgress } = session.gci.GciTsCallInProgress(session.handle);
   if (inProgress !== 0) {
     const msg = 'Session is busy with another operation. Please wait or use a different session.';
@@ -197,7 +244,6 @@ export async function executeFetchStringNb(
     { title: progressTitle ?? `GemStone: ${label}…`, suppressNotification },
   );
 
-  logResult(session.id, data);
   return data;
 }
 
@@ -213,8 +259,6 @@ export function executeFetchStringWithLimit(
   code: string,
   maxBytes: number,
 ): string {
-  logQuery(session.id, label, code);
-
   const { result: inProgress } = session.gci.GciTsCallInProgress(session.handle);
   if (inProgress !== 0) {
     const msg = 'Session is busy with another operation. Please wait or use a different session.';
@@ -254,6 +298,31 @@ export function checkEnhancedInspectorAvailable(session: ActiveSession): boolean
       session,
       'checkEnhancedInspectorAvailable',
       "[GtRemotePhlowViewedObject notNil printString] on: Error do: [:e | 'false']",
+    );
+    return result.trim() === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/** Whether the server-side refactoring engine is loaded in this session's stone.
+ *  Probes for the rename-instance-variable refactoring class, the entry point the
+ *  Explorer's rename command drives. The engine ships as an optional, separately-
+ *  installed payload, so the class name is looked up through the symbol list rather
+ *  than referenced directly.
+ *
+ *  The lookup passes the class name as a STRING, not a `#symbol` literal: an
+ *  uninterned symbol literal forces symbol creation when the expression is
+ *  compiled, which throws (error 2391) on a stone whose symbol-creation gem is
+ *  down — so a `#symbol` probe would blow up on exactly the bare stones this is
+ *  meant to report `false` for. A String literal never creates a symbol, and
+ *  `objectNamed:` resolves it against existing symbols only. */
+export function checkRefactoringSupportAvailable(session: ActiveSession): boolean {
+  try {
+    const result = executeFetchString(
+      session,
+      'checkRefactoringSupportAvailable',
+      "(System myUserProfile symbolList objectNamed: 'GsRenameInstanceVariableRefactoring') notNil printString",
     );
     return result.trim() === 'true';
   } catch {
@@ -351,6 +420,24 @@ export function diffRowanProject(session: ActiveSession, projectName: string) {
 
 export function unloadRowanProject(session: ActiveSession, projectName: string) {
   return sharedUnloadRowanProject(defaultQueryExecutorUsing(session), projectName);
+}
+
+/**
+ * Run `expression` in a gem of its own, as this session's user, and answer the
+ * new gem's stone session id. The NetLDI comes from the session's own login —
+ * GemStone's default name is wrong for most stones.
+ */
+/** Whether this stone's version can fork a gem at all (3.6.2 cannot). */
+export function canForkGem(session: ActiveSession) {
+  return sharedCanForkGem(defaultQueryExecutorUsing(session));
+}
+
+export function forkGemRunning(session: ActiveSession, expression: string) {
+  return sharedForkGemRunning(
+    defaultQueryExecutorUsing(session),
+    expression,
+    gemNrsFor(session.login),
+  );
 }
 
 export function getClassNames(session: ActiveSession, dict: number | string): string[] {
@@ -490,8 +577,12 @@ export function getInstVarNames(session: ActiveSession, className: string): stri
   return sharedGetInstVarNames(defaultQueryExecutorUsing(session), className);
 }
 
-export function getDefinedInstVarNames(session: ActiveSession, className: string): string[] {
-  return sharedGetDefinedInstVarNames(defaultQueryExecutorUsing(session), className);
+export function getDefinedInstVarNames(
+  session: ActiveSession,
+  className: string,
+  dict?: number | string,
+): string[] {
+  return sharedGetDefinedInstVarNames(defaultQueryExecutorUsing(session), className, dict);
 }
 
 export function getDefinedInstVarCounts(
@@ -499,6 +590,300 @@ export function getDefinedInstVarCounts(
   dict: number | string,
 ): Map<string, number> {
   return sharedGetDefinedInstVarCounts(defaultQueryExecutorUsing(session), dict);
+}
+
+export function getDefinedClassVarNames(
+  session: ActiveSession,
+  className: string,
+  dict?: number | string,
+): string[] {
+  return sharedGetDefinedClassVarNames(defaultQueryExecutorUsing(session), className, dict);
+}
+
+export function getVisibleClassVarNames(
+  session: ActiveSession,
+  className: string,
+  dict?: number | string,
+): string[] {
+  return sharedGetVisibleClassVarNames(defaultQueryExecutorUsing(session), className, dict);
+}
+
+export function getDefinedClassVarCounts(
+  session: ActiveSession,
+  dict: number | string,
+): Map<string, number> {
+  return sharedGetDefinedClassVarCounts(defaultQueryExecutorUsing(session), dict);
+}
+
+export function getClassVersions(
+  session: ActiveSession,
+  dict: number | string,
+): Map<string, ClassVersionInfo> {
+  return sharedGetClassVersions(defaultQueryExecutorUsing(session), dict);
+}
+
+export function previewRenameInstVar(
+  session: ActiveSession,
+  className: string,
+  oldName: string,
+  newName: string,
+  dict?: number | string,
+): string {
+  return sharedPreviewRenameInstVar(
+    defaultQueryExecutorUsing(session),
+    className,
+    oldName,
+    newName,
+    dict,
+  );
+}
+
+// Paginated rename-method preview: fetched NON-BLOCKING so a slow build shows a
+// progress notification and keeps the extension host responsive. Pages are
+// byte-bounded (PREVIEW_PAGE_BYTES) to stay under the non-blocking fetch cap.
+export function startRenameMethodPreview(
+  session: ActiveSession,
+  className: string,
+  oldSelector: string,
+  newParts: string[],
+  permutation: number[],
+  scope: RenameMethodScope,
+  token: string,
+  maxBytes: number,
+  dict?: number | string,
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, `Previewing rename of ${oldSelector}…`);
+  return sharedStartRenameMethodPreview(
+    exec,
+    className,
+    oldSelector,
+    newParts,
+    permutation,
+    scope,
+    token,
+    maxBytes,
+    dict,
+  );
+}
+
+export function pageRenameMethodPreview(
+  session: ActiveSession,
+  token: string,
+  offset: number,
+  maxBytes: number,
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, 'Loading more changes…');
+  return sharedPageRenameMethodPreview(exec, token, offset, maxBytes);
+}
+
+export function applyRenameMethod(
+  session: ActiveSession,
+  token: string,
+  deselectedIds: string[],
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, 'Applying rename…');
+  return sharedApplyRenameMethod(exec, token, deselectedIds);
+}
+
+export function clearRenameMethodPreview(session: ActiveSession, token: string): string {
+  return sharedClearRenameMethodPreview(defaultQueryExecutorUsing(session), token);
+}
+
+// Paginated rename-class preview: fetched NON-BLOCKING (progress + responsive),
+// byte-bounded pages, server-side apply. Mirrors the rename-method wrappers.
+export function startRenameClassPreview(
+  session: ActiveSession,
+  className: string,
+  newName: string,
+  scope: RenameClassScope,
+  options: RenameClassOptions,
+  token: string,
+  maxBytes: number,
+  dict?: number | string,
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, `Previewing rename of ${className}…`);
+  return sharedStartRenameClassPreview(
+    exec,
+    className,
+    newName,
+    scope,
+    options,
+    token,
+    maxBytes,
+    dict,
+  );
+}
+
+export function pageRenameClassPreview(
+  session: ActiveSession,
+  token: string,
+  offset: number,
+  maxBytes: number,
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, 'Loading more changes…');
+  return sharedPageRenameClassPreview(exec, token, offset, maxBytes);
+}
+
+export function applyRenameClass(
+  session: ActiveSession,
+  token: string,
+  deselectedIds: string[],
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, 'Applying rename…');
+  return sharedApplyRenameClass(exec, token, deselectedIds);
+}
+
+export function clearRenameClassPreview(session: ActiveSession, token: string): string {
+  return sharedClearRenameClassPreview(defaultQueryExecutorUsing(session), token);
+}
+
+// Paginated rename-class-variable preview: fetched NON-BLOCKING (progress +
+// responsive), byte-bounded pages, server-side value-preserving apply. Mirrors the
+// rename-method/class wrappers; the rename is all-or-nothing, so the apply always
+// passes an empty deselected set.
+export function startRenameClassVarPreview(
+  session: ActiveSession,
+  className: string,
+  oldName: string,
+  newName: string,
+  token: string,
+  maxBytes: number,
+  dict?: number | string,
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, `Previewing rename of ${oldName}…`);
+  return sharedStartRenameClassVarPreview(exec, className, oldName, newName, token, maxBytes, dict);
+}
+
+export function pageRenameClassVarPreview(
+  session: ActiveSession,
+  token: string,
+  offset: number,
+  maxBytes: number,
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, 'Loading more changes…');
+  return sharedPageRenameClassVarPreview(exec, token, offset, maxBytes);
+}
+
+export function applyRenameClassVar(session: ActiveSession, token: string): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, 'Applying rename…');
+  return sharedApplyRenameClassVar(exec, token);
+}
+
+export function clearRenameClassVarPreview(session: ActiveSession, token: string): string {
+  return sharedClearRenameClassVarPreview(defaultQueryExecutorUsing(session), token);
+}
+
+// Paginated rename-temporary/argument (R5) preview: method-local, a single
+// methodRecompile change, fetched NON-BLOCKING, server-side apply. All-or-nothing,
+// so the apply passes an empty deselected set.
+export function startRenameTemporaryPreview(
+  session: ActiveSession,
+  className: string,
+  selector: string,
+  isMeta: boolean,
+  oldName: string,
+  newName: string,
+  offset: number,
+  token: string,
+  maxBytes: number,
+  dict?: number | string,
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, `Previewing rename of ${oldName}…`);
+  return sharedStartRenameTemporaryPreview(
+    exec,
+    className,
+    selector,
+    isMeta,
+    oldName,
+    newName,
+    offset,
+    token,
+    maxBytes,
+    dict,
+  );
+}
+
+export function pageRenameTemporaryPreview(
+  session: ActiveSession,
+  token: string,
+  offset: number,
+  maxBytes: number,
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, 'Loading more changes…');
+  return sharedPageRenameTemporaryPreview(exec, token, offset, maxBytes);
+}
+
+export function applyRenameTemporary(session: ActiveSession, token: string): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, 'Applying rename…');
+  return sharedApplyRenameTemporary(exec, token);
+}
+
+export function clearRenameTemporaryPreview(session: ActiveSession, token: string): string {
+  return sharedClearRenameTemporaryPreview(defaultQueryExecutorUsing(session), token);
+}
+
+export function renameTemporaryDeclineReason(
+  session: ActiveSession,
+  className: string,
+  selector: string,
+  isMeta: boolean,
+  oldName: string,
+  offset: number,
+  dict?: number | string,
+): Promise<string> {
+  const exec = (label: string, code: string): Promise<string> =>
+    executeFetchStringNb(session, label, code, 'Checking…');
+  return sharedRenameTemporaryDeclineReason(
+    exec,
+    className,
+    selector,
+    isMeta,
+    oldName,
+    offset,
+    dict,
+  );
+}
+
+// Class-definition history (native classHistory, this-stone-only, read-only) and
+// the redo (restore a historical version as a new version, no commit).
+export function getClassHistory(session: ActiveSession, className: string): string {
+  return sharedGetClassHistory(defaultQueryExecutorUsing(session), className);
+}
+
+export function revertClassToVersion(
+  session: ActiveSession,
+  className: string,
+  index: number,
+): string {
+  return sharedRevertClassToVersion(defaultQueryExecutorUsing(session), className, index);
+}
+
+export function globalNameInUse(session: ActiveSession, name: string): boolean {
+  return sharedGlobalNameInUse(defaultQueryExecutorUsing(session), name);
+}
+
+export function isKernelClass(session: ActiveSession, name: string): boolean {
+  return sharedIsKernelClass(defaultQueryExecutorUsing(session), name);
+}
+
+export function removeClassVersion(
+  session: ActiveSession,
+  className: string,
+  index: number,
+): string {
+  return sharedRemoveClassVersion(defaultQueryExecutorUsing(session), className, index);
 }
 
 export function getGrailStubReflection(

@@ -206,10 +206,14 @@ describe('GciLibrary', () => {
       expectOopToBeNil(resultOop);
     });
 
-    it('resolves names against UserGlobals, Globals, and Published', () => {
+    it('has UserGlobals, Globals, and Published on the symbol list', () => {
+      // Assert those three standard dictionaries are all on the symbol list, rather
+      // than that they are the *only* ones: an optional payload (e.g. the refactoring
+      // engine's shared GsRefactoring dictionary) may add more without changing that
+      // the standard three resolve.
       const resultOop = gciLibrary.execute(
         session,
-        `System myUserProfile symbolList asSet = {UserGlobals. Globals. Published} asSet`,
+        `({UserGlobals. Globals. Published} asSet - System myUserProfile symbolList asSet) isEmpty`,
       );
 
       expectOopToBeTrue(resultOop);

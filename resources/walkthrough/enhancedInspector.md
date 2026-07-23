@@ -1,27 +1,31 @@
-# Try the enhanced inspector
+# Install optional server support
 
-The **enhanced inspector** replaces the plain list of instance variables with
-rich, object-specific views, so you can explore an object more deeply.
+Jasper has two optional server-side supports that aren't part of a stock GemStone
+image, so each is installed once per stone:
 
-It requires **GemStone 3.7.5 or later** and isn't part of a stock GemStone
-image, so it's installed once per stone. On older stones Jasper keeps the default
-Inspector and won't offer to install it. Rather than install it here, you choose
-*how* Jasper should handle it when you connect to a supported stone:
+- **Enhanced Inspector** — replaces the plain list of instance variables with
+  rich, object-specific views. Requires **GemStone 3.7.5 or later**.
+- **Refactoring engine** — server-side refactorings (starting with rename
+  instance variable), previewed before they recompile. Loads on **any supported
+  release (3.6.2+)**.
 
-- **Ask on connect** — Jasper offers to install it when you reach a stone that
-  lacks it (the default).
-- **Always install** — install it automatically on connect.
-- **Never** — stick with the default Inspector.
+They install together as one bundle. When you connect to a stone that is missing
+them, Jasper's behavior follows the `gemstone.serverSupport.autoInstall` setting:
 
-[Enhanced Inspector Auto-Install…](command:gemstone.configureEnhancedInspectorAutoInstall)
+- **Ask on connect** — offer to install with one Install / Always / Never prompt
+  (the default).
+- **Always** — install automatically on connect.
+- **Never** — do nothing.
 
-You can change this anytime from the Command Palette — press `Ctrl+Shift+P`
+[Install GemStone Support…](command:gemstone.installServerSupport)
+
+You can install anytime from the Command Palette — press `Ctrl+Shift+P`
 (`⇧⌘P` on macOS) and run
-[GemStone: Enhanced Inspector Auto-Install…](command:workbench.action.quickOpen?%5B%22%3EEnhanced%20Inspector%20Auto-Install%22%5D).
-Installing itself requires a SystemUser login and commits the supporting classes
-to the database; the Auto-Install picker explains this when you make your choice.
+[GemStone: Install Server Support](command:workbench.action.quickOpen?%5B%22%3EInstall%20Server%20Support%22%5D).
+Installing requires a SystemUser login and commits the supporting classes to the
+database.
 
 <!-- The link above pre-fills the Command Palette with a search string that must
-     match the command's palette label (package.json command title "Enhanced
-     Inspector Auto-Install…"). If that title is renamed, update this search too. -->
-
+     match the command's palette label (package.json command title "Install
+     Server Support (Enhanced Inspector + Refactoring)"). If that title is
+     renamed, update this search too. -->

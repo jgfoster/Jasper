@@ -10,7 +10,9 @@ import {
   RowanProjectTreeProvider,
   RowanProjectPackageItem,
   RowanProjectMessageItem,
+  RowanDependencyGroupItem,
 } from '../rowanProjectView';
+import { addProjectDependency } from '../rowanDependency';
 
 const dirs: string[] = [];
 
@@ -25,6 +27,12 @@ function makeProjectDir(packages: string[] = [], specName?: string): string {
     path.join(rowanDir, 'project.ston'),
     `RwProjectSpecificationV2 {\n\t#specName : 'project',\n\t#packagesPath : 'src',\n\t#specsPath : 'rowan/specs' }\n`,
   );
+  // Every real project has a component; dependencies are listed in it.
+  fs.mkdirSync(path.join(rowanDir, 'components'), { recursive: true });
+  fs.writeFileSync(
+    path.join(rowanDir, 'components', 'Core.ston'),
+    `RwComponentV2 {\n\t#name : 'Core',\n\t#projectNames : [ ]\n}\n`,
+  );
   if (specName) {
     const specsDir = path.join(rowanDir, 'specs');
     fs.mkdirSync(specsDir, { recursive: true });
@@ -35,6 +43,12 @@ function makeProjectDir(packages: string[] = [], specName?: string): string {
   }
   for (const p of packages) fs.mkdirSync(path.join(dir, 'src', p), { recursive: true });
   return dir;
+}
+
+function dependencyGroup(provider: RowanProjectTreeProvider): RowanDependencyGroupItem {
+  const group = provider.getChildren().find((r) => r instanceof RowanDependencyGroupItem);
+  if (!group) throw new Error('the project declares no dependencies');
+  return group;
 }
 
 afterEach(() => {
@@ -83,6 +97,98 @@ describe('RowanProjectTreeProvider', () => {
     const provider = new RowanProjectTreeProvider();
 
     expect(provider.projectName()).toBe('Seaside');
+  });
+
+  it('groups the dependencies below the packages', () => {
+    const dir = makeProjectDir(['One-Core']);
+    addProjectDependency(dir, { kind: 'disk', name: 'SharedKit', diskUrl: '/work/SharedKit' });
+    __setWorkspaceFolders([dir]);
+    const provider = new RowanProjectTreeProvider();
+
+    const rows = provider.getChildren();
+
+    expect(rows.map((r) => r.label)).toEqual(['One-Core', 'Dependencies']);
+  });
+
+  it('offers no dependency group when the project depends on nothing', () => {
+    __setWorkspaceFolders([makeProjectDir(['One-Core'])]);
+    const provider = new RowanProjectTreeProvider();
+
+    expect(provider.getChildren().map((r) => r.label)).toEqual(['One-Core']);
+  });
+
+  it('lists each dependency under the group', () => {
+    const dir = makeProjectDir([]);
+    addProjectDependency(dir, { kind: 'disk', name: 'Zebra', diskUrl: '/work/Zebra' });
+    addProjectDependency(dir, { kind: 'disk', name: 'Alpha', diskUrl: '/work/Alpha' });
+    __setWorkspaceFolders([dir]);
+    const provider = new RowanProjectTreeProvider();
+
+    const rows = provider.getChildren(dependencyGroup(provider));
+
+    expect(rows.map((r) => r.label)).toEqual(['Alpha', 'Zebra']);
+  });
+
+  it('points a dependency row at its reference spec', () => {
+    const dir = makeProjectDir([]);
+    addProjectDependency(dir, { kind: 'disk', name: 'SharedKit', diskUrl: '/work/SharedKit' });
+    __setWorkspaceFolders([dir]);
+    const provider = new RowanProjectTreeProvider();
+
+    const [row] = provider.getChildren(dependencyGroup(provider));
+
+    expect(row.resourceUri?.fsPath).toBe(path.join(dir, 'rowan', 'projects', 'SharedKit.ston'));
+  });
+
+  it('shows the revision a git dependency is pinned to', () => {
+    const dir = makeProjectDir([]);
+    addProjectDependency(dir, {
+      kind: 'git',
+      name: 'Toolkit',
+      gitUrl: 'https://github.com/owner/Toolkit.git',
+      revision: 'v1.0.0',
+    });
+    __setWorkspaceFolders([dir]);
+    const provider = new RowanProjectTreeProvider();
+
+    const [row] = provider.getChildren(dependencyGroup(provider));
+
+    expect(row.description).toBe('v1.0.0');
+  });
+
+  it('says nothing about the image when no database is connected', () => {
+    const dir = makeProjectDir([]);
+    addProjectDependency(dir, { kind: 'disk', name: 'SharedKit', diskUrl: '/work/SharedKit' });
+    __setWorkspaceFolders([dir]);
+    const provider = new RowanProjectTreeProvider({ loadedProjectNames: () => undefined });
+
+    const [row] = provider.getChildren(dependencyGroup(provider));
+
+    expect(row.description).toBe('/work/SharedKit');
+  });
+
+  it('marks a dependency the connected database does not have', () => {
+    const dir = makeProjectDir([]);
+    addProjectDependency(dir, { kind: 'disk', name: 'SharedKit', diskUrl: '/work/SharedKit' });
+    __setWorkspaceFolders([dir]);
+    const provider = new RowanProjectTreeProvider({ loadedProjectNames: () => new Set<string>() });
+
+    const [row] = provider.getChildren(dependencyGroup(provider));
+
+    expect(row.description).toBe('/work/SharedKit · not loaded');
+  });
+
+  it('marks a dependency the connected database has', () => {
+    const dir = makeProjectDir([]);
+    addProjectDependency(dir, { kind: 'disk', name: 'SharedKit', diskUrl: '/work/SharedKit' });
+    __setWorkspaceFolders([dir]);
+    const provider = new RowanProjectTreeProvider({
+      loadedProjectNames: () => new Set(['SharedKit']),
+    });
+
+    const [row] = provider.getChildren(dependencyGroup(provider));
+
+    expect(row.description).toBe('/work/SharedKit · loaded');
   });
 
   it('re-reads packages after refresh', () => {

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { GciLibrary, GciError } from './gciLibrary';
 import { OOP_NIL } from './gciConstants';
-import { GemStoneLogin, loginLabel } from './loginTypes';
+import { GemStoneLogin, gemNrsFor, loginLabel } from './loginTypes';
 import { logInfo } from './gciLog';
 import { wrapWithEnhancedInspectorPerfProxy } from './enhancedInspectorPerfTracker';
 import { installTranscriptSink } from './transcriptSink';
@@ -18,6 +18,11 @@ export interface ActiveSession {
   login: GemStoneLogin;
   stoneVersion: string;
   enhancedInspectorAvailable?: boolean;
+  /** Whether the server-side refactoring engine (GsRenameInstanceVariableRefactoring)
+   *  is resolvable in this session's stone. Drives the `gemstone.rbSupportAvailable`
+   *  context key and the Explorer's rename-instance-variable command. Latched at
+   *  login (and re-probed after an install) — see refactoringAvailability.ts. */
+  rbSupportAvailable?: boolean;
 }
 
 /**
@@ -193,7 +198,7 @@ export class SessionManager {
 
     const gci = this.getGciLibrary(libraryPath);
     const stoneNrs = `!tcp@${login.gem_host}#server!${login.stone}`;
-    const gemNrs = `!tcp@${login.gem_host}#netldi:${login.netldi}#task!gemnetobject`;
+    const gemNrs = gemNrsFor(login);
     return { gci, stoneNrs, gemNrs };
   }
 
@@ -276,6 +281,7 @@ export class SessionManager {
       login,
       stoneVersion: version,
       enhancedInspectorAvailable: false,
+      rbSupportAvailable: false,
     };
 
     this.sessions.set(session.id, session);
@@ -332,7 +338,7 @@ export class SessionManager {
     gci: GciLibrary,
   ): { session: ActiveSession; logout: () => void } {
     const stoneNrs = `!tcp@${login.gem_host}#server!${login.stone}`;
-    const gemNrs = `!tcp@${login.gem_host}#netldi:${login.netldi}#task!gemnetobject`;
+    const gemNrs = gemNrsFor(login);
 
     const result = gci.GciTsLogin(
       stoneNrs,
@@ -358,6 +364,7 @@ export class SessionManager {
       login,
       stoneVersion: version,
       enhancedInspectorAvailable: false,
+      rbSupportAvailable: false,
     };
     return {
       session,

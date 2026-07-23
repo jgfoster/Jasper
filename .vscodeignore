@@ -31,6 +31,17 @@ docs/**
 !docs/windows-wsl.md
 !docs/formatter.md
 
+# Server-side Smalltalk source (the refactoring engine, its vendored AST, tests,
+# and build tooling). This is source-of-truth, not runtime: the extension files
+# the *generated* payloads under resources/refactoring/ (ast-core.gs, compat.gs,
+# engine.gs, manifest.gs, refactoring-loader.gs) into a stone and never reads
+# gs-src/ itself. Mirrors how client/src, server/src, etc. are excluded.
+gs-src/**
+
+# The engine's GS SUnit tests, built for the automatic GCI test to file in from
+# the repo (dev/CI). Test-only — never shipped in the .vsix.
+resources/refactoring/engine-tests.gs
+
 node_modules/**
 client/node_modules/**
 server/node_modules/**
@@ -54,6 +65,11 @@ client/src/**
 !client/src/debuggerView.js
 !client/src/enhancedInspectorColumns.js
 !client/src/browserColumnResize.js
+!client/src/refactoring/renameInstVarPanelView.js
+!client/src/refactoring/renameMethodEditorView.js
+!client/src/refactoring/renameMethodPanelView.js
+!client/src/refactoring/renameClassEditorView.js
+!client/src/refactoring/classHistoryPanelView.js
 server/src/**
 mcp-server/src/**
 

@@ -58,8 +58,8 @@ describe('ensureSelfSignedCert', () => {
     expect(fs.existsSync(material.certPath)).toBe(true);
   });
 
-  it('writes cert + key with 0600 permissions', async () => {
-    if (process.platform === 'win32') return; // POSIX only
+  it('writes cert + key with 0600 permissions', async (ctx) => {
+    if (process.platform === 'win32') ctx.skip('POSIX-only file-mode assertions'); // 0600 is meaningless on Windows
     const dir = mkStorage();
     dirs.push(dir);
     const material = await ensureSelfSignedCert(dir);

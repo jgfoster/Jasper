@@ -13,8 +13,12 @@ export interface RowanLoadResult {
 // even from a moved or freshly-cloned copy. On any failure the transaction is
 // aborted so nothing partial is committed.
 //
-// Must run on a SystemUser session: loading mutates Rowan's system-owned
-// registry (objectSecurityPolicyId 1), which DataCurator cannot write.
+// Runs on the working user's own session, never SystemUser. Rowan's registry is
+// per-user — `symbolList objectNamed: #'Rowan'` answers a different Rowan for
+// each user — so loading as SystemUser registers the project where the browsing
+// session cannot see it. (An earlier comment here claimed DataCurator lacked the
+// privilege, citing objectSecurityPolicyId 1; that was false. Proven twice: a
+// DataCurator load succeeds, and WebGS loads this way against a 3.7.5 stone.)
 //
 // The builder and result parser are exported separately (rather than composed
 // into one function here) because the extension runs this long operation over

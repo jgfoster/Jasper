@@ -2,7 +2,7 @@
   "name": "gemstone-ide",
   "displayName": "Jasper: A GemStone Smalltalk IDE",
   "description": "GemStone/S IDE for Visual Studio Code",
-  "version": "1.8.8",
+  "version": "1.8.9",
   "publisher": "gemtalksystems",
   "license": "MIT",
   "author": "James Foster",
@@ -222,7 +222,7 @@
             "default": false,
             "description": "Enable enhanced inspector perf tracking: count GCI round trips in the enhanced inspector. When enabled, shows a status bar counter and logs to the 'GemStone Enhanced Inspector Perf' output channel. Intended for performance tuning only."
           },
-          "gemstone.enhancedInspector.autoInstall": {
+          "gemstone.rowan.loadAfterAddingDependency": {
             "type": "string",
             "enum": [
               "ask",
@@ -230,12 +230,13 @@
               "never"
             ],
             "enumDescriptions": [
-              "When a stone without enhanced inspector support is connected, offer to install it.",
-              "Install enhanced inspector support automatically (requires the SystemUser default password; otherwise a notification explains how to install manually).",
-              "Never offer to install enhanced inspector support."
+              "After adding a dependency while connected, offer to load the project so the database has its code.",
+              "Load the project automatically after adding a dependency.",
+              "Never offer to load after adding a dependency."
             ],
             "default": "ask",
-            "description": "What to do on connecting to a stone that does not have enhanced inspector support installed. Only applies to GemStone 3.7.5 and later, which the enhanced inspector requires; older stones are never offered it. The buttons on the install prompt update this setting."
+            "description": "What to do after adding a dependency to the open Rowan project while a database is connected. Adding a dependency only writes files on disk; the database does not have the code until the project is loaded. Only applies while connected. The buttons on the prompt update this setting.",
+            "scope": "window"
           },
           "gemstone.autoStartDatabase": {
             "type": "string",
@@ -264,6 +265,21 @@
             ],
             "default": "overlay",
             "description": "How 'Display It' (Ctrl+K D / Cmd+K D) shows its result."
+          },
+          "gemstone.serverSupport.autoInstall": {
+            "type": "string",
+            "enum": [
+              "ask",
+              "always",
+              "never"
+            ],
+            "enumDescriptions": [
+              "When a stone lacks the optional support, show one Install / Always / Never prompt on connect.",
+              "Install the optional support automatically on connect (uses the SystemUser default password; a notification explains if it must be entered).",
+              "Never offer or install the optional support."
+            ],
+            "default": "ask",
+            "markdownDescription": "What Jasper does when you connect to a stone missing the optional server-side support — the **Enhanced Inspector** (GemStone 3.7.5+) and the **refactoring engine** (all releases), installed together: `ask` shows one Install / Always / Never prompt, `always` installs silently, `never` does nothing. Installing needs a SystemUser login and commits the supporting classes to the database.\n\n▶ [Install GemStone support now](command:gemstone.installServerSupport)"
           }
         }
       },
@@ -354,7 +370,7 @@
           "name": "Open Editors",
           "type": "tree",
           "icon": "$(go-to-file)",
-          "when": "gemstone.explorerActive",
+          "when": "gemstone.explorerActive && gemstone.explorerHasOpenEditors",
           "size": 1
         },
         {
@@ -474,7 +490,7 @@
       {
         "view": "gemstoneRowan",
         "contents": "This folder isn't a Rowan project.\n[Create Rowan Project](command:gemstone.rowanInitHere)",
-        "when": "!gemstone.workspaceIsRowanProject && workspaceFolderCount != 0"
+        "when": "gemstone.rowanProjectChecked && !gemstone.workspaceIsRowanProject && workspaceFolderCount != 0"
       },
       {
         "view": "gemstoneRowan",
@@ -578,14 +594,15 @@
             ]
           },
           {
-            "id": "enhancedInspector",
-            "title": "Try the enhanced inspector",
-            "description": "Get richer, object-specific views in the Inspector. Requires GemStone 3.7.5 or later. Choose how Jasper installs it when you connect.\n[Enhanced Inspector Auto-Install…](command:gemstone.configureEnhancedInspectorAutoInstall)",
+            "id": "serverSupport",
+            "title": "Install optional server support",
+            "description": "Jasper can install two optional server-side supports: the Enhanced Inspector (rich object views, GemStone 3.7.5+) and the refactoring engine (rename instance variable, and more). On connect it offers to install whatever a stone is missing; the `gemstone.serverSupport.autoInstall` setting (ask / always / never) controls that.\n[Install GemStone Support\u2026](command:gemstone.installServerSupport)",
             "media": {
               "markdown": "resources/walkthrough/enhancedInspector.md"
             },
             "completionEvents": [
-              "onSettingChanged:gemstone.enhancedInspector.autoInstall"
+              "onCommand:gemstone.installServerSupport",
+              "onSettingChanged:gemstone.serverSupport.autoInstall"
             ]
           },
           {
@@ -730,13 +747,8 @@
         "icon": "$(mortar-board)"
       },
       {
-        "command": "gemstone.installEnhancedInspector",
-        "title": "Install Enhanced Inspector Support",
-        "category": "GemStone"
-      },
-      {
-        "command": "gemstone.configureEnhancedInspectorAutoInstall",
-        "title": "Enhanced Inspector Auto-Install…",
+        "command": "gemstone.installServerSupport",
+        "title": "Install Server Support (Enhanced Inspector + Refactoring)",
         "category": "GemStone"
       },
       {
@@ -772,6 +784,12 @@
         "title": "Debug It",
         "category": "GemStone",
         "icon": "$(debug-alt)"
+      },
+      {
+        "command": "gemstone.runInNewGem",
+        "title": "Run in a New Gem",
+        "category": "GemStone",
+        "icon": "$(server-process)"
       },
       {
         "command": "gemstone.toggleInlineValues",
@@ -884,6 +902,12 @@
         "command": "gemstone.rowanInitHere",
         "title": "Create Rowan Project",
         "category": "GemStone"
+      },
+      {
+        "command": "gemstone.rowanAddDependency",
+        "title": "Add Dependency…",
+        "category": "GemStone",
+        "icon": "$(add)"
       },
       {
         "command": "gemstone.rowanFindClassPackage",
@@ -1142,6 +1166,54 @@
         "icon": "$(edit)"
       },
       {
+        "command": "gemstone.explorer.renameClassVariable",
+        "title": "Rename Class Variable…",
+        "category": "GemStone",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "gemstone.explorer.renameMethod",
+        "title": "Rename Method…",
+        "category": "GemStone",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "gemstone.renameTemporary",
+        "title": "Rename Temporary/Argument…",
+        "category": "GemStone",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "gemstone.renameInstVarAtCursor",
+        "title": "Rename Instance Variable at Cursor…",
+        "category": "GemStone",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "gemstone.renameClassVarAtCursor",
+        "title": "Rename Class Variable at Cursor…",
+        "category": "GemStone",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "gemstone.renameMethodInEditor",
+        "title": "Rename Method in Editor…",
+        "category": "GemStone",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "gemstone.explorer.renameClass",
+        "title": "Rename Class…",
+        "category": "GemStone",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "gemstone.explorer.classHistory",
+        "title": "Class History…",
+        "category": "GemStone",
+        "icon": "$(history)"
+      },
+      {
         "command": "gemstone.downloadVersion",
         "title": "Download",
         "category": "GemStone Admin",
@@ -1374,6 +1446,22 @@
           "when": "false"
         },
         {
+          "command": "gemstone.explorer.renameClassVariable",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.explorer.renameMethod",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.explorer.renameClass",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.explorer.classHistory",
+          "when": "false"
+        },
+        {
           "command": "gemstone.explorer.revealOpenEditor",
           "when": "false"
         },
@@ -1430,8 +1518,8 @@
           "when": "false"
         },
         {
-          "command": "gemstone.installEnhancedInspector",
-          "when": "gemstone.hasActiveSession && gemstone.enhancedInspectorSupported"
+          "command": "gemstone.installServerSupport",
+          "when": "gemstone.hasActiveSession"
         },
         {
           "command": "gemstone.serveSeaside",
@@ -1534,6 +1622,11 @@
           "group": "navigation@0"
         },
         {
+          "command": "gemstone.rowanAddDependency",
+          "when": "view == gemstoneRowanProject",
+          "group": "navigation@0"
+        },
+        {
           "command": "gemstone.rowanAddRepo",
           "when": "view == gemstoneRowan",
           "group": "navigation@1"
@@ -1621,7 +1714,32 @@
           "group": "inline"
         },
         {
+          "command": "gemstone.explorer.renameClassVariable",
+          "when": "view == gemstoneExplorerClasses && viewItem == explorerClassVar",
+          "group": "inline"
+        },
+        {
+          "command": "gemstone.explorer.renameMethod",
+          "when": "view == gemstoneExplorerMethods && viewItem =~ /explorerMethod/",
+          "group": "inline"
+        },
+        {
+          "command": "gemstone.explorer.renameClass",
+          "when": "view == gemstoneExplorerClasses && viewItem == explorerClass",
+          "group": "inline"
+        },
+        {
+          "command": "gemstone.explorer.classHistory",
+          "when": "view == gemstoneExplorerClasses && viewItem == explorerClass",
+          "group": "3_refactor@1"
+        },
+        {
           "command": "gemstone.explorer.openHierarchyDefinition",
+          "when": "view == gemstoneExplorerHierarchy && viewItem == explorerHierClass",
+          "group": "inline"
+        },
+        {
+          "command": "gemstone.explorer.renameClass",
           "when": "view == gemstoneExplorerHierarchy && viewItem == explorerHierClass",
           "group": "inline"
         },
@@ -1629,6 +1747,11 @@
           "command": "gemstone.explorer.openHierarchyDefinition",
           "when": "view == gemstoneExplorerHierarchy && viewItem == explorerHierClass",
           "group": "1_open@1"
+        },
+        {
+          "command": "gemstone.explorer.classHistory",
+          "when": "view == gemstoneExplorerHierarchy && viewItem == explorerHierClass",
+          "group": "3_refactor@1"
         },
         {
           "command": "gemstone.explorer.openDefinition",
@@ -1900,6 +2023,11 @@
           "group": "1_gemstone@4"
         },
         {
+          "command": "gemstone.runInNewGem",
+          "when": "editorTextFocus && resourceLangId == gemstone-smalltalk && !gemstone.executing",
+          "group": "1_gemstone@5"
+        },
+        {
           "command": "gemstone.sendersOf",
           "when": "editorTextFocus && resourceLangId == gemstone-smalltalk",
           "group": "2_navigation@0"
@@ -2062,11 +2190,9 @@
     "//test:gci": "Runs only the on-demand 'gci' vitest project (client/vitest.config.ts); needs a live test stone (npm run test:server:start). `npm test` runs the 'default' project and excludes these.",
     "test:gci": "cd client && npx vitest run --project gci",
     "//test:acceptance": "End-user acceptance tests that drive a real VS Code window (Playwright + Electron). Slow and GUI-bound, so excluded from `npm test`. Run `npm run compile` first.",
-    "test:acceptance": "playwright test -c acceptance/playwright.config.ts",
+    "test:acceptance": "bddgen -c acceptance/playwright.config.ts && playwright test -c acceptance/playwright.config.ts",
     "test:acceptance:report": "playwright show-report acceptance/playwright-report",
     "test:acceptance:docker": "bash acceptance/docker-test.sh",
-    "test:acceptance:rowan": "bash acceptance/docker-test-rowan.sh",
-    "test:acceptance:seaside": "bash acceptance/docker-test-seaside.sh",
     "package": "vsce package",
     "publish": "npm run publish:vsce && npm run publish:ovsx",
     "publish:vsce": "vsce publish",
@@ -2086,6 +2212,7 @@
     "globals": "^16.0.0",
     "lefthook": "^2.1.10",
     "ovsx": "^0.10.5",
+    "playwright-bdd": "^9.2.0",
     "prettier": "^3.9.5",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.20.0",
@@ -2098,7 +2225,6 @@
   },
   "overrides": {
     "fast-uri": "^3.1.4",
-    "@hono/node-server": "^2.0.5",
     "js-yaml": "^4.3.0"
   }
 }

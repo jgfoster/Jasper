@@ -3,8 +3,6 @@ import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 vi.mock('vscode', () => import('../__mocks__/vscode'));
 
 vi.mock('../gciLog', () => ({
-  logQuery: vi.fn(),
-  logResult: vi.fn(),
   logError: vi.fn(),
   logInfo: vi.fn(),
 }));
