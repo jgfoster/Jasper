@@ -18,6 +18,11 @@ export interface ActiveSession {
   login: GemStoneLogin;
   stoneVersion: string;
   enhancedInspectorAvailable?: boolean;
+  /** Whether the server-side refactoring engine (GsRenameInstanceVariableRefactoring)
+   *  is resolvable in this session's stone. Drives the `gemstone.rbSupportAvailable`
+   *  context key and the Explorer's rename-instance-variable command. Latched at
+   *  login (and re-probed after an install) — see refactoringAvailability.ts. */
+  rbSupportAvailable?: boolean;
 }
 
 /**
@@ -276,6 +281,7 @@ export class SessionManager {
       login,
       stoneVersion: version,
       enhancedInspectorAvailable: false,
+      rbSupportAvailable: false,
     };
 
     this.sessions.set(session.id, session);
@@ -358,6 +364,7 @@ export class SessionManager {
       login,
       stoneVersion: version,
       enhancedInspectorAvailable: false,
+      rbSupportAvailable: false,
     };
     return {
       session,

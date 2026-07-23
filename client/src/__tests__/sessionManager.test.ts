@@ -19,11 +19,8 @@ vi.mock('vscode', () => ({
 
 let pingErrNumber = 0;
 // The transcript-sink install (run at login) executes a doit via
-// GciTsExecuteFetchBytes; capture the calls so tests can assert on them.
-const executeFetchBytes = vi.fn((..._args: unknown[]) => ({
-  data: 'installed',
-  err: { number: 0, message: '' },
-}));
+// executeAndFetchString; capture the calls so tests can assert on them.
+const executeAndFetchStringMock = vi.fn((..._args: unknown[]) => 'installed');
 // login() aborts once after setup to drop the session-method-policy's spurious
 // write; capture those calls so tests can assert on them.
 const gciTsAbort = vi.fn((..._args: unknown[]) => ({
@@ -69,8 +66,8 @@ vi.mock('../gciLibrary', () => ({
         err: { number: pingErrNumber, message: pingErrNumber ? 'boom' : '' },
       };
     }
-    GciTsExecuteFetchBytes(...args: unknown[]) {
-      return executeFetchBytes(...(args as []));
+    executeAndFetchString(...args: unknown[]) {
+      return executeAndFetchStringMock(...(args as []));
     }
     GciTsAbort(...args: unknown[]) {
       return gciTsAbort(...(args as []));
@@ -96,6 +93,7 @@ vi.mock('../gciLog', () => ({
 
 import { SessionManager, evaluateLoginPolicy } from '../sessionManager';
 import { DEFAULT_LOGIN } from '../loginTypes';
+import { GciLibraryError } from '../gciLibraryError';
 
 describe('evaluateLoginPolicy', () => {
   it('allows the first login regardless of mode', () => {
@@ -144,7 +142,7 @@ describe('SessionManager', () => {
   it('installs the server-side Transcript sink at login', () => {
     manager.login({ ...DEFAULT_LOGIN, label: 'Test' }, '/mock/lib');
 
-    const installCall = executeFetchBytes.mock.calls.find(
+    const installCall = executeAndFetchStringMock.mock.calls.find(
       (c) => typeof c[1] === 'string' && c[1].includes('JasperTranscriptSink'),
     );
     expect(installCall).toBeDefined();
@@ -152,9 +150,8 @@ describe('SessionManager', () => {
   });
 
   it('still logs in when the Transcript sink install fails', () => {
-    executeFetchBytes.mockReturnValueOnce({
-      data: '',
-      err: { number: 4001, message: 'no compile privilege' },
+    executeAndFetchStringMock.mockImplementationOnce(() => {
+      throw GciLibraryError.withMessage('no compile privilege');
     });
 
     const session = manager.login({ ...DEFAULT_LOGIN, label: 'Test' }, '/mock/lib');

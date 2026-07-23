@@ -7,7 +7,7 @@ import {
   GCI_PERFORM_FLAG_SINGLE_STEP,
   GCI_PERFORM_FLAG_INTERPRETED,
 } from './gciConstants';
-import { logQuery, logResult, logError, logInfo } from './gciLog';
+import { logError, logInfo } from './gciLog';
 import { InspectorTreeProvider } from './inspectorTreeProvider';
 import { routeInspect } from './inspectRouter';
 import { DebuggerPanel } from './debuggerPanel';
@@ -161,9 +161,6 @@ export class CodeExecutor {
 
     const oopClassString = this.resolveUtf8ClassOopUsing(session);
 
-    const label = mode === 'display' ? 'Display It' : mode === 'debug' ? 'Debug It' : 'Execute It';
-    logQuery(session.id, label, code);
-
     // Dim the selected code while executing
     const execRange = new vscode.Range(selection.start, selection.end);
     editor.setDecorations(executingDecorationType, [execRange]);
@@ -201,7 +198,6 @@ export class CodeExecutor {
 
       const resultString = await this.pollForResult(session);
 
-      logResult(session.id, resultString);
       this.diagnostics.delete(editor.document.uri);
 
       if (displayResult) {
@@ -741,8 +737,6 @@ export class CodeExecutor {
   ): Promise<void> {
     const oopClassString = this.resolveUtf8ClassOopUsing(session);
 
-    logQuery(session.id, 'Inspect It', code);
-
     // Dim the selected code in the active editor while executing
     const editor = vscode.window.activeTextEditor;
     if (editor) {
@@ -772,7 +766,6 @@ export class CodeExecutor {
 
       const oop = await this.pollForResultOop(session);
 
-      logResult(session.id, `OOP ${oop}`);
       routeInspect(session, oop, label, inspectorProvider);
     } catch (e: unknown) {
       if (e instanceof NbCancelledError) return;

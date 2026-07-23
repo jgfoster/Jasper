@@ -70,12 +70,9 @@ import { loadClassPickItems } from './commands/classPicker';
 import { GlobalsBrowser } from './globalsBrowser';
 import { CommentBrowser } from './commentBrowser';
 import { EnhancedInspector } from './enhancedInspector';
-import {
-  runInstallEnhancedInspector,
-  configureEnhancedInspectorAutoInstall,
-  maybeOfferEnhancedInspectorInstall,
-} from './enhancedInspectorCommand';
+import { maybeOfferServerSupport, runInstallServerSupport } from './optionalSupportOffer';
 import { refreshEnhancedInspectorAvailable } from './enhancedInspectorAvailability';
+import { refreshRefactoringSupportAvailable } from './refactoring/refactoringAvailability';
 import { supportsEnhancedInspector } from './enhancedInspectorInstall';
 import { DebuggerPanel } from './debuggerPanel';
 import { InlineValuesCodeLensProvider } from './inlineValuesCodeLens';
@@ -92,6 +89,8 @@ import { openTutorialNotebook } from './tutorialNotebook';
 import { GemStoneDebugSession } from './gemstoneDebugSession';
 import { InspectorTreeProvider, InspectorNode } from './inspectorTreeProvider';
 import { registerGemStoneExplorer } from './gemstoneExplorer';
+import { renameTemporaryCommand } from './refactoring/renameTemporaryCommand';
+import { RefactorCodeActionProvider } from './refactoring/renameRefactorCodeActions';
 import { GemStoneWorkspaceSymbolProvider } from './gemstoneSymbolProvider';
 import { GemStoneDefinitionProvider } from './gemstoneDefinitionProvider';
 import { GemStoneHoverProvider } from './gemstoneHoverProvider';
@@ -720,7 +719,22 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(inspectorView, inspectorProvider);
 
   // ── GemStone Explorer (cascading navigation panes) ───────────
-  const explorer = registerGemStoneExplorer(context, sessionManager);
+  // The selector-at-position resolver lets the editor-triggered Rename Method
+  // target a SENT selector under the cursor (LSP AST-based, so multi-part keyword
+  // selectors resolve whole). Reads `client` lazily — it is created above but
+  // starts asynchronously; until it answers, the rename falls back to the edited
+  // method.
+  const explorer = registerGemStoneExplorer(context, sessionManager, async (document, position) => {
+    // Distinguish "no selector at this position" (LSP answers null → rename the
+    // edited method) from "lookup unavailable" (throw → the command aborts rather
+    // than guess): a not-yet-started client or a request failure THROWS; only a
+    // live "no selector here" answers null.
+    if (!client) throw new Error('language server not started');
+    return client.sendRequest<string | null>('gemstone/selectorAtPosition', {
+      textDocument: { uri: document.uri.toString() },
+      position,
+    });
+  });
 
   // ── GemStone FileSystem Provider ─────────────────────────
   const gemstoneFs = new GemStoneFileSystemProvider(sessionManager, exportManager);
@@ -786,6 +800,13 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.languages.registerCompletionItemProvider(providerSelectors, completionProvider),
     vscode.languages.registerCodeLensProvider(providerSelectors, codeLensProvider),
     codeLensProvider, // dispose() cancels pending count lookups + releases the emitter
+    // Hosts "Rename Temporary/Argument…" under the native "Refactor…" menu in a
+    // saved (scheme:gemstone) method editor.
+    vscode.languages.registerCodeActionsProvider(
+      { scheme: 'gemstone', language: 'gemstone-smalltalk' },
+      new RefactorCodeActionProvider(),
+      { providedCodeActionKinds: RefactorCodeActionProvider.providedCodeActionKinds },
+    ),
   );
 
   // ── Breakpoints + Debugger ───────────────────────────────
@@ -918,6 +939,24 @@ export function activate(context: vscode.ExtensionContext) {
     sessionManager.onDidChangeSelection(() => updateEnhancedInspectorSupportedContext()),
   );
   updateEnhancedInspectorSupportedContext();
+
+  // Drive the `gemstone.rbSupportAvailable` context key off the selected
+  // session's latched refactoring-engine probe, so refactoring commands (e.g.
+  // the Explorer's rename-instance-variable pencil) can gate on it. Recomputed
+  // on selection change and refreshed after login (and any future engine
+  // install). Unlike the Enhanced Inspector, this is not version-gated.
+  function updateRefactoringSupportContext(): void {
+    const selected = sessionManager.getSelectedSession();
+    vscode.commands.executeCommand(
+      'setContext',
+      'gemstone.rbSupportAvailable',
+      !!selected && selected.rbSupportAvailable === true,
+    );
+  }
+  context.subscriptions.push(
+    sessionManager.onDidChangeSelection(() => updateRefactoringSupportContext()),
+  );
+  updateRefactoringSupportContext();
 
   // ── Enhanced Inspector Perf Tracking ───────────────────────────────────
   const enhancedInspectorPerfChannel = vscode.window.createOutputChannel(
@@ -1151,12 +1190,15 @@ export function activate(context: vscode.ExtensionContext) {
       await openTutorialNotebook();
     }),
 
-    vscode.commands.registerCommand('gemstone.installEnhancedInspector', async () => {
-      await runInstallEnhancedInspector(sessionManager, context.extensionPath);
+    vscode.commands.registerCommand('gemstone.installServerSupport', async () => {
+      await runInstallServerSupport(sessionManager, context.extensionPath);
     }),
 
-    vscode.commands.registerCommand('gemstone.configureEnhancedInspectorAutoInstall', async () => {
-      await configureEnhancedInspectorAutoInstall();
+    vscode.commands.registerCommand('gemstone.renameTemporary', async (position?: unknown) => {
+      await renameTemporaryCommand(
+        sessionManager,
+        position instanceof vscode.Position ? position : undefined,
+      );
     }),
 
     vscode.commands.registerCommand('gemstone.resetGettingStarted', async () => {
@@ -1360,6 +1402,8 @@ export function activate(context: vscode.ExtensionContext) {
             () => sessionManager.loginAsync(login, gciPath),
           );
           refreshEnhancedInspectorAvailable(session);
+          refreshRefactoringSupportAvailable(session);
+          updateRefactoringSupportContext();
           treeProvider.refresh();
           vscode.window.showInformationMessage(
             `Connected to ${login.stone} (${session.stoneVersion}) on ${login.gem_host} as ${login.gs_user}`,
@@ -1378,12 +1422,12 @@ export function activate(context: vscode.ExtensionContext) {
         // user connects rather than after. The workspace stays available via the
         // gemstone.openWorkspace command and the Logins & Sessions welcome view.
 
-        // If this stone lacks Enhanced Inspector support, offer (or auto-run) the
-        // install per the gemstone.enhancedInspector.autoInstall setting. Fire and
-        // forget so the connect flow completes; the offer surfaces its own UI.
-        if (!session.enhancedInspectorAvailable) {
-          void maybeOfferEnhancedInspectorInstall(session, sessionManager, context.extensionPath);
-        }
+        // Offer the optional server-side supports this stone lacks (Enhanced
+        // Inspector + refactoring engine) as one bundle, per
+        // gemstone.serverSupport.autoInstall: `always` installs silently, `ask`
+        // shows one Install/Always/Never modal, `never` does nothing.
+        // Fire-and-forget; no-ops when the stone already has everything applicable.
+        void maybeOfferServerSupport(session, sessionManager, context.extensionPath);
       }),
     ),
 
