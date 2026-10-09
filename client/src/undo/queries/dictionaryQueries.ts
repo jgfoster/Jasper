@@ -21,7 +21,7 @@
  */
 import { QueryExecutor } from '../../queries/types';
 import { escapeString } from '../../queries/util';
-import { clearClassOrganizerStatement } from '../../queries/classOrganizer';
+import { droppingClassOrganizer } from '../../queries/classOrganizer';
 import { DictionaryState } from '../undoTypes';
 
 /**
@@ -76,7 +76,7 @@ export function reinsertDictionary(
   stashKey: string,
   index: number,
 ): string | null {
-  const code = `| sl d pos |
+  const code = droppingClassOrganizer(`| sl d pos |
 sl := System myUserProfile symbolList.
 d := SessionTemps current at: #'${escapeString(stashKey)}' ifAbsent: [nil].
 d isNil ifTrue: [^ 'this session no longer holds the removed dictionary'].
@@ -85,10 +85,9 @@ d isNil ifTrue: [^ 'this session no longer holds the removed dictionary'].
 (sl anySatisfy: [:each | each name == d name])
   ifTrue: [^ 'the name ', d name asString, ' is already in use on the symbol list'].
 pos := ${Math.max(1, Math.trunc(index) || 1)} min: sl size + 1.
-${clearClassOrganizerStatement()}
 [System myUserProfile insertDictionary: d at: pos. 'ok']
   on: Error
-  do: [:ex | ex messageText ifNil: ['failed']]`;
+  do: [:ex | ex messageText ifNil: ['failed']]`);
   const answer = execute(code).trim();
   return answer === 'ok' ? null : answer;
 }
