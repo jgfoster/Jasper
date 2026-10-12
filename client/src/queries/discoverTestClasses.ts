@@ -38,19 +38,24 @@ function parseDictIndex(raw: string | undefined): number | undefined {
 
 export function discoverTestClasses(execute: QueryExecutor): TestClassInfo[] {
   // Walk the symbol list by index rather than with `do:` so each class carries
-  // the 1-based index of the dictionary it was found in. `(classDict includesKey:)`
-  // keeps the first dictionary that defines a class — the same one bare-name
-  // lookup would resolve to — so the recorded index always matches the class we
-  // report.
+  // the 1-based index of the dictionary it was found in. That index and name are
+  // an address: the Test Explorer's links look the class up as `(sl at: i) at:
+  // name`, so only a dictionary binding the class UNDER ITS OWN NAME will do
+  // (`k == v name asSymbol`). The first dictionary holding it under any key can
+  // be one that aliases it and binds the name to a different, same-named class,
+  // and its links then open that class. `(classDict includesKey:)` keeps the
+  // first such dictionary. A class held only under aliases is not reported: no
+  // link could reach it.
   const code = `| ws sl classDict |
 sl := System myUserProfile symbolList.
 classDict := IdentityDictionary new.
 1 to: sl size do: [:i |
   (sl at: i) keysAndValuesDo: [:k :v |
     (v isBehavior
+      and: [k == v name asSymbol
       and: [(v isSubclassOf: TestCase)
       and: [v ~~ TestCase
-      and: [(classDict includesKey: v) not]]])
+      and: [(classDict includesKey: v) not]]]])
         ifTrue: [classDict at: v put: (Array with: (sl at: i) name with: i)]]].
 ws := WriteStream on: Unicode7 new.
 classDict keysAndValuesDo: [:cls :dictInfo |
