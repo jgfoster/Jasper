@@ -22,6 +22,7 @@ vi.mock('../../refactoring/undoRefactoringCommand', () => ({
   undoLastRefactoringCommand: vi.fn(),
 }));
 vi.mock('../undoPlanPanel', () => ({ showUndoPlanPanel: vi.fn() }));
+vi.mock('../queries/methodSlotQueries', () => ({ captureMethodSlots: vi.fn() }));
 // Only the dictionary-name read is stood in for; it is what the plan's row labels cost.
 vi.mock('../../browserQueries', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../browserQueries')>()),
@@ -40,7 +41,8 @@ import { checkRefactoringUndoAvailable } from '../../refactoring/refactoringUndo
 import { undoLastRefactoringCommand } from '../../refactoring/undoRefactoringCommand';
 import { showUndoPlanPanel } from '../undoPlanPanel';
 import { getDictionaryNames } from '../../browserQueries';
-import { undoLastCommand } from '../undoLastCommand';
+import { readLiveSlots, undoLastCommand } from '../undoLastCommand';
+import { captureMethodSlots } from '../queries/methodSlotQueries';
 import { peekUndoEntry, pushUndoEntry, resetUndoStacks, undoStackDepth } from '../undoStack';
 import type { NewUndoEntry } from '../undoTypes';
 import type { ActiveSession, SessionManager } from '../../sessionManager';
@@ -454,5 +456,73 @@ describe('the stack can move while the non-modal panel is open', () => {
     await undoLastCommand(sessions);
 
     expect(undoStackDepth(session.id)).toBe(0);
+  });
+});
+
+describe('readLiveSlots', () => {
+  const methodEdit = {
+    kind: 'methodEdit' as const,
+    sessionId: session.id,
+    label: 'Save balance in Account',
+    slots: [{ className: 'Account', isMeta: false, selector: 'balance', environmentId: 0 }],
+    before: [],
+    after: [],
+  };
+
+  it("reads the live state of a method edit's slots", () => {
+    const live = [{ exists: true, source: 'balance\n\t^1', category: 'accessing' }];
+    vi.mocked(captureMethodSlots).mockReturnValueOnce(live);
+
+    expect(readLiveSlots({ id: 9, ...methodEdit }, session)).toBe(live);
+    expect(vi.mocked(captureMethodSlots).mock.calls.at(-1)?.[1]).toBe(methodEdit.slots);
+  });
+
+  const one = { exists: true, source: 'balance\n\t^1', category: 'accessing' };
+  const two = { exists: true, source: 'balance\n\t^2', category: 'accessing' };
+  const editOfTwo = {
+    ...methodEdit,
+    slots: [
+      ...methodEdit.slots,
+      { className: 'Account', isMeta: false, selector: 'deposit:', environmentId: 0 },
+    ],
+    before: [one, one],
+    after: [two, two],
+  };
+
+  it('is what the panel plan is built from', async () => {
+    // By undo time the user has already put `balance` back by hand; `deposit:` still differs.
+    pushUndoEntry(editOfTwo);
+    vi.mocked(captureMethodSlots).mockReturnValueOnce([one, two]);
+
+    await undoLastCommand(sessions);
+
+    expect(vi.mocked(showUndoPlanPanel).mock.calls[0][0].rows.map((r) => r.target)).toEqual([
+      'Account >> #deposit:',
+    ]);
+  });
+
+  it('goes straight to the reversal, with no panel, when every slot is already put back', async () => {
+    pushUndoEntry(editOfTwo);
+    vi.mocked(captureMethodSlots).mockReturnValueOnce([one, one]);
+
+    await undoLastCommand(sessions);
+
+    expect(showUndoPlanPanel).not.toHaveBeenCalled();
+    expect(reverseMethodEdit).toHaveBeenCalled();
+  });
+
+  it('answers undefined, so the plan uses the recorded state, when the read fails', () => {
+    vi.mocked(captureMethodSlots).mockImplementationOnce(() => {
+      throw new Error('lost connection');
+    });
+
+    expect(readLiveSlots({ id: 9, ...methodEdit }, session)).toBeUndefined();
+  });
+
+  it('reads nothing for a kind with no method slots', () => {
+    vi.mocked(captureMethodSlots).mockClear();
+
+    expect(readLiveSlots({ id: 10, ...classEdit('Edit Account') }, session)).toBeUndefined();
+    expect(captureMethodSlots).not.toHaveBeenCalled();
   });
 });

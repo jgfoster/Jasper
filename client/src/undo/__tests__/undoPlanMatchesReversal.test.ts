@@ -26,7 +26,7 @@ import {
 } from '../queries/classVarQueries';
 import { applyMethodSlotOps, captureMethodSlots } from '../queries/methodSlotQueries';
 import { reverseClassVarEdit } from '../reverseClassVarEdit';
-import { planUndo } from '../undoPlan';
+import { liveMethodSlots, planUndo } from '../undoPlan';
 import { ClassVarEditUndoEntry, MethodSlot, MethodSlotState } from '../undoTypes';
 import type { ActiveSession } from '../../sessionManager';
 
@@ -46,13 +46,10 @@ import type { ActiveSession } from '../../sessionManager';
  * operation as a restore, whatever the operation was, so undoing an add says the accessors were
  * "put back" at the moment it removed them.
  *
- * Not covered here, and the fix has to handle it: these build the plan from the entry alone, so
- * "skipped" means before == recorded after. The reversal decides on before == the slot's state
- * read at undo time. The two agree only while nothing has drifted — if the user edits the
- * skipped `registry` after the add, the reversal will recompile it, and a plan that went by the
- * recorded after hides that row. Nothing is written unannounced — the drift prompt names that
- * slot before the reversal acts — but the panel's count is one short. Whichever way the two are
- * joined, a drifted skipped slot has to reappear in the plan.
+ * The reversal decides on before == the slot's state read at undo time, so the plan is given
+ * that live state too; without it, the recorded after stands in. The two agree only while
+ * nothing has drifted — if the user edits the skipped `registry` after the add, the reversal
+ * will recompile it, so the plan built from the live state has to list it again.
  */
 
 const session = { id: 1 } as ActiveSession;
@@ -237,5 +234,73 @@ describe('what the notice says after undoing an added class variable', () => {
     );
 
     expect(clause).toMatch(/put back/);
+  });
+});
+
+describe('the plan built from the live state', () => {
+  it('lists a skipped accessor again once the user has edited it since', () => {
+    const edited = present('registry\n\t^Registry ifNil: [0]');
+
+    const plan = planUndo(entryWithOneSkippedAccessor(), undefined, [edited, compiledSetter])!;
+
+    expect(plan.rows.map((r) => `${r.action} ${r.target}`)).toEqual([
+      'restore Account class >> #registry',
+      'remove Account class >> #registry:',
+      'remove class variable Account  Registry',
+    ]);
+  });
+
+  it('leaves out a method the user has already put back by hand', () => {
+    const entry = {
+      id: 3,
+      kind: 'methodEdit' as const,
+      sessionId: session.id,
+      label: 'Save balance in Account',
+      slots: [
+        { dict: 7, className: 'Account', isMeta: false, selector: 'balance', environmentId: 0 },
+      ],
+      before: [present('balance\n\t^1')],
+      after: [present('balance\n\t^2')],
+    };
+
+    expect(planUndo(entry, undefined, [present('balance\n\t^1')])!.rows).toEqual([]);
+  });
+});
+
+describe('liveMethodSlots', () => {
+  it("names a class-variable edit's accessors", () => {
+    const entry = entryWithOneSkippedAccessor();
+
+    expect(liveMethodSlots(entry)).toBe(entry.accessorSlots);
+  });
+
+  it("names a method edit's slots", () => {
+    const slots = [accessor('registry')];
+
+    expect(
+      liveMethodSlots({
+        id: 4,
+        kind: 'methodEdit',
+        sessionId: session.id,
+        label: 'x',
+        slots,
+        before: [],
+        after: [],
+      }),
+    ).toBe(slots);
+  });
+
+  it('answers undefined for a kind with no method slots', () => {
+    expect(
+      liveMethodSlots({
+        id: 5,
+        kind: 'classComment',
+        sessionId: session.id,
+        label: 'x',
+        slot: { dict: 7, className: 'Account' },
+        before: '',
+        after: 'c',
+      }),
+    ).toBeUndefined();
   });
 });

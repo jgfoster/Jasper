@@ -7,10 +7,13 @@
  * depending on machinery the user has no reason to know about. Adding an instance variable and
  * adding a class variable are sibling commands off the same menu; their undos looked nothing alike.
  *
- * A plan is a PURE function of the recorded entry. It runs no queries and touches no stone state:
- * everything it describes was captured when the change was made, which is also what the reversal
- * itself works from. That keeps the panel honest -- it shows the reversal's own inputs rather than
- * a second, independently-derived guess -- and keeps this module trivially testable.
+ * A plan is a PURE function of the recorded entry, plus -- for the kinds that hold method slots --
+ * those slots' live state, read by the caller. It runs no queries itself. A method slot is listed
+ * only when `slotNeedsReversal` says the reversal will act on it, the same test the reversal makes,
+ * so a slot the change left alone (an accessor that already existed, say) is not counted. That
+ * test is made against the live state when the caller has it, because the reversal decides on
+ * the live state: a skipped slot the user has edited since WILL be recompiled, and has to be a
+ * row. Without it the recorded `after` stands in, which agrees whenever nothing has drifted.
  *
  * Rows are NOT individually selectable. The local reversers apply a plan whole: taking a class
  * variable away but leaving its accessors, or restoring half a method set, produces states none of
@@ -27,8 +30,10 @@ import {
   ClassCategoryUndoEntry,
   DictionaryUndoEntry,
   MethodSlot,
+  MethodSlotState,
   undoVerb,
 } from './undoTypes';
+import { slotNeedsReversal } from './methodSlotPlan';
 import { qualifiedClassName as qualify } from '../refactoring/qualifiedClassName';
 
 /** One thing the reversal will do. */
@@ -69,11 +74,22 @@ function methodTarget(slot: MethodSlot, dictNameFor?: DictNameLookup): string {
   return `${cls}${slot.isMeta ? ' class' : ''} >> #${slot.selector}`;
 }
 
-function planMethodEdit(e: MethodEditUndoEntry, d?: DictNameLookup): UndoPlan {
+/** The indices of the slots the reversal will act on. */
+function slotsToReverse(before: MethodSlotState[], now: MethodSlotState[]): Set<number> {
+  return new Set(before.flatMap((was, i) => (slotNeedsReversal(was, now[i]) ? [i] : [])));
+}
+
+function planMethodEdit(
+  e: MethodEditUndoEntry,
+  d?: DictNameLookup,
+  now: MethodSlotState[] = e.after,
+): UndoPlan {
+  const acted = slotsToReverse(e.before, now);
   return {
     verb: undoVerb(e),
     label: e.label,
-    rows: e.slots.map((slot, i) => {
+    rows: e.slots.flatMap((slot, i) => {
+      if (!acted.has(i)) return [];
       const had = e.before[i]?.exists === true;
       return {
         id: `m${i}`,
@@ -127,10 +143,17 @@ function planClassComment(e: ClassCommentUndoEntry, d?: DictNameLookup): UndoPla
   };
 }
 
-function planClassVarEdit(e: ClassVarEditUndoEntry, d?: DictNameLookup): UndoPlan {
+function planClassVarEdit(
+  e: ClassVarEditUndoEntry,
+  d?: DictNameLookup,
+  now: MethodSlotState[] = e.accessorAfter,
+): UndoPlan {
   // Accessors first, then the declaration -- the order the reversal itself uses, so the class
-  // never holds a method reading a class variable it no longer declares.
-  const rows: UndoPlanRow[] = e.accessorSlots.map((slot, i) => {
+  // never holds a method reading a class variable it no longer declares. The declaration row
+  // stays even when every accessor is skipped: the variable is what the change was.
+  const acted = slotsToReverse(e.accessorBefore, now);
+  const rows: UndoPlanRow[] = e.accessorSlots.flatMap((slot, i) => {
+    if (!acted.has(i)) return [];
     const had = e.accessorBefore[i]?.exists === true;
     return {
       id: `a${i}`,
@@ -208,17 +231,24 @@ function planDictionary(e: DictionaryUndoEntry): UndoPlan {
  * A REFACTORING is the one such kind: its reversal lives in the stone, can span dozens of methods
  * across a hierarchy, and is paged from the server rather than derived from anything the client
  * holds. It already opens a panel, so it already matches; this covers every other kind.
+ *
+ * `liveSlots` is what {@link liveMethodSlots} names for the entry, as the stone holds it now.
+ * Ignored by every other kind.
  */
-export function planUndo(entry: UndoEntry, dictNameFor?: DictNameLookup): UndoPlan | undefined {
+export function planUndo(
+  entry: UndoEntry,
+  dictNameFor?: DictNameLookup,
+  liveSlots?: MethodSlotState[],
+): UndoPlan | undefined {
   switch (entry.kind) {
     case 'methodEdit':
-      return planMethodEdit(entry, dictNameFor);
+      return planMethodEdit(entry, dictNameFor, liveSlots);
     case 'classEdit':
       return planClassEdit(entry, dictNameFor);
     case 'classComment':
       return planClassComment(entry, dictNameFor);
     case 'classVarEdit':
-      return planClassVarEdit(entry, dictNameFor);
+      return planClassVarEdit(entry, dictNameFor, liveSlots);
     case 'methodCategoryEdit':
       return planMethodCategory(entry, dictNameFor);
     case 'classCategoryEdit':
@@ -228,4 +258,14 @@ export function planUndo(entry: UndoEntry, dictNameFor?: DictNameLookup): UndoPl
     case 'refactoring':
       return undefined;
   }
+}
+
+/**
+ * The method slots whose live state {@link planUndo} wants for this entry, parallel to the
+ * `liveSlots` it takes -- or undefined when the kind holds none.
+ */
+export function liveMethodSlots(entry: UndoEntry): MethodSlot[] | undefined {
+  if (entry.kind === 'methodEdit') return entry.slots;
+  if (entry.kind === 'classVarEdit') return entry.accessorSlots;
+  return undefined;
 }
