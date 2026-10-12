@@ -21,7 +21,7 @@ import {
   ClassOutOfScope,
   SkippedMethod,
 } from './renameClassPreview';
-import { ambiguousClassNames, classNameForRow } from './qualifiedClassName';
+import { ambiguousClassNames, classNameSpan } from './qualifiedClassName';
 import { lineDiff, DiffLine } from '../lineDiff';
 
 function escapeHtml(s: string): string {
@@ -47,16 +47,16 @@ function kindBadge(change: ClassRenameChange): string {
 
 function headerLabel(change: ClassRenameChange, ambiguous: ReadonlySet<string>): string {
   const side = change.isMeta ? ' class' : '';
-  const name = classNameForRow(change.className, change.dictName, ambiguous);
+  const name = classNameSpan(change.className, change.dictName, ambiguous);
   if (change.kind === 'classRename' && change.newName) {
     return (
-      `<span class="sel-removed" title="old name">${escapeHtml(name)}</span>` +
+      `<span class="sel-removed" title="old name">${name}</span>` +
       '<span class="ren-arrow"> → </span>' +
       `<span class="sel-added" title="new name">${escapeHtml(change.newName)}</span>`
     );
   }
   return (
-    `${escapeHtml(name)}${escapeHtml(side)}` +
+    `${name}${escapeHtml(side)}` +
     (change.kind === 'methodRecompile' && change.selector
       ? `&gt;&gt;${escapeHtml(change.selector)}`
       : '')
@@ -86,7 +86,8 @@ function renderCard(change: ClassRenameChange, ambiguous: ReadonlySet<string>): 
 /** Render a batch of change cards (first page and appended pages look identical). */
 export function renderClassCards(changes: ClassRenameChange[]): string {
   // Rows whose class name this change set claims from more than one dictionary carry it, so
-  // two rows naming the same class can be told apart (#396).
+  // two rows naming the same class can be told apart (#396). This batch only: a clash with a row
+  // on another page is caught in the webview (rowQualifierView.js).
   const ambiguous = ambiguousClassNames(changes);
   return changes.map((c) => renderCard(c, ambiguous)).join('\n');
 }

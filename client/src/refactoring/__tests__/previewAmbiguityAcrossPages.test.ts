@@ -29,6 +29,8 @@ import { InstVarChange, InstVarOutOfScope } from '../instVarRefactorPreview';
  */
 
 beforeAll(() => {
+  // Both panels inject the row qualifier ahead of their own script, as these do.
+  new Function(fs.readFileSync(path.resolve(__dirname, '../rowQualifierView.js'), 'utf8'))();
   // The class panel runs on the rename-method panel's view script; the ivar panel has its own.
   new Function(fs.readFileSync(path.resolve(__dirname, '../renameMethodPanelView.js'), 'utf8'))();
   new Function(
@@ -217,5 +219,32 @@ describe('the same name across the instance-variable panel’s pages', () => {
       'Shadowed (DictA) (definition edited)',
       'Shadowed (DictB) (definition edited)',
     ]);
+  });
+});
+
+describe('RowQualifier.qualify', () => {
+  const qualify = (): void =>
+    (
+      globalThis as unknown as { RowQualifier: { qualify(doc: Document): void } }
+    ).RowQualifier.qualify(document);
+
+  it("rewrites the row checkbox's aria-label along with the visible name", () => {
+    const panel = mountClassPanel([recompile('1', 'DictA')], 2);
+
+    panel.appendChanges(renderClassCards([recompile('2', 'DictB')]), true);
+
+    const aria = [...document.querySelectorAll('li.change input.sel')].map((cb) =>
+      cb.getAttribute('aria-label'),
+    );
+    expect(aria).toEqual(['Include Shadowed (DictA)>>foo', 'Include Shadowed (DictB)>>foo']);
+  });
+
+  it('changes nothing when run again over a list it already qualified', () => {
+    mountClassPanel([recompile('1', 'DictA'), recompile('2', 'DictB')], 2);
+    const before = document.body.innerHTML;
+
+    qualify();
+
+    expect(document.body.innerHTML).toBe(before);
   });
 });
