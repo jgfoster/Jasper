@@ -8,7 +8,7 @@ vi.mock('../../browserQueries', () => ({
   getClassEnvironments: vi.fn(() => []),
 }));
 
-import { ExplorerController, MethodItem } from '../../gemstoneExplorer';
+import { ExplorerController, MethodItem, selfOpenKey } from '../../gemstoneExplorer';
 import { Uri, window, workspace } from '../../__mocks__/vscode';
 import type { SessionManager, ActiveSession } from '../../sessionManager';
 
@@ -31,8 +31,7 @@ import type { SessionManager, ActiveSession } from '../../sessionManager';
  * since the last reveal" is not enough of a test; what separates a tab focus from the click
  * loop is whether the Explorer itself opened this editor. That is what these pin: a tab focus
  * with NO rebuild still reveals, and a click whose editor comes back spelling the URI
- * differently still does not. If the cheaper rebuild-only fix is chosen instead, the
- * no-rebuild case below is the one to delete, and this paragraph with it.
+ * differently still does not.
  */
 
 const SESSION = { id: 1 } as ActiveSession;
@@ -180,5 +179,36 @@ describe('clicking a row in the Methods pane', () => {
     await ctl.syncToEditor(respelled);
 
     expect(method.reveal).not.toHaveBeenCalled();
+  });
+});
+
+describe('selfOpenKey', () => {
+  const key = (s: string): string => selfOpenKey(Uri.parse(s));
+
+  it('reads a method URI the same however its query is spelled', () => {
+    expect(key(`${URI}?dict=1`)).toBe(key(`${URI}?env=0&dict=1`));
+  });
+
+  it('ignores the category the method is filed under', () => {
+    expect(key('gemstone://1/UserGlobals/Array/instance/testing/isNotNil')).toBe(key(URI));
+  });
+
+  it('tells apart the sides, environments, dictionaries and sessions', () => {
+    const base = key(URI);
+    expect(key('gemstone://1/UserGlobals/Array/class/accessing/isNotNil')).not.toBe(base);
+    expect(key(`${URI}?env=2`)).not.toBe(base);
+    expect(key(`${URI}?dict=3`)).not.toBe(base);
+    expect(key('gemstone://1/Globals/Array/instance/accessing/isNotNil')).not.toBe(base);
+    expect(key('gemstone://2/UserGlobals/Array/instance/accessing/isNotNil')).not.toBe(base);
+  });
+
+  it('keys a definition and a comment by their class, not by each other', () => {
+    const def = key('gemstone://1/UserGlobals/Array/definition');
+    expect(key('gemstone://1/UserGlobals/Array/definition/Array')).toBe(def);
+    expect(key('gemstone://1/UserGlobals/Array/comment')).not.toBe(def);
+  });
+
+  it('falls back to the URI text for one that will not parse', () => {
+    expect(key('gemstone://1/x')).toBe('gemstone://1/x');
   });
 });
