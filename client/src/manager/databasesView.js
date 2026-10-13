@@ -495,13 +495,15 @@
     const rows = onDisk
       .map((v) => {
         const state = versionState(v);
+        // A login-only row's files are a few MB; the catalog size is the whole server.
+        const size = state === 'client' ? v.clientSize : v.size;
         return `<tr>
           <td>
             <span class="v-name mono">${esc(v.version)}</span>
             ${v.bundled ? badge('bundled GCI') : ''}
           </td>
           <td>${pill(state)}</td>
-          <td class="v-num">${v.size ? esc(formatBytes(v.size)) : '—'}</td>
+          <td class="v-num">${size ? esc(formatBytes(size)) : '—'}</td>
           <td class="v-num">${v.date ? esc(v.date) : '—'}</td>
           ${versionActions(v)}
         </tr>`;

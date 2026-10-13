@@ -93,6 +93,8 @@ interface VersionRow {
   bundled?: boolean;
   /** The files a login needs for this version are on disk — they can be opened or removed. */
   clientExtracted?: boolean;
+  /** Bytes those files take on disk. */
+  clientSize?: number;
 }
 
 interface ProcInfo {
@@ -1806,6 +1808,7 @@ export class DatabasesPanel {
       local: v.local,
       bundled: v.bundled,
       clientExtracted: v.clientExtracted,
+      clientSize: v.clientSize,
     }));
   }
 
@@ -1916,6 +1919,8 @@ body {
 .badge-state.state-local { color: var(--vscode-charts-blue, #4daafc); }
 .badge-state.state-downloaded { color: var(--gm-warn); }
 .badge-state.state-available { color: var(--vscode-descriptionForeground, #9d9d9d); }
+/* A theme color, so it reads on light and dark backgrounds alike. */
+.badge-state.state-client { color: var(--vscode-charts-purple, #b180d7); }
 
 /* ── Sections (native disclosure) ─────────────────────────────────────────── */
 .section { margin: 0 0 18px; border: 1px solid var(--gm-line); border-radius: 6px; overflow: hidden; }

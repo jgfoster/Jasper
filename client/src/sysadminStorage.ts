@@ -461,6 +461,12 @@ export class SysadminStorage {
     return findFile(dir, `libgcits-${version}-64.${ext}`, 3);
   }
 
+  /** Bytes the client folder for `version` takes on disk, or 0 if there is none. */
+  getClientSize(version: string): number {
+    const dir = this.getClientPath(version);
+    return dir ? treeSize(dir) : 0;
+  }
+
   /** Versions with client files on disk, newest first. */
   getExtractedClientVersions(): string[] {
     if (process.platform === 'win32') return this.getExtractedWindowsClientVersions();
@@ -546,6 +552,29 @@ export class SysadminStorage {
     }
     return files;
   }
+}
+
+/** Total size of the files under `dir`; links are not followed. */
+function treeSize(dir: string): number {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  let total = 0;
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) total += treeSize(full);
+    else if (entry.isFile()) {
+      try {
+        total += fs.statSync(full).size;
+      } catch {
+        // Gone or unreadable since the listing: it takes no space we can count.
+      }
+    }
+  }
+  return total;
 }
 
 /** The first file called `name` under `dir`, at most `depth` folders down. */

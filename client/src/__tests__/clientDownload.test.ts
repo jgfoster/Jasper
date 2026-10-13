@@ -365,6 +365,16 @@ describe('VersionManager.versionsFrom (client files)', () => {
     expect(rows.find((v) => v.version === '3.7.4')?.clientExtracted).toBe(false);
   });
 
+  it('measures the client files rather than taking the catalog size, which is the full product', () => {
+    const dir = createClientLibs('3.7.5');
+    fs.writeFileSync(path.join(dir, '3.7.5', '64bit', 'libssl-3.7.5-64.so'), Buffer.alloc(1000));
+    fs.writeFileSync(path.join(dir, 'README'), Buffer.alloc(24));
+    const catalog = [{ version: '3.7.5', fileName: 'f', url: 'u', date: 'd', size: 472_000_000 }];
+    const row = new VersionManager(new SysadminStorage()).versionsFrom(catalog)[0];
+    expect(row.size).toBe(472_000_000);
+    expect(row.clientSize).toBe(1024);
+  });
+
   it('keeps a client-only version listed when the catalog is unreachable', () => {
     createClientLibs('3.7.5');
     const rows = new VersionManager(new SysadminStorage()).versionsFrom([]);

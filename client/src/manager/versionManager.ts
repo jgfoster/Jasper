@@ -239,6 +239,10 @@ export class VersionManager {
     const extractedInfos = hasLocalServer ? this.storage.getExtractedVersionInfos() : [];
     const extractedMap = new Map(extractedInfos.map((e) => [e.version, e.isLocal]));
     const clientExtracted = new Set(this.storage.getExtractedClientVersions());
+    // Measured, not taken from the catalog: the catalog's size is the full product's.
+    const clientSizes = new Map(
+      [...clientExtracted].map((v) => [v, this.storage.getClientSize(v)] as const),
+    );
     const bundled = new Set(
       process.platform === 'win32' && bundledGciArchSupported()
         ? bundledWindowsClientVersions()
@@ -262,6 +266,7 @@ export class VersionManager {
         downloaded: isDownloaded,
         extracted: extractedKind === false, // dir, not symlink
         clientExtracted: clientExtracted.has(version),
+        clientSize: clientSizes.get(version),
         bundled: bundled.has(version),
       });
     }
@@ -300,6 +305,7 @@ export class VersionManager {
         downloaded: true,
         extracted: false,
         clientExtracted: clientExtracted.has(version),
+        clientSize: clientSizes.get(version),
         bundled: bundled.has(version),
       });
     }
@@ -319,6 +325,7 @@ export class VersionManager {
         downloaded: false,
         extracted: false,
         clientExtracted: true,
+        clientSize: clientSizes.get(version),
         bundled: bundled.has(version),
       });
     }

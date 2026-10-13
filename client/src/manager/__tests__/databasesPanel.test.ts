@@ -1271,3 +1271,17 @@ describe('deleting a login from the panel', () => {
     );
   });
 });
+
+describe('version status colors', () => {
+  // A status with no color rule inherits the badge's foreground, which is meant
+  // for a filled badge: on a light theme that is white on white, and "Login only"
+  // was invisible. Theme variables keep each one legible on light and dark alike.
+  for (const state of ['installed', 'local', 'downloaded', 'available', 'client']) {
+    it(`gives the ${state} status a theme color`, async () => {
+      await openPanel();
+      expect(lastPanel().webview.html).toMatch(
+        new RegExp(`\\.badge-state\\.state-${state} \\{ color: var\\(--`),
+      );
+    });
+  }
+});

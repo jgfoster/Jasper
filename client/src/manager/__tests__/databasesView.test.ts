@@ -1396,6 +1396,33 @@ describe('downloading only what a login needs', () => {
     mount(state({ windows: true, versions: [INSTALLED] }));
     expect(root.querySelector('[data-action="installClient"]')).not.toBeNull();
   });
+
+  // The catalog's size is the whole server's download; a login-only row that
+  // showed it claimed hundreds of MB on disk for a few MB of files.
+  it('a login-only row gives the size of its files, not of the server download', () => {
+    mount(
+      state({ versions: [{ ...CLIENT_ONLY, size: 472 * 1024 ** 2, clientSize: 27 * 1024 ** 2 }] }),
+    );
+    const size = root.querySelector('.versions-table tbody tr td.v-num')!.textContent;
+    expect(size).toContain('27');
+    expect(size).not.toContain('472');
+  });
+
+  it('a full install keeps the size of its download even when it also has login files', () => {
+    mount(
+      state({
+        versions: [
+          {
+            ...INSTALLED,
+            size: 472 * 1024 ** 2,
+            clientExtracted: true,
+            clientSize: 27 * 1024 ** 2,
+          },
+        ],
+      }),
+    );
+    expect(root.querySelector('.versions-table tbody tr td.v-num')!.textContent).toContain('472');
+  });
 });
 
 describe('the form the host opens the panel into', () => {
