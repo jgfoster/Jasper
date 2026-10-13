@@ -208,10 +208,10 @@ export interface ResolvedStepPoint {
 }
 
 /**
- * The step point a breakpoint request lands on.
+ * The step point a breakpoint lands on.
  *
- * `line` is 1-based. `character` is a 0-based column, or undefined for a plain
- * gutter click, which carries no column at all:
+ * `line` is 1-based. `character` is a 0-based column; a plain gutter click
+ * carries column 0, or none at all:
  *
  * - **No column** (or column 0) — the *leftmost* step point on the line. A
  *   gutter click means "this line", and the leftmost step point is the only
@@ -223,8 +223,8 @@ export interface ResolvedStepPoint {
  *
  * Either way, a line with no step point of its own falls forward to the next
  * step point after it, and the returned `line` says where the breakpoint really
- * ended up so VS Code can show it moved. Returns null when there is no step
- * point at or after the request — a breakpoint past the last statement.
+ * ended up. Returns null when there is no step point at or after the
+ * breakpoint — a breakpoint past the last statement.
  */
 export function resolveStepPoint(
   info: StepPointInfo,

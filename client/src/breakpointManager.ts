@@ -10,16 +10,11 @@ import { describeMethodResult } from './methodResultsPicker';
 import {
   StepPointModel,
   StepPointInfo,
+  ResolvedStepPoint,
   resolveStepPoint,
   stepPointAtOffset,
   rangesForStepPoint,
 } from './stepPointModel';
-
-export interface VerifiedBreakpoint {
-  stepPoint: number;
-  actualLine: number;
-  verified: boolean;
-}
 
 /** A breakpoint as it now stands in the gem, for one method. */
 export interface AppliedBreakpoint {
@@ -165,31 +160,22 @@ export class BreakpointManager {
 
   /**
    * Push every VS Code breakpoint on `uri` to the gem, replacing whatever the
-   * method had. Returns one verified result per requested line, in order.
-   *
-   * `requests` carries the raw line/column pairs. When omitted, they are read
-   * from `vscode.debug.breakpoints` — the absolute model: whatever is in VS
-   * Code's list right now is exactly what the method ends up with.
+   * method had. The absolute model: whatever is in `vscode.debug.breakpoints`
+   * right now is exactly what the method ends up with.
    *
    * Callers are responsible for not running this while the method's editor has
    * unsaved edits, when a position in VS Code's list and an offset in the
    * compiled method no longer describe the same code — see `holdWhileDirty`.
    */
-  applyToUri(
-    session: ActiveSession,
-    uri: vscode.Uri,
-    requests?: { line: number; character?: number; enabled: boolean }[],
-  ): VerifiedBreakpoint[] {
+  applyToUri(session: ActiveSession, uri: vscode.Uri): void {
     // The one statement of "a breakpoint can be armed here" (see
     // client/src/languageIds.ts), shared with the rule that decides which
     // documents are given the language the gutter is offered for — so the offer
     // and what can honour it cannot disagree.
     const method = methodSourceRef(uri);
-    if (!method) {
-      return (requests ?? []).map(() => ({ stepPoint: 0, actualLine: 0, verified: false }));
-    }
+    if (!method) return;
 
-    const wanted = requests ?? readVsCodeBreakpoints(uri);
+    const wanted = breakpointsOn(uri);
 
     // Always clear first: this is an absolute model, and a step point that used
     // to hold a breakpoint has to lose it even when nothing replaces it.
@@ -215,7 +201,7 @@ export class BreakpointManager {
       this.applied.delete(uri.toString());
       this.refreshEditorsFor(uri);
       this._onDidApply.fire();
-      return [];
+      return;
     }
 
     const info = this.stepPoints.fetch(session, uri, method);
@@ -233,54 +219,31 @@ export class BreakpointManager {
       this.refreshEditorsFor(uri);
       this._onDidApply.fire();
       vscode.window.showWarningMessage(reason);
-      return wanted.map((r) => ({
-        stepPoint: 0,
-        actualLine: r.line,
-        verified: false,
-      }));
+      return;
     }
 
-    const results: VerifiedBreakpoint[] = [];
-    // Two requests can land on the same step point — a gutter click and an
+    // Two breakpoints can land on the same step point — a gutter click and an
     // inline breakpoint on the same line, say. The gem has one breakpoint per
     // step point, so they collapse, and the step point stays armed if *any* of
     // them is enabled.
     const byStepPoint = new Map<number, AppliedBreakpoint>();
 
-    for (const req of wanted) {
-      const resolved = resolveStepPoint(info, req.line, req.character);
-      if (!resolved) {
-        results.push({ stepPoint: 0, actualLine: req.line, verified: false });
-        continue;
-      }
-      results.push({
-        stepPoint: resolved.stepPoint,
-        actualLine: resolved.line,
-        verified: true,
-      });
+    for (const bp of wanted) {
+      const resolved = stepPointOf(info, bp);
+      if (!resolved) continue;
       const existing = byStepPoint.get(resolved.stepPoint);
       byStepPoint.set(resolved.stepPoint, {
         stepPoint: resolved.stepPoint,
         offset: resolved.offset,
         line: resolved.line,
-        enabled: (existing?.enabled ?? false) || req.enabled,
+        enabled: (existing?.enabled ?? false) || bp.enabled,
       });
     }
 
     const applied: AppliedBreakpoint[] = [];
+    // A failed step point is reported out loud: its marker alone looks exactly
+    // like a breakpoint on a line with no step point.
     const failures: string[] = [];
-
-    /**
-     * Refuse one step point, out loud. The marker going hollow is not enough on
-     * its own: an unverified marker looks exactly like a breakpoint on a line
-     * with no step point, so the reason has to be said to the developer.
-     */
-    const refuse = (stepPoint: number, reason: string): void => {
-      failures.push(reason);
-      for (const r of results) {
-        if (r.stepPoint === stepPoint) r.verified = false;
-      }
-    };
 
     for (const bp of byStepPoint.values()) {
       try {
@@ -293,8 +256,7 @@ export class BreakpointManager {
           method.environmentId,
         );
       } catch (e) {
-        refuse(
-          bp.stepPoint,
+        failures.push(
           `Could not set the breakpoint at step point ${bp.stepPoint} in ` +
             `${describeMethodResult(method)}: ${messageOf(e)}`,
         );
@@ -334,8 +296,7 @@ export class BreakpointManager {
         } catch {
           /* Both calls failed; the message says the break is still armed. */
         }
-        refuse(
-          bp.stepPoint,
+        failures.push(
           `Could not disable the breakpoint at step point ${bp.stepPoint} in ` +
             `${describeMethodResult(method)}: ${messageOf(e)}.${stillArmed}`,
         );
@@ -357,7 +318,6 @@ export class BreakpointManager {
 
     this.refreshEditorsFor(uri);
     this._onDidApply.fire();
-    return results;
   }
 
   /**
@@ -574,10 +534,7 @@ export class BreakpointManager {
 
   /** Clear every breakpoint in the method the caret is in. */
   clearMethodBreakpoints(editor: vscode.TextEditor): void {
-    const uriStr = editor.document.uri.toString();
-    const mine = vscode.debug.breakpoints.filter(
-      (bp) => bp instanceof vscode.SourceBreakpoint && bp.location.uri.toString() === uriStr,
-    );
+    const mine = breakpointsOn(editor.document.uri);
     if (mine.length > 0) vscode.debug.removeBreakpoints(mine);
   }
 
@@ -782,9 +739,7 @@ export class BreakpointManager {
 
     // Removing these re-enters onBreakpointsChanged with none left for the
     // method, which clears the gem's breaks and refreshes the view.
-    const stale = gemstoneBreakpoints().filter(
-      (bp) => bp.location.uri.toString() === uri.toString(),
-    );
+    const stale = breakpointsOn(uri);
     if (stale.length > 0) vscode.debug.removeBreakpoints(stale);
 
     this.refreshEditorsFor(uri);
@@ -874,19 +829,7 @@ export class BreakpointManager {
     info: StepPointInfo,
     stepPoint: number,
   ): vscode.SourceBreakpoint | undefined {
-    const uriStr = uri.toString();
-    for (const bp of vscode.debug.breakpoints) {
-      if (!(bp instanceof vscode.SourceBreakpoint)) continue;
-      if (bp.location.uri.toString() !== uriStr) continue;
-      const start = bp.location.range.start;
-      const resolved = resolveStepPoint(
-        info,
-        start.line + 1,
-        start.character === 0 ? undefined : start.character,
-      );
-      if (resolved?.stepPoint === stepPoint) return bp;
-    }
-    return undefined;
+    return breakpointsOn(uri).find((bp) => stepPointOf(info, bp)?.stepPoint === stepPoint);
   }
 
   private onBreakpointsChanged(event: vscode.BreakpointsChangeEvent): void {
@@ -978,25 +921,18 @@ export function gemstoneBreakpoints(): vscode.SourceBreakpoint[] {
   ) as vscode.SourceBreakpoint[];
 }
 
-/**
- * VS Code's breakpoints on one method, as apply requests. Lines come out 1-based
- * (VS Code counts from 0) and a column-0 breakpoint reports no column at all, so
- * a gutter click stays distinguishable from an inline breakpoint in column 0.
- */
-function readVsCodeBreakpoints(
-  uri: vscode.Uri,
-): { line: number; character?: number; enabled: boolean }[] {
+/** VS Code's source breakpoints on `uri`. */
+function breakpointsOn(uri: vscode.Uri): vscode.SourceBreakpoint[] {
   const uriStr = uri.toString();
-  return gemstoneBreakpoints()
-    .filter((bp) => bp.location.uri.toString() === uriStr)
-    .map((bp) => {
-      const start = bp.location.range.start;
-      return {
-        line: start.line + 1,
-        character: start.character === 0 ? undefined : start.character,
-        enabled: bp.enabled,
-      };
-    });
+  return vscode.debug.breakpoints.filter(
+    (bp) => bp instanceof vscode.SourceBreakpoint && bp.location.uri.toString() === uriStr,
+  ) as vscode.SourceBreakpoint[];
+}
+
+/** The step point `bp` lands on. VS Code counts lines from 0; the model from 1. */
+function stepPointOf(info: StepPointInfo, bp: vscode.SourceBreakpoint): ResolvedStepPoint | null {
+  const start = bp.location.range.start;
+  return resolveStepPoint(info, start.line + 1, start.character);
 }
 
 /**

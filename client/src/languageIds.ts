@@ -69,7 +69,8 @@ export const BREAKPOINT_GUTTER_LANGUAGES = [SMALLTALK_LANGUAGE, METHOD_LANGUAGE]
  * versions of a method at once, so a line in it does not name one.
  *
  * This is the single statement of that rule. Both the language a document is
- * given and `BreakpointManager.applyToUri`, the refusal that backstops it, are
+ * given and `BreakpointManager`'s use of it (`applyToUri` arms only here, and
+ * `refuseOutsideMethodSource` takes back a breakpoint set anywhere else) are
  * derived from this one function — `applyToUri` needs the parsed method itself,
  * which is why the rule answers with it rather than a boolean — so the gutter is
  * offered exactly where a breakpoint can be armed, and there is no second copy
