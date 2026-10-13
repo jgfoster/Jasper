@@ -237,15 +237,45 @@ describe('BreakpointManager', () => {
       ]);
     });
 
-    it('arms nothing when the method has no step point at or after the line', () => {
+    it('takes back, and says why, a breakpoint below the last statement', () => {
+      vi.mocked(window.showWarningMessage).mockClear();
       mockGetMethodSource.mockReturnValue('foo\n^1\n');
       mockGetSourceOffsets.mockReturnValue([1]);
       setVsCodeBreakpoints(METHOD_URI, [{ line: 3 }]);
+      const [pastEnd] = debug.breakpoints;
 
       const manager = makeManager();
       manager.applyToUri(session(), Uri.parse(METHOD_URI));
       expect(mockSetBreakAtStepPoint).not.toHaveBeenCalled();
       expect(manager.appliedFor(Uri.parse(METHOD_URI))).toHaveLength(0);
+      expect(vi.mocked(debug.removeBreakpoints)).toHaveBeenCalledWith([pastEnd]);
+      expect(debug.breakpoints).toHaveLength(0);
+      expect(vi.mocked(window.showWarningMessage)).toHaveBeenCalledWith(
+        expect.stringContaining('below the last statement'),
+      );
+    });
+
+    it('still arms the rest when one breakpoint is below the last statement', () => {
+      mockGetMethodSource.mockReturnValue('foo\n^1\n');
+      // One step point: the '^' at 0-based offset 4, so 5 1-based.
+      mockGetSourceOffsets.mockReturnValue([5]);
+      setVsCodeBreakpoints(METHOD_URI, [{ line: 2 }, { line: 3 }]);
+      const [onStatement, pastEnd] = debug.breakpoints;
+
+      const manager = makeManager();
+      manager.applyToUri(session(), Uri.parse(METHOD_URI));
+      expect(armedStepPoints()).toEqual([1]);
+      expect(vi.mocked(debug.removeBreakpoints)).toHaveBeenCalledWith([pastEnd]);
+      expect(debug.breakpoints).toEqual([onStatement]);
+    });
+
+    it('takes nothing back when every breakpoint has a step point', () => {
+      mockGetMethodSource.mockReturnValue('foo\n^1');
+      mockGetSourceOffsets.mockReturnValue([1, 5]);
+      setVsCodeBreakpoints(METHOD_URI, [{ line: 1 }]);
+
+      makeManager().applyToUri(session(), Uri.parse(METHOD_URI));
+      expect(vi.mocked(debug.removeBreakpoints)).not.toHaveBeenCalled();
     });
 
     it('arms nothing, and says why, when the source cannot be fetched', () => {
@@ -260,7 +290,8 @@ describe('BreakpointManager', () => {
       expect(vi.mocked(window.showWarningMessage)).toHaveBeenCalled();
     });
 
-    it('records nothing as applied when setting the breakpoint throws', () => {
+    it('records nothing as applied, and says why, when setting the breakpoint throws', () => {
+      vi.mocked(window.showErrorMessage).mockClear();
       mockGetMethodSource.mockReturnValue('foo\n^1');
       mockGetSourceOffsets.mockReturnValue([1, 5]);
       mockSetBreakAtStepPoint.mockImplementation(() => {
@@ -271,6 +302,9 @@ describe('BreakpointManager', () => {
       const manager = makeManager();
       manager.applyToUri(session(), Uri.parse(METHOD_URI));
       expect(manager.appliedFor(Uri.parse(METHOD_URI))).toHaveLength(0);
+      expect(vi.mocked(window.showErrorMessage)).toHaveBeenCalledWith(
+        expect.stringContaining('Could not set the breakpoint at step point 1'),
+      );
     });
 
     it('reads the class side and environment id out of the URI', () => {

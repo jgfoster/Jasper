@@ -79,10 +79,13 @@ const disabledDecoration = vscode.window.createTextEditorDecorationType({
  * - the **method** is recompiled (`invalidateForUri`), since the new method is a
  *   different object and the same step point may now be different code.
  *
- * Step point precision rides on the breakpoint's **column**: a gutter click has
- * none and means "the leftmost step point on this line", while an inline
- * breakpoint or Jasper's toggle-at-cursor carries the exact column and picks the
- * step point nearest it. See `resolveStepPoint`.
+ * Step point precision rides on the breakpoint's **column**: a gutter click
+ * arrives as column 0 and means "the leftmost step point on this line", while an
+ * inline breakpoint or Jasper's toggle-at-cursor carries the exact column and
+ * picks the step point nearest it. Column 0 is passed through as is, so it is
+ * `resolveStepPoint`'s `character <= 0` test alone that reads it as "no column"
+ * — narrowing that to `=== undefined` would send every gutter click to the step
+ * point nearest column 0 instead.
  *
  * A breakpoint can only be set where the editor's text *is* the compiled
  * method's, so a method with unsaved edits takes no new ones and has the ones it
@@ -227,10 +230,17 @@ export class BreakpointManager {
     // step point, so they collapse, and the step point stays armed if *any* of
     // them is enabled.
     const byStepPoint = new Map<number, AppliedBreakpoint>();
+    // A breakpoint below the method's last statement has no step point to fall
+    // forward to. Left in the list it is a red dot that never stops, so it is
+    // taken back out and the reason given — as `holdWhileDirty` does.
+    const unplaceable: vscode.SourceBreakpoint[] = [];
 
     for (const bp of wanted) {
       const resolved = stepPointOf(info, bp);
-      if (!resolved) continue;
+      if (!resolved) {
+        unplaceable.push(bp);
+        continue;
+      }
       const existing = byStepPoint.get(resolved.stepPoint);
       byStepPoint.set(resolved.stepPoint, {
         stepPoint: resolved.stepPoint,
@@ -240,9 +250,14 @@ export class BreakpointManager {
       });
     }
 
+    if (unplaceable.length > 0) {
+      vscode.debug.removeBreakpoints(unplaceable);
+      vscode.window.showWarningMessage(PAST_LAST_STATEMENT_REFUSAL);
+    }
+
     const applied: AppliedBreakpoint[] = [];
-    // A failed step point is reported out loud: its marker alone looks exactly
-    // like a breakpoint on a line with no step point.
+    // A step point the gem refused is reported out loud: its red dot looks
+    // exactly like an armed one.
     const failures: string[] = [];
 
     for (const bp of byStepPoint.values()) {
@@ -368,10 +383,7 @@ export class BreakpointManager {
   private holdWhileDirty(uri: vscode.Uri, added: readonly vscode.Breakpoint[]): void {
     this.frozen.add(uri.toString());
 
-    const uriStr = uri.toString();
-    const rejected = added.filter(
-      (bp) => bp instanceof vscode.SourceBreakpoint && bp.location.uri.toString() === uriStr,
-    );
+    const rejected = breakpointsOn(uri, added);
     if (rejected.length === 0) return;
 
     vscode.debug.removeBreakpoints(rejected);
@@ -914,19 +926,26 @@ export class BreakpointManager {
 
 // ── Helpers ────────────────────────────────────────────────
 
+const isSourceBreakpoint = (bp: vscode.Breakpoint): bp is vscode.SourceBreakpoint =>
+  bp instanceof vscode.SourceBreakpoint;
+
 /** Every VS Code source breakpoint on a `gemstone://` URI. */
 export function gemstoneBreakpoints(): vscode.SourceBreakpoint[] {
-  return vscode.debug.breakpoints.filter(
-    (bp) => bp instanceof vscode.SourceBreakpoint && bp.location.uri.scheme === 'gemstone',
-  ) as vscode.SourceBreakpoint[];
+  return vscode.debug.breakpoints
+    .filter(isSourceBreakpoint)
+    .filter((bp) => bp.location.uri.scheme === 'gemstone');
 }
 
-/** VS Code's source breakpoints on `uri`. */
-function breakpointsOn(uri: vscode.Uri): vscode.SourceBreakpoint[] {
+/**
+ * The source breakpoints in `from` that are on `uri`. Unlike
+ * `gemstoneBreakpoints()`, this does not filter by scheme — `uri` alone decides.
+ */
+function breakpointsOn(
+  uri: vscode.Uri,
+  from: readonly vscode.Breakpoint[] = vscode.debug.breakpoints,
+): vscode.SourceBreakpoint[] {
   const uriStr = uri.toString();
-  return vscode.debug.breakpoints.filter(
-    (bp) => bp instanceof vscode.SourceBreakpoint && bp.location.uri.toString() === uriStr,
-  ) as vscode.SourceBreakpoint[];
+  return from.filter(isSourceBreakpoint).filter((bp) => bp.location.uri.toString() === uriStr);
 }
 
 /** The step point `bp` lands on. VS Code counts lines from 0; the model from 1. */
@@ -975,6 +994,14 @@ const DIRTY_REFUSAL =
  * is looking at a workspace or a `.gst` file and has to be told where the
  * breakpoint does belong.
  */
+/**
+ * Why a breakpoint below a method's last statement is refused: there is no step
+ * point at or after it for it to fall forward to.
+ */
+const PAST_LAST_STATEMENT_REFUSAL =
+  'A breakpoint below the last statement of a method can never stop — ' +
+  'there is no step point at or after it. Set it on a statement instead.';
+
 const NOT_A_METHOD_REFUSAL =
   'A breakpoint can only be set in the source of a compiled GemStone method. ' +
   'This editor is not one — open the method and set the breakpoint there.';
