@@ -109,6 +109,17 @@ describe('reinsertDictionary', () => {
     expect(exec.mock.calls[1][0] as string).toContain('pos := 1 min:');
   });
 
+  it('drops the cached class list once the dictionary is back', () => {
+    const exec = vi.fn().mockReturnValue('ok');
+
+    reinsertDictionary(exec, 'k1', 2);
+
+    const code = exec.mock.calls[0][0] as string;
+    const inserted = code.indexOf('insertDictionary: d at: pos');
+    expect(inserted).toBeGreaterThan(-1);
+    expect(code.indexOf("beginsWith: 'JasperClassOrganizer_'")).toBeGreaterThan(inserted);
+  });
+
   it('answers null only for ok, and the reason otherwise', () => {
     expect(reinsertDictionary(vi.fn().mockReturnValue('ok\n'), 'k1', 2)).toBeNull();
     expect(reinsertDictionary(vi.fn().mockReturnValue('some failure'), 'k1', 2)).toBe(

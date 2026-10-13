@@ -3,7 +3,8 @@
 // That list is a cached ClassOrganizer (classOrganizer.ts), a snapshot of the image's classes.
 // Removing a dictionary has to drop it, or the removed dictionary's classes go on appearing. And
 // the rebuilt list has to keep a same-named class that another dictionary binds: the two are
-// different classes, and only one of them went.
+// different classes, and only one of them went. Undoing the removal has to drop it again, or the
+// dictionary's classes stay missing after it is back on the symbol list.
 //
 // Fully transient: the harness aborts after each test. Nothing commits.
 
@@ -14,6 +15,7 @@ import { removeDictionary } from '../removeDictionary';
 import { getClassHierarchy } from '../getClassHierarchy';
 import { searchMethodSource } from '../methodSearch';
 import { clearClassOrganizerStatement } from '../classOrganizer';
+import { captureDictionary, reinsertDictionary } from '../../undo/queries/dictionaryQueries';
 
 const REMOVED = 'JasperRemovalGoing';
 const KEPT = 'JasperRemovalStaying';
@@ -94,5 +96,20 @@ root := ${subclass('Object', ROOT, 'staying')}.
     removeDictionary(exec, REMOVED);
 
     expect(markerHits()).toEqual([`${KEPT} ${TWIN}>>marker`]);
+  });
+
+  it('brings the class back into the Class Hierarchy when the removal is undone', () => {
+    install();
+    const was = captureDictionary(exec, REMOVED, 'JasperRemovalStash');
+    removeDictionary(exec, REMOVED);
+    twinRows(); // rebuilds the cached list without the removed dictionary
+
+    expect(reinsertDictionary(exec, 'JasperRemovalStash', was.index)).toBeNull();
+
+    expect(
+      twinRows()
+        .map((r) => r.dictName)
+        .sort(),
+    ).toEqual([REMOVED, KEPT].sort());
   });
 });
