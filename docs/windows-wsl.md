@@ -14,6 +14,8 @@ You can also install client libraries ahead of time with the **Install Windows C
 
 Without WSL, the Databases & Versions panel remains usable (its Versions list hosts the Install Windows Client action), and the Databases section stays visible but shows a message explaining that server management requires WSL2, since it needs a Linux environment.
 
+Jasper never runs `wsl.exe` on a machine without WSL. The `wsl.exe` launcher that Windows keeps in System32 opens a "Press any key to install" window when WSL is missing, so Jasper checks for WSL a different way: it looks for the WSL engine and for a registered distribution. If you install WSL and a distribution later, Jasper picks them up the next time its window regains focus, or when you press Refresh in the panel. You don't need to reload.
+
 ## Windows with WSL — Full server management
 
 With WSL installed and a Linux distribution configured, Jasper can manage GemStone servers running inside WSL while the VS Code extension runs natively on Windows. The GemStone server distribution is downloaded and extracted inside WSL, while the Windows client distribution provides the native DLL for VS Code to communicate with the server.

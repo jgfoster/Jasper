@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
+import { forgetWslInstalled, isWslInstalled } from './wslInstall';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -51,9 +52,26 @@ export function isWindows(): boolean {
   return process.platform === 'win32';
 }
 
-/** Returns true if sysadmin commands need WSL bridging */
+/** Returns true if sysadmin commands need WSL bridging — that is, on Windows,
+ *  whether or not WSL is there. Paths map to the Linux side either way; only
+ *  running something needs WSL itself, and each helper below that runs
+ *  `wsl.exe` asks {@link isWslInstalled} first. */
 export function needsWsl(): boolean {
   return isWindows();
+}
+
+/** Thrown in place of running `wsl.exe` when WSL is not installed, where the
+ *  launcher would otherwise open its "Press any key to install" window. Callers
+ *  already handle `wsl.exe` failing, so this takes the same path. */
+export class WslNotInstalledError extends Error {
+  constructor() {
+    super('Windows Subsystem for Linux is not installed');
+    this.name = 'WslNotInstalledError';
+  }
+}
+
+function requireWslInstalled(): void {
+  if (!isWslInstalled()) throw new WslNotInstalledError();
 }
 
 /**
@@ -62,7 +80,7 @@ export function needsWsl(): boolean {
  */
 export function getWslInfo(): WslInfo {
   if (cachedWslInfo) return cachedWslInfo;
-  if (!isWindows()) {
+  if (!isWindows() || !isWslInstalled()) {
     cachedWslInfo = {
       available: false,
       defaultDistro: undefined,
@@ -149,8 +167,11 @@ export function getWslInfo(): WslInfo {
   return cachedWslInfo;
 }
 
+/** Also forgets whether WSL is installed, so the next look sees an install or
+ *  uninstall that happened since. */
 export function invalidateWslCache(): void {
   cachedWslInfo = undefined;
+  forgetWslInstalled();
 }
 
 /** Reset the WSL network-info cache. Call after a `wsl --shutdown` or after
@@ -210,7 +231,7 @@ function readWslConfigMirrored(): boolean {
  * across `wsl --shutdown`, so callers should refresh (not trust) it.
  */
 export async function getWslIpAddressAsync(): Promise<string | undefined> {
-  if (!isWindows()) return undefined;
+  if (!isWslInstalled()) return undefined;
   const stdout = await new Promise<string | undefined>((resolve) => {
     exec('wsl.exe -e hostname -I', { timeout: 10000, encoding: 'utf-8' }, (err, out) => {
       if (err) resolve(undefined);
@@ -254,7 +275,7 @@ export function isMirroredCapable(version: string | undefined): boolean {
 }
 
 export async function getWslCoreVersionAsync(): Promise<string | undefined> {
-  if (!isWindows()) return undefined;
+  if (!isWslInstalled()) return undefined;
   const stdout = await new Promise<string | undefined>((resolve) => {
     exec('wsl.exe --version', { timeout: 10000, encoding: 'utf-8' }, (err, out) => {
       if (err) resolve(undefined);
@@ -391,7 +412,7 @@ function normalizeArch(raw: string): string | undefined {
  */
 export async function getWslInfoAsync(): Promise<WslInfo> {
   if (cachedWslInfo) return cachedWslInfo;
-  if (!isWindows()) {
+  if (!isWindows() || !isWslInstalled()) {
     cachedWslInfo = {
       available: false,
       defaultDistro: undefined,
@@ -484,6 +505,7 @@ export function windowsPathToWsl(windowsPath: string): string {
  */
 export function wslSpawn(cmd: string, args: string[], env?: Record<string, string>): ChildProcess {
   if (needsWsl()) {
+    requireWslInstalled();
     const envPairs = env ? Object.entries(env).map(([k, v]) => `${k}=${v}`) : [];
     const wslArgs = ['-e', 'env', ...envPairs, cmd, ...args];
     return spawn('wsl.exe', wslArgs, { env: process.env });
@@ -531,6 +553,7 @@ export function wslExecSync(
       timeout: options?.timeout,
     });
   }
+  requireWslInstalled();
   const envPrefix = env
     ? Object.entries(env)
         .map(([k, v]) => `${k}='${v}'`)
@@ -571,6 +594,7 @@ export async function wslExec(
     });
     return stdout;
   }
+  requireWslInstalled();
   const envPrefix = env
     ? Object.entries(env)
         .map(([k, v]) => `${k}='${v}'`)

@@ -24,6 +24,7 @@ vi.mock('../wslBridge', () => ({
   invalidateWslNetworkCache: vi.fn(),
   updateWslConfigMirrored: vi.fn((c: string) => c + '[wsl2]\nnetworkingMode=mirrored\n'),
 }));
+vi.mock('../wslInstall', () => ({ isWslInstalled: vi.fn(() => true) }));
 
 import { exec } from 'child_process';
 import * as fs from 'fs';
@@ -36,6 +37,7 @@ import {
 } from '../sharedMemoryTreeProvider';
 import * as wslBridge from '../wslBridge';
 import { type WslNetworkInfo } from '../wslBridge';
+import { isWslInstalled } from '../wslInstall';
 
 // ── Helpers ────────────────────────────────────────────────
 
@@ -698,6 +700,15 @@ describe('OsConfigTreeProvider', () => {
       );
       const shm = findByKind(nodes, 'sharedMemoryStatus');
       expect(shm?.configured).toBe(true);
+    });
+
+    it('shared memory with WSL not installed: never runs wsl.exe, reads as not configured', async () => {
+      // The launcher left behind in System32 would open "Press any key to
+      // install WSL" rather than run sysctl.
+      vi.mocked(isWslInstalled).mockReturnValueOnce(false);
+      mockExec(LINUX_SYSCTL_4GB);
+      expect(await isSharedMemoryConfigured()).toBe(false);
+      expect(exec).not.toHaveBeenCalled();
     });
 
     it('removeIpc on WSL: routes logind.conf reads through wslExecSync', async () => {

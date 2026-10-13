@@ -249,6 +249,7 @@ import {
   getWslNetworkInfoCached,
   refreshWslNetworkInfo,
 } from './wslBridge';
+import { isWslInstalled, recheckWslInstalled } from './wslInstall';
 import {
   wslExistsSync,
   wslMkdirSync,
@@ -3419,17 +3420,18 @@ export function activate(context: vscode.ExtensionContext) {
   // ── SysAdmin ──────────────────────────────────────────────
   // WSL detection runs asynchronously so it never blocks activation and so a
   // cold-start WSL2 VM (not yet running when VS Code launches) doesn't produce
-  // a false negative that sticks for the whole session. If the first probe
-  // reports unavailable, we wait briefly and retry once before concluding WSL
-  // is genuinely missing. The "install WSL" warning is deferred until that
-  // second probe also fails, and a subsequent refresh of the version list
-  // will re-probe — giving the user a recovery path without reloading.
+  // a false negative that sticks for the whole session. If WSL is installed
+  // but the first probe reports unavailable, we wait briefly and retry once
+  // before concluding WSL is unusable. When it is not installed at all there is
+  // no VM to wait for, and probing never runs `wsl.exe` (see wslInstall.ts).
+  // A refresh of the version list, or the window regaining focus, looks again
+  // — giving the user a recovery path without reloading.
   if (isWindows()) {
     vscode.commands.executeCommand('setContext', 'gemstone.isWindows', true);
     // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
     (async () => {
       let wslInfo = await getWslInfoAsync();
-      if (!wslInfo.available) {
+      if (!wslInfo.available && isWslInstalled()) {
         await new Promise((resolve) => setTimeout(resolve, 5000));
         invalidateWslCache();
         wslInfo = await getWslInfoAsync();
@@ -4574,6 +4576,21 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.executeCommand('setContext', 'gemstone.wslAvailable', wslInfo.available);
       }
       refreshVersions();
+    }),
+
+    // Installing WSL (`wsl --install`, a reboot, a distro) or removing it all
+    // happen outside VS Code, so the window coming back into focus is when to
+    // notice. The look is a file check and one `reg.exe` query — never
+    // `wsl.exe` — so it is cheap enough to run on every focus.
+    vscode.window.onDidChangeWindowState(async (state) => {
+      if (!state.focused || !isWindows()) return;
+      const wasInstalled = isWslInstalled();
+      if ((await recheckWslInstalled()) === wasInstalled) return;
+      invalidateWslCache();
+      const wslInfo = await getWslInfoAsync();
+      vscode.commands.executeCommand('setContext', 'gemstone.wslAvailable', wslInfo.available);
+      refreshVersions();
+      refreshAdminViews();
     }),
 
     // The version commands below are registered but deliberately NOT declared in

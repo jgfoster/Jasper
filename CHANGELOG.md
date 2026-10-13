@@ -8,6 +8,10 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 - **Usage events now say which editor app Jasper runs in** — VS Code, VS Code Insiders, or a fork such as Cursor. Forks report the VS Code version they are built on, so this is the only way to tell them apart when deciding which VS Code versions Jasper still needs to support. See [USAGE_DATA.md](USAGE_DATA.md).
 
+### Fixed
+
+- **Windows without WSL: no more "Press any key to install WSL" windows** ([#715](https://github.com/GemTalk/Jasper/issues/715)). Jasper checked for WSL by running `wsl.exe`, and on a machine without WSL that opens a console window offering to install it, again on every refresh, and pressing a key there starts an install you never asked for. Jasper now checks for WSL without running it, never runs `wsl.exe` when WSL is missing, and no longer fills the Debug Console with its error text. If you install WSL while Jasper is running, it notices the next time the window regains focus. You don't need to reload.
+
 ## [1.14.0] - 2026-10-06
 
 ### Added

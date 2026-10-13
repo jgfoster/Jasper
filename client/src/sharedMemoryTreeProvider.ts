@@ -14,6 +14,7 @@ import {
   WslNetworkInfo,
 } from './wslBridge';
 import { toWslPath } from './wslFs';
+import { isWslInstalled } from './wslInstall';
 
 function shQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
@@ -59,6 +60,10 @@ function windowsServicesHasGs64ldi(): boolean {
 export function getSharedMemory(): Promise<{ shmmax: number; shmall: number } | undefined> {
   return new Promise((resolve) => {
     // On Windows the sysctl lives inside WSL; the parse format matches Linux.
+    if (needsWsl() && !isWslInstalled()) {
+      resolve(undefined);
+      return;
+    }
     const linuxLike = process.platform === 'linux' || needsWsl();
     const cmd = linuxLike
       ? needsWsl()

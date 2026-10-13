@@ -28,6 +28,8 @@ vi.mock('child_process', () => ({
   spawnSync: vi.fn(),
 }));
 
+vi.mock('../wslInstall', () => ({ isWslInstalled: vi.fn(() => true) }));
+
 import * as fs from 'fs';
 import { needsWsl, wslExecSync } from '../wslBridge';
 import { spawnSync } from 'child_process';
