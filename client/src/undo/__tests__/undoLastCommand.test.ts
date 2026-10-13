@@ -23,6 +23,7 @@ vi.mock('../../refactoring/undoRefactoringCommand', () => ({
 }));
 vi.mock('../undoPlanPanel', () => ({ showUndoPlanPanel: vi.fn() }));
 vi.mock('../queries/methodSlotQueries', () => ({ captureMethodSlots: vi.fn() }));
+vi.mock('../queries/classVarQueries', () => ({ captureClassVar: vi.fn() }));
 // Only the dictionary-name read is stood in for; it is what the plan's row labels cost.
 vi.mock('../../browserQueries', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../browserQueries')>()),
@@ -41,8 +42,9 @@ import { checkRefactoringUndoAvailable } from '../../refactoring/refactoringUndo
 import { undoLastRefactoringCommand } from '../../refactoring/undoRefactoringCommand';
 import { showUndoPlanPanel } from '../undoPlanPanel';
 import { getDictionaryNames } from '../../browserQueries';
-import { readLiveSlots, undoLastCommand } from '../undoLastCommand';
+import { readLiveState, undoLastCommand } from '../undoLastCommand';
 import { captureMethodSlots } from '../queries/methodSlotQueries';
+import { captureClassVar } from '../queries/classVarQueries';
 import { peekUndoEntry, pushUndoEntry, resetUndoStacks, undoStackDepth } from '../undoStack';
 import type { NewUndoEntry } from '../undoTypes';
 import type { ActiveSession, SessionManager } from '../../sessionManager';
@@ -459,7 +461,7 @@ describe('the stack can move while the non-modal panel is open', () => {
   });
 });
 
-describe('readLiveSlots', () => {
+describe('readLiveState', () => {
   const methodEdit = {
     kind: 'methodEdit' as const,
     sessionId: session.id,
@@ -473,7 +475,7 @@ describe('readLiveSlots', () => {
     const live = [{ exists: true, source: 'balance\n\t^1', category: 'accessing' }];
     vi.mocked(captureMethodSlots).mockReturnValueOnce(live);
 
-    expect(readLiveSlots({ id: 9, ...methodEdit }, session)).toBe(live);
+    expect(readLiveState({ id: 9, ...methodEdit }, session)?.slots).toBe(live);
     expect(vi.mocked(captureMethodSlots).mock.calls.at(-1)?.[1]).toBe(methodEdit.slots);
   });
 
@@ -501,14 +503,42 @@ describe('readLiveSlots', () => {
     ]);
   });
 
-  it('goes straight to the reversal, with no panel, when every slot is already put back', async () => {
+  it('still asks, with no rows, when every slot is already put back', async () => {
+    // Accepting spends the entry, so skipping the panel would spend a change the user was never
+    // shown -- and the next Undo would reach an older one.
     pushUndoEntry(editOfTwo);
     vi.mocked(captureMethodSlots).mockReturnValueOnce([one, one]);
+    vi.mocked(showUndoPlanPanel).mockResolvedValueOnce(false);
 
     await undoLastCommand(sessions);
 
-    expect(showUndoPlanPanel).not.toHaveBeenCalled();
-    expect(reverseMethodEdit).toHaveBeenCalled();
+    expect(vi.mocked(showUndoPlanPanel).mock.calls[0][0].rows).toEqual([]);
+    expect(reverseMethodEdit).not.toHaveBeenCalled();
+  });
+
+  it("reads a class-variable edit's declaration as well as its accessors", () => {
+    const slot = { dict: 7, className: 'Account', varName: 'Registry' };
+    vi.mocked(captureMethodSlots).mockReturnValueOnce([]);
+    vi.mocked(captureClassVar).mockReturnValueOnce({ defined: false });
+
+    const live = readLiveState(
+      {
+        id: 11,
+        kind: 'classVarEdit',
+        sessionId: session.id,
+        label: 'Add class variable Registry to Account',
+        slot,
+        before: { defined: false },
+        after: { defined: true },
+        accessorSlots: [],
+        accessorBefore: [],
+        accessorAfter: [],
+      },
+      session,
+    );
+
+    expect(live?.classVar).toEqual({ defined: false });
+    expect(vi.mocked(captureClassVar).mock.calls.at(-1)?.[1]).toBe(slot);
   });
 
   it('answers undefined, so the plan uses the recorded state, when the read fails', () => {
@@ -516,13 +546,13 @@ describe('readLiveSlots', () => {
       throw new Error('lost connection');
     });
 
-    expect(readLiveSlots({ id: 9, ...methodEdit }, session)).toBeUndefined();
+    expect(readLiveState({ id: 9, ...methodEdit }, session)).toBeUndefined();
   });
 
   it('reads nothing for a kind with no method slots', () => {
     vi.mocked(captureMethodSlots).mockClear();
 
-    expect(readLiveSlots({ id: 10, ...classEdit('Edit Account') }, session)).toBeUndefined();
+    expect(readLiveState({ id: 10, ...classEdit('Edit Account') }, session)).toBeUndefined();
     expect(captureMethodSlots).not.toHaveBeenCalled();
   });
 });

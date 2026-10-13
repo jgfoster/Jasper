@@ -241,7 +241,9 @@ describe('the plan built from the live state', () => {
   it('lists a skipped accessor again once the user has edited it since', () => {
     const edited = present('registry\n\t^Registry ifNil: [0]');
 
-    const plan = planUndo(entryWithOneSkippedAccessor(), undefined, [edited, compiledSetter])!;
+    const plan = planUndo(entryWithOneSkippedAccessor(), undefined, {
+      slots: [edited, compiledSetter],
+    })!;
 
     expect(plan.rows.map((r) => `${r.action} ${r.target}`)).toEqual([
       'restore Account class >> #registry',
@@ -263,7 +265,40 @@ describe('the plan built from the live state', () => {
       after: [present('balance\n\t^2')],
     };
 
-    expect(planUndo(entry, undefined, [present('balance\n\t^1')])!.rows).toEqual([]);
+    expect(planUndo(entry, undefined, { slots: [present('balance\n\t^1')] })!.rows).toEqual([]);
+  });
+});
+
+describe('the declaration row, against the live variable', () => {
+  // The user has put the variable back by hand but edited an accessor since: the reversal
+  // recompiles the accessor and leaves the declaration alone, so the plan must too.
+  const editedGetter = present('registry\n\t^Registry ifNil: [0]');
+
+  it('is dropped when the variable is already as it was', () => {
+    const plan = planUndo(entryWithOneSkippedAccessor(), undefined, {
+      slots: [editedGetter, absent],
+      classVar: { defined: false },
+    })!;
+
+    expect(plan.rows.map((r) => r.action)).toEqual(['restore']);
+  });
+
+  it('stays while the variable is still as the change left it', () => {
+    const plan = planUndo(entryWithOneSkippedAccessor(), undefined, {
+      slots: [editedGetter, absent],
+      classVar: { defined: true },
+    })!;
+
+    expect(plan.rows.map((r) => r.action)).toEqual(['restore', 'remove class variable']);
+  });
+
+  it('leaves no rows when the variable and every accessor are already as they were', () => {
+    const plan = planUndo(entryWithOneSkippedAccessor(), undefined, {
+      slots: [alreadyThere, absent],
+      classVar: { defined: false },
+    })!;
+
+    expect(plan.rows).toEqual([]);
   });
 });
 
