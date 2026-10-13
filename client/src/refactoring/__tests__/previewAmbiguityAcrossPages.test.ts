@@ -239,6 +239,34 @@ describe('RowQualifier.qualify', () => {
     expect(aria).toEqual(['Include Shadowed (DictA)>>foo', 'Include Shadowed (DictB)>>foo']);
   });
 
+  const ariaLabels = (): (string | null)[] =>
+    [...document.querySelectorAll('li.change input.sel')].map((cb) =>
+      cb.getAttribute('aria-label'),
+    );
+
+  it('rewrites the class name where it sits, not a match inside the word "Include"', () => {
+    const inc = (id: string, dictName: string): ClassRenameChange => ({
+      ...recompile(id, dictName),
+      className: 'Inc',
+    });
+    const panel = mountClassPanel([inc('1', 'DictA')], 2);
+
+    panel.appendChanges(renderClassCards([inc('2', 'DictB')]), true);
+
+    expect(ariaLabels()).toEqual(['Include Inc (DictA)>>foo', 'Include Inc (DictB)>>foo']);
+  });
+
+  it('rewrites a required row, whose label starts with the class name', () => {
+    const panel = mountInstVarPanel([definitionEdit('1', 'DictA')], 2);
+
+    panel.appendChanges(renderInstVarCards([definitionEdit('2', 'DictB')]), true);
+
+    expect(ariaLabels()).toEqual([
+      'Shadowed (DictA) (definition edited) (required)',
+      'Shadowed (DictB) (definition edited) (required)',
+    ]);
+  });
+
   it('changes nothing when run again over a list it already qualified', () => {
     mountClassPanel([recompile('1', 'DictA'), recompile('2', 'DictB')], 2);
     const before = document.body.innerHTML;

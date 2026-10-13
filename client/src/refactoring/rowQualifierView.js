@@ -33,8 +33,19 @@
       const row = span.closest('li.change');
       const cb = row && row.querySelector('input.sel');
       const aria = cb && cb.getAttribute('aria-label');
-      if (aria) cb.setAttribute('aria-label', aria.replace(was, text));
+      if (aria) cb.setAttribute('aria-label', requalified(aria, was, text));
     });
+  }
+
+  // A label opens with the class name -- `Include Foo>>bar`, or `Foo>>bar (required)` -- so the
+  // name is replaced there and nowhere else: a bare replace() matched a class named `Inc` inside
+  // the word "Include" first.
+  function requalified(aria, was, text) {
+    const include = 'Include ';
+    if (aria.indexOf(include + was) === 0)
+      return include + text + aria.slice((include + was).length);
+    if (aria.indexOf(was) === 0) return text + aria.slice(was.length);
+    return aria;
   }
 
   const root = typeof globalThis !== 'undefined' ? globalThis : window;
