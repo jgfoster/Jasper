@@ -464,6 +464,34 @@ describe('what the header says this machine has', () => {
     expect(lead).toContain('register a database that already exists');
   });
 
+  it('does not call a machine with client libraries bare', () => {
+    const clientOnly = {
+      version: '3.7.5',
+      fileName: '',
+      url: '',
+      size: 0,
+      date: '',
+      downloaded: false,
+      extracted: false,
+      clientExtracted: true,
+    };
+    for (const installBlocked of [undefined, 'needs WSL']) {
+      mount(
+        state({
+          versions: [clientOnly],
+          databases: [],
+          installBlocked,
+          create: { ...(state().create as object), versions: [] },
+        }),
+      );
+      const lead = root.querySelector('.gm-head-lead')?.textContent;
+      expect(lead).not.toContain('No GemStone version on this machine yet');
+      expect(lead).toContain('client libraries here log in to stones running elsewhere');
+      // Installing a server is suggested only where one can be installed.
+      expect(lead?.includes('Install a server')).toBe(!installBlocked);
+    }
+  });
+
   it('offers Register Existing with nothing installed, since it needs nothing installed', () => {
     mount(
       state({
@@ -1394,11 +1422,26 @@ describe('downloading only what a login needs', () => {
     const row = Array.from(root.querySelectorAll('.versions-table tbody tr')).find((r) =>
       r.textContent?.includes('3.7.4'),
     )!;
-    expect(row.textContent).toContain('Login only');
+    expect(row.textContent).toContain('Client libraries only');
+    expect(row.querySelector('.state-client')?.getAttribute('data-tip')).toContain(
+      'log in to a stone of this version on another machine',
+    );
     expect(row.querySelector('[data-action="uninstallVersion"]')).toBeNull();
     expect(row.querySelector('[data-action="openVersionTerminal"]')).toBeNull();
     (row.querySelector('[data-action="deleteClient"]') as HTMLElement).click();
     expect(host.postMessage).toHaveBeenCalledWith({ command: 'deleteClient', version: '3.7.4' });
+  });
+
+  it('counts client libraries in the Versions header, not as nothing', () => {
+    const count = () =>
+      root.querySelector('details.section[data-section="versions"] .section-count')?.textContent;
+    mount(state({ versions: [CLIENT_ONLY] }));
+    expect(count()).toBe('0 servers · 1 client libraries only');
+    mount(state({ versions: [INSTALLED, CLIENT_ONLY] }));
+    expect(count()).toBe('1 server · 1 client libraries only');
+    // Without any, the count reads as it always has.
+    mount(state({ versions: [INSTALLED] }));
+    expect(count()).toBe('1 installed');
   });
 
   it('a full install that also has the login files can remove either one', () => {

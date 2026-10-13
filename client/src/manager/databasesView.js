@@ -431,20 +431,41 @@
       downloaded: 'Downloaded',
       available: 'Available',
       local: 'Local',
-      client: 'Login only',
+      client: 'Client libraries only',
     };
-    return `<span class="badge badge-state state-${state}">${labels[state]}</span>`;
+    // "Client libraries only" says what is there; the tip says what it is for,
+    // which the button that fetched them used the same words for.
+    const tip =
+      state === 'client'
+        ? tipAttr(
+            'Only the GCI client libraries are installed: enough to log in to a stone of this version on another machine, but no server to run one here',
+          )
+        : '';
+    return `<span class="badge badge-state state-${state}"${tip}>${labels[state]}</span>`;
   }
 
   function versionsInstalledCount(versions) {
     return versions.filter((v) => v.extracted || v.local).length;
   }
 
+  /** Versions with the client libraries and no server: the rows marked so. */
+  function versionsClientOnlyCount(versions) {
+    return versions.filter((v) => versionState(v) === 'client').length;
+  }
+
+  // The Versions header's count. A bare "0 installed" above a row of client
+  // libraries read as the row not counting, so once there are any it names both.
+  function versionsCount(versions) {
+    const installed = versionsInstalledCount(versions);
+    const clients = versionsClientOnlyCount(versions);
+    if (!clients) return `${installed} installed`;
+    return `${installed} server${installed === 1 ? '' : 's'} · ${clients} client libraries only`;
+  }
+
   function renderVersions(versions, open) {
     const onDisk = versions.filter(
       (v) => v.extracted || v.downloaded || v.local || v.clientExtracted,
     );
-    const installed = versionsInstalledCount(versions);
     // The way to get a version carries its words. It was icon-only, which read as
     // decoration: an unlabelled glyph in a header is not an answer to "how do I
     // get a new version?". The walkthrough stays a glyph — it is a pointer to
@@ -492,7 +513,7 @@
       // go hunting for it. Moved, not repeated: the header keeps none of it, or
       // the same button appears twice within one section.
       return section(
-        { key: 'versions', title: 'Versions', count: `${installed} installed`, actions: '', open },
+        { key: 'versions', title: 'Versions', count: versionsCount(versions), actions: '', open },
         `<div class="empty">
           <div>No GemStone version on this machine yet. Install one from the download site,
           or put a build you already have in ${esc((lastState && lastState.rootPath) || 'the versions folder')}.
@@ -531,7 +552,7 @@
       <tbody>${rows}</tbody>
     </table>`;
     return section(
-      { key: 'versions', title: 'Versions', count: `${installed} installed`, actions, open },
+      { key: 'versions', title: 'Versions', count: versionsCount(versions), actions, open },
       body,
     );
   }
@@ -1137,16 +1158,22 @@
   function renderHeader(state) {
     const dbs = (state.databases || []).length;
     const installed = versionsInstalledCount(state.versions || []);
+    const clients = versionsClientOnlyCount(state.versions || []);
     // A registered database runs from an installation outside Jasper's root, so
     // "nothing installed" is not "nothing here": the count leads whenever there
-    // are databases, or the header denied the very rows beneath it.
+    // are databases, or the header denied the very rows beneath it. Client
+    // libraries are not nothing either: they are how a stone elsewhere is reached.
     const lead = dbs
       ? installed
         ? `${dbs} database${dbs === 1 ? '' : 's'} · ${installed} version${installed === 1 ? '' : 's'} installed`
         : `${dbs} database${dbs === 1 ? '' : 's'} · no version installed here`
       : installed
         ? 'No databases yet — make one from a version you have installed.'
-        : 'No GemStone version on this machine yet — install one to make a database, or register a database that already exists.';
+        : clients
+          ? state.installBlocked
+            ? 'No GemStone server on this machine — it needs WSL to run one. The client libraries here log in to stones running elsewhere.'
+            : 'No GemStone server on this machine — the client libraries here log in to stones running elsewhere. Install a server to make a database here.'
+          : 'No GemStone version on this machine yet — install one to make a database, or register a database that already exists.';
     // Creating needs something to create from, so the button waits for a version.
     const create = installed ? btn('beginCreate', 'New Database\u2026', 'plus', 'btn-primary') : '';
     // Registering does not: the installation it adopts brings its own version,
