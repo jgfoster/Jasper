@@ -2353,6 +2353,20 @@ export class ExplorerController {
     await this.openCommentFor(item.className, resolved.dictName, resolved.dictIndex);
   }
 
+  // An open normally fires onDidChangeActiveTextEditor, and the mark lets syncToEditor know
+  // the Explorer caused it. But if the editor is ALREADY the active one (the user clicked the
+  // row or class whose tab is focused), re-showing it fires no such event: a mark would never
+  // be consumed, and would later swallow a genuine open of the same editor from somewhere
+  // else -- a GemStone Search result, a tab focus -- leaving the Explorer on the wrong class.
+  // Only mark when the active editor is actually going to change.
+  private markSelfOpen(uri: vscode.Uri): void {
+    const key = selfOpenKey(uri);
+    const active = vscode.window.activeTextEditor?.document.uri;
+    if (active === undefined || selfOpenKey(active) !== key) {
+      this.selfOpenedUris.add(key);
+    }
+  }
+
   private async openCommentFor(
     className: string,
     dictName: string,
@@ -2361,7 +2375,7 @@ export class ExplorerController {
     const session = this.session();
     if (!session) return;
     const uri = buildClassCommentUri(session.id, dictName, className, dictIndex);
-    this.selfOpenedUris.add(selfOpenKey(uri));
+    this.markSelfOpen(uri);
     const doc = await vscode.workspace.openTextDocument(uri);
     await openGemstoneDocument(doc, 'preview', this.placement);
   }
@@ -2454,7 +2468,7 @@ export class ExplorerController {
     const session = this.session();
     if (!session) return;
     const uri = buildClassDefinitionUri(session.id, dictName, className, dictIndex);
-    this.selfOpenedUris.add(selfOpenKey(uri));
+    this.markSelfOpen(uri);
     const doc = await vscode.workspace.openTextDocument(uri);
     await openGemstoneDocument(doc, pin ? 'pin' : 'preview', this.placement);
   }
@@ -5273,18 +5287,9 @@ export class ExplorerController {
       environmentId: EXPLORER_METHOD_ENVIRONMENT,
       dictIndex: this.state.dictIndex,
     });
-    // This open normally fires onDidChangeActiveTextEditor, so mark it — syncToEditor
-    // then ignores its own open instead of re-revealing the row under ALL METHODS and
-    // stealing the selection from the category the user clicked. But if this method is
-    // ALREADY the active editor (the user clicked the row whose tab is focused),
-    // re-showing it fires no such event: a mark here would never be consumed and would
-    // later swallow a genuine focus event for this tab. Only mark when the active
-    // editor is actually going to change.
-    const key = selfOpenKey(uri);
-    const active = vscode.window.activeTextEditor?.document.uri;
-    if (active === undefined || selfOpenKey(active) !== key) {
-      this.selfOpenedUris.add(key);
-    }
+    // Marked so syncToEditor ignores this open instead of re-revealing the row under ALL
+    // METHODS and stealing the selection from the category the user clicked.
+    this.markSelfOpen(uri);
     const doc = await vscode.workspace.openTextDocument(uri);
     // Assign the language BEFORE the doc enters the (reused) preview editor. A
     // gemstone doc is otherwise language-tagged asynchronously
