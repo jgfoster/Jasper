@@ -2,20 +2,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 vi.mock('vscode', () => import('../__mocks__/vscode.js'));
 
-// Factory defaults for the mocks that individual tests override with sticky
-// mockReturnValue/mockImplementation. Shared (via vi.hoisted, so it's available
-// inside the hoisted vi.mock factory) with the global beforeEach below, which
-// re-applies them before every test. Without that restore, a sticky override in
-// one test (e.g. a getMethodSource override) leaks into later tests
-// under sequence.shuffle and produces order-dependent failures.
-const mockDefaults = vi.hoisted(() => ({
-  getMethodSource: () => '/ aNumber\n  ^ self _primitiveDivide: aNumber',
-  getMethodInfo: (_session: unknown, methodOop: bigint) => ({
-    className: 'SmallInteger',
-    selector: methodOop === 1001n ? '/' : methodOop === 1002n ? '_errorExec' : 'perform:',
-  }),
-}));
-
 vi.mock('../debugQueries', () => ({
   getStackDepth: vi.fn(() => 3),
   getFrameInfo: vi.fn((session: unknown, gsProcess: bigint, level: number) => ({
@@ -27,7 +13,10 @@ vi.mock('../debugQueries', () => ({
     argAndTempNames: ['arg1', 'temp1'],
     argAndTempOops: [100n, 200n],
   })),
-  getMethodInfo: vi.fn(mockDefaults.getMethodInfo),
+  getMethodInfo: vi.fn((_session: unknown, methodOop: bigint) => ({
+    className: 'SmallInteger',
+    selector: methodOop === 1001n ? '/' : methodOop === 1002n ? '_errorExec' : 'perform:',
+  })),
   getMethodUriInfo: vi.fn((session: unknown, methodOop: bigint) => ({
     dictName: 'Globals',
     className: 'SmallInteger',
@@ -35,7 +24,7 @@ vi.mock('../debugQueries', () => ({
     category: 'arithmetic',
     selector: methodOop === 1001n ? '/' : methodOop === 1002n ? '_errorExec' : 'perform:',
   })),
-  getMethodSource: vi.fn(mockDefaults.getMethodSource),
+  getMethodSource: vi.fn(() => '/ aNumber\n  ^ self _primitiveDivide: aNumber'),
   getLineForIp: vi.fn(() => 2),
   getObjectPrintString: vi.fn((session: unknown, oop: bigint) => {
     if (oop === 100n) return '42';
@@ -129,15 +118,11 @@ function makeResponse(command: string): Record<string, unknown> {
 }
 
 describe('GemStoneDebugSession', () => {
-  // Restore the factory defaults of the mocks that individual tests override
-  // with sticky mockReturnValue/mockImplementation (which survive
-  // vi.clearAllMocks()). This makes the suite order-independent under
-  // sequence.shuffle — otherwise an override set in one describe block leaks
-  // into tests that happen to run after it.
+  // Overrides here must be the *Once kind: a sticky mockReturnValue or
+  // mockImplementation survives vi.clearAllMocks() and leaks into whichever
+  // tests run after it under sequence.shuffle.
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(debugQueries.getMethodSource).mockImplementation(mockDefaults.getMethodSource);
-    vi.mocked(debugQueries.getMethodInfo).mockImplementation(mockDefaults.getMethodInfo);
   });
 
   describe('initializeRequest', () => {

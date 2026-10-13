@@ -19,8 +19,6 @@ export interface VerifiedBreakpoint {
   stepPoint: number;
   actualLine: number;
   verified: boolean;
-  /** Why an unverified breakpoint was refused. */
-  message?: string;
 }
 
 /** A breakpoint as it now stands in the gem, for one method. */
@@ -239,7 +237,6 @@ export class BreakpointManager {
         stepPoint: 0,
         actualLine: r.line,
         verified: false,
-        message: reason,
       }));
     }
 
@@ -276,16 +273,12 @@ export class BreakpointManager {
     /**
      * Refuse one step point, out loud. The marker going hollow is not enough on
      * its own: an unverified marker looks exactly like a breakpoint on a line
-     * with no step point, so the reason has to be said to the developer, and it is
-     * recorded in the result too.
+     * with no step point, so the reason has to be said to the developer.
      */
     const refuse = (stepPoint: number, reason: string): void => {
       failures.push(reason);
       for (const r of results) {
-        if (r.stepPoint === stepPoint) {
-          r.verified = false;
-          r.message = reason;
-        }
+        if (r.stepPoint === stepPoint) r.verified = false;
       }
     };
 

@@ -1294,7 +1294,7 @@ describe('BreakpointManager', () => {
       mockGetSourceOffsets.mockReturnValue([1, 13]);
     });
 
-    it('says so out loud, and records the reason in the result', () => {
+    it('says so out loud', () => {
       // An unverified marker on its own is unreadable: it looks exactly like a
       // breakpoint on a line with no step point.
       mockSetBreakAtStepPoint.mockImplementation(() => {
@@ -1306,7 +1306,6 @@ describe('BreakpointManager', () => {
       ]);
 
       expect(results[0].verified).toBe(false);
-      expect(results[0].message).toContain('GCI error 2010');
       expect(vi.mocked(window.showErrorMessage)).toHaveBeenCalledWith(
         expect.stringContaining('GCI error 2010'),
       );
