@@ -70,18 +70,17 @@ describe('Getting Started walkthrough content', () => {
     expect(setup?.title.toLowerCase()).toContain('database');
   });
 
-  it('without WSL, offers a login to a running server before installing WSL', () => {
+  it('without WSL, says a running server elsewhere needs no WSL, and keeps Install WSL', () => {
     // WSL is only for running a server here; a stone elsewhere needs only the
     // client libraries, so the prompt does not read as a requirement.
     const noWsl = viewsWelcome.find(
       (v) => v.view === 'gemstoneDatabases' && v.contents.includes('Install WSL'),
     );
     const contents = noWsl?.contents ?? '';
+    expect(contents).toContain("you don't need WSL");
     expect(contents).toContain('client libraries');
-    expect(contents.indexOf('command:gemstone.addLogin')).toBeGreaterThanOrEqual(0);
-    expect(contents.indexOf('command:gemstone.addLogin')).toBeLessThan(
-      contents.indexOf('[Install WSL]'),
-    );
+    // One button, and it is the one this prompt is for.
+    expect(contents.match(/\[[^\]]+\]\(/g)).toEqual(['[Install WSL](']);
   });
 
   it('wires the connect step’s "Add a Login" button to the new-login editor', () => {
