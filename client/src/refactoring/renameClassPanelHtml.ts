@@ -69,6 +69,8 @@ function renderCard(change: ClassRenameChange, ambiguous: ReadonlySet<string>): 
   const structural = isStructuralChange(change);
   // Structural changes are required — checked + disabled so they cannot be
   // deselected (and so are never reported as deselected to the engine).
+  // Both aria-label shapes open with the class name, or with `Include ` and then it:
+  // rowQualifierView.js's `requalified` finds the name there to qualify it.
   const cb = structural
     ? `<input type="checkbox" class="sel" checked disabled title="required" aria-label="${label} (required)">`
     : `<input type="checkbox" class="sel" checked aria-label="Include ${label}">`;

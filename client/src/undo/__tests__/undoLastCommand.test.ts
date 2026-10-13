@@ -516,6 +516,20 @@ describe('readLiveState', () => {
     expect(reverseMethodEdit).not.toHaveBeenCalled();
   });
 
+  it('takes the entry off the stack when the user accepts a panel with no rows', async () => {
+    // The button promises "Remove from Undo". This pins the dispatcher's half; the reversers'
+    // half -- answering true on their "already as it was" path -- is pinned in their own tests.
+    pushUndoEntry(editOfTwo);
+    vi.mocked(captureMethodSlots).mockReturnValueOnce([one, one]);
+    vi.mocked(reverseMethodEdit).mockResolvedValueOnce(true);
+
+    await undoLastCommand(sessions);
+
+    expect(vi.mocked(showUndoPlanPanel).mock.calls[0][0].rows).toEqual([]);
+    expect(reverseMethodEdit).toHaveBeenCalled();
+    expect(undoStackDepth(session.id)).toBe(0);
+  });
+
   it("reads a class-variable edit's declaration as well as its accessors", () => {
     const slot = { dict: 7, className: 'Account', varName: 'Registry' };
     vi.mocked(captureMethodSlots).mockReturnValueOnce([]);
@@ -547,6 +561,33 @@ describe('readLiveState', () => {
     });
 
     expect(readLiveState({ id: 9, ...methodEdit }, session)).toBeUndefined();
+  });
+
+  it('answers undefined too when the class variable cannot be read', () => {
+    // Not a half-read state: with the accessors live but no variable, the plan would fall back
+    // to the recorded variable while trusting the live accessors.
+    vi.mocked(captureMethodSlots).mockReturnValueOnce([]);
+    vi.mocked(captureClassVar).mockImplementationOnce(() => {
+      throw new Error('lost connection');
+    });
+
+    expect(
+      readLiveState(
+        {
+          id: 12,
+          kind: 'classVarEdit',
+          sessionId: session.id,
+          label: 'Add class variable Registry to Account',
+          slot: { dict: 7, className: 'Account', varName: 'Registry' },
+          before: { defined: false },
+          after: { defined: true },
+          accessorSlots: [],
+          accessorBefore: [],
+          accessorAfter: [],
+        },
+        session,
+      ),
+    ).toBeUndefined();
   });
 
   it('reads nothing for a kind with no method slots', () => {
