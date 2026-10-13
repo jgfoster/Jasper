@@ -10,7 +10,7 @@ Connect to a GemStone server running on a remote host (or in a VM). No WSL insta
 2. Download them there, or log in and accept the offer. This fetches the **Windows client distribution** for that version (~15–25 MB): the native GCI DLLs, nothing of the server.
 3. After the download, Jasper auto-detects the library and connects.
 
-You can also download them ahead of time with **Download Files for a Version…** in the Versions section of the **Databases & Versions** panel, or the **Download Files** action on a version row.
+You can also download them ahead of time with **Download Client Libraries…** in the Versions section of the **Databases & Versions** panel, or the **Download Files** action on a version row.
 
 Without WSL, the Databases & Versions panel remains usable (its Versions list hosts these downloads), and the Databases section stays visible but shows a message explaining that server management requires WSL2, since it needs a Linux environment.
 

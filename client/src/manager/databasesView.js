@@ -456,14 +456,26 @@
     // alike, and a stone that already runs from such a tree is adopted by
     // Register Existing Database — which records where it really lives instead
     // of needing a link in Jasper's root at all.
-    const getActions = btn('installNewVersion', 'Install Version…', 'plus', 'btn-secondary', {
-      title: 'Choose a version from the download site, then download and unpack it',
-    });
+    // Off, not gone, on Windows without WSL: the server has nowhere to run, and
+    // the tip says why, so a full install is still known to exist.
+    const blocked = lastState && lastState.installBlocked;
+    const getActions = btn(
+      'installNewVersion',
+      'Install Version…',
+      'plus',
+      'btn-secondary',
+      blocked
+        ? { disabled: true, title: blocked }
+        : {
+            title:
+              'Choose a version from the download site, then download and unpack the full server',
+          },
+    );
     // The login page's download, for a stone on another machine: the few files
     // a login needs, not the server.
     const getFiles = btn(
       'downloadVersionFiles',
-      'Download Files for a Version…',
+      'Download Client Libraries…',
       'download',
       'btn-secondary',
       {
@@ -484,7 +496,7 @@
         `<div class="empty">
           <div>No GemStone version on this machine yet. Install one from the download site,
           or put a build you already have in ${esc((lastState && lastState.rootPath) || 'the versions folder')}.
-          To log in to a stone on another machine, download just the files for its version.</div>
+          To log in to a stone on another machine, download just the client libraries for its version.</div>
           <div class="empty-acts">${getActions}${getFiles}</div>
         </div>`,
       );

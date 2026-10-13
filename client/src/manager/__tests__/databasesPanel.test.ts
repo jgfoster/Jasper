@@ -22,6 +22,8 @@ vi.mock('../../sysadminChannel', () => ({ appendSysadmin: vi.fn(), showSysadmin:
 vi.mock('../../wslBridge', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../wslBridge')>()),
   needsWsl: vi.fn(() => false),
+  // Never the real probe, which runs wsl.exe on a Windows test host.
+  getWslInfoAsync: vi.fn(async () => ({ available: true })),
 }));
 
 import * as fs from 'fs';
@@ -32,7 +34,7 @@ import { DatabaseManager } from '../databaseManager';
 import { DatabasesPanel } from '../databasesPanel';
 import type { GemStoneVersion } from '../../sysadminTypes';
 import { SysadminStorage } from '../../sysadminStorage';
-import { needsWsl } from '../../wslBridge';
+import { getWslInfoAsync, needsWsl } from '../../wslBridge';
 import { showSysadmin } from '../../sysadminChannel';
 import { __setConfig, __resetConfig, __configUpdates } from '../../__mocks__/vscode';
 
@@ -155,6 +157,7 @@ function makeDeps() {
 beforeEach(() => {
   DatabasesPanel.close();
   vi.mocked(needsWsl).mockReturnValue(false);
+  vi.mocked(getWslInfoAsync).mockResolvedValue({ available: true } as never);
   vi.mocked(vscode.window.createWebviewPanel).mockClear();
   vi.mocked(vscode.commands.executeCommand).mockClear();
   onDisk = [{ ...RELEASE }];
@@ -204,6 +207,7 @@ function lastState(): {
   }[];
   create: { nfsWarning: boolean; rootPath: string; ldiNames: string[]; dbLdiNames: string[] };
   versions: { version: string }[];
+  installBlocked?: string;
   rootProblem?: string;
   rootFrom: string;
 } {
@@ -815,6 +819,49 @@ describe('Install and Remove are inverses', () => {
     await sendMessage({ command: 'uninstallVersion', version: '3.7.6' });
 
     expect(deleteDownload).not.toHaveBeenCalled();
+  });
+});
+
+describe('Install Version… offers the full server', () => {
+  it('says it is the whole server, with the download and about what it takes unpacked', async () => {
+    await openPanel();
+    let details: (string | undefined)[] = [];
+    vi.mocked(vscode.window.showQuickPick).mockImplementation(async (items) => {
+      details = (items as vscode.QuickPickItem[]).map((i) => i.detail);
+      return undefined;
+    });
+
+    await sendMessage({ command: 'installNewVersion' });
+
+    // RELEASE is 2,000,000,000 bytes: 1.9 GB, and three times that unpacked.
+    expect(details).toEqual(['Full server · 1.9 GB download · about 5.6 GB installed']);
+  });
+
+  it('is refused on Windows without WSL, where the server has nowhere to run', async () => {
+    vi.mocked(needsWsl).mockReturnValue(true);
+    vi.mocked(getWslInfoAsync).mockResolvedValue({ available: false } as never);
+    await openPanel();
+
+    expect(lastState().installBlocked).toContain('WSL');
+    vi.mocked(vscode.window.showQuickPick).mockClear();
+    await sendMessage({ command: 'installNewVersion' });
+
+    expect(vscode.window.showQuickPick).not.toHaveBeenCalled();
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
+      expect.stringContaining('Download Client Libraries…'),
+    );
+    expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
+      'gemstone.downloadVersion',
+      expect.anything(),
+    );
+  });
+
+  it('is allowed on Windows with WSL, and everywhere else', async () => {
+    for (const windows of [true, false]) {
+      vi.mocked(needsWsl).mockReturnValue(windows);
+      await openPanel();
+      expect(lastState().installBlocked).toBeUndefined();
+    }
   });
 });
 

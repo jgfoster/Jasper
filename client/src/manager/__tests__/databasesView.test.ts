@@ -1355,7 +1355,7 @@ describe('downloading only what a login needs', () => {
       const button = root.querySelector<HTMLElement>(
         'details.section[data-section="versions"] [data-action="downloadVersionFiles"]',
       );
-      expect(button?.textContent).toContain('Download Files for a Version…');
+      expect(button?.textContent).toContain('Download Client Libraries…');
       button!.click();
       expect(host.postMessage).toHaveBeenCalledWith({ command: 'downloadVersionFiles' });
     });
@@ -1367,6 +1367,26 @@ describe('downloading only what a login needs', () => {
     expect(empty?.querySelector('[data-action="installNewVersion"]')).not.toBeNull();
     expect(empty?.querySelector('[data-action="downloadVersionFiles"]')).not.toBeNull();
     expect(empty?.textContent).toContain('log in to a stone on another machine');
+  });
+
+  it('turns Install Version… off, with the reason, where a server cannot be installed', () => {
+    // A Windows host without WSL: the client libraries are the only way in.
+    for (const versions of [[], [CLIENT_ONLY]]) {
+      mount(state({ windows: true, installBlocked: 'needs WSL', versions }));
+      const install = root.querySelector<HTMLButtonElement>(
+        'details.section[data-section="versions"] [data-action="installNewVersion"]',
+      );
+      expect(install?.disabled).toBe(true);
+      expect(install?.getAttribute('data-tip')).toBe('needs WSL');
+      const files = root.querySelector<HTMLButtonElement>('[data-action="downloadVersionFiles"]');
+      expect(files?.disabled).toBe(false);
+    }
+  });
+
+  it('leaves Install Version… on where a server can be installed', () => {
+    mount(state({ windows: true }));
+    const install = root.querySelector<HTMLButtonElement>('[data-action="installNewVersion"]');
+    expect(install?.disabled).toBe(false);
   });
 
   it('a version with only those files reads as such, and Remove removes only them', () => {

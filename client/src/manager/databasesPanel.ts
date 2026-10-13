@@ -247,6 +247,33 @@ interface CreateOptions {
 const OPENABLE_SETTINGS = ['gemstone.rootPath'];
 
 /**
+ * How much bigger an unpacked server is than its archive. The download page
+ * lists only the archive, so the install picker estimates the rest. Measured
+ * from the zips' own directories: 2.8× (3.7.0) to 3.3× (3.5.8), 2.9× for
+ * 3.7.5 and 3.7.6.
+ */
+const UNPACKED_PER_DOWNLOADED = 3;
+
+/** A catalog size in the picker's unit: gigabytes, to one place. */
+function gigabytes(bytes: number): string {
+  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+}
+
+/**
+ * Why a server cannot be installed here, or undefined when it can. GemStone
+ * has no Windows build, so on Windows the server goes into WSL — without it an
+ * install would download half a gigabyte and then fail to unpack.
+ */
+async function serverInstallBlocker(): Promise<string | undefined> {
+  if (!needsWsl() || (await getWslInfoAsync()).available) return undefined;
+  return (
+    'Installing a GemStone server on Windows needs Windows Subsystem for Linux (WSL), ' +
+    'which is not available. To log in to a stone on another machine, use Download ' +
+    'Client Libraries… instead.'
+  );
+}
+
+/**
  * Which settings layer supplied a value — in the words the Settings editor uses
  * — and the command that opens the editor on that layer.
  *
@@ -317,6 +344,8 @@ interface PanelState {
    * load, so the login files are offered beside them; Copy Host means anything only here.
    */
   windows: boolean;
+  /** Why Install Version… is off, when it is: a Windows host without WSL. */
+  installBlocked?: string;
   rootPath: string;
   /** Why the root path cannot be read, when it cannot. A folder Jasper cannot
    *  open lists nothing, which is indistinguishable from an empty one until
@@ -975,6 +1004,13 @@ export class DatabasesPanel {
    * answer to choosing from a long list — rather than rendered into the panel.
    */
   private async installNewVersion(): Promise<void> {
+    // The button is disabled then, but a message can still arrive from a panel
+    // drawn before WSL went away.
+    const blocked = await serverInstallBlocker();
+    if (blocked) {
+      vscode.window.showInformationMessage(blocked);
+      return;
+    }
     await this.buildVersions('remote');
     const candidates = this.lastVersions.filter((v) => !v.extracted && !v.downloaded && !v.local);
     if (!candidates.length) {
@@ -987,7 +1023,12 @@ export class DatabasesPanel {
       candidates.map((v) => ({
         label: v.version,
         description: v.date,
-        detail: v.size ? `${(v.size / 1024 ** 3).toFixed(1)} GB download` : undefined,
+        // The whole server, said so: the client libraries are a separate, much
+        // smaller download, and a bare size here read as theirs.
+        detail: v.size
+          ? `Full server · ${gigabytes(v.size)} download · ` +
+            `about ${gigabytes(v.size * UNPACKED_PER_DOWNLOADED)} installed`
+          : undefined,
       })),
       {
         title: 'Install a GemStone version',
@@ -1018,7 +1059,7 @@ export class DatabasesPanel {
     const picked = await vscode.window.showQuickPick(
       candidates.map((v) => ({ label: v.version, description: v.date })),
       {
-        title: 'Download Files for a Version',
+        title: 'Download Client Libraries',
         placeHolder: 'The GemStone version of the stone you are connecting to',
       },
     );
@@ -1666,6 +1707,7 @@ export class DatabasesPanel {
     return {
       platform: this.deps.storage.getPlatformKey() ?? process.platform,
       windows: needsWsl(),
+      installBlocked: await serverInstallBlocker(),
       rootPath: this.deps.storage.getRootPath(),
       rootProblem: this.deps.storage.rootPathProblem(),
       rootFrom: settingLayer('rootPath').label,
