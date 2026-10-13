@@ -818,6 +818,53 @@ describe('Install and Remove are inverses', () => {
   });
 });
 
+describe('downloading only the files a login needs', () => {
+  it('offers the versions without them, and downloads the one picked', async () => {
+    onDisk = [
+      { ...RELEASE },
+      { ...RELEASE, version: '3.7.5', clientExtracted: true },
+      { ...RELEASE, version: '3.7.4', extracted: true },
+    ];
+    await openPanel();
+    vi.mocked(vscode.window.showQuickPick).mockImplementation(async (items) => {
+      const labels = (items as { label: string }[]).map((i) => i.label);
+      // A full install off Windows already has them; on Linux it is not offered again.
+      expect(labels).toEqual(['3.7.6']);
+      return { label: '3.7.6' };
+    });
+
+    await sendMessage({ command: 'downloadVersionFiles' });
+
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+      'gemstone.downloadClient',
+      expect.objectContaining({ version: expect.objectContaining({ version: '3.7.6' }) }),
+    );
+  });
+
+  it('the row button runs the same command as the login page', async () => {
+    await openPanel();
+    await sendMessage({ command: 'installClient', version: '3.7.6' });
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+      'gemstone.downloadClient',
+      expect.objectContaining({ version: expect.objectContaining({ version: '3.7.6' }) }),
+    );
+  });
+
+  it('removing them leaves the server install alone', async () => {
+    onDisk = [{ ...RELEASE, extracted: true, clientExtracted: true }];
+    await openPanel();
+    await sendMessage({ command: 'deleteClient', version: '3.7.6' });
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+      'gemstone.deleteClient',
+      expect.objectContaining({ version: expect.objectContaining({ version: '3.7.6' }) }),
+    );
+    expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
+      'gemstone.deleteExtracted',
+      expect.anything(),
+    );
+  });
+});
+
 describe('overlapping state passes', () => {
   /** A database row, distinguishable by its directory name. */
   function db(dirName: string) {

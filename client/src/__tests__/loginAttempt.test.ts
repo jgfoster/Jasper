@@ -6,6 +6,9 @@ vi.mock('../bundledGci', () => ({
   bundledGciArchSupported: vi.fn(() => true),
 }));
 
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { attemptLogin, LoginAttemptDeps } from '../loginAttempt';
 import { bundledGciArchSupported, bundledWindowsClientGciPath } from '../bundledGci';
@@ -29,9 +32,9 @@ function makeDeps(overrides: Partial<LoginAttemptDeps> = {}): LoginAttemptDeps {
     getGciLibraryPath: vi.fn(() => GCI),
     setGciLibraryPath: vi.fn(async () => {}),
     getGemstonePath: vi.fn(() => undefined),
-    getWindowsClientGciPath: vi.fn(() => undefined),
+    getClientGciPath: vi.fn(() => undefined),
     getRootPath: vi.fn(() => '/root'),
-    downloadAndExtractWindowsClient: vi.fn(async () => {}),
+    downloadAndExtractClient: vi.fn(async () => {}),
     refreshVersions: vi.fn(),
     connect: vi.fn(async () => SESSION),
     connected: vi.fn(),
@@ -83,14 +86,21 @@ describe('attempting a login', () => {
   });
 
   it('reports that no client library was available when the library picker is dismissed', async () => {
+    vi.mocked(vscode.window.showInformationMessage).mockResolvedValueOnce(
+      'Browse...' as unknown as vscode.MessageItem,
+    );
     vi.mocked(vscode.window.showOpenDialog).mockResolvedValueOnce(undefined);
     const deps = makeDeps({ getGciLibraryPath: vi.fn(() => undefined) });
 
     expect(await attemptLogin(LOGIN, deps)).toBe('noClientLibrary');
+    expect(vscode.window.showOpenDialog).toHaveBeenCalled();
     expect(deps.connect).not.toHaveBeenCalled();
   });
 
   it('reports that no client library was available when a misnamed library is not confirmed', async () => {
+    vi.mocked(vscode.window.showInformationMessage).mockResolvedValueOnce(
+      'Browse...' as unknown as vscode.MessageItem,
+    );
     vi.mocked(vscode.window.showOpenDialog).mockResolvedValueOnce([
       vscode.Uri.file('/tmp/not-a-gci.dylib'),
     ]);
@@ -100,6 +110,7 @@ describe('attempting a login', () => {
     const deps = makeDeps({ getGciLibraryPath: vi.fn(() => undefined) });
 
     expect(await attemptLogin(LOGIN, deps)).toBe('noClientLibrary');
+    expect(vscode.window.showOpenDialog).toHaveBeenCalled();
     expect(deps.connect).not.toHaveBeenCalled();
   });
 
@@ -132,6 +143,97 @@ describe('attempting a login', () => {
     );
   });
 
+  describe('a version with nothing on this machine yet', () => {
+    const OFFER = 'Jasper needs a few files to talk to GemStone 3.7.5. Download them now?';
+
+    for (const platform of ['linux', 'darwin', 'win32'] as const) {
+      it(`on ${platform}, offers to download them, then logs in with what arrived`, async () => {
+        onPlatform(platform);
+        vi.mocked(vscode.window.showInformationMessage).mockResolvedValueOnce(
+          'Download' as unknown as vscode.MessageItem,
+        );
+        let downloaded = false;
+        const deps = makeDeps({
+          getGciLibraryPath: vi.fn(() => undefined),
+          getClientGciPath: vi.fn(() =>
+            downloaded ? '/root/client/libgcits-3.7.5-64.so' : undefined,
+          ),
+          downloadAndExtractClient: vi.fn(async () => {
+            downloaded = true;
+          }),
+        });
+
+        expect(await attemptLogin(LOGIN, deps)).toBe('connected');
+        expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
+          OFFER,
+          'Download',
+          'Browse...',
+        );
+        expect(deps.downloadAndExtractClient).toHaveBeenCalledWith(
+          '3.7.5',
+          expect.anything(),
+          expect.anything(),
+        );
+        expect(deps.setGciLibraryPath).toHaveBeenCalledWith(
+          '3.7.5',
+          '/root/client/libgcits-3.7.5-64.so',
+        );
+        expect(deps.connect).toHaveBeenCalledWith(
+          expect.anything(),
+          '/root/client/libgcits-3.7.5-64.so',
+        );
+      });
+    }
+
+    it('uses client files already on disk without asking', async () => {
+      onPlatform('linux');
+      const deps = makeDeps({
+        getGciLibraryPath: vi.fn(() => undefined),
+        getClientGciPath: vi.fn(() => '/root/client/libgcits-3.7.5-64.so'),
+      });
+
+      expect(await attemptLogin(LOGIN, deps)).toBe('connected');
+      expect(vscode.window.showInformationMessage).not.toHaveBeenCalled();
+    });
+
+    it('prefers a full install of the version over client files', async () => {
+      onPlatform('linux');
+      const product = fs.mkdtempSync(path.join(os.tmpdir(), 'jasper-product-'));
+      const lib = path.join(product, 'lib', 'libgcits-3.7.5-64.so');
+      fs.mkdirSync(path.dirname(lib));
+      fs.writeFileSync(lib, '');
+      const deps = makeDeps({
+        getGciLibraryPath: vi.fn(() => undefined),
+        getGemstonePath: vi.fn(() => product),
+        getClientGciPath: vi.fn(() => '/root/client/libgcits-3.7.5-64.so'),
+      });
+      try {
+        expect(await attemptLogin(LOGIN, deps)).toBe('connected');
+        expect(deps.connect).toHaveBeenCalledWith(expect.anything(), lib);
+      } finally {
+        fs.rmSync(product, { recursive: true, force: true });
+      }
+    });
+
+    it('says what went wrong with the download, starting from the version', async () => {
+      onPlatform('linux');
+      vi.mocked(vscode.window.showInformationMessage).mockResolvedValueOnce(
+        'Download' as unknown as vscode.MessageItem,
+      );
+      const deps = makeDeps({
+        getGciLibraryPath: vi.fn(() => undefined),
+        downloadAndExtractClient: vi.fn(async () => {
+          throw new Error('offline');
+        }),
+      });
+
+      expect(await attemptLogin(LOGIN, deps)).toBe('noClientLibrary');
+      expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+        'Downloading the files for GemStone 3.7.5 failed: offline',
+      );
+    });
+  });
+
   describe('on Windows', () => {
     beforeEach(() => {
       onPlatform('win32');
@@ -161,7 +263,7 @@ describe('attempting a login', () => {
       );
       const deps = makeDeps({
         getGciLibraryPath: vi.fn(() => undefined),
-        downloadAndExtractWindowsClient: vi.fn(async () => {
+        downloadAndExtractClient: vi.fn(async () => {
           throw new Error('offline');
         }),
       });

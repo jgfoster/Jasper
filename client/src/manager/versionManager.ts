@@ -115,6 +115,19 @@ async function zipEntryCount(file: string): Promise<number | undefined> {
   }
 }
 
+/**
+ * Give the owner write permission on every folder and file under `dir`.
+ * GemStone ships its files read-only, and a read-only folder cannot be emptied.
+ */
+function makeWritable(dir: string): void {
+  fs.chmodSync(dir, fs.statSync(dir).mode | 0o200);
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, entry.name);
+    if (entry.isDirectory()) makeWritable(p);
+    else if (entry.isFile()) fs.chmodSync(p, fs.statSync(p).mode | 0o200);
+  }
+}
+
 /** One row of the downloads page — what the catalog says before any disk is read. */
 export interface CatalogEntry {
   version: string;
@@ -225,9 +238,7 @@ export class VersionManager {
       : new Map<string, number>();
     const extractedInfos = hasLocalServer ? this.storage.getExtractedVersionInfos() : [];
     const extractedMap = new Map(extractedInfos.map((e) => [e.version, e.isLocal]));
-    const clientExtracted = new Set(
-      process.platform === 'win32' ? this.storage.getExtractedWindowsClientVersions() : [],
-    );
+    const clientExtracted = new Set(this.storage.getExtractedClientVersions());
     const bundled = new Set(
       process.platform === 'win32' && bundledGciArchSupported()
         ? bundledWindowsClientVersions()
@@ -289,6 +300,25 @@ export class VersionManager {
         downloaded: true,
         extracted: false,
         clientExtracted: clientExtracted.has(version),
+        bundled: bundled.has(version),
+      });
+    }
+
+    // A version with only client files on disk, which the catalog does not list
+    // — every one of them when the catalog is unreachable. Without this a login's
+    // files vanish from the list offline, and with them the way to remove them.
+    const listed = new Set(versions.map((v) => v.version));
+    for (const version of clientExtracted) {
+      if (listed.has(version)) continue;
+      versions.push({
+        version,
+        fileName: '',
+        url: '',
+        size: 0,
+        date: '',
+        downloaded: false,
+        extracted: false,
+        clientExtracted: true,
         bundled: bundled.has(version),
       });
     }
@@ -538,6 +568,7 @@ export class VersionManager {
     destDir: string,
     progress: UnpackProgress,
     token: vscode.CancellationToken,
+    wholeImage = false,
   ): Promise<void> {
     progress.report({ message: 'Mounting disk image...' });
     // Not cancellable: an attach killed partway can leave the image mounted with
@@ -564,28 +595,35 @@ export class VersionManager {
     const mountPoint = mountMatch[1];
 
     try {
-      // Find the GemStone directory in the mount point
+      // A server image holds one GemStone64Bit… folder, copied in by name. A
+      // client image's whole contents go into destDir; hidden volume entries
+      // (.Trashes, .fseventsd) are not GemTalk's and are left behind.
       const entries = await fs.promises.readdir(mountPoint);
-      const gsDir = entries.find((e) => e.startsWith('GemStone64Bit'));
-      if (!gsDir) {
+      const picked = wholeImage
+        ? entries.filter((e) => !e.startsWith('.'))
+        : entries.filter((e) => e.startsWith('GemStone64Bit')).slice(0, 1);
+      if (!picked.length) {
         throw new Error(`No GemStone directory found in mounted DMG at ${mountPoint}`);
       }
       progress.report({ message: 'Copying files...' });
-      const srcPath = path.join(mountPoint, gsDir);
-      // cp -v names the top directory too, hence the one.
-      const total = await fs.promises
-        .readdir(srcPath, { recursive: true })
-        .then((names) => names.length + 1)
-        .catch(() => undefined);
-      // -v prints a line per file, which is all the progress cp can give.
-      const cp = await this.run('cp', ['-Rv', srcPath, path.join(destDir, gsDir)], {
-        token,
-        onLine: this.fileCounter(progress, 'Copied', total),
-      });
-      if (cp.code !== 0) {
-        throw new Error(`cp failed with exit code ${cp.code}${stderrTail(cp.stderr)}`);
+      await fs.promises.mkdir(destDir, { recursive: true });
+      for (const entry of picked) {
+        const srcPath = path.join(mountPoint, entry);
+        // cp -v names the top directory too, hence the one.
+        const total = await fs.promises
+          .readdir(srcPath, { recursive: true })
+          .then((names) => names.length + 1)
+          .catch(() => undefined);
+        // -v prints a line per file, which is all the progress cp can give.
+        const cp = await this.run('cp', ['-Rv', srcPath, path.join(destDir, entry)], {
+          token,
+          onLine: this.fileCounter(progress, 'Copied', total),
+        });
+        if (cp.code !== 0) {
+          throw new Error(`cp failed with exit code ${cp.code}${stderrTail(cp.stderr)}`);
+        }
       }
-      appendSysadmin(`Extracted ${gsDir} to ${destDir}`);
+      appendSysadmin(`Extracted ${picked.join(', ')} to ${destDir}`);
     } finally {
       progress.report({ message: 'Unmounting disk image...' });
       const detach = await this.run('hdiutil', ['detach', mountPoint]);
@@ -962,13 +1000,127 @@ export class VersionManager {
     }
   }
 
-  /** Delete an extracted Windows client directory */
-  async deleteWindowsClientExtracted(version: GemStoneVersion): Promise<void> {
-    const clientPath = this.storage.getWindowsClientPath(version.version);
-    if (clientPath && fs.existsSync(clientPath)) {
-      fs.rmSync(clientPath, { recursive: true });
-      appendSysadmin(`Deleted Windows client: ${path.basename(clientPath)}`);
+  // ── Client files on any platform ───────────────────────────
+
+  /**
+   * The package holding just the files a login to `version` needs on this
+   * machine, and the folder it unpacks into. Windows keeps its long-standing
+   * client zip; Linux and macOS use GemTalk's GemStoneClientLibs package.
+   */
+  static clientArtifact(version: string): { fileName: string; url: string; dirName: string } {
+    if (process.platform === 'win32') {
+      const { fileName, url } = VersionManager.windowsClientArtifact(version);
+      return { fileName, url, dirName: fileName.replace(/\.zip$/, '') };
     }
+    const key = new SysadminStorage().getClientPlatformKey();
+    const ext = process.platform === 'darwin' ? 'dmg' : 'zip';
+    const dirName = `GemStoneClientLibs${version}-${key}`;
+    const fileName = `${dirName}.${ext}`;
+    return { fileName, url: `${WIN_CLIENT_BASE_URL}${version}/${fileName}`, dirName };
+  }
+
+  /**
+   * Download and unpack the files a login to `version` needs, and nothing of
+   * the server. They go in a folder of their own, so a full install of the same
+   * version is never touched, and the archive is deleted afterwards either way.
+   */
+  async downloadAndExtractClient(
+    version: string,
+    progress: vscode.Progress<{ message?: string; increment?: number }>,
+    token: vscode.CancellationToken,
+  ): Promise<void> {
+    if (process.platform === 'win32') {
+      return await this.downloadAndExtractWindowsClient(version, progress, token);
+    }
+    if (!version || !version.trim()) {
+      throw new Error('Cannot download the files for a login: no GemStone version specified.');
+    }
+    this.storage.ensureNativeRootPath();
+    const rootPath = this.storage.getNativeRootPath();
+    const { fileName, url, dirName } = VersionManager.clientArtifact(version);
+    const archivePath = path.join(rootPath, fileName);
+    const clientDir = path.join(rootPath, dirName);
+
+    progress.report({ message: 'Downloading...' });
+    try {
+      await this.downloadFile(url, archivePath, progress, token);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/HTTP 404/.test(msg)) {
+        throw new Error(
+          `GemTalk has not published a client-only download of GemStone ${version} for ` +
+            `${this.storage.getClientPlatformKey()}. Install the full version from the ` +
+            'GemStone manager (Install Version…) instead.',
+          { cause: e },
+        );
+      }
+      throw e;
+    }
+
+    const created = !fs.existsSync(clientDir);
+    // GemTalk ships these read-only: an earlier copy has to be opened up for the
+    // unpack to replace its files.
+    if (!created) makeWritable(clientDir);
+    try {
+      if (process.platform === 'darwin') {
+        await this.extractDmg(archivePath, clientDir, progress, token, true);
+      } else {
+        await this.extractZip(archivePath, archivePath, clientDir, progress, token);
+      }
+      const ext = process.platform === 'darwin' ? 'dylib' : 'so';
+      if (!this.storage.getClientGciPath(version)) {
+        throw new Error(
+          `The download for GemStone ${version} unpacked, but held no libgcits-${version}-64.${ext}.`,
+        );
+      }
+    } catch (e) {
+      if (created && fs.existsSync(clientDir)) {
+        makeWritable(clientDir);
+        await fs.promises.rm(clientDir, { recursive: true, force: true });
+      }
+      if (e instanceof InstallCancelledError) {
+        throw new InstallCancelledError(
+          `Downloading the files for GemStone ${version} cancelled. The partly unpacked files ` +
+            'were removed.',
+        );
+      }
+      throw e;
+    } finally {
+      await fs.promises.rm(archivePath, { force: true });
+    }
+  }
+
+  /** Delete a version's client files. A full install of the version is left alone. */
+  async deleteClientExtracted(version: GemStoneVersion): Promise<void> {
+    const clientPath = this.storage.getClientPath(version.version);
+    if (clientPath && fs.existsSync(clientPath)) {
+      makeWritable(clientPath);
+      fs.rmSync(clientPath, { recursive: true });
+      appendSysadmin(`Deleted client files: ${path.basename(clientPath)}`);
+    }
+  }
+
+  /**
+   * How many bytes the client download for `version` is: null when GemTalk has
+   * published none for this machine, undefined when the site cannot be asked.
+   */
+  async clientDownloadSize(version: string): Promise<number | null | undefined> {
+    const { url } = VersionManager.clientArtifact(version);
+    return await new Promise((resolve) => {
+      const request = https.request(url, { method: 'HEAD', timeout: 10000 }, (res) => {
+        res.resume();
+        if (res.statusCode === 404) resolve(null);
+        else if (res.statusCode === 200)
+          resolve(parseInt(res.headers['content-length'] ?? '', 10) || undefined);
+        else resolve(undefined);
+      });
+      request.on('error', () => resolve(undefined));
+      request.on('timeout', () => {
+        request.destroy();
+        resolve(undefined);
+      });
+      request.end();
+    });
   }
 
   private fetchUrl(url: string): Promise<string> {

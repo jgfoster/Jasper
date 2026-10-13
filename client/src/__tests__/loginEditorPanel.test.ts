@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 
 vi.mock('vscode', () => import('../__mocks__/vscode.js'));
 vi.mock('../sysadminStorage');
@@ -8,7 +8,7 @@ vi.mock('../bundledGci', () => ({
 }));
 
 import type * as vscode from 'vscode';
-import { window, __resetConfig, __setConfig } from '../__mocks__/vscode';
+import { window, commands, __resetConfig, __setConfig } from '../__mocks__/vscode';
 import { LoginEditorPanel } from '../loginEditorPanel';
 import { bundledWindowsClientVersions, bundledGciArchSupported } from '../bundledGci';
 import { LoginStorage } from '../loginStorage';
@@ -23,7 +23,7 @@ function makeLogin(overrides: Partial<GemStoneLogin> = {}): GemStoneLogin {
 function makeSysadminStorage(extractedVersions: string[] = []): SysadminStorage {
   return {
     getExtractedVersions: vi.fn(() => extractedVersions),
-    getExtractedWindowsClientVersions: vi.fn(() => []),
+    getExtractedClientVersions: vi.fn(() => []),
   } as unknown as SysadminStorage;
 }
 
@@ -150,6 +150,7 @@ describe('LoginEditorPanel', () => {
         command: 'loadData',
         data: expect.objectContaining({ label: '' }),
         versions: [],
+        notDownloaded: [],
         readOnly: false,
       });
     });
@@ -162,6 +163,7 @@ describe('LoginEditorPanel', () => {
         command: 'loadData',
         data: expect.objectContaining({ label: 'Server', gem_host: 'myhost' }),
         versions: [],
+        notDownloaded: [],
         readOnly: false,
       });
     });
@@ -277,6 +279,112 @@ describe('LoginEditorPanel', () => {
         expect.objectContaining({
           data: expect.objectContaining({ version: '3.6.4' }),
         }),
+      );
+    });
+  });
+
+  describe('versions not on this machine yet', () => {
+    function catalog(versions: string[], size: number | null = 18_000_000) {
+      return {
+        supportedVersions: vi.fn(async () => versions),
+        downloadSize: vi.fn(async (_v: string) => size),
+      };
+    }
+
+    afterEach(() => LoginEditorPanel.setVersionCatalog(undefined));
+
+    async function openWith(local: string[], supported: string[], size?: number | null) {
+      const source = catalog(supported, size);
+      LoginEditorPanel.setVersionCatalog(source);
+      const sysadmin = makeSysadminStorage(local);
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider, undefined, sysadmin);
+      const panel = window.createWebviewPanel.mock.results[0].value;
+      await vi.waitFor(() =>
+        expect(panel.webview.postMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ command: 'versions' }),
+        ),
+      );
+      return { panel, source, sysadmin };
+    }
+
+    it('lists every supported version and says which are not downloaded', async () => {
+      const { panel } = await openWith(['3.7.5'], ['3.7.5', '3.7.4', '3.6.2']);
+      expect(panel.webview.postMessage).toHaveBeenCalledWith({
+        command: 'versions',
+        versions: ['3.7.5', '3.7.4', '3.6.2'],
+        notDownloaded: ['3.7.4', '3.6.2'],
+      });
+    });
+
+    it('keeps a version on disk that the download site no longer lists', async () => {
+      const { panel } = await openWith(['4.0.0'], ['3.7.5']);
+      expect(panel.webview.postMessage).toHaveBeenCalledWith({
+        command: 'versions',
+        versions: ['4.0.0', '3.7.5'],
+        notDownloaded: ['3.7.5'],
+      });
+    });
+
+    it('answers how big a version’s download is', async () => {
+      const { panel, source } = await openWith([], ['3.7.4']);
+      const handler = panel.webview.onDidReceiveMessage.mock.calls[0][0];
+      await handler({ command: 'checkVersion', version: '3.7.4' });
+      expect(source.downloadSize).toHaveBeenCalledWith('3.7.4');
+      expect(panel.webview.postMessage).toHaveBeenCalledWith({
+        command: 'versionInfo',
+        version: '3.7.4',
+        size: 18_000_000,
+      });
+    });
+
+    it('downloading runs the same command as the GemStone manager, then refreshes the list', async () => {
+      const { panel, sysadmin } = await openWith([], ['3.7.4']);
+      vi.mocked(sysadmin.getExtractedClientVersions).mockReturnValue(['3.7.4']);
+      panel.webview.postMessage.mockClear();
+      const handler = panel.webview.onDidReceiveMessage.mock.calls[0][0];
+
+      await handler({ command: 'downloadVersion', version: '3.7.4' });
+
+      expect(commands.executeCommand).toHaveBeenCalledWith('gemstone.downloadClient', {
+        version: expect.objectContaining({ version: '3.7.4' }),
+      });
+      await vi.waitFor(() =>
+        expect(panel.webview.postMessage).toHaveBeenCalledWith({
+          command: 'versions',
+          versions: ['3.7.4'],
+          notDownloaded: [],
+        }),
+      );
+    });
+
+    it('still lists what is on disk when the download site cannot be reached', async () => {
+      const source = catalog([]);
+      source.supportedVersions.mockRejectedValue(new Error('offline'));
+      LoginEditorPanel.setVersionCatalog(source);
+      await LoginEditorPanel.show(
+        storage,
+        secretsArg,
+        treeProvider,
+        undefined,
+        makeSysadminStorage(['3.7.5']),
+      );
+      const panel = window.createWebviewPanel.mock.results[0].value;
+      await vi.waitFor(() =>
+        expect(panel.webview.postMessage).toHaveBeenCalledWith({
+          command: 'versions',
+          versions: ['3.7.5'],
+          notDownloaded: [],
+        }),
+      );
+    });
+
+    it('counts client files on any platform as downloaded', async () => {
+      const sysadmin = makeSysadminStorage([]);
+      vi.mocked(sysadmin.getExtractedClientVersions).mockReturnValue(['3.7.4']);
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider, undefined, sysadmin);
+      const panel = window.createWebviewPanel.mock.results[0].value;
+      expect(panel.webview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ versions: ['3.7.4'], notDownloaded: [] }),
       );
     });
   });

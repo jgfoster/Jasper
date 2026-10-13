@@ -206,8 +206,8 @@ const OPTIONAL_GCI_CALL = Object.entries(GCI_OPTIONAL_FUNCTIONS).flatMap(([name,
 //
 // `client/src/__tests__/gci/**` is being deleted, not fixed -- every file
 // there logs in for itself, so the rule would only collect disables that
-// leave with the files. The other three are the unit tests *of* the bindings,
-// where constructing a `GciLibrary` is the point; all three mock `koffi`, so
+// leave with the files. The others are the unit tests *of* the bindings,
+// where constructing a `GciLibrary` is the point; all of them mock `koffi`, so
 // a call reaches a `vi.fn()` and never a stone -- no session to arm, nothing
 // for this rule to protect. Matched by basename, so moving one keeps its
 // exemption.
@@ -216,6 +216,7 @@ const HARNESS_SESSION_IGNORES = [
   '**/gciLoginQuiet.test.ts',
   '**/missingGciFunctions.test.ts',
   '**/optionalFuncSignature.test.ts',
+  '**/netldiPreload.test.ts',
 ];
 
 // Extracted so the capability-confinement block below can restate it: the

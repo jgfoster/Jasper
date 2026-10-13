@@ -18,7 +18,7 @@
   // Sections the user has opened or closed by hand, against whatever the panel
   // would have chosen — their answer, kept across re-renders.
   const sectionChoice = new Map();
-  // Windows with WSL: gates the actions that only mean anything there.
+  // A Windows host, with or without WSL: gates the actions that only mean anything there.
   let windowsHost = false;
   // The last state drawn, so a click that only changes what is on screen can
   // redraw without the host having to post the state again. Null until the host
@@ -324,6 +324,7 @@
     if (v.local) return 'local';
     if (v.extracted) return 'installed';
     if (v.downloaded) return 'downloaded';
+    if (v.clientExtracted) return 'client';
     return 'available';
   }
 
@@ -348,26 +349,39 @@
       iconOnly: true,
       title: 'Open a terminal for this version',
     });
-    // The Windows client is a separate download from the server product, and only
-    // means anything on Windows.
-    const client = !windowsHost
-      ? ''
-      : v.clientExtracted
-        ? btn('openWindowsClientFolder', 'Open Client Folder', 'folder', 'btn-secondary', {
+    // The files a login needs (GCI client libraries) are a download of their own,
+    // in a folder apart from the server's. Off Windows a server install already
+    // has them, so they are offered there only on Windows, whose server install is
+    // a Linux build a Windows login cannot load.
+    const openClient = btn(
+      'openClientFolder',
+      'Open Login Files Folder',
+      'folder',
+      'btn-secondary',
+      {
+        version: v.version,
+        iconOnly: true,
+        title:
+          'Open the folder of files Jasper downloaded to log in to this version (GCI client libraries)',
+      },
+    );
+    const deleteClient = (iconOnly) =>
+      btn('deleteClient', 'Remove', 'trash', 'btn-secondary', {
+        version: v.version,
+        iconOnly,
+        title:
+          'Delete the files downloaded to log in to this version — a full install is not touched',
+      });
+    const client = v.clientExtracted
+      ? openClient + deleteClient(true)
+      : windowsHost
+        ? btn('installClient', 'Download Files', 'install', 'btn-secondary', {
             version: v.version,
             iconOnly: true,
-            title: 'Open the Windows client folder',
-          }) +
-          btn('deleteWindowsClient', 'Delete Client', 'trash', 'btn-secondary', {
-            version: v.version,
-            iconOnly: true,
-            title: 'Remove the extracted Windows client',
+            title:
+              'Download the files Jasper needs to log in to a stone of this version (GCI client libraries)',
           })
-        : btn('installWindowsClient', 'Install Client', 'install', 'btn-secondary', {
-            version: v.version,
-            iconOnly: true,
-            title: 'Download and extract the Windows client',
-          });
+        : '';
 
     if (state === 'downloaded') {
       return (
@@ -385,6 +399,9 @@
           }),
         )
       );
+    }
+    if (state === 'client') {
+      return cell(openClient) + cell(deleteClient(false));
     }
     if (state === 'local') {
       return (
@@ -414,6 +431,7 @@
       downloaded: 'Downloaded',
       available: 'Available',
       local: 'Local',
+      client: 'Login only',
     };
     return `<span class="badge badge-state state-${state}">${labels[state]}</span>`;
   }
@@ -441,7 +459,19 @@
     const getActions = btn('installNewVersion', 'Install Version…', 'plus', 'btn-secondary', {
       title: 'Choose a version from the download site, then download and unpack it',
     });
-    const actions = getActions;
+    // The login page's download, for a stone on another machine: the few files
+    // a login needs, not the server.
+    const getFiles = btn(
+      'downloadVersionFiles',
+      'Download Files for a Version…',
+      'download',
+      'btn-secondary',
+      {
+        title:
+          'Download only what Jasper needs to log in to a stone of a version (GCI client libraries) — no server is installed',
+      },
+    );
+    const actions = getActions + getFiles;
 
     if (!onDisk.length) {
       // Nothing installed is the one state where this section is the whole job,
@@ -453,8 +483,9 @@
         { key: 'versions', title: 'Versions', count: `${installed} installed`, actions: '', open },
         `<div class="empty">
           <div>No GemStone version on this machine yet. Install one from the download site,
-          or put a build you already have in ${esc((lastState && lastState.rootPath) || 'the versions folder')}.</div>
-          <div class="empty-acts">${getActions}</div>
+          or put a build you already have in ${esc((lastState && lastState.rootPath) || 'the versions folder')}.
+          To log in to a stone on another machine, download just the files for its version.</div>
+          <div class="empty-acts">${getActions}${getFiles}</div>
         </div>`,
       );
     }

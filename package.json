@@ -300,7 +300,7 @@
           "gemstone.gciLibraries": {
             "type": "object",
             "default": {},
-            "description": "Paths to GCI libraries, keyed by GemStone version (e.g. \"3.7.4.3\": \"/path/to/libgcirpc-3.7.4.3-64.dylib\")",
+            "description": "Paths to GCI libraries, keyed by GemStone version (e.g. \"3.7.4.3\": \"/path/to/libgcits-3.7.4.3-64.dylib\"). Jasper fills this in when it downloads the files for a version; set it by hand only to use a library from somewhere else.",
             "additionalProperties": {
               "type": "string"
             }

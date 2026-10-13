@@ -13,9 +13,11 @@ export interface LoginAttemptDeps {
   getGciLibraryPath(version: string): string | undefined;
   setGciLibraryPath(version: string, gciPath: string): Promise<void>;
   getGemstonePath(version: string): string | undefined;
-  getWindowsClientGciPath(version: string): string | undefined;
+  /** The library in the version's client files, if they are on disk. */
+  getClientGciPath(version: string): string | undefined;
   getRootPath(): string;
-  downloadAndExtractWindowsClient(
+  /** Download just what a login to `version` needs, not the server. */
+  downloadAndExtractClient(
     version: string,
     progress: vscode.Progress<{ message?: string; increment?: number }>,
     token: vscode.CancellationToken,
@@ -107,25 +109,23 @@ export async function attemptLogin(
     }
   }
 
-  // Auto-detect from extracted Windows client distribution
-  if (!gciPath && process.platform === 'win32') {
-    const clientGci = deps.getWindowsClientGciPath(login.version);
-    if (clientGci) {
-      gciPath = clientGci;
-    }
+  // The version's client files, on any platform: on Windows the Windows
+  // client, elsewhere GemTalk's client package, unpacked apart from any full install.
+  if (!gciPath) {
+    gciPath = deps.getClientGciPath(login.version);
   }
 
-  // On Windows, offer to download the client distribution before falling
-  // back to the manual file picker.
-  if (!gciPath && process.platform === 'win32') {
+  // Nothing for this version on the machine yet: offer to fetch the few files
+  // a login needs before falling back to the manual file picker.
+  if (!gciPath) {
     if (!login.version || !login.version.trim()) {
       vscode.window.showErrorMessage(
-        'Cannot download a Windows client: the login has no GemStone version set. Edit the login to choose a version first.',
+        'This login has no GemStone version set. Edit the login to choose the version of the stone you are connecting to.',
       );
       return 'noClientLibrary';
     }
     const choice = await vscode.window.showInformationMessage(
-      `Windows client library not found for GemStone ${login.version}. Download it?`,
+      `Jasper needs a few files to talk to GemStone ${login.version}. Download them now?`,
       'Download',
       'Browse...',
     );
@@ -134,18 +134,18 @@ export async function attemptLogin(
         await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
-            title: `Installing Windows client ${login.version}...`,
+            title: `Downloading the files for GemStone ${login.version}...`,
             cancellable: true,
           },
-          (progress, token) => deps.downloadAndExtractWindowsClient(login.version, progress, token),
+          (progress, token) => deps.downloadAndExtractClient(login.version, progress, token),
         );
-        gciPath = deps.getWindowsClientGciPath(login.version);
+        gciPath = deps.getClientGciPath(login.version);
         if (gciPath) {
           await deps.setGciLibraryPath(login.version, gciPath);
         }
         deps.refreshVersions();
       } catch (e) {
-        showInstallOutcome(e, 'Windows client install failed');
+        showInstallOutcome(e, `Downloading the files for GemStone ${login.version} failed`);
         return 'noClientLibrary';
       }
     } else if (choice !== 'Browse...') {

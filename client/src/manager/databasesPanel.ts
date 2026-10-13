@@ -91,7 +91,7 @@ interface VersionRow {
   extracted: boolean;
   local?: boolean;
   bundled?: boolean;
-  /** A Windows client for this version is extracted — it can be opened or removed. */
+  /** The files a login needs for this version are on disk — they can be opened or removed. */
   clientExtracted?: boolean;
 }
 
@@ -310,7 +310,10 @@ export async function chooseRootFolder(): Promise<string | undefined> {
 
 interface PanelState {
   platform: string;
-  /** Windows with WSL — where the client install and Copy Host actions mean anything. */
+  /**
+   * A Windows host. Its server installs are Linux builds a Windows login cannot
+   * load, so the login files are offered beside them; Copy Host means anything only here.
+   */
   windows: boolean;
   rootPath: string;
   /** Why the root path cannot be read, when it cannot. A folder Jasper cannot
@@ -339,10 +342,11 @@ type Inbound =
   | { command: 'unregisterLocalVersion'; version: string }
   | { command: 'openVersionFolder'; version: string }
   | { command: 'openVersionTerminal'; version: string }
-  | { command: 'installWindowsClient'; version: string }
-  | { command: 'openWindowsClientFolder'; version: string }
-  | { command: 'deleteWindowsClient'; version: string }
+  | { command: 'installClient'; version: string }
+  | { command: 'openClientFolder'; version: string }
+  | { command: 'deleteClient'; version: string }
   | { command: 'installNewVersion' }
+  | { command: 'downloadVersionFiles' }
   | {
       command: 'createDatabase';
       version: string;
@@ -758,14 +762,17 @@ export class DatabasesPanel {
       case 'openVersionTerminal':
         await this.versionCommand('gemstone.openVersionTerminal', msg.version);
         return;
-      case 'installWindowsClient':
-        await this.versionCommand('gemstone.downloadWindowsClient', msg.version);
+      case 'installClient':
+        await this.versionCommand('gemstone.downloadClient', msg.version);
         return;
-      case 'openWindowsClientFolder':
-        await this.versionCommand('gemstone.openWindowsClientFolder', msg.version);
+      case 'openClientFolder':
+        await this.versionCommand('gemstone.openClientFolder', msg.version);
         return;
-      case 'deleteWindowsClient':
-        await this.versionCommand('gemstone.deleteWindowsClientExtracted', msg.version);
+      case 'deleteClient':
+        await this.versionCommand('gemstone.deleteClient', msg.version);
+        return;
+      case 'downloadVersionFiles':
+        await this.downloadVersionFiles();
         return;
       case 'copyNetldiHost':
         await this.processCommand('gemstone.copyNetldiHost', msg.dirName, msg.name);
@@ -987,6 +994,34 @@ export class DatabasesPanel {
     );
     if (!picked) return;
     await this.installVersion(picked.label);
+  }
+
+  /**
+   * Getting only what a login to a remote stone needs: the same command as the
+   * login page's download, offered for every version that does not have it yet.
+   * Off Windows a full install already serves logins, so it is not offered again.
+   */
+  private async downloadVersionFiles(): Promise<void> {
+    await this.buildVersions('remote');
+    const windows = needsWsl();
+    const candidates = this.lastVersions.filter(
+      (v) => !v.clientExtracted && (windows || !(v.extracted || v.local)),
+    );
+    if (!candidates.length) {
+      vscode.window.showInformationMessage(
+        'Jasper can already log in to every GemStone version available.',
+      );
+      return;
+    }
+    const picked = await vscode.window.showQuickPick(
+      candidates.map((v) => ({ label: v.version, description: v.date })),
+      {
+        title: 'Download Files for a Version',
+        placeHolder: 'The GemStone version of the stone you are connecting to',
+      },
+    );
+    if (!picked) return;
+    await this.versionCommand('gemstone.downloadClient', picked.label);
   }
 
   /**

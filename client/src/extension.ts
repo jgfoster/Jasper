@@ -2359,10 +2359,10 @@ export function activate(context: vscode.ExtensionContext) {
             getGciLibraryPath: (version) => storage.getGciLibraryPath(version),
             setGciLibraryPath: (version, gciPath) => storage.setGciLibraryPath(version, gciPath),
             getGemstonePath: (version) => sysadminStorage.getGemstonePath(version),
-            getWindowsClientGciPath: (version) => sysadminStorage.getWindowsClientGciPath(version),
+            getClientGciPath: (version) => sysadminStorage.getClientGciPath(version),
             getRootPath: () => sysadminStorage.getRootPath(),
-            downloadAndExtractWindowsClient: (version, progress, token) =>
-              versionManager.downloadAndExtractWindowsClient(version, progress, token),
+            downloadAndExtractClient: (version, progress, token) =>
+              versionManager.downloadAndExtractClient(version, progress, token),
             refreshVersions: () => refreshVersions(),
             connect: (login, gciPath) => connectWithFeedback(item.login, login, gciPath),
             connected: (login, session) => {
@@ -3783,6 +3783,13 @@ export function activate(context: vscode.ExtensionContext) {
     });
   }
   const versionManager = new VersionManager(sysadminStorage);
+  // The login page offers every supported version, not only those on disk; one
+  // not here yet is a download away (gemstone.downloadClient).
+  LoginEditorPanel.setVersionCatalog({
+    supportedVersions: async () =>
+      (await versionManager.fetchAvailableVersions()).filter((v) => !v.local).map((v) => v.version),
+    downloadSize: (version) => versionManager.clientDownloadSize(version),
+  });
   const databaseManager = new DatabaseManager(sysadminStorage, processManager);
 
   // OS Configuration. The "Configure OS" view is shown only on Windows/WSL,
@@ -4679,58 +4686,61 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
 
-    vscode.commands.registerCommand(
-      'gemstone.downloadWindowsClient',
-      async (item: VersionTarget) => {
-        const version = item.version.version;
-        try {
-          await vscode.window.withProgress(
-            {
-              location: vscode.ProgressLocation.Notification,
-              title: `Installing Windows client ${version}...`,
-              cancellable: true,
-            },
-            (progress, token) =>
-              versionManager.downloadAndExtractWindowsClient(version, progress, token),
-          );
-        } catch (e) {
-          showInstallOutcome(e, 'Windows client install failed');
-          refreshVersions();
-          return;
-        }
-
-        // Auto-register GCI library path
-        const gciPath = sysadminStorage.getWindowsClientGciPath(version);
-        if (gciPath) {
-          await storage.setGciLibraryPath(version, gciPath);
-        }
-        refreshVersions();
-        vscode.window.showInformationMessage(
-          `Windows client for GemStone ${version} is ready.${gciPath ? ' GCI library registered.' : ''}`,
+    // The files a login needs for a version, without the server: the login page
+    // and the GemStone manager both run this one command.
+    vscode.commands.registerCommand('gemstone.downloadClient', async (item: VersionTarget) => {
+      const version = item.version.version;
+      try {
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Downloading the files for GemStone ${version}...`,
+            cancellable: true,
+          },
+          (progress, token) => versionManager.downloadAndExtractClient(version, progress, token),
         );
-      },
-    ),
+      } catch (e) {
+        showInstallOutcome(e, `Downloading the files for GemStone ${version} failed`);
+        refreshVersions();
+        return;
+      }
 
-    vscode.commands.registerCommand('gemstone.openWindowsClientFolder', (item: VersionTarget) => {
-      const clientPath = sysadminStorage.getWindowsClientPath(item.version.version);
+      // Registered so a login finds it without searching (gemstone.gciLibraries).
+      const gciPath = sysadminStorage.getClientGciPath(version);
+      if (gciPath) {
+        await storage.setGciLibraryPath(version, gciPath);
+      }
+      refreshVersions();
+      vscode.window.showInformationMessage(`Jasper can now log in to GemStone ${version} stones.`);
+    }),
+
+    vscode.commands.registerCommand('gemstone.openClientFolder', (item: VersionTarget) => {
+      const clientPath = sysadminStorage.getClientPath(item.version.version);
       if (clientPath) {
         vscode.env.openExternal(vscode.Uri.file(clientPath));
       }
     }),
 
-    vscode.commands.registerCommand(
-      'gemstone.deleteWindowsClientExtracted',
-      async (item: VersionTarget) => {
-        const confirmed = await vscode.window.showWarningMessage(
-          `Delete the Windows client distribution for GemStone ${item.version.version}?`,
-          { modal: true },
-          'Delete',
-        );
-        if (confirmed !== 'Delete') return;
-        await versionManager.deleteWindowsClientExtracted(item.version);
-        refreshVersions();
-      },
-    ),
+    vscode.commands.registerCommand('gemstone.deleteClient', async (item: VersionTarget) => {
+      const version = item.version.version;
+      const confirmed = await vscode.window.showWarningMessage(
+        `Delete the files Jasper downloaded to log in to GemStone ${version}?`,
+        {
+          modal: true,
+          detail: 'A full install of this version, if there is one, is not touched.',
+        },
+        'Delete',
+      );
+      if (confirmed !== 'Delete') return;
+      const clientGci = sysadminStorage.getClientGciPath(version);
+      await versionManager.deleteClientExtracted(item.version);
+      // A registration pointing into the folder just deleted would send the next
+      // login to a missing file instead of offering the download again.
+      if (clientGci && storage.getGciLibraryPath(version) === clientGci) {
+        await storage.removeGciLibraryPath(version);
+      }
+      refreshVersions();
+    }),
 
     // ── The Databases & Versions panel ────────────────────────────────────
     // Two doors into one panel: Manage… lands on the lists, New Database lands

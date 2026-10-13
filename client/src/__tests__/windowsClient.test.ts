@@ -227,9 +227,17 @@ describe('VersionManager.windowsClientArtifact', () => {
   });
 });
 
-// ── VersionManager.deleteWindowsClientExtracted ───────────
+// ── VersionManager.deleteClientExtracted on Windows ───────
 
-describe('VersionManager.deleteWindowsClientExtracted', () => {
+describe('VersionManager.deleteClientExtracted on Windows', () => {
+  const originalPlatform = process.platform;
+  beforeEach(() => {
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+  });
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+  });
+
   it('removes the extracted client directory', async () => {
     const dirPath = createWindowsClientWithLib('3.7.5');
     const storage = new SysadminStorage();
@@ -246,7 +254,7 @@ describe('VersionManager.deleteWindowsClientExtracted', () => {
       downloaded: false,
       extracted: true,
     };
-    await manager.deleteWindowsClientExtracted(version);
+    await manager.deleteClientExtracted(version);
     expect(fs.existsSync(dirPath)).toBe(false);
   });
 
@@ -263,7 +271,7 @@ describe('VersionManager.deleteWindowsClientExtracted', () => {
       downloaded: false,
       extracted: false,
     };
-    await manager.deleteWindowsClientExtracted(version); // should not throw
+    await manager.deleteClientExtracted(version); // should not throw
   });
 });
 

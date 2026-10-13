@@ -1329,8 +1329,72 @@ describe('a Windows machine with no WSL', () => {
 
   it('reaches the Windows client actions, which only exist on a row', () => {
     mount(state({ windows: true, versions: [CLIENT_ONLY] }));
-    expect(root.querySelector('[data-action="openWindowsClientFolder"]')).not.toBeNull();
-    expect(root.querySelector('[data-action="deleteWindowsClient"]')).not.toBeNull();
+    expect(root.querySelector('[data-action="openClientFolder"]')).not.toBeNull();
+    expect(root.querySelector('[data-action="deleteClient"]')).not.toBeNull();
+  });
+});
+
+describe('downloading only what a login needs', () => {
+  // A remote stone needs only a few files for its version on this machine, not
+  // the server. The panel offers that beside Install Version…, in the words the
+  // login page uses, on every platform.
+  const CLIENT_ONLY = {
+    version: '3.7.4',
+    fileName: '',
+    url: '',
+    size: 0,
+    date: '',
+    downloaded: false,
+    extracted: false,
+    clientExtracted: true,
+  };
+
+  for (const windows of [false, true]) {
+    it(`is offered from the Versions header ${windows ? 'on Windows' : 'on Linux and macOS'}`, () => {
+      mount(state({ windows }));
+      const button = root.querySelector<HTMLElement>(
+        'details.section[data-section="versions"] [data-action="downloadVersionFiles"]',
+      );
+      expect(button?.textContent).toContain('Download Files for a Version…');
+      button!.click();
+      expect(host.postMessage).toHaveBeenCalledWith({ command: 'downloadVersionFiles' });
+    });
+  }
+
+  it('is offered beside Install Version… when nothing is on this machine', () => {
+    mount(state({ versions: [], create: { ...(state().create as object), versions: [] } }));
+    const empty = root.querySelector('details.section[data-section="versions"] .empty');
+    expect(empty?.querySelector('[data-action="installNewVersion"]')).not.toBeNull();
+    expect(empty?.querySelector('[data-action="downloadVersionFiles"]')).not.toBeNull();
+    expect(empty?.textContent).toContain('log in to a stone on another machine');
+  });
+
+  it('a version with only those files reads as such, and Remove removes only them', () => {
+    mount(state({ versions: [INSTALLED, CLIENT_ONLY] }));
+    const row = Array.from(root.querySelectorAll('.versions-table tbody tr')).find((r) =>
+      r.textContent?.includes('3.7.4'),
+    )!;
+    expect(row.textContent).toContain('Login only');
+    expect(row.querySelector('[data-action="uninstallVersion"]')).toBeNull();
+    expect(row.querySelector('[data-action="openVersionTerminal"]')).toBeNull();
+    (row.querySelector('[data-action="deleteClient"]') as HTMLElement).click();
+    expect(host.postMessage).toHaveBeenCalledWith({ command: 'deleteClient', version: '3.7.4' });
+  });
+
+  it('a full install that also has the login files can remove either one', () => {
+    mount(state({ versions: [{ ...INSTALLED, clientExtracted: true }] }));
+    expect(root.querySelector('[data-action="uninstallVersion"]')).not.toBeNull();
+    expect(root.querySelector('[data-action="deleteClient"]')).not.toBeNull();
+  });
+
+  it('does not offer the files again for a full install off Windows, which already has them', () => {
+    mount(state({ windows: false, versions: [INSTALLED] }));
+    expect(root.querySelector('[data-action="installClient"]')).toBeNull();
+  });
+
+  it('offers them on a Windows row, whose server install cannot serve a Windows login', () => {
+    mount(state({ windows: true, versions: [INSTALLED] }));
+    expect(root.querySelector('[data-action="installClient"]')).not.toBeNull();
   });
 });
 

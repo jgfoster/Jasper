@@ -9,18 +9,18 @@ Install from either marketplace:
 
 Jasper works on **macOS**, **Linux**, and **Windows**:
 
-| Platform | Server management | Client IDE (connect to remote GemStone) |
-|----------|-------------------|-----------------------------------------|
-| macOS    | Yes               | Yes                                     |
-| Linux    | Yes               | Yes                                     |
-| Windows (with WSL) | Yes (via WSL) | Yes                              |
-| Windows (no WSL)   | No            | Yes                              |
+| Platform           | Server management | Client IDE (connect to remote GemStone) |
+| ------------------ | ----------------- | --------------------------------------- |
+| macOS              | Yes               | Yes                                     |
+| Linux              | Yes               | Yes                                     |
+| Windows (with WSL) | Yes (via WSL)     | Yes                                     |
+| Windows (no WSL)   | No                | Yes                                     |
 
 ## Getting Started
 
 ### Connecting to an existing GemStone server (any platform)
 
-If you already have a GemStone server running on another machine (or locally), you only need a login configuration and the native GCI client library for your version of GemStone.
+If you already have a GemStone server running on another machine (or locally), you only need a login configuration and a few files for its GemStone version. No server install, and no WSL on Windows.
 
 1. Install the extension from the VS Code Marketplace or Open VSX (links above).
 2. Open the **GemStone** sidebar (gem icon in the activity bar).
@@ -28,10 +28,12 @@ If you already have a GemStone server running on another machine (or locally), y
 4. Fill in the connection details, top to bottom: GemStone version, gem host, stone name, NetLDI (service name or port), and your GemStone user/password. **Host User** and **Host Password** are optional — supply them only when the remote NetLDI requires host authentication; leave them blank for a local stone or a guest-mode NetLDI. (Stuck? Click **Help me login** in the login editor for per-field guidance.)
 5. Click **Save**, then click the saved login to connect. A "Connecting…" notification reports success or failure, and the status bar (bottom right) shows the active session — or turns red, click-to-explain, if the connection fails.
 
-The first time you log in with a given GemStone version, Jasper needs the native GCI library (`libgcits`) for that version:
+The **GemStone Version** dropdown lists every version Jasper supports. Pick the version of the stone you are connecting to. A version marked _(not yet downloaded)_ needs a few files first, about 5–25 MB: these are GemStone's GCI client libraries, including `libgcits`. Click **Download files** under the dropdown, or log in and accept the offer. **Download Files for a Version…** in the Databases & Versions panel does the same.
 
-- **On Windows**, Jasper will offer to **download the Windows client distribution** automatically. This downloads and extracts the library — no WSL or manual setup required.
-- **On macOS/Linux**, the library is included in the GemStone server distribution. If you have a local installation, Jasper auto-detects it. Otherwise, use **Install Version…** in the Databases & Versions panel to download the distribution for your platform, or point Jasper to an existing library path via the `gemstone.gciLibraries` setting.
+- **On Windows** this is GemTalk's Windows client distribution.
+- **On macOS and Linux** it is GemTalk's `GemStoneClientLibs` package, published for GemStone 3.7.0 and later. It unpacks into its own `GemStoneClientLibs<version>-<platform>` folder, so it and a full install of the same version can sit side by side, and removing either leaves the other. For an older version, install the full version with **Install Version…**; Jasper finds its library on its own.
+
+You can also point Jasper at a library you already have, with the `gemstone.gciLibraries` setting.
 
 ### Full local setup (macOS, Linux, or Windows with WSL)
 
@@ -116,7 +118,7 @@ Only plain **Running** means a connect is expected to work; the others say why i
 
 #### Servers started outside Jasper
 
-Jasper runs its own `gslist` against the root it manages, and GemStone servers register in the `locks/` directory of whatever `GEMSTONE_GLOBAL_DIR` they were started with. A stone or NetLDI started by hand — from a shell whose GemStone environment differs from Jasper's — therefore registers somewhere Jasper does not look, and `gslist` alone would report it as *Stopped* while the process is plainly alive.
+Jasper runs its own `gslist` against the root it manages, and GemStone servers register in the `locks/` directory of whatever `GEMSTONE_GLOBAL_DIR` they were started with. A stone or NetLDI started by hand — from a shell whose GemStone environment differs from Jasper's — therefore registers somewhere Jasper does not look, and `gslist` alone would report it as _Stopped_ while the process is plainly alive.
 
 Jasper cross-checks the host process table against its own `gslist` and marks such a server **Running outside Jasper**, with its PID and registration directory in the row's tooltip. Connecting to that database — or the row's **Restart Under Jasper's Environment** action — offers to stop the external servers and start them again under Jasper's environment, so they land in the directory Jasper manages. The prompt warns that restarting the stone drops any uncommitted sessions, and offers **Connect as-is** if you would rather leave the running servers alone.
 
@@ -134,7 +136,7 @@ A server started outside Jasper's environment does not appear in Jasper's own `g
 
 Jasper can serve MCP tool calls so Claude Code and Claude Desktop work directly against your GemStone session. Only one VS Code window serves it at a time — the socket is machine-wide — and it runs against the **active session of whichever window owns the server**.
 
-Because that is a fact about the *window*, it is reported where there is one per window. The **Databases** section header reads `MCP: this window`, `MCP: other window` or `MCP: unclaimed` at a glance, and its plug button opens the **MCP Server** tab (`GemStone: Show MCP Server`), which is the one place to see and change everything: the session being served, the socket path and HTTPS endpoint (click either to copy), **Claim MCP Server**, **Stop MCP**, **Refresh** — and, when another window holds the server, that window's name as its title bar shows it, its workspace, pid and session — with the path clickable to switch to that window where doing so would actually reach it (an extension cannot focus another window directly; opening its folder is the only lever, so the jump is withheld, with the reason, where the folder does not identify the window). Each value carries the sentence that explains it, rather than hiding it on a tooltip the way the old pane had to. Taking the server over is **Ask It to Release**, which needs no navigation at all: it has the owning window let go and then claims here — a bound socket is only ever released by its owner, and the old MCP pane had no way to release at all. If that window is running a Jasper too old to answer, you get a timeout rather than a hang, and can open it and use **Stop MCP**. In **Logins & Sessions**, the session actually being served is marked `· MCP`.
+Because that is a fact about the _window_, it is reported where there is one per window. The **Databases** section header reads `MCP: this window`, `MCP: other window` or `MCP: unclaimed` at a glance, and its plug button opens the **MCP Server** tab (`GemStone: Show MCP Server`), which is the one place to see and change everything: the session being served, the socket path and HTTPS endpoint (click either to copy), **Claim MCP Server**, **Stop MCP**, **Refresh** — and, when another window holds the server, that window's name as its title bar shows it, its workspace, pid and session — with the path clickable to switch to that window where doing so would actually reach it (an extension cannot focus another window directly; opening its folder is the only lever, so the jump is withheld, with the reason, where the folder does not identify the window). Each value carries the sentence that explains it, rather than hiding it on a tooltip the way the old pane had to. Taking the server over is **Ask It to Release**, which needs no navigation at all: it has the owning window let go and then claims here — a bound socket is only ever released by its owner, and the old MCP pane had no way to release at all. If that window is running a Jasper too old to answer, you get a timeout rather than a hang, and can open it and use **Stop MCP**. In **Logins & Sessions**, the session actually being served is marked `· MCP`.
 
 `GemStone: Show MCP Server`, `Claim MCP Server`, `Stop MCP Server`, `Ask the Other Window to Release MCP`, `Copy MCP Server URL`, `Copy MCP Socket Path`, `Install MCP TLS Certificate` and `Open MCP Inspector` are in the Command Palette. Turn the whole thing off with the **`jasper.mcp.enabled`** setting — no socket, no HTTPS listener, no client configuration written, and those commands leave the UI rather than failing when used. The MCP Server tab stays available even then, since it is what tells you MCP is off. See the [MCP Server design doc](docs/mcp-server.md) for the full picture.
 
@@ -162,7 +164,7 @@ Each session row also says which **transaction mode** it is in, beside its sessi
 
 The session Claude Code and Claude Desktop run their GemStone tools against is marked `· MCP` in its description — see [MCP Server](#mcp-server), which is set up from the **Databases** header rather than from a session row, since it belongs to the window.
 
-**Open Workspace** is in this view's title bar rather than on a session row: a workspace runs against the *active* session (as Display It and Inspect It do), so it is not something you do "to" one session in particular. **Ping** lives on a session row in the **Databases & Versions** panel, which has the room to show its answer beside the row that asked.
+**Open Workspace** is in this view's title bar rather than on a session row: a workspace runs against the _active_ session (as Display It and Inspect It do), so it is not something you do "to" one session in particular. **Ping** lives on a session row in the **Databases & Versions** panel, which has the room to show its answer beside the row that asked.
 
 The active session (used for code execution) is highlighted, and the status bar shows which session is active; click it to change the active session. A notebook names it too, in its kernel label, and in multiple-session mode so does a workspace, on a line above its first line — both redraw when the active session changes. In multiple-session mode the status bar names it as `Session 3 · DataCurator on gs64stone (localhost)`. The number is the one on that session's row, so two logins to the same stone as the same user can be told apart.
 
@@ -171,16 +173,16 @@ The active session (used for code execution) is highlighted, and the status bar 
 GemStone gives a session one of three transaction modes, and the mode decides what Commit, Abort and Begin do:
 
 - **Auto-Begin** — a new transaction starts automatically after every commit or abort, so the session is always inside one. This is GemStone's default. It is convenient, but an idle session holds a commit record open and holds back the repository's reclaim.
-- **Manual** — commit and abort leave the session *outside* a transaction; **Begin Transaction** puts it back in. Nothing can be committed while it is outside one.
+- **Manual** — commit and abort leave the session _outside_ a transaction; **Begin Transaction** puts it back in. Nothing can be committed while it is outside one.
 - **Transactionless** — the session is not in a transaction, so it cannot commit; switch it to Manual or Auto-Begin to write. The cheapest mode for the repository, but its view is refreshed automatically at any moment, so what it shows can change under you. GemStone intends it for idle sessions.
 
 The **status bar** carries the selected session's mode on the left: a filled circle when the session is inside a transaction, a hollow one when it is outside, an eye for transactionless, and a question mark when the state could not be read. Hovering it says what the mode means and what the session can do; **clicking it changes the mode**. It is also **GemStone: Set Transaction Mode** in the Command Palette, on a session row's context menu in Logins & Sessions, and a button on the session row in Databases & Versions.
 
 Changing the mode **aborts the current transaction** — GemStone does that as part of switching — so Jasper asks first and tells you how much is at stake. Any session in Manual mode also has the gem service the stone's SigAbort on its behalf — whether you switched it there or the stone handed it out that way at login — so a session left sitting outside a transaction is not forcibly aborted.
 
-Outside a transaction you can still *change* things; GemStone refuses only the commit. So Jasper still warns you at logout about uncommitted work in a session that is between transactions — it just does not offer to commit it, since that could only fail. When the stone does refuse a save with "not inside of a transaction", Jasper names **Begin Transaction** as the way on. More detail: [Transaction modes](docs/reference/transaction-modes.md).
+Outside a transaction you can still _change_ things; GemStone refuses only the commit. So Jasper still warns you at logout about uncommitted work in a session that is between transactions — it just does not offer to commit it, since that could only fail. When the stone does refuse a save with "not inside of a transaction", Jasper names **Begin Transaction** as the way on. More detail: [Transaction modes](docs/reference/transaction-modes.md).
 
-**When a commit does not land, Jasper says which of the two things happened.** A commit the stone *refused* — another session committed over an object you changed — is not a malfunction, and retrying it cannot work, so it is reported as `Commit refused — Write-Write on 2 objects. Abort for a fresh view, then try again.` **Show Conflicts** on that message lists every object that collided in the **GemStone GCI** output channel — oop, class, and enough of its printString to recognize it (`12086785  SymbolDictionary  aSymbolDictionary( name: #'UserGlobals' )`), over an `Object _objectForOop:` you can paste into a workspace to open the object itself. A commit that *failed* with an error still reports the stone's own words. Claude's `commit` tool answers the same way.
+**When a commit does not land, Jasper says which of the two things happened.** A commit the stone _refused_ — another session committed over an object you changed — is not a malfunction, and retrying it cannot work, so it is reported as `Commit refused — Write-Write on 2 objects. Abort for a fresh view, then try again.` **Show Conflicts** on that message lists every object that collided in the **GemStone GCI** output channel — oop, class, and enough of its printString to recognize it (`12086785  SymbolDictionary  aSymbolDictionary( name: #'UserGlobals' )`), over an `Object _objectForOop:` you can paste into a workspace to open the object itself. A commit that _failed_ with an error still reports the stone's own words. Claude's `commit` tool answers the same way.
 
 #### Single vs. multiple sessions
 
@@ -195,19 +197,19 @@ If you need concurrent connections, enable the **beta** multiple-session mode:
 
 The only difference is cardinality: a login may now have several session children, and its **Login** action stays available while connected so you can start more.
 
-> **Note:** In multiple-session mode, an open method editor stays bound to the session that opened it even after you switch the active session, so the active session, the Explorer, and an open editor can point at different sessions at once. Its tab carries that session's number as a badge, with the full session in the tab's hover, and a debugger or inspector adds it to its title — *Inspector · Session 3* — and the debugger to its subtitle as well. A workspace, and a notebook on the default kernel, are not bound: they run in whichever session is active, and say which. A notebook can be pinned to one session by picking that session's kernel. If you use a custom `gemstone.exportPath`, include the `{session}` variable so concurrent sessions don't overwrite each other's exported files.
+> **Note:** In multiple-session mode, an open method editor stays bound to the session that opened it even after you switch the active session, so the active session, the Explorer, and an open editor can point at different sessions at once. Its tab carries that session's number as a badge, with the full session in the tab's hover, and a debugger or inspector adds it to its title — _Inspector · Session 3_ — and the debugger to its subtitle as well. A workspace, and a notebook on the default kernel, are not bound: they run in whichever session is active, and say which. A notebook can be pinned to one session by picking that session's kernel. If you use a custom `gemstone.exportPath`, include the `{session}` variable so concurrent sessions don't overwrite each other's exported files.
 
-> **Breakpoints follow the editor, not the active session.** Because an editor stays bound to the session that opened it, a breakpoint set in that editor is armed in that session's gem — so it stops the code you are looking at rather than the session that happens to be selected. **Enable All**, **Disable All** and **Remove All Breakpoints** go the other way and sweep *every* logged-in session, because VS Code keeps a single breakpoint list for the whole window. See [Breakpoints](#breakpoints).
+> **Breakpoints follow the editor, not the active session.** Because an editor stays bound to the session that opened it, a breakpoint set in that editor is armed in that session's gem — so it stops the code you are looking at rather than the session that happens to be selected. **Enable All**, **Disable All** and **Remove All Breakpoints** go the other way and sweep _every_ logged-in session, because VS Code keeps a single breakpoint list for the whole window. See [Breakpoints](#breakpoints).
 
 ### Code Execution
 
 With an active session, execute Smalltalk code from any editor:
 
-| Command | macOS | Windows/Linux | Description |
-|---------|-------|---------------|-------------|
-| Display It | Cmd+K D | Ctrl+K D | Evaluate selection and show the result inline |
-| Execute It | Cmd+K E | Ctrl+K E | Evaluate selection silently |
-| Inspect It | Cmd+K I | Ctrl+K I | Evaluate selection and show result in Inspector |
+| Command    | macOS   | Windows/Linux | Description                                     |
+| ---------- | ------- | ------------- | ----------------------------------------------- |
+| Display It | Cmd+K D | Ctrl+K D      | Evaluate selection and show the result inline   |
+| Execute It | Cmd+K E | Ctrl+K E      | Evaluate selection silently                     |
+| Inspect It | Cmd+K I | Ctrl+K I      | Evaluate selection and show result in Inspector |
 
 By default, **Display It** shows its result as a non-destructive inline overlay — an annotation that is not part of the document, so the file is never modified. Hover the result for **Copy** and **Expand** actions; **Enter** inserts the full result into the document, **Backspace** or **Escape** dismisses it. Set `gemstone.displayItMode` to `"insert"` for the classic behavior of inserting the result as editable text.
 
@@ -341,7 +343,7 @@ the thing it was set in goes away:
   the grey the gutter dot goes
 - **A breakpoint belongs to the session its method came from.** A method editor
   stays bound to the session that opened it, so a breakpoint set in it is armed
-  in *that* session's gem — not in whichever session happens to be active. With
+  in _that_ session's gem — not in whichever session happens to be active. With
   one session live there is no difference; with several, this is what makes the
   breakpoint stop the code you were looking at. A row in the **GemStone
   Breakpoints** view can likewise only act on a method from the session the view
@@ -350,13 +352,13 @@ the thing it was set in goes away:
   Breakpoints** act on every GemStone breakpoint in **every logged-in session**,
   including any set outside Jasper by topaz or a `halt` left in the code. VS Code
   keeps one breakpoint list for the window, so "all" means all of it: sweeping
-  only the active session would leave rows reading *disabled* over breakpoints
+  only the active session would leave rows reading _disabled_ over breakpoints
   that still stop execution. If one session's gem refuses, the others are still
   swept and the message names the one that failed
 - **Clear All Breakpoints in Method** drops every breakpoint in the method you
   are in
-- **Not honoured: conditions, hit counts and log messages.** VS Code's *Edit
-  Breakpoint* accepts all three; GemStone breakpoints stop every time the step
+- **Not honoured: conditions, hit counts and log messages.** VS Code's _Edit
+  Breakpoint_ accepts all three; GemStone breakpoints stop every time the step
   point is reached, so Jasper warns when you set one rather than quietly ignoring
   it. Conditional breakpoints are tracked under
   [#277](https://github.com/GemTalk/Jasper/issues/277)
@@ -412,7 +414,7 @@ The extension integrates with VS Code's native Test Explorer:
 
 ### Jupyter Notebooks (Smalltalk and Grail Python)
 
-Jasper registers notebook kernels for `.ipynb` files, in two languages: GemStone Smalltalk and Grail Python. VS Code's built-in notebook support is enough; Microsoft's [Jupyter extension](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.jupyter) is not required. Open any `.ipynb` notebook and pick one from the kernel picker — a notebook whose code cells are all Smalltalk gets **GemStone Smalltalk** as its suggested kernel, and the tutorial and **Open Notebook** select it for you. That is only the default: pick another kernel and the empty cells switch to its language, while cells you have written keep theirs. The kernel label names the session cells run in, and in multiple-session mode **Switch Session** in the notebook's toolbar changes the active session — the same picker as a workspace's session line. In multiple-session mode the picker also lists each logged-in session as its own kernel — **GemStone Smalltalk · Session 3 · …** — which keeps that notebook on Session 3 whatever the active session is, while the default kernel (marked *active*) follows the active session. Either way cells run in a live GemStone session, so notebook code sees — and can modify — the same objects as the GemStone Explorer and Display It. Compile and runtime errors appear as cell error outputs.
+Jasper registers notebook kernels for `.ipynb` files, in two languages: GemStone Smalltalk and Grail Python. VS Code's built-in notebook support is enough; Microsoft's [Jupyter extension](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.jupyter) is not required. Open any `.ipynb` notebook and pick one from the kernel picker — a notebook whose code cells are all Smalltalk gets **GemStone Smalltalk** as its suggested kernel, and the tutorial and **Open Notebook** select it for you. That is only the default: pick another kernel and the empty cells switch to its language, while cells you have written keep theirs. The kernel label names the session cells run in, and in multiple-session mode **Switch Session** in the notebook's toolbar changes the active session — the same picker as a workspace's session line. In multiple-session mode the picker also lists each logged-in session as its own kernel — **GemStone Smalltalk · Session 3 · …** — which keeps that notebook on Session 3 whatever the active session is, while the default kernel (marked _active_) follows the active session. Either way cells run in a live GemStone session, so notebook code sees — and can modify — the same objects as the GemStone Explorer and Display It. Compile and runtime errors appear as cell error outputs.
 
 **Open Notebook**, next to **Open Workspace** in the **Logins & Sessions** title bar, opens a blank untitled Smalltalk notebook. A notebook running a GemStone kernel, other than the tutorial itself, has **Learn Smalltalk** in its toolbar, which opens the Smalltalk syntax tutorial (also **GemStone: Learn Smalltalk** in the Command Palette).
 
@@ -438,10 +440,10 @@ Jasper exposes its GemStone IDE surface to MCP-aware AI clients (Claude Code, Cl
 
 Two transports are served in parallel:
 
-| Transport | Endpoint | Used by |
-|-----------|----------|---------|
-| stdio (proxy) | local socket / named pipe | Claude Code, Claude Desktop |
-| HTTPS/SSE | `https://127.0.0.1:27101/sse` | "Add custom connector" UIs, MCP Inspector, any URL-based client |
+| Transport     | Endpoint                      | Used by                                                         |
+| ------------- | ----------------------------- | --------------------------------------------------------------- |
+| stdio (proxy) | local socket / named pipe     | Claude Code, Claude Desktop                                     |
+| HTTPS/SSE     | `https://127.0.0.1:27101/sse` | "Add custom connector" UIs, MCP Inspector, any URL-based client |
 
 Both Claude Code (`~/.claude.json`) and Claude Desktop (`claude_desktop_config.json`) are registered automatically when the extension activates, on macOS, Linux, and Windows. The **MCP Server** view in the GemStone sidebar shows which Jasper window is currently serving requests and which GemStone session it's bound to.
 
@@ -479,20 +481,20 @@ The Smalltalk formatter has eleven knobs under `gemstoneSmalltalk.formatter.*` (
 
 ## Settings
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `gemstone.rootPath` | `~/Documents/GemStone` | Root directory for GemStone installations and databases |
-| `gemstone.gciLibraries` | `{}` | Map of GemStone versions to GCI library paths |
-| `gemstone.exportPath` | `""` | Root path for class file export (supports `{workspaceRoot}`) |
-| `gemstone.classSync.readOnlyMirror` | true | Write exported `.gs` mirror files as read-only; turn off to speed up syncing on slow or network filesystems |
-| `gemstone.displayItMode` | `overlay` | How Display It shows its result: `overlay` (non-destructive annotation) or `insert` (into the document) |
-| `gemstone.maxEnvironment` | 0 | Method environments to display in browser |
-| `gemstone.inspector.preferred` | `basic` | Which Inspector **Inspect It** opens: `basic` (the tabbed Inspector everywhere, whatever the session has installed), or `auto` for the Enhanced Inspector where the session has its server support |
-| `gemstone.inspector.loadAllPageLimit` | 50 | Pages one **Load all** click reads in the Inspector before stopping (a page is 100 rows, 400 bytes on the Bytes tab), so the default reads 5,000 rows a click |
-| `gemstone.serverSupport.autoInstall` | `ask` | What to do when a stone lacks the optional server-side support (Enhanced Inspector, refactoring engine): `ask`, `always`, or `never` |
-| `gemstone.sessionMode` | `single` | Concurrent sessions allowed: `single` (default) or `multiple` (beta — reveals the Sessions panel) |
-| `jasper.mcp.httpPort` | 27101 | Port on 127.0.0.1 where Jasper serves the MCP HTTPS/SSE surface |
-| `jasper.mcp.registerWithClaudeDesktop` | true | Auto-register the jasper MCP server in Claude Desktop's global config |
+| Setting                                | Default                | Description                                                                                                                                                                                        |
+| -------------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gemstone.rootPath`                    | `~/Documents/GemStone` | Root directory for GemStone installations and databases                                                                                                                                            |
+| `gemstone.gciLibraries`                | `{}`                   | Map of GemStone versions to GCI library paths                                                                                                                                                      |
+| `gemstone.exportPath`                  | `""`                   | Root path for class file export (supports `{workspaceRoot}`)                                                                                                                                       |
+| `gemstone.classSync.readOnlyMirror`    | true                   | Write exported `.gs` mirror files as read-only; turn off to speed up syncing on slow or network filesystems                                                                                        |
+| `gemstone.displayItMode`               | `overlay`              | How Display It shows its result: `overlay` (non-destructive annotation) or `insert` (into the document)                                                                                            |
+| `gemstone.maxEnvironment`              | 0                      | Method environments to display in browser                                                                                                                                                          |
+| `gemstone.inspector.preferred`         | `basic`                | Which Inspector **Inspect It** opens: `basic` (the tabbed Inspector everywhere, whatever the session has installed), or `auto` for the Enhanced Inspector where the session has its server support |
+| `gemstone.inspector.loadAllPageLimit`  | 50                     | Pages one **Load all** click reads in the Inspector before stopping (a page is 100 rows, 400 bytes on the Bytes tab), so the default reads 5,000 rows a click                                      |
+| `gemstone.serverSupport.autoInstall`   | `ask`                  | What to do when a stone lacks the optional server-side support (Enhanced Inspector, refactoring engine): `ask`, `always`, or `never`                                                               |
+| `gemstone.sessionMode`                 | `single`               | Concurrent sessions allowed: `single` (default) or `multiple` (beta — reveals the Sessions panel)                                                                                                  |
+| `jasper.mcp.httpPort`                  | 27101                  | Port on 127.0.0.1 where Jasper serves the MCP HTTPS/SSE surface                                                                                                                                    |
+| `jasper.mcp.registerWithClaudeDesktop` | true                   | Auto-register the jasper MCP server in Claude Desktop's global config                                                                                                                              |
 
 > **Tip:** VS Code's Quick Open file search (Cmd+P / Ctrl+P) and the title bar search respect `.gitignore` by default, so exported `.gs` files in gitignored directories won't appear in search results. To include them, set `"search.useIgnoreFiles": false` in your VS Code settings. If there are some ignored things you want to continue to exclude, you can tell VS Code to exclude certain paths with the `files.exclude` setting.
 
@@ -506,21 +508,22 @@ what is and isn't collected.
 
 The extension communicates with GemStone databases using the GemStone C Interface (GCI) thread-safe library (`libgcits`), loaded at runtime via [koffi](https://koffi.dev/). The library path is resolved in this order:
 
-1. **Auto-detected** from extracted distributions (server or Windows client) matching the login's GemStone version
-2. **Configured** per-version in the `gemstone.gciLibraries` setting
-3. **Prompted** — on Windows you are offered an automatic download; on all platforms you can browse to the library manually
+1. **Configured** per-version in the `gemstone.gciLibraries` setting (Jasper fills this in after a download)
+2. **Bundled** with the extension, on Windows
+3. **Auto-detected** from a full install of the login's GemStone version (macOS/Linux), then from the files downloaded for that version (the Windows client, or `GemStoneClientLibs`)
+4. **Prompted** — on every platform you are offered the download, or can browse to the library manually
 
 The Windows client distribution exports a subset of the full GCI interface — non-blocking login and debug-attach functions are not available, but all standard session operations work normally.
 
 ## Documentation
 
-| Topic | Where |
-|-------|-------|
-| Windows / WSL networking, hosts file, NetLDI port naming | [docs/windows-wsl.md](docs/windows-wsl.md) |
-| MCP server architecture, ownership model, client registration, tool catalog | [docs/mcp-server.md](docs/mcp-server.md) |
-| Smalltalk formatter reference (all options) | [docs/formatter.md](docs/formatter.md) |
-| Why the System Browser is frozen and the Explorer gets new work | [docs/explanation/system-browser-and-explorer.md](docs/explanation/system-browser-and-explorer.md) |
-| Building, testing, integration test environment setup, releasing | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Topic                                                                       | Where                                                                                              |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Windows / WSL networking, hosts file, NetLDI port naming                    | [docs/windows-wsl.md](docs/windows-wsl.md)                                                         |
+| MCP server architecture, ownership model, client registration, tool catalog | [docs/mcp-server.md](docs/mcp-server.md)                                                           |
+| Smalltalk formatter reference (all options)                                 | [docs/formatter.md](docs/formatter.md)                                                             |
+| Why the System Browser is frozen and the Explorer gets new work             | [docs/explanation/system-browser-and-explorer.md](docs/explanation/system-browser-and-explorer.md) |
+| Building, testing, integration test environment setup, releasing            | [CONTRIBUTING.md](CONTRIBUTING.md)                                                                 |
 
 ## License
 
