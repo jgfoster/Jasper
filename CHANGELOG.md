@@ -4,17 +4,17 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+### Changed
+
+- **Usage events now say which editor app Jasper runs in** — VS Code, VS Code Insiders, or a fork such as Cursor. Forks report the VS Code version they are built on, so this is the only way to tell them apart when deciding which VS Code versions Jasper still needs to support. See [USAGE_DATA.md](USAGE_DATA.md).
+
 ### Fixed
 
 - **Clicking a method's editor tab scrolls its row into view in the Explorer's Methods pane every time.** When the row was already the pane's selection but off screen — after the list reloaded, or after scrolling the pane by hand — the click did nothing. Clicking a row in the pane still doesn't move it. ([#705](https://github.com/GemTalk/Jasper/issues/705))
 - **A refactoring preview names the dictionary of every row whose class name another row claims from a different dictionary, however the rows are paged.** Two same-named classes on different pages both read `Shadowed>>foo`; the earlier row is now relabelled when a later page reveals the clash. ([#705](https://github.com/GemTalk/Jasper/issues/705))
-- **An undo's plan lists only what the undo will do.** An accessor that adding a class variable skipped, because the class already had it, was listed and counted as "put back" although the undo leaves it alone; a method you have already put back by hand is no longer listed either. The notice after undoing an added class variable now says its accessors were removed, not put back. ([#705](https://github.com/GemTalk/Jasper/issues/705))
+- **Undo's confirmation no longer lists methods the undo won't touch.** An accessor that adding a class variable skipped, because the class already had it, was listed and counted as "put back" although the undo leaves it alone; a method you have already put back by hand is no longer listed either. The notice after undoing an added class variable now says its accessors were removed, not put back. ([#705](https://github.com/GemTalk/Jasper/issues/705))
 - **Removing a dictionary takes its classes out of the Class Hierarchy and GemStone Search straight away,** rather than after a commit, an abort or GemStone Search's ⟳. ([#705](https://github.com/GemTalk/Jasper/issues/705))
 - **A test class's links in the Test Explorer open that class,** not a same-named class in an earlier dictionary that also holds it under another name. A test class held only under another name is no longer listed, since no link could open it. ([#705](https://github.com/GemTalk/Jasper/issues/705))
-
-### Changed
-
-- **Usage events now say which editor app Jasper runs in** — VS Code, VS Code Insiders, or a fork such as Cursor. Forks report the VS Code version they are built on, so this is the only way to tell them apart when deciding which VS Code versions Jasper still needs to support. See [USAGE_DATA.md](USAGE_DATA.md).
 
 ## [1.14.0] - 2026-10-06
 
