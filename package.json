@@ -687,7 +687,7 @@
       },
       {
         "view": "gemstoneDatabases",
-        "contents": "To connect to a GemStone server that is already running, on this network or elsewhere, you don't need WSL: add a login for it under Logins & Sessions, and Jasper offers to download the client libraries for that server's version.\nTo create and run databases on this machine, GemStone needs Windows Subsystem for Linux (WSL2).\n[Install WSL](https://learn.microsoft.com/en-us/windows/wsl/install)",
+        "contents": "A server running elsewhere needs no WSL: click + on Logins & Sessions to add a login.\nTo run databases on this machine, install WSL2.\n[Install WSL](https://learn.microsoft.com/en-us/windows/wsl/install)",
         "when": "gemstone.isWindows && !gemstone.wslAvailable"
       },
       {

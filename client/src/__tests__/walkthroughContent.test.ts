@@ -77,8 +77,8 @@ describe('Getting Started walkthrough content', () => {
       (v) => v.view === 'gemstoneDatabases' && v.contents.includes('Install WSL'),
     );
     const contents = noWsl?.contents ?? '';
-    expect(contents).toContain("you don't need WSL");
-    expect(contents).toContain('client libraries');
+    expect(contents).toContain('needs no WSL');
+    expect(contents).toContain('click + on Logins & Sessions');
     // One button, and it is the one this prompt is for.
     expect(contents.match(/\[[^\]]+\]\(/g)).toEqual(['[Install WSL](']);
   });
