@@ -22,6 +22,8 @@ vi.mock('../../refactoring/undoRefactoringCommand', () => ({
   undoLastRefactoringCommand: vi.fn(),
 }));
 vi.mock('../undoPlanPanel', () => ({ showUndoPlanPanel: vi.fn() }));
+vi.mock('../queries/methodSlotQueries', () => ({ captureMethodSlots: vi.fn() }));
+vi.mock('../queries/classVarQueries', () => ({ captureClassVar: vi.fn() }));
 // Only the dictionary-name read is stood in for; it is what the plan's row labels cost.
 vi.mock('../../browserQueries', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../browserQueries')>()),
@@ -40,7 +42,9 @@ import { checkRefactoringUndoAvailable } from '../../refactoring/refactoringUndo
 import { undoLastRefactoringCommand } from '../../refactoring/undoRefactoringCommand';
 import { showUndoPlanPanel } from '../undoPlanPanel';
 import { getDictionaryNames } from '../../browserQueries';
-import { undoLastCommand } from '../undoLastCommand';
+import { readLiveState, undoLastCommand } from '../undoLastCommand';
+import { captureMethodSlots } from '../queries/methodSlotQueries';
+import { captureClassVar } from '../queries/classVarQueries';
 import { peekUndoEntry, pushUndoEntry, resetUndoStacks, undoStackDepth } from '../undoStack';
 import type { NewUndoEntry } from '../undoTypes';
 import type { ActiveSession, SessionManager } from '../../sessionManager';
@@ -454,5 +458,142 @@ describe('the stack can move while the non-modal panel is open', () => {
     await undoLastCommand(sessions);
 
     expect(undoStackDepth(session.id)).toBe(0);
+  });
+});
+
+describe('readLiveState', () => {
+  const methodEdit = {
+    kind: 'methodEdit' as const,
+    sessionId: session.id,
+    label: 'Save balance in Account',
+    slots: [{ className: 'Account', isMeta: false, selector: 'balance', environmentId: 0 }],
+    before: [],
+    after: [],
+  };
+
+  it("reads the live state of a method edit's slots", () => {
+    const live = [{ exists: true, source: 'balance\n\t^1', category: 'accessing' }];
+    vi.mocked(captureMethodSlots).mockReturnValueOnce(live);
+
+    expect(readLiveState({ id: 9, ...methodEdit }, session)?.slots).toBe(live);
+    expect(vi.mocked(captureMethodSlots).mock.calls.at(-1)?.[1]).toBe(methodEdit.slots);
+  });
+
+  const one = { exists: true, source: 'balance\n\t^1', category: 'accessing' };
+  const two = { exists: true, source: 'balance\n\t^2', category: 'accessing' };
+  const editOfTwo = {
+    ...methodEdit,
+    slots: [
+      ...methodEdit.slots,
+      { className: 'Account', isMeta: false, selector: 'deposit:', environmentId: 0 },
+    ],
+    before: [one, one],
+    after: [two, two],
+  };
+
+  it('is what the panel plan is built from', async () => {
+    // By undo time the user has already put `balance` back by hand; `deposit:` still differs.
+    pushUndoEntry(editOfTwo);
+    vi.mocked(captureMethodSlots).mockReturnValueOnce([one, two]);
+
+    await undoLastCommand(sessions);
+
+    expect(vi.mocked(showUndoPlanPanel).mock.calls[0][0].rows.map((r) => r.target)).toEqual([
+      'Account >> #deposit:',
+    ]);
+  });
+
+  it('still asks, with no rows, when every slot is already put back', async () => {
+    // Accepting spends the entry, so skipping the panel would spend a change the user was never
+    // shown -- and the next Undo would reach an older one.
+    pushUndoEntry(editOfTwo);
+    vi.mocked(captureMethodSlots).mockReturnValueOnce([one, one]);
+    vi.mocked(showUndoPlanPanel).mockResolvedValueOnce(false);
+
+    await undoLastCommand(sessions);
+
+    expect(vi.mocked(showUndoPlanPanel).mock.calls[0][0].rows).toEqual([]);
+    expect(reverseMethodEdit).not.toHaveBeenCalled();
+  });
+
+  it('takes the entry off the stack when the user accepts a panel with no rows', async () => {
+    // The button promises "Remove from Undo". This pins the dispatcher's half; the reversers'
+    // half -- answering true on their "already as it was" path -- is pinned in their own tests.
+    pushUndoEntry(editOfTwo);
+    vi.mocked(captureMethodSlots).mockReturnValueOnce([one, one]);
+    vi.mocked(reverseMethodEdit).mockResolvedValueOnce(true);
+
+    await undoLastCommand(sessions);
+
+    expect(vi.mocked(showUndoPlanPanel).mock.calls[0][0].rows).toEqual([]);
+    expect(reverseMethodEdit).toHaveBeenCalled();
+    expect(undoStackDepth(session.id)).toBe(0);
+  });
+
+  it("reads a class-variable edit's declaration as well as its accessors", () => {
+    const slot = { dict: 7, className: 'Account', varName: 'Registry' };
+    vi.mocked(captureMethodSlots).mockReturnValueOnce([]);
+    vi.mocked(captureClassVar).mockReturnValueOnce({ defined: false });
+
+    const live = readLiveState(
+      {
+        id: 11,
+        kind: 'classVarEdit',
+        sessionId: session.id,
+        label: 'Add class variable Registry to Account',
+        slot,
+        before: { defined: false },
+        after: { defined: true },
+        accessorSlots: [],
+        accessorBefore: [],
+        accessorAfter: [],
+      },
+      session,
+    );
+
+    expect(live?.classVar).toEqual({ defined: false });
+    expect(vi.mocked(captureClassVar).mock.calls.at(-1)?.[1]).toBe(slot);
+  });
+
+  it('answers undefined, so the plan uses the recorded state, when the read fails', () => {
+    vi.mocked(captureMethodSlots).mockImplementationOnce(() => {
+      throw new Error('lost connection');
+    });
+
+    expect(readLiveState({ id: 9, ...methodEdit }, session)).toBeUndefined();
+  });
+
+  it('answers undefined too when the class variable cannot be read', () => {
+    // Not a half-read state: with the accessors live but no variable, the plan would fall back
+    // to the recorded variable while trusting the live accessors.
+    vi.mocked(captureMethodSlots).mockReturnValueOnce([]);
+    vi.mocked(captureClassVar).mockImplementationOnce(() => {
+      throw new Error('lost connection');
+    });
+
+    expect(
+      readLiveState(
+        {
+          id: 12,
+          kind: 'classVarEdit',
+          sessionId: session.id,
+          label: 'Add class variable Registry to Account',
+          slot: { dict: 7, className: 'Account', varName: 'Registry' },
+          before: { defined: false },
+          after: { defined: true },
+          accessorSlots: [],
+          accessorBefore: [],
+          accessorAfter: [],
+        },
+        session,
+      ),
+    ).toBeUndefined();
+  });
+
+  it('reads nothing for a kind with no method slots', () => {
+    vi.mocked(captureMethodSlots).mockClear();
+
+    expect(readLiveState({ id: 10, ...classEdit('Edit Account') }, session)).toBeUndefined();
+    expect(captureMethodSlots).not.toHaveBeenCalled();
   });
 });

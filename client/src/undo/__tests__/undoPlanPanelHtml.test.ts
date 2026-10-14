@@ -120,6 +120,29 @@ describe('renderUndoPlanHtml', () => {
     expect(html()).not.toContain('class="detail"');
   });
 
+  describe('a plan with nothing left to reverse', () => {
+    // Everything was put back by hand since. The panel still opens -- accepting spends the entry,
+    // so it has to name it -- but it must not offer to "Undo 0" or claim changes it won't make.
+    const empty: UndoPlan = { ...plan, rows: [] };
+
+    it('says so, and offers to take the entry off the stack rather than to undo nothing', () => {
+      mount(empty);
+
+      expect(document.querySelectorAll('li.change')).toHaveLength(0);
+      expect(document.getElementById('apply')?.textContent).toBe('Remove from Undo');
+      expect(document.querySelector('.summary span')?.textContent).toContain('already as it was');
+      expect(document.body.textContent).not.toContain('all applied together');
+    });
+
+    it('still answers apply, so accepting spends the entry', () => {
+      const { posted } = mount(empty);
+
+      (document.getElementById('apply') as HTMLButtonElement).click();
+
+      expect(posted).toEqual([{ command: 'apply' }]);
+    });
+  });
+
   it('escapes a label rather than letting it reach the DOM as markup', () => {
     const out = html({ ...plan, label: '<img src=x>' });
     expect(out).not.toContain('<img src=x>');

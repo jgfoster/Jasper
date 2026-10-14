@@ -180,8 +180,16 @@
     }
 
     // Host → webview: append a freshly-fetched page.
+    // Qualifies class names a later page has made ambiguous (rowQualifierView.js), when the
+    // panel injected it; panels whose rows name no class do not.
+    const qualifyRows = function () {
+      if (root.RowQualifier) root.RowQualifier.qualify(doc);
+    };
+    qualifyRows();
+
     const appendChanges = function (html, done) {
       if (list && html) list.insertAdjacentHTML('beforeend', html);
+      qualifyRows();
       wireCards();
       updatePager(done);
       setBusy(false);

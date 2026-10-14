@@ -13,6 +13,21 @@
 import { MethodSlot, MethodSlotOp, MethodSlotState, slotLabel } from './undoTypes';
 
 /**
+ * Whether a slot that held `was` before the change needs any work to get back there from `is`.
+ *
+ * The one test both the reversal and the plan the user approves first (`undoPlan.ts`) apply, so
+ * the panel cannot count a slot the reversal will walk past.
+ */
+export function slotNeedsReversal(
+  was: MethodSlotState | undefined,
+  is: MethodSlotState | undefined,
+): boolean {
+  if (!was || !is) return false;
+  if (!was.exists) return is.exists;
+  return !is.exists || was.source !== is.source || was.category !== is.category;
+}
+
+/**
  * The ordered operations that put `before` back, given what is there `now`.
  *
  * Ordered restore → recompile → remove, so a reversal that both brings a method back
@@ -31,21 +46,12 @@ export function planReversal(
   slots.forEach((slot, i) => {
     const was = before[i];
     const is = now[i];
-    if (!was || !is) return;
+    if (!slotNeedsReversal(was, is)) return;
 
-    if (was.exists && !is.exists) {
+    if (!was.exists) remove.push({ kind: 'remove', slot, source: null, category: null });
+    else if (!is.exists)
       restore.push({ kind: 'restore', slot, source: was.source, category: was.category });
-      return;
-    }
-    if (was.exists && is.exists) {
-      if (was.source !== is.source || was.category !== is.category) {
-        recompile.push({ kind: 'recompile', slot, source: was.source, category: was.category });
-      }
-      return;
-    }
-    if (!was.exists && is.exists) {
-      remove.push({ kind: 'remove', slot, source: null, category: null });
-    }
+    else recompile.push({ kind: 'recompile', slot, source: was.source, category: was.category });
   });
 
   return [...restore, ...recompile, ...remove];

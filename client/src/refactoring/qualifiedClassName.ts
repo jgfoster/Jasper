@@ -52,3 +52,31 @@ export function classNameForRow(
     ? qualifiedClassName(className, dictName ?? undefined)
     : className;
 }
+
+function escapeAttr(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * A preview row's class name as HTML: {@link classNameForRow}'s text, in a span that carries the
+ * class and its dictionary so the panel can qualify it later.
+ *
+ * `ambiguous` only covers the page being rendered, and pages arrive one at a time, so a clash
+ * between a row on page 1 and one on page 2 is first visible in the webview, after page 2 is
+ * appended. `rowQualifierView.js` reads these spans across the whole list and rewrites them.
+ */
+export function classNameSpan(
+  className: string,
+  dictName: string | null | undefined,
+  ambiguous: ReadonlySet<string> | undefined,
+): string {
+  const dict = dictName ? ` data-dict="${escapeAttr(dictName)}"` : '';
+  return (
+    `<span class="cls" data-class="${escapeAttr(className)}"${dict}>` +
+    `${escapeAttr(classNameForRow(className, dictName, ambiguous))}</span>`
+  );
+}
