@@ -8,6 +8,10 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 - **Usage events now say which editor app Jasper runs in** — VS Code, VS Code Insiders, or a fork such as Cursor. Forks report the VS Code version they are built on, so this is the only way to tell them apart when deciding which VS Code versions Jasper still needs to support. See [USAGE_DATA.md](USAGE_DATA.md).
 
+### Fixed
+
+- **A breakpoint below a method's last statement no longer sits in the gutter doing nothing.** There is no step point there for it to stop at, so it used to show a red dot that never stopped and said nothing. It is now taken back out of the Breakpoints list, with a message saying why. ([#711](https://github.com/GemTalk/Jasper/issues/711))
+
 ## [1.14.0] - 2026-10-06
 
 ### Added
