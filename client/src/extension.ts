@@ -249,7 +249,7 @@ import {
   getWslNetworkInfoCached,
   refreshWslNetworkInfo,
 } from './wslBridge';
-import { isWslInstalled, recheckWslInstalled } from './wslInstall';
+import { isWslInstalledAsync, recheckWslInstalled } from './wslInstall';
 import {
   wslExistsSync,
   wslMkdirSync,
@@ -3431,7 +3431,7 @@ export function activate(context: vscode.ExtensionContext) {
     // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
     (async () => {
       let wslInfo = await getWslInfoAsync();
-      if (!wslInfo.available && isWslInstalled()) {
+      if (!wslInfo.available && (await isWslInstalledAsync())) {
         await new Promise((resolve) => setTimeout(resolve, 5000));
         invalidateWslCache();
         wslInfo = await getWslInfoAsync();
@@ -4584,7 +4584,7 @@ export function activate(context: vscode.ExtensionContext) {
     // `wsl.exe` — so it is cheap enough to run on every focus.
     vscode.window.onDidChangeWindowState(async (state) => {
       if (!state.focused || !isWindows()) return;
-      const wasInstalled = isWslInstalled();
+      const wasInstalled = await isWslInstalledAsync();
       if ((await recheckWslInstalled()) === wasInstalled) return;
       invalidateWslCache();
       const wslInfo = await getWslInfoAsync();

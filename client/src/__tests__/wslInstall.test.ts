@@ -8,6 +8,7 @@ import { execFile, execFileSync, type ChildProcess } from 'child_process';
 import {
   forgetWslInstalled,
   isWslInstalled,
+  isWslInstalledAsync,
   lxssListsDistro,
   recheckWslInstalled,
 } from '../wslInstall';
@@ -50,7 +51,11 @@ describe('lxssListsDistro', () => {
   });
 
   it('ignores case, as reg.exe does', () => {
-    expect(lxssListsDistro(`${KEY.toUpperCase()}\\{ABC}`)).toBe(true);
+    expect(lxssListsDistro(WITH_DISTRO.toUpperCase())).toBe(true);
+  });
+
+  it('is false for a subkey that is not a {GUID} distro, which an uninstall may leave behind', () => {
+    expect(lxssListsDistro(`${LEFTOVERS}${KEY}\\AppxInstallerCache\r\n`)).toBe(false);
   });
 });
 
@@ -109,6 +114,23 @@ describe('isWslInstalled', () => {
     forgetWslInstalled();
     expect(isWslInstalled()).toBe(true);
     expect(execFileSync).toHaveBeenCalledTimes(2);
+  });
+
+  it('isWslInstalledAsync fills a cold cache through the async reg.exe, then reuses it', async () => {
+    engine(true);
+    regAsync(WITH_DISTRO);
+    await expect(isWslInstalledAsync()).resolves.toBe(true);
+    await expect(isWslInstalledAsync()).resolves.toBe(true);
+    expect(isWslInstalled()).toBe(true);
+    expect(execFile).toHaveBeenCalledOnce();
+    expect(execFileSync).not.toHaveBeenCalled();
+  });
+
+  it('isWslInstalledAsync is false off Windows without looking', async () => {
+    setPlatform('linux');
+    await expect(isWslInstalledAsync()).resolves.toBe(false);
+    expect(fs.existsSync).not.toHaveBeenCalled();
+    expect(execFile).not.toHaveBeenCalled();
   });
 
   it('recheckWslInstalled sees an install, and then an uninstall, without blocking', async () => {

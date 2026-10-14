@@ -11,6 +11,7 @@ vi.mock('../../sysadminChannel', () => ({ appendSysadmin: vi.fn(), showSysadmin:
 // child_process the same way on a machine with or without WSL.
 vi.mock('../../wslInstall', () => ({
   isWslInstalled: vi.fn(() => true),
+  isWslInstalledAsync: vi.fn(async () => true),
   forgetWslInstalled: vi.fn(),
 }));
 vi.mock('../../wslBridge', async () => {

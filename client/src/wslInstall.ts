@@ -20,9 +20,11 @@ const execFileAsync = promisify(execFile);
  *  - an engine: the Store package's own `wsl.exe` under Program Files, or the
  *    inbox optional feature's `LxssManager.dll`. The System32 `lxss` folder and
  *    launcher are no evidence — both outlive an uninstall.
- *  - a registered distro: a subkey under HKCU\...\Lxss. The key itself, with
- *    values such as `DefaultVersion`, also outlives an uninstall; only the
- *    per-distro subkeys say there is a Linux to run commands in.
+ *  - a registered distro: a `{GUID}` subkey under HKCU\...\Lxss. The key
+ *    itself, with values such as `DefaultVersion`, also outlives an uninstall;
+ *    only the per-distro subkeys say there is a Linux to run commands in. The
+ *    Store package may write other subkeys there (`AppxInstallerCache`) that
+ *    could outlive an uninstall too, so only a GUID-named one counts.
  *
  * `reg.exe` is a plain console tool that never prompts, so querying it is safe.
  */
@@ -40,12 +42,14 @@ function hasWslEngine(): boolean {
   );
 }
 
+const DISTRO_SUBKEY = /^\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}$/;
+
 /** Does `reg query <Lxss>` output list at least one distro subkey? */
 export function lxssListsDistro(regOutput: string): boolean {
   const prefix = `HKEY_CURRENT_USER${LXSS_KEY.slice('HKCU'.length)}\\`.toLowerCase();
   return regOutput.split(/\r?\n/).some((line) => {
     const l = line.trim().toLowerCase();
-    return l.startsWith(prefix) && l.length > prefix.length;
+    return l.startsWith(prefix) && DISTRO_SUBKEY.test(l.slice(prefix.length));
   });
 }
 
@@ -76,6 +80,14 @@ async function probeAsync(): Promise<boolean> {
 export function isWslInstalled(): boolean {
   if (process.platform !== 'win32') return false;
   cachedInstalled ??= probeSync();
+  return cachedInstalled;
+}
+
+/** {@link isWslInstalled} for async callers: a cold cache is filled without
+ *  blocking the extension host. */
+export async function isWslInstalledAsync(): Promise<boolean> {
+  if (process.platform !== 'win32') return false;
+  cachedInstalled ??= await probeAsync();
   return cachedInstalled;
 }
 

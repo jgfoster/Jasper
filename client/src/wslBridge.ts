@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
-import { forgetWslInstalled, isWslInstalled } from './wslInstall';
+import { forgetWslInstalled, isWslInstalled, isWslInstalledAsync } from './wslInstall';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -231,7 +231,7 @@ function readWslConfigMirrored(): boolean {
  * across `wsl --shutdown`, so callers should refresh (not trust) it.
  */
 export async function getWslIpAddressAsync(): Promise<string | undefined> {
-  if (!isWslInstalled()) return undefined;
+  if (!(await isWslInstalledAsync())) return undefined;
   const stdout = await new Promise<string | undefined>((resolve) => {
     exec('wsl.exe -e hostname -I', { timeout: 10000, encoding: 'utf-8' }, (err, out) => {
       if (err) resolve(undefined);
@@ -275,7 +275,7 @@ export function isMirroredCapable(version: string | undefined): boolean {
 }
 
 export async function getWslCoreVersionAsync(): Promise<string | undefined> {
-  if (!isWslInstalled()) return undefined;
+  if (!(await isWslInstalledAsync())) return undefined;
   const stdout = await new Promise<string | undefined>((resolve) => {
     exec('wsl.exe --version', { timeout: 10000, encoding: 'utf-8' }, (err, out) => {
       if (err) resolve(undefined);
@@ -412,7 +412,7 @@ function normalizeArch(raw: string): string | undefined {
  */
 export async function getWslInfoAsync(): Promise<WslInfo> {
   if (cachedWslInfo) return cachedWslInfo;
-  if (!isWindows() || !isWslInstalled()) {
+  if (!isWindows() || !(await isWslInstalledAsync())) {
     cachedWslInfo = {
       available: false,
       defaultDistro: undefined,

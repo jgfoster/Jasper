@@ -17,12 +17,13 @@ vi.mock('child_process', () => ({
 // everywhere else; the not-installed tests below flip it per call.
 vi.mock('../wslInstall', () => ({
   isWslInstalled: vi.fn(() => process.platform === 'win32'),
+  isWslInstalledAsync: vi.fn(async () => process.platform === 'win32'),
   forgetWslInstalled: vi.fn(),
 }));
 
 import * as fs from 'fs';
 import { exec, execFile, execSync, spawn, type ChildProcess } from 'child_process';
-import { forgetWslInstalled, isWslInstalled } from '../wslInstall';
+import { forgetWslInstalled, isWslInstalled, isWslInstalledAsync } from '../wslInstall';
 import {
   parseWslConfigForMirrored,
   parseWslCoreVersion,
@@ -453,11 +454,13 @@ describe('Windows with WSL not installed', () => {
     setPlatform('win32');
     vi.clearAllMocks();
     vi.mocked(isWslInstalled).mockReturnValue(false);
+    vi.mocked(isWslInstalledAsync).mockResolvedValue(false);
     invalidateWslCache();
   });
   afterEach(() => {
     setPlatform(realPlatform);
     vi.mocked(isWslInstalled).mockImplementation(() => process.platform === 'win32');
+    vi.mocked(isWslInstalledAsync).mockImplementation(async () => process.platform === 'win32');
     invalidateWslCache();
   });
 
@@ -467,6 +470,16 @@ describe('Windows with WSL not installed', () => {
     expect((await getWslInfoAsync()).available).toBe(false);
     expect(execSync).not.toHaveBeenCalled();
     expect(exec).not.toHaveBeenCalled();
+  });
+
+  // The sync check blocks the extension host on `reg.exe` when its cache is
+  // cold, which every Refresh leaves it.
+  it('the async entry points ask the install check without blocking', async () => {
+    await getWslInfoAsync();
+    await getWslIpAddressAsync();
+    await getWslCoreVersionAsync();
+    expect(isWslInstalledAsync).toHaveBeenCalledTimes(3);
+    expect(isWslInstalled).not.toHaveBeenCalled();
   });
 
   it('the network probes answer undefined without running wsl.exe', async () => {
