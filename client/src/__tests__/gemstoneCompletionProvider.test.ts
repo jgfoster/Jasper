@@ -30,13 +30,17 @@ function makeSessions(hasSession: boolean, selectedId = 1): FakeSessions {
     selection: [],
     removed: [],
   };
-  const session = (id: number) => ({
-    id,
-    gci: {},
-    handle: `h${id}`,
-    login: { label: 'Test' },
-    stoneVersion: '3.7.2',
-  });
+  // One object per id, as the real SessionManager answers: the class-name cache
+  // is keyed by session object.
+  const sessions = new Map<number, object>();
+  const session = (id: number) => {
+    let s = sessions.get(id);
+    if (!s) {
+      s = { id, gci: {}, handle: `h${id}`, login: { label: 'Test' }, stoneVersion: '3.7.2' };
+      sessions.set(id, s);
+    }
+    return s;
+  };
   const manager = {
     getSelectedSession: vi.fn(() => (hasSession ? session(selectedId) : undefined)),
     // Answers for any id asked for, so a test can pin which session the provider
