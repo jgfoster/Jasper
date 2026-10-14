@@ -12,7 +12,6 @@ vi.mock('../../wslBridge', () => ({
   needsWsl: vi.fn(() => false),
 }));
 
-import { ActiveSession } from '../../sessionManager';
 import { executeFetchString } from '../../browserQueries';
 import { needsWsl } from '../../wslBridge';
 import {
@@ -48,7 +47,7 @@ function happyPath(_s: unknown, code: string): string {
 }
 
 function createMockSession() {
-  const commit = vi.fn(() => ({ success: true, err: { number: 0 } }));
+  const commit = vi.fn(() => ({ success: true, err: { number: 0, message: '' } }));
   const abort = vi.fn(() => ({ success: true, err: { number: 0 } }));
   const session = fakeActiveSession({
     id: 1,
@@ -207,7 +206,7 @@ describe('installEnhancedInspectorSupport', () => {
     });
     commit.mockImplementation(() => {
       events.push('commit');
-      return { success: true, err: { number: 0 } };
+      return { success: true, err: { number: 0, message: '' } };
     });
 
     await installEnhancedInspectorSupport(session, PAYLOAD_DIR);
@@ -374,11 +373,11 @@ describe('installEnhancedInspectorSupport', () => {
   });
 
   it('reports failure and aborts when the commit is refused', async () => {
-    const { session, abort } = createMockSession();
-    session.gci.GciTsCommit = vi.fn(() => ({
+    const { session, commit, abort } = createMockSession();
+    commit.mockReturnValue({
       success: false,
       err: { number: 4007, message: 'commit disallowed' },
-    })) as unknown as ActiveSession['gci']['GciTsCommit'];
+    });
 
     const result = await installEnhancedInspectorSupport(session, PAYLOAD_DIR);
 

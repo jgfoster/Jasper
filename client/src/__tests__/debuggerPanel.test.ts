@@ -292,7 +292,7 @@ function makeSession(id = 1): ActiveSession {
     },
     stoneVersion: '3.7.2',
     enhancedInspectorAvailable: true,
-    gci: { GciTsClearStack: vi.fn() } as unknown as ActiveSession['gci'],
+    gci: { GciTsClearStack: vi.fn() },
   });
 }
 

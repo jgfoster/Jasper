@@ -26,3 +26,17 @@ export function fakeActiveSession(fields: FakeFields = {}): ActiveSession {
     state,
   );
 }
+
+/**
+ * A `fakeActiveSession` on `gci`, with filler for the handle, login and stone
+ * version that query tests don't read. `fields` overrides any of them.
+ */
+export function sessionOn(gci: object, fields: FakeFields = {}): ActiveSession {
+  return fakeActiveSession({
+    handle: {},
+    login: { label: 'Test' },
+    stoneVersion: '3.7.5',
+    ...fields,
+    gci,
+  });
+}

@@ -67,18 +67,22 @@ import { fakeActiveSession } from '../../__tests__/fakeActiveSession';
 
 const EXTENSION_PATH = '/ext';
 
-function createBaseSession(systemUserLoginSucceeds = true): ActiveSession {
+function systemUserLibrary(systemUserLoginSucceeds = true) {
+  return {
+    GciTsLogin: vi.fn(() =>
+      systemUserLoginSucceeds
+        ? { session: {}, err: { number: 0 } }
+        : { session: null, err: { number: 4051, message: 'bad password' } },
+    ),
+    GciTsLogout: vi.fn(),
+  };
+}
+
+function createBaseSession(gci: object = systemUserLibrary()): ActiveSession {
   return fakeActiveSession({
     id: 1,
     login: { stone: 'demo', gem_host: 'localhost', netldi: 'netldi' },
-    gci: {
-      GciTsLogin: vi.fn(() =>
-        systemUserLoginSucceeds
-          ? { session: {}, err: { number: 0 } }
-          : { session: null, err: { number: 4051, message: 'bad password' } },
-      ),
-      GciTsLogout: vi.fn(),
-    },
+    gci,
     stoneVersion: '3.7.5',
     enhancedInspectorAvailable: false,
   });
@@ -137,22 +141,25 @@ describe('installEnhancedInspectorFeature', () => {
 
   it('reports a clear error and never logs in when the payload files are missing', async () => {
     mocks.existsSync.mockReturnValue(false);
-    const base = createBaseSession();
+    const gci = systemUserLibrary();
+    const base = createBaseSession(gci);
 
     const ok = await install(base, true);
 
     expect(mocks.showErrorMessage).toHaveBeenCalledWith(
       expect.stringContaining('payload not found'),
     );
-    expect(base.gci.GciTsLogin).not.toHaveBeenCalled();
+    expect(gci.GciTsLogin).not.toHaveBeenCalled();
     expect(ok).toBe(false);
   });
 
   it('prompts for the SystemUser password when the default is rejected, then installs', async () => {
-    const base = createBaseSession(false);
-    (base.gci.GciTsLogin as ReturnType<typeof vi.fn>)
-      .mockReturnValueOnce({ session: null, err: { number: 4051, message: 'bad password' } })
-      .mockReturnValueOnce({ session: {}, err: { number: 0 } });
+    const gci = systemUserLibrary(false);
+    const base = createBaseSession(gci);
+    gci.GciTsLogin.mockReturnValueOnce({
+      session: null,
+      err: { number: 4051, message: 'bad password' },
+    }).mockReturnValueOnce({ session: {}, err: { number: 0 } });
     mocks.showInputBox.mockResolvedValueOnce('the real password');
 
     await install(base, true);
@@ -162,7 +169,7 @@ describe('installEnhancedInspectorFeature', () => {
   });
 
   it('warns without prompting when non-interactive and the default password fails', async () => {
-    const base = createBaseSession(false);
+    const base = createBaseSession(systemUserLibrary(false));
 
     const ok = await install(base, false);
 

@@ -35,8 +35,8 @@ const RECEIVER_OOP = 7000n;
  * are called with chained unary messages like 'inClass name' instead of
  * sending each message separately.
  */
-function createMockSession(): ActiveSession {
-  const mockGci = {
+function createMockSession() {
+  const gci = {
     GciTsPerform: vi.fn(
       (
         handle: unknown,
@@ -94,16 +94,17 @@ function createMockSession(): ActiveSession {
     GciTsFetchSize: vi.fn(() => ({ result: 0n, err: { ...noErr } })),
     GciTsFetchOops: vi.fn(() => ({ oops: [], err: { ...noErr } })),
     GciTsOopIsSpecial: vi.fn(() => false),
-    executeAndFetchString: vi.fn(() => ''),
+    executeAndFetchString: vi.fn((_handle: unknown, _code: string) => ''),
   };
 
-  return fakeActiveSession({
+  const session = fakeActiveSession({
     id: 1,
-    gci: mockGci as unknown as ActiveSession['gci'],
+    gci,
     handle: {},
     login: { label: 'Test' },
     stoneVersion: '3.7.2',
   });
+  return { session, gci };
 }
 
 function receiverClassName(oop: bigint): string {
@@ -112,8 +113,8 @@ function receiverClassName(oop: bigint): string {
   return 'Object';
 }
 
-function expectNoMultiWordSelectors(session: ActiveSession): void {
-  const performCalls = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls;
+function expectNoMultiWordSelectors(gci: ReturnType<typeof createMockSession>['gci']): void {
+  const performCalls = (gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls;
   const selectorStrs = performCalls
     .map((call) => call[3] as string | null)
     .filter((s): s is string => s !== null);
@@ -122,8 +123,7 @@ function expectNoMultiWordSelectors(session: ActiveSession): void {
     expect(selector).not.toContain(' ');
   }
 
-  const fetchBytesCalls = (session.gci.GciTsPerformFetchBytes as ReturnType<typeof vi.fn>).mock
-    .calls;
+  const fetchBytesCalls = (gci.GciTsPerformFetchBytes as ReturnType<typeof vi.fn>).mock.calls;
   for (const call of fetchBytesCalls) {
     const selector = call[2] as string;
     expect(selector).not.toContain(' ');
@@ -135,14 +135,12 @@ function expectNoMultiWordSelectors(session: ActiveSession): void {
  * instead of evaluating it, and returns that source for inspection.
  */
 function generatedSmalltalkFrom(run: (session: ActiveSession) => void): string {
-  const session = createMockSession();
+  const { session, gci } = createMockSession();
   let generated = '';
-  (session.gci as unknown as Record<string, unknown>).executeAndFetchString = vi.fn(
-    (_handle: unknown, code: string) => {
-      generated = code;
-      return '';
-    },
-  );
+  gci.executeAndFetchString.mockImplementation((_handle: unknown, code: string) => {
+    generated = code;
+    return '';
+  });
 
   run(session);
 
@@ -156,36 +154,38 @@ describe('debugQueries', () => {
     const STEP_POINT_OOP = 0xbbn;
 
     function stepPointSession(stepPointResultOop: bigint) {
-      return fakeActiveSession({
+      const gci = {
+        GciTsI64ToOop: vi.fn(() => ({ result: LEVEL_OOP, err: { ...noErr } })),
+        GciTsPerform: vi.fn(() => ({ result: stepPointResultOop, err: { ...noErr } })),
+        oopToInteger: vi.fn(() => 2n),
+      };
+      const session = fakeActiveSession({
         id: 1,
         handle: {},
         login: { label: 'T' },
         stoneVersion: '3.7.2',
-        gci: {
-          GciTsI64ToOop: vi.fn(() => ({ result: LEVEL_OOP, err: { ...noErr } })),
-          GciTsPerform: vi.fn(() => ({ result: stepPointResultOop, err: { ...noErr } })),
-          oopToInteger: vi.fn(() => 2n),
-        } as unknown as ActiveSession['gci'],
+        gci,
       });
+      return { session, gci };
     }
 
     it('sends _stepPointAt: with the frame level and returns the step point', () => {
-      const session = stepPointSession(STEP_POINT_OOP);
+      const { session, gci } = stepPointSession(STEP_POINT_OOP);
       const result = debug.getStepPoint(session, GS_PROCESS, 3);
 
       expect(result).toBe(2);
-      const performCalls = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls;
+      const performCalls = (gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls;
       expect(performCalls[0][1]).toBe(GS_PROCESS); // receiver is the process
       expect(performCalls[0][3]).toBe('_stepPointAt:'); // selector
       expect(performCalls[0][4]).toEqual([LEVEL_OOP]); // level arg
     });
 
     it('returns undefined (without converting) when the step point is nil', () => {
-      const session = stepPointSession(0x14n /* OOP_NIL */);
+      const { session, gci } = stepPointSession(0x14n /* OOP_NIL */);
       const result = debug.getStepPoint(session, GS_PROCESS, 3);
 
       expect(result).toBeUndefined();
-      expect(session.gci.oopToInteger).not.toHaveBeenCalled();
+      expect(gci.oopToInteger).not.toHaveBeenCalled();
     });
   });
 
@@ -205,7 +205,7 @@ describe('debugQueries', () => {
             if (selector === 'homeMethod') return { result: homeOop, err: { ...noErr } };
             return { result: 0n, err: { ...noErr } };
           }),
-        } as unknown as ActiveSession['gci'],
+        },
       });
     }
 
@@ -228,7 +228,7 @@ describe('debugQueries', () => {
 
   describe('getMethodInfo', () => {
     it('returns class name and selector by chaining single-message sends', () => {
-      const session = createMockSession();
+      const { session } = createMockSession();
       const result = debug.getMethodInfo(session, METHOD_OOP);
 
       expect(result.className).toBe('SmallInteger');
@@ -236,11 +236,10 @@ describe('debugQueries', () => {
     });
 
     it('does not send multi-word selectors to GciTsPerformFetchBytes', () => {
-      const session = createMockSession();
+      const { session, gci } = createMockSession();
       debug.getMethodInfo(session, METHOD_OOP);
 
-      const fetchBytesCalls = (session.gci.GciTsPerformFetchBytes as ReturnType<typeof vi.fn>).mock
-        .calls;
+      const fetchBytesCalls = (gci.GciTsPerformFetchBytes as ReturnType<typeof vi.fn>).mock.calls;
       for (const call of fetchBytesCalls) {
         const selector = call[2] as string;
         expect(selector).not.toContain(' ');
@@ -250,24 +249,24 @@ describe('debugQueries', () => {
 
   describe('getObjectClassName', () => {
     it('returns class name by chaining single-message sends', () => {
-      const session = createMockSession();
+      const { session } = createMockSession();
       const result = debug.getObjectClassName(session, RECEIVER_OOP);
 
       expect(result).toBe('SmallInteger');
     });
 
     it('does not send multi-word selectors', () => {
-      const session = createMockSession();
+      const { session, gci } = createMockSession();
       debug.getObjectClassName(session, RECEIVER_OOP);
 
-      expectNoMultiWordSelectors(session);
+      expectNoMultiWordSelectors(gci);
     });
   });
 
   describe('getMethodUriInfo', () => {
     it('parses tab-separated result into MethodUriInfo', () => {
-      const session = createMockSession();
-      (session.gci as unknown as Record<string, unknown>).executeAndFetchString = vi.fn(
+      const { session, gci } = createMockSession();
+      gci.executeAndFetchString.mockImplementation(
         () => 'Globals\tSmallInteger\tinstance\tarithmetic\t/',
       );
 
@@ -283,8 +282,8 @@ describe('debugQueries', () => {
     });
 
     it('returns undefined when the execute fails', () => {
-      const session = createMockSession();
-      (session.gci as unknown as Record<string, unknown>).executeAndFetchString = vi.fn(() => {
+      const { session, gci } = createMockSession();
+      gci.executeAndFetchString.mockImplementation(() => {
         throw new Error('error');
       });
 
@@ -292,8 +291,8 @@ describe('debugQueries', () => {
     });
 
     it('parses class-side methods correctly', () => {
-      const session = createMockSession();
-      (session.gci as unknown as Record<string, unknown>).executeAndFetchString = vi.fn(
+      const { session, gci } = createMockSession();
+      gci.executeAndFetchString.mockImplementation(
         () => 'Globals\tArray\tclass\tinstance creation\tnew',
       );
 
@@ -313,8 +312,8 @@ describe('debugQueries', () => {
     const GS_PROCESS = 0x123n;
 
     function sessionReturning(data: string): ActiveSession {
-      const session = createMockSession();
-      (session.gci as unknown as Record<string, unknown>).executeAndFetchString = vi.fn(() => data);
+      const { session, gci } = createMockSession();
+      gci.executeAndFetchString.mockImplementation(() => data);
       return session;
     }
 
@@ -346,8 +345,8 @@ describe('debugQueries', () => {
     });
 
     it('returns undefined when the execute fails', () => {
-      const session = createMockSession();
-      (session.gci as unknown as Record<string, unknown>).executeAndFetchString = vi.fn(() => {
+      const { session, gci } = createMockSession();
+      gci.executeAndFetchString.mockImplementation(() => {
         throw new Error('boom');
       });
       expect(debug.getDoesNotUnderstandInfo(session, GS_PROCESS)).toBeUndefined();
@@ -358,8 +357,8 @@ describe('debugQueries', () => {
     const RECEIVER_OOP = 0x456n;
 
     function sessionReturning(data: string): ActiveSession {
-      const session = createMockSession();
-      (session.gci as unknown as Record<string, unknown>).executeAndFetchString = vi.fn(() => data);
+      const { session, gci } = createMockSession();
+      gci.executeAndFetchString.mockImplementation(() => data);
       return session;
     }
 
@@ -408,8 +407,8 @@ describe('debugQueries', () => {
     });
 
     it('returns [] when the execute fails', () => {
-      const session = createMockSession();
-      (session.gci as unknown as Record<string, unknown>).executeAndFetchString = vi.fn(() => {
+      const { session, gci } = createMockSession();
+      gci.executeAndFetchString.mockImplementation(() => {
         throw new Error('boom');
       });
       expect(debug.getReceiverClassChain(session, RECEIVER_OOP, 'Object')).toEqual([]);
@@ -420,8 +419,8 @@ describe('debugQueries', () => {
     const RECEIVER_OOP = 0x456n;
 
     function sessionReturning(data: string): ActiveSession {
-      const session = createMockSession();
-      (session.gci as unknown as Record<string, unknown>).executeAndFetchString = vi.fn(() => data);
+      const { session, gci } = createMockSession();
+      gci.executeAndFetchString.mockImplementation(() => data);
       return session;
     }
 
@@ -460,8 +459,8 @@ describe('debugQueries', () => {
     });
 
     it('returns undefined when the execute fails', () => {
-      const session = createMockSession();
-      (session.gci as unknown as Record<string, unknown>).executeAndFetchString = vi.fn(() => {
+      const { session, gci } = createMockSession();
+      gci.executeAndFetchString.mockImplementation(() => {
         throw new Error('boom');
       });
       expect(debug.getBrowseTarget(session, RECEIVER_OOP, 'foo')).toBeUndefined();
@@ -511,8 +510,8 @@ describe('debugQueries', () => {
     });
 
     it('parses a chain that crosses from the metaclass side to the instance side', () => {
-      const session = createMockSession();
-      (session.gci as unknown as Record<string, unknown>).executeAndFetchString = vi.fn(
+      const { session, gci } = createMockSession();
+      gci.executeAndFetchString.mockImplementation(
         () =>
           'Widget\tclass\tUserGlobals\t1\nObject\tclass\tGlobals\t0\nClass\tinstance\tGlobals\t1',
       );
@@ -617,10 +616,10 @@ describe('debugQueries', () => {
 
   describe('getInstVarNames', () => {
     it('does not send multi-word selectors', () => {
-      const session = createMockSession();
+      const { session, gci } = createMockSession();
       debug.getInstVarNames(session, RECEIVER_OOP);
 
-      expectNoMultiWordSelectors(session);
+      expectNoMultiWordSelectors(gci);
     });
   });
 
@@ -628,13 +627,15 @@ describe('debugQueries', () => {
   // don't exist in 3.6.2. They now use absolute GciTsFetchOops (present in
   // 3.6.2), so debugger/inspector variable display works on both 3.6.2 and 3.7.5.
   describe('instance variable fetch (3.6.2-compatible via GciTsFetchOops)', () => {
+    const handle = { h: 1 };
+
     function sessionWith(gci: Record<string, unknown>): ActiveSession {
       return fakeActiveSession({
         id: 1,
-        handle: { h: 1 },
+        handle,
         login: { label: 'T' },
         stoneVersion: '3.6.2',
-        gci: gci as unknown as ActiveSession['gci'],
+        gci,
       });
     }
 
@@ -643,7 +644,7 @@ describe('debugQueries', () => {
       const session = sessionWith({ GciTsFetchOops: fetchOops });
 
       expect(debug.getNamedInstVarOops(session, 100n, 2)).toEqual([11n, 22n]);
-      expect(fetchOops).toHaveBeenCalledWith(session.handle, 100n, 1n, 2);
+      expect(fetchOops).toHaveBeenCalledWith(handle, 100n, 1n, 2);
     });
 
     it('getNamedInstVarOops returns [] for non-positive count without calling GCI', () => {
@@ -662,8 +663,8 @@ describe('debugQueries', () => {
       // First varying element (startIndex 1) of an object with 3 named instVars
       // is at absolute index 4.
       expect(debug.getIndexedOops(session, 100n, 1, 2)).toEqual([7n, 8n]);
-      expect(fetchObjInfo).toHaveBeenCalledWith(session.handle, 100n, false, 0);
-      expect(fetchOops).toHaveBeenCalledWith(session.handle, 100n, 4n, 2);
+      expect(fetchObjInfo).toHaveBeenCalledWith(handle, 100n, false, 0);
+      expect(fetchOops).toHaveBeenCalledWith(handle, 100n, 4n, 2);
     });
 
     it('getIndexedOops returns [] (and skips the fetch) when GciTsFetchObjInfo errors', () => {
@@ -769,26 +770,27 @@ describe('debugQueries', () => {
             : { bytesReturned: 0, data: '', err: { ...noErr } },
         ),
       };
-      return fakeActiveSession({
+      const session = fakeActiveSession({
         id: 1,
         handle: {},
         login: { label: 'T' },
         stoneVersion: '3.7.2',
-        gci: gci as unknown as ActiveSession['gci'],
+        gci,
       });
+      return { session, gci };
     }
 
     it('returns the result printString ("7") for "3 + 4" instead of raising', () => {
-      const session = evalSession();
+      const { session } = evalSession();
       expect(debug.evaluateInFrame(session, GS_PROCESS, '3 + 4', 3)).toBe('7');
     });
 
     it("evaluates the expression string with self bound to the frame's self", () => {
-      const session = evalSession();
+      const { session, gci } = evalSession();
       debug.evaluateInFrame(session, GS_PROCESS, '3 + 4', 3);
 
-      expect(session.gci.GciTsNewString).toHaveBeenCalledWith({}, '3 + 4');
-      const performCalls = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls;
+      expect(gci.GciTsNewString).toHaveBeenCalledWith({}, '3 + 4');
+      const performCalls = (gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls;
       const evalCall = performCalls.find(
         (c: unknown[]) => c[3] === 'evaluateInContext:symbolList:',
       );
@@ -801,20 +803,20 @@ describe('debugQueries', () => {
     // 3.7, where the perform fails with NameError 2404. A frame with nothing extra
     // to bind must still go through the two-argument form.
     it('never sends the one-argument form, which older stones do not implement', () => {
-      const session = evalSession();
+      const { session, gci } = evalSession();
       debug.evaluateInFrame(session, GS_PROCESS, '3 + 4', 3);
 
-      const sels = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls.map(
+      const sels = (gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls.map(
         (c: unknown[]) => c[3],
       );
       expect(sels).not.toContain('evaluateInContext:');
     });
 
     it('never sends the removed _framePerform:withArgs:onLevel: primitive (the original bug)', () => {
-      const session = evalSession();
+      const { session, gci } = evalSession();
       debug.evaluateInFrame(session, GS_PROCESS, '3 + 4', 3);
 
-      const performCalls = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls;
+      const performCalls = (gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls;
       expect(performCalls.some((c: unknown[]) => c[3] === '_framePerform:withArgs:onLevel:')).toBe(
         false,
       );
@@ -830,8 +832,8 @@ describe('debugQueries', () => {
       const unreadable = /Could not read the contents of frame 3/;
 
       it('blames the frame instead of evaluating against an empty context', () => {
-        const session = evalSession();
-        (session.gci.executeAndFetchString as ReturnType<typeof vi.fn>).mockImplementation(() => {
+        const { session, gci } = evalSession();
+        (gci.executeAndFetchString as ReturnType<typeof vi.fn>).mockImplementation(() => {
           throw new Error('the gem went away');
         });
 
@@ -839,8 +841,8 @@ describe('debugQueries', () => {
       });
 
       it('blames the frame when the server answers a payload with no receiver in it', () => {
-        const session = evalSession();
-        (session.gci.executeAndFetchString as ReturnType<typeof vi.fn>).mockReturnValue('');
+        const { session, gci } = evalSession();
+        (gci.executeAndFetchString as ReturnType<typeof vi.fn>).mockReturnValue('');
 
         expect(() => debug.evaluateInFrame(session, GS_PROCESS, 'limit', 3)).toThrow(unreadable);
       });
@@ -848,8 +850,8 @@ describe('debugQueries', () => {
       // evaluateInFrameNb is not an `async` function, so a synchronous throw out
       // of the frame setup would bypass the caller's promise chain entirely.
       it('rejects the non-blocking evaluation rather than throwing out of the call', async () => {
-        const session = evalSession();
-        (session.gci.executeAndFetchString as ReturnType<typeof vi.fn>).mockReturnValue('');
+        const { session, gci } = evalSession();
+        (gci.executeAndFetchString as ReturnType<typeof vi.fn>).mockReturnValue('');
 
         await expect(debug.evaluateInFrameNb(session, GS_PROCESS, 'limit', 3)).rejects.toThrow(
           unreadable,
@@ -918,41 +920,42 @@ describe('debugQueries', () => {
               : { bytesReturned: 0, data: '', err: { ...noErr } },
         ),
       };
-      return fakeActiveSession({
+      const session = fakeActiveSession({
         id: 1,
         handle: {},
         login: { label: 'T' },
         stoneVersion: '3.7.2',
-        gci: gci as unknown as ActiveSession['gci'],
+        gci,
       });
+      return { session, gci };
     }
 
     it('evaluates via evaluateInContext:symbolList: (not the self-only path)', () => {
-      const session = tempSession();
+      const { session, gci } = tempSession();
       expect(debug.evaluateInFrame(session, GS_PROCESS, 'amount * 2', 3)).toBe('150');
 
-      const calls = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls;
+      const calls = (gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls;
       const sels = calls.map((c: unknown[]) => c[3]);
       expect(sels).toContain('evaluateInContext:symbolList:');
       expect(sels).not.toContain('evaluateInContext:');
     });
 
     it('prepends the temp dictionary to the user symbol list', () => {
-      const session = tempSession();
+      const { session, gci } = tempSession();
       debug.evaluateInFrame(session, GS_PROCESS, 'amount * 2', 3);
 
-      const evalCall = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls.find(
+      const evalCall = (gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls.find(
         (c: unknown[]) => c[3] === 'evaluateInContext:symbolList:',
       );
       expect(evalCall![4]).toEqual([FRAME_SELF, 0xddcn]);
     });
 
     it('interns each temp name and stores its value in the dictionary', () => {
-      const session = tempSession();
+      const { session, gci } = tempSession();
       debug.evaluateInFrame(session, GS_PROCESS, 'amount * 2', 3);
 
-      expect(session.gci.GciTsNewSymbol).toHaveBeenCalledWith({}, 'amount');
-      const atPut = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls.find(
+      expect(gci.GciTsNewSymbol).toHaveBeenCalledWith({}, 'amount');
+      const atPut = (gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls.find(
         (c: unknown[]) => c[3] === 'at:put:',
       );
       expect(atPut).toBeDefined();
@@ -960,11 +963,11 @@ describe('debugQueries', () => {
     });
 
     it('falls back to the plain session symbol list when the temps cannot be bound', () => {
-      const session = tempSession();
+      const { session, gci } = tempSession();
       // SymbolDictionary fails to resolve → no temp dictionary can be built, so
       // the eval runs against the user's own symbol list instead. `amount` will
       // not resolve, but self, instVars and globals still do.
-      (session.gci.resolveSymbol as ReturnType<typeof vi.fn>).mockImplementation(
+      (gci.resolveSymbol as ReturnType<typeof vi.fn>).mockImplementation(
         (_h: unknown, name: string) => {
           if (name === 'SymbolDictionary') throw new Error('not resolved');
           return 0xd2n;
@@ -973,7 +976,7 @@ describe('debugQueries', () => {
 
       debug.evaluateInFrame(session, GS_PROCESS, 'amount * 2', 3);
 
-      const evalCall = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls.find(
+      const evalCall = (gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls.find(
         (c: unknown[]) => c[3] === 'evaluateInContext:symbolList:',
       );
       expect(evalCall![4]).toEqual([FRAME_SELF, 0xddan]); // the user symbol list, unwrapped
@@ -985,9 +988,9 @@ describe('debugQueries', () => {
      * same persistent object all session, so it is read once.
      */
     it('reads the session symbol list once and reuses it', () => {
-      const session = tempSession();
+      const { session, gci } = tempSession();
       // No temp dictionary to build, so each eval takes the plain session list.
-      (session.gci.resolveSymbol as ReturnType<typeof vi.fn>).mockImplementation(
+      (gci.resolveSymbol as ReturnType<typeof vi.fn>).mockImplementation(
         (_h: unknown, name: string) => {
           if (name === 'SymbolDictionary') throw new Error('not resolved');
           return 0xd2n;
@@ -997,7 +1000,7 @@ describe('debugQueries', () => {
       debug.evaluateInFrame(session, GS_PROCESS, 'amount * 2', 3);
       debug.evaluateInFrame(session, GS_PROCESS, 'amount * 3', 3);
 
-      const sels = (session.gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls.map(
+      const sels = (gci.GciTsPerform as ReturnType<typeof vi.fn>).mock.calls.map(
         (c: unknown[]) => c[3],
       );
       expect(sels.filter((sel: unknown) => sel === 'symbolList')).toHaveLength(1);
@@ -1052,25 +1055,26 @@ describe('debugQueries', () => {
         GciTsNbPoll: vi.fn(() => ({ result: 1, err: { ...noErr } })), // ready on first poll
         GciTsNbResult: vi.fn(() => ({ result: EVAL_RESULT, err: { ...noErr } })),
       };
-      return fakeActiveSession({
+      const session = fakeActiveSession({
         id: 1,
         handle: {},
         login: { label: 'T' },
         stoneVersion: '3.7.2',
-        gci: gci as unknown as ActiveSession['gci'],
+        gci,
       });
+      return { session, gci };
     }
 
     it('resolves with the result printString once the non-blocking call is ready', async () => {
-      const session = nbEvalSession();
+      const { session } = nbEvalSession();
       await expect(debug.evaluateInFrameNb(session, GS_PROCESS, '3 + 4', 3)).resolves.toBe('7');
     });
 
     it('issues the evaluation on the expression string, without blocking', async () => {
-      const session = nbEvalSession();
+      const { session, gci } = nbEvalSession();
       await debug.evaluateInFrameNb(session, GS_PROCESS, '3 + 4', 3);
 
-      const nbCalls = (session.gci.GciTsNbPerform as ReturnType<typeof vi.fn>).mock.calls;
+      const nbCalls = (gci.GciTsNbPerform as ReturnType<typeof vi.fn>).mock.calls;
       expect(nbCalls).toHaveLength(1);
       expect(nbCalls[0][1]).toBe(EXPR_STRING); // receiver = the expression String
       expect(nbCalls[0][3]).toBe('evaluateInContext:symbolList:');
@@ -1078,8 +1082,8 @@ describe('debugQueries', () => {
     });
 
     it('rejects when the expression string cannot be created', async () => {
-      const session = nbEvalSession();
-      (session.gci.GciTsNewString as ReturnType<typeof vi.fn>).mockReturnValue({
+      const { session, gci } = nbEvalSession();
+      (gci.GciTsNewString as ReturnType<typeof vi.fn>).mockReturnValue({
         result: 0n,
         err: { ...noErr, number: 2101, message: 'bad string' },
       });
@@ -1090,8 +1094,8 @@ describe('debugQueries', () => {
     });
 
     it('rejects with the GCI error when the non-blocking result reports a failure (e.g. an interrupt)', async () => {
-      const session = nbEvalSession();
-      (session.gci.GciTsNbResult as ReturnType<typeof vi.fn>).mockReturnValue({
+      const { session, gci } = nbEvalSession();
+      (gci.GciTsNbResult as ReturnType<typeof vi.fn>).mockReturnValue({
         result: 0n,
         err: { ...noErr, number: 6004, message: 'the operation was interrupted' },
       });
@@ -1157,14 +1161,14 @@ describe('debugQueries', () => {
         handle: {},
         login: { label: 'T' },
         stoneVersion: '3.7.2',
-        gci: gci as unknown as ActiveSession['gci'],
+        gci,
       });
 
       await expect(debug.evaluateInFrameNb(session, GS_PROCESS, 'amount * 2', 3)).resolves.toBe(
         '150',
       );
 
-      const nbCalls = (session.gci.GciTsNbPerform as ReturnType<typeof vi.fn>).mock.calls;
+      const nbCalls = (gci.GciTsNbPerform as ReturnType<typeof vi.fn>).mock.calls;
       expect(nbCalls[0][3]).toBe('evaluateInContext:symbolList:'); // symbol-list selector
       expect(nbCalls[0][4][0]).toBe(FRAME_SELF); // self
       expect(nbCalls[0][4]).toHaveLength(2); // [self, symbolList]
@@ -1182,7 +1186,7 @@ describe('debugQueries', () => {
         handle: {},
         login: { label: 'T' },
         stoneVersion: '3.7.2',
-        gci: { GciTsContinueWith: continueWith } as unknown as ActiveSession['gci'],
+        gci: { GciTsContinueWith: continueWith },
       });
 
       expect(debug.continueExecution(session, GS_PROCESS)).toEqual({
@@ -1208,7 +1212,7 @@ describe('debugQueries', () => {
             result: 0n,
             err: { ...noErr, number: 2010, message: 'next error', context: 0xabn },
           })),
-        } as unknown as ActiveSession['gci'],
+        },
       });
 
       const r = debug.continueExecution(session, GS_PROCESS);
@@ -1229,7 +1233,7 @@ describe('debugQueries', () => {
         gci: {
           GciTsI64ToOop: vi.fn(() => ({ result: 0xaan, err: { ...noErr } })),
           GciTsPerform: vi.fn(() => ({ result: RESULT, err: { ...noErr } })),
-        } as unknown as ActiveSession['gci'],
+        },
       });
 
       expect(debug.stepOver(session, GS_PROCESS, 1)).toEqual({
@@ -1250,7 +1254,7 @@ describe('debugQueries', () => {
             result: 0n,
             err: { ...noErr, number: 6011, message: 'uncontinuable', context: 0xabn },
           })),
-        } as unknown as ActiveSession['gci'],
+        },
       });
 
       const r = debug.stepOver(session, GS_PROCESS, 1);
@@ -1279,7 +1283,7 @@ describe('debugQueries', () => {
               context: 0xabn,
             },
           })),
-        } as unknown as ActiveSession['gci'],
+        },
       });
 
       const r = await debug.stepOverNb(session, GS_PROCESS, 1);
@@ -1305,7 +1309,7 @@ describe('debugQueries', () => {
       };
       const session = fakeActiveSession({
         id: 1,
-        gci: gci as unknown as ActiveSession['gci'],
+        gci,
         handle: {},
         login: { label: 'T' },
         stoneVersion: '3.7.2',
@@ -1370,18 +1374,20 @@ describe('debugQueries', () => {
         GciTsBreak: vi.fn(() => ({ success: true, err: { ...noErr } })),
         GciTsClearStack: vi.fn(() => ({ success: true, err: { ...noErr } })),
       };
-      return fakeActiveSession({
+      const handle = {};
+      const session = fakeActiveSession({
         id: 1,
-        handle: {},
+        handle,
         login: { label: 'T' },
         stoneVersion: '3.7.2',
-        gci: gci as unknown as ActiveSession['gci'],
+        gci,
       });
+      return { session, gci, handle };
     }
 
     /** Runs `start`, presses Cancel twice, and waits out the drain. */
     async function cancelTwice(
-      session: ActiveSession,
+      gci: ReturnType<typeof cancellableSession>['gci'],
       start: (opts: NbRunOptions) => Promise<unknown>,
     ): Promise<void> {
       vi.useFakeTimers();
@@ -1399,7 +1405,7 @@ describe('debugQueries', () => {
         await vi.advanceTimersByTimeAsync(400);
         await run.catch(() => {});
         // The drain polls in the background; let it read its result.
-        (session.gci.GciTsNbPoll as ReturnType<typeof vi.fn>).mockReturnValue({
+        (gci.GciTsNbPoll as ReturnType<typeof vi.fn>).mockReturnValue({
           result: 1,
           err: { ...noErr },
         });
@@ -1411,31 +1417,29 @@ describe('debugQueries', () => {
     }
 
     it('keeps the process a cancelled step stopped, because the debugger owns it', async () => {
-      const session = cancellableSession();
+      const { session, gci } = cancellableSession();
 
-      await cancelTwice(session, (opts) => debug.stepOverNb(session, 0xaan, 1, opts));
+      await cancelTwice(gci, (opts) => debug.stepOverNb(session, 0xaan, 1, opts));
 
-      expect(session.gci.GciTsClearStack).not.toHaveBeenCalled();
+      expect(gci.GciTsClearStack).not.toHaveBeenCalled();
     });
 
     it('keeps the process a cancelled restart-frame trim stopped, for the same reason', async () => {
-      const session = cancellableSession();
+      const { session, gci } = cancellableSession();
 
-      await cancelTwice(session, (opts) => debug.trimStackToLevelNb(session, 0xaan, 2, opts));
+      await cancelTwice(gci, (opts) => debug.trimStackToLevelNb(session, 0xaan, 2, opts));
 
-      expect(session.gci.GciTsClearStack).not.toHaveBeenCalled();
+      expect(gci.GciTsClearStack).not.toHaveBeenCalled();
     });
 
     it('throws away the process a cancelled frame evaluation made for itself', async () => {
       // The counter-case: the receiver here is the expression, not the process,
       // so the evaluation gets a process of its own and nothing else holds it.
-      const session = cancellableSession();
+      const { session, gci, handle } = cancellableSession();
 
-      await cancelTwice(session, (opts) =>
-        debug.evaluateInFrameNb(session, 0xaan, '3 + 4', 1, opts),
-      );
+      await cancelTwice(gci, (opts) => debug.evaluateInFrameNb(session, 0xaan, '3 + 4', 1, opts));
 
-      expect(session.gci.GciTsClearStack).toHaveBeenCalledWith(session.handle, STOPPED_PROCESS);
+      expect(gci.GciTsClearStack).toHaveBeenCalledWith(handle, STOPPED_PROCESS);
     });
   });
 });

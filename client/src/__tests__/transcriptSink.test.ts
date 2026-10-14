@@ -68,7 +68,7 @@ function makeGci(overrides: Record<string, unknown> = {}) {
 function makeSession(gci = makeGci()): ActiveSession {
   return fakeActiveSession({
     id: 1,
-    gci: gci as unknown as ActiveSession['gci'],
+    gci,
     handle: {},
     login: { label: 'Test' },
     stoneVersion: '3.7.5',
