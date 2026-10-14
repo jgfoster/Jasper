@@ -33,8 +33,8 @@ export class ActiveSession {
 
   constructor(
     public id: number,
-    public gci: GciLibrary,
-    public handle: unknown,
+    private readonly gci: GciLibrary,
+    private readonly handle: unknown,
     public login: GemStoneLogin,
     public stoneVersion: string,
   ) {}

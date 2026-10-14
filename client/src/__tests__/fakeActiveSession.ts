@@ -2,8 +2,9 @@ import { ActiveSession } from '../activeSession';
 import type { GciLibrary } from '../gciLibrary';
 import type { GemStoneLogin } from '../loginTypes';
 
-type FakeFields = Partial<Omit<ActiveSession, 'gci' | 'login'>> & {
+type FakeFields = Partial<Omit<ActiveSession, 'login'>> & {
   gci?: object;
+  handle?: unknown;
   login?: Partial<GemStoneLogin>;
 };
 
