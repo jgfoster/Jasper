@@ -57,6 +57,13 @@ export function renderUndoPlanHtml(opts: UndoPlanHtmlOptions): string {
     )
     .join('\n');
   const note = plan.note ? `  <div class="oos">${escapeHtml(plan.note)}</div>\n` : '';
+  // Nothing left to reverse: the user put it all back by hand. Accepting only takes the entry off
+  // the stack, so the button says that rather than offering to "Undo 0".
+  const apply = n === 0 ? 'Remove from Undo' : `${plan.verb} ${n}`;
+  const summary =
+    n === 0
+      ? 'Nothing to change — this is already as it was before the change'
+      : `${n} change${n === 1 ? '' : 's'} — all applied together`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -130,12 +137,12 @@ export function renderUndoPlanHtml(opts: UndoPlanHtmlOptions): string {
   <header>
     <div class="title">${escapeHtml(plan.verb)} <code>${escapeHtml(plan.label)}</code></div>
     <div class="actions">
-      <button id="apply">${escapeHtml(plan.verb)} ${n}</button>
+      <button id="apply">${escapeHtml(apply)}</button>
       <button id="cancel" class="secondary">Cancel</button>
     </div>
   </header>
 ${note}  <div class="summary">
-    <span>${n} change${n === 1 ? '' : 's'} — all applied together</span>
+    <span>${escapeHtml(summary)}</span>
     <details class="why">
       <summary>Why this change?</summary>
       <p>${escapeHtml(WHY_THIS_CHANGE)}</p>

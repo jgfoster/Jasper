@@ -5,6 +5,7 @@ import {
   parsePage,
   parseApplyResult,
   instVarChangeLabel,
+  instVarChangeSuffix,
   describeApplyFailure,
 } from '../instVarRefactorPreview';
 import type { ApplyResult } from '../instVarRefactorPreview';
@@ -301,5 +302,21 @@ describe('describing an apply failure for the preview panel', () => {
       canAbort: false,
       message: expect.stringContaining('Nothing was applied.'),
     });
+  });
+});
+
+describe('instVarChangeSuffix', () => {
+  const change = (kind: 'classDefinitionEdit' | 'classReparent') => ({
+    id: '1',
+    kind,
+    dictName: null,
+    className: 'Foo',
+    oldSource: '',
+    newSource: '',
+  });
+
+  it('says what happened to the class, after its name', () => {
+    expect(instVarChangeSuffix(change('classDefinitionEdit'))).toBe(' (definition edited)');
+    expect(instVarChangeSuffix(change('classReparent'))).toBe(' (recompiled)');
   });
 });
