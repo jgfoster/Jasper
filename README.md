@@ -386,7 +386,9 @@ the thing it was set in goes away:
   already set is left alone rather than re-applied against positions that have
   moved, so it is still there, on the same step points, once the editor is clean
 - **Line breakpoints** — click the editor gutter in a `gemstone://` method. A
-  gutter click means "this line", and lands on the leftmost step point on it
+  gutter click means "this line", and lands on the leftmost step point on it. A
+  click below the method's last statement has no step point to land on, so it is
+  taken back out with a message rather than left as a dot that never stops
 - **Step-point breakpoints** — a Smalltalk line usually holds several step
   points. **Toggle Breakpoint at Cursor** (`Shift+F9`) breaks at the step point
   under the caret, not the first one on the line, and the token that will

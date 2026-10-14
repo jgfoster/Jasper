@@ -7,7 +7,7 @@ vi.mock('../../browserQueries', () => ({
 
 import * as queries from '../../browserQueries';
 import { dictionaryNameFor, dictionaryNameLookup, qualifiedClassName } from '../dictionaryLabel';
-import { ambiguousClassNames, classNameForRow } from '../qualifiedClassName';
+import { ambiguousClassNames, classNameForRow, classNameSpan } from '../qualifiedClassName';
 import type { ActiveSession } from '../../sessionManager';
 
 const session = {} as ActiveSession;
@@ -140,5 +140,31 @@ describe('telling apart preview rows that name the same class', () => {
 
   it('qualifies nothing when no set is given', () => {
     expect(classNameForRow('Shadowed', 'DictionaryB', undefined)).toBe('Shadowed');
+  });
+});
+
+describe('classNameSpan', () => {
+  it('carries the class and its dictionary for the webview to requalify', () => {
+    expect(classNameSpan('Shadowed', 'DictA', new Set())).toBe(
+      '<span class="cls" data-class="Shadowed" data-dict="DictA">Shadowed</span>',
+    );
+  });
+
+  it('shows the qualified name when this batch already makes it ambiguous', () => {
+    expect(classNameSpan('Shadowed', 'DictA', new Set(['Shadowed']))).toContain(
+      '>Shadowed (DictA)</span>',
+    );
+  });
+
+  it('leaves out data-dict for a change that names no dictionary', () => {
+    expect(classNameSpan('Shadowed', null, new Set(['Shadowed']))).toBe(
+      '<span class="cls" data-class="Shadowed">Shadowed</span>',
+    );
+  });
+
+  it('escapes what it puts in markup', () => {
+    expect(classNameSpan('A"<', 'D&', undefined)).toBe(
+      '<span class="cls" data-class="A&quot;&lt;" data-dict="D&amp;">A&quot;&lt;</span>',
+    );
   });
 });

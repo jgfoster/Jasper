@@ -1024,6 +1024,33 @@ function testResultTooltip(result: ExplorerTestResult): string {
     : said;
 }
 
+/**
+ * What the Explorer remembers about an editor it opened, so the focus event that open fires
+ * can be recognised and ignored (`selfOpenedUris`).
+ *
+ * Not the URI string: the editor can hand back a URI that names the same method spelled
+ * differently -- the default environment written out as `env=0`, the query reordered -- and a
+ * string match then missed the Explorer's own open and re-revealed the row under the click.
+ * So a method or definition is keyed by what it IS, read through `parseUri`. The category is
+ * left out: it is where the method is filed, not which method it is. Anything that will not
+ * parse falls back to the string.
+ */
+export function selfOpenKey(uri: vscode.Uri): string {
+  let p: ParsedUri;
+  try {
+    p = parseUri(uri);
+  } catch {
+    return uri.toString();
+  }
+  const where = `${p.sessionId}|${p.dictName}|${'dictIndex' in p ? (p.dictIndex ?? '') : ''}`;
+  if (p.kind === 'method') {
+    const side = p.isMeta ? 'class' : 'instance';
+    return `method|${where}|${p.className}|${side}|${p.selector}|${p.environmentId}|${p.base}|${p.diffView}`;
+  }
+  if (p.kind === 'definition' || p.kind === 'comment') return `${p.kind}|${where}|${p.className}`;
+  return uri.toString();
+}
+
 export class ExplorerController {
   readonly state: ExplorerState = {};
   // className → category for the current dictionary; fetched once per dict.
@@ -1103,7 +1130,7 @@ export class ExplorerController {
     isMeta: boolean;
     before: Set<string>;
   };
-  // URIs of editors we opened ourselves (method/definition clicks); syncToEditor
+  // Editors we opened ourselves (method/definition clicks), by `selfOpenKey`; syncToEditor
   // ignores its own opens so a tree click doesn't bounce the selection. A Set (not
   // a single value) because opens can overlap — clicking through methods faster
   // than each preview settles — and each open must match its own later
@@ -2329,6 +2356,20 @@ export class ExplorerController {
     await this.openCommentFor(item.className, resolved.dictName, resolved.dictIndex);
   }
 
+  // An open normally fires onDidChangeActiveTextEditor, and the mark lets syncToEditor know
+  // the Explorer caused it. But if the editor is ALREADY the active one (the user clicked the
+  // row or class whose tab is focused), re-showing it fires no such event: a mark would never
+  // be consumed, and would later swallow a genuine open of the same editor from somewhere
+  // else -- a GemStone Search result, a tab focus -- leaving the Explorer on the wrong class.
+  // Only mark when the active editor is actually going to change.
+  private markSelfOpen(uri: vscode.Uri): void {
+    const key = selfOpenKey(uri);
+    const active = vscode.window.activeTextEditor?.document.uri;
+    if (active === undefined || selfOpenKey(active) !== key) {
+      this.selfOpenedUris.add(key);
+    }
+  }
+
   private async openCommentFor(
     className: string,
     dictName: string,
@@ -2337,7 +2378,7 @@ export class ExplorerController {
     const session = this.session();
     if (!session) return;
     const uri = buildClassCommentUri(session.id, dictName, className, dictIndex);
-    this.selfOpenedUris.add(uri.toString());
+    this.markSelfOpen(uri);
     const doc = await vscode.workspace.openTextDocument(uri);
     await openGemstoneDocument(doc, 'preview', this.placement);
   }
@@ -2430,7 +2471,7 @@ export class ExplorerController {
     const session = this.session();
     if (!session) return;
     const uri = buildClassDefinitionUri(session.id, dictName, className, dictIndex);
-    this.selfOpenedUris.add(uri.toString());
+    this.markSelfOpen(uri);
     const doc = await vscode.workspace.openTextDocument(uri);
     await openGemstoneDocument(doc, pin ? 'pin' : 'preview', this.placement);
   }
@@ -5249,17 +5290,9 @@ export class ExplorerController {
       environmentId: EXPLORER_METHOD_ENVIRONMENT,
       dictIndex: this.state.dictIndex,
     });
-    // This open normally fires onDidChangeActiveTextEditor, so mark it — syncToEditor
-    // then ignores its own open instead of re-revealing the row under ALL METHODS and
-    // stealing the selection from the category the user clicked. But if this method is
-    // ALREADY the active editor (the user clicked the row whose tab is focused),
-    // re-showing it fires no such event: a mark here would never be consumed and would
-    // later swallow a genuine focus event for this tab. Only mark when the active
-    // editor is actually going to change.
-    const uriStr = uri.toString();
-    if (vscode.window.activeTextEditor?.document.uri.toString() !== uriStr) {
-      this.selfOpenedUris.add(uriStr);
-    }
+    // Marked so syncToEditor ignores this open instead of re-revealing the row under ALL
+    // METHODS and stealing the selection from the category the user clicked.
+    this.markSelfOpen(uri);
     const doc = await vscode.workspace.openTextDocument(uri);
     // Assign the language BEFORE the doc enters the (reused) preview editor. A
     // gemstone doc is otherwise language-tagged asynchronously
@@ -6371,7 +6404,7 @@ export class ExplorerController {
     // already correct, so don't bounce it (e.g. onto the ALL METHODS node).
     // delete() consumes just this URI's mark, leaving any other in-flight self-open
     // to still match its own event.
-    if (this.selfOpenedUris.delete(uri.toString())) {
+    if (this.selfOpenedUris.delete(selfOpenKey(uri))) {
       return;
     }
     // Nobody claimed this open and it lands on a test item's document: it is a
@@ -6418,24 +6451,12 @@ export class ExplorerController {
       (parsed.dictIndex === undefined || parsed.dictIndex === this.state.dictIndex)
     ) {
       if (revealMethod) {
-        // If the Methods pane already has this selector selected — which is exactly
-        // the case when the user just clicked it in the tree (that click is what
-        // opened this editor) — don't re-reveal it. A redundant reveal() scrolls the
-        // pane, knocking the just-clicked row out of view. Only sync when the tree
-        // is genuinely elsewhere, e.g. the user focused an editor tab for a method
-        // that isn't the current selection. This is the reliable guard; the
-        // self-opened-URI check above can miss when the editor reports a normalized
-        // URI that no longer string-matches what we stored.
-        const alreadySelected = this.views?.method.selection.some(
-          (n) =>
-            n instanceof MethodItem &&
-            n.isMeta === revealMethod.isMeta &&
-            n.info.selector === revealMethod.selector,
-        );
-        if (alreadySelected) {
-          this.syncTitles();
-          return;
-        }
+        // Revealed even when the Methods pane already has this selector selected: selected is
+        // not visible. Reloading the method list rebuilds the tree and sends the pane back to
+        // the top with the selection intact, and the user can scroll it away by hand, so a
+        // tab focus is exactly when the row may be off screen. The click that opened this
+        // editor -- the case that must NOT scroll the pane under the user -- was consumed by
+        // the self-open check above.
         const info = this.selectorsFor(revealMethod.isMeta, ALL_METHODS_CATEGORY).find(
           (i) => i.selector === revealMethod.selector,
         );
@@ -7907,8 +7928,8 @@ export class ExplorerController {
 
   // After a method compiles on the class we're showing, select a just-created
   // method (from the New Method "+") under its own category — so a brand-new
-  // category shows the method selected. reveal()'s alreadySelected guard in
-  // syncToEditor then skips its own ALL-METHODS reveal, avoiding a fight.
+  // category shows the method selected. The focus sync for the method's new editor
+  // reveals the same row (methodRowNode places it under its own category too).
   private maybeRevealNewMethod(): void {
     const pending = this.pendingNewMethod;
     if (

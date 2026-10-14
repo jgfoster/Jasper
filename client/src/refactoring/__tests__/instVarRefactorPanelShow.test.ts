@@ -551,3 +551,15 @@ describe('showInstVarRefactorPanel', () => {
     );
   });
 });
+
+describe('the instance-variable panel page', () => {
+  it('carries the row qualifier ahead of the panel script, which calls it on every page', () => {
+    void showInstVarRefactorPanel('Add tally to Foo', start, handlers());
+    const html = (lastPanel() as unknown as { webview: { html: string } }).webview.html;
+
+    expect(html.indexOf('root.RowQualifier =')).toBeGreaterThan(-1);
+    expect(html.indexOf('root.RowQualifier =')).toBeLessThan(
+      html.indexOf('root.InstVarRefactorPanel ='),
+    );
+  });
+});

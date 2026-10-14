@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeOps, driftedSlots, planReversal } from '../methodSlotPlan';
+import { describeOps, driftedSlots, planReversal, slotNeedsReversal } from '../methodSlotPlan';
 import { MethodSlot, MethodSlotState } from '../undoTypes';
 
 /**
@@ -147,5 +147,27 @@ describe('describeOps', () => {
     // Reached when the method is already back the way it was; the notice still has to read
     // as a sentence.
     expect(describeOps([])).toBe('nothing to change');
+  });
+});
+
+describe('slotNeedsReversal', () => {
+  it('is false for a slot that is exactly as it was', () => {
+    expect(slotNeedsReversal(has('a'), has('a'))).toBe(false);
+    expect(slotNeedsReversal(gone, gone)).toBe(false);
+  });
+
+  it('is true when the source or the category differs', () => {
+    expect(slotNeedsReversal(has('a'), has('b'))).toBe(true);
+    expect(slotNeedsReversal(has('a', 'x'), has('a', 'y'))).toBe(true);
+  });
+
+  it('is true for a method that was there and is gone, or was not there and is', () => {
+    expect(slotNeedsReversal(has('a'), gone)).toBe(true);
+    expect(slotNeedsReversal(gone, has('a'))).toBe(true);
+  });
+
+  it('is false when either state is missing', () => {
+    expect(slotNeedsReversal(undefined, has('a'))).toBe(false);
+    expect(slotNeedsReversal(has('a'), undefined)).toBe(false);
   });
 });

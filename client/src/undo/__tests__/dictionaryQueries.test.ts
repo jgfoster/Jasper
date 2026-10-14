@@ -109,6 +109,19 @@ describe('reinsertDictionary', () => {
     expect(exec.mock.calls[1][0] as string).toContain('pos := 1 min:');
   });
 
+  it("drops the cached class list, outside the insert's error handler", () => {
+    const exec = vi.fn().mockReturnValue('ok');
+
+    reinsertDictionary(exec, 'k1', 2);
+
+    const code = exec.mock.calls[0][0] as string;
+    const cleared = code.indexOf("beginsWith: 'JasperClassOrganizer_'");
+    expect(cleared).toBeGreaterThan(-1);
+    // Outside the insert's error handler: a failing clear must not report the undo as failed
+    // when the dictionary did go back.
+    expect(cleared).toBeLessThan(code.indexOf('[System myUserProfile insertDictionary:'));
+  });
+
   it('answers null only for ok, and the reason otherwise', () => {
     expect(reinsertDictionary(vi.fn().mockReturnValue('ok\n'), 'k1', 2)).toBeNull();
     expect(reinsertDictionary(vi.fn().mockReturnValue('some failure'), 'k1', 2)).toBe(
