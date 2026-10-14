@@ -616,13 +616,17 @@ export class VersionManager {
       await fs.promises.mkdir(destDir, { recursive: true });
       for (const entry of picked) {
         const srcPath = path.join(mountPoint, entry);
-        // cp -v names the top directory too, hence the one.
-        const total = await fs.promises
+        // Undefined for a plain file, which readdir refuses.
+        const names = await fs.promises
           .readdir(srcPath, { recursive: true })
-          .then((names) => names.length + 1)
           .catch(() => undefined);
+        // cp -v names the top directory too, hence the one.
+        const total = names && names.length + 1;
+        // `src/.` copies a folder's contents, so a re-download replaces the files
+        // of an existing copy instead of nesting a second one inside it.
+        const source = names ? `${srcPath}/.` : srcPath;
         // -v prints a line per file, which is all the progress cp can give.
-        const cp = await this.run('cp', ['-Rv', srcPath, path.join(destDir, entry)], {
+        const cp = await this.run('cp', ['-Rv', source, path.join(destDir, entry)], {
           token,
           onLine: this.fileCounter(progress, 'Copied', total),
         });

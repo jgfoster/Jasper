@@ -456,14 +456,16 @@ describe('VersionManager.versionsFrom (client files)', () => {
 });
 
 describe('VersionManager.downloadAndExtractClient on macOS', () => {
-  it('copies the disk image’s contents, not its hidden volume files, into the client folder', async () => {
+  const dmgPath = () => path.join(tmpDir, 'GemStoneClientLibs3.7.5-arm64.Darwin.dmg');
+  const clientDir = () => path.join(tmpDir, 'GemStoneClientLibs3.7.5-arm64.Darwin');
+  const mountPoint = '/Volumes/GemStoneClientLibs3.7.5-arm64.Darwin';
+
+  /** Downloads 3.7.5 from a mounted image holding one 3.7.5 folder; returns the commands run. */
+  async function downloadFromImage(): Promise<[string, readonly string[]][]> {
     onPlatform('darwin', 'arm64');
     const manager = new VersionManager(new SysadminStorage());
-    const dmgPath = path.join(tmpDir, 'GemStoneClientLibs3.7.5-arm64.Darwin.dmg');
-    const clientDir = path.join(tmpDir, 'GemStoneClientLibs3.7.5-arm64.Darwin');
-    const mountPoint = '/Volumes/GemStoneClientLibs3.7.5-arm64.Darwin';
     vi.spyOn(manager as unknown as PrivateDownloadHost, 'downloadFile').mockImplementation(
-      async () => fs.writeFileSync(dmgPath, ''),
+      async () => fs.writeFileSync(dmgPath(), ''),
     );
     const realReaddir = fs.promises.readdir;
     const readdir = vi
@@ -489,8 +491,8 @@ describe('VersionManager.downloadAndExtractClient on macOS', () => {
       }
       if (cmd === 'cp') {
         // What the copy lands: the image's 3.7.5/64bit folder.
-        fs.mkdirSync(path.join(clientDir, '3.7.5', '64bit'), { recursive: true });
-        fs.writeFileSync(path.join(clientDir, '3.7.5', '64bit', 'libgcits-3.7.5-64.dylib'), '');
+        fs.mkdirSync(path.join(clientDir(), '3.7.5', '64bit'), { recursive: true });
+        fs.writeFileSync(path.join(clientDir(), '3.7.5', '64bit', 'libgcits-3.7.5-64.dylib'), '');
       }
       setTimeout(() => child.emit('close', 0), 5);
       return child as unknown as ChildProcess;
@@ -501,14 +503,32 @@ describe('VersionManager.downloadAndExtractClient on macOS', () => {
     } finally {
       readdir.mockRestore();
     }
+    return calls;
+  }
+
+  it('copies the disk image’s contents, not its hidden volume files, into the client folder', async () => {
+    const calls = await downloadFromImage();
 
     expect(calls.filter(([cmd]) => cmd === 'cp')).toEqual([
-      ['cp', ['-Rv', path.join(mountPoint, '3.7.5'), path.join(clientDir, '3.7.5')]],
+      ['cp', ['-Rv', `${path.join(mountPoint, '3.7.5')}/.`, path.join(clientDir(), '3.7.5')]],
     ]);
     expect(calls.map(([cmd, args]) => `${cmd} ${args[0]}`)).toContain('hdiutil detach');
-    expect(fs.existsSync(dmgPath)).toBe(false);
+    expect(fs.existsSync(dmgPath())).toBe(false);
     expect(new SysadminStorage().getClientGciPath('3.7.5')).toBe(
-      path.join(clientDir, '3.7.5', '64bit', 'libgcits-3.7.5-64.dylib'),
+      path.join(clientDir(), '3.7.5', '64bit', 'libgcits-3.7.5-64.dylib'),
     );
+  });
+
+  it('downloads again over an earlier copy by copying into its folder, not inside it', async () => {
+    const earlier = path.join(clientDir(), '3.7.5', '64bit');
+    fs.mkdirSync(earlier, { recursive: true });
+    fs.writeFileSync(path.join(earlier, 'libgcits-3.7.5-64.dylib'), 'stale');
+
+    const calls = await downloadFromImage();
+
+    // Copying the folder itself onto an existing one would land at 3.7.5/3.7.5.
+    const [, args] = calls.find(([cmd]) => cmd === 'cp')!;
+    expect(args[1]).toBe(`${path.join(mountPoint, '3.7.5')}/.`);
+    expect(args[2]).toBe(path.join(clientDir(), '3.7.5'));
   });
 });
