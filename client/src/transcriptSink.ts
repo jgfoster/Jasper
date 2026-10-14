@@ -350,16 +350,15 @@ export function decodeTranscriptForwarderSend(
 ): string | null {
   try {
     if (!isForwarderSendError(err) || err.argCount < 4) return null;
-    const gci = session.gci;
-    const clientObject = gci.GciTsOopToI64(session.handle, toBigInt(err.args[1]));
+    const clientObject = session.gci.GciTsOopToI64(session.handle, toBigInt(err.args[1]));
     if (!clientObject.success || clientObject.value !== BigInt(TRANSCRIPT_CLIENT_OBJECT)) {
       return null;
     }
-    const selector = gci.GciTsFetchUtf8(session.handle, toBigInt(err.args[2]), 64);
+    const selector = session.gci.GciTsFetchUtf8(session.handle, toBigInt(err.args[2]), 64);
     if (selector.err.number !== 0 || selector.data !== 'nextPutAll:') return null;
-    const argArray = gci.GciTsFetchOops(session.handle, toBigInt(err.args[3]), 1n, 1);
+    const argArray = session.gci.GciTsFetchOops(session.handle, toBigInt(err.args[3]), 1n, 1);
     if (argArray.result < 1) return null;
-    const text = gci.GciTsFetchUtf8(session.handle, argArray.oops[0], MAX_TRANSCRIPT_FETCH);
+    const text = session.gci.GciTsFetchUtf8(session.handle, argArray.oops[0], MAX_TRANSCRIPT_FETCH);
     if (text.err.number !== 0) return null;
     return text.data;
   } catch {
