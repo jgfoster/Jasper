@@ -147,7 +147,7 @@ describe('attempting a login', () => {
     const OFFER = 'Jasper needs a few files to talk to GemStone 3.7.5. Download them now?';
 
     for (const platform of ['linux', 'darwin', 'win32'] as const) {
-      it(`on ${platform}, offers to download them, then logs in with what arrived`, async () => {
+      it(`on ${platform}, offers to download them, then logs in with what arrived without registering it`, async () => {
         onPlatform(platform);
         vi.mocked(vscode.window.showInformationMessage).mockResolvedValueOnce(
           'Download' as unknown as vscode.MessageItem,
@@ -174,10 +174,8 @@ describe('attempting a login', () => {
           expect.anything(),
           expect.anything(),
         );
-        expect(deps.setGciLibraryPath).toHaveBeenCalledWith(
-          '3.7.5',
-          '/root/client/libgcits-3.7.5-64.so',
-        );
+        // Found through getClientGciPath next time, so a later full install still wins.
+        expect(deps.setGciLibraryPath).not.toHaveBeenCalled();
         expect(deps.connect).toHaveBeenCalledWith(
           expect.anything(),
           '/root/client/libgcits-3.7.5-64.so',

@@ -139,10 +139,9 @@ export async function attemptLogin(
           },
           (progress, token) => deps.downloadAndExtractClient(login.version, progress, token),
         );
+        // Not registered: found again through getClientGciPath, so a full install
+        // added later still wins and a removed folder is offered for download again.
         gciPath = deps.getClientGciPath(login.version);
-        if (gciPath) {
-          await deps.setGciLibraryPath(login.version, gciPath);
-        }
         deps.refreshVersions();
       } catch (e) {
         showInstallOutcome(e, `Downloading the files for GemStone ${login.version} failed`);

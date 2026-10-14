@@ -4705,11 +4705,6 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
 
-      // Registered so a login finds it without searching (gemstone.gciLibraries).
-      const gciPath = sysadminStorage.getClientGciPath(version);
-      if (gciPath) {
-        await storage.setGciLibraryPath(version, gciPath);
-      }
       refreshVersions();
       vscode.window.showInformationMessage(`Jasper can now log in to GemStone ${version} stones.`);
     }),
@@ -4734,8 +4729,9 @@ export function activate(context: vscode.ExtensionContext) {
       if (confirmed !== 'Delete') return;
       const clientGci = sysadminStorage.getClientGciPath(version);
       await versionManager.deleteClientExtracted(item.version);
-      // A registration pointing into the folder just deleted would send the next
-      // login to a missing file instead of offering the download again.
+      // Jasper no longer registers client files, but earlier versions did on Windows.
+      // One pointing into the folder just deleted would send the next login to a
+      // missing file instead of offering the download again.
       if (clientGci && storage.getGciLibraryPath(version) === clientGci) {
         await storage.removeGciLibraryPath(version);
       }

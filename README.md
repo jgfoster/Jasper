@@ -510,7 +510,7 @@ what is and isn't collected.
 
 The extension communicates with GemStone databases using the GemStone C Interface (GCI) thread-safe library (`libgcits`), loaded at runtime via [koffi](https://koffi.dev/). The library path is resolved in this order:
 
-1. **Configured** per-version in the `gemstone.gciLibraries` setting (Jasper fills this in after a download)
+1. **Configured** per-version in the `gemstone.gciLibraries` setting (Jasper fills this in when you browse to a library; downloaded files are found by step 3 instead)
 2. **Bundled** with the extension, on Windows
 3. **Auto-detected** from a full install of the login's GemStone version (macOS/Linux), then from the files downloaded for that version (the Windows client, or `GemStoneClientLibs`)
 4. **Prompted** — on every platform you are offered the download, or can browse to the library manually

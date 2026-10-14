@@ -10,7 +10,7 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ### Changed
 
-- **The login download offer is worded from the version, and made on every platform.** "Windows client library not found for GemStone X" is now "Jasper needs a few files to talk to GemStone X. Download them now?", and macOS and Linux get the offer too instead of going straight to a file picker. ([#714](https://github.com/GemTalk/Jasper/issues/714))
+- **The login download offer is worded from the version, and made on every platform.** "Windows client library not found for GemStone X" is now "Jasper needs a few files to talk to GemStone X. Download them now?", and macOS and Linux get the offer too instead of going straight to a file picker. The downloaded files are no longer written into `gemstone.gciLibraries`, so a full install added later is used instead, and a removed download is offered again rather than failing on a missing file. ([#714](https://github.com/GemTalk/Jasper/issues/714))
 
 - **Usage events now say which editor app Jasper runs in** — VS Code, VS Code Insiders, or a fork such as Cursor. Forks report the VS Code version they are built on, so this is the only way to tell them apart when deciding which VS Code versions Jasper still needs to support. See [USAGE_DATA.md](USAGE_DATA.md).
 
