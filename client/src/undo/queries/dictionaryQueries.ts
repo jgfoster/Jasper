@@ -21,6 +21,7 @@
  */
 import { QueryExecutor } from '../../queries/types';
 import { escapeString } from '../../queries/util';
+import { clearClassOrganizerStatement } from '../../queries/classOrganizer';
 import { DictionaryState } from '../undoTypes';
 
 /**
@@ -64,6 +65,11 @@ export function parseDictionaryCapture(raw: string, name: string): DictionarySta
  * Refuses rather than duplicating when the dictionary is already on the list, and clamps the
  * position into range: the list is shorter now than it was, and `insertDictionary:at:` raises
  * on an index past the end rather than appending.
+ *
+ * Drops the cached class list in the same doit, as the removal did: the removal rebuilt it
+ * without this dictionary's classes, so they would stay missing from the Class Hierarchy and
+ * GemStone Search until a commit, an abort or ⟳. Dropped before the insert and outside its error
+ * handler, so a failure there cannot report a dictionary that went back as one that did not.
  */
 export function reinsertDictionary(
   execute: QueryExecutor,
@@ -79,6 +85,7 @@ d isNil ifTrue: [^ 'this session no longer holds the removed dictionary'].
 (sl anySatisfy: [:each | each name == d name])
   ifTrue: [^ 'the name ', d name asString, ' is already in use on the symbol list'].
 pos := ${Math.max(1, Math.trunc(index) || 1)} min: sl size + 1.
+${clearClassOrganizerStatement()}
 [System myUserProfile insertDictionary: d at: pos. 'ok']
   on: Error
   do: [:ex | ex messageText ifNil: ['failed']]`;

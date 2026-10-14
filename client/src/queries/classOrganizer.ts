@@ -25,8 +25,9 @@
  * is a class *added or removed* after it was built, since that list is a snapshot —
  * so anything that changes the set of classes has to drop it.
  *
- * Four things do. Jasper's own class definition and deletion clear it in the same
- * doit that changes the class (`clearClassOrganizerStatement`); a commit or abort
+ * These do. Jasper's own class definition, class deletion, and dictionary
+ * removal and its undo clear it in the same doit that changes the class set
+ * (`clearClassOrganizerStatement`); a commit or abort
  * clears it, which is how a class another session added arrives; and GemStone
  * Search's ⟳ clears it, which is the one gesture that covers the case neither of
  * those can — a class created by *executing* `subclass:` in a workspace, which

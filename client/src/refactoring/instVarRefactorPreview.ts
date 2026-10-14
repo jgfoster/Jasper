@@ -270,8 +270,11 @@ export function describeApplyFailure(
  *  (see `ambiguousClassNames`); those rows are qualified, so two rows that name the same class
  *  and mean different ones can be told apart (#396). */
 export function instVarChangeLabel(change: InstVarChange, ambiguous?: ReadonlySet<string>): string {
-  const name = classNameForRow(change.className, change.dictName, ambiguous);
-  return change.kind === 'classDefinitionEdit'
-    ? `${name} (definition edited)`
-    : `${name} (recompiled)`;
+  return `${classNameForRow(change.className, change.dictName, ambiguous)}${instVarChangeSuffix(change)}`;
+}
+
+/** What follows the class name in {@link instVarChangeLabel}: ` (definition edited)` or
+ *  ` (recompiled)`. Apart so the panel can render the name as markup of its own. */
+export function instVarChangeSuffix(change: InstVarChange): string {
+  return change.kind === 'classDefinitionEdit' ? ' (definition edited)' : ' (recompiled)';
 }
