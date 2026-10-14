@@ -36,7 +36,13 @@ import {
 } from './queries/classVarQueries';
 import { classVarDrifted, planClassVarReversal } from './classVarPlan';
 import { driftedSlots, planReversal } from './methodSlotPlan';
-import { ClassVarEditUndoEntry, classVarSlotLabel, MethodSlot, slotLabel } from './undoTypes';
+import {
+  ClassVarEditUndoEntry,
+  classVarSlotLabel,
+  MethodSlot,
+  MethodSlotOp,
+  slotLabel,
+} from './undoTypes';
 import {
   closeEditorsForRemovedMethods,
   refreshExplorer,
@@ -126,8 +132,8 @@ export async function reverseClassVarEdit(
       if (r.error !== null) failures.push(`${slotLabel(r.op.slot)}: ${r.error}`);
       else if (r.op.kind === 'remove') removedAccessors.push(r.op.slot);
     }
-    const ok = results.filter((r) => r.error === null).length;
-    if (ok > 0) done.push(`${ok} accessor${ok === 1 ? '' : 's'} put back`);
+    const clause = accessorsClause(results.filter((r) => r.error === null).map((r) => r.op));
+    if (clause) done.push(clause);
   };
 
   if (varOp === 'declare') {
@@ -182,6 +188,21 @@ export async function reverseClassVarEdit(
       'commit when ready.',
   );
   return true;
+}
+
+/**
+ * The notice's account of the accessors: `1 accessor removed` for undoing an add, `2 accessors
+ * put back` for undoing a removal, both when a reversal did some of each. Counts only the
+ * operations that ran -- a skipped accessor is not one of them. Empty when none ran.
+ */
+export function accessorsClause(ops: MethodSlotOp[]): string {
+  const removed = ops.filter((op) => op.kind === 'remove').length;
+  const putBack = ops.length - removed;
+  const n = (k: number): string => `${k} accessor${k === 1 ? '' : 's'}`;
+  return [
+    ...(removed > 0 ? [`${n(removed)} removed`] : []),
+    ...(putBack > 0 ? [`${n(putBack)} put back`] : []),
+  ].join(', ');
 }
 
 /**

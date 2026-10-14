@@ -130,3 +130,21 @@ describe('showRenameClassPanel', () => {
     await vi.waitFor(() => expect(handlers.loadPage).toHaveBeenCalledWith(2));
   });
 });
+
+describe('the rename-class panel page', () => {
+  it('carries the row qualifier ahead of the panel script, which calls it on every page', () => {
+    void showRenameClassPanel(
+      'Foo',
+      'Bar',
+      start,
+      { recompileSubclasses: true, migrateInstances: true, removeOldFromHistory: false },
+      { loadPage: vi.fn(), apply: vi.fn(), cleanup: vi.fn() },
+    );
+    const html = (lastPanel() as unknown as { webview: { html: string } }).webview.html;
+
+    expect(html.indexOf('root.RowQualifier =')).toBeGreaterThan(-1);
+    expect(html.indexOf('root.RowQualifier =')).toBeLessThan(
+      html.indexOf('root.RenameMethodPanel ='),
+    );
+  });
+});

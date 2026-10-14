@@ -25,7 +25,7 @@ import {
   methodsReferencingClassVar,
 } from '../queries/classVarQueries';
 import { applyMethodSlotOps, captureMethodSlots } from '../queries/methodSlotQueries';
-import { reverseClassVarEdit } from '../reverseClassVarEdit';
+import { accessorsClause, reverseClassVarEdit } from '../reverseClassVarEdit';
 import { ClassVarEditUndoEntry, MethodSlot, MethodSlotState } from '../undoTypes';
 import type { ActiveSession } from '../../sessionManager';
 
@@ -334,6 +334,35 @@ describe('reverseClassVarEdit', () => {
       'Shadowed',
       undefined,
       'DictionaryB',
+    );
+  });
+});
+
+describe('accessorsClause', () => {
+  const op = (kind: 'restore' | 'recompile' | 'remove', selector: string) => ({
+    kind,
+    slot: { className: 'Account', isMeta: true, selector, environmentId: 0 },
+    source: null,
+    category: null,
+  });
+
+  it('is empty when no accessor operation ran', () => {
+    expect(accessorsClause([])).toBe('');
+  });
+
+  it('says removed for the accessors an undone add took away', () => {
+    expect(accessorsClause([op('remove', 'registry:')])).toBe('1 accessor removed');
+  });
+
+  it('says put back for restored and recompiled accessors', () => {
+    expect(accessorsClause([op('restore', 'registry'), op('recompile', 'registry:')])).toBe(
+      '2 accessors put back',
+    );
+  });
+
+  it('names both when a reversal did some of each', () => {
+    expect(accessorsClause([op('remove', 'a'), op('remove', 'b'), op('restore', 'c')])).toBe(
+      '2 accessors removed, 1 accessor put back',
     );
   });
 });

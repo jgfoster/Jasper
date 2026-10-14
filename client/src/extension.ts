@@ -1255,7 +1255,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.debug.registerDebugAdapterDescriptorFactory('gemstone', {
       createDebugAdapterDescriptor() {
         return new vscode.DebugAdapterInlineImplementation(
-          new GemStoneDebugSession(sessionManager, breakpointManager),
+          new GemStoneDebugSession(sessionManager),
         );
       },
     }),

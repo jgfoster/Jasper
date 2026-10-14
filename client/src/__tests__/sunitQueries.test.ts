@@ -78,6 +78,14 @@ describe('sunitQueries', () => {
       expect(results.map((r) => r.dictIndex)).toEqual([undefined, undefined, undefined]);
     });
 
+    it('only takes a dictionary that binds the class under its own name', () => {
+      // The reported dictionary is where the Test Explorer's links look the class up by name.
+      const session = createMockSession('');
+      sunit.discoverTestClasses(session);
+      const code = (session.gci.executeAndFetchString as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      expect(code).toContain('k == v name asSymbol');
+    });
+
     it('reads the dictionary index from the symbol list position', () => {
       const session = createMockSession('');
       sunit.discoverTestClasses(session);
