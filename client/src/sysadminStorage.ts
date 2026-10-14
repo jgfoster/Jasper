@@ -397,19 +397,21 @@ export class SysadminStorage {
 
   /** Scan for extracted Windows client version directories */
   getExtractedWindowsClientVersions(): string[] {
+    return this.clientFolderVersions(
+      SysadminStorage.WIN_CLIENT_PREFIX,
+      SysadminStorage.WIN_CLIENT_SUFFIX,
+    );
+  }
+
+  /** Versions named by `<prefix><version><suffix>` folders in the native root, newest first. */
+  private clientFolderVersions(prefix: string, suffix: string): string[] {
     const rootPath = this.getNativeRootPath();
     if (!fs.existsSync(rootPath)) return [];
-    const prefix = SysadminStorage.WIN_CLIENT_PREFIX;
-    const suffix = SysadminStorage.WIN_CLIENT_SUFFIX;
     const versions: string[] = [];
     for (const entry of this.entriesIn(rootPath)) {
-      if (entry.startsWith(prefix) && entry.endsWith(suffix)) {
-        const dirPath = path.join(rootPath, entry);
-        if (fs.statSync(dirPath).isDirectory()) {
-          const version = entry.slice(prefix.length, -suffix.length);
-          versions.push(version);
-        }
-      }
+      if (!entry.startsWith(prefix) || !entry.endsWith(suffix)) continue;
+      if (!fs.statSync(path.join(rootPath, entry)).isDirectory()) continue;
+      versions.push(entry.slice(prefix.length, -suffix.length));
     }
     versions.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
     return versions;
@@ -425,9 +427,8 @@ export class SysadminStorage {
    */
   getClientPlatformKey(): string {
     if (process.platform === 'win32') return 'x86.Windows_NT';
-    const arch = process.arch === 'arm64' ? 'arm64' : 'x86_64';
-    if (process.platform === 'darwin') return arch === 'arm64' ? 'arm64.Darwin' : 'i386.Darwin';
-    return `${arch}.Linux`;
+    // Off Windows the server's key, which is always defined there.
+    return this.getPlatformKey()!;
   }
 
   /**
@@ -470,18 +471,10 @@ export class SysadminStorage {
   /** Versions with client files on disk, newest first. */
   getExtractedClientVersions(): string[] {
     if (process.platform === 'win32') return this.getExtractedWindowsClientVersions();
-    const rootPath = this.getNativeRootPath();
-    if (!fs.existsSync(rootPath)) return [];
-    const prefix = SysadminStorage.CLIENT_LIBS_PREFIX;
-    const suffix = `-${this.getClientPlatformKey()}`;
-    const versions: string[] = [];
-    for (const entry of this.entriesIn(rootPath)) {
-      if (!entry.startsWith(prefix) || !entry.endsWith(suffix)) continue;
-      if (!fs.statSync(path.join(rootPath, entry)).isDirectory()) continue;
-      versions.push(entry.slice(prefix.length, -suffix.length));
-    }
-    versions.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
-    return versions;
+    return this.clientFolderVersions(
+      SysadminStorage.CLIENT_LIBS_PREFIX,
+      `-${this.getClientPlatformKey()}`,
+    );
   }
 
   /** Get downloaded Windows client zip files */

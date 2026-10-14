@@ -3786,8 +3786,7 @@ export function activate(context: vscode.ExtensionContext) {
   // The login page offers every supported version, not only those on disk; one
   // not here yet is a download away (gemstone.downloadClient).
   LoginEditorPanel.setVersionCatalog({
-    supportedVersions: async () =>
-      (await versionManager.fetchAvailableVersions()).filter((v) => !v.local).map((v) => v.version),
+    supportedVersions: () => versionManager.fetchSupportedVersionNames(),
     downloadSize: (version) => versionManager.clientDownloadSize(version),
   });
   const databaseManager = new DatabaseManager(sysadminStorage, processManager);

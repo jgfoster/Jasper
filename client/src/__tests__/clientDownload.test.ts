@@ -18,9 +18,9 @@ vi.mock('child_process');
 
 import { spawn, type ChildProcess } from 'child_process';
 import type * as vscode from 'vscode';
-import { __setConfig, __resetConfig } from '../__mocks__/vscode';
+import { __setConfig, __resetConfig, CancellationTokenSource } from '../__mocks__/vscode';
 import { SysadminStorage } from '../sysadminStorage';
-import { VersionManager } from '../manager/versionManager';
+import { InstallCancelledError, VersionManager } from '../manager/versionManager';
 import { GemStoneVersion } from '../sysadminTypes';
 
 // What a login needs from a version is a few client files, not the server: on
@@ -217,8 +217,29 @@ describe('VersionManager.downloadAndExtractClient on Linux', () => {
     const download = vi
       .spyOn(manager as unknown as PrivateDownloadHost, 'downloadFile')
       .mockImplementation(async () => fs.writeFileSync(zipPath, ''));
-    const install = () => manager.downloadAndExtractClient(version, { report: vi.fn() }, noopToken);
+    const install = (token: unknown = noopToken) =>
+      manager.downloadAndExtractClient(
+        version,
+        { report: vi.fn() },
+        token as vscode.CancellationToken,
+      );
     return { manager, zipPath, clientDir, download, install };
+  }
+
+  /** An unzip that never finishes on its own; cancelling the token kills it. */
+  function hangingUnzip(onStart: () => void): void {
+    vi.mocked(spawn).mockImplementation(() => {
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new EventEmitter(),
+        stderr: new EventEmitter(),
+        kill: () => {
+          setImmediate(() => child.emit('close', null));
+          return true;
+        },
+      });
+      onStart();
+      return child as unknown as ChildProcess;
+    });
   }
 
   it('downloads the client package, unpacks it into its own folder and drops the zip', async () => {
@@ -320,6 +341,86 @@ describe('VersionManager.downloadAndExtractClient on Linux', () => {
     expect(fs.existsSync(clientDir)).toBe(false);
   });
 
+  // Windows ignores the mode, and root reads any folder, so neither can make one unreadable.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'drops the zip even when an earlier copy cannot be opened up',
+    async () => {
+      const { zipPath, clientDir, install } = setUp();
+      createClientLibs('3.7.4.3');
+      // A folder that cannot be listed: opening up the copy fails partway.
+      const unreadable = path.join(clientDir, 'unreadable');
+      fs.mkdirSync(unreadable, { mode: 0o300 });
+      fakeUnzip(0);
+
+      try {
+        await expect(install()).rejects.toThrow('EACCES');
+      } finally {
+        fs.chmodSync(unreadable, 0o700);
+      }
+
+      expect(fs.existsSync(zipPath)).toBe(false);
+    },
+  );
+
+  it('keeps the unpack’s own failure in the message when the partial folder cannot be removed', async () => {
+    const { clientDir, install } = setUp();
+    vi.mocked(spawn).mockImplementation(() => {
+      fs.mkdirSync(clientDir);
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new EventEmitter(),
+        stderr: new EventEmitter(),
+        kill: () => true,
+      });
+      setImmediate(() => child.emit('close', 9));
+      return child as unknown as ChildProcess;
+    });
+    const rm = vi
+      .spyOn(fs.promises, 'rm')
+      .mockRejectedValueOnce(
+        Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' }),
+      );
+
+    try {
+      await expect(install()).rejects.toThrow(
+        'Downloading the files for GemStone 3.7.4.3 failed (unzip failed with exit code 9), and ' +
+          `the partly unpacked files at ${clientDir} could not be removed (EBUSY: resource busy ` +
+          'or locked). Remove that folder before installing again.',
+      );
+    } finally {
+      rm.mockRestore();
+    }
+  });
+
+  it('on cancel, says the partly unpacked files were removed', async () => {
+    const { clientDir, install } = setUp();
+    const source = new CancellationTokenSource();
+    hangingUnzip(() => setImmediate(() => source.cancel()));
+
+    const error = await install(source.token).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(InstallCancelledError);
+    expect((error as Error).message).toBe(
+      'Downloading the files for GemStone 3.7.4.3 cancelled. The partly unpacked files were removed.',
+    );
+    expect(fs.existsSync(clientDir)).toBe(false);
+  });
+
+  it('on cancel over an earlier copy, keeps it and says so', async () => {
+    const { clientDir, install } = setUp();
+    createClientLibs('3.7.4.3');
+    const source = new CancellationTokenSource();
+    hangingUnzip(() => setImmediate(() => source.cancel()));
+
+    const error = await install(source.token).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(InstallCancelledError);
+    expect((error as Error).message).toBe(
+      `Downloading the files for GemStone 3.7.4.3 cancelled. ${clientDir} was there before, so ` +
+        'it was not removed; the unpack may have replaced some of its files.',
+    );
+    expect(fs.existsSync(clientDir)).toBe(true);
+  });
+
   it('rejects an empty version', async () => {
     const { install } = setUp('');
     await expect(install()).rejects.toThrow(/no GemStone version/);
@@ -390,6 +491,25 @@ describe('VersionManager.downloadAndExtractClient on Linux', () => {
 
       expect(other.download).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe('VersionManager.fetchSupportedVersionNames', () => {
+  it('names the catalog’s supported versions without reading the disk', async () => {
+    const manager = new VersionManager(new SysadminStorage());
+    vi.spyOn(manager, 'fetchCatalog').mockResolvedValue(
+      ['3.5.0', '3.6.2', '3.7.6'].map((version) => ({
+        version,
+        fileName: `GemStone64Bit${version}-x86_64.Linux.zip`,
+        url: '',
+        date: '',
+        size: 0,
+      })),
+    );
+    const scan = vi.spyOn(SysadminStorage.prototype, 'getExtractedVersionInfos');
+
+    expect(await manager.fetchSupportedVersionNames()).toEqual(['3.6.2', '3.7.6']);
+    expect(scan).not.toHaveBeenCalled();
   });
 });
 

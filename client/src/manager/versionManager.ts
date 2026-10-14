@@ -219,6 +219,21 @@ export class VersionManager {
     return entries;
   }
 
+  /**
+   * The supported versions on the downloads page, by name only. No disk scan,
+   * unlike {@link fetchAvailableVersions}: that walks every install and client
+   * folder, through WSL on Windows.
+   */
+  async fetchSupportedVersionNames(): Promise<string[]> {
+    return (await this.fetchCatalog())
+      .map((e) => e.version)
+      .filter(
+        (v) =>
+          isComparableGemStoneVersion(v) &&
+          compareGemStoneVersions(v, MINIMUM_SUPPORTED_GEMSTONE_VERSION) >= 0,
+      );
+  }
+
   /** Fetch available versions from the downloads page. */
   async fetchAvailableVersions(): Promise<GemStoneVersion[]> {
     return this.versionsFrom(await this.fetchCatalog());
@@ -1061,13 +1076,12 @@ export class VersionManager {
    * client zip; Linux and macOS use GemTalk's GemStoneClientLibs package.
    */
   static clientArtifact(version: string): { fileName: string; url: string; dirName: string } {
+    // Storage's name, the one getClientPath looks for.
+    const dirName = new SysadminStorage().getClientDirName(version);
     if (process.platform === 'win32') {
-      const { fileName, url } = VersionManager.windowsClientArtifact(version);
-      return { fileName, url, dirName: fileName.replace(/\.zip$/, '') };
+      return { ...VersionManager.windowsClientArtifact(version), dirName };
     }
-    const key = new SysadminStorage().getClientPlatformKey();
     const ext = process.platform === 'darwin' ? 'dmg' : 'zip';
-    const dirName = `GemStoneClientLibs${version}-${key}`;
     const fileName = `${dirName}.${ext}`;
     return { fileName, url: `${WIN_CLIENT_BASE_URL}${version}/${fileName}`, dirName };
   }
@@ -1125,10 +1139,10 @@ export class VersionManager {
     }
 
     const created = !fs.existsSync(clientDir);
-    // GemTalk ships these read-only: an earlier copy has to be opened up for the
-    // unpack to replace its files.
-    if (!created) makeWritable(clientDir);
     try {
+      // GemTalk ships these read-only: an earlier copy has to be opened up for the
+      // unpack to replace its files. Inside the try, so the archive goes either way.
+      if (!created) makeWritable(clientDir);
       if (process.platform === 'darwin') {
         await this.extractDmg(archivePath, clientDir, progress, token, true);
       } else {
@@ -1142,13 +1156,28 @@ export class VersionManager {
       }
     } catch (e) {
       if (created && fs.existsSync(clientDir)) {
-        makeWritable(clientDir);
-        await fs.promises.rm(clientDir, { recursive: true, force: true });
+        try {
+          makeWritable(clientDir);
+          await fs.promises.rm(clientDir, { recursive: true, force: true });
+        } catch (rmError) {
+          // Said instead of the outcome, which it would otherwise replace.
+          const message = cleanupFailedMessage(
+            `Downloading the files for GemStone ${version}`,
+            e,
+            clientDir,
+            ` (${rmError instanceof Error ? rmError.message : String(rmError)})`,
+          );
+          appendSysadmin(message);
+          throw new Error(message, { cause: rmError });
+        }
       }
       if (e instanceof InstallCancelledError) {
         throw new InstallCancelledError(
-          `Downloading the files for GemStone ${version} cancelled. The partly unpacked files ` +
-            'were removed.',
+          created
+            ? `Downloading the files for GemStone ${version} cancelled. The partly unpacked ` +
+                'files were removed.'
+            : `Downloading the files for GemStone ${version} cancelled. ${clientDir} was there ` +
+                'before, so it was not removed; the unpack may have replaced some of its files.',
         );
       }
       throw e;
