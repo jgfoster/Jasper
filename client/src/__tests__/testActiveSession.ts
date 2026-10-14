@@ -1,7 +1,6 @@
 // Builds a real `ActiveSession` for test code that already has a live GCI
-// login (a `GciLibrary` instance and its session handle) — the refactoring
-// integration tests (`client/src/refactoring/__tests__/*.integration.test.ts`)
-// and `client/bin/installServerPluginMain.ts`.
+// login (a `GciLibrary` instance and its session handle): the integration
+// tests and the server-plugin scripts in `client/bin/`.
 //
 // `ActiveSession` comes from `activeSession.ts`, never `sessionManager.ts`:
 // the latter is a `vscode`-dependent module, and `tsx` loads this module

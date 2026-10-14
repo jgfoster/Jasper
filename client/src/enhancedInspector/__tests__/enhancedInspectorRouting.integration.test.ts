@@ -14,6 +14,7 @@ import {
   requireServerPluginFeatureAbsent,
 } from '../../__tests__/requireServerPluginFeature';
 import { pluginFeatures } from '../../serverPlugin/pluginFeatures';
+import { testActiveSession } from '../../__tests__/testActiveSession';
 
 /**
  * Integration tests for the unified "Inspect It" routing: it opens the Enhanced
@@ -41,8 +42,7 @@ describe('inspect it routing (integration)', () => {
     handle = testContext.session;
   });
 
-  const session = (): ActiveSession =>
-    ({ id: 1, gci, handle, stoneVersion: gci.GciTsVersion().version }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
 
   const exec = () => (code: string) => q.executeFetchString(session(), code);
 

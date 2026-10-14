@@ -31,6 +31,7 @@ import { isTonelFileOutError } from '../rowanLookup';
 import { readTonelClass } from '../readTonelClass';
 import { applyTonelClass } from '../../../fileTransfer/tonelFileIn';
 import { useRowan3Stone } from './useRowan3Stone';
+import { testActiveSession } from '../../../__tests__/testActiveSession';
 
 const SOURCE = 'JasperFidelitySource';
 const COPY = 'JasperFidelityCopy';
@@ -43,7 +44,7 @@ describe('tonel file in fidelity (integration)', () => {
     handle = testContext.session;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
   const exec = (code: string): string => q.executeFetchString(session(), code);
   const rowan3 = useRowan3Stone(() => exec);
 

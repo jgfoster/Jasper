@@ -44,6 +44,7 @@ import { listRowanProjects } from '../../rowan/listRowanProjects';
 import { fileOutClassTonel } from '../fileOutClassTonel';
 import { isTonelFileOutError } from '../rowanLookup';
 import { tonelCapability } from '../tonelCapability';
+import { testActiveSession } from '../../../__tests__/testActiveSession';
 
 const TIMEOUT = 300_000;
 const PROJECT = 'JasperTonelOracleProbe';
@@ -106,7 +107,7 @@ describe('Jasper file out matches Rowan project export for the same class', () =
     logout = testContext.logout;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
   const exec = (code: string): string => q.executeFetchString(session(), code);
 
   let runnable = false;

@@ -25,6 +25,7 @@ import { createMethodsProvider, SERVER_OVERFETCH } from '../providers/methodsPro
 import { OMNI_DEFAULTS } from '../omniConfig';
 import { NEVER_CANCELLED, OmniConfig, OmniResult } from '../omniTypes';
 import type { ActiveSession } from '../../sessionManager';
+import { testActiveSession } from '../../__tests__/testActiveSession';
 
 // How far down the first page `Array>>at:` is allowed to sit. Nothing in the image fixes the exact
 // index — the ranking only promises that `at:` implementors come first, and how many there are (31 on a
@@ -41,7 +42,7 @@ describe('methods search relevance (integration)', () => {
     handle = testContext.session;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
   const cfg = (over: Partial<OmniConfig> = {}): OmniConfig => ({ ...OMNI_DEFAULTS, ...over });
 
   it('returns the exact implementors of a common selector even though the scan is bounded', () => {

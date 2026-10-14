@@ -26,6 +26,7 @@ import * as q from '../../browserQueries';
 import { defaultQueryExecutorUsing } from '../../browserQueries';
 import { dedupeMethodResults, literalSymbolReferences } from '../methodSearch';
 import type { ActiveSession } from '../../sessionManager';
+import { testActiveSession } from '../../__tests__/testActiveSession';
 
 describe('literalSymbolReferences (integration)', () => {
   let gci: GciLibrary;
@@ -35,7 +36,7 @@ describe('literalSymbolReferences (integration)', () => {
     handle = testContext.session;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
 
   const CLS = 'SymbolLiteralDemo';
 
@@ -74,7 +75,7 @@ describe('hierarchyImplementorsOf (integration)', () => {
     handle = testContext.session;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
 
   const BASE = 'HierEnvDemoBase';
   const MIDDLE = 'HierEnvDemoMiddle';
