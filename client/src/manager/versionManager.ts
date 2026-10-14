@@ -914,6 +914,35 @@ export class VersionManager {
     }
   }
 
+  // ── Client downloads in flight ─────────────────────────────
+
+  /**
+   * Client downloads running now, by archive name. The manager command, the
+   * login prompt, the login page and Quick Setup share one archive and folder
+   * per version, so a second run would delete the first one's files. Static:
+   * those callers can hold different VersionManagers over the same root folder.
+   */
+  private static readonly clientDownloadsInFlight = new Map<string, Promise<void>>();
+
+  /**
+   * Run `start`, or join the run already going for `archive`. A joiner's Cancel
+   * stops nothing, and it shares the first run's outcome, cancellation included.
+   */
+  private static joinClientDownload(
+    archive: string,
+    progress: vscode.Progress<{ message?: string; increment?: number }>,
+    start: () => Promise<void>,
+  ): Promise<void> {
+    const running = VersionManager.clientDownloadsInFlight.get(archive);
+    if (running) {
+      progress.report({ message: 'Waiting for the download of this version already running...' });
+      return running;
+    }
+    const run = start().finally(() => VersionManager.clientDownloadsInFlight.delete(archive));
+    VersionManager.clientDownloadsInFlight.set(archive, run);
+    return run;
+  }
+
   // ── Windows client distribution ────────────────────────────
 
   /** Build the canonical Windows-client zip filename and download URL for a version. */
@@ -928,9 +957,22 @@ export class VersionManager {
    * On HTTP 404 (GemTalk hasn't published a client for this version), throws a
    * friendly error the caller can show verbatim. The zip is always deleted
    * afterwards, whether the unpack succeeded or not — the client distribution
-   * is small enough that keeping it around doesn't add value.
+   * is small enough that keeping it around doesn't add value. A call while one
+   * for the same version is running joins it.
    */
-  async downloadAndExtractWindowsClient(
+  downloadAndExtractWindowsClient(
+    version: string,
+    progress: vscode.Progress<{ message?: string; increment?: number }>,
+    token: vscode.CancellationToken,
+  ): Promise<void> {
+    return VersionManager.joinClientDownload(
+      VersionManager.windowsClientArtifact(version).fileName,
+      progress,
+      () => this.windowsClientDownload(version, progress, token),
+    );
+  }
+
+  private async windowsClientDownload(
     version: string,
     progress: vscode.Progress<{ message?: string; increment?: number }>,
     token: vscode.CancellationToken,
@@ -1030,15 +1072,29 @@ export class VersionManager {
    * Download and unpack the files a login to `version` needs, and nothing of
    * the server. They go in a folder of their own, so a full install of the same
    * version is never touched, and the archive is deleted afterwards either way.
+   * A call while one for the same version is running joins it.
    */
-  async downloadAndExtractClient(
+  downloadAndExtractClient(
     version: string,
     progress: vscode.Progress<{ message?: string; increment?: number }>,
     token: vscode.CancellationToken,
   ): Promise<void> {
+    // Before the guard: the Windows method takes it for the same archive.
     if (process.platform === 'win32') {
-      return await this.downloadAndExtractWindowsClient(version, progress, token);
+      return this.downloadAndExtractWindowsClient(version, progress, token);
     }
+    return VersionManager.joinClientDownload(
+      VersionManager.clientArtifact(version).fileName,
+      progress,
+      () => this.clientDownload(version, progress, token),
+    );
+  }
+
+  private async clientDownload(
+    version: string,
+    progress: vscode.Progress<{ message?: string; increment?: number }>,
+    token: vscode.CancellationToken,
+  ): Promise<void> {
     if (!version || !version.trim()) {
       throw new Error('Cannot download the files for a login: no GemStone version specified.');
     }

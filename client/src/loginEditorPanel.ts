@@ -175,10 +175,13 @@ export class LoginEditorPanel {
             break;
           case 'downloadVersion':
             // The GemStone manager's command, so both pages do one thing.
-            await vscode.commands.executeCommand('gemstone.downloadClient', {
-              version: { version: message.version },
-            });
-            this.postVersions();
+            try {
+              await vscode.commands.executeCommand('gemstone.downloadClient', {
+                version: { version: message.version },
+              });
+            } finally {
+              this.postVersions(message.version);
+            }
             break;
           case 'openDocs':
             // GemStone System Administration Guide — "Logging in Gem Sessions": the
@@ -301,13 +304,16 @@ export class LoginEditorPanel {
     this.postVersions();
   }
 
-  /** Re-read the disk and send the version list, keeping the form as it is. */
-  private postVersions(): void {
+  /**
+   * Re-read the disk and send the version list, keeping the form as it is.
+   * `downloaded` names a download of the page's that just ended, either way.
+   */
+  private postVersions(downloaded?: string): void {
     if (LoginEditorPanel.currentPanel !== this) return;
     if (this.sysadminStorage) {
       this.versions = LoginEditorPanel.getAvailableVersions(this.storage, this.sysadminStorage);
     }
-    this.panel.webview.postMessage({ command: 'versions', ...this.versionChoices() });
+    this.panel.webview.postMessage({ command: 'versions', downloaded, ...this.versionChoices() });
   }
 
   private dispose(): void {

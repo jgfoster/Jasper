@@ -353,7 +353,23 @@ describe('LoginEditorPanel', () => {
           command: 'versions',
           versions: ['3.7.4'],
           notDownloaded: [],
+          downloaded: '3.7.4',
         }),
+      );
+    });
+
+    it('names the version whose download ended even when the command throws', async () => {
+      const { panel } = await openWith([], ['3.7.4']);
+      panel.webview.postMessage.mockClear();
+      vi.mocked(commands.executeCommand).mockRejectedValueOnce(new Error('boom'));
+      const handler = panel.webview.onDidReceiveMessage.mock.calls[0][0];
+
+      await expect(handler({ command: 'downloadVersion', version: '3.7.4' })).rejects.toThrow(
+        'boom',
+      );
+
+      expect(panel.webview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'versions', downloaded: '3.7.4' }),
       );
     });
 

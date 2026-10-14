@@ -125,11 +125,27 @@ describe('the GemStone Version field', () => {
   it('a failed download lets the user try again', () => {
     choose('3.7.4');
     (document.getElementById('downloadVersionBtn') as HTMLButtonElement).click();
-    send({ command: 'versions', versions: ['3.7.5', '3.7.4'], notDownloaded: ['3.7.4'] });
+    send({
+      command: 'versions',
+      versions: ['3.7.5', '3.7.4'],
+      notDownloaded: ['3.7.4'],
+      downloaded: '3.7.4',
+    });
 
     expect((document.getElementById('downloadVersionBtn') as HTMLButtonElement).disabled).toBe(
       false,
     );
+  });
+
+  it('a version list arriving mid-download leaves the button busy', () => {
+    choose('3.7.4');
+    const button = document.getElementById('downloadVersionBtn') as HTMLButtonElement;
+    button.click();
+
+    send({ command: 'versions', versions: ['3.7.5', '3.7.4'], notDownloaded: ['3.7.4'] });
+
+    expect(button.disabled).toBe(true);
+    expect(button.textContent).toBe('Downloading…');
   });
 
   it('a new login with nothing chosen takes the newest version once the list arrives', () => {

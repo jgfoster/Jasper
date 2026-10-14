@@ -188,8 +188,11 @@ describe('SysadminStorage client files', () => {
 });
 
 describe('VersionManager.downloadAndExtractClient on Linux', () => {
-  /** A stand-in for unzip: writes the GemStoneClientLibs layout into the -d folder. */
-  function fakeUnzip(code: number, version = '3.7.4.3'): void {
+  /**
+   * A stand-in for unzip: writes the GemStoneClientLibs layout into the -d
+   * folder, for `version` or else the one the folder is named for.
+   */
+  function fakeUnzip(code: number, version?: string): void {
     vi.mocked(spawn).mockImplementation((cmd: string, args: readonly string[]) => {
       const child = Object.assign(new EventEmitter(), {
         stdout: new EventEmitter(),
@@ -198,8 +201,9 @@ describe('VersionManager.downloadAndExtractClient on Linux', () => {
       });
       if (cmd === 'unzip' && code === 0) {
         const dest = args[args.indexOf('-d') + 1];
-        fs.mkdirSync(path.join(dest, version, '64bit'), { recursive: true });
-        fs.writeFileSync(path.join(dest, version, '64bit', `libgcits-${version}-64.so`), '');
+        const v = version ?? /GemStoneClientLibs(.+)-x86_64\.Linux$/.exec(dest)![1];
+        fs.mkdirSync(path.join(dest, v, '64bit'), { recursive: true });
+        fs.writeFileSync(path.join(dest, v, '64bit', `libgcits-${v}-64.so`), '');
       }
       setImmediate(() => child.emit('close', cmd === 'unzip' ? code : 0));
       return child as unknown as ChildProcess;
@@ -319,6 +323,73 @@ describe('VersionManager.downloadAndExtractClient on Linux', () => {
   it('rejects an empty version', async () => {
     const { install } = setUp('');
     await expect(install()).rejects.toThrow(/no GemStone version/);
+  });
+
+  describe('a second call while one for the version is running', () => {
+    /** Holds the first download open until `release`, so a second call lands mid-run. */
+    function setUpOverlap() {
+      const first = setUp();
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      first.download.mockImplementation(async () => {
+        await gate;
+        fs.writeFileSync(first.zipPath, '');
+      });
+      // Another manager over the same folder, as the login page and the manager command hold.
+      const other = new VersionManager(new SysadminStorage());
+      const otherDownload = vi.spyOn(other as unknown as PrivateDownloadHost, 'downloadFile');
+      const otherProgress = { report: vi.fn() };
+      const join = () => other.downloadAndExtractClient('3.7.4.3', otherProgress, noopToken);
+      return { ...first, release, otherDownload, otherProgress, join };
+    }
+
+    it('joins it instead of downloading and unpacking again', async () => {
+      const { zipPath, download, install, release, otherDownload, otherProgress, join } =
+        setUpOverlap();
+      fakeUnzip(0);
+
+      const running = install();
+      const joined = join();
+      release();
+      await Promise.all([running, joined]);
+
+      expect(download).toHaveBeenCalledTimes(1);
+      expect(otherDownload).not.toHaveBeenCalled();
+      expect(vi.mocked(spawn).mock.calls.filter(([cmd]) => cmd === 'unzip')).toHaveLength(1);
+      expect(otherProgress.report).toHaveBeenCalledWith({
+        message: 'Waiting for the download of this version already running...',
+      });
+      expect(fs.existsSync(zipPath)).toBe(false);
+      expect(new SysadminStorage().getClientGciPath('3.7.4.3')).toBeDefined();
+    });
+
+    it('shares its failure, and a call after it starts a fresh download', async () => {
+      const { download, install, release, join } = setUpOverlap();
+      fakeUnzip(9);
+
+      const running = install();
+      const joined = join();
+      release();
+
+      await expect(running).rejects.toThrow(/unzip failed with exit code 9/);
+      await expect(joined).rejects.toThrow(/unzip failed with exit code 9/);
+      fakeUnzip(0);
+      await install();
+      expect(download).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not join a download of another version', async () => {
+      const { install, release } = setUpOverlap();
+      const other = setUp('3.7.5');
+      fakeUnzip(0);
+
+      const running = install();
+      await other.install();
+      release();
+      await running;
+
+      expect(other.download).toHaveBeenCalledTimes(1);
+    });
   });
 });
 

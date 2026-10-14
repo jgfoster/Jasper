@@ -317,8 +317,9 @@ export function loginEditorHtml(nonce: string): string {
       const msg = event.data;
       if (msg.command === 'versions') {
         // A fresh list, from the download site or after a download: the form
-        // keeps what the user typed and the version they chose.
-        downloading = null;
+        // keeps what the user typed and the version they chose. Only the end of
+        // its own download frees the button; the catalog can arrive mid-run.
+        if (msg.downloaded && msg.downloaded === downloading) downloading = null;
         fillVersions(msg.versions, msg.notDownloaded, versionSelect.value || (msg.versions || [])[0]);
         versionChosen();
         return;
