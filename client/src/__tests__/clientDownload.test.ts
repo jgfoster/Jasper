@@ -588,14 +588,16 @@ describe('VersionManager.downloadAndExtractClient on macOS', () => {
       async () => fs.writeFileSync(dmgPath(), ''),
     );
     const realReaddir = fs.promises.readdir;
-    const readdir = vi
-      .spyOn(fs.promises, 'readdir')
-      .mockImplementation(((p: fs.PathLike, opts?: unknown) =>
-        String(p) === mountPoint
-          ? Promise.resolve(['.fseventsd', '3.7.5'])
-          : String(p).startsWith(mountPoint)
-            ? Promise.resolve([])
-            : realReaddir(p, opts as never)) as typeof fs.promises.readdir);
+    const readdir = vi.spyOn(fs.promises, 'readdir').mockImplementation(((
+      p: fs.PathLike,
+      opts?: unknown,
+    ) =>
+      String(p) === mountPoint
+        ? Promise.resolve(['.fseventsd', '3.7.5'])
+        : // path.join gives backslashes on Windows; the mount point is a POSIX path.
+          path.normalize(String(p)).startsWith(path.normalize(mountPoint))
+          ? Promise.resolve([])
+          : realReaddir(p, opts as never)) as typeof fs.promises.readdir);
     const calls: [string, readonly string[]][] = [];
     vi.mocked(spawn).mockImplementation((cmd: string, args: readonly string[]) => {
       calls.push([cmd, args]);

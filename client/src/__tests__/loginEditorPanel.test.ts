@@ -36,6 +36,8 @@ function makeSecrets() {
   };
 }
 
+const realPlatform = process.platform;
+
 describe('LoginEditorPanel', () => {
   let storage: LoginStorage;
   let treeProvider: LoginTreeProvider;
@@ -55,6 +57,13 @@ describe('LoginEditorPanel', () => {
     vi.clearAllMocks();
     (bundledWindowsClientVersions as Mock).mockReturnValue([]);
     (bundledGciArchSupported as Mock).mockReturnValue(true);
+    // Linux unless a test says otherwise: on Windows a server install in WSL is
+    // not a version a login can use, and these tests count one.
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: realPlatform, configurable: true });
   });
 
   describe('show', () => {
