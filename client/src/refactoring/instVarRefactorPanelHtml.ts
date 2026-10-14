@@ -17,8 +17,13 @@
  * Kept free of any `vscode` dependency so it unit-tests directly. Uses
  * instVarRefactorPanelView.js for the DOM behaviour.
  */
-import { InstVarChange, InstVarOutOfScope, instVarChangeLabel } from './instVarRefactorPreview';
-import { ambiguousClassNames } from './qualifiedClassName';
+import {
+  InstVarChange,
+  InstVarOutOfScope,
+  instVarChangeLabel,
+  instVarChangeSuffix,
+} from './instVarRefactorPreview';
+import { ambiguousClassNames, classNameSpan } from './qualifiedClassName';
 
 function escapeHtml(s: string): string {
   return s
@@ -72,7 +77,7 @@ function renderCard(change: InstVarChange, ambiguous: ReadonlySet<string>): stri
   return `<li class="change" data-id="${escapeHtml(change.id)}">
   <div class="change-head">
     ${cb}
-    <span class="label">${label}</span>
+    <span class="label">${classNameSpan(change.className, change.dictName, ambiguous)}${escapeHtml(instVarChangeSuffix(change))}</span>
     ${kindBadge}
     <button class="toggle" title="Show/hide diff" aria-expanded="${isEdit}">${arrow}</button>
   </div>
@@ -83,7 +88,8 @@ function renderCard(change: InstVarChange, ambiguous: ReadonlySet<string>): stri
 /** Render a batch of cards. Pure. */
 export function renderInstVarCards(changes: InstVarChange[]): string {
   // Rows whose class name this change set claims from more than one dictionary carry it, so
-  // two rows naming the same class can be told apart (#396).
+  // two rows naming the same class can be told apart (#396). This batch only: a clash with a row
+  // on another page is caught in the webview (rowQualifierView.js).
   const ambiguous = ambiguousClassNames(changes);
   return changes.map((c) => renderCard(c, ambiguous)).join('\n');
 }

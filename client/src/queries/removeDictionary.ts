@@ -1,5 +1,6 @@
 import { QueryExecutor } from './types';
 import { dictLookupExpr } from './util';
+import { clearClassOrganizerStatement } from './classOrganizer';
 
 // Destructive. Not committed automatically. Accepts a dict by 1-based index
 // or by name.
@@ -10,6 +11,7 @@ sl := System myUserProfile symbolList.
 d := ${dictExpr}.
 d ifNil: [^ 'Dictionary not found'].
 sl remove: d.
+${clearClassOrganizerStatement()}
 'Removed dictionary: ' , d name`;
   return execute(code);
 }

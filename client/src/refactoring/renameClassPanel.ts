@@ -15,9 +15,14 @@ import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import { StartClassPreview, PreviewPage, ApplyResult } from './renameClassPreview';
 import { renderClassPanelHtml, renderClassCards } from './renameClassPanelHtml';
-import { readPreviewPanelScript } from '../webviewAssets';
+import { readPreviewPanelScript, readWebviewScript } from '../webviewAssets';
 
-const panelJs = readPreviewPanelScript('renameMethodPanelView.js', 'refactoring');
+// The row qualifier goes first: the panel script calls it as the first page and every later one
+// lands, to qualify a class name a later page has made ambiguous.
+const panelJs =
+  readWebviewScript('rowQualifierView.js', 'refactoring') +
+  '\n' +
+  readPreviewPanelScript('renameMethodPanelView.js', 'refactoring');
 
 export interface RenameClassPanelHandlers {
   loadPage: (offset: number) => Promise<PreviewPage>;

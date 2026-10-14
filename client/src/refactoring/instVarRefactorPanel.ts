@@ -16,9 +16,14 @@ import {
   describeApplyFailure,
 } from './instVarRefactorPreview';
 import { renderInstVarPanelHtml, renderInstVarCards } from './instVarRefactorPanelHtml';
-import { readPreviewPanelScript } from '../webviewAssets';
+import { readPreviewPanelScript, readWebviewScript } from '../webviewAssets';
 
-const panelJs = readPreviewPanelScript('instVarRefactorPanelView.js', 'refactoring');
+// The row qualifier goes first: the panel script calls it as the first page and every later one
+// lands, to qualify a class name a later page has made ambiguous.
+const panelJs =
+  readWebviewScript('rowQualifierView.js', 'refactoring') +
+  '\n' +
+  readPreviewPanelScript('instVarRefactorPanelView.js', 'refactoring');
 
 export interface InstVarPanelHandlers {
   /** Fetch the page starting at `offset` (1-based). */
