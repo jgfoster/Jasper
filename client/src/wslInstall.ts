@@ -1,4 +1,4 @@
-import { spawn, spawnSync, type SpawnOptions } from 'child_process';
+import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -74,13 +74,30 @@ function runSync(args: string[]): WslRun {
   return { ok: !r.error && r.status === 0, stdout: String(r.stdout ?? '') };
 }
 
+/** Always settles, by {@link RUN_TIMEOUT_MS} at the latest. spawn's own
+ *  `timeout` kills the child, but 'close' still waits for stdout to close, and
+ *  a process wsl.exe started can hold that pipe open after wsl.exe is gone. */
 function runAsync(args: string[]): Promise<WslRun> {
   return new Promise((resolve) => {
     let stdout = '';
-    const child = spawn(path.join(system32(), 'wsl.exe'), args, RUN_OPTIONS);
+    let child: ChildProcess | undefined;
+    const deadline = setTimeout(() => {
+      child?.kill();
+      finish({ ok: false, stdout: '' });
+    }, RUN_TIMEOUT_MS);
+    function finish(run: WslRun) {
+      clearTimeout(deadline);
+      resolve(run);
+    }
+    try {
+      child = spawn(path.join(system32(), 'wsl.exe'), args, RUN_OPTIONS);
+    } catch {
+      finish({ ok: false, stdout: '' });
+      return;
+    }
     child.stdout?.on('data', (chunk) => (stdout += String(chunk)));
-    child.on('error', () => resolve({ ok: false, stdout: '' }));
-    child.on('close', (code) => resolve({ ok: code === 0, stdout }));
+    child.on('error', () => finish({ ok: false, stdout: '' }));
+    child.on('close', (code) => finish({ ok: code === 0, stdout }));
   });
 }
 
@@ -112,12 +129,20 @@ export function isWslInstalled(): boolean {
 export async function isWslInstalledAsync(): Promise<boolean> {
   if (process.platform !== 'win32') return false;
   if (cachedInstalled !== undefined) return cachedInstalled;
-  pendingProbe ??= probeAsync().then((installed) => {
-    cachedInstalled = installed;
-    pendingProbe = undefined;
-    return installed;
-  });
-  return await pendingProbe;
+  if (pendingProbe) return await pendingProbe;
+  const probe: Promise<boolean> = probeAsync()
+    .catch(() => false)
+    .then((installed) => {
+      // A forget while this ran means its answer may predate an install or
+      // uninstall, so it answers its own callers but is not kept.
+      if (pendingProbe === probe) {
+        cachedInstalled = installed;
+        pendingProbe = undefined;
+      }
+      return installed;
+    });
+  pendingProbe = probe;
+  return await probe;
 }
 
 export function forgetWslInstalled(): void {

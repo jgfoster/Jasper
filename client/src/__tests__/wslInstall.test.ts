@@ -193,3 +193,109 @@ describe('isWslInstalled', () => {
     await expect(isWslInstalledAsync()).resolves.toBe(false);
   });
 });
+
+// The async check must always settle: activation, Refresh and every async WSL
+// entry point await it, so a check that never answers stalls all of them.
+describe('isWslInstalledAsync always finishes', () => {
+  const realPlatform = process.platform;
+
+  /** A wsl.exe that the test answers by hand; until then it neither exits nor closes. */
+  function heldChildren() {
+    const children: Array<ChildProcess & { kill: ReturnType<typeof vi.fn> }> = [];
+    vi.mocked(spawn).mockImplementation(() => {
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new EventEmitter(),
+        kill: vi.fn(),
+      }) as unknown as ChildProcess & { kill: ReturnType<typeof vi.fn> };
+      children.push(child);
+      return child;
+    });
+    return children;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    forgetWslInstalled();
+    setPlatform('win32');
+    vi.mocked(os.release).mockReturnValue(WINDOWS_11);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    setPlatform(realPlatform);
+    forgetWslInstalled();
+  });
+
+  it('answers false by the deadline when wsl.exe never closes, and kills it', async () => {
+    vi.useFakeTimers();
+    const children = heldChildren();
+    let answer: boolean | undefined;
+    void isWslInstalledAsync().then((a) => (answer = a));
+
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(answer).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(answer).toBe(false);
+    expect(children).toHaveLength(1);
+    expect(children[0].kill).toHaveBeenCalledOnce();
+  });
+
+  it('answers false by the deadline when `--list --quiet` hangs after `--status` passed', async () => {
+    vi.useFakeTimers();
+    const children = heldChildren();
+    const answer = isWslInstalledAsync();
+    await vi.advanceTimersByTimeAsync(0);
+    children[0].emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10000);
+
+    await expect(answer).resolves.toBe(false);
+    expect(children).toHaveLength(2);
+    expect(children[1].kill).toHaveBeenCalledOnce();
+  });
+
+  it('answers false when spawn itself throws', async () => {
+    vi.mocked(spawn).mockImplementation(() => {
+      throw new Error('EPERM');
+    });
+    await expect(isWslInstalledAsync()).resolves.toBe(false);
+  });
+
+  it('a check that failed is not left pending: the next one after a forget runs again', async () => {
+    vi.mocked(spawn).mockImplementation(() => {
+      throw new Error('EPERM');
+    });
+    await expect(isWslInstalledAsync()).resolves.toBe(false);
+    forgetWslInstalled();
+    wslAnswers({ '--status': { status: 0 }, '--list --quiet': { status: 0, stdout: 'Ubuntu' } });
+    await expect(isWslInstalledAsync()).resolves.toBe(true);
+  });
+
+  it('a late answer does not reach the cache once forgotten — the next call looks again', async () => {
+    const children = heldChildren();
+    const stale = isWslInstalledAsync();
+    await Promise.resolve();
+    forgetWslInstalled();
+
+    // WSL is uninstalled while the first check is still running.
+    children[0].emit('close', 0);
+    await new Promise((r) => setImmediate(r));
+    children[1].stdout?.emit('data', 'Ubuntu');
+    children[1].emit('close', 0);
+    await expect(stale).resolves.toBe(true);
+
+    wslAnswers({ '--status': { status: 50 } });
+    await expect(isWslInstalledAsync()).resolves.toBe(false);
+    expect(isWslInstalled()).toBe(false);
+  });
+
+  it('callers waiting on one check all get its answer, even a failed one', async () => {
+    vi.mocked(spawn).mockImplementation(() => {
+      throw new Error('EPERM');
+    });
+    await expect(Promise.all([isWslInstalledAsync(), isWslInstalledAsync()])).resolves.toEqual([
+      false,
+      false,
+    ]);
+    expect(spawn).toHaveBeenCalledOnce();
+  });
+});
