@@ -250,8 +250,13 @@ describe('BreakpointManager', () => {
       expect(manager.appliedFor(Uri.parse(METHOD_URI))).toHaveLength(0);
       expect(vi.mocked(debug.removeBreakpoints)).toHaveBeenCalledWith([pastEnd]);
       expect(debug.breakpoints).toHaveLength(0);
+      // Names the method, so that an event touching several says which one lost
+      // a breakpoint.
       expect(vi.mocked(window.showWarningMessage)).toHaveBeenCalledWith(
-        expect.stringContaining('below the last statement'),
+        expect.stringContaining('Array >> #at:'),
+      );
+      expect(vi.mocked(window.showWarningMessage)).toHaveBeenCalledWith(
+        expect.stringContaining("below the method's last statement"),
       );
     });
 
@@ -267,6 +272,36 @@ describe('BreakpointManager', () => {
       expect(armedStepPoints()).toEqual([1]);
       expect(vi.mocked(debug.removeBreakpoints)).toHaveBeenCalledWith([pastEnd]);
       expect(debug.breakpoints).toEqual([onStatement]);
+    });
+
+    // VS Code's `removeBreakpoints` fires `onDidChangeBreakpoints` before it
+    // returns, so taking the past-the-end breakpoint back re-enters
+    // `applyToUri` for the same URI. The shared mock does not fire it, so this
+    // test does: without the guard, the method is cleared and armed twice.
+    it('clears and arms the method once when taking a breakpoint back re-enters', () => {
+      vi.mocked(window.showWarningMessage).mockClear();
+      mockGetMethodSource.mockReturnValue('foo\n^1\n');
+      // One step point: the '^' at 0-based offset 4, so 5 1-based.
+      mockGetSourceOffsets.mockReturnValue([5]);
+      setVsCodeBreakpoints(METHOD_URI, [{ line: 2 }, { line: 3 }]);
+      const manager = makeManager();
+      const plainRemove = (bps: unknown[]): void => {
+        debug.breakpoints = debug.breakpoints.filter((bp) => !bps.includes(bp));
+      };
+      vi.mocked(debug.removeBreakpoints).mockImplementation((bps: unknown[]) => {
+        plainRemove(bps);
+        manager.applyToUri(session(), Uri.parse(METHOD_URI));
+      });
+
+      try {
+        manager.applyToUri(session(), Uri.parse(METHOD_URI));
+
+        expect(armedStepPoints()).toEqual([1]);
+        expect(mockClearAllBreaks).toHaveBeenCalledTimes(1);
+        expect(vi.mocked(window.showWarningMessage)).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.mocked(debug.removeBreakpoints).mockImplementation(plainRemove);
+      }
     });
 
     it('takes nothing back when every breakpoint has a step point', () => {

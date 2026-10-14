@@ -224,7 +224,9 @@ export interface ResolvedStepPoint {
  * Either way, a line with no step point of its own falls forward to the next
  * step point after it, and the returned `line` says where the breakpoint really
  * ended up. Returns null when there is no step point at or after the
- * breakpoint — a breakpoint past the last statement.
+ * breakpoint: past the method's last statement, which is the everyday case, but
+ * also a method with no step points at all and a line past the end of the
+ * source this `StepPointInfo` was built from.
  */
 export function resolveStepPoint(
   info: StepPointInfo,

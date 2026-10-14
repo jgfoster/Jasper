@@ -106,6 +106,9 @@ export class BreakpointManager {
    */
   private frozen = new Set<string>();
 
+  /** Method URIs `applyToUri` is partway through; see the guard at its top. */
+  private applying = new Set<string>();
+
   private _onDidApply = new vscode.EventEmitter<void>();
   /** Fires after breakpoints are pushed to the gem, so views can refresh. */
   readonly onDidApply = this._onDidApply.event;
@@ -171,6 +174,29 @@ export class BreakpointManager {
    * compiled method no longer describe the same code — see `holdWhileDirty`.
    */
   applyToUri(session: ActiveSession, uri: vscode.Uri): void {
+    // Re-entrant for the same URI: taking a breakpoint back at the end of a run
+    // (see `unplaceable` below) calls `vscode.debug.removeBreakpoints`, which
+    // fires `onDidChangeBreakpoints` before it returns and brings us straight
+    // back here. The gem is in its final state by then and VS Code's list has
+    // already lost the removed breakpoint, so the nested pass would clear and
+    // arm the same method all over again — every set a second round trip, every
+    // error toast twice, `onDidApply` twice. Dropping it changes no outcome.
+    //
+    // Only a call nested inside another for the SAME URI is dropped; a removal
+    // from outside this method, as `invalidateForUri` does, still arrives as a
+    // top-level call and still does its work.
+    const inFlight = uri.toString();
+    if (this.applying.has(inFlight)) return;
+    this.applying.add(inFlight);
+    try {
+      this.applyNow(session, uri);
+    } finally {
+      this.applying.delete(inFlight);
+    }
+  }
+
+  /** `applyToUri`'s body, minus the re-entrancy guard. */
+  private applyNow(session: ActiveSession, uri: vscode.Uri): void {
     // The one statement of "a breakpoint can be armed here" (see
     // client/src/languageIds.ts), shared with the rule that decides which
     // documents are given the language the gutter is offered for — so the offer
@@ -230,9 +256,10 @@ export class BreakpointManager {
     // step point, so they collapse, and the step point stays armed if *any* of
     // them is enabled.
     const byStepPoint = new Map<number, AppliedBreakpoint>();
-    // A breakpoint below the method's last statement has no step point to fall
-    // forward to. Left in the list it is a red dot that never stops, so it is
-    // taken back out and the reason given — as `holdWhileDirty` does.
+    // A breakpoint with no step point to fall forward to — below the method's
+    // last statement, usually. Left in the list it is a red dot that never
+    // stops, so it is taken back out and the reason given, as `holdWhileDirty`
+    // does. Taken back at the very end of this method; see there for why.
     const unplaceable: vscode.SourceBreakpoint[] = [];
 
     for (const bp of wanted) {
@@ -248,11 +275,6 @@ export class BreakpointManager {
         line: resolved.line,
         enabled: (existing?.enabled ?? false) || bp.enabled,
       });
-    }
-
-    if (unplaceable.length > 0) {
-      vscode.debug.removeBreakpoints(unplaceable);
-      vscode.window.showWarningMessage(PAST_LAST_STATEMENT_REFUSAL);
     }
 
     const applied: AppliedBreakpoint[] = [];
@@ -333,6 +355,17 @@ export class BreakpointManager {
 
     this.refreshEditorsFor(uri);
     this._onDidApply.fire();
+
+    // Last, after the gem and our record are in their final state, the way
+    // `invalidateForUri` leaves its removal until the end: this re-enters
+    // `applyToUri`, which drops the nested pass precisely because there is
+    // nothing left for it to do.
+    if (unplaceable.length > 0) {
+      vscode.debug.removeBreakpoints(unplaceable);
+      vscode.window.showWarningMessage(
+        noStepPointRefusal(unplaceable.length, describeMethodResult(method)),
+      );
+    }
   }
 
   /**
@@ -994,17 +1027,28 @@ const DIRTY_REFUSAL =
  * is looking at a workspace or a `.gst` file and has to be told where the
  * breakpoint does belong.
  */
-/**
- * Why a breakpoint below a method's last statement is refused: there is no step
- * point at or after it for it to fall forward to.
- */
-const PAST_LAST_STATEMENT_REFUSAL =
-  'A breakpoint below the last statement of a method can never stop — ' +
-  'there is no step point at or after it. Set it on a statement instead.';
-
 const NOT_A_METHOD_REFUSAL =
   'A breakpoint can only be set in the source of a compiled GemStone method. ' +
   'This editor is not one — open the method and set the breakpoint there.';
+
+/**
+ * Why a breakpoint with no step point to fall forward to is taken back out.
+ *
+ * Names the method, since one event can touch several and only the message says
+ * which one lost a breakpoint. Below the method's last statement is the usual
+ * cause and the one worth the hint, but `resolveStepPoint` also returns null for
+ * a method with no step points at all and for a line past the end of its source
+ * — so the wording covers all three rather than promising which it was.
+ */
+function noStepPointRefusal(count: number, where: string): string {
+  const [subject, pronoun, verb] =
+    count === 1 ? ['A breakpoint', 'it', 'it is'] : [`${count} breakpoints`, 'them', 'they are'];
+  return (
+    `${subject} in ${where} could never stop — there is no step point at or after ` +
+    `${pronoun}, most often because ${verb} below the method's last statement. ` +
+    `Set ${pronoun} on a statement instead.`
+  );
+}
 
 /**
  * Whether this is a breakpoint on one of *our* documents that cannot hold one.
