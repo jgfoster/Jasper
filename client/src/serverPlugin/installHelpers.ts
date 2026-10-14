@@ -10,7 +10,7 @@
  * interactive password-prompt wrapper around it, `obtainSystemUserSession`,
  * lives in `systemUserAuth.ts` instead, since it needs `vscode`.
  */
-import { ActiveSession } from '../sessionManager';
+import { ActiveSession } from '../activeSession';
 import { executeFetchString } from '../browserQueries';
 import { gemNrsFor, stoneNrsFor, DEFAULT_GS_PW } from '../loginTypes';
 import { needsWsl } from '../wslBridge';
@@ -104,11 +104,11 @@ export function loginAsSystemUser(base: ActiveSession, password: string): Active
   if (!result.session) {
     throw new Error(result.err.message || `SystemUser login failed (error ${result.err.number})`);
   }
-  return {
-    id: -1,
-    gci: base.gci,
-    handle: result.session,
-    login: { ...login, gs_user: 'SystemUser', gs_password: password },
-    stoneVersion: base.stoneVersion,
-  };
+  return new ActiveSession(
+    -1,
+    base.gci,
+    result.session,
+    { ...login, gs_user: 'SystemUser', gs_password: password },
+    base.stoneVersion,
+  );
 }

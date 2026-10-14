@@ -3,14 +3,12 @@
 // integration tests (`client/src/refactoring/__tests__/*.integration.test.ts`)
 // and `client/bin/installServerPluginMain.ts`.
 //
-// `ActiveSession` is imported type-only: tsc elides a type-only import, so
-// this module has no `require('../sessionManager')` at runtime. That matters
-// because `sessionManager.ts` is a `vscode`-dependent module, and `tsx` loads
-// this module straight from `client/src` (see `install-server-plugin.mjs`)
-// for a plain Node script whose `vscode` stub only covers `require('vscode')`
-// itself.
+// `ActiveSession` comes from `activeSession.ts`, never `sessionManager.ts`:
+// the latter is a `vscode`-dependent module, and `tsx` loads this module
+// straight from `client/src` (see `install-server-plugin.mjs`) for a plain
+// Node script whose `vscode` stub only covers `require('vscode')` itself.
 
-import type { ActiveSession } from '../sessionManager';
+import { ActiveSession } from '../activeSession';
 import type { GciLibrary } from '../gciLibrary';
 import { resolveTestConnection, requireParsedStoneNrs } from './testConnection';
 import type { GemStoneLogin } from '../loginTypes';
@@ -59,13 +57,7 @@ export function testActiveSession(gci: GciLibrary, handle: unknown): ActiveSessi
     host_password: '',
   };
 
-  return {
-    // Not a real `SessionManager`-managed id — signals "not managed" to any
-    // code path that checks it.
-    id: -1,
-    gci,
-    handle,
-    login,
-    stoneVersion: stoneVersionOf(gci),
-  };
+  // Not a real `SessionManager`-managed id: -1 signals "not managed" to any
+  // code path that checks it.
+  return new ActiveSession(-1, gci, handle, login, stoneVersionOf(gci));
 }

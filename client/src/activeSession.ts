@@ -6,12 +6,7 @@ import type { GciLibrary } from './gciLibrary';
 import type { GemStoneLogin } from './loginTypes';
 import type { TransactionMode } from './queries/transactionMode';
 
-export interface ActiveSession {
-  id: number;
-  gci: GciLibrary;
-  handle: unknown;
-  login: GemStoneLogin;
-  stoneVersion: string;
+export class ActiveSession {
   enhancedInspectorAvailable?: boolean;
   /** Whether the server-side refactoring engine (GsRenameInstanceVariableRefactoring)
    *  is resolvable in this session's stone. Drives the `gemstone.rbSupportAvailable`
@@ -34,4 +29,12 @@ export interface ActiveSession {
    *  once arming succeeds, so a failed attempt is retried on the next read that
    *  finds the session in `manualBegin`. Owned by `SessionManager`. */
   sigAbortArmed?: boolean;
+
+  constructor(
+    public id: number,
+    public gci: GciLibrary,
+    public handle: unknown,
+    public login: GemStoneLogin,
+    public stoneVersion: string,
+  ) {}
 }

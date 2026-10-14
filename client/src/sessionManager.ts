@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { GciLibrary, GciError } from './gciLibrary';
-import type { ActiveSession } from './activeSession';
+import { ActiveSession } from './activeSession';
 // Type-only: a value use (`new`, `instanceof`) must import from './activeSession'.
 export type { ActiveSession } from './activeSession';
 import { OOP_NIL } from './gciConstants';
@@ -311,15 +311,9 @@ export class SessionManager {
   private finalizeSession(gci: GciLibrary, login: GemStoneLogin, handle: unknown): ActiveSession {
     const { version } = gci.GciTsVersion();
 
-    const session: ActiveSession = {
-      id: this.nextId++,
-      gci,
-      handle,
-      login,
-      stoneVersion: version,
-      enhancedInspectorAvailable: false,
-      rbSupportAvailable: false,
-    };
+    const session = new ActiveSession(this.nextId++, gci, handle, login, version);
+    session.enhancedInspectorAvailable = false;
+    session.rbSupportAvailable = false;
 
     this.sessions.set(session.id, session);
     logInfo(
@@ -417,15 +411,9 @@ export class SessionManager {
     }
 
     const { version } = gci.GciTsVersion();
-    const session: ActiveSession = {
-      id: -1,
-      gci,
-      handle: result.session,
-      login,
-      stoneVersion: version,
-      enhancedInspectorAvailable: false,
-      rbSupportAvailable: false,
-    };
+    const session = new ActiveSession(-1, gci, result.session, login, version);
+    session.enhancedInspectorAvailable = false;
+    session.rbSupportAvailable = false;
     return {
       session,
       logout: () => {
