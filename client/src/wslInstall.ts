@@ -3,30 +3,6 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-/**
- * Is WSL really installed — answered without opening WSL's install prompt.
- *
- * Windows keeps a small `wsl.exe` launcher in System32 even when WSL was never
- * installed or has been uninstalled, and most commands sent to it there open a
- * console window saying "Press any key to install Windows Subsystem for Linux";
- * a user who presses a key at the wrong moment starts an install they never
- * asked for. `wsl --status` is the exception: on a machine without WSL it exits
- * non-zero straight away, with no window. VS Code's own WSL detection
- * (src/vs/platform/remote/node/wsl.ts) relies on the same thing, and this
- * follows it:
- *  - Windows 11 (build 22000 and later): `wsl --status` exits 0.
- *  - Older Windows 10, where `--status` may not exist yet: files only — the
- *    inbox feature's `LxssManager.dll`, or the Store package's own `wsl.exe`
- *    under Program Files. VS Code checks only the DLL, which misses a machine
- *    with just the Store package.
- * Installed also means a distro to run commands in: `wsl --list --quiet` must
- * name one. That command waits for a key on a machine without WSL, so it runs
- * only once the step above has found the engine.
- *
- * Every run hides its window and ignores stdin, so should some build prompt
- * after all, nothing can answer it and the timeout ends it.
- */
-
 const WINDOWS_11_FIRST_BUILD = 22000;
 const RUN_TIMEOUT_MS = 10000;
 
@@ -116,8 +92,32 @@ async function probeAsync(): Promise<boolean> {
   return engine && listsDistro(await runAsync(['--list', '--quiet']));
 }
 
-/** Cached until {@link forgetWslInstalled}. Always false off Windows. Blocks on
- *  a cold cache — async callers use {@link isWslInstalledAsync}. */
+/**
+ * Is WSL really installed — answered without opening WSL's install prompt.
+ *
+ * Windows keeps a small `wsl.exe` launcher in System32 even when WSL was never
+ * installed or has been uninstalled, and most commands sent to it there open a
+ * console window saying "Press any key to install Windows Subsystem for Linux";
+ * a user who presses a key at the wrong moment starts an install they never
+ * asked for. `wsl --status` is the exception: on a machine without WSL it exits
+ * non-zero straight away, with no window. VS Code's own WSL detection
+ * (src/vs/platform/remote/node/wsl.ts) relies on the same thing, and this
+ * follows it:
+ *  - Windows 11 (build 22000 and later): `wsl --status` exits 0.
+ *  - Older Windows 10, where `--status` may not exist yet: files only — the
+ *    inbox feature's `LxssManager.dll`, or the Store package's own `wsl.exe`
+ *    under Program Files. VS Code checks only the DLL, which misses a machine
+ *    with just the Store package.
+ * Installed also means a distro to run commands in: `wsl --list --quiet` must
+ * name one. That command waits for a key on a machine without WSL, so it runs
+ * only once the step above has found the engine.
+ *
+ * Every run hides its window and ignores stdin, so should some build prompt
+ * after all, nothing can answer it and the timeout ends it.
+ *
+ * Cached until {@link forgetWslInstalled}. Always false off Windows. Blocks on
+ * a cold cache — async callers use {@link isWslInstalledAsync}.
+ */
 export function isWslInstalled(): boolean {
   if (process.platform !== 'win32') return false;
   cachedInstalled ??= probeSync();

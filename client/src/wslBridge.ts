@@ -70,7 +70,7 @@ export class WslNotInstalledError extends Error {
   }
 }
 
-function requireWslInstalled(): void {
+export function requireWslInstalled(): void {
   if (!isWslInstalled()) throw new WslNotInstalledError();
 }
 
