@@ -27,6 +27,7 @@ import dotenv from 'dotenv';
 import { resolveTestConnection } from '../src/__tests__/testConnection';
 import { testActiveSession } from '../src/__tests__/testActiveSession';
 import { GciLibrary } from '../src/gciLibrary';
+import type { ActiveSession } from '../src/sessionManager';
 import { installServerPlugin } from '../src/serverPlugin/installServerPlugin';
 import { loginAsSystemUser, DEFAULT_SYSTEMUSER_PW } from '../src/serverPlugin/installHelpers';
 
@@ -66,7 +67,7 @@ async function main() {
 
   const gci = new GciLibrary(connection.gciLibraryPath);
   let baseHandle;
-  let sysHandle;
+  let sys: ActiveSession | undefined;
   try {
     baseHandle = gci.login(
       connection.stoneNrs,
@@ -80,8 +81,7 @@ async function main() {
     // version (GciTsVersion()) per GciLibrary instance — see its header.
     const base = testActiveSession(gci, baseHandle);
 
-    const sys = loginAsSystemUser(base, DEFAULT_SYSTEMUSER_PW);
-    sysHandle = sys.handle;
+    sys = loginAsSystemUser(base, DEFAULT_SYSTEMUSER_PW);
 
     console.log(`Installing server plugin (stone version ${base.stoneVersion})…`);
 
@@ -93,7 +93,7 @@ async function main() {
 
     console.log('Server plugin installed and verified.');
   } finally {
-    if (sysHandle) gci.logout(sysHandle);
+    if (sys) sys.gci.logout(sys.handle);
     if (baseHandle) gci.logout(baseHandle);
     gci.close();
   }
