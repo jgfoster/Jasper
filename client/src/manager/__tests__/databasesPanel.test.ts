@@ -865,6 +865,48 @@ describe('Install Version… offers the full server', () => {
   });
 });
 
+describe('Install Version… and Download Client Libraries… with nothing left to offer', () => {
+  /** Open the panel with a catalog that can or cannot be reached. */
+  async function openWithCatalog(reachable: boolean): Promise<void> {
+    const deps = makeDeps();
+    (
+      deps as unknown as { versionManager: { fetchCatalog: () => Promise<unknown[]> } }
+    ).versionManager.fetchCatalog = reachable
+      ? async () => []
+      : async () => {
+          throw new Error('getaddrinfo ENOTFOUND downloads.gemtalksystems.com');
+        };
+    DatabasesPanel.show(deps);
+    await sendMessage({ command: 'ready' });
+  }
+
+  for (const [command, done] of [
+    ['downloadVersionFiles', 'Jasper can already log in to every GemStone version available.'],
+    ['installNewVersion', 'Every available GemStone version is already installed.'],
+  ]) {
+    it(`${command}: says so when the download site answered`, async () => {
+      onDisk = [{ ...RELEASE, extracted: true, clientExtracted: true }];
+      await openWithCatalog(true);
+
+      await sendMessage({ command });
+
+      expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(done);
+    });
+
+    it(`${command}: says the site could not be reached, not that nothing is left`, async () => {
+      onDisk = [{ ...RELEASE, extracted: true, clientExtracted: true }];
+      await openWithCatalog(false);
+
+      await sendMessage({ command });
+
+      expect(vscode.window.showInformationMessage).not.toHaveBeenCalledWith(done);
+      expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
+        expect.stringContaining('could not reach GemTalk’s download site'),
+      );
+    });
+  }
+});
+
 describe('downloading only the files a login needs', () => {
   it('offers the versions without them, and downloads the one picked', async () => {
     onDisk = [

@@ -157,6 +157,43 @@ describe('the GemStone Version field', () => {
     expect(note().hidden).toBe(false);
   });
 
+  it('a new login takes the newest version when the form arrives with the list', () => {
+    renderForm();
+    send({
+      command: 'loadData',
+      data: { ...login, version: '' },
+      versions: ['3.7.6', '3.7.5'],
+      notDownloaded: ['3.7.6', '3.7.5'],
+    });
+
+    expect(select().value).toBe('3.7.6');
+  });
+
+  it('a new login keeps a version when the form arrives after the list', () => {
+    renderForm();
+    send({ command: 'versions', versions: ['3.7.6', '3.7.5'], notDownloaded: ['3.7.6', '3.7.5'] });
+    send({
+      command: 'loadData',
+      data: { ...login, version: '' },
+      versions: ['3.7.6', '3.7.5'],
+      notDownloaded: ['3.7.6', '3.7.5'],
+    });
+
+    expect(select().value).toBe('3.7.6');
+  });
+
+  it('a saved login with no version shows none rather than a guess', () => {
+    renderForm();
+    send({
+      command: 'loadData',
+      data: { ...login, label: 'DataCurator on gs64stone', version: '' },
+      versions: ['3.7.6', '3.7.5'],
+      notDownloaded: [],
+    });
+
+    expect(select().value).toBe('');
+  });
+
   it('starts from the stone, not the mechanism, in what a new user reads', () => {
     const field = select().closest('.field-group')!;
     const label = field.querySelector('label[for="version"]')!.textContent;

@@ -116,7 +116,10 @@ window.addEventListener('message', (event) => {
   if (msg.command === 'loadData') {
     originalLabel = msg.data.label || null;
     readOnly = Boolean(msg.readOnly);
-    fillVersions(msg.versions, msg.notDownloaded, msg.data.version || '');
+    // A new login starts on the newest version, whichever message brings the
+    // list; a saved login shows its own, even a blank one.
+    const fallback = originalLabel ? '' : (msg.versions || [])[0];
+    fillVersions(msg.versions, msg.notDownloaded, msg.data.version || fallback || '');
     // Populate other fields
     for (const f of fields) {
       if (f === 'version') continue;

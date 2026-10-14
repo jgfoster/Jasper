@@ -337,6 +337,14 @@ export async function chooseRootFolder(): Promise<string | undefined> {
   return picked[0].fsPath;
 }
 
+/**
+ * Said instead of "nothing left to get" when the catalog fetch failed: the list
+ * then holds only what is on disk, so an empty one proves nothing.
+ */
+const CATALOG_UNREACHABLE =
+  'Jasper could not reach GemTalk’s download site, so it cannot list the versions to ' +
+  'download. Check the connection and try again; the GemStone Admin output has the reason.';
+
 interface PanelState {
   platform: string;
   /**
@@ -1015,7 +1023,9 @@ export class DatabasesPanel {
     const candidates = this.lastVersions.filter((v) => !v.extracted && !v.downloaded && !v.local);
     if (!candidates.length) {
       vscode.window.showInformationMessage(
-        'Every available GemStone version is already installed.',
+        this.catalog
+          ? 'Every available GemStone version is already installed.'
+          : CATALOG_UNREACHABLE,
       );
       return;
     }
@@ -1052,7 +1062,9 @@ export class DatabasesPanel {
     );
     if (!candidates.length) {
       vscode.window.showInformationMessage(
-        'Jasper can already log in to every GemStone version available.',
+        this.catalog
+          ? 'Jasper can already log in to every GemStone version available.'
+          : CATALOG_UNREACHABLE,
       );
       return;
     }
