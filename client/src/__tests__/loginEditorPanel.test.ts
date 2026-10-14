@@ -242,6 +242,22 @@ describe('LoginEditorPanel', () => {
       }
     });
 
+    it('on Windows, does not count a server install in WSL, which a Windows login cannot load', async () => {
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      try {
+        const sysadmin = makeSysadminStorage(['3.7.5', '3.7.4']);
+        vi.mocked(sysadmin.getExtractedClientVersions).mockReturnValue(['3.7.4']);
+        await LoginEditorPanel.show(storage, secretsArg, treeProvider, undefined, sysadmin);
+        const panel = window.createWebviewPanel.mock.results[0].value;
+        expect(panel.webview.postMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ versions: ['3.7.4'] }),
+        );
+      } finally {
+        Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+      }
+    });
+
     it('renders a select element for the version field', async () => {
       await LoginEditorPanel.show(storage, secretsArg, treeProvider);
       const panel = window.createWebviewPanel.mock.results[0].value;

@@ -37,9 +37,12 @@ export class LoginEditorPanel {
     sysadminStorage: SysadminStorage,
   ): string[] {
     const versionSet = new Set<string>();
-    // Extracted versions have GCI libraries in their lib/ directory
-    for (const v of sysadminStorage.getExtractedVersions()) {
-      versionSet.add(v);
+    // Extracted versions have GCI libraries in their lib/ directory. Not on
+    // Windows: those are Linux builds in WSL, which a Windows login cannot load.
+    if (process.platform !== 'win32') {
+      for (const v of sysadminStorage.getExtractedVersions()) {
+        versionSet.add(v);
+      }
     }
     // Client files downloaded for a login: the Windows client, or GemStoneClientLibs
     for (const v of sysadminStorage.getExtractedClientVersions()) {

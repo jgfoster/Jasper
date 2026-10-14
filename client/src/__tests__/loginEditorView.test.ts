@@ -194,6 +194,18 @@ describe('the GemStone Version field', () => {
     expect(select().value).toBe('');
   });
 
+  it('saves a version not downloaded yet like any other', () => {
+    choose('3.7.4');
+    document.getElementById('saveBtn')!.click();
+
+    expect(posted).toContainEqual(
+      expect.objectContaining({
+        command: 'save',
+        data: expect.objectContaining({ version: '3.7.4' }),
+      }),
+    );
+  });
+
   it('starts from the stone, not the mechanism, in what a new user reads', () => {
     const field = select().closest('.field-group')!;
     const label = field.querySelector('label[for="version"]')!.textContent;

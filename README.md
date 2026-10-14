@@ -78,7 +78,7 @@ Versions live in the **Databases & Versions** panel, opened with **Manage Databa
 
 The panel header carries **Install Version…**, which lists the versions you do not yet have. A version you already have elsewhere needs no button: put the product tree (or a symlink to it) in your GemStone root and it is listed like any other, and a stone that already runs from such a tree is brought in with **Register Existing…** instead, which records where it really lives.
 
-On Windows, an **Install Windows Client** row action fetches the native client distribution for connecting to remote GemStone servers.
+On Windows, a **Download Files** row action fetches the native Windows client for that version, for connecting to remote GemStone servers; a server install in WSL cannot serve a Windows login. **Download Client Libraries…** in the header fetches the client libraries for any supported version, on every platform.
 
 ### Database Management
 
