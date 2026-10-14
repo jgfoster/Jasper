@@ -250,6 +250,7 @@ import {
   refreshWslNetworkInfo,
 } from './wslBridge';
 import { isWslInstalledAsync } from './wslInstall';
+import { recheckWsl } from './wslRecheck';
 import {
   wslExistsSync,
   wslMkdirSync,
@@ -4572,11 +4573,7 @@ export function activate(context: vscode.ExtensionContext) {
   // ── SysAdmin Commands ───────────────────────────────────
   context.subscriptions.push(
     vscode.commands.registerCommand('gemstone.refreshVersions', async () => {
-      if (isWindows()) {
-        invalidateWslCache();
-        const wslInfo = await getWslInfoAsync();
-        vscode.commands.executeCommand('setContext', 'gemstone.wslAvailable', wslInfo.available);
-      }
+      if (isWindows()) await recheckWsl();
       refreshVersions();
     }),
 
