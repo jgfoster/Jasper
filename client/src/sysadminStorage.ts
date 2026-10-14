@@ -397,22 +397,84 @@ export class SysadminStorage {
 
   /** Scan for extracted Windows client version directories */
   getExtractedWindowsClientVersions(): string[] {
+    return this.clientFolderVersions(
+      SysadminStorage.WIN_CLIENT_PREFIX,
+      SysadminStorage.WIN_CLIENT_SUFFIX,
+    );
+  }
+
+  /** Versions named by `<prefix><version><suffix>` folders in the native root, newest first. */
+  private clientFolderVersions(prefix: string, suffix: string): string[] {
     const rootPath = this.getNativeRootPath();
     if (!fs.existsSync(rootPath)) return [];
-    const prefix = SysadminStorage.WIN_CLIENT_PREFIX;
-    const suffix = SysadminStorage.WIN_CLIENT_SUFFIX;
     const versions: string[] = [];
     for (const entry of this.entriesIn(rootPath)) {
-      if (entry.startsWith(prefix) && entry.endsWith(suffix)) {
-        const dirPath = path.join(rootPath, entry);
-        if (fs.statSync(dirPath).isDirectory()) {
-          const version = entry.slice(prefix.length, -suffix.length);
-          versions.push(version);
-        }
-      }
+      if (!entry.startsWith(prefix) || !entry.endsWith(suffix)) continue;
+      if (!fs.statSync(path.join(rootPath, entry)).isDirectory()) continue;
+      versions.push(entry.slice(prefix.length, -suffix.length));
     }
     versions.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
     return versions;
+  }
+
+  // ── Client files: what a login needs, without the server ───
+
+  private static readonly CLIENT_LIBS_PREFIX = 'GemStoneClientLibs';
+
+  /**
+   * The platform GemTalk's client packages are named for on this machine. It is
+   * not {@link getPlatformKey}: Windows has its own client, with or without WSL.
+   */
+  getClientPlatformKey(): string {
+    if (process.platform === 'win32') return 'x86.Windows_NT';
+    // Off Windows the server's key, which is always defined there.
+    return this.getPlatformKey()!;
+  }
+
+  /**
+   * Folder the client files for `version` unpack into. On Windows it is the
+   * Windows client's; elsewhere GemStoneClientLibs<version>-<platform>, apart
+   * from the GemStone64Bit… folder a full install uses, so neither touches the other.
+   */
+  getClientDirName(version: string): string {
+    if (process.platform === 'win32') {
+      return `${SysadminStorage.WIN_CLIENT_PREFIX}${version}${SysadminStorage.WIN_CLIENT_SUFFIX}`;
+    }
+    return `${SysadminStorage.CLIENT_LIBS_PREFIX}${version}-${this.getClientPlatformKey()}`;
+  }
+
+  /** The client folder for a version, if one is on disk. */
+  getClientPath(version: string): string | undefined {
+    if (process.platform === 'win32') return this.getWindowsClientPath(version);
+    const dir = path.join(this.getNativeRootPath(), this.getClientDirName(version));
+    return fs.existsSync(dir) ? dir : undefined;
+  }
+
+  /**
+   * The GCI library inside a version's client folder. GemTalk's packages put it
+   * under <version>/64bit/; the macOS disk image is searched rather than assumed.
+   */
+  getClientGciPath(version: string): string | undefined {
+    if (process.platform === 'win32') return this.getWindowsClientGciPath(version);
+    const dir = this.getClientPath(version);
+    if (!dir) return undefined;
+    const ext = process.platform === 'darwin' ? 'dylib' : 'so';
+    return findFile(dir, `libgcits-${version}-64.${ext}`, 3);
+  }
+
+  /** Bytes the client folder for `version` takes on disk, or 0 if there is none. */
+  getClientSize(version: string): number {
+    const dir = this.getClientPath(version);
+    return dir ? treeSize(dir) : 0;
+  }
+
+  /** Versions with client files on disk, newest first. */
+  getExtractedClientVersions(): string[] {
+    if (process.platform === 'win32') return this.getExtractedWindowsClientVersions();
+    return this.clientFolderVersions(
+      SysadminStorage.CLIENT_LIBS_PREFIX,
+      `-${this.getClientPlatformKey()}`,
+    );
   }
 
   /** Get downloaded Windows client zip files */
@@ -483,4 +545,46 @@ export class SysadminStorage {
     }
     return files;
   }
+}
+
+/** Total size of the files under `dir`; links are not followed. */
+function treeSize(dir: string): number {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  let total = 0;
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) total += treeSize(full);
+    else if (entry.isFile()) {
+      try {
+        total += fs.statSync(full).size;
+      } catch {
+        // Gone or unreadable since the listing: it takes no space we can count.
+      }
+    }
+  }
+  return total;
+}
+
+/** The first file called `name` under `dir`, at most `depth` folders down. */
+function findFile(dir: string, name: string, depth: number): string | undefined {
+  const direct = path.join(dir, name);
+  if (fs.existsSync(direct)) return direct;
+  if (depth === 0) return undefined;
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const found = findFile(path.join(dir, entry.name), name, depth - 1);
+    if (found) return found;
+  }
+  return undefined;
 }

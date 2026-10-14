@@ -108,4 +108,13 @@ describe('LoginStorage', () => {
       expect(storage.getLogins()).toEqual([]);
     });
   });
+
+  describe('removeGciLibraryPath', () => {
+    it('forgets one version and keeps the rest', async () => {
+      __setConfig('gemstone', 'gciLibraries', { '3.7.5': '/a.so', '3.7.4': '/b.so' });
+      await storage.removeGciLibraryPath('3.7.5');
+      expect(storage.getGciLibraryPath('3.7.5')).toBeUndefined();
+      expect(storage.getGciLibraryPath('3.7.4')).toBe('/b.so');
+    });
+  });
 });
