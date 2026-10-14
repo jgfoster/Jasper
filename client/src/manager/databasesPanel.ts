@@ -736,7 +736,13 @@ export class DatabasesPanel {
         if (needsWsl()) {
           invalidateWslCache();
           invalidateWslNetworkCache();
-          await getWslInfoAsync();
+          // The Databases view's "requires WSL2" welcome reads this context.
+          const wslInfo = await getWslInfoAsync();
+          void vscode.commands.executeCommand(
+            'setContext',
+            'gemstone.wslAvailable',
+            wslInfo.available,
+          );
         }
         await this.postState();
         return;

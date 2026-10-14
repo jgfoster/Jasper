@@ -447,7 +447,8 @@ describe('wslExecSync', () => {
 });
 
 // On Windows without WSL, the `wsl.exe` launcher still in System32 opens a
-// "Press any key to install WSL" window on any call — so no path may run it.
+// "Press any key to install WSL" window on most calls — so once the install
+// check says no, no path may run it.
 describe('Windows with WSL not installed', () => {
   const realPlatform = process.platform;
   beforeEach(() => {
@@ -472,8 +473,8 @@ describe('Windows with WSL not installed', () => {
     expect(exec).not.toHaveBeenCalled();
   });
 
-  // The sync check blocks the extension host on `reg.exe` when its cache is
-  // cold, which every Refresh leaves it.
+  // The sync check blocks the extension host on `wsl --status` when its cache
+  // is cold, which every Refresh leaves it.
   it('the async entry points ask the install check without blocking', async () => {
     await getWslInfoAsync();
     await getWslIpAddressAsync();

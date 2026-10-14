@@ -14,7 +14,7 @@ You can also install client libraries ahead of time with the **Install Windows C
 
 Without WSL, the Databases & Versions panel remains usable (its Versions list hosts the Install Windows Client action), and the Databases section stays visible but shows a message explaining that server management requires WSL2, since it needs a Linux environment.
 
-Jasper never runs `wsl.exe` on a machine without WSL. The `wsl.exe` launcher that Windows keeps in System32 opens a "Press any key to install" window when WSL is missing, so Jasper checks for WSL a different way: it looks for the WSL engine and for a registered distribution. If you install WSL and a distribution later, Jasper picks them up the next time its window regains focus, or when you press Refresh in the panel. You don't need to reload.
+On a machine without WSL, Jasper never opens WSL's "Press any key to install" window. Windows keeps a `wsl.exe` launcher in System32 even when WSL is missing, and most commands sent to it open that window, so the only one Jasper runs before it knows WSL is there is `wsl --status`, which doesn't. On Windows 10 builds older than Windows 11, where `--status` may not exist, Jasper looks for the WSL engine's files instead. If you install WSL and a distribution later, press Refresh in the Databases & Versions panel, or **Check Again** in the Databases view, and Jasper picks them up. You don't need to reload.
 
 ## Windows with WSL — Full server management
 

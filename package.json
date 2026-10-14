@@ -687,7 +687,7 @@
       },
       {
         "view": "gemstoneDatabases",
-        "contents": "GemStone system administration requires Windows Subsystem for Linux (WSL2).\n[Install WSL](https://learn.microsoft.com/en-us/windows/wsl/install)",
+        "contents": "GemStone system administration requires Windows Subsystem for Linux (WSL2).\n[Install WSL](https://learn.microsoft.com/en-us/windows/wsl/install)\nInstalled it already? [Check Again](command:gemstone.refreshVersions)",
         "when": "gemstone.isWindows && !gemstone.wslAvailable"
       },
       {

@@ -1,82 +1,106 @@
-import { execFile, execFileSync } from 'child_process';
+import { spawn, spawnSync, type SpawnOptions } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
-import { promisify } from 'util';
-
-const execFileAsync = promisify(execFile);
 
 /**
- * Is WSL really installed — answered WITHOUT running `wsl.exe`.
+ * Is WSL really installed — answered without opening WSL's install prompt.
  *
  * Windows keeps a small `wsl.exe` launcher in System32 even when WSL was never
- * installed or has been uninstalled, and any call to it opens a console window
- * saying "Press any key to install Windows Subsystem for Linux". A user who
- * presses a key at the wrong moment starts an install they never asked for, so
- * running `wsl.exe` to find out whether WSL is there is the one thing the check
- * must not do. Hiding that window is no answer either: the launcher would still
- * sit waiting for a key until it times out.
+ * installed or has been uninstalled, and most commands sent to it there open a
+ * console window saying "Press any key to install Windows Subsystem for Linux";
+ * a user who presses a key at the wrong moment starts an install they never
+ * asked for. `wsl --status` is the exception: on a machine without WSL it exits
+ * non-zero straight away, with no window. VS Code's own WSL detection
+ * (src/vs/platform/remote/node/wsl.ts) relies on the same thing, and this
+ * follows it:
+ *  - Windows 11 (build 22000 and later): `wsl --status` exits 0.
+ *  - Older Windows 10, where `--status` may not exist yet: files only — the
+ *    inbox feature's `LxssManager.dll`, or the Store package's own `wsl.exe`
+ *    under Program Files. VS Code checks only the DLL, which misses a machine
+ *    with just the Store package.
+ * Installed also means a distro to run commands in: `wsl --list --quiet` must
+ * name one. That command waits for a key on a machine without WSL, so it runs
+ * only once the step above has found the engine.
  *
- * Installed means both of:
- *  - an engine: the Store package's own `wsl.exe` under Program Files, or the
- *    inbox optional feature's `LxssManager.dll`. The System32 `lxss` folder and
- *    launcher are no evidence — both outlive an uninstall.
- *  - a registered distro: a `{GUID}` subkey under HKCU\...\Lxss. The key
- *    itself, with values such as `DefaultVersion`, also outlives an uninstall;
- *    only the per-distro subkeys say there is a Linux to run commands in. The
- *    Store package may write other subkeys there (`AppxInstallerCache`) that
- *    could outlive an uninstall too, so only a GUID-named one counts.
- *
- * `reg.exe` is a plain console tool that never prompts, so querying it is safe.
+ * Every run hides its window and ignores stdin, so should some build prompt
+ * after all, nothing can answer it and the timeout ends it.
  */
 
-const LXSS_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Lxss';
+const WINDOWS_11_FIRST_BUILD = 22000;
+const RUN_TIMEOUT_MS = 10000;
 
 let cachedInstalled: boolean | undefined;
+let pendingProbe: Promise<boolean> | undefined;
 
-function hasWslEngine(): boolean {
-  const programFiles = process.env.ProgramFiles ?? 'C:\\Program Files';
+/** A 32-bit process on 64-bit Windows has System32 redirected to SysWOW64,
+ *  which holds neither `wsl.exe` nor `lxss`; `Sysnative` reaches the real one. */
+function system32(): string {
   const systemRoot = process.env.SystemRoot ?? 'C:\\Windows';
+  return path.join(systemRoot, process.env.PROCESSOR_ARCHITEW6432 ? 'Sysnative' : 'System32');
+}
+
+function isWindows11OrLater(): boolean {
+  const build = parseInt(os.release().split('.')[2] ?? '', 10);
+  return build >= WINDOWS_11_FIRST_BUILD;
+}
+
+function hasEngineFiles(): boolean {
+  const programFiles = process.env.ProgramFiles ?? 'C:\\Program Files';
   return (
     fs.existsSync(path.join(programFiles, 'WSL', 'wsl.exe')) ||
-    fs.existsSync(path.join(systemRoot, 'System32', 'lxss', 'LxssManager.dll'))
+    fs.existsSync(path.join(system32(), 'lxss', 'LxssManager.dll'))
   );
 }
 
-const DISTRO_SUBKEY = /^\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}$/;
+interface WslRun {
+  ok: boolean;
+  stdout: string;
+}
 
-/** Does `reg query <Lxss>` output list at least one distro subkey? */
-export function lxssListsDistro(regOutput: string): boolean {
-  const prefix = `HKEY_CURRENT_USER${LXSS_KEY.slice('HKCU'.length)}\\`.toLowerCase();
-  return regOutput.split(/\r?\n/).some((line) => {
-    const l = line.trim().toLowerCase();
-    return l.startsWith(prefix) && DISTRO_SUBKEY.test(l.slice(prefix.length));
+const RUN_OPTIONS: SpawnOptions = {
+  windowsHide: true,
+  timeout: RUN_TIMEOUT_MS,
+  stdio: ['ignore', 'pipe', 'ignore'],
+  // Older WSL writes UTF-16LE whatever this says; listsDistro copes with both.
+  env: { ...process.env, WSL_UTF8: '1' },
+};
+
+function runSync(args: string[]): WslRun {
+  const r = spawnSync(path.join(system32(), 'wsl.exe'), args, {
+    ...RUN_OPTIONS,
+    encoding: 'utf-8',
+  });
+  return { ok: !r.error && r.status === 0, stdout: String(r.stdout ?? '') };
+}
+
+function runAsync(args: string[]): Promise<WslRun> {
+  return new Promise((resolve) => {
+    let stdout = '';
+    const child = spawn(path.join(system32(), 'wsl.exe'), args, RUN_OPTIONS);
+    child.stdout?.on('data', (chunk) => (stdout += String(chunk)));
+    child.on('error', () => resolve({ ok: false, stdout: '' }));
+    child.on('close', (code) => resolve({ ok: code === 0, stdout }));
   });
 }
 
-const REG_OPTIONS = { encoding: 'utf-8', timeout: 5000, windowsHide: true } as const;
+/** Does `wsl --list --quiet` output name at least one distro? */
+export function listsDistro(run: WslRun): boolean {
+  return run.ok && run.stdout.replace(/\0/g, '').trim() !== '';
+}
 
 function probeSync(): boolean {
-  if (!hasWslEngine()) return false;
-  try {
-    return lxssListsDistro(execFileSync('reg.exe', ['query', LXSS_KEY], REG_OPTIONS));
-  } catch {
-    // reg.exe exits 1 when the key does not exist.
-    return false;
-  }
+  const engine = isWindows11OrLater() ? runSync(['--status']).ok : hasEngineFiles();
+  return engine && listsDistro(runSync(['--list', '--quiet']));
 }
 
 async function probeAsync(): Promise<boolean> {
-  if (!hasWslEngine()) return false;
-  try {
-    const { stdout } = await execFileAsync('reg.exe', ['query', LXSS_KEY], REG_OPTIONS);
-    return lxssListsDistro(String(stdout));
-  } catch {
-    return false;
-  }
+  const engine = isWindows11OrLater() ? (await runAsync(['--status'])).ok : hasEngineFiles();
+  return engine && listsDistro(await runAsync(['--list', '--quiet']));
 }
 
-/** Cached; {@link forgetWslInstalled} or {@link recheckWslInstalled} renew it.
- *  Always false off Windows. */
+/** Cached until {@link forgetWslInstalled}. Always false off Windows. Blocks on
+ *  a cold cache — async callers use {@link isWslInstalledAsync}. */
 export function isWslInstalled(): boolean {
   if (process.platform !== 'win32') return false;
   cachedInstalled ??= probeSync();
@@ -84,21 +108,19 @@ export function isWslInstalled(): boolean {
 }
 
 /** {@link isWslInstalled} for async callers: a cold cache is filled without
- *  blocking the extension host. */
+ *  blocking the extension host, and callers arriving together share one probe. */
 export async function isWslInstalledAsync(): Promise<boolean> {
   if (process.platform !== 'win32') return false;
-  cachedInstalled ??= await probeAsync();
-  return cachedInstalled;
-}
-
-/** Look again without blocking the extension host, and remember the answer.
- *  Cheap enough to run on every window focus — it never starts WSL. */
-export async function recheckWslInstalled(): Promise<boolean> {
-  if (process.platform !== 'win32') return false;
-  cachedInstalled = await probeAsync();
-  return cachedInstalled;
+  if (cachedInstalled !== undefined) return cachedInstalled;
+  pendingProbe ??= probeAsync().then((installed) => {
+    cachedInstalled = installed;
+    pendingProbe = undefined;
+    return installed;
+  });
+  return await pendingProbe;
 }
 
 export function forgetWslInstalled(): void {
   cachedInstalled = undefined;
+  pendingProbe = undefined;
 }

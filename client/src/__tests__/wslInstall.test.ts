@@ -1,61 +1,66 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { EventEmitter } from 'events';
 
 vi.mock('fs', () => ({ existsSync: vi.fn() }));
-vi.mock('child_process', () => ({ execFile: vi.fn(), execFileSync: vi.fn() }));
+vi.mock('os', () => ({ release: vi.fn() }));
+vi.mock('child_process', () => ({ spawn: vi.fn(), spawnSync: vi.fn() }));
 
 import * as fs from 'fs';
-import { execFile, execFileSync, type ChildProcess } from 'child_process';
+import * as os from 'os';
+import { spawn, spawnSync, type ChildProcess, type SpawnSyncReturns } from 'child_process';
 import {
   forgetWslInstalled,
   isWslInstalled,
   isWslInstalledAsync,
-  lxssListsDistro,
-  recheckWslInstalled,
+  listsDistro,
 } from '../wslInstall';
 
 function setPlatform(platform: string) {
   Object.defineProperty(process, 'platform', { value: platform, configurable: true });
 }
 
-const KEY = 'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Lxss';
+const WINDOWS_11 = '10.0.22631';
+const WINDOWS_10 = '10.0.19045';
 
-// What `reg query` prints on a machine WSL was uninstalled from: the key and
-// its values survive, but no distro subkey does.
-const LEFTOVERS = `\r\n${KEY}\r\n    DefaultVersion    REG_DWORD    0x2\r\n    OOBEComplete    REG_DWORD    0x1\r\n\r\n`;
-const WITH_DISTRO = `${LEFTOVERS}${KEY}\\{0b5c2d6e-1c6f-4e0a-9d8a-3f1f2b7c9a10}\r\n`;
+// Older WSL writes UTF-16LE whatever WSL_UTF8 says.
+const UTF16_UBUNTU = 'U\0b\0u\0n\0t\0u\0\r\0\n\0';
 
-function engine(present: boolean) {
-  vi.mocked(fs.existsSync).mockReturnValue(present);
+type Answers = Record<string, { status: number; stdout?: string }>;
+
+function wslAnswers(answers: Answers) {
+  const answer = (args: string[]) => answers[args.join(' ')] ?? { status: 1 };
+  vi.mocked(spawnSync).mockImplementation(((_file: string, args: string[]) => {
+    const a = answer(args);
+    return { status: a.status, stdout: a.stdout ?? '' } as SpawnSyncReturns<string>;
+  }) as unknown as typeof spawnSync);
+  vi.mocked(spawn).mockImplementation(((_file: string, args: string[]) => {
+    const child = new EventEmitter() as ChildProcess;
+    const stdout = new EventEmitter();
+    Object.assign(child, { stdout });
+    const a = answer(args);
+    setImmediate(() => {
+      if (a.stdout) stdout.emit('data', a.stdout);
+      child.emit('close', a.status);
+    });
+    return child;
+  }) as unknown as typeof spawn);
 }
 
-function regAsync(stdout: string | Error) {
-  vi.mocked(execFile).mockImplementation(((
-    _file: string,
-    _args: string[],
-    _opts: unknown,
-    cb: (err: Error | null, out?: { stdout: string; stderr: string }) => void,
-  ) => {
-    if (stdout instanceof Error) cb(stdout);
-    else cb(null, { stdout, stderr: '' });
-    return {} as ChildProcess;
-  }) as unknown as typeof execFile);
-}
+const argsRun = (mock: typeof spawnSync | typeof spawn) =>
+  vi.mocked(mock).mock.calls.map((c) => (c[1] as string[]).join(' '));
 
-describe('lxssListsDistro', () => {
-  it('is false for the key with values only — what an uninstall leaves behind', () => {
-    expect(lxssListsDistro(LEFTOVERS)).toBe(false);
+describe('listsDistro', () => {
+  it('is false for empty output — WSL with no distro', () => {
+    expect(listsDistro({ ok: true, stdout: '\r\n' })).toBe(false);
   });
 
-  it('is true once a distro subkey is listed', () => {
-    expect(lxssListsDistro(WITH_DISTRO)).toBe(true);
+  it('is true for a distro name, in UTF-8 or UTF-16LE', () => {
+    expect(listsDistro({ ok: true, stdout: 'Ubuntu\r\n' })).toBe(true);
+    expect(listsDistro({ ok: true, stdout: UTF16_UBUNTU })).toBe(true);
   });
 
-  it('ignores case, as reg.exe does', () => {
-    expect(lxssListsDistro(WITH_DISTRO.toUpperCase())).toBe(true);
-  });
-
-  it('is false for a subkey that is not a {GUID} distro, which an uninstall may leave behind', () => {
-    expect(lxssListsDistro(`${LEFTOVERS}${KEY}\\AppxInstallerCache\r\n`)).toBe(false);
+  it('is false when the command failed, whatever it printed', () => {
+    expect(listsDistro({ ok: false, stdout: 'Ubuntu\r\n' })).toBe(false);
   });
 });
 
@@ -65,86 +70,126 @@ describe('isWslInstalled', () => {
     vi.clearAllMocks();
     forgetWslInstalled();
     setPlatform('win32');
+    vi.mocked(os.release).mockReturnValue(WINDOWS_11);
+    vi.mocked(fs.existsSync).mockReturnValue(false);
   });
   afterEach(() => {
     setPlatform(realPlatform);
     forgetWslInstalled();
   });
 
-  it('is false off Windows without looking', () => {
+  it('is false off Windows without running anything', async () => {
     setPlatform('linux');
     expect(isWslInstalled()).toBe(false);
-    expect(fs.existsSync).not.toHaveBeenCalled();
-    expect(execFileSync).not.toHaveBeenCalled();
+    await expect(isWslInstalledAsync()).resolves.toBe(false);
+    expect(spawnSync).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
   });
 
-  it('is false with no WSL engine, and does not query the registry', () => {
-    engine(false);
-    expect(isWslInstalled()).toBe(false);
-    expect(execFileSync).not.toHaveBeenCalled();
-  });
-
-  it('is false with an engine but only leftover registry values', () => {
-    engine(true);
-    vi.mocked(execFileSync).mockReturnValue(LEFTOVERS);
-    expect(isWslInstalled()).toBe(false);
-  });
-
-  it('is true with an engine and a registered distro, asking reg.exe — never wsl.exe', () => {
-    engine(true);
-    vi.mocked(execFileSync).mockReturnValue(WITH_DISTRO);
-    expect(isWslInstalled()).toBe(true);
-    expect(vi.mocked(execFileSync).mock.calls[0][0]).toBe('reg.exe');
-  });
-
-  it('is false when the Lxss key is missing (reg.exe exits 1)', () => {
-    engine(true);
-    vi.mocked(execFileSync).mockImplementation(() => {
-      throw new Error('ERROR: The system was unable to find the specified registry key');
+  describe('on Windows 11', () => {
+    it('is false when `wsl --status` fails, and never asks for the distro list', () => {
+      // Without WSL, `--list --quiet` sits waiting for a key; `--status` exits 50.
+      wslAnswers({ '--status': { status: 50 }, '--list --quiet': { status: 0, stdout: 'Ubuntu' } });
+      expect(isWslInstalled()).toBe(false);
+      expect(argsRun(spawnSync)).toEqual(['--status']);
     });
-    expect(isWslInstalled()).toBe(false);
+
+    it('is false with WSL but no distro', () => {
+      wslAnswers({ '--status': { status: 0 }, '--list --quiet': { status: 0, stdout: '' } });
+      expect(isWslInstalled()).toBe(false);
+    });
+
+    it('is true with WSL and a distro, without looking at files', () => {
+      wslAnswers({
+        '--status': { status: 0 },
+        '--list --quiet': { status: 0, stdout: UTF16_UBUNTU },
+      });
+      expect(isWslInstalled()).toBe(true);
+      expect(argsRun(spawnSync)).toEqual(['--status', '--list --quiet']);
+      expect(fs.existsSync).not.toHaveBeenCalled();
+    });
+
+    it('hides the window, ignores stdin and times out, so a prompt could not wait forever', () => {
+      wslAnswers({ '--status': { status: 50 } });
+      isWslInstalled();
+      const [file, , options] = vi.mocked(spawnSync).mock.calls[0];
+      expect(file).toMatch(/[\\/]System32[\\/]wsl\.exe$/);
+      expect(options).toMatchObject({ windowsHide: true, timeout: expect.any(Number) });
+      expect((options as { stdio: string[] }).stdio[0]).toBe('ignore');
+    });
+  });
+
+  describe('on Windows 10 before Windows 11', () => {
+    beforeEach(() => vi.mocked(os.release).mockReturnValue(WINDOWS_10));
+
+    const onlyFile = (present: RegExp) =>
+      vi.mocked(fs.existsSync).mockImplementation((p) => present.test(String(p)));
+    const withDistro = { '--list --quiet': { status: 0, stdout: 'Ubuntu\r\n' } };
+
+    it('never runs `wsl --status`, and runs nothing at all without the engine files', () => {
+      wslAnswers({ '--status': { status: 0 }, ...withDistro });
+      // The System32\lxss folder outlives an uninstall; only the DLL in it counts.
+      onlyFile(/[\\/]lxss$/);
+      expect(isWslInstalled()).toBe(false);
+      expect(spawnSync).not.toHaveBeenCalled();
+    });
+
+    it("counts the inbox feature's LxssManager.dll", () => {
+      wslAnswers(withDistro);
+      onlyFile(/[\\/]System32[\\/]lxss[\\/]LxssManager\.dll$/);
+      expect(isWslInstalled()).toBe(true);
+      expect(argsRun(spawnSync)).toEqual(['--list --quiet']);
+    });
+
+    it("counts the Store package's wsl.exe under Program Files", () => {
+      wslAnswers(withDistro);
+      onlyFile(/[\\/]WSL[\\/]wsl\.exe$/);
+      expect(isWslInstalled()).toBe(true);
+    });
+
+    it('looks through Sysnative from a 32-bit process on 64-bit Windows', () => {
+      vi.stubEnv('PROCESSOR_ARCHITEW6432', 'AMD64');
+      try {
+        wslAnswers(withDistro);
+        onlyFile(/[\\/]Sysnative[\\/]lxss[\\/]LxssManager\.dll$/);
+        expect(isWslInstalled()).toBe(true);
+        expect(vi.mocked(spawnSync).mock.calls[0][0]).toMatch(/[\\/]Sysnative[\\/]wsl\.exe$/);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
   });
 
   it('caches until forgotten', () => {
-    engine(true);
-    vi.mocked(execFileSync).mockReturnValue(LEFTOVERS);
+    wslAnswers({ '--status': { status: 50 } });
     expect(isWslInstalled()).toBe(false);
-    vi.mocked(execFileSync).mockReturnValue(WITH_DISTRO);
+    wslAnswers({ '--status': { status: 0 }, '--list --quiet': { status: 0, stdout: 'Ubuntu' } });
     expect(isWslInstalled()).toBe(false);
     forgetWslInstalled();
     expect(isWslInstalled()).toBe(true);
-    expect(execFileSync).toHaveBeenCalledTimes(2);
   });
 
-  it('isWslInstalledAsync fills a cold cache through the async reg.exe, then reuses it', async () => {
-    engine(true);
-    regAsync(WITH_DISTRO);
-    await expect(isWslInstalledAsync()).resolves.toBe(true);
-    await expect(isWslInstalledAsync()).resolves.toBe(true);
+  it('isWslInstalledAsync fills a cold cache without blocking, sharing one probe between callers', async () => {
+    wslAnswers({ '--status': { status: 0 }, '--list --quiet': { status: 0, stdout: 'Ubuntu' } });
+    const [a, b] = await Promise.all([isWslInstalledAsync(), isWslInstalledAsync()]);
+    expect([a, b]).toEqual([true, true]);
+    expect(argsRun(spawn)).toEqual(['--status', '--list --quiet']);
     expect(isWslInstalled()).toBe(true);
-    expect(execFile).toHaveBeenCalledOnce();
-    expect(execFileSync).not.toHaveBeenCalled();
+    expect(spawnSync).not.toHaveBeenCalled();
   });
 
-  it('isWslInstalledAsync is false off Windows without looking', async () => {
-    setPlatform('linux');
+  it('isWslInstalledAsync never asks for the distro list when `wsl --status` fails', async () => {
+    wslAnswers({ '--status': { status: 50 } });
     await expect(isWslInstalledAsync()).resolves.toBe(false);
-    expect(fs.existsSync).not.toHaveBeenCalled();
-    expect(execFile).not.toHaveBeenCalled();
+    expect(argsRun(spawn)).toEqual(['--status']);
   });
 
-  it('recheckWslInstalled sees an install, and then an uninstall, without blocking', async () => {
-    engine(true);
-    vi.mocked(execFileSync).mockReturnValue(LEFTOVERS);
-    expect(isWslInstalled()).toBe(false);
-
-    regAsync(WITH_DISTRO);
-    await expect(recheckWslInstalled()).resolves.toBe(true);
-    expect(isWslInstalled()).toBe(true);
-
-    engine(false);
-    await expect(recheckWslInstalled()).resolves.toBe(false);
-    expect(isWslInstalled()).toBe(false);
-    expect(execFileSync).toHaveBeenCalledTimes(1);
+  it('isWslInstalledAsync answers false when wsl.exe cannot be started', async () => {
+    vi.mocked(spawn).mockImplementation(() => {
+      const child = new EventEmitter() as ChildProcess;
+      setImmediate(() => child.emit('error', new Error('ENOENT')));
+      return child;
+    });
+    await expect(isWslInstalledAsync()).resolves.toBe(false);
   });
 });
