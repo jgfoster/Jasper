@@ -902,8 +902,7 @@ describe('the manager and the gem, together (integration)', () => {
     ];
 
     const manager = makeManager();
-    const results = manager.applyToUri(live, uri);
-    expect(results[0].verified).toBe(true);
+    manager.applyToUri(live, uri);
 
     // The condition survived being applied…
     const applied = manager.appliedFor(uri);

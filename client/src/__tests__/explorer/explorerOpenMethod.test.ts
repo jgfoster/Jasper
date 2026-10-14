@@ -319,7 +319,9 @@ describe('ExplorerController.syncToEditor', () => {
     expect(method.reveal).not.toHaveBeenCalled();
   });
 
-  it('does not re-reveal when the focused method is already the tree selection', async () => {
+  it('re-reveals a focused tab even when its method is already the tree selection', async () => {
+    // Selected is not visible: a reload or a hand-scroll leaves the selection on a row that
+    // is off screen. The click loop the old selection guard stood in for is the test above.
     const ctl = makeController();
     const method = fakeView();
     method.selection = [new MethodItem(false, info({ selector: 'at:' }), 'accessing')];
@@ -334,7 +336,7 @@ describe('ExplorerController.syncToEditor', () => {
 
     await ctl.syncToEditor(Uri.parse('gemstone://1/UserGlobals/Array/instance/accessing/at%3A'));
 
-    expect(method.reveal).not.toHaveBeenCalled();
+    expect(method.reveal).toHaveBeenCalled();
   });
 
   it('still follows a later focus event for a method that was already the active editor', async () => {

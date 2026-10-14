@@ -38,7 +38,10 @@ import { ActiveSession, SessionManager } from '../sessionManager';
 import { logInfo } from '../gciLog';
 import { dropUndoEntry, peekUndoEntry } from './undoStack';
 import { refreshUndoUi } from './undoUi';
-import { planUndo } from './undoPlan';
+import { LiveState, liveMethodSlots, planUndo } from './undoPlan';
+import { captureMethodSlots } from './queries/methodSlotQueries';
+import { captureClassVar } from './queries/classVarQueries';
+import { defaultQueryExecutorUsing } from '../browserQueries';
 import { dictionaryNameLookup } from '../refactoring/dictionaryLabel';
 import { showUndoPlanPanel } from './undoPlanPanel';
 import { UndoEntry } from './undoTypes';
@@ -166,6 +169,31 @@ export async function undoLastCommand(sessions: SessionManager): Promise<void> {
 }
 
 /**
+ * What the stone holds now for the parts of the entry its plan follows (see `undoPlan.ts`), or
+ * undefined when the kind has none or the read fails.
+ *
+ * A failed read is not a reason to refuse the undo: the plan falls back to the recorded state,
+ * which is right whenever nothing has drifted, and the reversal reads the stone again anyway.
+ */
+export function readLiveState(entry: UndoEntry, session: ActiveSession): LiveState | undefined {
+  const slots = liveMethodSlots(entry);
+  if (slots === undefined) return undefined;
+  const execute = defaultQueryExecutorUsing(session);
+  try {
+    return {
+      slots: captureMethodSlots(execute, slots),
+      classVar: entry.kind === 'classVarEdit' ? captureClassVar(execute, entry.slot) : undefined,
+    };
+  } catch (e: unknown) {
+    logInfo(
+      `[undo] #${entry.id} could not read its live state for the plan; using the recorded ` +
+        `state (${e instanceof Error ? e.message : String(e)})`,
+    );
+    return undefined;
+  }
+}
+
+/**
  * Name the change and ask, before anything is reversed.
  *
  * Undo takes the top of the STACK, which is not always the last thing the user did: an
@@ -192,7 +220,7 @@ async function confirmUndo(entry: UndoEntry, session: ActiveSession): Promise<bo
   // in: a slot records a SymbolList index as often as a name, and an index means nothing to a
   // reader -- least of all when the point is telling two same-named classes apart (#396). One
   // lookup for the whole plan, so the symbol list is read once rather than once per row.
-  const plan = planUndo(entry, dictionaryNameLookup(session));
+  const plan = planUndo(entry, dictionaryNameLookup(session), readLiveState(entry, session));
   // planUndo answers undefined only for a refactoring, and the caller has already sent those
   // down their own path -- their reversal is paged from the stone, not derived here. So this is
   // not a "no plan, go ahead": it is a kind that should never have reached this function.
@@ -200,6 +228,9 @@ async function confirmUndo(entry: UndoEntry, session: ActiveSession): Promise<bo
     logInfo(`[undo] #${entry.id} (${entry.kind}) has no plan; not reversing it unasked`);
     return false;
   }
+  // Shown even when the plan has no rows, everything having been put back by hand since:
+  // accepting still spends the entry, and the confirmation is unconditional (above).
+  //
   // The plan's own note -- what THIS reversal costs -- is the panel's banner. The standing
   // caveat about which change is on top of the stack lives in the panel as a disclosure, so it
   // stays available without sitting above the rows on every single undo.
