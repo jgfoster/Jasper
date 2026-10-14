@@ -19,19 +19,18 @@ async function mount() {
   const storage = new LoginStorage();
   await LoginEditorPanel.show(storage, {} as vscode.SecretStorage, new LoginTreeProvider(storage));
   const html: string = window.createWebviewPanel.mock.results.at(-1)?.value.webview.html;
-  const script = /<script nonce="[^"]*">([\s\S]*?)<\/script>/.exec(html)?.[1] ?? '';
 
-  const dom = new JSDOM(html.replace(/<script[\s\S]*?<\/script>/, ''), {
-    runScripts: 'outside-only',
-  });
+  // `outside-only` leaves the page's own <script> unrun, so it is read back off the
+  // DOM and evaluated once `acquireVsCodeApi` exists for it to call.
+  const dom = new JSDOM(html, { runScripts: 'outside-only' });
+  const doc = dom.window.document;
   const win = dom.window as unknown as Window & {
     acquireVsCodeApi: () => { postMessage: (m: unknown) => void };
     eval: (source: string) => void;
   };
   const posted: unknown[] = [];
   win.acquireVsCodeApi = () => ({ postMessage: (m) => posted.push(m) });
-  win.eval(script);
-  const doc = dom.window.document;
+  win.eval(doc.querySelector('script')?.textContent ?? '');
   const select = () => doc.getElementById('version') as HTMLSelectElement;
 
   return {
