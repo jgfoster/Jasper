@@ -194,6 +194,7 @@ import { ActiveSession } from '../sessionManager';
 import { GemStoneLogin } from '../loginTypes';
 import { SMALLTALK_LANGUAGE } from '../languageIds';
 import { OOP_NIL } from '../gciConstants';
+import { fakeActiveSession } from './fakeActiveSession';
 
 const GS_PROCESS = 0x123n;
 const ERROR_MSG = 'a UndefinedObject does not understand #foo';
@@ -280,7 +281,7 @@ function restoreDebugDefaults(): void {
 }
 
 function makeSession(id = 1): ActiveSession {
-  return {
+  return fakeActiveSession({
     id,
     handle: { h: 1 },
     login: {
@@ -288,11 +289,11 @@ function makeSession(id = 1): ActiveSession {
       gs_user: 'DataCurator',
       stone: 'gs64stone',
       gem_host: 'devhost',
-    } as GemStoneLogin,
+    },
     stoneVersion: '3.7.2',
     enhancedInspectorAvailable: true,
     gci: { GciTsClearStack: vi.fn() } as unknown as ActiveSession['gci'],
-  };
+  });
 }
 
 /** The most recently created webview panel mock. */

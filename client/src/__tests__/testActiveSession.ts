@@ -35,8 +35,8 @@ function stoneVersionOf(gci: GciLibrary): string {
  * real `login` (from the test environment, via `resolveTestConnection`) and a
  * cached `stoneVersion`. Deliberately narrow: there is no
  * `testActiveSession(partial)` convenience helper for overriding individual
- * fields — callers that need a different shape (the ~25 unit tests with mock
- * `gci` objects and no live env) should keep building their own fakes.
+ * fields — callers that need a different shape (the unit tests with mock
+ * `gci` objects and no live env) build a fake session around their mock.
  */
 export function testActiveSession(gci: GciLibrary, handle: unknown): ActiveSession {
   const conn = resolveTestConnection();

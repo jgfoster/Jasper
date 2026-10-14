@@ -9,6 +9,7 @@ vi.mock('vscode', () => ({
 
 import { executeFetchStringWithLimit, BrowserQueryError } from '../browserQueries';
 import { ActiveSession } from '../sessionManager';
+import { fakeActiveSession } from './fakeActiveSession';
 
 function makeSession(gciOverrides: Record<string, unknown> = {}): ActiveSession {
   const gci = {
@@ -17,13 +18,13 @@ function makeSession(gciOverrides: Record<string, unknown> = {}): ActiveSession 
     GciTsExecuteFetchBytes: vi.fn(() => ({ bytesReturned: 3, data: 'abc', err: { number: 0 } })),
     ...gciOverrides,
   };
-  return {
+  return fakeActiveSession({
     id: 1,
     handle: {},
     gci: gci as unknown as ActiveSession['gci'],
-    login: {} as ActiveSession['login'],
+    login: {},
     stoneVersion: '3.7.2',
-  };
+  });
 }
 
 describe('executeFetchStringWithLimit', () => {

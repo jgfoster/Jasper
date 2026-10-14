@@ -15,11 +15,12 @@ import { CODE_LENS_SELECTORS, GemStoneCodeLensProvider } from '../gemstoneCodeLe
 import { SessionManager, ActiveSession } from '../sessionManager';
 import * as queries from '../browserQueries';
 import { SMALLTALK_LANGUAGE } from '../languageIds';
+import { fakeActiveSession } from './fakeActiveSession';
 
 function createMockSession(): ActiveSession {
-  return {
+  return fakeActiveSession({
     id: 1,
-    gci: {} as ActiveSession['gci'],
+    gci: {},
     handle: {},
     login: {
       label: 'Test',
@@ -33,7 +34,7 @@ function createMockSession(): ActiveSession {
       host_password: '',
     },
     stoneVersion: '3.7.2',
-  };
+  });
 }
 
 /** Build a partial TextDocument mock, confining the one unavoidable cast here. */

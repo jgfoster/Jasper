@@ -4,12 +4,13 @@ vi.mock('vscode', () => import('../__mocks__/vscode.js'));
 
 import { executeFetchStringNb, loadRowanProjectNb, BrowserQueryError } from '../browserQueries';
 import type { ActiveSession } from '../sessionManager';
+import { fakeActiveSession } from './fakeActiveSession';
 
 // A fake session whose gci implements just the non-blocking execute path:
 // start (NbExecute) → poll ready (NbPoll) → result oop (NbResult) → string
 // contents (FetchChars). Overrides let each test break one link in the chain.
 function fakeSession(overrides: Record<string, unknown> = {}): ActiveSession {
-  return {
+  return fakeActiveSession({
     id: -1,
     handle: { fake: true },
     login: { stone: 'test-stone' },
@@ -23,7 +24,7 @@ function fakeSession(overrides: Record<string, unknown> = {}): ActiveSession {
       GciTsFetchChars: vi.fn(() => ({ bytesReturned: 5n, data: 'OK\tX', err: { number: 0 } })),
       ...overrides,
     },
-  } as unknown as ActiveSession;
+  });
 }
 
 describe('executeFetchStringNb', () => {

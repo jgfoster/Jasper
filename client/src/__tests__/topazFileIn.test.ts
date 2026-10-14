@@ -15,6 +15,7 @@ import {
   fileInChangedRegions,
 } from '../topazFileIn';
 import * as queries from '../browserQueries';
+import { fakeActiveSession } from './fakeActiveSession';
 
 vi.mock('../browserQueries', () => ({
   BrowserQueryError: class BrowserQueryError extends Error {
@@ -31,9 +32,9 @@ vi.mock('../browserQueries', () => ({
 }));
 
 function createMockSession(): ActiveSession {
-  return {
+  return fakeActiveSession({
     id: 1,
-    gci: {} as ActiveSession['gci'],
+    gci: {},
     handle: {},
     login: {
       label: 'Test',
@@ -47,7 +48,7 @@ function createMockSession(): ActiveSession {
       host_password: '',
     },
     stoneVersion: '3.7.2',
-  };
+  });
 }
 
 describe('parseTopazDocument', () => {

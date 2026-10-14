@@ -59,6 +59,7 @@ import { GemStoneDebugSession } from '../gemstoneDebugSession';
 import { SessionManager } from '../sessionManager';
 import * as debugQueries from '../debugQueries';
 import { OOP_NIL } from '../gciConstants';
+import { fakeActiveSession } from './fakeActiveSession';
 
 // Capture DAP messages sent by the debug session
 interface DapMessage {
@@ -75,7 +76,13 @@ function createTestSession() {
 
   const mockSessionManager = {
     getSessions: vi.fn(() => [
-      { id: 1, gci: {}, handle: {}, login: { label: 'Test' }, stoneVersion: '3.7.2' },
+      fakeActiveSession({
+        id: 1,
+        gci: {},
+        handle: {},
+        login: { label: 'Test' },
+        stoneVersion: '3.7.2',
+      }),
     ]),
     getSelectedSession: vi.fn(),
     onDidChangeSelection: vi.fn(() => ({ dispose: () => {} })),

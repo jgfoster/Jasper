@@ -65,6 +65,7 @@ import * as queries from '../queries/basicInspectorQueries';
 import * as debug from '../../debugQueries';
 import { forgetSession as forgetSessionPins } from '../../exportSetPins';
 import type { ActiveSession } from '../../sessionManager';
+import { fakeActiveSession } from '../../__tests__/fakeActiveSession';
 
 /**
  * The panel host: what it asks the stone for, what it posts back, and the
@@ -102,11 +103,11 @@ function makeMockPanel(): MockPanel {
 }
 
 function makeSession(): ActiveSession {
-  return {
+  return fakeActiveSession({
     id: 1,
     handle: {},
     gci: { GciTsCallInProgress: () => ({ result: callInProgress }) },
-  } as unknown as ActiveSession;
+  });
 }
 
 let session: ActiveSession;

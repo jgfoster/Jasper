@@ -36,15 +36,16 @@ vi.mock('../refactoringAvailability', () => ({
 
 import { ActiveSession, SessionManager } from '../../sessionManager';
 import { uninstallRefactoringFeature } from '../refactoringUninstallCommand';
+import { fakeActiveSession } from '../../__tests__/fakeActiveSession';
 
 const logout = vi.fn();
 function createBaseSession(): ActiveSession {
-  return {
+  return fakeActiveSession({
     id: 1,
     login: { stone: 'demo' },
     gci: { GciTsLogout: logout },
     rbSupportAvailable: true,
-  } as unknown as ActiveSession;
+  });
 }
 
 const sessionManager = {} as unknown as SessionManager;

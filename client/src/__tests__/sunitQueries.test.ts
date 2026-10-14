@@ -7,8 +7,8 @@ vi.mock('vscode', () => ({
 }));
 
 import { ActiveSession } from '../sessionManager';
-import { GemStoneLogin } from '../loginTypes';
 import * as sunit from '../sunitQueries';
+import { fakeActiveSession } from './fakeActiveSession';
 
 function createMockSession(executeFetchData = ''): ActiveSession {
   const mockGci = {
@@ -16,13 +16,13 @@ function createMockSession(executeFetchData = ''): ActiveSession {
     GciTsCallInProgress: vi.fn(() => ({ result: 0 })),
   };
 
-  return {
+  return fakeActiveSession({
     id: 1,
     gci: mockGci as unknown as ActiveSession['gci'],
     handle: {},
-    login: { label: 'Test' } as GemStoneLogin,
+    login: { label: 'Test' },
     stoneVersion: '3.7.2',
-  };
+  });
 }
 
 describe('sunitQueries', () => {

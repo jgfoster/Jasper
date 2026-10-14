@@ -4,10 +4,10 @@ vi.mock('vscode', () => import('../__mocks__/vscode.js'));
 
 import * as vscode from 'vscode';
 import { __setConfig } from '../__mocks__/vscode';
-import { ActiveSession } from '../sessionManager';
 import { routeInspect } from '../inspectRouter';
 import { BasicInspector } from '../basicInspector/basicInspector';
 import { EnhancedInspector } from '../enhancedInspector/enhancedInspector';
+import { fakeActiveSession } from './fakeActiveSession';
 
 /**
  * Which editor tab an Inspect actually raises — the real panel classes, not
@@ -16,12 +16,12 @@ import { EnhancedInspector } from '../enhancedInspector/enhancedInspector';
  * by their view type, which is what VS Code keys a panel by.
  */
 const session = (enhanced: boolean) =>
-  ({
+  fakeActiveSession({
     id: 1,
     handle: {},
     enhancedInspectorAvailable: enhanced,
     gci: { GciTsCallInProgress: () => ({ result: 0 }) },
-  }) as unknown as ActiveSession;
+  });
 
 const raisedViewTypes = () =>
   vi.mocked(vscode.window.createWebviewPanel).mock.calls.map((call) => call[0]);

@@ -16,6 +16,7 @@ import { SymbolKind } from '../__mocks__/vscode';
 import { GemStoneWorkspaceSymbolProvider } from '../gemstoneSymbolProvider';
 import { SessionManager } from '../sessionManager';
 import { getAllClassNames } from '../browserQueries';
+import { fakeActiveSession } from './fakeActiveSession';
 
 const mockGetAllClassNames = vi.mocked(getAllClassNames);
 
@@ -23,7 +24,13 @@ function makeSessionManager(hasSession: boolean) {
   return {
     getSelectedSession: vi.fn(() =>
       hasSession
-        ? { id: 1, gci: {}, handle: {}, login: { label: 'Test' }, stoneVersion: '3.7.2' }
+        ? fakeActiveSession({
+            id: 1,
+            gci: {},
+            handle: {},
+            login: { label: 'Test' },
+            stoneVersion: '3.7.2',
+          })
         : undefined,
     ),
     onDidChangeSelection: vi.fn(() => ({ dispose: () => {} })),
