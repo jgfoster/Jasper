@@ -1332,6 +1332,38 @@ describe('a Windows machine with no WSL', () => {
     expect(root.querySelector('[data-action="openWindowsClientFolder"]')).not.toBeNull();
     expect(root.querySelector('[data-action="deleteWindowsClient"]')).not.toBeNull();
   });
+
+  // A row exists only for a version already on disk, so the row's client action
+  // could never fetch the first client a machine needs.
+  it('offers to install a client with nothing installed yet', () => {
+    mount(
+      state({
+        windows: true,
+        versions: [],
+        create: { ...(state().create as object), versions: [] },
+      }),
+    );
+
+    click('installClientVersion');
+
+    expect(host.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'installClientVersion' }),
+    );
+  });
+
+  it('keeps offering it once a client is installed', () => {
+    mount(state({ windows: true, versions: [CLIENT_ONLY] }));
+
+    const header = root.querySelector('details.section[data-section="versions"] summary');
+
+    expect(header?.querySelector('[data-action="installClientVersion"]')).not.toBeNull();
+  });
+
+  it('is not offered off Windows, where there is no separate client to install', () => {
+    mount(state({ windows: false }));
+
+    expect(root.querySelector('[data-action="installClientVersion"]')).toBeNull();
+  });
 });
 
 describe('the form the host opens the panel into', () => {

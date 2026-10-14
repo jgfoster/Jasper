@@ -753,6 +753,35 @@ describe("a database's files", () => {
   });
 });
 
+describe('Install Client…', () => {
+  it('offers the versions without a client, and installs the client of the one picked', async () => {
+    onDisk = [RELEASE, { ...RELEASE, version: '3.7.5', clientExtracted: true }];
+    await openPanel();
+    vi.mocked(vscode.window.showQuickPick).mockResolvedValue({ label: '3.7.6' });
+
+    await sendMessage({ command: 'installClientVersion' });
+
+    expect(vi.mocked(vscode.window.showQuickPick).mock.calls[0][0]).toEqual([
+      expect.objectContaining({ label: '3.7.6' }),
+    ]);
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith('gemstone.downloadWindowsClient', {
+      version: expect.objectContaining({ version: '3.7.6' }),
+    });
+  });
+
+  it('does not offer a version whose client ships with the extension', async () => {
+    onDisk = [{ ...RELEASE, bundled: true }];
+    await openPanel();
+
+    await sendMessage({ command: 'installClientVersion' });
+
+    expect(vscode.window.showQuickPick).not.toHaveBeenCalled();
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
+      expect.stringContaining('already has its Windows client'),
+    );
+  });
+});
+
 describe('Install and Remove are inverses', () => {
   it('deletes the archive once the unpack has landed, so Install leaves one thing behind', async () => {
     vi.mocked(vscode.commands.executeCommand).mockImplementation(async (command: string) => {

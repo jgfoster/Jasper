@@ -343,6 +343,7 @@ type Inbound =
   | { command: 'openWindowsClientFolder'; version: string }
   | { command: 'deleteWindowsClient'; version: string }
   | { command: 'installNewVersion' }
+  | { command: 'installClientVersion' }
   | {
       command: 'createDatabase';
       version: string;
@@ -779,6 +780,9 @@ export class DatabasesPanel {
       case 'installNewVersion':
         await this.installNewVersion();
         return;
+      case 'installClientVersion':
+        await this.installClientVersion();
+        return;
 
       // Databases — reuse the existing commands with a synthetic DatabaseNode.
       // Creating a database also opens a matching login (prefilled), so a new
@@ -987,6 +991,31 @@ export class DatabasesPanel {
     );
     if (!picked) return;
     await this.installVersion(picked.label);
+  }
+
+  /**
+   * Install Version… for the Windows client alone. It offers the catalog rather
+   * than the rows on screen, which hold only versions already on disk — the very
+   * thing a machine fetching its first client does not have.
+   */
+  private async installClientVersion(): Promise<void> {
+    await this.buildVersions('remote');
+    const candidates = this.lastVersions.filter((v) => !v.clientExtracted && !v.bundled);
+    if (!candidates.length) {
+      vscode.window.showInformationMessage(
+        'Every available GemStone version already has its Windows client installed.',
+      );
+      return;
+    }
+    const picked = await vscode.window.showQuickPick(
+      candidates.map((v) => ({ label: v.version, description: v.date })),
+      {
+        title: 'Install a GemStone Windows client',
+        placeHolder: 'Select the version of the stone you will log in to',
+      },
+    );
+    if (!picked) return;
+    await this.versionCommand('gemstone.downloadWindowsClient', picked.label);
   }
 
   /**

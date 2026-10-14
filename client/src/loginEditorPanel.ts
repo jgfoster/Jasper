@@ -11,6 +11,8 @@ export class LoginEditorPanel {
   private static currentPanel: LoginEditorPanel | undefined;
   private readonly panel: vscode.WebviewPanel;
   private disposables: vscode.Disposable[] = [];
+  /** Catalog versions with no library here yet; empty until the fetch lands. */
+  private downloadable: string[] = [];
 
   /** Collect versions that have a GCI library available */
   private static getAvailableVersions(
@@ -63,6 +65,11 @@ export class LoginEditorPanel {
     // session). The config is only consumed at login, so it is safe to view;
     // editing is disabled so the live session's row isn't disturbed.
     readOnly = false,
+    // The versions the download site has a Windows client for. Offered beside
+    // the installed ones on Windows, where a login's first connect downloads its
+    // client — without them a machine with nothing installed has an empty
+    // dropdown and no way to name the version it needs.
+    fetchDownloadableVersions?: () => Promise<string[]>,
   ): Promise<void> {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
     const versions = sysadminStorage
@@ -91,7 +98,9 @@ export class LoginEditorPanel {
         existingLogin,
         readOnly,
       );
+      LoginEditorPanel.currentPanel.downloadable = [];
       LoginEditorPanel.currentPanel.update(login);
+      LoginEditorPanel.currentPanel.offerDownloadable(fetchDownloadableVersions);
       return;
     }
 
@@ -115,6 +124,7 @@ export class LoginEditorPanel {
       versions,
       readOnly,
     );
+    LoginEditorPanel.currentPanel.offerDownloadable(fetchDownloadableVersions);
   }
 
   private constructor(
@@ -149,6 +159,7 @@ export class LoginEditorPanel {
               command: 'loadData',
               data: this.login,
               versions: this.versions,
+              downloadable: this.downloadable,
               readOnly: this.readOnly,
             });
             break;
@@ -240,8 +251,34 @@ export class LoginEditorPanel {
       command: 'loadData',
       data: login,
       versions: this.versions,
+      downloadable: this.downloadable,
       readOnly: this.readOnly,
     });
+  }
+
+  /**
+   * Fetch the downloadable versions without holding the editor up: the catalog
+   * is a network call, and the form is usable with the installed versions alone.
+   * The list is also kept for `requestData`, since a message posted before the
+   * webview's script has loaded is not delivered.
+   */
+  private offerDownloadable(fetch: (() => Promise<string[]>) | undefined): void {
+    if (!fetch || this.readOnly || process.platform !== 'win32') return;
+    fetch().then(
+      (catalog) => {
+        if (LoginEditorPanel.currentPanel !== this) return;
+        const installed = new Set(this.versions);
+        this.downloadable = catalog.filter((v) => !installed.has(v));
+        this.panel.webview.postMessage({
+          command: 'downloadableVersions',
+          downloadable: this.downloadable,
+        });
+      },
+      // Offline, or the site is unreachable: the installed versions are all there
+      // is to offer, and the login itself reports the missing client if it comes
+      // to that.
+      () => {},
+    );
   }
 
   private dispose(): void {
@@ -412,7 +449,7 @@ export class LoginEditorPanel {
   <div class="field-group">
     <label for="version">GemStone Version</label>
     <select id="version"></select>
-    <div class="field-help">The GemStone version whose GCI client library Jasper uses. It must match the version of the stone you are connecting to.</div>
+    <div class="field-help">The GemStone version whose GCI client library Jasper uses. It must match the version of the stone you are connecting to. A version listed as not yet installed is offered for download the first time you log in with it.</div>
 
     <label for="gem_host">Gem Host</label>
     <input type="text" id="gem_host" placeholder="localhost">
@@ -467,6 +504,7 @@ export class LoginEditorPanel {
     const vscode = acquireVsCodeApi();
     const fields = ['version','gem_host','stone','gs_user','gs_password','netldi','host_user','host_password'];
     let originalLabel = null;
+    let installedVersions = [];
 
     let helpOn = false;
     function setHelp(on) {
@@ -483,26 +521,40 @@ export class LoginEditorPanel {
 
     vscode.postMessage({ command: 'requestData' });
 
+    // Installed versions first and ungrouped, as they always were; versions only
+    // on the download site follow under their own heading, so picking one is not
+    // mistaken for picking something already here.
+    function fillVersions(currentVersion, installed, downloadable) {
+      const versionSelect = document.getElementById('version');
+      versionSelect.innerHTML = '';
+      const listed = new Set([...installed, ...downloadable]);
+      const own = currentVersion && !listed.has(currentVersion) ? [currentVersion] : [];
+      for (const v of [...own, ...installed]) {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        versionSelect.appendChild(opt);
+      }
+      if (downloadable.length) {
+        const group = document.createElement('optgroup');
+        group.label = 'Not installed — downloaded at first login';
+        for (const v of downloadable) {
+          const opt = document.createElement('option');
+          opt.value = v;
+          opt.textContent = v;
+          group.appendChild(opt);
+        }
+        versionSelect.appendChild(group);
+      }
+      versionSelect.value = currentVersion;
+    }
+
     window.addEventListener('message', event => {
       const msg = event.data;
       if (msg.command === 'loadData') {
         originalLabel = msg.data.label || null;
-        // Populate version dropdown
-        const versionSelect = document.getElementById('version');
-        const currentVersion = msg.data.version || '';
-        const versions = msg.versions || [];
-        versionSelect.innerHTML = '';
-        const versionSet = new Set(versions);
-        if (currentVersion && !versionSet.has(currentVersion)) {
-          versions.unshift(currentVersion);
-        }
-        for (const v of versions) {
-          const opt = document.createElement('option');
-          opt.value = v;
-          opt.textContent = v;
-          versionSelect.appendChild(opt);
-        }
-        versionSelect.value = currentVersion;
+        installedVersions = msg.versions || [];
+        fillVersions(msg.data.version || '', installedVersions, msg.downloadable || []);
         // Populate other fields
         for (const f of fields) {
           if (f === 'version') continue;
@@ -528,6 +580,13 @@ export class LoginEditorPanel {
         // for); keep it closed when editing/viewing an existing one so it stays
         // out of the way. The user can toggle it either way.
         setHelp(!readOnly && !originalLabel);
+      } else if (msg.command === 'downloadableVersions') {
+        // Arrives after the form is drawn, so it keeps whatever is chosen — and a
+        // new login on a machine with nothing installed, which had nothing to
+        // choose, gets the newest the way an installed list would give it.
+        const downloadable = msg.downloadable || [];
+        const chosen = document.getElementById('version').value || downloadable[0] || '';
+        fillVersions(chosen, installedVersions, downloadable);
       }
     });
 

@@ -2126,6 +2126,11 @@ export function activate(context: vscode.ExtensionContext) {
     void maybeOfferServerSupport(session, sessionManager, context.extensionPath);
   }
 
+  // What the login editor offers beyond the installed versions. `versionManager`
+  // is created further down; the editor only calls this once activation is done.
+  const downloadableClientVersions = async (): Promise<string[]> =>
+    (await versionManager.fetchAvailableVersions()).map((v) => v.version);
+
   context.subscriptions.push(
     vscode.commands.registerCommand(
       'gemstone.openDocument',
@@ -2160,7 +2165,15 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('gemstone.addLogin', () => {
       // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
-      LoginEditorPanel.show(storage, context.secrets, treeProvider, undefined, sysadminStorage);
+      LoginEditorPanel.show(
+        storage,
+        context.secrets,
+        treeProvider,
+        undefined,
+        sysadminStorage,
+        false,
+        downloadableClientVersions,
+      );
     }),
 
     vscode.commands.registerCommand('gemstone.editLogin', (item: GemStoneLoginItem) => {
@@ -2175,6 +2188,7 @@ export function activate(context: vscode.ExtensionContext) {
         item.login,
         sysadminStorage,
         loginHasActiveSession(item.login),
+        downloadableClientVersions,
       );
     }),
 
@@ -2202,7 +2216,15 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('gemstone.duplicateLogin', (item: GemStoneLoginItem) => {
       const copy = { ...item.login, label: '' };
       // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
-      LoginEditorPanel.show(storage, context.secrets, treeProvider, copy, sysadminStorage);
+      LoginEditorPanel.show(
+        storage,
+        context.secrets,
+        treeProvider,
+        copy,
+        sysadminStorage,
+        false,
+        downloadableClientVersions,
+      );
     }),
 
     vscode.commands.registerCommand('gemstone.openWalkthrough', () => {
@@ -5096,7 +5118,15 @@ export function activate(context: vscode.ExtensionContext) {
         }
       }
       // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
-      LoginEditorPanel.show(storage, context.secrets, treeProvider, login, sysadminStorage);
+      LoginEditorPanel.show(
+        storage,
+        context.secrets,
+        treeProvider,
+        login,
+        sysadminStorage,
+        false,
+        downloadableClientVersions,
+      );
     }),
 
     vscode.commands.registerCommand('gemstone.refreshProcesses', () => {

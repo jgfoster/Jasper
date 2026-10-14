@@ -150,6 +150,7 @@ describe('LoginEditorPanel', () => {
         command: 'loadData',
         data: expect.objectContaining({ label: '' }),
         versions: [],
+        downloadable: [],
         readOnly: false,
       });
     });
@@ -162,6 +163,7 @@ describe('LoginEditorPanel', () => {
         command: 'loadData',
         data: expect.objectContaining({ label: 'Server', gem_host: 'myhost' }),
         versions: [],
+        downloadable: [],
         readOnly: false,
       });
     });
@@ -416,6 +418,132 @@ describe('LoginEditorPanel', () => {
       });
 
       expect(saveSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // A Windows machine with nothing installed had an empty dropdown and so no way to
+  // name the version whose client its first login would download.
+  describe('versions only on the download site', () => {
+    async function onPlatform(platform: string, body: () => Promise<void>): Promise<void> {
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+      try {
+        await body();
+      } finally {
+        Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+      }
+    }
+
+    function posted(command: string): unknown[] {
+      const panel = window.createWebviewPanel.mock.results[0].value;
+      return panel.webview.postMessage.mock.calls
+        .map((c: unknown[]) => c[0])
+        .filter((m: { command?: string }) => m?.command === command);
+    }
+
+    it('offers the versions not installed yet, on Windows', async () => {
+      await onPlatform('win32', async () => {
+        const sysadmin = makeSysadminStorage(['3.7.5']);
+        const fetch = vi.fn(async () => ['3.7.6', '3.7.5', '3.6.2']);
+
+        await LoginEditorPanel.show(
+          storage,
+          secretsArg,
+          treeProvider,
+          undefined,
+          sysadmin,
+          false,
+          fetch,
+        );
+
+        await vi.waitFor(() =>
+          expect(posted('downloadableVersions')).toEqual([
+            { command: 'downloadableVersions', downloadable: ['3.7.6', '3.6.2'] },
+          ]),
+        );
+      });
+    });
+
+    it('hands them to a webview that asks after they arrived', async () => {
+      await onPlatform('win32', async () => {
+        const fetch = vi.fn(async () => ['3.7.6']);
+        await LoginEditorPanel.show(
+          storage,
+          secretsArg,
+          treeProvider,
+          undefined,
+          makeSysadminStorage([]),
+          false,
+          fetch,
+        );
+        await vi.waitFor(() => expect(posted('downloadableVersions')).toHaveLength(1));
+        const panel = window.createWebviewPanel.mock.results[0].value;
+        const handler = panel.webview.onDidReceiveMessage.mock.calls[0][0];
+
+        await handler({ command: 'requestData' });
+
+        expect(posted('loadData').at(-1)).toEqual(
+          expect.objectContaining({ downloadable: ['3.7.6'] }),
+        );
+      });
+    });
+
+    it('does not ask the download site off Windows, where a login has no client to fetch', async () => {
+      await onPlatform('linux', async () => {
+        const fetch = vi.fn(async () => ['3.7.6']);
+
+        await LoginEditorPanel.show(
+          storage,
+          secretsArg,
+          treeProvider,
+          undefined,
+          makeSysadminStorage([]),
+          false,
+          fetch,
+        );
+
+        expect(fetch).not.toHaveBeenCalled();
+      });
+    });
+
+    it('does not ask the download site for a read-only view', async () => {
+      await onPlatform('win32', async () => {
+        const fetch = vi.fn(async () => ['3.7.6']);
+
+        await LoginEditorPanel.show(
+          storage,
+          secretsArg,
+          treeProvider,
+          makeLogin(),
+          makeSysadminStorage([]),
+          true,
+          fetch,
+        );
+
+        expect(fetch).not.toHaveBeenCalled();
+      });
+    });
+
+    it('keeps to the installed versions when the download site cannot be reached', async () => {
+      await onPlatform('win32', async () => {
+        const fetch = vi.fn(async (): Promise<string[]> => {
+          throw new Error('getaddrinfo ENOTFOUND');
+        });
+
+        await LoginEditorPanel.show(
+          storage,
+          secretsArg,
+          treeProvider,
+          undefined,
+          makeSysadminStorage(['3.7.5']),
+          false,
+          fetch,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(fetch).toHaveBeenCalled();
+        expect(posted('downloadableVersions')).toEqual([]);
+      });
     });
   });
 

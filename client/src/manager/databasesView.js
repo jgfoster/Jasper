@@ -438,9 +438,21 @@
     // alike, and a stone that already runs from such a tree is adopted by
     // Register Existing Database — which records where it really lives instead
     // of needing a link in Jasper's root at all.
-    const getActions = btn('installNewVersion', 'Install Version…', 'plus', 'btn-secondary', {
-      title: 'Choose a version from the download site, then download and unpack it',
-    });
+    //
+    // Windows also gets Install Client…. The per-row client action only exists on
+    // a row, and a row only exists for a version already on disk — so a machine
+    // with nothing installed had no way to fetch its first client, and the login
+    // editor, which offers only versions with a library, had nothing to offer.
+    const getActions =
+      btn('installNewVersion', 'Install Version…', 'plus', 'btn-secondary', {
+        title: 'Choose a version from the download site, then download and unpack it',
+      }) +
+      (windowsHost
+        ? btn('installClientVersion', 'Install Client…', 'install', 'btn-secondary', {
+            title:
+              'Choose a version and download only its Windows client library — enough to log in to a stone on another machine',
+          })
+        : '');
     const actions = getActions;
 
     if (!onDisk.length) {
