@@ -16,6 +16,7 @@ import * as q from '../../../browserQueries';
 import type { ActiveSession } from '../../../sessionManager';
 import { tonelCapability, TONEL_CAPABILITIES } from '../tonelCapability';
 import { useRowan3Stone } from './useRowan3Stone';
+import { testActiveSession } from '../../../__tests__/testActiveSession';
 
 describe('tonel capability (integration)', () => {
   let gci: GciLibrary;
@@ -25,7 +26,7 @@ describe('tonel capability (integration)', () => {
     handle = testContext.session;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
   const exec = (code: string): string => q.executeFetchString(session(), code);
   // Runs as the harness's configured user (DataCurator), NOT SystemUser — that
   // is what proves the reach-through in `../rowanLookup` works for the user who

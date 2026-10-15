@@ -8,10 +8,10 @@ vi.mock('vscode', () => ({
 }));
 
 import { ActiveSession } from '../sessionManager';
-import { GemStoneLogin } from '../loginTypes';
 import * as debug from '../debugQueries';
 import type { NbRunOptions } from '../nbRunner';
 import { homeDictionaryNameExpr } from '../queries/util';
+import { fakeActiveSession } from './fakeActiveSession';
 
 const noErr = {
   number: 0,
@@ -97,13 +97,13 @@ function createMockSession(): ActiveSession {
     executeAndFetchString: vi.fn(() => ''),
   };
 
-  return {
+  return fakeActiveSession({
     id: 1,
     gci: mockGci as unknown as ActiveSession['gci'],
     handle: {},
-    login: { label: 'Test' } as GemStoneLogin,
+    login: { label: 'Test' },
     stoneVersion: '3.7.2',
-  };
+  });
 }
 
 function receiverClassName(oop: bigint): string {
@@ -156,17 +156,17 @@ describe('debugQueries', () => {
     const STEP_POINT_OOP = 0xbbn;
 
     function stepPointSession(stepPointResultOop: bigint) {
-      return {
+      return fakeActiveSession({
         id: 1,
         handle: {},
-        login: { label: 'T' } as GemStoneLogin,
+        login: { label: 'T' },
         stoneVersion: '3.7.2',
         gci: {
           GciTsI64ToOop: vi.fn(() => ({ result: LEVEL_OOP, err: { ...noErr } })),
           GciTsPerform: vi.fn(() => ({ result: stepPointResultOop, err: { ...noErr } })),
           oopToInteger: vi.fn(() => 2n),
         } as unknown as ActiveSession['gci'],
-      } as ActiveSession;
+      });
     }
 
     it('sends _stepPointAt: with the frame level and returns the step point', () => {
@@ -194,10 +194,10 @@ describe('debugQueries', () => {
     const HOME_METHOD_OOP = 5200n;
 
     function blockSession(isBlockOop: bigint, homeOop: bigint) {
-      return {
+      return fakeActiveSession({
         id: 1,
         handle: {},
-        login: { label: 'T' } as GemStoneLogin,
+        login: { label: 'T' },
         stoneVersion: '3.7.2',
         gci: {
           GciTsPerform: vi.fn((_h: unknown, _r: bigint, _s: bigint, selector: string) => {
@@ -206,7 +206,7 @@ describe('debugQueries', () => {
             return { result: 0n, err: { ...noErr } };
           }),
         } as unknown as ActiveSession['gci'],
-      } as ActiveSession;
+      });
     }
 
     it('reports a block method and its distinct home method', () => {
@@ -629,13 +629,13 @@ describe('debugQueries', () => {
   // 3.6.2), so debugger/inspector variable display works on both 3.6.2 and 3.7.5.
   describe('instance variable fetch (3.6.2-compatible via GciTsFetchOops)', () => {
     function sessionWith(gci: Record<string, unknown>): ActiveSession {
-      return {
+      return fakeActiveSession({
         id: 1,
         handle: { h: 1 },
-        login: { label: 'T' } as GemStoneLogin,
+        login: { label: 'T' },
         stoneVersion: '3.6.2',
         gci: gci as unknown as ActiveSession['gci'],
-      };
+      });
     }
 
     it('getNamedInstVarOops fetches absolute OOPs starting at index 1', () => {
@@ -769,13 +769,13 @@ describe('debugQueries', () => {
             : { bytesReturned: 0, data: '', err: { ...noErr } },
         ),
       };
-      return {
+      return fakeActiveSession({
         id: 1,
         handle: {},
-        login: { label: 'T' } as GemStoneLogin,
+        login: { label: 'T' },
         stoneVersion: '3.7.2',
         gci: gci as unknown as ActiveSession['gci'],
-      } as ActiveSession;
+      });
     }
 
     it('returns the result printString ("7") for "3 + 4" instead of raising', () => {
@@ -918,13 +918,13 @@ describe('debugQueries', () => {
               : { bytesReturned: 0, data: '', err: { ...noErr } },
         ),
       };
-      return {
+      return fakeActiveSession({
         id: 1,
         handle: {},
-        login: { label: 'T' } as GemStoneLogin,
+        login: { label: 'T' },
         stoneVersion: '3.7.2',
         gci: gci as unknown as ActiveSession['gci'],
-      } as ActiveSession;
+      });
     }
 
     it('evaluates via evaluateInContext:symbolList: (not the self-only path)', () => {
@@ -1052,13 +1052,13 @@ describe('debugQueries', () => {
         GciTsNbPoll: vi.fn(() => ({ result: 1, err: { ...noErr } })), // ready on first poll
         GciTsNbResult: vi.fn(() => ({ result: EVAL_RESULT, err: { ...noErr } })),
       };
-      return {
+      return fakeActiveSession({
         id: 1,
         handle: {},
-        login: { label: 'T' } as GemStoneLogin,
+        login: { label: 'T' },
         stoneVersion: '3.7.2',
         gci: gci as unknown as ActiveSession['gci'],
-      } as ActiveSession;
+      });
     }
 
     it('resolves with the result printString once the non-blocking call is ready', async () => {
@@ -1152,13 +1152,13 @@ describe('debugQueries', () => {
         GciTsNbPoll: vi.fn(() => ({ result: 1, err: { ...noErr } })),
         GciTsNbResult: vi.fn(() => ({ result: EVAL_RESULT, err: { ...noErr } })),
       };
-      const session = {
+      const session = fakeActiveSession({
         id: 1,
         handle: {},
-        login: { label: 'T' } as GemStoneLogin,
+        login: { label: 'T' },
         stoneVersion: '3.7.2',
         gci: gci as unknown as ActiveSession['gci'],
-      } as ActiveSession;
+      });
 
       await expect(debug.evaluateInFrameNb(session, GS_PROCESS, 'amount * 2', 3)).resolves.toBe(
         '150',
@@ -1177,13 +1177,13 @@ describe('debugQueries', () => {
 
     it('continueExecution returns the result oop when the process completes', () => {
       const continueWith = vi.fn(() => ({ result: RESULT, err: { ...noErr } }));
-      const session = {
+      const session = fakeActiveSession({
         id: 1,
         handle: {},
-        login: { label: 'T' } as GemStoneLogin,
+        login: { label: 'T' },
         stoneVersion: '3.7.2',
         gci: { GciTsContinueWith: continueWith } as unknown as ActiveSession['gci'],
-      } as ActiveSession;
+      });
 
       expect(debug.continueExecution(session, GS_PROCESS)).toEqual({
         completed: true,
@@ -1198,10 +1198,10 @@ describe('debugQueries', () => {
     });
 
     it('continueExecution reports the error (no result oop) when it stops again', () => {
-      const session = {
+      const session = fakeActiveSession({
         id: 1,
         handle: {},
-        login: { label: 'T' } as GemStoneLogin,
+        login: { label: 'T' },
         stoneVersion: '3.7.2',
         gci: {
           GciTsContinueWith: vi.fn(() => ({
@@ -1209,7 +1209,7 @@ describe('debugQueries', () => {
             err: { ...noErr, number: 2010, message: 'next error', context: 0xabn },
           })),
         } as unknown as ActiveSession['gci'],
-      } as ActiveSession;
+      });
 
       const r = debug.continueExecution(session, GS_PROCESS);
       expect(r.completed).toBe(false);
@@ -1221,16 +1221,16 @@ describe('debugQueries', () => {
     });
 
     it('stepOver returns the result oop when the step completes the process', () => {
-      const session = {
+      const session = fakeActiveSession({
         id: 1,
         handle: {},
-        login: { label: 'T' } as GemStoneLogin,
+        login: { label: 'T' },
         stoneVersion: '3.7.2',
         gci: {
           GciTsI64ToOop: vi.fn(() => ({ result: 0xaan, err: { ...noErr } })),
           GciTsPerform: vi.fn(() => ({ result: RESULT, err: { ...noErr } })),
         } as unknown as ActiveSession['gci'],
-      } as ActiveSession;
+      });
 
       expect(debug.stepOver(session, GS_PROCESS, 1)).toEqual({
         completed: true,
@@ -1239,10 +1239,10 @@ describe('debugQueries', () => {
     });
 
     it('stepOver (blocking) propagates the GemStone error number when the step stops on an error', () => {
-      const session = {
+      const session = fakeActiveSession({
         id: 1,
         handle: {},
-        login: { label: 'T' } as GemStoneLogin,
+        login: { label: 'T' },
         stoneVersion: '3.7.2',
         gci: {
           GciTsI64ToOop: vi.fn(() => ({ result: 0xaan, err: { ...noErr } })),
@@ -1251,7 +1251,7 @@ describe('debugQueries', () => {
             err: { ...noErr, number: 6011, message: 'uncontinuable', context: 0xabn },
           })),
         } as unknown as ActiveSession['gci'],
-      } as ActiveSession;
+      });
 
       const r = debug.stepOver(session, GS_PROCESS, 1);
       expect(r.completed).toBe(false);
@@ -1260,10 +1260,10 @@ describe('debugQueries', () => {
     });
 
     it('stepOverNb (non-blocking) propagates the error number on a stop (e.g. 6011 uncontinuable)', async () => {
-      const session = {
+      const session = fakeActiveSession({
         id: 1,
         handle: {},
-        login: { label: 'T' } as GemStoneLogin,
+        login: { label: 'T' },
         stoneVersion: '3.7.2',
         gci: {
           isAvailable: (n: string) => n === 'GciTsNbPoll',
@@ -1280,7 +1280,7 @@ describe('debugQueries', () => {
             },
           })),
         } as unknown as ActiveSession['gci'],
-      } as ActiveSession;
+      });
 
       const r = await debug.stepOverNb(session, GS_PROCESS, 1);
       expect(r.completed).toBe(false);
@@ -1303,13 +1303,13 @@ describe('debugQueries', () => {
         GciTsContinueWith: perform,
         GciTsI64ToOop: vi.fn(() => ({ result: 10n, err: { ...noErr } })),
       };
-      const session = {
+      const session = fakeActiveSession({
         id: 1,
         gci: gci as unknown as ActiveSession['gci'],
         handle: {},
-        login: { label: 'T' } as GemStoneLogin,
+        login: { label: 'T' },
         stoneVersion: '3.7.2',
-      } as ActiveSession;
+      });
       return { session, perform };
     }
 
@@ -1370,13 +1370,13 @@ describe('debugQueries', () => {
         GciTsBreak: vi.fn(() => ({ success: true, err: { ...noErr } })),
         GciTsClearStack: vi.fn(() => ({ success: true, err: { ...noErr } })),
       };
-      return {
+      return fakeActiveSession({
         id: 1,
         handle: {},
-        login: { label: 'T' } as GemStoneLogin,
+        login: { label: 'T' },
         stoneVersion: '3.7.2',
         gci: gci as unknown as ActiveSession['gci'],
-      } as ActiveSession;
+      });
     }
 
     /** Runs `start`, presses Cancel twice, and waits out the drain. */

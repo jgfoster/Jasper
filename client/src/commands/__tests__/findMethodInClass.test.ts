@@ -4,11 +4,11 @@ vi.mock('vscode', () => import('../../__mocks__/vscode.js'));
 
 import * as vscode from 'vscode';
 import { ActiveSession, SessionManager } from '../../sessionManager';
-import { GemStoneLogin } from '../../loginTypes';
 import { GciError } from '../../gciLibrary';
 import { ClassPickItem } from '../classPicker';
 import { SystemBrowser } from '../../systemBrowser';
 import { findMethodInClass } from '../findMethodInClass';
+import { fakeActiveSession } from '../../__tests__/fakeActiveSession';
 
 const noErr: GciError = {
   number: 0,
@@ -45,13 +45,13 @@ function createMockSession(): ActiveSession {
     GciTsClearStack: vi.fn(),
   };
 
-  return {
+  return fakeActiveSession({
     id: 1,
     gci: mockGci as unknown as ActiveSession['gci'],
     handle: {},
-    login: { label: 'Test' } as GemStoneLogin,
+    login: { label: 'Test' },
     stoneVersion: '3.7.2',
-  };
+  });
 }
 
 // The command loads the class list (via getAllClassNames), then the method

@@ -2,16 +2,11 @@
 // which run under `tsx` outside the extension host with only a minimal
 // `vscode` stub (see `install-server-plugin.mjs`), can import it.
 
-import type { GciLibrary } from './gciLibrary';
-import type { GemStoneLogin } from './loginTypes';
+import type { GciError, GciLibrary } from './gciLibrary';
+import { GemStoneLogin, gemNrsFor, stoneNrsFor } from './loginTypes';
 import type { TransactionMode } from './queries/transactionMode';
 
-export interface ActiveSession {
-  id: number;
-  gci: GciLibrary;
-  handle: unknown;
-  login: GemStoneLogin;
-  stoneVersion: string;
+export class ActiveSession {
   enhancedInspectorAvailable?: boolean;
   /** Whether the server-side refactoring engine (GsRenameInstanceVariableRefactoring)
    *  is resolvable in this session's stone. Drives the `gemstone.rbSupportAvailable`
@@ -34,4 +29,53 @@ export interface ActiveSession {
    *  once arming succeeds, so a failed attempt is retried on the next read that
    *  finds the session in `manualBegin`. Owned by `SessionManager`. */
   sigAbortArmed?: boolean;
+
+  constructor(
+    public id: number,
+    public gci: GciLibrary,
+    public handle: unknown,
+    public login: GemStoneLogin,
+    public stoneVersion: string,
+  ) {}
+
+  /**
+   * Open a new GemStone login, as `login` describes, on this session's GCI
+   * library. The library outlives its sessions' logouts, so this session may
+   * already be logged out.
+   *
+   * Answers the new session, which has id -1 and is not registered anywhere,
+   * or no session and GemStone's error when the login is refused. The caller
+   * owns the new session and must log it out.
+   */
+  transientLogin(login: GemStoneLogin): { session: ActiveSession | undefined; err: GciError } {
+    const result = this.gci.GciTsLogin(
+      stoneNrsFor(login),
+      login.host_user || null,
+      login.host_password || null,
+      false,
+      gemNrsFor(login),
+      login.gs_user,
+      login.gs_password,
+      0,
+      0,
+    );
+    if (!result.session) return { session: undefined, err: result.err };
+    return {
+      session: new ActiveSession(-1, this.gci, result.session, login, this.stoneVersion),
+      err: result.err,
+    };
+  }
+
+  GciTsLogout() {
+    return this.gci.GciTsLogout(this.handle);
+  }
+
+  /**
+   * Best-effort logout for scripts: warns on the console instead of answering
+   * GemStone's error. Callers that need to know whether the logout failed use
+   * `GciTsLogout()`.
+   */
+  logout() {
+    this.gci.logout(this.handle);
+  }
 }

@@ -6,11 +6,12 @@ import { ActiveSession } from '../sessionManager';
 import { writeOwnerSidecar } from '../mcpOwnerSidecar';
 import { McpOwnership, resolveOwnership, renderOwnership } from '../mcpServerTreeProvider';
 import { safelyRemovePath, temporarySidecarPath } from './support/file';
+import { fakeActiveSession } from './fakeActiveSession';
 
 function fakeSession(id = 7): ActiveSession {
-  return {
+  return fakeActiveSession({
     id,
-    gci: {} as ActiveSession['gci'],
+    gci: {},
     handle: null,
     login: {
       label: '',
@@ -24,7 +25,7 @@ function fakeSession(id = 7): ActiveSession {
       host_password: '',
     },
     stoneVersion: '3.7.1',
-  };
+  });
 }
 
 describe('resolveOwnership', () => {

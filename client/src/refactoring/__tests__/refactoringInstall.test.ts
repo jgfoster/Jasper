@@ -24,6 +24,7 @@ import {
   REFACTORING_LOADER_FILE,
   REFACTORING_PAYLOAD_FILES,
 } from '../refactoringInstall';
+import { fakeActiveSession } from '../../__tests__/fakeActiveSession';
 
 const executeFetchStringMock = vi.mocked(executeFetchString);
 const executeFetchStringNbMock = vi.mocked(executeFetchStringNb);
@@ -70,12 +71,12 @@ function createMockSession(stoneVersion = '3.7.5'): {
   abort: ReturnType<typeof vi.fn>;
 } {
   const abort = vi.fn(() => ({ success: true, err: { number: 0 } }));
-  const session = {
+  const session = fakeActiveSession({
     id: 1,
     handle: {},
     stoneVersion,
     gci: { GciTsAbort: abort },
-  } as unknown as ActiveSession;
+  });
   return { session, abort };
 }
 

@@ -12,6 +12,7 @@ import type * as vscode from 'vscode';
 import { GemStoneDefinitionProvider, SelectorResolver } from '../gemstoneDefinitionProvider';
 import { SessionManager } from '../sessionManager';
 import { implementorsOf, getAllClassNames } from '../browserQueries';
+import { fakeActiveSession } from './fakeActiveSession';
 
 // Cast mock Position to vscode.Position to satisfy type checker
 const pos = (line: number, char: number) => new Position(line, char) as unknown as vscode.Position;
@@ -23,7 +24,13 @@ function makeSessionManager(hasSession: boolean) {
   return {
     getSelectedSession: vi.fn(() =>
       hasSession
-        ? { id: 1, gci: {}, handle: {}, login: { label: 'Test' }, stoneVersion: '3.7.2' }
+        ? fakeActiveSession({
+            id: 1,
+            gci: {},
+            handle: {},
+            login: { label: 'Test' },
+            stoneVersion: '3.7.2',
+          })
         : undefined,
     ),
     onDidChangeSelection: vi.fn(() => ({ dispose: () => {} })),

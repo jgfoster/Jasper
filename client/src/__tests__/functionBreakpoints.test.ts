@@ -19,6 +19,7 @@ import {
 import { FunctionBreakpointResolver, parseFunctionName } from '../functionBreakpoints';
 import { SessionManager } from '../sessionManager';
 import { implementorsOf, getSourceOffsets, getMethodSource } from '../browserQueries';
+import { fakeActiveSession } from './fakeActiveSession';
 
 const mockImplementors = vi.mocked(implementorsOf);
 const mockOffsets = vi.mocked(getSourceOffsets);
@@ -91,7 +92,9 @@ describe('FunctionBreakpointResolver', () => {
   function makeSessionManager(hasSession = true) {
     return {
       getSelectedSession: vi.fn(() =>
-        hasSession ? { id: 1, gci: {}, handle: 'h', login: {}, stoneVersion: '3.7.5' } : undefined,
+        hasSession
+          ? fakeActiveSession({ id: 1, gci: {}, handle: 'h', login: {}, stoneVersion: '3.7.5' })
+          : undefined,
       ),
       onDidChangeSelection: vi.fn(() => ({ dispose: () => {} })),
     } as unknown as SessionManager;

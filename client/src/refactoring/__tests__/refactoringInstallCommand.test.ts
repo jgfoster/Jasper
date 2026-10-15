@@ -58,11 +58,12 @@ vi.mock('../refactoringInstall', async (importActual) => {
 
 import { ActiveSession, SessionManager } from '../../sessionManager';
 import { installRefactoringFeature } from '../refactoringInstallCommand';
+import { fakeActiveSession } from '../../__tests__/fakeActiveSession';
 
 const EXTENSION_PATH = '/ext';
 
 function createBaseSession(systemUserLoginSucceeds = true): ActiveSession {
-  return {
+  return fakeActiveSession({
     id: 1,
     login: { stone: 'demo', gem_host: 'localhost', netldi: 'netldi' },
     gci: {
@@ -75,7 +76,7 @@ function createBaseSession(systemUserLoginSucceeds = true): ActiveSession {
     },
     stoneVersion: '3.7.5',
     rbSupportAvailable: false,
-  } as unknown as ActiveSession;
+  });
 }
 
 const abortMock = vi.fn(() => ({ success: true, err: { number: 0 } }));

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { GciLibrary, GciError } from './gciLibrary';
-import type { ActiveSession } from './activeSession';
+import { ActiveSession } from './activeSession';
 // Type-only: a value use (`new`, `instanceof`) must import from './activeSession'.
 export type { ActiveSession } from './activeSession';
 import { OOP_NIL } from './gciConstants';
@@ -311,15 +311,9 @@ export class SessionManager {
   private finalizeSession(gci: GciLibrary, login: GemStoneLogin, handle: unknown): ActiveSession {
     const { version } = gci.GciTsVersion();
 
-    const session: ActiveSession = {
-      id: this.nextId++,
-      gci,
-      handle,
-      login,
-      stoneVersion: version,
-      enhancedInspectorAvailable: false,
-      rbSupportAvailable: false,
-    };
+    const session = new ActiveSession(this.nextId++, gci, handle, login, version);
+    session.enhancedInspectorAvailable = false;
+    session.rbSupportAvailable = false;
 
     this.sessions.set(session.id, session);
     logInfo(
@@ -390,47 +384,24 @@ export class SessionManager {
   // restore) that log in and out repeatedly across a stone stop/start cycle. It
   // does NOT create an interactive session — no Transcript sink, no Sessions-view
   // entry, no single-session-mode gating, no auto-select — so it never disturbs
-  // the user's session state. Reuses an existing GciLibrary (typically the
-  // initiating session's, which survives that session's logout). The caller MUST
-  // log out via the returned `logout`.
+  // the user's session state. Logs in on `session`'s GciLibrary, which
+  // survives `session`'s logout, so `session` may already be logged out. The
+  // caller MUST log out via the returned `logout`.
   loginTransient(
     login: GemStoneLogin,
-    gci: GciLibrary,
+    session: ActiveSession,
   ): { session: ActiveSession; logout: () => void } {
-    const stoneNrs = stoneNrsFor(login);
-    const gemNrs = gemNrsFor(login);
-
-    const result = gci.GciTsLogin(
-      stoneNrs,
-      login.host_user || null,
-      login.host_password || null,
-      false,
-      gemNrs,
-      login.gs_user,
-      login.gs_password,
-      0,
-      0,
-    );
-
-    if (!result.session) {
-      throw new Error(result.err.message || `Login failed (error ${result.err.number})`);
+    const { session: transient, err } = session.transientLogin(login);
+    if (!transient) {
+      throw new Error(err.message || `Login failed (error ${err.number})`);
     }
-
-    const { version } = gci.GciTsVersion();
-    const session: ActiveSession = {
-      id: -1,
-      gci,
-      handle: result.session,
-      login,
-      stoneVersion: version,
-      enhancedInspectorAvailable: false,
-      rbSupportAvailable: false,
-    };
+    transient.enhancedInspectorAvailable = false;
+    transient.rbSupportAvailable = false;
     return {
-      session,
+      session: transient,
       logout: () => {
         try {
-          gci.GciTsLogout(result.session);
+          transient.GciTsLogout();
         } catch {
           /* already gone */
         }

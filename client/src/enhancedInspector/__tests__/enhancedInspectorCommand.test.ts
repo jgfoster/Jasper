@@ -63,11 +63,12 @@ vi.mock('../enhancedInspectorInstall', async (importActual) => {
 
 import { ActiveSession, SessionManager } from '../../sessionManager';
 import { installEnhancedInspectorFeature } from '../enhancedInspectorCommand';
+import { fakeActiveSession } from '../../__tests__/fakeActiveSession';
 
 const EXTENSION_PATH = '/ext';
 
 function createBaseSession(systemUserLoginSucceeds = true): ActiveSession {
-  return {
+  return fakeActiveSession({
     id: 1,
     login: { stone: 'demo', gem_host: 'localhost', netldi: 'netldi' },
     gci: {
@@ -80,7 +81,7 @@ function createBaseSession(systemUserLoginSucceeds = true): ActiveSession {
     },
     stoneVersion: '3.7.5',
     enhancedInspectorAvailable: false,
-  } as unknown as ActiveSession;
+  });
 }
 
 const abortMock = vi.fn(() => ({ success: true, err: { number: 0 } }));

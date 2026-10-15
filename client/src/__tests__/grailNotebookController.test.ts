@@ -22,14 +22,15 @@ import {
 import { classifyCellResult, GEMSTONE_NOTEBOOK_TYPE } from '../gemstoneNotebookKernel';
 import { SessionManager } from '../sessionManager';
 import * as python from '../pythonQueries';
+import { fakeActiveSession } from './fakeActiveSession';
 
-const SESSION = {
+const SESSION = fakeActiveSession({
   id: 1,
   gci: {},
   handle: {},
   login: { label: 'Test' },
   stoneVersion: '3.7.2',
-};
+});
 
 function makeSessionManager(hasSession: boolean) {
   return {

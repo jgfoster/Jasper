@@ -20,6 +20,7 @@ import { grailSessionKernel, GRAIL_CONTROLLER_ID } from '../grailNotebookControl
 import { SessionManager } from '../sessionManager';
 import * as python from '../pythonQueries';
 import { GemStoneNotebookKernel } from '../gemstoneNotebookKernel';
+import { fakeActiveSession } from './fakeActiveSession';
 
 const LOGIN = { gs_user: 'DataCurator', stone: 'gs64stone', gem_host: 'localhost' };
 
@@ -229,7 +230,10 @@ describe('the real per-session factories', () => {
       id,
     });
     const sessions = new Map(
-      [1, 2].map((id) => [id, { id, login: LOGIN, gci: gciOf(id), handle: { id } }]),
+      [1, 2].map((id) => [
+        id,
+        fakeActiveSession({ id, login: LOGIN, gci: gciOf(id), handle: { id } }),
+      ]),
     );
     const manager = {
       getSessions: () => [...sessions.values()],

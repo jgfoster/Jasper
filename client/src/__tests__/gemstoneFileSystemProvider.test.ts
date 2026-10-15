@@ -97,6 +97,7 @@ import type { ExportManager } from '../exportManager';
 import { captureMethodSlots } from '../undo/queries/methodSlotQueries';
 import { captureClassSlots } from '../undo/queries/classSlotQueries';
 import { peekUndoEntry, popUndoEntry, resetUndoStacks } from '../undo/undoStack';
+import { fakeActiveSession } from './fakeActiveSession';
 
 // `clearAllMocks` clears recorded CALLS without removing an implementation, so a
 // `mockReturnValue` set anywhere in this file stays in force for every test that runs after
@@ -115,7 +116,13 @@ beforeEach(() => {
 });
 
 function makeSession(id = 1, gs_user = 'DataCurator') {
-  return { id, gci: {}, handle: {}, login: { label: 'Test', gs_user }, stoneVersion: '3.7.2' };
+  return fakeActiveSession({
+    id,
+    gci: {},
+    handle: {},
+    login: { label: 'Test', gs_user },
+    stoneVersion: '3.7.2',
+  });
 }
 
 function makeSessionManager(gs_user = 'DataCurator') {

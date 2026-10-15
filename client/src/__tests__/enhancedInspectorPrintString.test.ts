@@ -7,8 +7,8 @@ vi.mock('vscode', () => ({
 }));
 
 import { ActiveSession } from '../sessionManager';
-import { GemStoneLogin } from '../loginTypes';
 import { fetchPrintString, fetchFullPrintString } from '../debugQueries';
+import { fakeActiveSession } from './fakeActiveSession';
 
 const noErr = {
   number: 0,
@@ -33,13 +33,13 @@ function createPrintStringSession(
       err: { ...noErr, number: errNumber, message: errNumber === 0 ? '' : 'GCI error' },
     })),
   };
-  return {
+  return fakeActiveSession({
     id: 1,
     gci: mockGci as unknown as ActiveSession['gci'],
     handle: {},
-    login: { label: 'Test' } as GemStoneLogin,
+    login: { label: 'Test' },
     stoneVersion: '3.7.5',
-  };
+  });
 }
 
 function createFullPrintSession(data = '', execThrows = false): ActiveSession {
@@ -49,13 +49,13 @@ function createFullPrintSession(data = '', execThrows = false): ActiveSession {
       return data;
     }),
   };
-  return {
+  return fakeActiveSession({
     id: 1,
     gci: mockGci as unknown as ActiveSession['gci'],
     handle: {},
-    login: { label: 'Test' } as GemStoneLogin,
+    login: { label: 'Test' },
     stoneVersion: '3.7.5',
-  };
+  });
 }
 
 describe('fetchPrintString', () => {

@@ -29,6 +29,7 @@ import {
   SUNIT_PROBE_FAILING_SELECTOR,
   SUNIT_PROBE_ERRORING_SELECTOR,
 } from './sunitProbeFixture';
+import { testActiveSession } from '../../__tests__/testActiveSession';
 
 // Long enough that a stop has something to interrupt, short enough that a test
 // which fails to stop still ends this file rather than hanging it. Sends a
@@ -53,8 +54,7 @@ describe('SUnit non-blocking runs (integration)', () => {
   // One session object for the whole file, as the extension has: a fresh object per
   // call would look like a different session to anything tracking state per session.
   let theSession: ActiveSession;
-  const session = (): ActiveSession =>
-    (theSession ??= { id: 1, gci, handle } as unknown as ActiveSession);
+  const session = (): ActiveSession => (theSession ??= testActiveSession(gci, handle));
   const exec = (code: string): string => q.executeFetchString(session(), code);
 
   beforeEach(() => {

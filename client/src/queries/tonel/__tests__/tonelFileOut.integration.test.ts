@@ -29,6 +29,7 @@ import {
   duplicateDeclarationsOf,
 } from './tonelOracles';
 import { useRowan3Stone } from './useRowan3Stone';
+import { testActiveSession } from '../../../__tests__/testActiveSession';
 
 // Reference files are named by PACKAGE, never found by class name alone:
 // `GsRowanImageTool` and `GsTopazRowanTool` each exist twice in the corpus, once
@@ -60,7 +61,7 @@ describe('tonel class file out (integration)', () => {
     handle = testContext.session;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
   const exec = (code: string): string => q.executeFetchString(session(), code);
   const rowan3 = useRowan3Stone(() => exec);
 

@@ -8,7 +8,7 @@ import * as queries from './browserQueries';
 const PRIME_DEBOUNCE_MS = 250;
 
 export class GemStoneCompletionProvider implements vscode.CompletionItemProvider {
-  private classNameCache = new Map<unknown, vscode.CompletionItem[]>();
+  private classNameCache = new Map<number, vscode.CompletionItem[]>();
   private selectorCache = new Map<string, vscode.CompletionItem[]>();
   private instVarCache = new Map<string, vscode.CompletionItem[]>();
   private primeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -18,14 +18,13 @@ export class GemStoneCompletionProvider implements vscode.CompletionItemProvider
    * three maps are only correct for as long as the image they were read from is.
    *
    * Session selection and removal clear EVERYTHING rather than the entries for one
-   * session. The two per-class maps are keyed by session id, but classNameCache is
-   * keyed by the session HANDLE — deliberately, so a reconnect that hands back a new
-   * handle cannot serve a class list from the old connection — and a handle cannot be
-   * mapped back to the id being removed. A full clear is also what the workspace
-   * symbol provider does on the same signal, and the cost is one refetch on the next
-   * request. It doubles as the only bound on how much these maps hold: there is no
-   * LRU or TTL, so without this a long session accumulated one selector array per
-   * class ever browsed.
+   * session. All three maps are keyed by session id, and a registered session's id
+   * is never reused, so a reconnect cannot serve a class list from the old
+   * connection. A full clear is also what the workspace symbol provider does on
+   * the same signal, and the cost is one refetch on the next request. It doubles
+   * as the only bound on how much these maps hold: there is no LRU or TTL, so
+   * without this a long session accumulated one selector array per class ever
+   * browsed.
    */
   constructor(private sessionManager: SessionManager) {
     sessionManager.onDidChangeSelection(() => this.invalidateCache());
@@ -147,7 +146,7 @@ export class GemStoneCompletionProvider implements vscode.CompletionItemProvider
   }
 
   private getClassNameItems(session: ActiveSession): vscode.CompletionItem[] {
-    const cached = this.classNameCache.get(session.handle);
+    const cached = this.classNameCache.get(session.id);
     if (cached) return cached;
 
     try {
@@ -161,7 +160,7 @@ export class GemStoneCompletionProvider implements vscode.CompletionItemProvider
         item.detail = e.dictName;
         items.push(item);
       }
-      this.classNameCache.set(session.handle, items);
+      this.classNameCache.set(session.id, items);
       return items;
     } catch {
       return [];

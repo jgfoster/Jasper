@@ -178,6 +178,7 @@ import { BreakpointTreeProvider, BreakpointNode, revealBreakpoint } from './brea
 import { SunitTestController } from './sunitTestController';
 import { GrailNotebookController, grailSessionKernel } from './grailNotebookController';
 import { SmalltalkNotebookController, smalltalkSessionKernel } from './smalltalkNotebookController';
+import { registerNotebookBreakpointHint } from './notebookBreakpointHint';
 import { SessionKernels } from './sessionKernels';
 import { ExportManager } from './exportManager';
 import { FileInManager } from './fileInManager';
@@ -186,8 +187,8 @@ import { getGciLog, logError, logWarning } from './gciLog';
 import { commitFailureMessage, isCommitConflict } from './commitFailure';
 import { CODE_LENS_SELECTORS, GemStoneCodeLensProvider } from './gemstoneCodeLensProvider';
 import * as queries from './browserQueries';
+import { dropCachedClassOrganizer } from './classOrganizerCache';
 import { dedupeMethodResults } from './queries/methodSearch';
-import { clearClassOrganizerCode } from './queries/classOrganizer';
 import { SysadminStorage } from './sysadminStorage';
 import { appendSysadmin, getSysadminChannel } from './sysadminChannel';
 import {
@@ -1352,6 +1353,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     new SessionKernels(sessionManager, [smalltalkSessionKernel, grailSessionKernel]),
   );
+  context.subscriptions.push(registerNotebookBreakpointHint());
 
   // ── Status Bar: Active Session ─────────────────────────
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -1696,26 +1698,6 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   /**
-   * Drop the session's cached `ClassOrganizer` after a commit or abort.
-   *
-   * The organizer captures the image's class list once and is then reused for
-   * the life of the session (see `classOrganizer.ts`), which is what keeps
-   * Search, senders, implementors and references off a per-query image-wide
-   * rebuild. A sync is where a class list can change without Jasper having
-   * compiled anything — another session added or removed a class and committed
-   * — so the snapshot is dropped here rather than left to answer about an image
-   * that no longer exists. Best effort: it costs one removeKey, and a session
-   * that cannot run it has bigger problems than a stale search.
-   */
-  const clearClassOrganizer = (session: ActiveSession): void => {
-    try {
-      queries.executeFetchString(session, clearClassOrganizerCode());
-    } catch {
-      // Nothing to report: the next query simply reuses the organizer it had.
-    }
-  };
-
-  /**
    * Which session a message is about: its number, and the login behind it. The
    * number alone is a slot in this window's list and says nothing about which
    * stone the work landed in.
@@ -1756,7 +1738,7 @@ export function activate(context: vscode.ExtensionContext) {
         // an open GemStone Search's cached corpora so they show up, and drop the
         // cached ClassOrganizer whose class list they would otherwise be searched
         // against.
-        clearClassOrganizer(session);
+        dropCachedClassOrganizer(session);
         omniSearch?.notifySessionSynced(session.id);
       } else {
         // Only a refusal has a conflict set, so an errored commit costs no extra
@@ -1797,7 +1779,7 @@ export function activate(context: vscode.ExtensionContext) {
     // The new view can hold classes/globals/dicts committed by other sessions —
     // rebuild an open GemStone Search's cached corpora so they show up, and drop
     // the cached ClassOrganizer whose class list they would be searched against.
-    clearClassOrganizer(session);
+    dropCachedClassOrganizer(session);
     omniSearch?.notifySessionSynced(session.id);
     explorer.onSessionAborted(session.id);
     // The view moved underneath every recorded undo, so each entry now describes a
@@ -5284,10 +5266,9 @@ export function activate(context: vscode.ExtensionContext) {
           return;
         }
 
-        // Capture what we need before the session is torn down. The GciLibrary
-        // outlives its session's logout, so the transient restore logins reuse it.
+        // Capture what we need before the session is torn down. The transient
+        // restore logins reuse `session`, whose GciLibrary outlives the logout.
         const harvested = session.login;
-        const gci = session.gci;
         const sessionId = session.id;
         const managed = db;
         const dataDir = path.join(managed.path, 'data');
@@ -5363,11 +5344,11 @@ export function activate(context: vscode.ExtensionContext) {
             toRestoreSession(
               sessionManager.loginTransient(
                 { ...harvested, gs_user: 'DataCurator', gs_password: DEFAULT_GS_PW },
-                gci,
+                session,
               ),
             ),
           loginAsSessionUser: async () =>
-            toRestoreSession(sessionManager.loginTransient(harvested, gci)),
+            toRestoreSession(sessionManager.loginTransient(harvested, session)),
         });
 
         if (restored) {

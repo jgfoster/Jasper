@@ -58,6 +58,7 @@ import {
   removeAllBreakpoints,
   breakpointByOop,
 } from '../browserQueries';
+import { fakeActiveSession } from './fakeActiveSession';
 
 const mockGetMethodSource = vi.mocked(getMethodSource);
 const mockGetSourceOffsets = vi.mocked(getSourceOffsets);
@@ -105,13 +106,13 @@ function armedStepPoints(): unknown[] {
   return mockSetBreakAtStepPoint.mock.calls.map((args) => args[4]);
 }
 
-const TEST_SESSION = {
+const TEST_SESSION = fakeActiveSession({
   id: 1,
   gci: {},
   handle: 'h1',
   login: { label: 'Test' },
   stoneVersion: '3.7.2',
-};
+});
 
 function makeSessionManager(hasSession: boolean) {
   return {
@@ -1202,20 +1203,20 @@ describe('BreakpointManager', () => {
   // sessions"), so with `gemstone.sessionMode: multiple` the selected session is
   // routinely NOT the one holding the method on screen.
   describe('with a second session live and the other one selected', () => {
-    const SESSION_ONE = {
+    const SESSION_ONE = fakeActiveSession({
       id: 1,
       gci: {},
       handle: 'gem-one',
       login: { label: 'One' },
       stoneVersion: '3.7.2',
-    };
-    const SESSION_TWO = {
+    });
+    const SESSION_TWO = fakeActiveSession({
       id: 2,
       gci: {},
       handle: 'gem-two',
       login: { label: 'Two' },
       stoneVersion: '3.7.2',
-    };
+    });
     /** Both sessions live, session TWO selected; the method URI names session one. */
     function twoSessions() {
       return {
@@ -1299,7 +1300,7 @@ describe('BreakpointManager', () => {
       // Session one's own VS Code breakpoint, the one that must NOT be flipped.
       const theirs = new SourceBreakpoint(new Location(Uri.parse(METHOD_URI), new Position(0, 0)));
       debug.breakpoints = [theirs];
-      manager.applyToUri(SESSION_ONE as never, Uri.parse(METHOD_URI));
+      manager.applyToUri(SESSION_ONE, Uri.parse(METHOD_URI));
       vi.mocked(debug.addBreakpoints).mockClear();
 
       manager.setEnabledForStoneBreakpoint(

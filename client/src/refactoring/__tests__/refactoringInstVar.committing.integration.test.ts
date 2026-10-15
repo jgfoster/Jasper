@@ -11,6 +11,7 @@ import type { ActiveSession } from '../../sessionManager';
 import { requireServerPluginFeature } from '../../__tests__/requireServerPluginFeature';
 import { pluginFeatures } from '../../serverPlugin/pluginFeatures';
 import { userIndex as userIndexProbe, hasIvar as hasIvarProbe } from './support/refactoring';
+import { testActiveSession } from '../../__tests__/testActiveSession';
 
 /**
  * The one committing scenario of the add / remove instance-variable (V1) refactoring that
@@ -43,7 +44,7 @@ describe('add instance variable, delete-history commit path (integration)', () =
     { allowedCommits: 3 },
   );
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
   const exec = (code: string): string => q.executeFetchString(session(), code);
   const asyncExec = (_label: string, code: string): Promise<string> => Promise.resolve(exec(code));
 

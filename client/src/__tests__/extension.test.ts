@@ -36,6 +36,7 @@ import * as queries from '../browserQueries';
 import { InFlightGuard } from '../inFlightGuard';
 import { DEFAULT_LOGIN } from '../loginTypes';
 import { _resetGciLogForTests, getGciLog } from '../gciLog';
+import { fakeActiveSession } from './fakeActiveSession';
 
 /** Let the toast's `.then` run: it is a microtask, and announceSessionAction returns void. */
 const flushMicrotasks = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -339,13 +340,14 @@ describe('onMethodCompiled event subscription (functional)', () => {
   it('handleMethodCompiled is invoked when new-method is compiled', async () => {
     vi.mocked(queries.compileMethod).mockReturnValueOnce('Compiled: Array >> foo');
 
-    const makeSession = (id = 1) => ({
-      id,
-      gci: {},
-      handle: {},
-      login: { label: 'Test', gs_user: 'DataCurator' },
-      stoneVersion: '3.7.2',
-    });
+    const makeSession = (id = 1) =>
+      fakeActiveSession({
+        id,
+        gci: {},
+        handle: {},
+        login: { label: 'Test', gs_user: 'DataCurator' },
+        stoneVersion: '3.7.2',
+      });
 
     const sessionManager = {
       getSessions: vi.fn(() => [makeSession(1)]),

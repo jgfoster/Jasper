@@ -31,6 +31,7 @@ import {
 } from '../queries/methodSlotCodec';
 import { MethodSlot, ClassSlot, ClassVarSlot } from '../undoTypes';
 import type { ActiveSession } from '../../sessionManager';
+import { testActiveSession } from '../../__tests__/testActiveSession';
 
 /**
  * Automatic GCI integration test for Jasper's undo stack (#434), over the real GCI
@@ -60,7 +61,7 @@ describe('undo (integration)', () => {
     handle = testContext.session;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
   const exec = (code: string): string => q.executeFetchString(session(), code);
 
   // Distinctive names so nothing here can reach a same-named class elsewhere in the image.
