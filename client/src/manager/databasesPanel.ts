@@ -30,12 +30,8 @@ import { DatabaseManager } from './databaseManager';
 import { VersionManager, CatalogEntry } from './versionManager';
 import { DiscoveredServer, ProcessManager, versionsMatch } from './processManager';
 import { REGISTERED_REASON, isRegisteredDatabase, registeredPaths } from './registeredDatabase';
-import {
-  needsWsl,
-  getWslInfoAsync,
-  invalidateWslCache,
-  invalidateWslNetworkCache,
-} from '../wslBridge';
+import { needsWsl, getWslInfoAsync, invalidateWslNetworkCache } from '../wslBridge';
+import { recheckWsl } from '../wslRecheck';
 import { wslStatFilesSync } from '../wslFs';
 import { GemStoneVersion, GemStoneDatabase, GemStoneProcess } from '../sysadminTypes';
 import { GemStoneLogin, loginLabel, dataCuratorLoginToCreate } from '../loginTypes';
@@ -777,9 +773,8 @@ export class DatabasesPanel {
         // refresh has to forget them, or a machine stays "WSL not reachable"
         // after the user has made it reachable.
         if (needsWsl()) {
-          invalidateWslCache();
           invalidateWslNetworkCache();
-          await getWslInfoAsync();
+          await recheckWsl();
         }
         await this.postState();
         return;

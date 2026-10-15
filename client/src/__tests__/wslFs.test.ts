@@ -22,6 +22,7 @@ vi.mock('../wslBridge', () => ({
     return m ? m[1].replace(/\\/g, '/') : p;
   }),
   wslExecSync: vi.fn(),
+  requireWslInstalled: vi.fn(),
 }));
 
 vi.mock('child_process', () => ({

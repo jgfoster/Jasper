@@ -249,6 +249,8 @@ import {
   getWslNetworkInfoCached,
   refreshWslNetworkInfo,
 } from './wslBridge';
+import { isWslInstalledAsync } from './wslInstall';
+import { recheckWsl } from './wslRecheck';
 import {
   wslExistsSync,
   wslMkdirSync,
@@ -3419,17 +3421,19 @@ export function activate(context: vscode.ExtensionContext) {
   // ── SysAdmin ──────────────────────────────────────────────
   // WSL detection runs asynchronously so it never blocks activation and so a
   // cold-start WSL2 VM (not yet running when VS Code launches) doesn't produce
-  // a false negative that sticks for the whole session. If the first probe
-  // reports unavailable, we wait briefly and retry once before concluding WSL
-  // is genuinely missing. The "install WSL" warning is deferred until that
-  // second probe also fails, and a subsequent refresh of the version list
-  // will re-probe — giving the user a recovery path without reloading.
+  // a false negative that sticks for the whole session. If WSL is installed
+  // but the first probe reports unavailable, we wait briefly and retry once
+  // before concluding WSL is unusable. When it is not installed at all there is
+  // no VM to wait for (see wslInstall.ts for how that is checked without
+  // opening WSL's install prompt). Refresh in the Databases & Versions panel
+  // looks again — giving the user a recovery path without reloading. Not on window focus: on a machine that
+  // never installs WSL, that would launch `wsl --status` on every alt-tab.
   if (isWindows()) {
     vscode.commands.executeCommand('setContext', 'gemstone.isWindows', true);
     // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
     (async () => {
       let wslInfo = await getWslInfoAsync();
-      if (!wslInfo.available) {
+      if (!wslInfo.available && (await isWslInstalledAsync())) {
         await new Promise((resolve) => setTimeout(resolve, 5000));
         invalidateWslCache();
         wslInfo = await getWslInfoAsync();
@@ -4574,11 +4578,7 @@ export function activate(context: vscode.ExtensionContext) {
   // ── SysAdmin Commands ───────────────────────────────────
   context.subscriptions.push(
     vscode.commands.registerCommand('gemstone.refreshVersions', async () => {
-      if (isWindows()) {
-        invalidateWslCache();
-        const wslInfo = await getWslInfoAsync();
-        vscode.commands.executeCommand('setContext', 'gemstone.wslAvailable', wslInfo.available);
-      }
+      if (isWindows()) await recheckWsl();
       refreshVersions();
     }),
 
