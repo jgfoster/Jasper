@@ -83,4 +83,14 @@ describe('logging a session out', () => {
 
     expect(gci.GciTsLogout.mock.calls[0][0]).toBe(handle);
   });
+
+  it('logs out its own handle through the library logout that warns on failure', () => {
+    const handle = {};
+    const gci = { logout: vi.fn() };
+    const session = fakeActiveSession({ gci, handle });
+
+    session.logout();
+
+    expect(gci.logout.mock.calls[0][0]).toBe(handle);
+  });
 });

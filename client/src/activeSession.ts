@@ -69,4 +69,13 @@ export class ActiveSession {
   GciTsLogout() {
     return this.gci.GciTsLogout(this.handle);
   }
+
+  /**
+   * Best-effort logout for scripts: warns on the console instead of answering
+   * GemStone's error. Callers that need to know whether the logout failed use
+   * `GciTsLogout()`.
+   */
+  logout() {
+    this.gci.logout(this.handle);
+  }
 }
