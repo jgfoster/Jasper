@@ -58,11 +58,11 @@ describe('Class sync round-trip with non-ASCII source (integration)', () => {
 
   afterAll(() => {
     try {
-      gci.GciTsAbort(session.handle);
+      session.GciTsAbort();
     } catch {
       /* roll back the temp class */
     }
-    if (session?.handle) gci.GciTsLogout(session.handle);
+    session?.GciTsLogout();
     gci.close();
   });
 

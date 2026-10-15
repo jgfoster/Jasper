@@ -94,7 +94,7 @@ function makeMockPanel() {
 function createMockSession(): ActiveSession {
   return fakeActiveSession({
     id: 1,
-    gci: {} as unknown as ActiveSession['gci'],
+    gci: {},
     handle: {},
     login: { label: 'Test' },
     stoneVersion: '3.7.5',

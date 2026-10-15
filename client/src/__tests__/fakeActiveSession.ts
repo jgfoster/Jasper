@@ -2,8 +2,9 @@ import { ActiveSession } from '../activeSession';
 import type { GciLibrary } from '../gciLibrary';
 import type { GemStoneLogin } from '../loginTypes';
 
-type FakeFields = Partial<Omit<ActiveSession, 'gci' | 'login'>> & {
+type FakeFields = Partial<Omit<ActiveSession, 'login'>> & {
   gci?: object;
+  handle?: unknown;
   login?: Partial<GemStoneLogin>;
 };
 
@@ -25,4 +26,18 @@ export function fakeActiveSession(fields: FakeFields = {}): ActiveSession {
     ),
     state,
   );
+}
+
+/**
+ * A `fakeActiveSession` on `gci`, with filler for the handle, login and stone
+ * version that query tests don't read. `fields` overrides any of them.
+ */
+export function sessionOn(gci: object, fields: FakeFields = {}): ActiveSession {
+  return fakeActiveSession({
+    handle: {},
+    login: { label: 'Test' },
+    stoneVersion: '3.7.5',
+    ...fields,
+    gci,
+  });
 }

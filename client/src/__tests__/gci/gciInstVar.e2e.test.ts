@@ -62,7 +62,7 @@ describe('instance-variable refactoring, committing paths (gci e2e)', () => {
   });
 
   afterAll(() => {
-    if (session?.handle) gci.GciTsLogout(session.handle);
+    session?.GciTsLogout();
     gci?.close();
   });
 

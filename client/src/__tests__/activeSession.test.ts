@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { GemStoneLogin } from '../loginTypes';
-import { fakeActiveSession } from './fakeActiveSession';
+import { fakeActiveSession, sessionOn } from './fakeActiveSession';
 
 const login: GemStoneLogin = {
   label: '',
@@ -20,11 +20,8 @@ function libraryWhoseLoginAnswers(result: {
 }) {
   return {
     GciTsLogin: vi.fn(() => result),
+    GciTsLogout: vi.fn((_session: unknown) => ({ success: true, err: { number: 0, message: '' } })),
   };
-}
-
-function sessionOn(gci: object) {
-  return fakeActiveSession({ gci, handle: {}, login, stoneVersion: '3.7.5 build 1' });
 }
 
 describe('a transient login', () => {
@@ -54,10 +51,11 @@ describe('a transient login', () => {
     const systemUser = { ...login, gs_user: 'SystemUser' };
 
     const transient = session.transientLogin(systemUser).session!;
+    // Logging out is the only way left to observe which handle the session holds.
+    transient.GciTsLogout();
 
     expect(transient.id).toBe(-1);
-    expect(transient.gci).toBe(gci);
-    expect(transient.handle).toBe(newHandle);
+    expect(gci.GciTsLogout.mock.calls[0][0]).toBe(newHandle);
     expect(transient.login).toBe(systemUser);
     expect(transient.stoneVersion).toBe(session.stoneVersion);
   });
