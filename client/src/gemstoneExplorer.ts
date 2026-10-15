@@ -5570,8 +5570,9 @@ export class ExplorerController {
     };
   }
 
-  // The senders of `scanned` that survive removing `removing`: one scan for all of them, under
-  // one progress notification, however many there are. Nothing to scan answers nothing.
+  // The senders of `scanned` that survive removing `removing`: one query for all of them, under
+  // one progress notification, however many there are. Nothing to scan answers nothing. One
+  // query is not one image walk -- the server still walks once per selector, see `sendersOf`.
   //
   // Environment 0 only. The pane removes the environment-0 method (EXPLORER_METHOD_ENVIRONMENT),
   // and a send resolves in the environment it was compiled in -- a method compiled in

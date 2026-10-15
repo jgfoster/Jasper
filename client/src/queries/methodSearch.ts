@@ -20,10 +20,11 @@ export interface MethodSearchResult {
 // before this snippet runs) as tab-separated lines. Exported because the
 // safe-delete reference scans (refactoring/queries/) build the same rows from
 // their own scan, and must agree with these searches on what a method row is.
-/** The most rows any one scan returns. The cap is server-side, so a caller that gets exactly
- *  this many cannot tell "there were exactly this many" from "there were thousands" — which
- *  is why anything reporting a COUNT to the user has to hedge at the cap rather than state it
- *  as fact. */
+/** The most rows any one query returns — for a query carrying several selectors, across the
+ *  whole list, not per selector. The cap is server-side, so a caller that gets exactly this
+ *  many cannot tell "there were exactly this many" from "there were thousands" — which is why
+ *  anything reporting a COUNT to the user has to hedge at the cap rather than state it as
+ *  fact. */
 export const METHOD_SEARCH_RESULT_LIMIT = 500;
 
 /** Drop the rows two scans both found. A method row is identified by class, side, selector
@@ -275,8 +276,14 @@ ${methodSerialization(0)}`;
 }
 
 // A list of selectors is answered in one round trip, each method once however many of them it
-// sends -- so removing several methods scans the image once per environment, not once per
-// selector per environment.
+// sends -- so removing several methods costs one round trip under one progress notification, not
+// one of each per selector per environment.
+//
+// It is NOT one image walk. `ClassOrganizer>>sendersOf:` sorts the class set and walks every
+// class's method dictionary, instance and class side, on every call, so N selectors still cost N
+// walks inside the one doit: measured on a 3.7.5 base image, ~200ms for ten against ~20ms for
+// one. Folding them into a single walk that tests each method against the whole selector set
+// costs ~60ms, and is worth doing if a selection ever grows big enough to feel.
 export function sendersOf(
   execute: QueryExecutor,
   selector: string | readonly string[],
