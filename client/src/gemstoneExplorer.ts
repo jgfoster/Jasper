@@ -1149,6 +1149,7 @@ export class ExplorerController {
   private views?: ExplorerViews;
   // Classes whose own Hierarchy row the user collapsed (see revealHierarchySelf), by dictionary and
   // name: the row's id also carries its chain position, which changes with the class selected.
+  // Cleared by reset(): a dictionary position means nothing in another session.
   private readonly hierarchyCollapsedByUser = new Set<string>();
   // Active filter pattern per pane (view id → pattern); empty/absent = no filter.
   private readonly filters = new Map<string, string>();
@@ -1830,6 +1831,7 @@ export class ExplorerController {
     this.envLines = [];
     this.hierChain = [];
     this.hierSubs = [];
+    this.hierarchyCollapsedByUser.clear();
     this.newClassCategories.clear();
     this.newMethodCategories.instance.clear();
     this.newMethodCategories.meta.clear();

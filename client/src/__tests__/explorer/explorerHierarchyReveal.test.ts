@@ -112,6 +112,25 @@ describe('ExplorerController.revealHierarchySelf', () => {
       expect(expanded(hierarchy)).toBe(true);
     });
 
+    it('opens again after a session switch', async () => {
+      // The key is a symbol-list position, which means nothing in another session.
+      const ctl = withSubclasses();
+      ctl.onHierarchyRowCollapsed(selfRow('Array'));
+      ctl.reset();
+      const access = ctl as unknown as HierAccess;
+      access.hierChain = [
+        { className: 'Array', dictName: 'UserGlobals', kind: 'self', binding: 'bound' },
+      ];
+      access.hierSubs = [
+        { className: 'OrderedArray', dictName: 'UserGlobals', kind: 'subclass', binding: 'bound' },
+      ];
+      const hierarchy = withHierarchyView(ctl, true);
+
+      await ctl.revealHierarchySelf();
+
+      expect(expanded(hierarchy)).toBe(true);
+    });
+
     it('does not keep a different class closed', async () => {
       const ctl = withSubclasses();
       const hierarchy = withHierarchyView(ctl, true);
