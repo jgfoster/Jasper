@@ -64,7 +64,7 @@ export function gemCanRead(session: ActiveSession, serverPath: string): boolean 
  *  regardless of whether this succeeds. */
 export function safeAbort(session: ActiveSession): void {
   try {
-    session.gci.GciTsAbort(session.handle);
+    session.GciTsAbort();
   } catch {
     // Best-effort rollback; the caller closes the session regardless.
   }

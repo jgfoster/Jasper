@@ -17,9 +17,9 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('vscode', () => import('../../__mocks__/vscode.js'));
 
 import { useIntegrationTest } from '../../__tests__/useIntegrationTest';
+import { testActiveSession } from '../../__tests__/testActiveSession';
 import { GciLibrary } from '../../gciLibrary';
 import { defaultQueryExecutorUsing } from '../../browserQueries';
-import type { ActiveSession } from '../../sessionManager';
 import type { QueryExecutor } from '../types';
 import {
   clearClassOrganizerStatement,
@@ -76,8 +76,7 @@ describe('hierarchy queries with two same-named classes under one superclass (in
     gci = testContext.gciLibrary;
     handle = testContext.session;
   });
-  const exec = (): QueryExecutor =>
-    defaultQueryExecutorUsing({ id: 1, gci, handle } as unknown as ActiveSession);
+  const exec = (): QueryExecutor => defaultQueryExecutorUsing(testActiveSession(gci, handle));
 
   // OrgTwinBase (dict A) with three subclasses: OrgTwinLeaf in A, OrgTwinLeaf in B, OrgTwinOther in A.
   let a = 0;
@@ -159,8 +158,7 @@ describe('hierarchy queries over ordinary hierarchies (integration)', () => {
     gci = testContext.gciLibrary;
     handle = testContext.session;
   });
-  const exec = (): QueryExecutor =>
-    defaultQueryExecutorUsing({ id: 1, gci, handle } as unknown as ActiveSession);
+  const exec = (): QueryExecutor => defaultQueryExecutorUsing(testActiveSession(gci, handle));
 
   // OrgPlainBase -> OrgPlainA -> OrgPlainA1, OrgPlainBase -> OrgPlainB, all in one dictionary.
   let d = 0;
@@ -249,8 +247,7 @@ describe('the workaround against GemStone’s own ClassOrganizer lookups (integr
     gci = testContext.gciLibrary;
     handle = testContext.session;
   });
-  const exec = (): QueryExecutor =>
-    defaultQueryExecutorUsing({ id: 1, gci, handle } as unknown as ActiveSession);
+  const exec = (): QueryExecutor => defaultQueryExecutorUsing(testActiveSession(gci, handle));
 
   it('answers what GemStone answers for every class in the image', () => {
     // The base image has no two same-named classes under one superclass, so GemStone's lookups

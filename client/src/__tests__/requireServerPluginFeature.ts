@@ -16,7 +16,7 @@ import type { PluginFeatureRef } from '../serverPlugin/pluginFeatures';
  * version is resolved from the session's GCI handle, since the synthesized
  * integration `session()` carries no `stoneVersion`.
  */
-const stoneVersionOf = (session: ActiveSession): string => session.gci.GciTsVersion().version;
+const stoneVersionOf = (session: ActiveSession): string => session.GciTsVersion().version;
 
 /**
  * Present-world gate: call at the top of a test that only applies when `feature`
