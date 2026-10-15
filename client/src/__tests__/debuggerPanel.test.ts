@@ -936,7 +936,7 @@ describe('DebuggerPanel', () => {
   });
 
   it('disposeForSession disposes every panel created for the session', () => {
-    const s = { ...makeSession(), id: 4242 };
+    const s = makeSession(4242);
     DebuggerPanel.create(s, GS_PROCESS, ERROR_MSG);
     DebuggerPanel.create(s, 0x456n, 'another error');
     const results = vi.mocked(vscode.window.createWebviewPanel).mock.results;

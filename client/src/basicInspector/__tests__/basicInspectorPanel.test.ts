@@ -869,7 +869,9 @@ describe('the panel title and lifetime', () => {
   it('does not reveal a panel that belongs to another session', () => {
     open(100n, 'Transcript');
 
-    expect(BasicInspector.revealExisting({ ...session, id: 2 }, 'Transcript')).toBe(false);
+    expect(
+      BasicInspector.revealExisting(Object.assign(makeSession(), { id: 2 }), 'Transcript'),
+    ).toBe(false);
     expect(panel.reveal).not.toHaveBeenCalled();
   });
 
@@ -878,7 +880,7 @@ describe('the panel title and lifetime', () => {
     vi.mocked(vscode.window.createWebviewPanel).mockImplementationOnce(
       () => other as unknown as vscode.WebviewPanel,
     );
-    BasicInspector.create({ ...session, id: 2 }, 100n, 'x');
+    BasicInspector.create(Object.assign(makeSession(), { id: 2 }), 100n, 'x');
 
     BasicInspector.disposeForSession(1);
 
