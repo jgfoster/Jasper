@@ -1236,7 +1236,24 @@ export const notebooks = {
   createNotebookController: vi.fn((id: string, notebookType: string, label: string) =>
     createMockNotebookController(id, notebookType, label),
   ),
+  registerNotebookCellStatusBarItemProvider: vi.fn((_notebookType: string, _provider: unknown) => ({
+    dispose: () => {},
+  })),
 };
+
+export const NotebookCellStatusBarAlignment = {
+  Left: 1,
+  Right: 2,
+} as const;
+
+export class NotebookCellStatusBarItem {
+  tooltip?: string;
+  command?: string;
+  constructor(
+    public text: string,
+    public alignment: number,
+  ) {}
+}
 
 // ── DataTransfer mock ─────────────────────────────────────
 
