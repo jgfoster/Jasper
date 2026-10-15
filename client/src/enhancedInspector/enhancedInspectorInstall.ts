@@ -461,7 +461,7 @@ export async function installEnhancedInspectorSupport(
       message: `Could not restore the symbol list order: ${messageOf(e)}. No changes were committed.`,
     };
   }
-  const { success: committed, err } = session.gci.GciTsCommit(session.handle);
+  const { success: committed, err } = session.GciTsCommit();
   if (!committed) {
     safeAbort(session);
     return {

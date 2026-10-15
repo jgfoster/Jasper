@@ -35,7 +35,7 @@ const MAX_CELL_RESULT = 256 * 1024;
 // `Transcript show:` output streams to the GemStone Transcript channel while
 // the cell runs (and a long cell doesn't freeze the extension host).
 export async function evalSmalltalk(session: ActiveSession, source: string): Promise<string> {
-  const { result: inProgress } = session.gci.GciTsCallInProgress(session.handle);
+  const { result: inProgress } = session.GciTsCallInProgress();
   if (inProgress !== 0) {
     throw new Error(
       'Session is busy with another operation. Please wait or use a different session.',
@@ -51,8 +51,7 @@ export async function evalSmalltalk(session: ActiveSession, source: string): Pro
         // OOP_CLASS_UTF8 declares the source bytes UTF-8, so cells with
         // non-ASCII literals compile correctly (same convention as
         // browserQueries.executeFetchString).
-        const { success, err } = session.gci.GciTsNbExecute(
-          session.handle,
+        const { success, err } = session.GciTsNbExecute(
           code,
           OOP_CLASS_UTF8,
           OOP_ILLEGAL,
@@ -86,7 +85,7 @@ export async function evalSmalltalk(session: ActiveSession, source: string): Pro
           // normalize before comparing against the bigint OOP constants.
           const context = BigInt(err.context);
           if (context !== OOP_NIL && context !== 0n) {
-            session.gci.GciTsClearStack(session.handle, context);
+            session.GciTsClearStack(context);
           }
           throw new Error(err.message || `GCI error ${err.number}`);
         }
@@ -102,11 +101,7 @@ export async function evalSmalltalk(session: ActiveSession, source: string): Pro
     );
 
     // wrapExecuteCode printStrings server-side, so the result IS a string.
-    const { data, err: fetchErr } = session.gci.GciTsFetchUtf8(
-      session.handle,
-      resultOop,
-      MAX_CELL_RESULT,
-    );
+    const { data, err: fetchErr } = session.GciTsFetchUtf8(resultOop, MAX_CELL_RESULT);
     if (fetchErr.number !== 0) {
       throw new Error(fetchErr.message || `GCI error ${fetchErr.number}`);
     }
