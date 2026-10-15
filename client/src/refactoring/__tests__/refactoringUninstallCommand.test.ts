@@ -54,7 +54,9 @@ const uninstall = (base: ActiveSession, interactive: boolean) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.obtainSystemUserSession.mockResolvedValue({ handle: {} });
+  mocks.obtainSystemUserSession.mockResolvedValue(
+    fakeActiveSession({ gci: { GciTsLogout: logout }, handle: {} }),
+  );
   mocks.refreshWorkingSession.mockResolvedValue(true);
   mocks.uninstallSupport.mockResolvedValue({
     success: true,
