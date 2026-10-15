@@ -276,8 +276,7 @@ describe('the Hierarchy after a class-reshaping refactoring (integration)', () =
     // The version to go back from comes from a refactoring, which recompiles the subclasses under
     // it; a bare class definition would leave them on the old version, with nothing for the
     // revert to carry. The refactoring drops the cache itself, so warm it again afterwards: the
-    // revert is what has to drop it. Counted from the end because earlier tests in this file add
-    // versions of their own.
+    // revert is what has to drop it. `size - 1` is the version before the add.
     await runInstVar('add', 'c');
     const restoreIndex = Number(exec('(CcMid classHistory size - 1) printString'));
     getClassDescendantNames(exec, 'CcRoot', ug());
