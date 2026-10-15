@@ -1,4 +1,5 @@
 import koffi from 'koffi';
+import * as fs from 'fs';
 import * as path from 'path';
 import { setTimeout as sleep } from 'timers/promises';
 import { GCI_LOGIN_QUIET, OOP_FALSE, OOP_ILLEGAL, OOP_NIL, OOP_TRUE } from './gciConstants';
@@ -389,12 +390,16 @@ export class GciLibrary {
       // libgcits has an undefined reference to HostCreateThread, which is
       // defined in libnetldi. On Linux, dlopen uses RTLD_LOCAL by default,
       // so libnetldi must be loaded with RTLD_GLOBAL first to make
-      // HostCreateThread visible when libgcits is resolved.
+      // HostCreateThread visible when libgcits is resolved. GemTalk's
+      // client-only package (GemStoneClientLibs) ships no libnetldi, and its
+      // libgcits needs none, so it is loaded only where a full install has it.
       const netldiPath = path.join(
         path.dirname(libraryPath),
         path.basename(libraryPath).replace(/^libgcits-/, 'libnetldi-'),
       );
-      this._netldiLib = koffi.load(netldiPath, { global: true });
+      if (fs.existsSync(netldiPath)) {
+        this._netldiLib = koffi.load(netldiPath, { global: true });
+      }
     }
     this.lib = koffi.load(libraryPath);
     this._GciTsVersion = this.lib.func(

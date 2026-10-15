@@ -6,6 +6,14 @@ import * as nodePath from 'path';
 vi.mock('vscode', () => import('../../__mocks__/vscode.js'));
 vi.mock('child_process');
 vi.mock('../../sysadminChannel', () => ({ appendSysadmin: vi.fn(), showSysadmin: vi.fn() }));
+// On a Windows runner the real wslSpawn takes its WSL branch, which asks
+// whether WSL is installed before spawning; say yes so it reaches the mocked
+// child_process the same way on a machine with or without WSL.
+vi.mock('../../wslInstall', () => ({
+  isWslInstalled: vi.fn(() => true),
+  isWslInstalledAsync: vi.fn(async () => true),
+  forgetWslInstalled: vi.fn(),
+}));
 vi.mock('../../wslBridge', async () => {
   // Keep wslSpawn / windowsPathToWsl real so the existing startStone tests
   // continue to drive the child_process mock; only override the two exec

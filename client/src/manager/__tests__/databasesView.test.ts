@@ -464,6 +464,34 @@ describe('what the header says this machine has', () => {
     expect(lead).toContain('register a database that already exists');
   });
 
+  it('does not call a machine with client libraries bare', () => {
+    const clientOnly = {
+      version: '3.7.5',
+      fileName: '',
+      url: '',
+      size: 0,
+      date: '',
+      downloaded: false,
+      extracted: false,
+      clientExtracted: true,
+    };
+    for (const installBlocked of [undefined, 'needs WSL']) {
+      mount(
+        state({
+          versions: [clientOnly],
+          databases: [],
+          installBlocked,
+          create: { ...(state().create as object), versions: [] },
+        }),
+      );
+      const lead = root.querySelector('.gm-head-lead')?.textContent;
+      expect(lead).not.toContain('No GemStone version on this machine yet');
+      expect(lead).toContain('client libraries here log in to stones running elsewhere');
+      // Installing a server is suggested only where one can be installed.
+      expect(lead?.includes('Install a server')).toBe(!installBlocked);
+    }
+  });
+
   it('offers Register Existing with nothing installed, since it needs nothing installed', () => {
     mount(
       state({
@@ -1329,8 +1357,134 @@ describe('a Windows machine with no WSL', () => {
 
   it('reaches the Windows client actions, which only exist on a row', () => {
     mount(state({ windows: true, versions: [CLIENT_ONLY] }));
-    expect(root.querySelector('[data-action="openWindowsClientFolder"]')).not.toBeNull();
-    expect(root.querySelector('[data-action="deleteWindowsClient"]')).not.toBeNull();
+    expect(root.querySelector('[data-action="openClientFolder"]')).not.toBeNull();
+    expect(root.querySelector('[data-action="deleteClient"]')).not.toBeNull();
+  });
+});
+
+describe('downloading only what a login needs', () => {
+  // A remote stone needs only a few files for its version on this machine, not
+  // the server. The panel offers that beside Install Version…, in the words the
+  // login page uses, on every platform.
+  const CLIENT_ONLY = {
+    version: '3.7.4',
+    fileName: '',
+    url: '',
+    size: 0,
+    date: '',
+    downloaded: false,
+    extracted: false,
+    clientExtracted: true,
+  };
+
+  for (const windows of [false, true]) {
+    it(`is offered from the Versions header ${windows ? 'on Windows' : 'on Linux and macOS'}`, () => {
+      mount(state({ windows }));
+      const button = root.querySelector<HTMLElement>(
+        'details.section[data-section="versions"] [data-action="downloadVersionFiles"]',
+      );
+      expect(button?.textContent).toContain('Download Client Libraries…');
+      button!.click();
+      expect(host.postMessage).toHaveBeenCalledWith({ command: 'downloadVersionFiles' });
+    });
+  }
+
+  it('is offered beside Install Version… when nothing is on this machine', () => {
+    mount(state({ versions: [], create: { ...(state().create as object), versions: [] } }));
+    const empty = root.querySelector('details.section[data-section="versions"] .empty');
+    expect(empty?.querySelector('[data-action="installNewVersion"]')).not.toBeNull();
+    expect(empty?.querySelector('[data-action="downloadVersionFiles"]')).not.toBeNull();
+    expect(empty?.textContent).toContain('log in to a stone on another machine');
+  });
+
+  it('turns Install Version… off, with the reason, where a server cannot be installed', () => {
+    // A Windows host without WSL: the client libraries are the only way in.
+    for (const versions of [[], [CLIENT_ONLY]]) {
+      mount(state({ windows: true, installBlocked: 'needs WSL', versions }));
+      const install = root.querySelector<HTMLButtonElement>(
+        'details.section[data-section="versions"] [data-action="installNewVersion"]',
+      );
+      expect(install?.disabled).toBe(true);
+      expect(install?.getAttribute('data-tip')).toBe('needs WSL');
+      const files = root.querySelector<HTMLButtonElement>('[data-action="downloadVersionFiles"]');
+      expect(files?.disabled).toBe(false);
+    }
+  });
+
+  it('leaves Install Version… on where a server can be installed', () => {
+    mount(state({ windows: true }));
+    const install = root.querySelector<HTMLButtonElement>('[data-action="installNewVersion"]');
+    expect(install?.disabled).toBe(false);
+  });
+
+  it('a version with only those files reads as such, and Remove removes only them', () => {
+    mount(state({ versions: [INSTALLED, CLIENT_ONLY] }));
+    const row = Array.from(root.querySelectorAll('.versions-table tbody tr')).find((r) =>
+      r.textContent?.includes('3.7.4'),
+    )!;
+    expect(row.textContent).toContain('Client libraries only');
+    expect(row.querySelector('.state-client')?.getAttribute('data-tip')).toContain(
+      'log in to a stone of this version on another machine',
+    );
+    expect(row.querySelector('[data-action="uninstallVersion"]')).toBeNull();
+    expect(row.querySelector('[data-action="openVersionTerminal"]')).toBeNull();
+    (row.querySelector('[data-action="deleteClient"]') as HTMLElement).click();
+    expect(host.postMessage).toHaveBeenCalledWith({ command: 'deleteClient', version: '3.7.4' });
+  });
+
+  it('counts client libraries in the Versions header, not as nothing', () => {
+    const count = () =>
+      root.querySelector('details.section[data-section="versions"] .section-count')?.textContent;
+    mount(state({ versions: [CLIENT_ONLY] }));
+    expect(count()).toBe('0 servers · 1 client libraries only');
+    mount(state({ versions: [INSTALLED, CLIENT_ONLY] }));
+    expect(count()).toBe('1 server · 1 client libraries only');
+    // Without any, the count reads as it always has.
+    mount(state({ versions: [INSTALLED] }));
+    expect(count()).toBe('1 installed');
+  });
+
+  it('a full install that also has the login files can remove either one', () => {
+    mount(state({ versions: [{ ...INSTALLED, clientExtracted: true }] }));
+    expect(root.querySelector('[data-action="uninstallVersion"]')).not.toBeNull();
+    expect(root.querySelector('[data-action="deleteClient"]')).not.toBeNull();
+  });
+
+  it('does not offer the files again for a full install off Windows, which already has them', () => {
+    mount(state({ windows: false, versions: [INSTALLED] }));
+    expect(root.querySelector('[data-action="installClient"]')).toBeNull();
+  });
+
+  it('offers them on a Windows row, whose server install cannot serve a Windows login', () => {
+    mount(state({ windows: true, versions: [INSTALLED] }));
+    expect(root.querySelector('[data-action="installClient"]')).not.toBeNull();
+  });
+
+  // The catalog's size is the whole server's download; a login-only row that
+  // showed it claimed hundreds of MB on disk for a few MB of files.
+  it('a login-only row gives the size of its files, not of the server download', () => {
+    mount(
+      state({ versions: [{ ...CLIENT_ONLY, size: 472 * 1024 ** 2, clientSize: 27 * 1024 ** 2 }] }),
+    );
+    const size = root.querySelector('.versions-table tbody tr td.v-num')!.textContent;
+    expect(size).toContain('27');
+    expect(size).not.toContain('472');
+  });
+
+  it('a full install keeps the size of its download even when it also has login files', () => {
+    mount(
+      state({
+        versions: [
+          {
+            ...INSTALLED,
+            size: 472 * 1024 ** 2,
+            clientExtracted: true,
+            clientSize: 27 * 1024 ** 2,
+          },
+        ],
+      }),
+    );
+    expect(root.querySelector('.versions-table tbody tr td.v-num')!.textContent).toContain('472');
   });
 });
 
