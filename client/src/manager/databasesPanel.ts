@@ -30,7 +30,7 @@ import { DatabaseManager } from './databaseManager';
 import { VersionManager, CatalogEntry } from './versionManager';
 import { DiscoveredServer, ProcessManager, versionsMatch } from './processManager';
 import { REGISTERED_REASON, isRegisteredDatabase, registeredPaths } from './registeredDatabase';
-import { needsWsl, invalidateWslNetworkCache } from '../wslBridge';
+import { needsWsl, getWslInfoAsync, invalidateWslNetworkCache } from '../wslBridge';
 import { recheckWsl } from '../wslRecheck';
 import { wslStatFilesSync } from '../wslFs';
 import { GemStoneVersion, GemStoneDatabase, GemStoneProcess } from '../sysadminTypes';
