@@ -216,8 +216,30 @@ describe('removing several methods nothing sends', () => {
     const notice = String(showInformationMessage.mock.calls[0][0]);
     expect(notice).not.toContain('nothing referenced them');
     expect(notice).toContain(
-      'nothing referenced #size; senders of #printOn: now resolve to Object >> #printOn:',
+      'nothing referenced Array (#size); senders of #printOn: now resolve to Object >> #printOn:',
     );
+  });
+
+  /**
+   * A class implements the same selector on both sides, and both rows are picked. They are two
+   * methods, so both are named -- but a bare list of selectors would print "#size, #size" with
+   * nothing to tell them apart, which reads as a bug in the message.
+   *
+   * The query is the other half: `sendersOf:` asks who sends the NAME, and which side a send
+   * lands on is settled at run time, so both rows have the same answer and asking twice would
+   * walk the whole image twice for it.
+   */
+  it('tells the two sides apart when the same selector is picked on both', async () => {
+    hierarchyImplementorsOf.mockImplementation(
+      (_s: unknown, _d: number, _c: string, selector: string) =>
+        selector === 'printOn:' ? [sender({ className: 'Object', selector: 'printOn:' })] : [],
+    );
+
+    await removeMethods(makeController(), [row('size'), row('size', true), row('printOn:')]);
+
+    const notice = String(showInformationMessage.mock.calls[0][0]);
+    expect(notice).toContain('nothing referenced Array (#size) and Array class (#size)');
+    expect(sendersOf.mock.calls[0][1]).toEqual(['size']);
   });
 
   it("carries an override's note: senders resolve to the inherited method", async () => {

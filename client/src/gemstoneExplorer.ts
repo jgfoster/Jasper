@@ -5572,7 +5572,8 @@ export class ExplorerController {
 
   // The senders of `scanned` that survive removing `removing`: one query for all of them, under
   // one progress notification, however many there are. Nothing to scan answers nothing. One
-  // query is not one image walk -- the server still walks once per selector, see `sendersOf`.
+  // query is not one image walk -- the server still walks once per distinct selector, see
+  // `sendersOf`.
   //
   // Environment 0 only. The pane removes the environment-0 method (EXPLORER_METHOD_ENVIRONMENT),
   // and a send resolves in the environment it was compiled in -- a method compiled in
@@ -5592,7 +5593,11 @@ export class ExplorerController {
     truncated: boolean;
   }> {
     if (scanned.length === 0) return { references: [], truncated: false };
-    const selectors = scanned.map((n) => n.info.selector);
+    // One entry per distinct selector. A selection can hold both sides of the same name --
+    // Array >> #size and Array class >> #size are two rows -- but `sendersOf:` asks who sends
+    // the NAME, and which side a send lands on is decided at run time, so both sides have the
+    // same answer. Asking twice walks the whole image twice for it.
+    const selectors = [...new Set(scanned.map((n) => n.info.selector))];
     const title =
       selectors.length === 1
         ? `Finding senders of #${selectors[0]}…`
@@ -5645,9 +5650,11 @@ export class ExplorerController {
     const checks = rows.map((node) => ({ node, ...this.methodRemovalCheck(session, where, node) }));
     // An override skips the sender scan (see methodRemovalCheck), so it was never searched
     // for senders. "Nothing referenced ..." is a claim about a search, so it names only the
-    // methods a scan actually ran for: "them" when that is all of them, the selectors when it
-    // is some, and nothing at all when none were scanned -- otherwise the notice would deny
-    // an override had senders in the same breath as saying where they now resolve.
+    // methods a scan actually ran for: "them" when that is all of them, the methods named by
+    // side when it is some, and nothing at all when none were scanned -- otherwise the notice
+    // would deny an override had senders in the same breath as saying where they now resolve.
+    // By side, because a selection can hold the same selector on both sides of a class, and a
+    // bare list of selectors would name it twice with nothing to tell the two apart.
     const scanned = checks.filter((c) => c.inheritedFrom === undefined).map((c) => c.node);
     const scan = await this.survivingSenders(session, where, scanned, rows);
 
@@ -5673,7 +5680,7 @@ export class ExplorerController {
       scanned.length === 0
         ? []
         : [
-            `nothing referenced ${scanned.length === rows.length ? 'them' : scanned.map((n) => `#${n.info.selector}`).join(', ')}`,
+            `nothing referenced ${scanned.length === rows.length ? 'them' : methodsBySide(className, scanned)}`,
           ];
     const target: SafeDeleteTarget = {
       kind: `${rows.length} methods`,
