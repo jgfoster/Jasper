@@ -692,6 +692,30 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // The server-plugin scripts in client/bin/ load activeSession.ts under tsx
+    // with no extension host, so it must not import `vscode`. Placed after
+    // every other block configuring this rule, and restates TS_EXTENSION_IMPORT
+    // to keep that ban alive here (see TS_EXTENSION_IMPORT above for why). Only
+    // direct imports are caught; a transitive one still needs the plugin
+    // scripts' own run to surface it.
+    files: ['client/src/activeSession.ts'],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'vscode',
+              message:
+                'activeSession.ts must load outside the extension host (the server-plugin scripts import it), so it cannot import `vscode`.',
+            },
+          ],
+          patterns: [TS_EXTENSION_IMPORT],
+        },
+      ],
+    },
+  },
   // Disables stylistic ESLint rules that would conflict with Prettier; must stay last.
   eslintConfigPrettier,
 );
