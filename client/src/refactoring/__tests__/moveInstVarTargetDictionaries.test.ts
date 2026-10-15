@@ -12,17 +12,22 @@ import {
  * guessing. So each destination goes out with the dictionary that binds it, which the picker's
  * rows already carry (resolved by class identity).
  *
- * What is pinned here is that the dictionary survives the trip — two destinations that differ
- * only by dictionary have to read differently in the code that is sent, on both the pre-flight
- * and the preview send.
- *
- * Deliberately not pinned: the exact literal the pair is spelled as. That is the engine's
- * signature to choose, and these say only that both halves of each destination arrive.
+ * What is pinned here is that the dictionary survives the trip, next to its own class name, on
+ * both the pre-flight and the preview send. The exact literal is pinned in
+ * previewInstVarStructure.test.ts.
  */
 
 const exec = () => vi.fn().mockResolvedValue('{}');
 
 const target = (className: string, dictIndex: number | undefined) => ({ className, dictIndex });
+
+/** The `toClasses:` argument of the code sent. */
+const destinationsIn = (code: string): string =>
+  code.slice(code.indexOf('toClasses:'), code.indexOf('direction:'));
+
+/** Matches `className` followed by `dictIndex` with no other number between them. */
+const paired = (className: string, dictIndex: number): RegExp =>
+  new RegExp(`'${className}'\\D+${dictIndex}\\b`);
 
 /** The code a move pre-flight sends. */
 async function analyzeCode(
@@ -60,31 +65,30 @@ async function previewCode(
 
 describe('sending a move’s destinations', () => {
   it('distinguishes two destinations that differ only by dictionary', async () => {
-    const code = await analyzeCode([target('Leaf', 3), target('Leaf', 5)]);
+    const destinations = destinationsIn(await analyzeCode([target('Leaf', 3), target('Leaf', 5)]));
 
-    const destinations = code.slice(code.indexOf('toClasses:'), code.indexOf('direction:'));
-    expect(destinations).toContain('3');
-    expect(destinations).toContain('5');
+    expect(destinations).toMatch(paired('Leaf', 3));
+    expect(destinations).toMatch(paired('Leaf', 5));
   });
 
   it('carries the dictionary of a single destination too', async () => {
     const code = await analyzeCode([target('Leaf', 5)]);
 
-    expect(code.slice(code.indexOf('toClasses:'), code.indexOf('direction:'))).toContain('5');
+    expect(destinationsIn(code)).toMatch(paired('Leaf', 5));
   });
 
   it('carries the dictionary up the hierarchy as well as down', async () => {
     const code = await analyzeCode([target('Base', 3)], 'up');
 
     expect(code).toContain('direction: #up');
-    expect(code.slice(code.indexOf('toClasses:'), code.indexOf('direction:'))).toContain('3');
+    expect(destinationsIn(code)).toMatch(paired('Base', 3));
   });
 
   it('still names each destination class', async () => {
-    const code = await analyzeCode([target('Leaf', 3), target('Other', 5)]);
+    const destinations = destinationsIn(await analyzeCode([target('Leaf', 3), target('Other', 5)]));
 
-    expect(code).toContain("'Leaf'");
-    expect(code).toContain("'Other'");
+    expect(destinations).toMatch(paired('Leaf', 3));
+    expect(destinations).toMatch(paired('Other', 5));
   });
 
   it('sends the same destinations to the preview as to the pre-flight', async () => {
@@ -95,8 +99,6 @@ describe('sending a move’s destinations', () => {
     const analyze = await analyzeCode(targets);
     const preview = await previewCode(targets);
 
-    const destinationsIn = (code: string): string =>
-      code.slice(code.indexOf('toClasses:'), code.indexOf('direction:'));
     expect(destinationsIn(preview)).toBe(destinationsIn(analyze));
   });
 
@@ -106,8 +108,9 @@ describe('sending a move’s destinations', () => {
     // ambiguity decline back for that hierarchy, and that is the honest answer. What must not
     // happen is the missing index reaching the Smalltalk as `undefined` or as a 0 the engine
     // would read as a position.
-    const code = await analyzeCode([target('Base', undefined), target('Leaf', 0)], 'up');
-    const destinations = code.slice(code.indexOf('toClasses:'), code.indexOf('direction:'));
+    const destinations = destinationsIn(
+      await analyzeCode([target('Base', undefined), target('Leaf', 0)], 'up'),
+    );
 
     expect(destinations).not.toContain('undefined');
     expect(destinations).not.toMatch(/\b0\b/);
