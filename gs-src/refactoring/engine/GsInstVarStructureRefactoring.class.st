@@ -159,7 +159,7 @@ GsInstVarStructureRefactoring class >> class: aClass moveInstVar: aName toClasse
 		(each isKindOf: Array)
 			ifTrue: [
 				n := each first.
-				bound := self classNamed: n inDictionaryAt: each last]
+				bound := env classNamed: n inDictionaryNamed: each last]
 			ifFalse: [n := each].
 		"A bound class stands even outside the lineage, so analysis gives its 'is not a
 		 superclass/subclass' decline rather than a not-found one."
@@ -171,17 +171,6 @@ GsInstVarStructureRefactoring class >> class: aClass moveInstVar: aName toClasse
 				ifFalse: [matches first]]
 			ifNotNil: [:b | b]].
 	^(ref setMoveTargets: targets direction: dir) setAmbiguousTarget: ambiguous
-]
-
-{ #category : 'private' }
-GsInstVarStructureRefactoring class >> classNamed: aName inDictionaryAt: anIndex [
-	"The class the anIndex-th SymbolList dictionary binds under aName, or nil when the index is out
-	 of range or that dictionary binds no class by that name."
-	| sl value |
-	sl := System myUserProfile symbolList.
-	((anIndex isKindOf: Integer) and: [anIndex between: 1 and: sl size]) ifFalse: [^nil].
-	value := (sl at: anIndex) at: aName asSymbol ifAbsent: [nil].
-	^(value notNil and: [value isBehavior]) ifTrue: [value] ifFalse: [nil]
 ]
 
 { #category : 'instance creation' }
