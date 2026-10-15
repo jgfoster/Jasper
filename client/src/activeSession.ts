@@ -65,4 +65,8 @@ export class ActiveSession {
       err: result.err,
     };
   }
+
+  GciTsLogout() {
+    return this.gci.GciTsLogout(this.handle);
+  }
 }

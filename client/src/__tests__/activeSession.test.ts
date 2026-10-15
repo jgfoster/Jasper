@@ -72,3 +72,15 @@ describe('a transient login', () => {
     expect(refused.err).toBe(err);
   });
 });
+
+describe('logging a session out', () => {
+  it('logs out its own handle with the raw GCI call', () => {
+    const handle = {};
+    const gci = { GciTsLogout: vi.fn() };
+    const session = fakeActiveSession({ gci, handle });
+
+    session.GciTsLogout();
+
+    expect(gci.GciTsLogout.mock.calls[0][0]).toBe(handle);
+  });
+});

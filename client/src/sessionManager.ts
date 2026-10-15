@@ -401,7 +401,7 @@ export class SessionManager {
       session: transient,
       logout: () => {
         try {
-          transient.gci.GciTsLogout(transient.handle);
+          transient.GciTsLogout();
         } catch {
           /* already gone */
         }
