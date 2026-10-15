@@ -76,8 +76,10 @@ export interface GemStoneVersion {
   downloaded: boolean;
   /** Whether the server version has been extracted to rootPath */
   extracted: boolean;
-  /** Whether the Windows client distribution is extracted (Windows only) */
+  /** Whether the client files a login needs are on disk (the Windows client, on Windows) */
   clientExtracted?: boolean;
+  /** Bytes those client files take on disk; `size` is the full product's download */
+  clientSize?: number;
   /** Whether a GCI library for this version ships bundled in the extension */
   bundled?: boolean;
   /** Whether this is a locally registered version (symlink) */

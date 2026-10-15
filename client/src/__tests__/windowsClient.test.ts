@@ -227,9 +227,17 @@ describe('VersionManager.windowsClientArtifact', () => {
   });
 });
 
-// ── VersionManager.deleteWindowsClientExtracted ───────────
+// ── VersionManager.deleteClientExtracted on Windows ───────
 
-describe('VersionManager.deleteWindowsClientExtracted', () => {
+describe('VersionManager.deleteClientExtracted on Windows', () => {
+  const originalPlatform = process.platform;
+  beforeEach(() => {
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+  });
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+  });
+
   it('removes the extracted client directory', async () => {
     const dirPath = createWindowsClientWithLib('3.7.5');
     const storage = new SysadminStorage();
@@ -246,7 +254,7 @@ describe('VersionManager.deleteWindowsClientExtracted', () => {
       downloaded: false,
       extracted: true,
     };
-    await manager.deleteWindowsClientExtracted(version);
+    await manager.deleteClientExtracted(version);
     expect(fs.existsSync(dirPath)).toBe(false);
   });
 
@@ -263,7 +271,7 @@ describe('VersionManager.deleteWindowsClientExtracted', () => {
       downloaded: false,
       extracted: false,
     };
-    await manager.deleteWindowsClientExtracted(version); // should not throw
+    await manager.deleteClientExtracted(version); // should not throw
   });
 });
 
@@ -388,6 +396,37 @@ describe('VersionManager.downloadAndExtractWindowsClient', () => {
     expect((error as Error).message).toMatch(/Windows client install cancelled/);
     expect(fs.existsSync(clientDir)).toBe(false);
     expect(fs.existsSync(zipPath)).toBe(false);
+  });
+
+  it('joins a client download of the same version from the login page or manager', async () => {
+    const { manager, zipPath, install } = setUpClientInstall();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const download = vi
+      .spyOn(manager as unknown as PrivateDownloadHost, 'downloadFile')
+      .mockImplementation(async () => {
+        await gate;
+        fs.writeFileSync(zipPath, '');
+      });
+    fakeTar(0);
+    const platform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    try {
+      // Quick Setup calls the Windows method; the login page goes through the client one.
+      const quickSetup = install();
+      const loginPage = new VersionManager(new SysadminStorage()).downloadAndExtractClient(
+        '3.7.5',
+        { report: vi.fn() },
+        noopToken,
+      );
+      release();
+      await Promise.all([quickSetup, loginPage]);
+    } finally {
+      Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+    }
+
+    expect(download).toHaveBeenCalledTimes(1);
+    expect(spawn).toHaveBeenCalledTimes(1);
   });
 
   describe('a client folder that was there before', () => {

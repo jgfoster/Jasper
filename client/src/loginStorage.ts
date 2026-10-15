@@ -40,4 +40,11 @@ export class LoginStorage {
     libraries[version] = libraryPath;
     await config.update('gciLibraries', libraries, vscode.ConfigurationTarget.Global);
   }
+
+  async removeGciLibraryPath(version: string): Promise<void> {
+    const config = vscode.workspace.getConfiguration('gemstone');
+    const libraries = { ...config.get<Record<string, string>>('gciLibraries', {}) };
+    delete libraries[version];
+    await config.update('gciLibraries', libraries, vscode.ConfigurationTarget.Global);
+  }
 }

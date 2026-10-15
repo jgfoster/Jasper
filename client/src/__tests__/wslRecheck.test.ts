@@ -54,7 +54,7 @@ describe('recheckWsl', () => {
     invalidateWslCache();
   });
 
-  it('sees WSL installed after Jasper started, and lifts the "requires WSL2" message', async () => {
+  it('sees WSL installed after Jasper started, and lifts the no-WSL message', async () => {
     wsl(false);
     expect((await getWslInfoAsync()).available).toBe(false);
 

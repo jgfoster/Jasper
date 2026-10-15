@@ -300,7 +300,7 @@
           "gemstone.gciLibraries": {
             "type": "object",
             "default": {},
-            "description": "Paths to GCI libraries, keyed by GemStone version (e.g. \"3.7.4.3\": \"/path/to/libgcirpc-3.7.4.3-64.dylib\")",
+            "description": "Paths to GCI libraries, keyed by GemStone version (e.g. \"3.7.4.3\": \"/path/to/libgcits-3.7.4.3-64.dylib\"). Jasper fills this in when it downloads the files for a version; set it by hand only to use a library from somewhere else.",
             "additionalProperties": {
               "type": "string"
             }
@@ -687,7 +687,7 @@
       },
       {
         "view": "gemstoneDatabases",
-        "contents": "GemStone system administration requires Windows Subsystem for Linux (WSL2).\n[Install WSL](https://learn.microsoft.com/en-us/windows/wsl/install)\nInstalled it already? [Check Again](command:gemstone.refreshVersions)",
+        "contents": "A server running elsewhere needs no WSL: click + on Logins & Sessions to add a login.\nTo run databases on this machine, install WSL2.\n[Install WSL](https://learn.microsoft.com/en-us/windows/wsl/install)",
         "when": "gemstone.isWindows && !gemstone.wslAvailable"
       },
       {
