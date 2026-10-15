@@ -4,9 +4,9 @@ vi.mock('../../browserQueries', () => ({
   executeFetchString: vi.fn(),
 }));
 
-import { ActiveSession } from '../../sessionManager';
 import { executeFetchString } from '../../browserQueries';
 import { uninstallEnhancedInspectorSupport } from '../enhancedInspectorUninstall';
+import { fakeActiveSession } from '../../__tests__/fakeActiveSession';
 
 const executeFetchStringMock = executeFetchString as ReturnType<typeof vi.fn>;
 
@@ -21,11 +21,11 @@ function happyPath(_s: unknown, code: string): string {
 function createMockSession() {
   const commit = vi.fn(() => ({ success: true, err: { number: 0 } }));
   const abort = vi.fn(() => ({ success: true, err: { number: 0 } }));
-  const session = {
+  const session = fakeActiveSession({
     id: 1,
     handle: {},
     gci: { GciTsCommit: commit, GciTsAbort: abort },
-  } as unknown as ActiveSession;
+  });
   return { session, commit, abort };
 }
 

@@ -49,6 +49,7 @@ import {
   GCI_PERFORM_FLAG_SINGLE_STEP,
   GCI_PERFORM_FLAG_INTERPRETED,
 } from '../gciConstants';
+import { fakeActiveSession } from './fakeActiveSession';
 
 /** Set the gemstone.displayItMode setting for the current test. */
 function setDisplayItMode(mode: 'overlay' | 'insert'): void {
@@ -94,13 +95,13 @@ function makeGci(overrides: Record<string, unknown> = {}) {
 }
 
 function makeSession(gci = makeGci()): ActiveSession {
-  return {
+  return fakeActiveSession({
     id: 1,
     gci: gci as unknown as ActiveSession['gci'],
     handle: {},
     login: { label: 'Test', gs_user: 'DataCurator' },
     stoneVersion: '3.7.2',
-  } as ActiveSession;
+  });
 }
 
 function makeSessionManager(session?: ActiveSession): SessionManager {

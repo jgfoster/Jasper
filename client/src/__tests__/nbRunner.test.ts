@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import { logInfo } from '../gciLog';
 import { runNbCall, pollNbResultReady, NbCancelledError, MIN_HARD_BREAK_GAP_MS } from '../nbRunner';
 import { ActiveSession } from '../sessionManager';
+import { fakeActiveSession } from './fakeActiveSession';
 
 const noErr = { number: 0 } as const;
 
@@ -45,7 +46,7 @@ function makeSession(pollResults: { result: number; err?: unknown }[]): ActiveSe
     GciTsNbResult: vi.fn(() => ({ result: 0, err: noErr })),
     GciTsClearStack: vi.fn(() => ({ success: true, err: noErr })),
   };
-  return { id: 1, handle: { h: 1 }, gci } as unknown as ActiveSession;
+  return fakeActiveSession({ id: 1, handle: { h: 1 }, gci });
 }
 
 describe('runNbCall', () => {
@@ -120,7 +121,7 @@ describe('pollNbResultReady', () => {
       isAvailable: () => false, // GciTsNbPoll absent (pre-3.7)
       GciTsSocket: vi.fn(() => ({ fd: -1, err: { number: 0 } })), // bad fd → -1
     };
-    const session = { id: 1, handle: { h: 1 }, gci } as unknown as ActiveSession;
+    const session = fakeActiveSession({ id: 1, handle: { h: 1 }, gci });
     expect(pollNbResultReady(session).result).toBe(-1);
     expect(gci.GciTsSocket).toHaveBeenCalled();
   });

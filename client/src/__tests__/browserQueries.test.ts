@@ -7,8 +7,8 @@ vi.mock('vscode', () => ({
 }));
 
 import { ActiveSession } from '../sessionManager';
-import { GemStoneLogin } from '../loginTypes';
 import * as queries from '../browserQueries';
+import { fakeActiveSession } from './fakeActiveSession';
 
 function createMockSession(executeFetchData = ''): ActiveSession {
   const mockGci = {
@@ -17,13 +17,13 @@ function createMockSession(executeFetchData = ''): ActiveSession {
     GciTsPerform: vi.fn(),
   };
 
-  return {
+  return fakeActiveSession({
     id: 1,
     gci: mockGci as unknown as ActiveSession['gci'],
     handle: {},
-    login: { label: 'Test' } as GemStoneLogin,
+    login: { label: 'Test' },
     stoneVersion: '3.7.2',
-  };
+  });
 }
 
 describe('browserQueries', () => {

@@ -5265,10 +5265,9 @@ export function activate(context: vscode.ExtensionContext) {
           return;
         }
 
-        // Capture what we need before the session is torn down. The GciLibrary
-        // outlives its session's logout, so the transient restore logins reuse it.
+        // Capture what we need before the session is torn down. The transient
+        // restore logins reuse `session`, whose GciLibrary outlives the logout.
         const harvested = session.login;
-        const gci = session.gci;
         const sessionId = session.id;
         const managed = db;
         const dataDir = path.join(managed.path, 'data');
@@ -5344,11 +5343,11 @@ export function activate(context: vscode.ExtensionContext) {
             toRestoreSession(
               sessionManager.loginTransient(
                 { ...harvested, gs_user: 'DataCurator', gs_password: DEFAULT_GS_PW },
-                gci,
+                session,
               ),
             ),
           loginAsSessionUser: async () =>
-            toRestoreSession(sessionManager.loginTransient(harvested, gci)),
+            toRestoreSession(sessionManager.loginTransient(harvested, session)),
         });
 
         if (restored) {

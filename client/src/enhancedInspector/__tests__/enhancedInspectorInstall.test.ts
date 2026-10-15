@@ -23,6 +23,7 @@ import {
   ENHANCED_INSPECTOR_FILE_IN_CLASS,
   ENHANCED_INSPECTOR_MIN_VERSION,
 } from '../enhancedInspectorInstall';
+import { fakeActiveSession } from '../../__tests__/fakeActiveSession';
 
 const executeFetchStringMock = executeFetchString as ReturnType<typeof vi.fn>;
 
@@ -49,11 +50,11 @@ function happyPath(_s: unknown, code: string): string {
 function createMockSession() {
   const commit = vi.fn(() => ({ success: true, err: { number: 0 } }));
   const abort = vi.fn(() => ({ success: true, err: { number: 0 } }));
-  const session = {
+  const session = fakeActiveSession({
     id: 1,
     handle: {},
     gci: { GciTsCommit: commit, GciTsAbort: abort },
-  } as unknown as ActiveSession;
+  });
   return { session, commit, abort };
 }
 

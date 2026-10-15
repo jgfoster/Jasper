@@ -5,9 +5,9 @@ vi.mock('../../browserQueries', () => ({
   checkRefactoringSupportAvailable: vi.fn(),
 }));
 
-import { ActiveSession } from '../../sessionManager';
 import { executeFetchString, checkRefactoringSupportAvailable } from '../../browserQueries';
 import { uninstallRefactoringSupport } from '../refactoringUninstall';
+import { fakeActiveSession } from '../../__tests__/fakeActiveSession';
 
 const executeFetchStringMock = executeFetchString as ReturnType<typeof vi.fn>;
 const checkAvailableMock = checkRefactoringSupportAvailable as ReturnType<typeof vi.fn>;
@@ -15,11 +15,11 @@ const checkAvailableMock = checkRefactoringSupportAvailable as ReturnType<typeof
 function createMockSession() {
   const commit = vi.fn(() => ({ success: true, err: { number: 0 } }));
   const abort = vi.fn(() => ({ success: true, err: { number: 0 } }));
-  const session = {
+  const session = fakeActiveSession({
     id: 1,
     handle: {},
     gci: { GciTsCommit: commit, GciTsAbort: abort },
-  } as unknown as ActiveSession;
+  });
   return { session, commit, abort };
 }
 

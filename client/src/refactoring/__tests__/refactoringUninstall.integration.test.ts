@@ -7,6 +7,7 @@ import * as q from '../../browserQueries';
 import type { ActiveSession } from '../../sessionManager';
 import { requireServerPluginFeature } from '../../__tests__/requireServerPluginFeature';
 import { pluginFeatures } from '../../serverPlugin/pluginFeatures';
+import { testActiveSession } from '../../__tests__/testActiveSession';
 
 /**
  * Integration test for the refactoring-engine uninstall, over the real GCI transport.
@@ -30,7 +31,7 @@ describe('refactoring engine uninstall (integration)', () => {
     gci = testContext.gciLibrary;
     handle = testContext.session;
   });
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
   const exec = (code: string): string => q.executeFetchString(session(), code);
 
   // Remove GsRefactoring from THIS user's symbol list — the per-user step the uninstall

@@ -9,6 +9,7 @@ import { requireServerPluginFeature } from '../../__tests__/requireServerPluginF
 import { pluginFeatures } from '../../serverPlugin/pluginFeatures';
 import { gsStringLiteral } from '../../serverPlugin/installHelpers';
 import { ENHANCED_INSPECTOR_FILE_IN_CLASS } from '../enhancedInspectorInstall';
+import { testActiveSession } from '../../__tests__/testActiveSession';
 
 /**
  * Integration tests for what the Enhanced Inspector install leaves on the stone, over the
@@ -26,7 +27,7 @@ describe('enhanced inspector install (integration)', () => {
     gci = testContext.gciLibrary;
     handle = testContext.session;
   });
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
   const exec = (code: string): string => q.executeFetchString(session(), code);
 
   const KEPT_DIFFERENT = '#JasperEnhancedInspectorKeptDifferent';
