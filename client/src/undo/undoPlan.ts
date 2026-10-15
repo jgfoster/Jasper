@@ -98,9 +98,19 @@ function planMethodEdit(
   now: MethodSlotState[] = e.after,
 ): UndoPlan {
   const acted = slotsToReverse(e.before, now);
+  // The recording could not match every slot the change reported, so the rows below are not
+  // the whole of what was edited. Say so above them rather than let the reversal read as a
+  // complete one -- see MethodEditUndoEntry.uncaptured.
+  const missing = e.uncaptured ?? 0;
   return {
     verb: undoVerb(e),
     label: e.label,
+    note:
+      missing > 0
+        ? `${missing} method${missing === 1 ? '' : 's'} this change touched cannot be put back: ` +
+          `nothing was captured for ${missing === 1 ? 'it' : 'them'}. The rows below are all ` +
+          `this reversal restores.`
+        : undefined,
     rows: e.slots.flatMap((slot, i) => {
       if (!acted.has(i)) return [];
       const had = e.before[i]?.exists === true;

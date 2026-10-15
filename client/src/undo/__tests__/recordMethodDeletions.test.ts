@@ -240,3 +240,58 @@ describe('the two ways of recording a subset', () => {
     expect(viaCommit.label).toEqual(viaDeletions.label);
   });
 });
+
+/**
+ * A slot the recording has no capture for.
+ *
+ * `commit` pairs what it is handed against what it captured by identity, so a caller that
+ * rebuilds an equal slot rather than passing back the one it was given matches nothing. No
+ * caller does that today, and the matching is left as it is.
+ *
+ * What is pinned here is that such a slot is not swallowed. It used to be filtered out without
+ * a word, which would have had the reversal put back fewer methods than the change removed and
+ * announce it as a complete one. The entry carries the count and the plan says it above the
+ * rows, so the gap is visible wherever Undo is offered.
+ */
+describe('a removal the recording could not capture', () => {
+  const rebuilt = (selector: string, isMeta = false): MethodSlot => ({ ...slot(selector, isMeta) });
+
+  it('leaves it out of the entry but says how many are missing', () => {
+    vi.mocked(captureMethodSlots).mockReturnValue([
+      present('balance ^1', 'accessing'),
+      present('deposit: n ^n', 'accessing'),
+    ]);
+    const slots = [slot('balance'), slot('deposit:')];
+    const recording = beginMethodDeletions(session, slots, 'Account');
+
+    recording?.commit([slots[0], rebuilt('deposit:')]);
+
+    expect(slotsOf(recorded())).toEqual(['balance']);
+    expect(recorded().uncaptured).toBe(1);
+  });
+
+  it('says so above the rows rather than reading as a complete reversal', () => {
+    vi.mocked(captureMethodSlots).mockReturnValue([
+      present('balance ^1', 'accessing'),
+      present('deposit: n ^n', 'accessing'),
+    ]);
+    const slots = [slot('balance'), slot('deposit:')];
+    const recording = beginMethodDeletions(session, slots, 'Account');
+    recording?.commit([slots[0], rebuilt('deposit:')]);
+
+    const plan = planUndo(recorded());
+
+    expect(plan?.note).toContain('1 method this change touched cannot be put back');
+    expect(plan?.rows).toHaveLength(1);
+  });
+
+  it('carries no count, and no note, when every slot was captured', () => {
+    vi.mocked(captureMethodSlots).mockReturnValue([present('balance ^1', 'accessing')]);
+    const slots = [slot('balance')];
+
+    beginMethodDeletions(session, slots, 'Account')?.commit([slots[0]]);
+
+    expect(recorded().uncaptured).toBeUndefined();
+    expect(planUndo(recorded())?.note).toBeUndefined();
+  });
+});

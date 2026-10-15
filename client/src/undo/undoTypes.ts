@@ -118,6 +118,17 @@ export interface MethodEditUndoEntry extends UndoEntryBase {
   /** State the edit left behind, as the recording site knew it. Compared against the
    *  live state at undo time to spot a slot someone has changed since. */
   after: MethodSlotState[];
+  /**
+   * How many slots the recording site reported as edited but had no capture for, and so left
+   * out of `slots`. Absent in every path there is today.
+   *
+   * `commit` pairs the slots it is handed against the ones it captured by identity, so a
+   * caller that rebuilds an equal slot instead of passing back the one it was given finds
+   * nothing. That used to be dropped without a word, which would have had the reversal put
+   * back three of four methods and announce it as a success. The count is carried so the plan
+   * can say what it cannot reverse; closing the identity trap itself is a separate question.
+   */
+  uncaptured?: number;
 }
 
 /**

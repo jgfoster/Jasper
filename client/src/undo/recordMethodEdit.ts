@@ -98,10 +98,26 @@ export function beginMethodEdit(
     before,
     commit(label: string, after: MethodSlotState[], only?: MethodSlot[]): UndoEntry | undefined {
       let recorded = { slots, before, after };
+      // Slots a caller reported but that no capture matches. `only` is paired against the
+      // captured slots by identity, so a caller that rebuilds an equal slot rather than
+      // passing back the one it was given finds nothing -- no caller does that today. What
+      // matters is that it is not swallowed: these slots cannot be reversed, and a reversal
+      // that drops them quietly would restore less than it says it did.
+      let uncaptured = 0;
       if (only) {
-        const kept = only
-          .map((slot, i) => ({ slot, before: before[slots.indexOf(slot)], after: after[i] }))
-          .filter((k) => k.before !== undefined && !same(k.before, k.after));
+        const paired = only.map((slot, i) => ({
+          slot,
+          before: before[slots.indexOf(slot)],
+          after: after[i],
+        }));
+        uncaptured = paired.filter((k) => k.before === undefined).length;
+        if (uncaptured > 0) {
+          logInfo(
+            `[undo] "${label}": ${uncaptured} of ${only.length} slot(s) reported as edited have no ` +
+              `capture and cannot be reversed; the entry says so`,
+          );
+        }
+        const kept = paired.filter((k) => k.before !== undefined && !same(k.before, k.after));
         recorded = {
           slots: kept.map((k) => k.slot),
           before: kept.map((k) => k.before),
@@ -112,6 +128,9 @@ export function beginMethodEdit(
         recorded.after.length === recorded.slots.length &&
         recorded.after.every((s, i) => same(s, recorded.before[i]))
       ) {
+        // Nothing to put back -- including the case where every reported slot was uncaptured,
+        // which the log line above has already named. No entry means Undo is not offered at
+        // all, which is the honest answer rather than an empty one that claims success.
         logInfo(`[undo] not recording "${label}": the edit changed nothing`);
         return undefined;
       }
@@ -120,6 +139,7 @@ export function beginMethodEdit(
         sessionId: session.id,
         label,
         ...recorded,
+        ...(uncaptured > 0 ? { uncaptured } : {}),
       });
       logInfo(`[undo] recorded #${entry.id} "${label}" (${recorded.slots.length} slot(s))`);
       return entry;
@@ -184,7 +204,9 @@ export function beginMethodDeletion(
  *   recording?.commit(slotsActuallyRemoved);
  *
  * `commit` takes the slots that really went, so a run where some of them failed offers to
- * restore only those — never a method GemStone refused to remove.
+ * restore only those — never a method GemStone refused to remove. Pass back the slot objects
+ * this was given, not equal ones built afresh: the pairing is by identity, and a slot it
+ * cannot match is left out of the entry and counted in `uncaptured` instead.
  */
 export function beginMethodDeletions(
   session: ActiveSession,
