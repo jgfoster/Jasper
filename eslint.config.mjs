@@ -206,8 +206,8 @@ const OPTIONAL_GCI_CALL = Object.entries(GCI_OPTIONAL_FUNCTIONS).flatMap(([name,
 //
 // `client/src/__tests__/gci/**` is being deleted, not fixed -- every file
 // there logs in for itself, so the rule would only collect disables that
-// leave with the files. The other three are the unit tests *of* the bindings,
-// where constructing a `GciLibrary` is the point; all three mock `koffi`, so
+// leave with the files. The others are the unit tests *of* the bindings,
+// where constructing a `GciLibrary` is the point; all of them mock `koffi`, so
 // a call reaches a `vi.fn()` and never a stone -- no session to arm, nothing
 // for this rule to protect. Matched by basename, so moving one keeps its
 // exemption.
@@ -216,6 +216,7 @@ const HARNESS_SESSION_IGNORES = [
   '**/gciLoginQuiet.test.ts',
   '**/missingGciFunctions.test.ts',
   '**/optionalFuncSignature.test.ts',
+  '**/netldiPreload.test.ts',
 ];
 
 // Extracted so the capability-confinement block below can restate it: the
@@ -691,6 +692,30 @@ export default tseslint.config(
       '@typescript-eslint/no-restricted-imports': [
         'error',
         { patterns: [...NO_TELEMETRY_IN_SERVER_OR_MCP, TS_EXTENSION_IMPORT] },
+      ],
+    },
+  },
+  {
+    // The server-plugin scripts in client/bin/ load activeSession.ts under tsx
+    // with no extension host, so it must not import `vscode`. Placed after
+    // every other block configuring this rule, and restates TS_EXTENSION_IMPORT
+    // to keep that ban alive here (see TS_EXTENSION_IMPORT above for why). Only
+    // direct imports are caught; a transitive one still needs the plugin
+    // scripts' own run to surface it.
+    files: ['client/src/activeSession.ts'],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'vscode',
+              message:
+                'activeSession.ts must load outside the extension host (the server-plugin scripts import it), so it cannot import `vscode`.',
+            },
+          ],
+          patterns: [TS_EXTENSION_IMPORT],
+        },
       ],
     },
   },
