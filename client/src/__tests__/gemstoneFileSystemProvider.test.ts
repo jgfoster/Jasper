@@ -2157,6 +2157,40 @@ describe('parseUri', () => {
     });
   });
 
+  // `%` is a legal binary selector character, and a category is any string. The
+  // path arrives already decoded, so decoding it again threw on a lone '%' and
+  // turned a literal '%41' into 'A'. Round-tripped through toString, as VS Code
+  // hands the URI back.
+  it.each([
+    ['accessing', '%'],
+    ['accessing', '%%'],
+    ['accessing', '%41'],
+    ['accessing', '%/'],
+    ['50% off', 'foo'],
+    ['%41 literal', 'foo'],
+  ])('round-trips category %j with selector %j', (category, selector) => {
+    const uri = Uri.parse(
+      buildMethodUri({ ...method, isMeta: false, category, selector, environmentId: 0 }).toString(),
+    );
+
+    expect(parseUri(uri)).toMatchObject({ kind: 'method', category, selector });
+  });
+
+  it('lists a category containing "%" as a breadcrumb folder', () => {
+    const uri = Uri.parse(
+      buildMethodUri({
+        ...method,
+        isMeta: false,
+        category: '50% off',
+        selector: 'foo',
+        environmentId: 0,
+      }).toString(),
+    );
+    const folder = uri.with({ path: uri.path.slice(0, uri.path.lastIndexOf('/')) });
+
+    expect(parseDirUri(folder)).toMatchObject({ kind: 'category', category: '50% off' });
+  });
+
   it('marks the class side when the method is meta', () => {
     const uri = buildMethodUri({
       ...method,
@@ -2790,5 +2824,11 @@ describe('classCompiledTarget', () => {
 
   it('answers nothing for a URI too short to name a class', () => {
     expect(classCompiledTarget(Uri.parse('gemstone://1/Shared'))).toBeUndefined();
+  });
+
+  it('reads a dictionary name containing "%" as written', () => {
+    const uri = Uri.parse(buildClassDefinitionUri(1, '50%41', 'Shadowed').toString());
+
+    expect(classCompiledTarget(uri)).toMatchObject({ dictName: '50%41', className: 'Shadowed' });
   });
 });

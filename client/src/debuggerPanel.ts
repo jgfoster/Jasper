@@ -21,6 +21,7 @@ import { appendTranscriptOutput } from './transcriptChannel';
 import { buildLineStarts, stepPointAtOffset, StepPointInfo } from './stepPointModel';
 import { routeInspect, InspectorHandle } from './inspectRouter';
 import { logError, logInfo, logWarning } from './gciLog';
+import { buildMethodUri } from './gemstoneFileSystemProvider';
 import { NbCancelledError, NbRunOptions } from './nbRunner';
 import { extensionPathFrom } from './extensionPath';
 import { readWebviewScript } from './webviewAssets';
@@ -199,25 +200,27 @@ interface VarGroup {
 }
 
 /**
- * Build the `gemstone://` URI for a method's source, in the exact form the
- * GemStoneFileSystemProvider expects — and the same one the DAP
- * `stackTraceRequest` builds for its `Source.path`. Opening this URI gives the
+ * Build the `gemstone://` URI for a method's source. Opening this URI gives the
  * companion source editor all the real-editor features (syntax highlight,
  * senders/implementors, breakpoint gutters, compile-on-save).
  *
+ * Delegates to the FS provider's `buildMethodUri` because a '/' in the selector
+ * (`SmallInteger>>/`) or category (the stock `File I/O`) has to be escaped to
+ * survive the path: percent-encoded as `%2F` it decodes back to a separator.
+ *
  * Exported so the URI format is unit-testable independently of the panel.
- * (Sharing this resolution with the DAP path is review #5, a later Stage 1 item.)
  */
 export function buildMethodSourceUri(sessionId: number, uriInfo: debug.MethodUriInfo): string {
-  const side = uriInfo.isMeta ? 'class' : 'instance';
-  return (
-    `gemstone://${sessionId}` +
-    `/${encodeURIComponent(uriInfo.dictName)}` +
-    `/${encodeURIComponent(uriInfo.className)}` +
-    `/${side}` +
-    `/${encodeURIComponent(uriInfo.category)}` +
-    `/${encodeURIComponent(uriInfo.selector)}`
-  );
+  return buildMethodUri({
+    kind: 'method',
+    sessionId,
+    dictName: uriInfo.dictName,
+    className: uriInfo.className,
+    isMeta: uriInfo.isMeta,
+    category: uriInfo.category,
+    selector: uriInfo.selector,
+    environmentId: 0,
+  }).toString();
 }
 
 /** Resolved pieces of a frame label, before formatting. */
@@ -1962,11 +1965,9 @@ export class DebuggerPanel {
    * send — re-dispatching it into the new method. The user fills in the body.
    */
   /**
-   * Build a `gemstone://` method URI EXACTLY as GemStoneFileSystemProvider's
-   * `buildMethodUri` does — `vscode.Uri.from` (which leaves `:` un-encoded in the
-   * path), NOT `buildMethodSourceUri`'s `encodeURIComponent` (which yields `%3A`).
-   * The two produce different `.toString()`s for keyword selectors, so matching
-   * the FS provider's form is what lets us recognise (and close) the tab it opens.
+   * Build a `gemstone://` method URI with the FS provider's own `buildMethodUri` —
+   * the builder it uses for the tab it swaps in after a save — so the strings match
+   * and we can recognise (and close) that tab, even for a selector containing '/'.
    * `selector` may be `new-method` for the template URI. Env 0 (no query).
    */
   private gemstoneMethodUri(
@@ -1975,10 +1976,15 @@ export class DebuggerPanel {
     isMeta: boolean,
     selector: string,
   ): vscode.Uri {
-    return vscode.Uri.from({
-      scheme: 'gemstone',
-      authority: String(this.session.id),
-      path: `/${dictName}/${className}/${isMeta ? 'class' : 'instance'}/${DNU_METHOD_CATEGORY}/${selector}`,
+    return buildMethodUri({
+      kind: 'method',
+      sessionId: this.session.id,
+      dictName,
+      className,
+      isMeta,
+      category: DNU_METHOD_CATEGORY,
+      selector,
+      environmentId: 0,
     });
   }
 
@@ -1996,9 +2002,8 @@ export class DebuggerPanel {
     // selector 'new-method' makes this the FS provider's new-method template URI.
     const uri = this.gemstoneMethodUri(dnu.dictName, dnu.className, dnu.isMeta, 'new-method');
     // On a clean save the FS provider swaps the template tab to this real method
-    // URI — built EXACTLY as the provider builds it (vscode.Uri.from leaves ':'
-    // un-encoded, unlike buildMethodSourceUri's encodeURIComponent → '%3A'), so the
-    // strings match and closeSourceEditors actually closes it (else it lingered).
+    // URI — built in the provider's own form, so the strings match and
+    // closeSourceEditors actually closes it (else it lingered).
     const compiledUri = this.gemstoneMethodUri(
       dnu.dictName,
       dnu.className,

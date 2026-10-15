@@ -194,6 +194,7 @@ import { ActiveSession } from '../sessionManager';
 import { GemStoneLogin } from '../loginTypes';
 import { SMALLTALK_LANGUAGE } from '../languageIds';
 import { OOP_NIL } from '../gciConstants';
+import { buildMethodUri, parseUri } from '../gemstoneFileSystemProvider';
 
 const GS_PROCESS = 0x123n;
 const ERROR_MSG = 'a UndefinedObject does not understand #foo';
@@ -1475,6 +1476,36 @@ describe('DebuggerPanel', () => {
       expect(buildMethodSourceUri(7, { ...URI_INFO, isMeta: true })).toContain(
         '/JasperDebugDemo/class/',
       );
+    });
+
+    // Binary selectors and categories found in a stock stone. A '/' in either one,
+    // percent-encoded, decodes back to a separator: `SmallInteger>>/` opened as an
+    // empty "Arithmetic" editor, and `File I/O` split the category in two. The
+    // decoded path must keep exactly the six segments, and parse back unchanged.
+    it.each([
+      ['Arithmetic', '/'],
+      ['Arithmetic', '//'],
+      ['Arithmetic', '\\\\'],
+      ['Comparing', '~='],
+      ['Converting', '->'],
+      ['Logical Operations', '|'],
+      ['Logical Operations', '&'],
+      ['Concatenating', ','],
+      ['operators-mapping', '==>'],
+      ['File I/O', 'toServerTextFile:'],
+      ['Init / Release', 'initialize'],
+      ['*rowan-tonel-gemstone-kernel', '<<'],
+    ])('opens %s >> %s as that method', (category, selector) => {
+      const uri = vscode.Uri.parse(
+        buildMethodSourceUri(7, { ...URI_INFO, className: 'SmallInteger', category, selector }),
+      );
+      expect(uri.path.split('/')).toHaveLength(6);
+      expect(parseUri(uri)).toMatchObject({
+        kind: 'method',
+        className: 'SmallInteger',
+        category,
+        selector,
+      });
     });
 
     it('opens the method source (gemstone://) in a group BELOW the panel, keeping focus', async () => {
@@ -4807,8 +4838,8 @@ describe('DebuggerPanel', () => {
      * are DNU machinery (defaultAction, doesNotUnderstand:) so they're trimmed and
      * the topmost DISPLAYED frame — the re-enterable sender — is server level 3.
      */
-    function openWithDnu() {
-      vi.mocked(debug.getDoesNotUnderstandInfo).mockReturnValue(DNU);
+    function openWithDnu(dnu: typeof DNU = DNU) {
+      vi.mocked(debug.getDoesNotUnderstandInfo).mockReturnValue(dnu);
       vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
         if (oop === 1n) return { className: 'MessageNotUnderstood', selector: 'defaultAction' };
         if (oop === 2n) return { className: 'Object', selector: 'doesNotUnderstand:' };
@@ -4892,14 +4923,36 @@ describe('DebuggerPanel', () => {
       await flush();
       // The FS provider swaps the template tab to this real method URI on save —
       // built via vscode.Uri.from (keyword ':' left un-encoded). closeSourceEditors
-      // must match THIS form; buildMethodSourceUri's %3A encoding would not, and the
-      // tab would linger ("stuck around"). Guards that regression.
+      // must match THIS form, or the tab would linger ("stuck around"). Guards that
+      // regression.
       const compiledUri = vscode.Uri.from({
         scheme: 'gemstone',
         authority: '1',
         path: '/UserGlobals/JasperDebugDemo/instance/as yet unclassified/fourtyTwo:bar:',
       });
       const methodTab = { label: 'fourtyTwo:bar:', input: new vscode.TabInputText(compiledUri) };
+      const groups = vscode.window.tabGroups.all as unknown as {
+        viewColumn: number;
+        tabs: unknown[];
+      }[];
+      groups.push({ viewColumn: 9, tabs: [methodTab] });
+
+      closePanel(panel);
+      expect(vi.mocked(vscode.window.tabGroups.close)).toHaveBeenCalledWith(methodTab);
+    });
+
+    it('closes the created method tab for a selector containing "/"', async () => {
+      const panel = openWithDnu({ ...DNU, selector: '//', argCount: 1 });
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+      sendMessage(panel, { command: 'createDnuMethod' });
+      await flush();
+      // Swap the template for the compiled method exactly as the FS provider does
+      // on save: parse the template URI, rebuild it with the real selector.
+      const template = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      const parsed = parseUri(template);
+      if (parsed.kind !== 'new-method') throw new Error(`template parsed as ${parsed.kind}`);
+      const compiledUri = buildMethodUri({ ...parsed, kind: 'method', selector: '//' });
+      const methodTab = { label: '//', input: new vscode.TabInputText(compiledUri) };
       const groups = vscode.window.tabGroups.all as unknown as {
         viewColumn: number;
         tabs: unknown[];

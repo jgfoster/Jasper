@@ -1187,7 +1187,7 @@ export function activate(context: vscode.ExtensionContext) {
 
           const uri = event.uri;
           if (uri.scheme === 'gemstone') {
-            const parts = uri.path.split('/').map(decodeURIComponent);
+            const parts = uri.path.split('/');
             // parts: ['', dictName, className, side, category, selector] for a method.
             // A class comment is recognised by isClassCommentUri instead — it has two
             // path shapes, and that predicate lives beside the builder that emits them.
@@ -1207,10 +1207,11 @@ export function activate(context: vscode.ExtensionContext) {
               // carry no real class name, so skip those — the class-definition
               // event below handles class creation).
               if (className !== 'new-class') {
-                // parts[5] is the selector when the URI names a method; forwarding it
-                // lets the explorer refresh only that method's history panel instead
-                // of every panel open for the class.
-                explorer.onMethodCompiled(sessionId, className, parts[5]);
+                // The selector, when the URI names a method, lets the explorer refresh
+                // only that method's history panel instead of every panel open for the
+                // class. parseMethodUri, not parts[5]: the raw segment still carries the
+                // slash escape, so a `/` method's panel would never match.
+                explorer.onMethodCompiled(sessionId, className, parseMethodUri(uri)?.selector);
               }
             }
           }
@@ -1303,7 +1304,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     gemstoneFs.onClassDefinitionCompiled((e) => {
       // parts: ['', dictName, className, 'definition', …]
-      const parts = e.uri.path.split('/').map(decodeURIComponent);
+      const parts = e.uri.path.split('/');
       if (parts.length >= 3) sunitTestController.invalidateForClass(parts[1], parts[2]);
     }),
   );

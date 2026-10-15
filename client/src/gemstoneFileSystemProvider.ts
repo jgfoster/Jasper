@@ -104,7 +104,10 @@ export type ParsedUri =
 
 export function parseUri(uri: vscode.Uri): ParsedUri {
   const sessionId = parseInt(uri.authority, 10);
-  const parts = uri.path.split('/').map(decodeURIComponent);
+  // `uri.path` is already percent-decoded. Decoding a segment again would throw
+  // ("URI malformed") on a selector or category containing '%' — `%` is a legal
+  // binary selector — and silently turn a literal `%41` into `A`.
+  const parts = uri.path.split('/');
   // parts[0] is '' (leading /)
 
   // Parse optional ?env=N from query string
@@ -229,7 +232,7 @@ const SIDE_SEGMENTS = ['instance', 'class'];
 export function classCompiledTarget(
   uri: vscode.Uri,
 ): { sessionId: number; dictName: string; className: string; dictIndex?: number } | undefined {
-  const parts = uri.path.split('/').map(decodeURIComponent);
+  const parts = uri.path.split('/');
   if (parts.length < 3) return undefined;
   let dictIndex: number | undefined;
   try {
@@ -250,7 +253,7 @@ export function parseDirUri(uri: vscode.Uri): DirLevel | null {
   if (uri.scheme !== 'gemstone') return null;
   const sessionId = parseInt(uri.authority, 10);
   if (Number.isNaN(sessionId)) return null;
-  const parts = uri.path.split('/').map(decodeURIComponent);
+  const parts = uri.path.split('/');
   // parts[0] is '' (leading /). A bare authority or a lone '/' is the root.
   const dictMatch = uri.query?.match(/(?:^|&)dict=(\d+)(?:&|$)/);
   const dictIndex = dictMatch ? parseInt(dictMatch[1], 10) : undefined;
