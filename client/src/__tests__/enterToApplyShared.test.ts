@@ -13,9 +13,16 @@ import * as path from 'path';
  * three refactoring panels and the undo plan panel -- so a correction reached whichever copies
  * the person editing happened to know about.
  *
- * Two things are pinned, and they need each other. The structural tests say there is ONE copy
- * and that every panel loads it. The behavioural tests say what that one copy has to do, since
- * each of its rules is the product of a separate bug.
+ * Two things are pinned. Every panel host must LOAD the guard: a host that reads its panel
+ * script with `readWebviewScript` instead of `readPreviewPanelScript` leaves the panel calling
+ * a guard that was never loaded -- a runtime error in the webview that no type and no lint rule
+ * catches. And the behavioural tests say what the one copy has to do, since each of its rules is
+ * the product of a separate bug.
+ *
+ * What is NOT pinned is that the guard exists in only one place. A test cannot police
+ * duplication: it can only look where a copy used to be, or grep for a name a fresh copy need
+ * not use. Two cases here tried, proved a one-time fact about the change that shared the guard,
+ * and were dropped.
  *
  * The richer behavioural coverage sits in `refactoring/__tests__/renameMethodPanel.test.ts`,
  * against one panel; with the guard shared, that suite covers all four by construction. The
@@ -32,9 +39,6 @@ const PANEL_SCRIPTS = [
   'refactoring/instVarRefactorPanelView.js',
   'undo/undoPlanPanelView.js',
 ];
-
-/** The handler name the guard hangs its keyup listener on — its distinctive marker. */
-const ARMING_HANDLER = '__gsArmEnter';
 
 const filesUnder = (dir: string, extension: string): string[] =>
   fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -53,7 +57,12 @@ const read = (relative: string): string => fs.readFileSync(path.join(CLIENT_SRC,
 const relativeName = (file: string): string =>
   path.relative(CLIENT_SRC, file).split(path.sep).join('/');
 
-/** A host module and the panel script it loads. Found by scanning, so a new panel is covered. */
+/**
+ * A host module and the panel script it loads, found by scanning the sources.
+ *
+ * A new panel is covered only if it reuses one of `PANEL_SCRIPTS`; one with a view script of its
+ * own has to be added to that list before this will look at it.
+ */
 const PANEL_HOSTS: [string, string][] = filesUnder(CLIENT_SRC, '.ts').flatMap((file) => {
   const source = fs.readFileSync(file, 'utf8');
   const script = PANEL_SCRIPTS.map((s) => path.basename(s)).find((name) =>
@@ -62,19 +71,7 @@ const PANEL_HOSTS: [string, string][] = filesUnder(CLIENT_SRC, '.ts').flatMap((f
   return script ? [[relativeName(file), script]] : [];
 });
 
-describe('where the held-Enter guard lives', () => {
-  it('is defined in exactly one script', () => {
-    const defining = filesUnder(CLIENT_SRC, '.js')
-      .filter((file) => fs.readFileSync(file, 'utf8').includes(`${ARMING_HANDLER} = function`))
-      .map(relativeName);
-
-    expect(defining).toEqual(['webview/enterToApply.js']);
-  });
-
-  it.each(PANEL_SCRIPTS)('is no longer written out again in %s', (script) => {
-    expect(read(script)).not.toContain(`${ARMING_HANDLER} = function`);
-  });
-
+describe('every preview panel loads the shared guard', () => {
   it('finds the panel hosts (guards against a broken scan)', () => {
     const hosts = PANEL_HOSTS.map(([module]) => module);
     expect(hosts).toContain('refactoring/renameMethodPanel.ts');
@@ -192,16 +189,26 @@ describe('the shared guard', () => {
     expect(enter(apply, true)).toBe(true);
   });
 
-  it('replaces its listener when a panel re-renders instead of stacking another', () => {
-    // A panel arms on every render. Stacked keyup listeners arm the page from a keystroke that
-    // belongs to an earlier render of it.
-    const addEventListener = vi.spyOn(document, 'addEventListener');
-    const removeEventListener = vi.spyOn(document, 'removeEventListener');
+  it('applies through the button a re-render left, not the one it replaced', () => {
+    // A panel arms on every render, and the document outlives the render. The hazard is the
+    // KEYDOWN handler, not the keyup one: stacked keyup handlers would all set the same armed
+    // flag and do no harm, but a stale keydown handler fires first, clicks the detached button
+    // and preventDefaults, so the live handler sees defaultPrevented and returns -- and Enter
+    // looks dead. Asserted through what the page does, so it survives a change in how the
+    // listeners are stored.
+    const stale = apply;
+    const staleClicked = vi.fn();
+    stale.addEventListener('click', staleClicked);
 
-    shared().arm(document, apply);
+    mount();
+    const freshClicked = vi.fn();
+    apply.addEventListener('click', freshClicked);
+    release();
 
-    expect(removeEventListener).toHaveBeenCalledWith('keyup', expect.any(Function));
-    expect(addEventListener.mock.calls.filter(([type]) => type === 'keyup')).toHaveLength(1);
+    enter(document.body);
+
+    expect(freshClicked).toHaveBeenCalledTimes(1);
+    expect(staleClicked).not.toHaveBeenCalled();
   });
 
   it('arms the page even when the panel has no Apply button to guard', () => {
