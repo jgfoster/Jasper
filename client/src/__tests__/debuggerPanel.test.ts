@@ -1468,15 +1468,26 @@ describe('DebuggerPanel', () => {
     }
 
     it('builds a gemstone:// URI of the form scheme/dict/class/side/category/selector', () => {
-      expect(buildMethodSourceUri(7, URI_INFO)).toBe(
+      expect(buildMethodSourceUri(7, URI_INFO)?.toString()).toBe(
         'gemstone://7/UserGlobals/JasperDebugDemo/instance/accessing/accumulateFrom%3Ato%3A',
       );
     });
 
     it('uses the "class" side for metaclass methods', () => {
-      expect(buildMethodSourceUri(7, { ...URI_INFO, isMeta: true })).toContain(
+      expect(buildMethodSourceUri(7, { ...URI_INFO, isMeta: true })?.toString()).toContain(
         '/JasperDebugDemo/class/',
       );
+    });
+
+    // A dictionary or class name holding a '/' has no escape — unlike a selector
+    // or a category, parseUri never reverses one — so buildMethodUri refuses it.
+    // Answering undefined lets the caller fall back instead of throwing out of a
+    // best-effort reveal.
+    it.each([
+      ['dictionary', { dictName: 'App/Core' }],
+      ['class', { className: 'Foo/Bar' }],
+    ])('answers undefined when the %s name holds a slash', (_which, overrides) => {
+      expect(buildMethodSourceUri(7, { ...URI_INFO, ...overrides })).toBeUndefined();
     });
 
     // Binary selectors and categories found in a stock stone. A '/' in either one,
@@ -1497,9 +1508,14 @@ describe('DebuggerPanel', () => {
       ['Init / Release', 'initialize'],
       ['*rowan-tonel-gemstone-kernel', '<<'],
     ])('opens %s >> %s as that method', (category, selector) => {
-      const uri = vscode.Uri.parse(
-        buildMethodSourceUri(7, { ...URI_INFO, className: 'SmallInteger', category, selector }),
-      );
+      const uri = buildMethodSourceUri(7, {
+        ...URI_INFO,
+        className: 'SmallInteger',
+        category,
+        selector,
+      });
+      if (!uri) throw new Error('expected a URI');
+
       expect(uri.path.split('/')).toHaveLength(6);
       expect(parseUri(uri)).toMatchObject({
         kind: 'method',
@@ -1640,6 +1656,22 @@ describe('DebuggerPanel', () => {
         expect.anything(),
         SMALLTALK_LANGUAGE,
       );
+    });
+
+    it('falls back to the read-only view for a frame whose dictionary name holds a slash', async () => {
+      // buildMethodUri refuses such a name, and the throw used to land in
+      // revealFrameSource's best-effort try — so the frame opened nothing at all
+      // instead of the read-only view sitting right there.
+      const panel = openPanelWithStack();
+      vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce({
+        ...URI_INFO,
+        dictName: 'App/Core',
+      });
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      await flush();
+
+      const openUri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      expect(openUri.scheme).toBe('gemstone-debug');
     });
 
     it('titles a read-only NON-symbol-list method by its method name (C3: never mislabel as Executed Code)', async () => {

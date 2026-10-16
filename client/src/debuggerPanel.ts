@@ -210,17 +210,24 @@ interface VarGroup {
  *
  * Exported so the URI format is unit-testable independently of the panel.
  */
-export function buildMethodSourceUri(sessionId: number, uriInfo: debug.MethodUriInfo): string {
-  return buildMethodUri({
-    kind: 'method',
-    sessionId,
-    dictName: uriInfo.dictName,
-    className: uriInfo.className,
-    isMeta: uriInfo.isMeta,
-    category: uriInfo.category,
-    selector: uriInfo.selector,
-    environmentId: 0,
-  }).toString();
+export function buildMethodSourceUri(
+  sessionId: number,
+  uriInfo: debug.MethodUriInfo,
+): vscode.Uri | undefined {
+  try {
+    return buildMethodUri({
+      kind: 'method',
+      sessionId,
+      dictName: uriInfo.dictName,
+      className: uriInfo.className,
+      isMeta: uriInfo.isMeta,
+      category: uriInfo.category,
+      selector: uriInfo.selector,
+      environmentId: 0,
+    });
+  } catch {
+    return undefined;
+  }
 }
 
 /** Resolved pieces of a frame label, before formatting. */
@@ -3714,9 +3721,13 @@ export class DebuggerPanel {
       // method OOP. Doits run the user's raw code, so the displayed source is
       // always the stored source and offsets apply 1:1.
       let readOnlyOffsetMethodOop: bigint | undefined;
-      if (home.uriInfo) {
+      const editableUri = home.uriInfo
+        ? buildMethodSourceUri(this.session.id, home.uriInfo)
+        : undefined;
+      // uriInfo is retested so the compiler knows it isn't undefined below.
+      if (home.uriInfo && editableUri) {
         // In the symbol list → the real editable gemstone:// editor.
-        uri = vscode.Uri.parse(buildMethodSourceUri(this.session.id, home.uriInfo));
+        uri = editableUri;
         methodForOffsets = {
           className: home.uriInfo.className,
           isMeta: home.uriInfo.isMeta,
