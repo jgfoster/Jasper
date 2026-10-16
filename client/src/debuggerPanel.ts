@@ -208,6 +208,12 @@ interface VarGroup {
  * (`SmallInteger>>/`) or category (the stock `File I/O`) has to be escaped to
  * survive the path: percent-encoded as `%2F` it decodes back to a separator.
  *
+ * Answers undefined when the method's coordinates can't ride a URI path — a
+ * dictionary name holding a '/', which has no escape the way a selector or a
+ * category does — so the caller falls back to the read-only view. Logged rather
+ * than swallowed: any OTHER failure in here would turn edit-and-continue off
+ * just as quietly, and the log is the only place that would say so.
+ *
  * Exported so the URI format is unit-testable independently of the panel.
  */
 export function buildMethodSourceUri(
@@ -225,7 +231,11 @@ export function buildMethodSourceUri(
       selector: uriInfo.selector,
       environmentId: 0,
     });
-  } catch {
+  } catch (e: unknown) {
+    logWarning(
+      `[GemStone Debugger] no source URI for ${uriInfo.className}>>#${uriInfo.selector}: ` +
+        `${e instanceof Error ? e.message : String(e)}`,
+    );
     return undefined;
   }
 }
@@ -1976,23 +1986,45 @@ export class DebuggerPanel {
    * the builder it uses for the tab it swaps in after a save — so the strings match
    * and we can recognise (and close) that tab, even for a selector containing '/'.
    * `selector` may be `new-method` for the template URI. Env 0 (no query).
+   *
+   * Answers undefined when the dictionary name holds a '/' — GemStone accepts
+   * `App/Core` as a dictionary name, and a URI path can't carry it. Callers show
+   * the banner instead; throwing from here reached a `void`-invoked handler, so
+   * the command died with nothing on screen.
    */
   private gemstoneMethodUri(
     dictName: string,
     className: string,
     isMeta: boolean,
     selector: string,
-  ): vscode.Uri {
-    return buildMethodUri({
-      kind: 'method',
-      sessionId: this.session.id,
-      dictName,
-      className,
-      isMeta,
-      category: DNU_METHOD_CATEGORY,
-      selector,
-      environmentId: 0,
-    });
+  ): vscode.Uri | undefined {
+    try {
+      return buildMethodUri({
+        kind: 'method',
+        sessionId: this.session.id,
+        dictName,
+        className,
+        isMeta,
+        category: DNU_METHOD_CATEGORY,
+        selector,
+        environmentId: 0,
+      });
+    } catch (e: unknown) {
+      logWarning(
+        `[GemStone Debugger] no method URI for ${className}>>#${selector} in ${dictName}: ` +
+          `${e instanceof Error ? e.message : String(e)}`,
+      );
+      return undefined;
+    }
+  }
+
+  /** The banner for a dictionary whose name a URI path can't carry; `verb` is the
+   *  command the user pressed ("create", "implement"). */
+  private slashedDictionaryMessage(verb: string, selector: string, dictName: string): string {
+    return (
+      `Can't ${verb} #${selector}: the dictionary ${dictName} has a '/' in its name, ` +
+      "which a method's source URI can't carry. Rename the dictionary to edit its methods here."
+    );
   }
 
   private async createDnuMethod(): Promise<void> {
@@ -2017,6 +2049,11 @@ export class DebuggerPanel {
       dnu.isMeta,
       dnu.selector,
     );
+    if (!uri || !compiledUri) {
+      this.errorMessage = this.slashedDictionaryMessage('create', dnu.selector, dnu.dictName);
+      this.postInit();
+      return;
+    }
     try {
       await this.openTemplateEditor(uri, buildMethodStub(dnu.selector, dnu.argCount));
       this.pendingDnuMethodUri = uri.toString();
@@ -2315,6 +2352,11 @@ export class DebuggerPanel {
     const openUri = editingExisting
       ? compiledUri
       : this.gemstoneMethodUri(target.dictName, target.className, target.isMeta, 'new-method');
+    if (!compiledUri || !openUri) {
+      this.errorMessage = this.slashedDictionaryMessage('implement', selector, target.dictName);
+      this.postInit();
+      return;
+    }
     logInfo(
       `[GemStone Debugger] implement #${selector} in ${target.className} ` +
         `(${editingExisting ? 'edit existing' : 'new method'}); from ` +

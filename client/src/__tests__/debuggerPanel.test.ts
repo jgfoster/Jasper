@@ -1490,6 +1490,21 @@ describe('DebuggerPanel', () => {
       expect(buildMethodSourceUri(7, { ...URI_INFO, ...overrides })).toBeUndefined();
     });
 
+    it('logs what it swallowed, naming the method', () => {
+      // The catch covers any failure in buildMethodUri, not only the slash check,
+      // so a future one would turn edit-and-continue off with nothing said.
+      vi.mocked(logWarning).mockClear();
+
+      buildMethodSourceUri(7, { ...URI_INFO, dictName: 'App/Core' });
+
+      const warning = vi
+        .mocked(logWarning)
+        .mock.calls.map((c) => String(c[0]))
+        .join('\n');
+      expect(warning).toContain(URI_INFO.selector);
+      expect(warning).toContain("must not contain '/'");
+    });
+
     // Binary selectors and categories found in a stock stone. A '/' in either one,
     // percent-encoded, decodes back to a separator: `SmallInteger>>/` opened as an
     // empty "Arithmetic" editor, and `File I/O` split the category in two. The
@@ -4998,6 +5013,66 @@ describe('DebuggerPanel', () => {
       expect(vi.mocked(vscode.window.tabGroups.close)).toHaveBeenCalledWith(methodTab);
     });
 
+    // GemStone accepts `App/Core` as a dictionary name (verified on 3.6.2), and a
+    // URI path can't carry it. Building the URI threw out of a `void`-invoked
+    // handler, so Create died with nothing on screen and an unhandled rejection.
+    describe('a dictionary name holding a slash', () => {
+      const SLASHED = { ...DNU, dictName: 'App/Core' };
+
+      it('explains the refusal in the banner, naming the dictionary and the selector', async () => {
+        const panel = openWithDnu(SLASHED);
+
+        sendMessage(panel, { command: 'createDnuMethod' });
+        await flush();
+
+        const message = String(lastPosted(panel, 'init').errorMessage);
+        expect(message).toContain('App/Core');
+        expect(message).toContain(`#${DNU.selector}`);
+        expect(message).toContain("'/'");
+      });
+
+      it('reports back to the panel rather than dying silently', async () => {
+        // Asserting "no editor opened" alone would pass against the throw too —
+        // nothing opened then either. What changed is that the panel hears about it.
+        const panel = openWithDnu(SLASHED);
+        vi.mocked(vscode.workspace.openTextDocument).mockClear();
+        const before = posted(panel, 'init').length;
+
+        sendMessage(panel, { command: 'createDnuMethod' });
+        await flush();
+
+        expect(posted(panel, 'init').length).toBe(before + 1);
+        expect(vscode.workspace.openTextDocument).not.toHaveBeenCalled();
+      });
+
+      it('logs the reason, so the banner is not the only record', async () => {
+        const panel = openWithDnu(SLASHED);
+        vi.mocked(logWarning).mockClear();
+
+        sendMessage(panel, { command: 'createDnuMethod' });
+        await flush();
+
+        expect(
+          vi
+            .mocked(logWarning)
+            .mock.calls.map((c) => String(c[0]))
+            .join('\n'),
+        ).toContain("must not contain '/'");
+      });
+
+      it('still opens the template when the dictionary name is ordinary', async () => {
+        // The guard must refuse the slash case ONLY — a banner on every Create
+        // would pass the three tests above just as well.
+        const panel = openWithDnu();
+        vi.mocked(vscode.workspace.openTextDocument).mockClear();
+
+        sendMessage(panel, { command: 'createDnuMethod' });
+        await flush();
+
+        expect(vscode.workspace.openTextDocument).toHaveBeenCalled();
+      });
+    });
+
     it('does NOT trim (and keeps the template pending) when the compile fails', async () => {
       const panel = openWithDnu();
       vi.mocked(vscode.workspace.openTextDocument).mockClear();
@@ -5180,6 +5255,21 @@ describe('DebuggerPanel', () => {
 
       expect(vscode.workspace.openTextDocument).not.toHaveBeenCalled();
       expect(lastPosted(panel, 'init').errorMessage).toMatch(/symbol list/i);
+    });
+
+    it('refuses to implement when the target dictionary name holds a slash', async () => {
+      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce([
+        { className: 'SmallInteger', isMeta: false, dictName: 'App/Core' },
+      ]);
+      const panel = openPanel();
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+      sendMessage(panel, { command: 'implementInReceiver', level: 2 });
+      await flush();
+
+      expect(vscode.workspace.openTextDocument).not.toHaveBeenCalled();
+      const message = String(lastPosted(panel, 'init').errorMessage);
+      expect(message).toContain('App/Core');
+      expect(message).toContain("'/'");
     });
 
     // The receiver (Interval) chain for #asOrderedCollection: two override targets
@@ -5445,6 +5535,26 @@ describe('DebuggerPanel', () => {
       const payload = initPayload(openPanel());
       expect(payload.subclassResp).toBeUndefined();
       expect(payload.dnu).toBeDefined();
+    });
+
+    it('refuses with a banner when the picked dictionary name holds a slash', async () => {
+      setUpSubclassRespStack();
+      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce(
+        SR_CHAIN.map((c) => ({ ...c, dictName: 'App/Core' })),
+      );
+      vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
+        async (items: unknown) => (items as { index: number }[])[0] as never,
+      );
+      const panel = openPanel();
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+
+      sendMessage(panel, { command: 'implementSubclassResponsibility' });
+      await flush();
+
+      expect(vscode.workspace.openTextDocument).not.toHaveBeenCalled();
+      const message = String(lastPosted(panel, 'init').errorMessage);
+      expect(message).toContain('App/Core');
+      expect(message).toContain("'/'");
     });
 
     it('QuickPicks the chain BOUNDED at the abstract definer, then opens a stub', async () => {
