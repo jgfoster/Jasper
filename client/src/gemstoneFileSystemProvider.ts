@@ -290,7 +290,10 @@ export function parseDirUri(uri: vscode.Uri): DirLevel | null {
       dictName: parts[1],
       className: parts[2],
       isMeta: parts[3] === 'class',
-      category: parts[4],
+      // The segment carries the slash sentinel, as parseUri's does: reverse it so
+      // the category reads as GemStone names it (`File I/O`, not `File I⁄O`) and
+      // compares equal to the one on a MethodItem.
+      category: unescapeSelectorSlashes(parts[4]),
       dictIndex,
     };
   }
@@ -790,9 +793,12 @@ export class GemStoneFileSystemProvider implements vscode.FileSystemProvider {
             ['definition', File],
           ];
         case 'side':
+          // Escaped like the selectors below: VS Code appends the name it is given
+          // to the path, so a raw '/' in a category would open a folder one level
+          // too deep instead of that category.
           return queries
             .getMethodCategories(session, dir.className, dir.isMeta, dir.dictIndex ?? dir.dictName)
-            .map((c): [string, vscode.FileType] => [c, Directory]);
+            .map((c): [string, vscode.FileType] => [escapeSelectorSlashes(c), Directory]);
         case 'category':
           return queries
             .getMethodList(session, dir.className)

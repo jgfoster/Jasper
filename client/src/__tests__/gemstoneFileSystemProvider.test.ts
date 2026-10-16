@@ -245,6 +245,16 @@ describe('GemStoneFileSystemProvider', () => {
       );
     });
 
+    it('reverses the slash sentinel so a category crumb matches the real category name', () => {
+      // The path segment carries `File I⁄O`; a MethodItem's category says `File I/O`.
+      // Without the reversal the two never compare equal and the crumb lists nothing.
+      const uri = Uri.parse(
+        `gemstone://1/Globals/SmallInteger/instance/${escapeSelectorSlashes('File I/O')}`,
+      );
+
+      expect(parseDirUri(uri)).toMatchObject({ kind: 'category', category: 'File I/O' });
+    });
+
     it('carries the ?dict index into deeper levels for scoped lookups', () => {
       expect(parseDirUri(Uri.parse('gemstone://1/Globals/Array?dict=7'))).toMatchObject({
         kind: 'class',
@@ -339,6 +349,35 @@ describe('GemStoneFileSystemProvider', () => {
       );
       expect(entries).toEqual([[escapeSelectorSlashes('/'), 1]]);
       expect(entries[0][0]).not.toContain('/');
+    });
+
+    it('escapes slashes in method categories so they stay one path segment', () => {
+      vi.mocked(queries.getMethodCategories).mockReturnValueOnce(['File I/O', 'accessing']);
+      const entries = provider.readDirectory(
+        Uri.parse('gemstone://1/Globals/SmallInteger/instance'),
+      );
+
+      expect(entries).toEqual([
+        [escapeSelectorSlashes('File I/O'), 2],
+        ['accessing', 2],
+      ]);
+      expect(entries[0][0]).not.toContain('/');
+    });
+
+    it('lists the methods of a category containing a slash, picked from the side crumb', () => {
+      // The full breadcrumb round trip: the name readDirectory hands VS Code for the
+      // side level is appended to the path, and must drill back into that category.
+      vi.mocked(queries.getMethodCategories).mockReturnValueOnce(['File I/O']);
+      vi.mocked(queries.getMethodList).mockReturnValueOnce([
+        { isMeta: false, category: 'File I/O', selector: 'toServerTextFile:' },
+        { isMeta: false, category: 'accessing', selector: 'at:' },
+      ]);
+      const side = Uri.parse('gemstone://1/Globals/SmallInteger/instance');
+      const [[categoryName]] = provider.readDirectory(side);
+
+      const entries = provider.readDirectory(side.with({ path: `${side.path}/${categoryName}` }));
+
+      expect(entries).toEqual([['toServerTextFile:', 1]]);
     });
 
     it('returns an empty listing when a query throws (no broken breadcrumb)', () => {
