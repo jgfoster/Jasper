@@ -45,6 +45,14 @@ export const GCI_LOGIN_QUIET = 0x10;
 // The session pointer passed to a GCI call doesn't identify a live session --
 // e.g. it was already logged out (and freed) or never valid to begin with.
 export const GCI_ERR_BAD_SESSION_ID = 4100;
+// A GCI call was made before a previous non-blocking call on the session
+// completed. A logout while a blocking call runs on another thread answers
+// it too, and leaves the session usable (verified on 3.6.2, 3.6.8, 3.7.2,
+// 3.7.4.3 and 3.7.5).
+export const GCI_ERR_OP_IN_PROGRESS = 2203;
+// The Data Curator is shutting this session down (gcierr.ht). A logout of a gem
+// the stone already stopped answers it.
+export const GS_ERR_SESSION_SHUTDOWN = 4059;
 
 // Class OOPs (from gcioop.ht)
 export const OOP_CLASS_STRING = 74753n;

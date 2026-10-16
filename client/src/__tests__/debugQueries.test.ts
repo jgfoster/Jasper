@@ -847,8 +847,9 @@ describe('debugQueries', () => {
         expect(() => debug.evaluateInFrame(session, GS_PROCESS, 'limit', 3)).toThrow(unreadable);
       });
 
-      // evaluateInFrameNb is not an `async` function, so a synchronous throw out
-      // of the frame setup would bypass the caller's promise chain entirely.
+      // Guards against evaluateInFrameNb losing its `async`: without it, a
+      // synchronous throw out of the frame setup would bypass the caller's
+      // promise chain entirely.
       it('rejects the non-blocking evaluation rather than throwing out of the call', async () => {
         const { session, gci } = evalSession();
         (gci.executeAndFetchString as ReturnType<typeof vi.fn>).mockReturnValue('');
