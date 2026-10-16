@@ -5,7 +5,7 @@ vi.mock('vscode', () => ({
 }));
 
 import { ActiveSession } from '../../sessionManager';
-import { GemStoneLogin } from '../../loginTypes';
+import { fakeActiveSession } from '../../__tests__/fakeActiveSession';
 import {
   _resetAutoCommitStateForTests,
   getAutoCommitStatus,
@@ -23,13 +23,13 @@ const OK = { success: true, err: { number: 0, message: '' } };
 const CONFLICT = { success: false, err: { number: 2261, message: 'commit failed - conflicts' } };
 
 function makeSession(id = 1, commit = vi.fn(() => OK)): ActiveSession {
-  return {
+  return fakeActiveSession({
     id,
-    gci: { GciTsCommit: commit } as unknown as ActiveSession['gci'],
+    gci: { GciTsCommit: commit },
     handle: {},
-    login: { label: 'Test' } as GemStoneLogin,
+    login: { label: 'Test' },
     stoneVersion: '3.7.2',
-  };
+  });
 }
 
 beforeEach(() => {

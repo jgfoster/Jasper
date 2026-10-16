@@ -16,6 +16,7 @@ import * as q from '../../browserQueries';
 import { evalPython, compilePython } from '../python';
 import type { ActiveSession } from '../../sessionManager';
 import { requireGrail, requireGrailAbsent } from './support/grailAvailability';
+import { testActiveSession } from '../../__tests__/testActiveSession';
 
 describe('python queries (integration)', () => {
   let gci: GciLibrary;
@@ -25,7 +26,7 @@ describe('python queries (integration)', () => {
     handle = testContext.session;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
   const exec = (code: string): string => q.executeFetchString(session(), code);
 
   describe('eval_python', () => {

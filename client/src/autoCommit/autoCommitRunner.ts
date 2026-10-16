@@ -78,7 +78,7 @@ function reportFailure(session: ActiveSession, reason: string): void {
  */
 function commitNow(session: ActiveSession): AutoCommitOutcome {
   try {
-    const { success, err } = session.gci.GciTsCommit(session.handle);
+    const { success, err } = session.GciTsCommit();
     if (success) {
       logInfo(`[autoCommit] session ${session.id}: committed`);
       return 'committed';

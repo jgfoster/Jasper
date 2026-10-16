@@ -66,7 +66,7 @@ async function armAutoCommit(session: ActiveSession): Promise<boolean> {
     );
     if (choice !== COMMIT_FIRST && choice !== ARM_ANYWAY) return false;
     if (choice === COMMIT_FIRST) {
-      const { success, err } = session.gci.GciTsCommit(session.handle);
+      const { success, err } = session.GciTsCommit();
       if (!success) {
         void vscode.window.showErrorMessage(
           `Session ${session.id}: that commit failed — ${err.message || `error ${err.number}`}. ` +

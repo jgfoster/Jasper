@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('vscode', () => import('../../__mocks__/vscode.js'));
+vi.mock('../../classOrganizerCache', () => ({ dropCachedClassOrganizer: vi.fn() }));
 vi.mock('../refactoringUndoAvailability', () => ({
   checkRefactoringUndoAvailable: vi.fn(),
   warnUndoUnsupported: vi.fn(),
@@ -8,6 +9,7 @@ vi.mock('../refactoringUndoAvailability', () => ({
 import * as vscode from 'vscode';
 import { checkRefactoringUndoAvailable, warnUndoUnsupported } from '../refactoringUndoAvailability';
 import { notifyRefactoringApplied } from '../refactoringAppliedToast';
+import { dropCachedClassOrganizer } from '../../classOrganizerCache';
 import { UNDO_COMMAND } from '../../undo/undoUi';
 import { REFACTORING_APPLIED_COMMAND } from '../refactoringAppliedEvent';
 import { peekUndoEntry, resetUndoStacks } from '../../undo/undoStack';
@@ -18,6 +20,7 @@ import {
   setAutoCommitStatus,
 } from '../../autoCommit/autoCommitState';
 import { setAutoCommitFailureHandler } from '../../autoCommit/autoCommitRunner';
+import { fakeActiveSession } from '../../__tests__/fakeActiveSession';
 
 /**
  * The shared post-apply notice (#434). This is where an applied refactoring joins Jasper's
@@ -33,7 +36,15 @@ const OK = { success: true, err: { number: 0, message: '' } };
 // notice actually did. The other tests here never arm it, so `GciTsCommit` goes uncalled.
 let commit = vi.fn(() => OK);
 const makeSession = (id = 7): ActiveSession =>
-  ({ id, gci: { GciTsCommit: commit }, handle: {} }) as unknown as ActiveSession;
+  fakeActiveSession({
+    id,
+    gci: {
+      get GciTsCommit() {
+        return commit;
+      },
+    },
+    handle: {},
+  });
 const session = makeSession();
 const status = (available: boolean, supported = true) => ({
   available,
@@ -89,6 +100,17 @@ describe('notifyRefactoringApplied — announcing the change to the UI', () => {
     await settle();
 
     expect(vscode.commands.executeCommand).toHaveBeenCalledWith(REFACTORING_APPLIED_COMMAND, 7);
+  });
+
+  it('leaves the cached class list alone', async () => {
+    // It ends every refactoring, method-level ones included; the class-level applies drop the
+    // cache themselves, in the doit that changes the classes (classCacheAfterApply tests).
+    vi.mocked(checkRefactoringUndoAvailable).mockReturnValue(status(false));
+
+    notifyRefactoringApplied(session, 'Renamed.');
+    await settle();
+
+    expect(dropCachedClassOrganizer).not.toHaveBeenCalled();
   });
 
   it('carries the session id, so only that session’s panels re-fetch', async () => {

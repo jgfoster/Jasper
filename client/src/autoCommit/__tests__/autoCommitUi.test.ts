@@ -13,7 +13,7 @@ vi.mock('../../browserQueries', () => ({
 
 import * as vscode from 'vscode';
 import { ActiveSession, SessionManager } from '../../sessionManager';
-import { GemStoneLogin } from '../../loginTypes';
+import { fakeActiveSession } from '../../__tests__/fakeActiveSession';
 import * as queries from '../../browserQueries';
 import {
   _resetAutoCommitStateForTests,
@@ -33,13 +33,13 @@ import { __resetConfig, __setConfig } from '../../__mocks__/vscode';
 const OK = { success: true, err: { number: 0, message: '' } };
 
 function makeSession(id = 1, commit = vi.fn(() => OK)): ActiveSession {
-  return {
+  return fakeActiveSession({
     id,
-    gci: { GciTsCommit: commit } as unknown as ActiveSession['gci'],
+    gci: { GciTsCommit: commit },
     handle: {},
-    login: { label: 'Test' } as GemStoneLogin,
+    login: { label: 'Test' },
     stoneVersion: '3.7.2',
-  };
+  });
 }
 
 function managerFor(session: ActiveSession | undefined): SessionManager {

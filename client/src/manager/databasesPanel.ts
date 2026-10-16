@@ -30,12 +30,8 @@ import { DatabaseManager } from './databaseManager';
 import { VersionManager, CatalogEntry } from './versionManager';
 import { DiscoveredServer, ProcessManager, versionsMatch } from './processManager';
 import { REGISTERED_REASON, isRegisteredDatabase, registeredPaths } from './registeredDatabase';
-import {
-  needsWsl,
-  getWslInfoAsync,
-  invalidateWslCache,
-  invalidateWslNetworkCache,
-} from '../wslBridge';
+import { needsWsl, getWslInfoAsync, invalidateWslNetworkCache } from '../wslBridge';
+import { recheckWsl } from '../wslRecheck';
 import { wslStatFilesSync } from '../wslFs';
 import { GemStoneVersion, GemStoneDatabase, GemStoneProcess } from '../sysadminTypes';
 import { GemStoneLogin, loginLabel, dataCuratorLoginToCreate } from '../loginTypes';
@@ -96,8 +92,10 @@ interface VersionRow {
   extracted: boolean;
   local?: boolean;
   bundled?: boolean;
-  /** A Windows client for this version is extracted — it can be opened or removed. */
+  /** The files a login needs for this version are on disk — they can be opened or removed. */
   clientExtracted?: boolean;
+  /** Bytes those files take on disk. */
+  clientSize?: number;
 }
 
 interface ProcInfo {
@@ -256,6 +254,33 @@ interface CreateOptions {
 const OPENABLE_SETTINGS = ['gemstone.rootPath'];
 
 /**
+ * How much bigger an unpacked server is than its archive. The download page
+ * lists only the archive, so the install picker estimates the rest. Measured
+ * from the zips' own directories: 2.8× (3.7.0) to 3.3× (3.5.8), 2.9× for
+ * 3.7.5 and 3.7.6.
+ */
+const UNPACKED_PER_DOWNLOADED = 3;
+
+/** A catalog size in the picker's unit: gigabytes, to one place. */
+function gigabytes(bytes: number): string {
+  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+}
+
+/**
+ * Why a server cannot be installed here, or undefined when it can. GemStone
+ * has no Windows build, so on Windows the server goes into WSL — without it an
+ * install would download half a gigabyte and then fail to unpack.
+ */
+async function serverInstallBlocker(): Promise<string | undefined> {
+  if (!needsWsl() || (await getWslInfoAsync()).available) return undefined;
+  return (
+    'Installing a GemStone server on Windows needs Windows Subsystem for Linux (WSL), ' +
+    'which is not available. To log in to a stone on another machine, use Download ' +
+    'Client Libraries… instead.'
+  );
+}
+
+/**
  * Which settings layer supplied a value — in the words the Settings editor uses
  * — and the command that opens the editor on that layer.
  *
@@ -319,10 +344,23 @@ export async function chooseRootFolder(): Promise<string | undefined> {
   return picked[0].fsPath;
 }
 
+/**
+ * Said instead of "nothing left to get" when the catalog fetch failed: the list
+ * then holds only what is on disk, so an empty one proves nothing.
+ */
+const CATALOG_UNREACHABLE =
+  'Jasper could not reach GemTalk’s download site, so it cannot list the versions to ' +
+  'download. Check the connection and try again; the GemStone Admin output has the reason.';
+
 interface PanelState {
   platform: string;
-  /** Windows with WSL — where the client install and Copy Host actions mean anything. */
+  /**
+   * A Windows host. Its server installs are Linux builds a Windows login cannot
+   * load, so the login files are offered beside them; Copy Host means anything only here.
+   */
   windows: boolean;
+  /** Why Install Version… is off, when it is: a Windows host without WSL. */
+  installBlocked?: string;
   rootPath: string;
   /** Why the root path cannot be read, when it cannot. A folder Jasper cannot
    *  open lists nothing, which is indistinguishable from an empty one until
@@ -350,10 +388,11 @@ type Inbound =
   | { command: 'unregisterLocalVersion'; version: string }
   | { command: 'openVersionFolder'; version: string }
   | { command: 'openVersionTerminal'; version: string }
-  | { command: 'installWindowsClient'; version: string }
-  | { command: 'openWindowsClientFolder'; version: string }
-  | { command: 'deleteWindowsClient'; version: string }
+  | { command: 'installClient'; version: string }
+  | { command: 'openClientFolder'; version: string }
+  | { command: 'deleteClient'; version: string }
   | { command: 'installNewVersion' }
+  | { command: 'downloadVersionFiles' }
   | {
       command: 'createDatabase';
       version: string;
@@ -748,9 +787,8 @@ export class DatabasesPanel {
         // refresh has to forget them, or a machine stays "WSL not reachable"
         // after the user has made it reachable.
         if (needsWsl()) {
-          invalidateWslCache();
           invalidateWslNetworkCache();
-          await getWslInfoAsync();
+          await recheckWsl();
         }
         await this.postState();
         return;
@@ -772,14 +810,17 @@ export class DatabasesPanel {
       case 'openVersionTerminal':
         await this.versionCommand('gemstone.openVersionTerminal', msg.version);
         return;
-      case 'installWindowsClient':
-        await this.versionCommand('gemstone.downloadWindowsClient', msg.version);
+      case 'installClient':
+        await this.versionCommand('gemstone.downloadClient', msg.version);
         return;
-      case 'openWindowsClientFolder':
-        await this.versionCommand('gemstone.openWindowsClientFolder', msg.version);
+      case 'openClientFolder':
+        await this.versionCommand('gemstone.openClientFolder', msg.version);
         return;
-      case 'deleteWindowsClient':
-        await this.versionCommand('gemstone.deleteWindowsClientExtracted', msg.version);
+      case 'deleteClient':
+        await this.versionCommand('gemstone.deleteClient', msg.version);
+        return;
+      case 'downloadVersionFiles':
+        await this.downloadVersionFiles();
         return;
       case 'copyNetldiHost':
         await this.processCommand('gemstone.copyNetldiHost', msg.dirName, msg.name);
@@ -980,11 +1021,20 @@ export class DatabasesPanel {
    * answer to choosing from a long list — rather than rendered into the panel.
    */
   private async installNewVersion(): Promise<void> {
+    // The button is disabled then, but a message can still arrive from a panel
+    // drawn before WSL went away.
+    const blocked = await serverInstallBlocker();
+    if (blocked) {
+      vscode.window.showInformationMessage(blocked);
+      return;
+    }
     await this.buildVersions('remote');
     const candidates = this.lastVersions.filter((v) => !v.extracted && !v.downloaded && !v.local);
     if (!candidates.length) {
       vscode.window.showInformationMessage(
-        'Every available GemStone version is already installed.',
+        this.catalog
+          ? 'Every available GemStone version is already installed.'
+          : CATALOG_UNREACHABLE,
       );
       return;
     }
@@ -992,7 +1042,12 @@ export class DatabasesPanel {
       candidates.map((v) => ({
         label: v.version,
         description: v.date,
-        detail: v.size ? `${(v.size / 1024 ** 3).toFixed(1)} GB download` : undefined,
+        // The whole server, said so: the client libraries are a separate, much
+        // smaller download, and a bare size here read as theirs.
+        detail: v.size
+          ? `Full server · ${gigabytes(v.size)} download · ` +
+            `about ${gigabytes(v.size * UNPACKED_PER_DOWNLOADED)} installed`
+          : undefined,
       })),
       {
         title: 'Install a GemStone version',
@@ -1001,6 +1056,36 @@ export class DatabasesPanel {
     );
     if (!picked) return;
     await this.installVersion(picked.label);
+  }
+
+  /**
+   * Getting only what a login to a remote stone needs: the same command as the
+   * login page's download, offered for every version that does not have it yet.
+   * Off Windows a full install already serves logins, so it is not offered again.
+   */
+  private async downloadVersionFiles(): Promise<void> {
+    await this.buildVersions('remote');
+    const windows = needsWsl();
+    const candidates = this.lastVersions.filter(
+      (v) => !v.clientExtracted && (windows || !(v.extracted || v.local)),
+    );
+    if (!candidates.length) {
+      vscode.window.showInformationMessage(
+        this.catalog
+          ? 'Jasper can already log in to every GemStone version available.'
+          : CATALOG_UNREACHABLE,
+      );
+      return;
+    }
+    const picked = await vscode.window.showQuickPick(
+      candidates.map((v) => ({ label: v.version, description: v.date })),
+      {
+        title: 'Download Client Libraries',
+        placeHolder: 'The GemStone version of the stone you are connecting to',
+      },
+    );
+    if (!picked) return;
+    await this.versionCommand('gemstone.downloadClient', picked.label);
   }
 
   /**
@@ -1647,6 +1732,7 @@ export class DatabasesPanel {
     return {
       platform: this.deps.storage.getPlatformKey() ?? process.platform,
       windows: needsWsl(),
+      installBlocked: await serverInstallBlocker(),
       rootPath: this.deps.storage.getRootPath(),
       rootProblem: this.deps.storage.rootPathProblem(),
       rootFrom: settingLayer('rootPath').label,
@@ -1790,6 +1876,7 @@ export class DatabasesPanel {
       local: v.local,
       bundled: v.bundled,
       clientExtracted: v.clientExtracted,
+      clientSize: v.clientSize,
     }));
   }
 
@@ -1900,6 +1987,8 @@ body {
 .badge-state.state-local { color: var(--vscode-charts-blue, #4daafc); }
 .badge-state.state-downloaded { color: var(--gm-warn); }
 .badge-state.state-available { color: var(--vscode-descriptionForeground, #9d9d9d); }
+/* A theme color, so it reads on light and dark backgrounds alike. */
+.badge-state.state-client { color: var(--vscode-charts-purple, #b180d7); }
 
 /* ── Sections (native disclosure) ─────────────────────────────────────────── */
 .section { margin: 0 0 18px; border: 1px solid var(--gm-line); border-radius: 6px; overflow: hidden; }

@@ -346,7 +346,7 @@ export class BrowserQueryError extends Error {
 }
 
 function resolveClassUtf8(session: ActiveSession): bigint {
-  return session.gci.utf8ClassOop(session.handle);
+  return session.utf8ClassOop();
 }
 
 // Evaluates `code` and fetches its result as a UTF-8 string via
@@ -356,7 +356,7 @@ function resolveClassUtf8(session: ActiveSession): bigint {
 // single fixed-size buffer.
 export function executeFetchString(session: ActiveSession, code: string): string {
   // Check if session is busy with an async operation (e.g., Display It)
-  const { result: inProgress } = session.gci.GciTsCallInProgress(session.handle);
+  const { result: inProgress } = session.GciTsCallInProgress();
   if (inProgress !== 0) {
     const msg = 'Session is busy with another operation. Please wait or use a different session.';
     logError(session.id, msg);
@@ -364,7 +364,7 @@ export function executeFetchString(session: ActiveSession, code: string): string
   }
 
   try {
-    return session.gci.executeAndFetchString(session.handle, code);
+    return session.executeAndFetchString(code);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     logError(session.id, msg);
@@ -391,7 +391,7 @@ export async function executeFetchStringNb(
   // view's stop button, an Explorer row's ■) rather than only the ~2s toast.
   onStart?: (cancel: () => void) => void,
 ): Promise<string> {
-  const { result: inProgress } = session.gci.GciTsCallInProgress(session.handle);
+  const { result: inProgress } = session.GciTsCallInProgress();
   if (inProgress !== 0) {
     const msg = 'Session is busy with another operation. Please wait or use a different session.';
     logError(session.id, msg);
@@ -402,16 +402,15 @@ export async function executeFetchStringNb(
 
   const data = await runNbCall(
     session,
-    () =>
-      session.gci.GciTsNbExecute(session.handle, code, oopClassUtf8, OOP_ILLEGAL, OOP_NIL, 0, 0),
+    () => session.GciTsNbExecute(code, oopClassUtf8, OOP_ILLEGAL, OOP_NIL, 0, 0),
     () => {
-      const { result: resultOop, err } = session.gci.GciTsNbResult(session.handle);
+      const { result: resultOop, err } = session.GciTsNbResult();
       if (err.number !== 0) {
         const msg = err.message || `GCI error ${err.number}`;
         logError(session.id, msg);
         throw new BrowserQueryError(msg, err.number);
       }
-      const fetched = session.gci.GciTsFetchChars(session.handle, resultOop, 1n, MAX_RESULT);
+      const fetched = session.GciTsFetchChars(resultOop, 1n, MAX_RESULT);
       if (fetched.err.number !== 0) {
         const msg = fetched.err.message || `GCI error ${fetched.err.number}`;
         logError(session.id, msg);
@@ -442,7 +441,7 @@ export function executeFetchStringWithLimit(
   code: string,
   maxBytes: number,
 ): string {
-  const { result: inProgress } = session.gci.GciTsCallInProgress(session.handle);
+  const { result: inProgress } = session.GciTsCallInProgress();
   if (inProgress !== 0) {
     const msg = 'Session is busy with another operation. Please wait or use a different session.';
     logError(session.id, msg);
@@ -451,8 +450,7 @@ export function executeFetchStringWithLimit(
 
   const oopClassUtf8 = resolveClassUtf8(session);
 
-  const { data, err } = session.gci.GciTsExecuteFetchBytes(
-    session.handle,
+  const { data, err } = session.GciTsExecuteFetchBytes(
     code,
     -1,
     oopClassUtf8,
@@ -2249,7 +2247,12 @@ export function searchMethodSource(
   return sharedSearchMethodSource(defaultQueryExecutorUsing(session), term, ignoreCase, mode);
 }
 
-export function sendersOf(session: ActiveSession, selector: string, environmentId: number = 0) {
+// No default environment: a caller that forgot one would silently search environment 0 only.
+export function sendersOf(
+  session: ActiveSession,
+  selector: string | readonly string[],
+  environmentId: number,
+) {
   return sharedSendersOf(defaultQueryExecutorUsing(session), selector, environmentId);
 }
 

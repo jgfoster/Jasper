@@ -33,6 +33,7 @@ import {
   registerSessionAutoCommit,
 } from '../autoCommit/autoCommitState';
 import { setAutoCommitFailureHandler } from '../autoCommit/autoCommitRunner';
+import { fakeActiveSession } from './fakeActiveSession';
 
 // Cells run on the non-blocking execute path in clientForwarder mode. The mock
 // gci covers that path: NbExecute starts the doit, NbPoll reports ready,
@@ -57,13 +58,13 @@ function makeGci(overrides: Record<string, unknown> = {}) {
 }
 
 function makeSession(gci = makeGci()) {
-  return {
+  return fakeActiveSession({
     id: 1,
     gci,
     handle: {},
     login: { label: 'Test' },
     stoneVersion: '3.7.2',
-  };
+  });
 }
 
 function makeSessionManager(session: ReturnType<typeof makeSession> | undefined) {

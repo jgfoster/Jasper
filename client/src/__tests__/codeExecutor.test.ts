@@ -56,6 +56,7 @@ import {
   GCI_PERFORM_FLAG_SINGLE_STEP,
   GCI_PERFORM_FLAG_INTERPRETED,
 } from '../gciConstants';
+import { fakeActiveSession } from './fakeActiveSession';
 
 /** Set the gemstone.displayItMode setting for the current test. */
 function setDisplayItMode(mode: 'overlay' | 'insert'): void {
@@ -102,14 +103,14 @@ function makeGci(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function makeSession(gci = makeGci()): ActiveSession {
-  return {
+function makeSession(gci = makeGci(), handle: unknown = {}): ActiveSession {
+  return fakeActiveSession({
     id: 1,
-    gci: gci as unknown as ActiveSession['gci'],
-    handle: {},
+    gci,
+    handle,
     login: { label: 'Test', gs_user: 'DataCurator' },
     stoneVersion: '3.7.2',
-  } as ActiveSession;
+  });
 }
 
 function makeSessionManager(session?: ActiveSession): SessionManager {
@@ -254,6 +255,7 @@ describe('CodeExecutor', () => {
   let executor: CodeExecutor;
   let session: ActiveSession;
   let gci: ReturnType<typeof makeGci>;
+  const handle = {};
 
   let sessionManager: SessionManager;
 
@@ -724,7 +726,7 @@ describe('CodeExecutor', () => {
 
     function setup() {
       gci = debuggableGci();
-      session = makeSession(gci);
+      session = makeSession(gci, handle);
       executor = new CodeExecutor(makeSessionManager(session));
       setActiveEditor(makeEditor('Array new add: 1; add: 2'));
     }
@@ -764,7 +766,7 @@ describe('CodeExecutor', () => {
       await executor.debugIt();
 
       // Nothing owns the process when the panel throws, so it must be released.
-      expect(gci.GciTsClearStack).toHaveBeenCalledWith(session.handle, 0x123n);
+      expect(gci.GciTsClearStack).toHaveBeenCalledWith(handle, 0x123n);
     });
   });
 
@@ -1479,7 +1481,7 @@ describe('CodeExecutor', () => {
 
     it('shows a modal dialog when Execute It raises a DebuggableError', async () => {
       gci = debuggableGci();
-      session = makeSession(gci);
+      session = makeSession(gci, handle);
       executor = new CodeExecutor(makeSessionManager(session));
 
       const editor = makeEditor('nil foo');
@@ -1493,7 +1495,7 @@ describe('CodeExecutor', () => {
 
     it('offers Debug in the modal dialog on Execute It', async () => {
       gci = debuggableGci();
-      session = makeSession(gci);
+      session = makeSession(gci, handle);
       executor = new CodeExecutor(makeSessionManager(session));
 
       const editor = makeEditor('nil foo');
@@ -1508,7 +1510,7 @@ describe('CodeExecutor', () => {
 
     it('shows a modal dialog when Inspect It raises a DebuggableError', async () => {
       gci = debuggableGci();
-      session = makeSession(gci);
+      session = makeSession(gci, handle);
       executor = new CodeExecutor(makeSessionManager(session));
 
       const editor = makeEditor('nil foo');
@@ -1522,7 +1524,7 @@ describe('CodeExecutor', () => {
 
     it('offers Debug in the modal dialog on Inspect It', async () => {
       gci = debuggableGci();
-      session = makeSession(gci);
+      session = makeSession(gci, handle);
       executor = new CodeExecutor(makeSessionManager(session));
 
       const editor = makeEditor('nil foo');
@@ -1561,7 +1563,7 @@ describe('CodeExecutor', () => {
 
     function setup() {
       gci = debuggableGci();
-      session = makeSession(gci);
+      session = makeSession(gci, handle);
       executor = new CodeExecutor(makeSessionManager(session));
       const editor = makeEditor('nil foo');
       setActiveEditor(editor);
@@ -1583,7 +1585,7 @@ describe('CodeExecutor', () => {
       expect(vscode.debug.startDebugging).not.toHaveBeenCalled();
       expect(revealedView()).toBe(false);
       // The stalled GsProcess must be released so it does not linger.
-      expect(gci.GciTsClearStack).toHaveBeenCalledWith(session.handle, 0x123n);
+      expect(gci.GciTsClearStack).toHaveBeenCalledWith(handle, 0x123n);
     });
 
     it('opens the GemStone Debugger panel (and not the DAP debugger) when the user clicks Debug', async () => {
@@ -1673,7 +1675,8 @@ describe('CodeExecutor', () => {
 
     it('falls back to GciTsSocket + native poll when GciTsNbPoll is absent (3.6.2)', async () => {
       const gci = makeGci({ isAvailable: (name: string) => name !== 'GciTsNbPoll' });
-      const session = makeSession(gci);
+      const handle = {};
+      const session = makeSession(gci, handle);
       const executor = new CodeExecutor(makeSessionManager(session));
 
       const editor = makeEditor('3 + 4');
@@ -1684,7 +1687,7 @@ describe('CodeExecutor', () => {
       // Did not call the missing 3.7+ function...
       expect(gci.GciTsNbPoll).not.toHaveBeenCalled();
       // ...and instead polled the session socket fd.
-      expect(gci.GciTsSocket).toHaveBeenCalledWith(session.handle);
+      expect(gci.GciTsSocket).toHaveBeenCalledWith(handle);
       expect(pollReadable).toHaveBeenCalledWith(7, 0);
       // Execution still completed (result fetched).
       expect(gci.GciTsNbResult).toHaveBeenCalled();
@@ -1812,20 +1815,22 @@ describe('CodeExecutor', () => {
     });
 
     it('releases the session lock so the next test can run', async () => {
-      const session = makeSession();
+      const gci = makeGci();
+      const session = makeSession(gci);
       const executor = new CodeExecutor(makeSessionManager(session));
 
       await executor.executeWithDebugger(session, '3 + 4', 'MyTest>>testAdd');
       await executor.executeWithDebugger(session, '3 + 4', 'MyTest>>testRemove');
 
-      expect((session.gci.GciTsNbExecute as Mock).mock.calls).toHaveLength(2);
+      expect(gci.GciTsNbExecute.mock.calls).toHaveLength(2);
     });
 
     it('refuses to start on a session that is already executing', async () => {
-      const session = makeSession();
+      const gci = makeGci();
+      const session = makeSession(gci);
       const executor = new CodeExecutor(makeSessionManager(session));
       // Hold the first execution open so the session is genuinely busy.
-      (session.gci.GciTsNbPoll as Mock).mockReturnValue({ result: 0, err: { number: 0 } });
+      gci.GciTsNbPoll.mockReturnValue({ result: 0, err: { number: 0 } });
       const pending = executor.executeWithDebugger(session, '3 + 4', 'MyTest>>testAdd');
 
       await expect(
@@ -1834,7 +1839,7 @@ describe('CodeExecutor', () => {
 
       // Let it finish: a poll loop still spinning at the end of this test would
       // be drained by whichever fake-timer test runs next.
-      (session.gci.GciTsNbPoll as Mock).mockReturnValue({ result: 1, err: { number: 0 } });
+      gci.GciTsNbPoll.mockReturnValue({ result: 1, err: { number: 0 } });
       await pending;
     });
   });

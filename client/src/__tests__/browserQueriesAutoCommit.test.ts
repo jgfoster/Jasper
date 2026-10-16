@@ -5,7 +5,7 @@ vi.mock('vscode', () => ({
 }));
 
 import { ActiveSession } from '../sessionManager';
-import { GemStoneLogin } from '../loginTypes';
+import { fakeActiveSession } from './fakeActiveSession';
 import * as queries from '../browserQueries';
 import {
   _resetAutoCommitStateForTests,
@@ -22,18 +22,22 @@ import { setAutoCommitFailureHandler } from '../autoCommit/autoCommitRunner';
  */
 const OK = { success: true, err: { number: 0, message: '' } };
 
-function makeSession(id: number, commit: () => typeof OK): ActiveSession {
-  return {
+function makeSession(
+  id: number,
+  commit: () => typeof OK,
+  executeAndFetchString: () => string = vi.fn(() => 'ok'),
+): ActiveSession {
+  return fakeActiveSession({
     id,
     gci: {
-      executeAndFetchString: vi.fn(() => 'ok'),
+      executeAndFetchString,
       GciTsCallInProgress: vi.fn(() => ({ result: 0 })),
       GciTsCommit: commit,
-    } as unknown as ActiveSession['gci'],
+    },
     handle: {},
-    login: { label: 'Test' } as GemStoneLogin,
+    login: { label: 'Test' },
     stoneVersion: '3.7.2',
-  };
+  });
 }
 
 beforeEach(() => {
@@ -97,11 +101,9 @@ describe('the write path with auto-commit armed', () => {
 
   it('does not commit a mutation that threw', () => {
     const commit = vi.fn(() => OK);
-    const session = makeSession(1, commit);
-    (session.gci as unknown as { executeAndFetchString: () => string }).executeAndFetchString =
-      () => {
-        throw new Error('does not compile');
-      };
+    const session = makeSession(1, commit, () => {
+      throw new Error('does not compile');
+    });
     registerSessionAutoCommit(1, true);
 
     expect(() =>

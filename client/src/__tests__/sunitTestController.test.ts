@@ -70,6 +70,7 @@ import { NbCancelledError } from '../nbRunner';
 import { SunitTestController, SunitDebugOutcome } from '../sunitTestController';
 import { SessionManager } from '../sessionManager';
 import * as sunit from '../sunitQueries';
+import { fakeActiveSession } from './fakeActiveSession';
 
 /** The fake TestController the SunitTestController under test created. */
 const createdController = () => tests.createTestController.mock.results[0].value;
@@ -78,7 +79,13 @@ function makeSessionManager(hasSession: boolean) {
   return {
     getSelectedSession: vi.fn(() =>
       hasSession
-        ? { id: 1, gci: {}, handle: {}, login: { label: 'Test' }, stoneVersion: '3.7.2' }
+        ? fakeActiveSession({
+            id: 1,
+            gci: {},
+            handle: {},
+            login: { label: 'Test' },
+            stoneVersion: '3.7.2',
+          })
         : undefined,
     ),
     onDidChangeSelection: vi.fn(() => ({ dispose: () => {} })),

@@ -48,7 +48,7 @@ import * as queries from '../queries/getEnhancedInspectorViewSpecs';
 import { SystemBrowser } from '../../systemBrowser';
 import { EnhancedInspector } from '../enhancedInspector';
 import { ActiveSession } from '../../sessionManager';
-import { GemStoneLogin } from '../../loginTypes';
+import { fakeActiveSession } from '../../__tests__/fakeActiveSession';
 
 // ── Mock panel factory ─────────────────────────────────────────────────────
 // Each panel is self-contained: its own postMessage, title, and sendMessage.
@@ -92,13 +92,13 @@ function makeMockPanel() {
 }
 
 function createMockSession(): ActiveSession {
-  return {
+  return fakeActiveSession({
     id: 1,
-    gci: {} as unknown as ActiveSession['gci'],
+    gci: {},
     handle: {},
-    login: { label: 'Test' } as GemStoneLogin,
+    login: { label: 'Test' },
     stoneVersion: '3.7.5',
-  };
+  });
 }
 
 // ── Shared state ───────────────────────────────────────────────────────────

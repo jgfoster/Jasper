@@ -21,6 +21,7 @@ import {
   registerSessionAutoCommit,
 } from '../autoCommit/autoCommitState';
 import { autoCommitAfterWrite, setAutoCommitFailureHandler } from '../autoCommit/autoCommitRunner';
+import { fakeActiveSession } from './fakeActiveSession';
 
 /**
  * Dropping methods on a method category.
@@ -44,13 +45,15 @@ const payload = (selector: string, category: string, isMeta = false) => ({
 
 const COMMIT_OK = { success: true, err: { number: 0, message: '' } };
 let commit = vi.fn(() => COMMIT_OK);
-const armableSession = {
+const armableSession = fakeActiveSession({
   id: 1,
-  get gci() {
-    return { GciTsCommit: commit };
+  gci: {
+    get GciTsCommit() {
+      return commit;
+    },
   },
   handle: {},
-} as unknown as ActiveSession;
+});
 
 // `null` means "no selected session" — passing `undefined` would trigger the default.
 function makeController(session: ActiveSession | null = armableSession) {

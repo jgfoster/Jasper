@@ -72,6 +72,7 @@ import {
   registerSessionAutoCommit,
 } from '../autoCommit/autoCommitState';
 import { setAutoCommitFailureHandler } from '../autoCommit/autoCommitRunner';
+import { fakeActiveSession } from './fakeActiveSession';
 
 interface ToolRegistration {
   name: string;
@@ -105,17 +106,17 @@ const COMMIT_OK = { success: true, err: { number: 0, message: '' } };
 let commit = vi.fn(() => COMMIT_OK);
 
 function makeSession(): ActiveSession {
-  return {
+  return fakeActiveSession({
     id: 1,
     gci: {
       get GciTsCommit() {
         return commit;
       },
-    } as unknown as ActiveSession['gci'],
+    },
     handle: {},
-    login: { label: 'DataCurator on gs64stone (localhost)' } as ActiveSession['login'],
+    login: { label: 'DataCurator on gs64stone (localhost)' },
     stoneVersion: '3.7.4',
-  };
+  });
 }
 
 describe('registerMcpTools', () => {

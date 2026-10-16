@@ -47,7 +47,7 @@ import { captureMethodSlots } from '../queries/methodSlotQueries';
 import { captureClassVar } from '../queries/classVarQueries';
 import { peekUndoEntry, pushUndoEntry, resetUndoStacks, undoStackDepth } from '../undoStack';
 import type { NewUndoEntry } from '../undoTypes';
-import type { ActiveSession, SessionManager } from '../../sessionManager';
+import type { SessionManager } from '../../sessionManager';
 import {
   _resetAutoCommitStateForTests,
   registerSessionAutoCommit,
@@ -56,6 +56,7 @@ import {
   autoCommitAfterWrite,
   setAutoCommitFailureHandler,
 } from '../../autoCommit/autoCommitRunner';
+import { fakeActiveSession } from '../../__tests__/fakeActiveSession';
 
 /**
  * The dispatcher (#434) — the single Undo every affordance runs.
@@ -72,13 +73,15 @@ import {
 const OK = { success: true, err: { number: 0, message: '' } };
 let commit = vi.fn(() => OK);
 
-const session = {
+const session = fakeActiveSession({
   id: 1,
-  get gci() {
-    return { GciTsCommit: commit };
+  gci: {
+    get GciTsCommit() {
+      return commit;
+    },
   },
   handle: {},
-} as unknown as ActiveSession;
+});
 const sessions = { getSelectedSession: () => session } as unknown as SessionManager;
 
 const status = (available: boolean, sequence = 1) => ({

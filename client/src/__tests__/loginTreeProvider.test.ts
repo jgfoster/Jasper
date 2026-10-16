@@ -194,11 +194,10 @@ describe('GemStoneSessionItem', () => {
     mode: ActiveSession['transactionMode'],
     inTransaction: boolean | undefined,
   ): ActiveSession {
-    return {
-      ...makeSession(makeLogin({ gs_user: 'Admin', stone: 'prod', gem_host: 'db' }), 3),
-      transactionMode: mode,
-      inTransaction,
-    };
+    return Object.assign(
+      makeSession(makeLogin({ gs_user: 'Admin', stone: 'prod', gem_host: 'db' }), 3),
+      { transactionMode: mode, inTransaction },
+    );
   }
 
   it('describes the session and marks the selected one', () => {

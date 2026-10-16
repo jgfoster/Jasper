@@ -13,6 +13,7 @@ import type * as vscode from 'vscode';
 import { GemStoneCompletionProvider } from '../gemstoneCompletionProvider';
 import { SessionManager } from '../sessionManager';
 import { getAllClassNames, getInstVarNames, getAllSelectors } from '../browserQueries';
+import { fakeActiveSession } from './fakeActiveSession';
 
 const mockGetAllClassNames = vi.mocked(getAllClassNames);
 const mockGetInstVarNames = vi.mocked(getInstVarNames);
@@ -30,13 +31,14 @@ function makeSessions(hasSession: boolean, selectedId = 1): FakeSessions {
     selection: [],
     removed: [],
   };
-  const session = (id: number) => ({
-    id,
-    gci: {},
-    handle: `h${id}`,
-    login: { label: 'Test' },
-    stoneVersion: '3.7.2',
-  });
+  const session = (id: number) =>
+    fakeActiveSession({
+      id,
+      gci: {},
+      handle: `h${id}`,
+      login: { label: 'Test' },
+      stoneVersion: '3.7.2',
+    });
   const manager = {
     getSelectedSession: vi.fn(() => (hasSession ? session(selectedId) : undefined)),
     // Answers for any id asked for, so a test can pin which session the provider

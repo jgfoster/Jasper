@@ -102,6 +102,7 @@ import type { ExportManager } from '../exportManager';
 import { captureMethodSlots } from '../undo/queries/methodSlotQueries';
 import { captureClassSlots } from '../undo/queries/classSlotQueries';
 import { peekUndoEntry, popUndoEntry, resetUndoStacks } from '../undo/undoStack';
+import { fakeActiveSession } from './fakeActiveSession';
 
 // `clearAllMocks` clears recorded CALLS without removing an implementation, so a
 // `mockReturnValue` set anywhere in this file stays in force for every test that runs after
@@ -132,7 +133,7 @@ const COMMIT_OK = { success: true, err: { number: 0, message: '' } };
 let commit = vi.fn(() => COMMIT_OK);
 
 function makeSession(id = 1, gs_user = 'DataCurator') {
-  return {
+  return fakeActiveSession({
     id,
     gci: {
       get GciTsCommit() {
@@ -142,7 +143,7 @@ function makeSession(id = 1, gs_user = 'DataCurator') {
     handle: {},
     login: { label: 'Test', gs_user },
     stoneVersion: '3.7.2',
-  };
+  });
 }
 
 function makeSessionManager(gs_user = 'DataCurator') {
@@ -608,15 +609,15 @@ describe('GemStoneFileSystemProvider', () => {
       const writeThrough = () => {
         const session = makeSession();
         vi.mocked(queries.compileMethod).mockImplementation(() => {
-          autoCommitAfterWrite(session as never);
+          autoCommitAfterWrite(session);
           return 'Compiled: Array >> at:';
         });
         vi.mocked(queries.compileClassDefinition).mockImplementation(() => {
-          autoCommitAfterWrite(session as never);
+          autoCommitAfterWrite(session);
           return 'Array';
         });
         vi.mocked(queries.recategorizeClass).mockImplementation(() => {
-          autoCommitAfterWrite(session as never);
+          autoCommitAfterWrite(session);
           return 'Recategorized: Array';
         });
       };

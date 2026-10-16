@@ -21,6 +21,7 @@ import {
 import type { ActiveSession } from '../sessionManager';
 import type { GciError } from '../gciLibrary';
 import { GciLibraryError } from '../gciLibraryError';
+import { fakeActiveSession } from './fakeActiveSession';
 
 const OOP_ILLEGAL = 0x01n;
 
@@ -65,13 +66,13 @@ function makeGci(overrides: Record<string, unknown> = {}) {
 }
 
 function makeSession(gci = makeGci()): ActiveSession {
-  return {
+  return fakeActiveSession({
     id: 1,
-    gci: gci as unknown as ActiveSession['gci'],
+    gci,
     handle: {},
     login: { label: 'Test' },
     stoneVersion: '3.7.5',
-  } as unknown as ActiveSession;
+  });
 }
 
 describe('transcriptSink', () => {

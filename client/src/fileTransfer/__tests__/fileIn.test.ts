@@ -29,6 +29,7 @@ import {
   autoCommitAfterWrite,
   setAutoCommitFailureHandler,
 } from '../../autoCommit/autoCommitRunner';
+import { fakeActiveSession } from '../../__tests__/fakeActiveSession';
 
 /**
  * Filing a Topaz `.gs` file back into a session (issue #539).
@@ -53,13 +54,15 @@ function resetAutoCommit(): void {
   vi.mocked(queries.compileMethod).mockReset();
   vi.mocked(queries.compileMethod).mockReturnValue('Compiled');
 }
-const SESSION = {
+const SESSION = fakeActiveSession({
   id: 1,
-  get gci() {
-    return { GciTsCommit: commit };
+  gci: {
+    get GciTsCommit() {
+      return commit;
+    },
   },
   handle: {},
-} as unknown as ActiveSession;
+});
 
 /** A filesystem holding the given absolute-path → content pairs. */
 function withFiles(files: Record<string, string>): void {

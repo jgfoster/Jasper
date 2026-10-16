@@ -20,6 +20,7 @@ import {
   registerSessionAutoCommit,
 } from '../autoCommit/autoCommitState';
 import { autoCommitAfterWrite, setAutoCommitFailureHandler } from '../autoCommit/autoCommitRunner';
+import { fakeActiveSession } from './fakeActiveSession';
 
 vi.mock('../browserQueries', () => ({
   BrowserQueryError: class BrowserQueryError extends Error {
@@ -39,13 +40,13 @@ const COMMIT_OK = { success: true, err: { number: 0, message: '' } };
 let commit = vi.fn(() => COMMIT_OK);
 
 function createMockSession(): ActiveSession {
-  return {
+  return fakeActiveSession({
     id: 1,
     gci: {
       get GciTsCommit() {
         return commit;
       },
-    } as unknown as ActiveSession['gci'],
+    },
     handle: {},
     login: {
       label: 'Test',
@@ -59,7 +60,7 @@ function createMockSession(): ActiveSession {
       host_password: '',
     },
     stoneVersion: '3.7.2',
-  };
+  });
 }
 
 /**

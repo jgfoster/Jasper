@@ -1,16 +1,13 @@
 // Builds a real `ActiveSession` for test code that already has a live GCI
-// login (a `GciLibrary` instance and its session handle) — the refactoring
-// integration tests (`client/src/refactoring/__tests__/*.integration.test.ts`)
-// and `client/bin/installServerPluginMain.ts`.
+// login (a `GciLibrary` instance and its session handle): the integration
+// tests and the server-plugin scripts in `client/bin/`.
 //
-// `ActiveSession` is imported type-only: tsc elides a type-only import, so
-// this module has no `require('../sessionManager')` at runtime. That matters
-// because `sessionManager.ts` is a `vscode`-dependent module, and `tsx` loads
-// this module straight from `client/src` (see `install-server-plugin.mjs`)
-// for a plain Node script whose `vscode` stub only covers `require('vscode')`
-// itself.
+// `ActiveSession` comes from `activeSession.ts`, never `sessionManager.ts`:
+// the latter is a `vscode`-dependent module, and `tsx` loads this module
+// straight from `client/src` (see `install-server-plugin.mjs`) for a plain
+// Node script whose `vscode` stub only covers `require('vscode')` itself.
 
-import type { ActiveSession } from '../sessionManager';
+import { ActiveSession } from '../activeSession';
 import type { GciLibrary } from '../gciLibrary';
 import { resolveTestConnection, requireParsedStoneNrs } from './testConnection';
 import type { GemStoneLogin } from '../loginTypes';
@@ -38,8 +35,8 @@ function stoneVersionOf(gci: GciLibrary): string {
  * real `login` (from the test environment, via `resolveTestConnection`) and a
  * cached `stoneVersion`. Deliberately narrow: there is no
  * `testActiveSession(partial)` convenience helper for overriding individual
- * fields — callers that need a different shape (the ~25 unit tests with mock
- * `gci` objects and no live env) should keep building their own fakes.
+ * fields — callers that need a different shape (the unit tests with mock
+ * `gci` objects and no live env) build a fake session around their mock.
  */
 export function testActiveSession(gci: GciLibrary, handle: unknown): ActiveSession {
   const conn = resolveTestConnection();
@@ -59,13 +56,7 @@ export function testActiveSession(gci: GciLibrary, handle: unknown): ActiveSessi
     host_password: '',
   };
 
-  return {
-    // Not a real `SessionManager`-managed id — signals "not managed" to any
-    // code path that checks it.
-    id: -1,
-    gci,
-    handle,
-    login,
-    stoneVersion: stoneVersionOf(gci),
-  };
+  // Not a real `SessionManager`-managed id: -1 signals "not managed" to any
+  // code path that checks it.
+  return new ActiveSession(-1, gci, handle, login, stoneVersionOf(gci));
 }

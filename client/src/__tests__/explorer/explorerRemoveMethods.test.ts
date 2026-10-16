@@ -79,6 +79,12 @@ const removeMethods = (ctl: ExplorerController, rows: MethodItem[]) =>
 const deleteMethod = vi.mocked(queries.deleteMethod);
 const canClassBeWritten = vi.mocked(queries.canClassBeWritten);
 const sendersOf = vi.mocked(queries.sendersOf);
+/** A sendersOf fake written one selector at a time. The removal asks about all its selectors
+ *  in one call, and the senders of a list are the senders of each selector in it. */
+const sendersBySelector =
+  (of: (selector: string) => MethodSearchResult[]) =>
+  (_s: unknown, selectors: string | readonly string[]) =>
+    (typeof selectors === 'string' ? [selectors] : selectors).flatMap(of);
 const hierarchyImplementorsOf = vi.mocked(queries.hierarchyImplementorsOf);
 const getClassEnvironments = vi.mocked(queries.getClassEnvironments);
 // `showWarningMessage` is overloaded and `vi.mocked` types the mock via the last
@@ -93,7 +99,11 @@ const showInformationMessage = vi.mocked(window.showInformationMessage);
 const showErrorMessage = vi.mocked(window.showErrorMessage);
 
 /** Every selector has a sender somewhere, so the removal has to ask. */
-const everythingIsSent = () => sendersOf.mockReturnValue([sender()]);
+// A block body, not an expression: beforeEach runs a returned function as cleanup, and
+// mockReturnValue returns the mock, which would then be called once more with no arguments.
+const everythingIsSent = () => {
+  sendersOf.mockReturnValue([sender()]);
+};
 
 /** The capture answers a real method for every slot it is asked about. */
 const everySlotHoldsAMethod = () =>
@@ -156,8 +166,10 @@ describe('removing several methods nothing sends', () => {
 
   it('does not count a send from another method in the same removal as a survivor', async () => {
     // #size sends #at:, but #size is going too, so nothing is left calling #at:.
-    sendersOf.mockImplementation((_s: unknown, selector: string) =>
-      selector === 'at:' ? [sender({ className: 'Array', selector: 'size' })] : [],
+    sendersOf.mockImplementation(
+      sendersBySelector((selector) =>
+        selector === 'at:' ? [sender({ className: 'Array', selector: 'size' })] : [],
+      ),
     );
 
     await removeMethods(makeController(), [row('at:'), row('size')]);
@@ -204,8 +216,30 @@ describe('removing several methods nothing sends', () => {
     const notice = String(showInformationMessage.mock.calls[0][0]);
     expect(notice).not.toContain('nothing referenced them');
     expect(notice).toContain(
-      'nothing referenced #size; senders of #printOn: now resolve to Object >> #printOn:',
+      'nothing referenced Array (#size); senders of #printOn: now resolve to Object >> #printOn:',
     );
+  });
+
+  /**
+   * A class implements the same selector on both sides, and both rows are picked. They are two
+   * methods, so both are named -- but a bare list of selectors would print "#size, #size" with
+   * nothing to tell them apart, which reads as a bug in the message.
+   *
+   * The query is the other half: `sendersOf:` asks who sends the NAME, and which side a send
+   * lands on is settled at run time, so both rows have the same answer and asking twice would
+   * walk the whole image twice for it.
+   */
+  it('tells the two sides apart when the same selector is picked on both', async () => {
+    hierarchyImplementorsOf.mockImplementation(
+      (_s: unknown, _d: number, _c: string, selector: string) =>
+        selector === 'printOn:' ? [sender({ className: 'Object', selector: 'printOn:' })] : [],
+    );
+
+    await removeMethods(makeController(), [row('size'), row('size', true), row('printOn:')]);
+
+    const notice = String(showInformationMessage.mock.calls[0][0]);
+    expect(notice).toContain('nothing referenced Array (#size) and Array class (#size)');
+    expect(sendersOf.mock.calls[0][1]).toEqual(['size']);
   });
 
   it("carries an override's note: senders resolve to the inherited method", async () => {
@@ -247,8 +281,8 @@ describe('removing several methods something still sends — the one confirmatio
   });
 
   it('asks once, and names all of them, when only ONE of them has a sender', async () => {
-    sendersOf.mockImplementation((_s: unknown, selector: string) =>
-      selector === 'size' ? [sender()] : [],
+    sendersOf.mockImplementation(
+      sendersBySelector((selector) => (selector === 'size' ? [sender()] : [])),
     );
 
     await removeMethods(makeController(), [row('at:'), row('size')]);
@@ -275,25 +309,33 @@ describe('removing several methods something still sends — the one confirmatio
     expect(text).toContain('Array class');
   });
 
-  it('speaks of the methods in the plural', async () => {
-    sendersOf.mockImplementation((_s: unknown, selector: string) => {
-      if (selector === 'size') throw new Error('a SecurityError occurred');
-      return [sender()];
+  it('speaks of the methods in the plural when they have senders', async () => {
+    await removeMethods(makeController(), [row('at:'), row('size')]);
+
+    const text = dialogText();
+    expect(text).toContain('still references them');
+    expect(text).not.toMatch(/references it\b/);
+  });
+
+  it('speaks of the methods in the plural when the scan failed', async () => {
+    sendersOf.mockImplementation(() => {
+      throw new Error('a SecurityError occurred');
     });
 
     await removeMethods(makeController(), [row('at:'), row('size')]);
 
     const text = dialogText();
-    expect(text).toContain('still references them');
     expect(text).toContain('Could not check what references them');
     expect(text).not.toMatch(/references it\b/);
   });
 
   it('lists the surviving senders of every method in one list', async () => {
-    sendersOf.mockImplementation((_s: unknown, selector: string) =>
-      selector === 'at:'
-        ? [sender({ className: 'Caller', selector: 'usesAt' })]
-        : [sender({ className: 'Other', selector: 'usesSize' })],
+    sendersOf.mockImplementation(
+      sendersBySelector((selector) =>
+        selector === 'at:'
+          ? [sender({ className: 'Caller', selector: 'usesAt' })]
+          : [sender({ className: 'Other', selector: 'usesSize' })],
+      ),
     );
 
     await removeMethods(makeController(), [row('at:'), row('size')]);
@@ -304,8 +346,10 @@ describe('removing several methods something still sends — the one confirmatio
   });
 
   it('does not list a send from another method in the same removal', async () => {
-    sendersOf.mockImplementation((_s: unknown, selector: string) =>
-      selector === 'at:' ? [sender({ className: 'Array', selector: 'size' }), sender()] : [],
+    sendersOf.mockImplementation(
+      sendersBySelector((selector) =>
+        selector === 'at:' ? [sender({ className: 'Array', selector: 'size' }), sender()] : [],
+      ),
     );
 
     await removeMethods(makeController(), [row('at:'), row('size')]);
@@ -315,8 +359,10 @@ describe('removing several methods something still sends — the one confirmatio
 
   it('still counts a same-named sender on the side that is NOT being removed', async () => {
     // Removing instance-side #size takes nothing from the class side.
-    sendersOf.mockImplementation((_s: unknown, selector: string) =>
-      selector === 'at:' ? [sender({ className: 'Array', isMeta: true, selector: 'size' })] : [],
+    sendersOf.mockImplementation(
+      sendersBySelector((selector) =>
+        selector === 'at:' ? [sender({ className: 'Array', isMeta: true, selector: 'size' })] : [],
+      ),
     );
 
     await removeMethods(makeController(), [row('at:'), row('size')]);
@@ -348,11 +394,13 @@ describe('removing several methods something still sends — the one confirmatio
     expect(dialogText()).toContain('also implements #at: in environment 1');
   });
 
-  it('asks, rather than removing unasked, when one of the sender scans failed', async () => {
-    sendersOf.mockImplementation((_s: unknown, selector: string) => {
-      if (selector === 'size') throw new Error('a SecurityError occurred');
-      return [];
-    });
+  it('asks, rather than removing unasked, when the sender scan failed', async () => {
+    sendersOf.mockImplementation(
+      sendersBySelector((selector) => {
+        if (selector === 'size') throw new Error('a SecurityError occurred');
+        return [];
+      }),
+    );
 
     await removeMethods(makeController(), [row('at:'), row('size')]);
 

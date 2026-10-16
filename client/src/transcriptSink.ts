@@ -273,7 +273,7 @@ function smalltalkString(text: string): string {
  */
 export function installTranscriptSink(session: ActiveSession): boolean {
   try {
-    const result = session.gci.executeAndFetchString(session.handle, TRANSCRIPT_SINK_INSTALL_CODE);
+    const result = session.executeAndFetchString(TRANSCRIPT_SINK_INSTALL_CODE);
 
     logInfo(`[Session ${session.id}] Transcript sink ${result}`);
     return true;
@@ -314,7 +314,7 @@ export function drainTranscript(session: ActiveSession): string {
 
 function runFetchString(session: ActiveSession, code: string): string {
   try {
-    return session.gci.executeAndFetchString(session.handle, code);
+    return session.executeAndFetchString(code);
   } catch (e) {
     logError(
       session.id,
@@ -350,16 +350,15 @@ export function decodeTranscriptForwarderSend(
 ): string | null {
   try {
     if (!isForwarderSendError(err) || err.argCount < 4) return null;
-    const gci = session.gci;
-    const clientObject = gci.GciTsOopToI64(session.handle, toBigInt(err.args[1]));
+    const clientObject = session.GciTsOopToI64(toBigInt(err.args[1]));
     if (!clientObject.success || clientObject.value !== BigInt(TRANSCRIPT_CLIENT_OBJECT)) {
       return null;
     }
-    const selector = gci.GciTsFetchUtf8(session.handle, toBigInt(err.args[2]), 64);
+    const selector = session.GciTsFetchUtf8(toBigInt(err.args[2]), 64);
     if (selector.err.number !== 0 || selector.data !== 'nextPutAll:') return null;
-    const argArray = gci.GciTsFetchOops(session.handle, toBigInt(err.args[3]), 1n, 1);
+    const argArray = session.GciTsFetchOops(toBigInt(err.args[3]), 1n, 1);
     if (argArray.result < 1) return null;
-    const text = gci.GciTsFetchUtf8(session.handle, argArray.oops[0], MAX_TRANSCRIPT_FETCH);
+    const text = session.GciTsFetchUtf8(argArray.oops[0], MAX_TRANSCRIPT_FETCH);
     if (text.err.number !== 0) return null;
     return text.data;
   } catch {
@@ -406,7 +405,7 @@ export async function settleNbResult(
   onTranscript: (text: string) => void,
   abandoned?: AbortSignal,
 ): Promise<{ result: bigint; err: GciError }> {
-  let { result, err } = session.gci.GciTsNbResult(session.handle);
+  let { result, err } = session.GciTsNbResult();
   while (isForwarderSendError(err)) {
     const suspended = toBigInt(err.context);
     if (abandoned?.aborted) {
@@ -416,13 +415,7 @@ export async function settleNbResult(
     try {
       const text = decodeTranscriptForwarderSend(session, err);
       if (text !== null && text.length > 0) onTranscript(text);
-      ({ result, err } = await session.gci.GciTsContinueWithAsync(
-        session.handle,
-        suspended,
-        OOP_ILLEGAL,
-        null,
-        0,
-      ));
+      ({ result, err } = await session.GciTsContinueWithAsync(suspended, OOP_ILLEGAL, null, 0));
     } catch (e) {
       clearSuspendedWriter(session, suspended);
       throw e;
@@ -442,7 +435,7 @@ export async function settleNbResult(
 function clearSuspendedWriter(session: ActiveSession, gsProcess: bigint): void {
   if (gsProcess === OOP_NIL || gsProcess === 0n) return;
   try {
-    session.gci.GciTsClearStack(session.handle, gsProcess);
+    session.GciTsClearStack(gsProcess);
   } catch (e) {
     logError(
       session.id,

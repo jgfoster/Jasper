@@ -15,6 +15,7 @@ import { GemStoneHoverProvider } from '../gemstoneHoverProvider';
 import { SelectorResolver } from '../gemstoneDefinitionProvider';
 import { SessionManager } from '../sessionManager';
 import { implementorsOf, sendersOf, getAllClassNames, getClassComment } from '../browserQueries';
+import { fakeActiveSession } from './fakeActiveSession';
 
 const mockImplementorsOf = vi.mocked(implementorsOf);
 const mockSendersOf = vi.mocked(sendersOf);
@@ -27,7 +28,13 @@ function makeSessionManager(hasSession: boolean) {
   return {
     getSelectedSession: vi.fn(() =>
       hasSession
-        ? { id: 1, gci: {}, handle: {}, login: { label: 'Test' }, stoneVersion: '3.7.2' }
+        ? fakeActiveSession({
+            id: 1,
+            gci: {},
+            handle: {},
+            login: { label: 'Test' },
+            stoneVersion: '3.7.2',
+          })
         : undefined,
     ),
     onDidChangeSelection: vi.fn(() => ({ dispose: () => {} })),

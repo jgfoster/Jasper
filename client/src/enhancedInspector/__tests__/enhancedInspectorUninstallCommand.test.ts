@@ -36,15 +36,16 @@ vi.mock('../enhancedInspectorAvailability', () => ({
 
 import { ActiveSession, SessionManager } from '../../sessionManager';
 import { uninstallEnhancedInspectorFeature } from '../enhancedInspectorUninstallCommand';
+import { fakeActiveSession } from '../../__tests__/fakeActiveSession';
 
 const logout = vi.fn();
 function createBaseSession(): ActiveSession {
-  return {
+  return fakeActiveSession({
     id: 1,
     login: { stone: 'demo' },
     gci: { GciTsLogout: logout },
     enhancedInspectorAvailable: true,
-  } as unknown as ActiveSession;
+  });
 }
 
 const sessionManager = {} as unknown as SessionManager;
@@ -53,7 +54,9 @@ const uninstall = (base: ActiveSession, interactive: boolean) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.obtainSystemUserSession.mockResolvedValue({ handle: {} });
+  mocks.obtainSystemUserSession.mockResolvedValue(
+    fakeActiveSession({ gci: { GciTsLogout: logout }, handle: {} }),
+  );
   mocks.refreshWorkingSession.mockResolvedValue(true);
   mocks.uninstallSupport.mockResolvedValue({
     success: true,
