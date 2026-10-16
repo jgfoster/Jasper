@@ -4,6 +4,8 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-10-16
+
 ### Added
 
 - **Logging in to a remote stone no longer needs a GemStone install, on any platform.** The login editor's **GemStone Version** dropdown now lists every version Jasper supports, marking those not on this machine _(not yet downloaded)_. Choosing one offers **Download files**, which fetches only what a login needs for that version (GemStone's GCI client libraries, about 5–40 MB) rather than the whole server. On Windows without WSL, the GemStone sidebar now says a server running elsewhere needs no WSL (add a login with + on Logins & Sessions); WSL is offered only for running databases on this machine. On macOS and Linux this is GemTalk's `GemStoneClientLibs` package, published for 3.7.0 and later; on Windows it is the Windows client, with or without WSL. The same download is **Download Client Libraries…** in the Databases & Versions panel, where a version that has only these files shows as **Client libraries only**, with the size they take on disk, and is counted as such in the Versions header. **Install Version…** now says it installs the full server, with both its download size and about how much space it takes unpacked, and on Windows without WSL it is turned off with the reason, since the server has nowhere to run there. A version's login files and a full install of it are kept in separate folders, and removing either one leaves the other working. ([#714](https://github.com/GemTalk/Jasper/issues/714))
