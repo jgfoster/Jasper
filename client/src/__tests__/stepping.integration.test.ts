@@ -14,6 +14,7 @@ import {
 } from '../gciConstants';
 import { stepOver, stepOverNb, continueExecution, clearStack } from '../debugQueries';
 import { runNbCall, NbCancelledError } from '../nbRunner';
+import { testActiveSession } from './testActiveSession';
 
 const GCI_ERR_HALT = 2709;
 const GCI_ERR_STEP_POINT = 6002; // "Single-step breakpoint encountered" — a successful step
@@ -36,7 +37,7 @@ describe('debugger single-stepping (integration)', () => {
     handle = testContext.session;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
 
   const exec = (code: string, flags: number) => {
     const strClass = gci.resolveSymbol(handle, 'String');

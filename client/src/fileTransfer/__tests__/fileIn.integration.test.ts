@@ -14,6 +14,7 @@ import { fileInFile } from '../fileIn';
 import { parseTopazScript } from '../../topazFileIn';
 import { composeFileOut } from '../fileOut';
 import type { ActiveSession } from '../../sessionManager';
+import { testActiveSession } from '../../__tests__/testActiveSession';
 
 /**
  * File In against a live stone, and the round trip that is the point of it (#539):
@@ -38,7 +39,7 @@ describe('file in (integration)', () => {
     withTransientSession = testContext.withTransientSession;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
   const exec = (code: string): string => q.executeFetchString(session(), code);
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jasper-filein-'));
@@ -194,7 +195,7 @@ describe('file in (integration)', () => {
       );
 
       withTransientSession((other) => {
-        const second = { id: 2, gci, handle: other } as unknown as ActiveSession;
+        const second = testActiveSession(gci, other);
 
         const outcome = fileInFile(second, file);
 
@@ -225,7 +226,7 @@ describe('file in (integration)', () => {
 
       expect(existsIn(session(), `${TARGETED}Back`)).toBe(true);
       withTransientSession((other) => {
-        const second = { id: 2, gci, handle: other } as unknown as ActiveSession;
+        const second = testActiveSession(gci, other);
         expect(existsIn(second, `${TARGETED}Back`)).toBe(false);
       });
     });

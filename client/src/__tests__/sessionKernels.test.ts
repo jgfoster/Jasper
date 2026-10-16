@@ -20,6 +20,7 @@ import { grailSessionKernel, GRAIL_CONTROLLER_ID } from '../grailNotebookControl
 import { SessionManager } from '../sessionManager';
 import * as python from '../pythonQueries';
 import { GemStoneNotebookKernel } from '../gemstoneNotebookKernel';
+import { fakeActiveSession } from './fakeActiveSession';
 
 const LOGIN = { gs_user: 'DataCurator', stone: 'gs64stone', gem_host: 'localhost' };
 
@@ -225,11 +226,16 @@ describe('the real per-session factories', () => {
     const gciOf = (id: number) => ({
       // Busy, so evalSmalltalk stops at its first GCI call — the one that shows
       // which session it went to.
-      GciTsCallInProgress: vi.fn(() => ({ result: 1, err: { number: 0 } })),
+      GciTsCallInProgress: vi.fn((_session: unknown) => ({ result: 1, err: { number: 0 } })),
       id,
     });
+    const libraries = new Map([1, 2].map((id) => [id, gciOf(id)]));
+    const handles = new Map([1, 2].map((id) => [id, { id }]));
     const sessions = new Map(
-      [1, 2].map((id) => [id, { id, login: LOGIN, gci: gciOf(id), handle: { id } }]),
+      [1, 2].map((id) => [
+        id,
+        fakeActiveSession({ id, login: LOGIN, gci: libraries.get(id), handle: handles.get(id) }),
+      ]),
     );
     const manager = {
       getSessions: () => [...sessions.values()],
@@ -240,7 +246,7 @@ describe('the real per-session factories', () => {
       onDidAddSession: vi.fn(() => ({ dispose: () => {} })),
       onDidRemoveSession: vi.fn(() => ({ dispose: () => {} })),
     } as unknown as SessionManager;
-    return { manager, sessions };
+    return { manager, sessions, libraries, handles };
   }
 
   const cell = (text: string) => ({
@@ -264,15 +270,15 @@ describe('the real per-session factories', () => {
   });
 
   it('smalltalkSessionKernel runs Smalltalk in its session', async () => {
-    const { manager, sessions } = managerWithGci();
+    const { manager, libraries, handles } = managerWithGci();
     smalltalkSessionKernel(manager, 2);
     const kernel = byId(sessionKernelId(SMALLTALK_CONTROLLER_ID, 2));
 
     expect(kernel.supportedLanguages).toEqual(['gemstone-smalltalk']);
     await kernel.executeHandler([cell('3 + 4')]);
 
-    expect(sessions.get(2)!.gci.GciTsCallInProgress).toHaveBeenCalledWith(sessions.get(2)!.handle);
-    expect(sessions.get(1)!.gci.GciTsCallInProgress).not.toHaveBeenCalled();
+    expect(libraries.get(2)!.GciTsCallInProgress.mock.calls[0][0]).toBe(handles.get(2));
+    expect(libraries.get(1)!.GciTsCallInProgress).not.toHaveBeenCalled();
   });
 });
 

@@ -41,6 +41,7 @@ import { CodeExecutor, ObjectGraphDeps } from '../codeExecutor';
 import { forgetSession as forgetSessionPins } from '../exportSetPins';
 import type { ObjectGraphWalkDeps } from '../objectGraph/objectGraphWalk';
 import { SessionManager, ActiveSession } from '../sessionManager';
+import { fakeActiveSession } from './fakeActiveSession';
 
 const OOP_NIL = 0x14n;
 const RESULT_OOP = 200n;
@@ -84,6 +85,7 @@ const makeEditor = (text: string, empty = false) => ({
 describe('Show Reference Graph, from a selection to an open graph', () => {
   let gci: ReturnType<typeof makeGci>;
   let session: ActiveSession;
+  const handle = {};
   let executor: CodeExecutor;
   let deps: ObjectGraphDeps;
 
@@ -95,13 +97,13 @@ describe('Show Reference Graph, from a selection to an open graph', () => {
     // reaching the stone.
     forgetSessionPins(1);
     gci = makeGci();
-    session = {
+    session = fakeActiveSession({
       id: 1,
       gci,
-      handle: {},
+      handle,
       login: { label: 'T' },
       stoneVersion: '3.7.5',
-    } as unknown as ActiveSession;
+    });
     executor = new CodeExecutor({
       resolveSession: vi.fn(async () => session),
       getSessions: vi.fn(() => [session]),
@@ -282,7 +284,7 @@ describe('Show Reference Graph, from a selection to an open graph', () => {
     it('pins an object into the session’s export set', async () => {
       (await pinning()).pin(555n);
 
-      expect(gci.GciTsSaveObjs).toHaveBeenCalledWith(session.handle, [555n]);
+      expect(gci.GciTsSaveObjs).toHaveBeenCalledWith(handle, [555n]);
     });
 
     it('holds it until the last holder lets go', async () => {
@@ -294,7 +296,7 @@ describe('Show Reference Graph, from a selection to an open graph', () => {
       expect(gci.GciTsReleaseObjs).not.toHaveBeenCalled();
 
       d.unpin(555n);
-      expect(gci.GciTsReleaseObjs).toHaveBeenCalledWith(session.handle, [555n]);
+      expect(gci.GciTsReleaseObjs).toHaveBeenCalledWith(handle, [555n]);
     });
 
     it('pins once however many times it is asked', async () => {

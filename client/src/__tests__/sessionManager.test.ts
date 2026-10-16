@@ -214,9 +214,10 @@ describe('SessionManager', () => {
   });
 
   it('aborts the fresh session after login to drop the spurious session-method-policy write', () => {
-    const session = manager.login({ ...DEFAULT_LOGIN, label: 'Test' }, '/mock/lib');
+    manager.login({ ...DEFAULT_LOGIN, label: 'Test' }, '/mock/lib');
 
-    expect(gciTsAbort).toHaveBeenCalledWith(session.handle);
+    const loggedIn = gciTsLogin.mock.results.at(-1)!.value.session;
+    expect(gciTsAbort.mock.calls.at(-1)![0]).toBe(loggedIn);
   });
 
   it('still completes login when the post-login abort fails', () => {

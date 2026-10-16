@@ -28,6 +28,7 @@ import * as q from '../../../browserQueries';
 import type { ActiveSession } from '../../../sessionManager';
 import { exportRowanProject } from '../exportRowanProject';
 import { listRowanProjects } from '../listRowanProjects';
+import { testActiveSession } from '../../../__tests__/testActiveSession';
 
 const TIMEOUT = 300_000;
 const PROJECT = 'JasperFixpointProbe';
@@ -84,7 +85,7 @@ describe('Rowan export is a deterministic reload-faithful fixpoint', () => {
     logout = testContext.logout;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
   const exec = (code: string): string => q.executeFetchString(session(), code);
 
   let rowanAvailable = false;

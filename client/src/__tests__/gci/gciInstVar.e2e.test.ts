@@ -9,7 +9,7 @@ vi.mock('vscode', () => ({
 
 import { GciLibrary } from '../../gciLibrary';
 import { GCI_LIBRARY_PATH, STONE_NRS, GEM_NRS, GS_USER, GS_PASSWORD } from './gciTestConfig';
-import { ActiveSession } from '../../sessionManager';
+import { ActiveSession } from '../../activeSession';
 import { GemStoneLogin } from '../../loginTypes';
 import * as q from '../../browserQueries';
 import { startInstVarPreview, applyInstVar } from '../../refactoring/queries/previewInstVar';
@@ -54,13 +54,7 @@ describe('instance-variable refactoring, committing paths (gci e2e)', () => {
     gci = new GciLibrary(GCI_LIBRARY_PATH);
     const login = gci.GciTsLogin(STONE_NRS, null, null, false, GEM_NRS, GS_USER, GS_PASSWORD, 0, 0);
     expect(login.session).not.toBeNull();
-    session = {
-      id: 1,
-      gci,
-      handle: login.session,
-      login: { label: 'Test' } as GemStoneLogin,
-      stoneVersion: '3.7.5',
-    };
+    session = new ActiveSession(1, gci, login.session, { label: 'Test' } as GemStoneLogin, '3.7.5');
     enginePresent =
       exec(
         '(System myUserProfile symbolList objectNamed: #GsInstVarRefactoring) notNil printString',
@@ -68,7 +62,7 @@ describe('instance-variable refactoring, committing paths (gci e2e)', () => {
   });
 
   afterAll(() => {
-    if (session?.handle) gci.GciTsLogout(session.handle);
+    session?.GciTsLogout();
     gci?.close();
   });
 

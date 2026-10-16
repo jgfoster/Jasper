@@ -384,7 +384,7 @@ tmps at: #JasperMethodHistory put: cls.
  */
 export function installMethodHistory(session: ActiveSession): boolean {
   try {
-    const result = session.gci.executeAndFetchString(session.handle, METHOD_HISTORY_INSTALL_CODE);
+    const result = session.executeAndFetchString(METHOD_HISTORY_INSTALL_CODE);
     logInfo(`[Session ${session.id}] Method history helper ${result}`);
     return true;
   } catch (e) {

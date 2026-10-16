@@ -45,11 +45,11 @@ export class NbCancelledError extends Error {
  * prescribe for older servers.
  */
 export function pollNbResultReady(session: ActiveSession): { result: number; err: GciError } {
-  if (session.gci.isAvailable('GciTsNbPoll')) {
+  if (session.isAvailable('GciTsNbPoll')) {
     // eslint-disable-next-line no-restricted-syntax -- guarded by isAvailable above; the else branch below is the 3.6.x path (GciTsSocket + a native poll)
-    return session.gci.GciTsNbPoll(session.handle, 0);
+    return session.GciTsNbPoll(0);
   }
-  const { fd, err } = session.gci.GciTsSocket(session.handle);
+  const { fd, err } = session.GciTsSocket();
   if (err.number !== 0 || fd < 0) {
     return { result: -1, err };
   }
@@ -176,7 +176,7 @@ function drainAbandonedCall(
       try {
         const { result, err } = pollNbResultReady(session);
         if (result === 1) {
-          const { err } = session.gci.GciTsNbResult(session.handle);
+          const { err } = session.GciTsNbResult();
           if (disposableProcess) clearStoppedProcess(session, err?.context);
           runCollectedHook(session, onCollected);
           resolve();
@@ -287,7 +287,7 @@ function clearStoppedProcess(session: ActiveSession, context: unknown): void {
   const gsProcess = BigInt(context as bigint | number);
   if (gsProcess === OOP_NIL || gsProcess === 0n) return;
   try {
-    session.gci.GciTsClearStack(session.handle, gsProcess);
+    session.GciTsClearStack(gsProcess);
   } catch (e) {
     logInfo(
       `[Session ${session.id}] Could not clear a cancelled run's process: ` +
@@ -375,7 +375,7 @@ export function pollNbToCompletion<T>(
       // Before the break, not after: a worker thread answers it within a
       // millisecond, and onReady must already see the run as abandoned then.
       abandoned.abort();
-      const { success, err } = session.gci.GciTsBreak(session.handle, true);
+      const { success, err } = session.GciTsBreak(true);
       logInfo(
         `[Session ${session.id}] Hard break sent: success=${success}` +
           (err?.number ? ` err=${err.number} ${err.message ?? ''}` : ''),
@@ -407,7 +407,7 @@ export function pollNbToCompletion<T>(
         // Logged because a break that the gem ignores is indistinguishable, from
         // the outside, from a break that was never sent — and the difference is
         // the whole diagnosis when a stop button appears to do nothing.
-        const { success, err } = session.gci.GciTsBreak(session.handle, false);
+        const { success, err } = session.GciTsBreak(false);
         logInfo(
           `[Session ${session.id}] Soft break sent: success=${success}` +
             (err?.number ? ` err=${err.number} ${err.message ?? ''}` : ''),
@@ -476,7 +476,7 @@ export function pollNbToCompletion<T>(
       // reporting "not ready" forever: the progress notification would sit there
       // claiming work is in flight, and whatever awaited this promise would never
       // hear back. GciTsCallInProgress answers -1 for a session that is gone.
-      const { result: alive, err: aliveErr } = session.gci.GciTsCallInProgress(session.handle);
+      const { result: alive, err: aliveErr } = session.GciTsCallInProgress();
       if (alive === -1) {
         settle(() =>
           reject(

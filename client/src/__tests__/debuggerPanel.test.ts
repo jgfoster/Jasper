@@ -194,6 +194,7 @@ import { ActiveSession } from '../sessionManager';
 import { GemStoneLogin } from '../loginTypes';
 import { SMALLTALK_LANGUAGE } from '../languageIds';
 import { OOP_NIL } from '../gciConstants';
+import { fakeActiveSession } from './fakeActiveSession';
 
 const GS_PROCESS = 0x123n;
 const ERROR_MSG = 'a UndefinedObject does not understand #foo';
@@ -280,7 +281,7 @@ function restoreDebugDefaults(): void {
 }
 
 function makeSession(id = 1): ActiveSession {
-  return {
+  return fakeActiveSession({
     id,
     handle: { h: 1 },
     login: {
@@ -288,11 +289,11 @@ function makeSession(id = 1): ActiveSession {
       gs_user: 'DataCurator',
       stone: 'gs64stone',
       gem_host: 'devhost',
-    } as GemStoneLogin,
+    },
     stoneVersion: '3.7.2',
     enhancedInspectorAvailable: true,
-    gci: { GciTsClearStack: vi.fn() } as unknown as ActiveSession['gci'],
-  };
+    gci: { GciTsClearStack: vi.fn() },
+  });
 }
 
 /** The most recently created webview panel mock. */
@@ -935,7 +936,7 @@ describe('DebuggerPanel', () => {
   });
 
   it('disposeForSession disposes every panel created for the session', () => {
-    const s = { ...makeSession(), id: 4242 };
+    const s = makeSession(4242);
     DebuggerPanel.create(s, GS_PROCESS, ERROR_MSG);
     DebuggerPanel.create(s, 0x456n, 'another error');
     const results = vi.mocked(vscode.window.createWebviewPanel).mock.results;

@@ -33,6 +33,7 @@ import {
 } from '../stepPointModel';
 import { SessionManager } from '../sessionManager';
 import { getMethodSource, getSourceOffsets, getStepPointSelectorRanges } from '../browserQueries';
+import { fakeActiveSession } from './fakeActiveSession';
 
 const mockGetMethodSource = vi.mocked(getMethodSource);
 const mockGetSourceOffsets = vi.mocked(getSourceOffsets);
@@ -178,7 +179,9 @@ describe('StepPointModel', () => {
   function makeSessionManager(hasSession = true) {
     return {
       getSelectedSession: vi.fn(() =>
-        hasSession ? { id: 1, gci: {}, handle: 'h', login: {}, stoneVersion: '3.7.5' } : undefined,
+        hasSession
+          ? fakeActiveSession({ id: 1, gci: {}, handle: 'h', login: {}, stoneVersion: '3.7.5' })
+          : undefined,
       ),
       onDidChangeSelection: vi.fn(() => ({ dispose: () => {} })),
     } as unknown as SessionManager;

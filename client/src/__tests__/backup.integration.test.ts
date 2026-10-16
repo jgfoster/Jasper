@@ -12,6 +12,7 @@ import { hasFileControlPrivilege, sessionNeedsCommit, fullBackupCode } from '../
 import { extentFileNames } from '../queries/extentBackup';
 import { temporaryFileName } from './support/file';
 import { sizeInBytesOfServerFile, withTemporaryServerFolderDo } from './support/gemstone';
+import { testActiveSession } from './testActiveSession';
 
 /**
  * Automatic GCI integration tests for the full logical backup, run against a
@@ -29,7 +30,7 @@ describe('full logical backup (integration)', () => {
     handle = testContext.session;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
   const exec = (code: string): string => q.executeFetchString(session(), code);
 
   it('confirms the connected user holds the FileControl privilege backups require', () => {

@@ -14,6 +14,7 @@ import {
   WslNetworkInfo,
 } from './wslBridge';
 import { toWslPath } from './wslFs';
+import { isWslInstalledAsync } from './wslInstall';
 
 function shQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
@@ -56,9 +57,10 @@ function windowsServicesHasGs64ldi(): boolean {
 }
 
 /** Read the current sysctl shared memory values. */
-export function getSharedMemory(): Promise<{ shmmax: number; shmall: number } | undefined> {
-  return new Promise((resolve) => {
-    // On Windows the sysctl lives inside WSL; the parse format matches Linux.
+export async function getSharedMemory(): Promise<{ shmmax: number; shmall: number } | undefined> {
+  // On Windows the sysctl lives inside WSL; the parse format matches Linux.
+  if (needsWsl() && !(await isWslInstalledAsync())) return undefined;
+  return await new Promise((resolve) => {
     const linuxLike = process.platform === 'linux' || needsWsl();
     const cmd = linuxLike
       ? needsWsl()

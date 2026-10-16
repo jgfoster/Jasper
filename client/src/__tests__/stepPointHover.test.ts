@@ -28,6 +28,7 @@ import { StepPointModel } from '../stepPointModel';
 import { BreakpointManager, AppliedBreakpoint } from '../breakpointManager';
 import { SessionManager } from '../sessionManager';
 import { getMethodSource, getSourceOffsets, getStepPointSelectorRanges } from '../browserQueries';
+import { fakeActiveSession } from './fakeActiveSession';
 
 const mockGetMethodSource = vi.mocked(getMethodSource);
 const mockGetSourceOffsets = vi.mocked(getSourceOffsets);
@@ -44,13 +45,15 @@ const SOURCE = 'balance\n^self total';
 
 function makeSessionManager() {
   return {
-    getSelectedSession: vi.fn(() => ({
-      id: 1,
-      gci: {},
-      handle: 'h',
-      login: {},
-      stoneVersion: '3.7.5',
-    })),
+    getSelectedSession: vi.fn(() =>
+      fakeActiveSession({
+        id: 1,
+        gci: {},
+        handle: 'h',
+        login: {},
+        stoneVersion: '3.7.5',
+      }),
+    ),
     onDidChangeSelection: vi.fn(() => ({ dispose: () => {} })),
   } as unknown as SessionManager;
 }

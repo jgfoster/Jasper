@@ -24,6 +24,7 @@ import { GciLibrary } from '../../gciLibrary';
 import * as q from '../../browserQueries';
 import type { ActiveSession } from '../../sessionManager';
 import { QueryExecutor } from '../types';
+import { testActiveSession } from '../../__tests__/testActiveSession';
 
 interface SelectorClaim {
   /** A short label for the test name; helps locate the offending row. */
@@ -166,7 +167,7 @@ describe('selectors used by shared queries (integration)', () => {
     handle = testContext.session;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
   const exec = (code: string): string => q.executeFetchString(session(), code);
 
   it.each(claims)('$label', ({ className, selector, meta }) => {

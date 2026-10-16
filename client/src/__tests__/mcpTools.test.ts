@@ -70,6 +70,7 @@ import * as sunit from '../sunitQueries';
 import * as python from '../pythonQueries';
 import { registerMcpTools } from '../mcpTools';
 import { ActiveSession } from '../sessionManager';
+import { fakeActiveSession } from './fakeActiveSession';
 
 interface ToolRegistration {
   name: string;
@@ -100,13 +101,13 @@ function createMockServer() {
 }
 
 function makeSession(): ActiveSession {
-  return {
+  return fakeActiveSession({
     id: 1,
-    gci: {} as ActiveSession['gci'],
+    gci: {},
     handle: {},
-    login: { label: 'DataCurator on gs64stone (localhost)' } as ActiveSession['login'],
+    login: { label: 'DataCurator on gs64stone (localhost)' },
     stoneVersion: '3.7.4',
-  };
+  });
 }
 
 describe('registerMcpTools', () => {

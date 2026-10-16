@@ -44,6 +44,7 @@ import { readTonelClass } from '../readTonelClass';
 import { applyTonelClass } from '../../../fileTransfer/tonelFileIn';
 import { declarationSequenceOf, duplicateDeclarationsOf } from './tonelOracles';
 import { useRowan3Stone } from './useRowan3Stone';
+import { testActiveSession } from '../../../__tests__/testActiveSession';
 
 const SOURCE = 'JasperRoundTripSource';
 const COPY = 'JasperRoundTripCopy';
@@ -56,7 +57,7 @@ describe('tonel round trip (integration)', () => {
     handle = testContext.session;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
   const exec = (code: string): string => q.executeFetchString(session(), code);
   const rowan3 = useRowan3Stone(() => exec);
 

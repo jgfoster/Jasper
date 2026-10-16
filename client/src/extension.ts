@@ -178,6 +178,7 @@ import { BreakpointTreeProvider, BreakpointNode, revealBreakpoint } from './brea
 import { SunitTestController } from './sunitTestController';
 import { GrailNotebookController, grailSessionKernel } from './grailNotebookController';
 import { SmalltalkNotebookController, smalltalkSessionKernel } from './smalltalkNotebookController';
+import { registerNotebookBreakpointHint } from './notebookBreakpointHint';
 import { SessionKernels } from './sessionKernels';
 import { ExportManager } from './exportManager';
 import { FileInManager } from './fileInManager';
@@ -186,8 +187,8 @@ import { getGciLog, logError, logWarning } from './gciLog';
 import { commitFailureMessage, isCommitConflict } from './commitFailure';
 import { CODE_LENS_SELECTORS, GemStoneCodeLensProvider } from './gemstoneCodeLensProvider';
 import * as queries from './browserQueries';
+import { dropCachedClassOrganizer } from './classOrganizerCache';
 import { dedupeMethodResults } from './queries/methodSearch';
-import { clearClassOrganizerCode } from './queries/classOrganizer';
 import { SysadminStorage } from './sysadminStorage';
 import { appendSysadmin, getSysadminChannel } from './sysadminChannel';
 import {
@@ -249,6 +250,8 @@ import {
   getWslNetworkInfoCached,
   refreshWslNetworkInfo,
 } from './wslBridge';
+import { isWslInstalledAsync } from './wslInstall';
+import { recheckWsl } from './wslRecheck';
 import {
   wslExistsSync,
   wslMkdirSync,
@@ -1349,6 +1352,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     new SessionKernels(sessionManager, [smalltalkSessionKernel, grailSessionKernel]),
   );
+  context.subscriptions.push(registerNotebookBreakpointHint());
 
   // ── Status Bar: Active Session ─────────────────────────
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -1693,26 +1697,6 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   /**
-   * Drop the session's cached `ClassOrganizer` after a commit or abort.
-   *
-   * The organizer captures the image's class list once and is then reused for
-   * the life of the session (see `classOrganizer.ts`), which is what keeps
-   * Search, senders, implementors and references off a per-query image-wide
-   * rebuild. A sync is where a class list can change without Jasper having
-   * compiled anything — another session added or removed a class and committed
-   * — so the snapshot is dropped here rather than left to answer about an image
-   * that no longer exists. Best effort: it costs one removeKey, and a session
-   * that cannot run it has bigger problems than a stale search.
-   */
-  const clearClassOrganizer = (session: ActiveSession): void => {
-    try {
-      queries.executeFetchString(session, clearClassOrganizerCode());
-    } catch {
-      // Nothing to report: the next query simply reuses the organizer it had.
-    }
-  };
-
-  /**
    * Which session a message is about: its number, and the login behind it. The
    * number alone is a slot in this window's list and says nothing about which
    * stone the work landed in.
@@ -1753,7 +1737,7 @@ export function activate(context: vscode.ExtensionContext) {
         // an open GemStone Search's cached corpora so they show up, and drop the
         // cached ClassOrganizer whose class list they would otherwise be searched
         // against.
-        clearClassOrganizer(session);
+        dropCachedClassOrganizer(session);
         omniSearch?.notifySessionSynced(session.id);
       } else {
         // Only a refusal has a conflict set, so an errored commit costs no extra
@@ -1805,7 +1789,7 @@ export function activate(context: vscode.ExtensionContext) {
     // The new view can hold classes/globals/dicts committed by other sessions —
     // rebuild an open GemStone Search's cached corpora so they show up, and drop
     // the cached ClassOrganizer whose class list they would be searched against.
-    clearClassOrganizer(session);
+    dropCachedClassOrganizer(session);
     omniSearch?.notifySessionSynced(session.id);
     explorer.onSessionAborted(session.id);
     // The view moved underneath every recorded undo, so each entry now describes a
@@ -2370,10 +2354,10 @@ export function activate(context: vscode.ExtensionContext) {
             getGciLibraryPath: (version) => storage.getGciLibraryPath(version),
             setGciLibraryPath: (version, gciPath) => storage.setGciLibraryPath(version, gciPath),
             getGemstonePath: (version) => sysadminStorage.getGemstonePath(version),
-            getWindowsClientGciPath: (version) => sysadminStorage.getWindowsClientGciPath(version),
+            getClientGciPath: (version) => sysadminStorage.getClientGciPath(version),
             getRootPath: () => sysadminStorage.getRootPath(),
-            downloadAndExtractWindowsClient: (version, progress, token) =>
-              versionManager.downloadAndExtractWindowsClient(version, progress, token),
+            downloadAndExtractClient: (version, progress, token) =>
+              versionManager.downloadAndExtractClient(version, progress, token),
             refreshVersions: () => refreshVersions(),
             connect: (login, gciPath) => connectWithFeedback(item.login, login, gciPath),
             connected: (login, session) => {
@@ -3446,17 +3430,19 @@ export function activate(context: vscode.ExtensionContext) {
   // ── SysAdmin ──────────────────────────────────────────────
   // WSL detection runs asynchronously so it never blocks activation and so a
   // cold-start WSL2 VM (not yet running when VS Code launches) doesn't produce
-  // a false negative that sticks for the whole session. If the first probe
-  // reports unavailable, we wait briefly and retry once before concluding WSL
-  // is genuinely missing. The "install WSL" warning is deferred until that
-  // second probe also fails, and a subsequent refresh of the version list
-  // will re-probe — giving the user a recovery path without reloading.
+  // a false negative that sticks for the whole session. If WSL is installed
+  // but the first probe reports unavailable, we wait briefly and retry once
+  // before concluding WSL is unusable. When it is not installed at all there is
+  // no VM to wait for (see wslInstall.ts for how that is checked without
+  // opening WSL's install prompt). Refresh in the Databases & Versions panel
+  // looks again — giving the user a recovery path without reloading. Not on window focus: on a machine that
+  // never installs WSL, that would launch `wsl --status` on every alt-tab.
   if (isWindows()) {
     vscode.commands.executeCommand('setContext', 'gemstone.isWindows', true);
     // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
     (async () => {
       let wslInfo = await getWslInfoAsync();
-      if (!wslInfo.available) {
+      if (!wslInfo.available && (await isWslInstalledAsync())) {
         await new Promise((resolve) => setTimeout(resolve, 5000));
         invalidateWslCache();
         wslInfo = await getWslInfoAsync();
@@ -3810,6 +3796,12 @@ export function activate(context: vscode.ExtensionContext) {
     });
   }
   const versionManager = new VersionManager(sysadminStorage);
+  // The login page offers every supported version, not only those on disk; one
+  // not here yet is a download away (gemstone.downloadClient).
+  LoginEditorPanel.setVersionCatalog({
+    supportedVersions: () => versionManager.fetchSupportedVersionNames(),
+    downloadSize: (version) => versionManager.clientDownloadSize(version),
+  });
   const databaseManager = new DatabaseManager(sysadminStorage, processManager);
 
   // OS Configuration. The "Configure OS" view is shown only on Windows/WSL,
@@ -4595,11 +4587,7 @@ export function activate(context: vscode.ExtensionContext) {
   // ── SysAdmin Commands ───────────────────────────────────
   context.subscriptions.push(
     vscode.commands.registerCommand('gemstone.refreshVersions', async () => {
-      if (isWindows()) {
-        invalidateWslCache();
-        const wslInfo = await getWslInfoAsync();
-        vscode.commands.executeCommand('setContext', 'gemstone.wslAvailable', wslInfo.available);
-      }
+      if (isWindows()) await recheckWsl();
       refreshVersions();
     }),
 
@@ -4706,58 +4694,57 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
 
-    vscode.commands.registerCommand(
-      'gemstone.downloadWindowsClient',
-      async (item: VersionTarget) => {
-        const version = item.version.version;
-        try {
-          await vscode.window.withProgress(
-            {
-              location: vscode.ProgressLocation.Notification,
-              title: `Installing Windows client ${version}...`,
-              cancellable: true,
-            },
-            (progress, token) =>
-              versionManager.downloadAndExtractWindowsClient(version, progress, token),
-          );
-        } catch (e) {
-          showInstallOutcome(e, 'Windows client install failed');
-          refreshVersions();
-          return;
-        }
-
-        // Auto-register GCI library path
-        const gciPath = sysadminStorage.getWindowsClientGciPath(version);
-        if (gciPath) {
-          await storage.setGciLibraryPath(version, gciPath);
-        }
-        refreshVersions();
-        vscode.window.showInformationMessage(
-          `Windows client for GemStone ${version} is ready.${gciPath ? ' GCI library registered.' : ''}`,
+    // The files a login needs for a version, without the server: the login page
+    // and the GemStone manager both run this one command.
+    vscode.commands.registerCommand('gemstone.downloadClient', async (item: VersionTarget) => {
+      const version = item.version.version;
+      try {
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Downloading the files for GemStone ${version}...`,
+            cancellable: true,
+          },
+          (progress, token) => versionManager.downloadAndExtractClient(version, progress, token),
         );
-      },
-    ),
+      } catch (e) {
+        showInstallOutcome(e, `Downloading the files for GemStone ${version} failed`);
+        refreshVersions();
+        return;
+      }
 
-    vscode.commands.registerCommand('gemstone.openWindowsClientFolder', (item: VersionTarget) => {
-      const clientPath = sysadminStorage.getWindowsClientPath(item.version.version);
+      refreshVersions();
+      vscode.window.showInformationMessage(`Jasper can now log in to GemStone ${version} stones.`);
+    }),
+
+    vscode.commands.registerCommand('gemstone.openClientFolder', (item: VersionTarget) => {
+      const clientPath = sysadminStorage.getClientPath(item.version.version);
       if (clientPath) {
         vscode.env.openExternal(vscode.Uri.file(clientPath));
       }
     }),
 
-    vscode.commands.registerCommand(
-      'gemstone.deleteWindowsClientExtracted',
-      async (item: VersionTarget) => {
-        const confirmed = await vscode.window.showWarningMessage(
-          `Delete the Windows client distribution for GemStone ${item.version.version}?`,
-          { modal: true },
-          'Delete',
-        );
-        if (confirmed !== 'Delete') return;
-        await versionManager.deleteWindowsClientExtracted(item.version);
-        refreshVersions();
-      },
-    ),
+    vscode.commands.registerCommand('gemstone.deleteClient', async (item: VersionTarget) => {
+      const version = item.version.version;
+      const confirmed = await vscode.window.showWarningMessage(
+        `Delete the files Jasper downloaded to log in to GemStone ${version}?`,
+        {
+          modal: true,
+          detail: 'A full install of this version, if there is one, is not touched.',
+        },
+        'Delete',
+      );
+      if (confirmed !== 'Delete') return;
+      const clientGci = sysadminStorage.getClientGciPath(version);
+      await versionManager.deleteClientExtracted(item.version);
+      // Jasper no longer registers client files, but earlier versions did on Windows.
+      // One pointing into the folder just deleted would send the next login to a
+      // missing file instead of offering the download again.
+      if (clientGci && storage.getGciLibraryPath(version) === clientGci) {
+        await storage.removeGciLibraryPath(version);
+      }
+      refreshVersions();
+    }),
 
     // ── The Databases & Versions panel ────────────────────────────────────
     // Two doors into one panel: Manage… lands on the lists, New Database lands
@@ -5305,10 +5292,9 @@ export function activate(context: vscode.ExtensionContext) {
           return;
         }
 
-        // Capture what we need before the session is torn down. The GciLibrary
-        // outlives its session's logout, so the transient restore logins reuse it.
+        // Capture what we need before the session is torn down. The transient
+        // restore logins reuse `session`, whose GciLibrary outlives the logout.
         const harvested = session.login;
-        const gci = session.gci;
         const sessionId = session.id;
         const managed = db;
         const dataDir = path.join(managed.path, 'data');
@@ -5384,11 +5370,11 @@ export function activate(context: vscode.ExtensionContext) {
             toRestoreSession(
               sessionManager.loginTransient(
                 { ...harvested, gs_user: 'DataCurator', gs_password: DEFAULT_GS_PW },
-                gci,
+                session,
               ),
             ),
           loginAsSessionUser: async () =>
-            toRestoreSession(sessionManager.loginTransient(harvested, gci)),
+            toRestoreSession(sessionManager.loginTransient(harvested, session)),
         });
 
         if (restored) {

@@ -4,12 +4,13 @@ vi.mock('vscode', () => import('../__mocks__/vscode.js'));
 
 import { executeFetchStringNb, loadRowanProjectNb, BrowserQueryError } from '../browserQueries';
 import type { ActiveSession } from '../sessionManager';
+import { fakeActiveSession } from './fakeActiveSession';
 
 // A fake session whose gci implements just the non-blocking execute path:
 // start (NbExecute) → poll ready (NbPoll) → result oop (NbResult) → string
 // contents (FetchChars). Overrides let each test break one link in the chain.
 function fakeSession(overrides: Record<string, unknown> = {}): ActiveSession {
-  return {
+  return fakeActiveSession({
     id: -1,
     handle: { fake: true },
     login: { stone: 'test-stone' },
@@ -23,18 +24,21 @@ function fakeSession(overrides: Record<string, unknown> = {}): ActiveSession {
       GciTsFetchChars: vi.fn(() => ({ bytesReturned: 5n, data: 'OK\tX', err: { number: 0 } })),
       ...overrides,
     },
-  } as unknown as ActiveSession;
+  });
 }
 
 describe('executeFetchStringNb', () => {
   it('starts the code non-blocking and returns the result string verbatim', async () => {
-    const session = fakeSession();
+    const nbExecute = vi.fn((_session: unknown, _code: string) => ({
+      success: true,
+      err: { number: 0 },
+    }));
+    const session = fakeSession({ GciTsNbExecute: nbExecute });
 
     const result = await executeFetchStringNb(session, 'test', '3 + 4 printString');
 
     expect(result).toBe('OK\tX');
-    const nb = session.gci.GciTsNbExecute as ReturnType<typeof vi.fn>;
-    expect(nb.mock.calls[0][1]).toBe('3 + 4 printString');
+    expect(nbExecute.mock.calls[0][1]).toBe('3 + 4 printString');
   });
 
   it('refuses to start while the session is busy with another call', async () => {
@@ -66,7 +70,12 @@ describe('executeFetchStringNb', () => {
 
 describe('loadRowanProjectNb', () => {
   it('runs the standard load Smalltalk and parses the OK result', async () => {
+    const nbExecute = vi.fn((_session: unknown, _code: string) => ({
+      success: true,
+      err: { number: 0 },
+    }));
     const session = fakeSession({
+      GciTsNbExecute: nbExecute,
       GciTsFetchChars: vi.fn(() => ({
         bytesReturned: 11n,
         data: 'OK\tSeaside3',
@@ -77,8 +86,7 @@ describe('loadRowanProjectNb', () => {
     const result = await loadRowanProjectNb(session, '/r/spec.ston', '/r', 'Loading…');
 
     expect(result).toEqual({ success: true, detail: 'Seaside3' });
-    const nb = session.gci.GciTsNbExecute as ReturnType<typeof vi.fn>;
-    const code = nb.mock.calls[0][1] as string;
+    const code = nbExecute.mock.calls[0][1];
     expect(code).toContain("projectFromUrl: 'file:/r/spec.ston'");
     expect(code).toContain("diskUrl: 'file:/r'");
     expect(code).toContain('resolved load');

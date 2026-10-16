@@ -202,11 +202,12 @@ import { ExportManager } from '../exportManager';
 import { ActiveSession } from '../sessionManager';
 import { GemStoneLogin } from '../loginTypes';
 import * as vscode from 'vscode';
+import { fakeActiveSession } from './fakeActiveSession';
 
 function createMockSession(overrides?: Partial<GemStoneLogin>): ActiveSession {
-  return {
+  return fakeActiveSession({
     id: 1,
-    gci: {} as ActiveSession['gci'],
+    gci: {},
     handle: {},
     login: {
       label: 'Test',
@@ -221,7 +222,7 @@ function createMockSession(overrides?: Partial<GemStoneLogin>): ActiveSession {
       ...overrides,
     },
     stoneVersion: '3.7.2',
-  };
+  });
 }
 
 function defaultImage() {

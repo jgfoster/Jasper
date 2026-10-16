@@ -10,9 +10,9 @@
  * interactive password-prompt wrapper around it, `obtainSystemUserSession`,
  * lives in `systemUserAuth.ts` instead, since it needs `vscode`.
  */
-import { ActiveSession } from '../sessionManager';
+import type { ActiveSession } from '../activeSession';
 import { executeFetchString } from '../browserQueries';
-import { gemNrsFor, stoneNrsFor, DEFAULT_GS_PW } from '../loginTypes';
+import { DEFAULT_GS_PW } from '../loginTypes';
 import { needsWsl } from '../wslBridge';
 import { toWslPath } from '../wslFs';
 
@@ -64,7 +64,7 @@ export function gemCanRead(session: ActiveSession, serverPath: string): boolean 
  *  regardless of whether this succeeds. */
 export function safeAbort(session: ActiveSession): void {
   try {
-    session.gci.GciTsAbort(session.handle);
+    session.GciTsAbort();
   } catch {
     // Best-effort rollback; the caller closes the session regardless.
   }
@@ -87,28 +87,13 @@ export function yieldToEventLoop(): Promise<void> {
  * Deliberately NOT registered with the SessionManager. Caller logs it out.
  */
 export function loginAsSystemUser(base: ActiveSession, password: string): ActiveSession {
-  const { login } = base;
-  const stoneNrs = stoneNrsFor(login);
-  const gemNrs = gemNrsFor(login);
-  const result = base.gci.GciTsLogin(
-    stoneNrs,
-    login.host_user || null,
-    login.host_password || null,
-    false,
-    gemNrs,
-    'SystemUser',
-    password,
-    0,
-    0,
-  );
-  if (!result.session) {
-    throw new Error(result.err.message || `SystemUser login failed (error ${result.err.number})`);
+  const { session, err } = base.transientLogin({
+    ...base.login,
+    gs_user: 'SystemUser',
+    gs_password: password,
+  });
+  if (!session) {
+    throw new Error(err.message || `SystemUser login failed (error ${err.number})`);
   }
-  return {
-    id: -1,
-    gci: base.gci,
-    handle: result.session,
-    login: { ...login, gs_user: 'SystemUser', gs_password: password },
-    stoneVersion: base.stoneVersion,
-  };
+  return session;
 }
