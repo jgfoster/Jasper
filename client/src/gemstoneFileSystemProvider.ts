@@ -119,8 +119,13 @@ export function parseUri(uri: vscode.Uri): ParsedUri {
   const dictIndex = dictMatch ? parseInt(dictMatch[1], 10) : undefined;
 
   if (parts.length === 3 && parts[2] === 'new-class') {
+    // `uri.query` is already percent-decoded too, for the same reason `uri.path`
+    // is — so the category is read as written, not decoded a second time.
+    // (A category containing '&' is still cut short here, and can inject a
+    // dict=/env= parameter; that needs a sentinel on both sides, see
+    // https://github.com/GemTalk/Jasper/issues/744.)
     const catMatch = uri.query?.match(/category=([^&]+)/);
-    const category = catMatch ? decodeURIComponent(catMatch[1]) : undefined;
+    const category = catMatch ? catMatch[1] : undefined;
     return { kind: 'new-class', sessionId, dictName: parts[1], category };
   }
   // 4-segment `/dict/Class/definition`, or 5-segment `/dict/Class/definition/Class`

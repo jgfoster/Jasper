@@ -560,6 +560,12 @@ describe('GemStoneFileSystemProvider', () => {
       expect(content).toContain("category: 'Kernel-Numbers'\n  options: #()");
     });
 
+    it('new-class template pre-fills a selected category containing "%"', () => {
+      const uri = Uri.parse('gemstone://1/UserGlobals/new-class?category=50%25%20off');
+      const content = new TextDecoder().decode(provider.readFile(uri));
+      expect(content).toContain("category: '50% off'\n  options: #()");
+    });
+
     it('returns new-method template', () => {
       const uri = Uri.parse('gemstone://1/Globals/Array/instance/accessing/new-method');
       const content = new TextDecoder().decode(provider.readFile(uri));
@@ -2369,6 +2375,20 @@ describe('parseUri', () => {
       category: 'Widgets',
     });
   });
+
+  // The query arrives already decoded, like the path. Decoding it again threw
+  // ("URI malformed") on a category holding a lone '%', and turned a literal
+  // '%41' into 'A'. A class category is free text, so both are legal names.
+  it.each(['50% off', '%41', '%', 'Kernel-Numbers', 'Logical/Bits', 'a=b', 'a+b'])(
+    'reads the new-class category %j as written',
+    (category) => {
+      const uri = Uri.parse(
+        `gemstone://1/UserGlobals/new-class?category=${encodeURIComponent(category)}`,
+      );
+
+      expect(parseUri(uri)).toMatchObject({ kind: 'new-class', category });
+    },
+  );
 
   it('treats a decorated override-diff selector as a read-only diff view', () => {
     const parsed = parseUri(
