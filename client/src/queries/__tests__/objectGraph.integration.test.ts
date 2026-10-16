@@ -21,6 +21,7 @@ import { GciLibrary } from '../../gciLibrary';
 import * as q from '../../browserQueries';
 import * as og from '../objectGraph';
 import type { ActiveSession } from '../../sessionManager';
+import { testActiveSession } from '../../__tests__/testActiveSession';
 
 describe('reference-graph queries (integration)', () => {
   let gci: GciLibrary;
@@ -31,7 +32,7 @@ describe('reference-graph queries (integration)', () => {
     handle = testContext.session;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
   const exec = (code: string): string => q.executeFetchString(session(), code);
 
   /** The OOP of a committed kernel object, for the scans that refuse a dirty session. */
