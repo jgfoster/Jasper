@@ -4,9 +4,9 @@ vi.mock('../../browserQueries', () => ({
   executeFetchString: vi.fn(),
 }));
 
-import { ActiveSession } from '../../sessionManager';
 import { executeFetchString } from '../../browserQueries';
 import { uninstallEnhancedInspectorSupport } from '../enhancedInspectorUninstall';
+import { fakeActiveSession } from '../../__tests__/fakeActiveSession';
 
 const executeFetchStringMock = executeFetchString as ReturnType<typeof vi.fn>;
 
@@ -19,13 +19,13 @@ function happyPath(_s: unknown, code: string): string {
 }
 
 function createMockSession() {
-  const commit = vi.fn(() => ({ success: true, err: { number: 0 } }));
+  const commit = vi.fn(() => ({ success: true, err: { number: 0, message: '' } }));
   const abort = vi.fn(() => ({ success: true, err: { number: 0 } }));
-  const session = {
+  const session = fakeActiveSession({
     id: 1,
     handle: {},
     gci: { GciTsCommit: commit, GciTsAbort: abort },
-  } as unknown as ActiveSession;
+  });
   return { session, commit, abort };
 }
 
@@ -81,11 +81,11 @@ describe('uninstallEnhancedInspectorSupport', () => {
   });
 
   it('rolls back and reports failure when the commit fails', async () => {
-    const { session, abort } = createMockSession();
-    session.gci.GciTsCommit = vi.fn(() => ({
+    const { session, commit, abort } = createMockSession();
+    commit.mockReturnValue({
       success: false,
       err: { number: 4001, message: 'commit refused' },
-    })) as unknown as typeof session.gci.GciTsCommit;
+    });
 
     const result = await uninstallEnhancedInspectorSupport(session);
 

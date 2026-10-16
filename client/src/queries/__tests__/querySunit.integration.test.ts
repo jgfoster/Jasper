@@ -31,6 +31,7 @@ import {
   SUNIT_PROBE_ERRORING_SELECTOR,
 } from './sunitProbeFixture';
 import { anyRunLimitProbeSuiteRan, installRunLimitProbeClasses } from './runLimitProbeFixture';
+import { testActiveSession } from '../../__tests__/testActiveSession';
 
 describe('SUnit queries (integration)', () => {
   let gci: GciLibrary;
@@ -40,7 +41,7 @@ describe('SUnit queries (integration)', () => {
     handle = testContext.session;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
   const exec = (code: string): string => q.executeFetchString(session(), code);
 
   beforeEach(() => {

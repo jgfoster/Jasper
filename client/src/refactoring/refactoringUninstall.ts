@@ -115,7 +115,7 @@ export async function uninstallRefactoringSupport(
 
   onProgress('Committing…', 20);
   await yieldToEventLoop();
-  const { success: committed, err } = session.gci.GciTsCommit(session.handle);
+  const { success: committed, err } = session.GciTsCommit();
   if (!committed) {
     safeAbort(session);
     return {

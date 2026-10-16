@@ -143,7 +143,6 @@ describe('Switch Session in a notebook, with sessions logged in along the way', 
 
     await runCell(kernel);
     expect(ranIn.at(-1)).toBe(second);
-    expect(ranIn.at(-1)!.handle).toBe(second.handle);
 
     await switchSessionTo(third);
     await runCell(kernel);

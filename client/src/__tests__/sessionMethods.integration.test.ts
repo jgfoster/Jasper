@@ -8,6 +8,7 @@ import { GciLibrary } from '../gciLibrary';
 import * as browserQueries from '../browserQueries';
 import type { ActiveSession } from '../sessionManager';
 import type { EnvCategoryLine } from '../queries/getClassEnvironments';
+import { testActiveSession } from './testActiveSession';
 
 /**
  * Automatic GCI integration tests for session-method detection (grail #13).
@@ -33,7 +34,7 @@ describe('session methods (integration)', () => {
     handle = testContext.session;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
   const exec = (code: string): string => browserQueries.executeFetchString(session(), code);
 
   const isSystemProfile = (): boolean =>

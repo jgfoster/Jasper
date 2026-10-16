@@ -7,23 +7,19 @@ vi.mock('vscode', () => ({
 }));
 
 import { ActiveSession } from '../../sessionManager';
-import { GemStoneLogin } from '../../loginTypes';
 import * as queries from '../../browserQueries';
 import { refreshEnhancedInspectorAvailable } from '../enhancedInspectorAvailability';
+import { sessionOn } from '../../__tests__/fakeActiveSession';
 
-function createMockSession(executeFetchData = '', stoneVersion = '3.7.5'): ActiveSession {
-  const mockGci = {
-    executeAndFetchString: vi.fn(() => executeFetchData),
+function createMockGci(executeFetchData = '') {
+  return {
+    executeAndFetchString: vi.fn((_session: unknown, _code: string) => executeFetchData),
     GciTsCallInProgress: vi.fn(() => ({ result: 0 })),
   };
+}
 
-  return {
-    id: 1,
-    gci: mockGci as unknown as ActiveSession['gci'],
-    handle: {},
-    login: { label: 'Test' } as GemStoneLogin,
-    stoneVersion,
-  };
+function createMockSession(executeFetchData = '', stoneVersion = '3.7.5'): ActiveSession {
+  return sessionOn(createMockGci(executeFetchData), { stoneVersion });
 }
 
 describe('checkEnhancedInspectorAvailable', () => {
@@ -48,8 +44,9 @@ describe('checkEnhancedInspectorAvailable', () => {
   });
 
   it('returns false when GCI returns an error', () => {
-    const session = createMockSession('');
-    (session.gci.executeAndFetchString as ReturnType<typeof vi.fn>).mockImplementation(() => {
+    const gci = createMockGci('');
+    const session = sessionOn(gci);
+    gci.executeAndFetchString.mockImplementation(() => {
       throw new Error('GCI error');
     });
 
@@ -57,12 +54,12 @@ describe('checkEnhancedInspectorAvailable', () => {
   });
 
   it('emitted Smalltalk references GtRemotePhlowViewedObject', () => {
-    const session = createMockSession('true');
+    const gci = createMockGci('true');
+    const session = sessionOn(gci);
 
     queries.checkEnhancedInspectorAvailable(session);
 
-    const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
-    const code = mockExec.mock.calls[0][1] as string;
+    const code = gci.executeAndFetchString.mock.calls[0][1];
     expect(code).toContain('GtRemotePhlowViewedObject');
   });
 });
@@ -96,10 +93,11 @@ describe('refreshEnhancedInspectorAvailable', () => {
   );
 
   it.each(UNSUPPORTED_VERSIONS)('does not probe a %s stone at all', (version) => {
-    const session = createMockSession('true', version);
+    const gci = createMockGci('true');
+    const session = sessionOn(gci, { stoneVersion: version });
 
     refreshEnhancedInspectorAvailable(session);
 
-    expect(session.gci.executeAndFetchString).not.toHaveBeenCalled();
+    expect(gci.executeAndFetchString).not.toHaveBeenCalled();
   });
 });

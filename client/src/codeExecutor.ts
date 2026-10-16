@@ -237,8 +237,7 @@ export class CodeExecutor {
     // buffered since the last drain is displayed now. Ended in finally.
     appendTranscriptOutput(startClientForwarderMode(session, code));
     try {
-      const { success, err: startErr } = session.gci.GciTsNbExecute(
-        session.handle,
+      const { success, err: startErr } = session.GciTsNbExecute(
         code,
         oopClassString,
         OOP_ILLEGAL,
@@ -553,8 +552,7 @@ export class CodeExecutor {
     this.setExecuting(session.id, true);
     appendTranscriptOutput(startClientForwarderMode(session, code));
     try {
-      const { success, err: startErr } = session.gci.GciTsNbExecute(
-        session.handle,
+      const { success, err: startErr } = session.GciTsNbExecute(
         code,
         oopClassString,
         OOP_ILLEGAL,
@@ -609,21 +607,15 @@ export class CodeExecutor {
     logInfo(`[Session ${session.id}] Debug context OOP: ${context} (${hex})`);
 
     // Check if the object exists
-    const exists = session.gci.GciTsObjExists(session.handle, context);
+    const exists = session.GciTsObjExists(context);
     logInfo(`[Session ${session.id}] Debug context ObjExists: ${exists}`);
 
     if (exists) {
       // Try to get its class
-      const { result: classOop, err } = session.gci.GciTsFetchClass(session.handle, context);
+      const { result: classOop, err } = session.GciTsFetchClass(context);
       if (err.number === 0) {
         // Get class name
-        const { data, err: nameErr } = session.gci.GciTsPerformFetchBytes(
-          session.handle,
-          classOop,
-          'name',
-          [],
-          256,
-        );
+        const { data, err: nameErr } = session.GciTsPerformFetchBytes(classOop, 'name', [], 256);
         logInfo(
           `[Session ${session.id}] Debug context class: ${nameErr.number === 0 ? data : `error ${nameErr.number}`}`,
         );
@@ -634,7 +626,7 @@ export class CodeExecutor {
   }
 
   private resolveUtf8ClassOopUsing(session: ActiveSession): bigint {
-    return session.gci.utf8ClassOop(session.handle);
+    return session.utf8ClassOop();
   }
 
   /**
@@ -926,10 +918,7 @@ export class CodeExecutor {
   private async fetchResultString(session: ActiveSession, signal?: AbortSignal): Promise<string> {
     const resultOop = await this.fetchResultOop(session, signal);
 
-    return session.gci.executeAndFetchString(
-      session.handle,
-      `(Object objectForOop: ${resultOop}) printString`,
-    );
+    return session.executeAndFetchString(`(Object objectForOop: ${resultOop}) printString`);
   }
 
   // ── Inspect ──────────────────────────────────────────
@@ -999,8 +988,7 @@ export class CodeExecutor {
     appendTranscriptOutput(startClientForwarderMode(session, code));
     try {
       // Interpreted so a halt/error is steppable in the debugger; see execute().
-      const { success, err: startErr } = session.gci.GciTsNbExecute(
-        session.handle,
+      const { success, err: startErr } = session.GciTsNbExecute(
         code,
         oopClassString,
         OOP_ILLEGAL,

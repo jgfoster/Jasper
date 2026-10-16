@@ -129,6 +129,7 @@ import { showRenameMethodEditor } from './refactoring/renameMethodEditor';
 import { showRenameMethodPanel } from './refactoring/renameMethodPanel';
 import { beginChangeSignature, changeSignatureCommand } from './refactoring/changeSignatureCommand';
 import { moveInstVar as moveInstVarFlow } from './refactoring/instVarStructureCommand';
+import type { MoveTarget } from './refactoring/queries/previewInstVarStructure';
 import { pushMethod } from './refactoring/pushMethodCommand';
 import {
   insertSuperclassCommand,
@@ -668,12 +669,46 @@ function declineIfUnbound(item: ClassItem | HierarchyItem, what: string): boolea
       ? `${item.className} here is an older version of the class — the name now binds a newer one, ` +
         'and no dictionary holds this one. A refactoring that failed part-way leaves exactly this: ' +
         'Undo reverses it and puts the subtree back together.'
-      : `No class named ${item.className} is bound in any dictionary; it has been removed.`;
+      : item.binding === 'aliased'
+        ? `${item.className} here is held only under another name, so no dictionary reaches it ` +
+          `as ${item.className}. Browse it through the name it is bound under.`
+        : `No class named ${item.className} is bound in any dictionary; it has been removed.`;
   void vscode.window.showWarningMessage(`${what} is not available here. ${why}`);
   return true;
 }
 
-function unboundHierarchyTooltip(className: string, binding: 'superseded' | 'unbound'): string {
+// The dictionary note for each move-destination row: its dictionary's name, plus its SymbolList
+// position when another row has the same class name in a dictionary of the same name — the one
+// case where the name alone still leaves two rows reading alike.
+function dictionaryLabels(rows: { className: string; dictName: string; dictIndex?: number }[]) {
+  return rows.map((r) => {
+    if (!r.dictName) return '';
+    const twin = rows.some(
+      (o) => o !== r && o.className === r.className && o.dictName === r.dictName,
+    );
+    return twin && r.dictIndex ? `${r.dictName} (${r.dictIndex})` : r.dictName;
+  });
+}
+
+function hierarchyRowKey(
+  className: string,
+  dictIndex: number | undefined,
+  dictName: string,
+): string {
+  return `${dictIndex ?? dictName}:${className}`;
+}
+
+function unboundHierarchyTooltip(
+  className: string,
+  binding: 'aliased' | 'superseded' | 'unbound',
+): string {
+  if (binding === 'aliased') {
+    return (
+      `${className} — held only under another name.\n\n` +
+      'A dictionary holds this class, but not under its own name, so commands that look a class ' +
+      'up by its name in a dictionary cannot reach it. Browse it through the name it is bound under.'
+    );
+  }
   if (binding === 'unbound') {
     return (
       `${className} — no class of this name is bound in any dictionary.\n\n` +
@@ -717,7 +752,7 @@ export class HierarchyItem extends vscode.TreeItem {
     // Whether the symbol list still binds this class object under its own name. A SUPERSEDED row
     // is a real class -- it is this subclass's actual superclass -- that the name no longer
     // points at, so every command scoped by dictionary has nowhere to send it.
-    public readonly binding: 'bound' | 'superseded' | 'unbound' = 'bound',
+    public readonly binding: 'bound' | 'aliased' | 'superseded' | 'unbound' = 'bound',
   ) {
     const versionTag = versionTagOf(version);
     super(
@@ -729,7 +764,12 @@ export class HierarchyItem extends vscode.TreeItem {
     // row is indistinguishable from any other ancestor, and every command on it failed with
     // "not a class" -- which reads as a broken tool rather than as what it is.
     if (binding !== 'bound') {
-      this.description = binding === 'superseded' ? '(old version)' : '(unbound)';
+      this.description =
+        binding === 'superseded'
+          ? '(old version)'
+          : binding === 'aliased'
+            ? '(alias only)'
+            : '(unbound)';
       this.tooltip = unboundHierarchyTooltip(className, binding);
     }
     // The dictionary position is part of the id: every subclass has chainIndex -1, so two
@@ -854,8 +894,8 @@ interface MethodHistoryPanelEntry {
 
 /** What a method removal judges its rows against: the class it started on, the dictionary
  *  that resolves it, and the method list the rows came from. Captured once, up front, so a
- *  run that is several whole-image scans long cannot judge its later rows against a pane
- *  the user has since moved. */
+ *  run that waits on a whole-image scan cannot judge its rows against a pane the user has
+ *  since moved. */
 interface RemovalTarget {
   className: string;
   dictIndex: number | undefined;
@@ -1107,6 +1147,10 @@ export class ExplorerController {
     map: Map<string, queries.MethodInstVarAccess>;
   };
   private views?: ExplorerViews;
+  // Classes whose own Hierarchy row the user collapsed (see revealHierarchySelf), by dictionary and
+  // name: the row's id also carries its chain position, which changes with the class selected.
+  // Cleared by reset(): a dictionary position means nothing in another session.
+  private readonly hierarchyCollapsedByUser = new Set<string>();
   // Active filter pattern per pane (view id → pattern); empty/absent = no filter.
   private readonly filters = new Map<string, string>();
   // The pane whose filter input is currently open (so its header shows the
@@ -1787,6 +1831,7 @@ export class ExplorerController {
     this.envLines = [];
     this.hierChain = [];
     this.hierSubs = [];
+    this.hierarchyCollapsedByUser.clear();
     this.newClassCategories.clear();
     this.newMethodCategories.instance.clear();
     this.newMethodCategories.meta.clear();
@@ -2596,7 +2641,33 @@ export class ExplorerController {
       e.dictIndex,
       e.binding,
     );
-    await this.revealCascade(this.views?.hierarchy, self, { select: true, focus: false });
+    // Expanded on purpose: VS Code remembers a row collapsed under its id, so a class that briefly
+    // had no subclasses -- re-versioned by a refactoring, or by its undo -- otherwise came back as a
+    // closed row, and showing the subclasses is the point of the pane. Unless the user closed it:
+    // VS Code reports a collapse only when someone collapses a row, never for a row that came back
+    // closed, so honouring the user's collapse leaves the disappearing-subclasses case still fixed.
+    const expand =
+      this.hierSubs.length > 0 &&
+      !this.hierarchyCollapsedByUser.has(
+        hierarchyRowKey(self.className, self.dictIndex, self.dictName),
+      );
+    await this.revealCascade(this.views?.hierarchy, self, {
+      select: true,
+      focus: false,
+      ...(expand ? { expand: true } : {}),
+    });
+  }
+
+  onHierarchyRowCollapsed(item: HierarchyItem): void {
+    this.hierarchyCollapsedByUser.add(
+      hierarchyRowKey(item.className, item.dictIndex, item.dictName),
+    );
+  }
+
+  onHierarchyRowExpanded(item: HierarchyItem): void {
+    this.hierarchyCollapsedByUser.delete(
+      hierarchyRowKey(item.className, item.dictIndex, item.dictName),
+    );
   }
 
   hierarchyParent(element: HierarchyItem): HierarchyItem | undefined {
@@ -3322,7 +3393,7 @@ export class ExplorerController {
     await this.refreshAfterClassReshape(item.className);
     // Select the moved variable on its first destination. Best-effort: reveal rejects if the
     // row isn't in the rebuilt tree, which we ignore.
-    const target = targets[0];
+    const target = targets[0]?.className;
     if (target) {
       this.views?.klass
         .reveal(new IvarItem(target, item.ivarName, this.classHasSubclasses(target)), {
@@ -3335,20 +3406,20 @@ export class ExplorerController {
 
   // Ask the user which hierarchy class(es) to move an ivar to. ▲ lists ancestors (immediate
   // superclass first) as a single-select; ▼ lists every descendant (top-down) as a multi-select.
-  // Answers the chosen destination class names, or undefined when there is nowhere to move or the
-  // user cancels.
+  // Answers the chosen destinations, each with the dictionary that binds it, or undefined when there
+  // is nowhere to move or the user cancels. Two classes in one lineage can share a name, so each row
+  // names its dictionary and the answer carries it.
   private async pickInstVarMoveTargets(
     session: ActiveSession,
     item: IvarItem,
     direction: 'up' | 'down',
-  ): Promise<string[] | undefined> {
+  ): Promise<MoveTarget[] | undefined> {
     if (direction === 'up') {
       // superclass entries are root-first; reverse so the immediate superclass leads the list.
       // Dict-scoped like the down path so a shadowed class name offers the right lineage.
       const ancestors = queries
         .getClassHierarchy(session, item.className, this.state.dictIndex)
         .filter((e) => e.kind === 'superclass')
-        .map((e) => e.className)
         .reverse();
       if (ancestors.length === 0) {
         void vscode.window.showInformationMessage(
@@ -3356,17 +3427,21 @@ export class ExplorerController {
         );
         return undefined;
       }
+      const labels = dictionaryLabels(ancestors);
       const chosen = await vscode.window.showQuickPick(
-        ancestors.map((name, i) => ({
-          label: name,
-          description: i === 0 ? 'immediate superclass' : 'ancestor',
+        ancestors.map((a, i) => ({
+          label: a.className,
+          description: [i === 0 ? 'immediate superclass' : 'ancestor', labels[i]]
+            .filter(Boolean)
+            .join(' · '),
+          target: { className: a.className, dictIndex: a.dictIndex, dictName: a.dictName },
         })),
         {
           title: `Move '${item.ivarName}' up — choose the destination superclass`,
           placeHolder: 'Pick one ancestor class',
         },
       );
-      return chosen ? [chosen.label] : undefined;
+      return chosen ? [chosen.target] : undefined;
     }
 
     const descendants = queries.getClassDescendantNames(
@@ -3380,10 +3455,14 @@ export class ExplorerController {
       );
       return undefined;
     }
+    const labels = dictionaryLabels(descendants);
     const chosen = await vscode.window.showQuickPick(
-      descendants.map((d) => ({
+      descendants.map((d, i) => ({
         label: d.className,
-        description: d.parentName ? `subclass of ${d.parentName}` : undefined,
+        description: [d.parentName ? `subclass of ${d.parentName}` : '', labels[i]]
+          .filter(Boolean)
+          .join(' · '),
+        target: { className: d.className, dictIndex: d.dictIndex, dictName: d.dictName },
       })),
       {
         title: `Move '${item.ivarName}' down — choose destination subclass(es)`,
@@ -3391,7 +3470,7 @@ export class ExplorerController {
         canPickMany: true,
       },
     );
-    return chosen && chosen.length > 0 ? chosen.map((c) => c.label) : undefined;
+    return chosen && chosen.length > 0 ? chosen.map((c) => c.target) : undefined;
   }
 
   // The rename-instance-variable flow, addressed by NAME rather than a tree row so
@@ -5406,6 +5485,7 @@ export class ExplorerController {
   private async scanReferences(
     title: string,
     scan: (environmentId: number) => queries.MethodSearchResult[],
+    environments: number[] = this.environmentsToScan(),
   ): Promise<{
     references: queries.MethodSearchResult[];
     scanFailed?: string;
@@ -5419,7 +5499,7 @@ export class ExplorerController {
       },
       () => {
         try {
-          const perEnv = this.environmentsToScan().map((env) => scan(env));
+          const perEnv = environments.map((env) => scan(env));
           const truncated = perEnv.some((rows) => rows.length >= METHOD_SEARCH_RESULT_LIMIT);
           return Promise.resolve({
             references: dedupeMethodResults(perEnv.flat()),
@@ -5458,11 +5538,13 @@ export class ExplorerController {
       return;
     }
 
-    const { inheritedFrom, scan, alsoIn } = await this.methodRemovalCheck(
-      session,
-      { className, dictIndex: this.state.dictIndex, envLines: this.envLines },
-      node,
-    );
+    const where: RemovalTarget = {
+      className,
+      dictIndex: this.state.dictIndex,
+      envLines: this.envLines,
+    };
+    const { inheritedFrom, alsoIn } = this.methodRemovalCheck(session, where, node);
+    const scan = await this.survivingSenders(session, where, inheritedFrom ? [] : [node], [node]);
     const target: SafeDeleteTarget = {
       kind: 'method',
       label: `#${selector} from ${side}`,
@@ -5534,71 +5616,80 @@ export class ExplorerController {
     this.reloadCurrentClassMethods();
   }
 
-  // What removing `node` from `className` would leave behind, gathered before anyone is
-  // asked: the inherited implementation that takes over, the senders that survive, and the
-  // other environments still implementing the selector. Shared by the single-row removal
-  // and the multi-row one so both judge a method the same way.
-  private async methodRemovalCheck(
+  // What removing `node` would leave behind, gathered before anyone is asked: the inherited
+  // implementation that takes over, and the other environments still implementing the
+  // selector. Shared by the single-row removal and the multi-row one so both judge a method
+  // the same way. The surviving senders are survivingSenders' job.
+  private methodRemovalCheck(
     session: ActiveSession,
     where: RemovalTarget,
     node: MethodItem,
-  ): Promise<{
-    inheritedFrom: string | undefined;
-    scan: { references: queries.MethodSearchResult[]; scanFailed?: string; truncated: boolean };
-    alsoIn: number[];
-  }> {
+  ): { inheritedFrom: string | undefined; alsoIn: number[] } {
     const selector = node.info.selector;
-    // An override is the common case, and for it the sender scan is both expensive and
-    // beside the point: if a superclass still implements the selector, every send that
-    // resolved here simply resolves there instead and nothing is left calling into a hole.
-    // Asking the hierarchy first is bounded by its depth, where the sender scan is a
-    // whole-image walk that, for an ordinary selector like #printOn:, would list hundreds
-    // of methods that were never going to break.
-    //
-    // The check is deliberately one-directional: finding an implementor above skips the
-    // scan, but failing to find one only means we fall through and ask, so a hierarchy
-    // probe that under-reports (it reads environment 0) costs a question, never a wrong
-    // silent delete.
-    const inheritedFrom = this.superclassImplementorOf(
-      session,
-      where.dictIndex,
-      where.className,
-      selector,
-      node.isMeta,
-    );
-
-    const scan = inheritedFrom
-      ? { references: [] as queries.MethodSearchResult[], scanFailed: undefined, truncated: false }
-      : await this.scanReferences(`Finding senders of #${selector}…`, (env) =>
-          queries.sendersOf(session, selector, env),
-        );
     return {
-      inheritedFrom,
-      scan: {
-        ...scan,
-        // The method's own send of its own selector goes away with it, so a recursive
-        // method is not a method with a surviving sender.
-        //
-        // The environment is part of what makes it "its own" send. A class can implement
-        // the same selector on the same side in two environments, and those are two
-        // different methods: only the one being removed disappears. Matching on
-        // class/side/selector alone crossed off the OTHER environment's method as if it
-        // were this one's recursion, hiding a sender that really does survive — the
-        // under-report this guard exists to prevent. The pane removes the environment-0
-        // method (see EXPLORER_METHOD_ENVIRONMENT), so that is the row, and only that row,
-        // which goes away with it.
-        references: scan.references.filter(
-          (r) =>
-            !(
-              r.className === where.className &&
-              r.isMeta === node.isMeta &&
-              r.selector === selector &&
-              r.environmentId === EXPLORER_METHOD_ENVIRONMENT
-            ),
-        ),
-      },
+      // An override is the common case, and for it the sender scan is both expensive and
+      // beside the point: if a superclass still implements the selector, every send that
+      // resolved here simply resolves there instead and nothing is left calling into a hole.
+      // Asking the hierarchy first is bounded by its depth, where the sender scan is a
+      // whole-image walk that, for an ordinary selector like #printOn:, would list hundreds
+      // of methods that were never going to break.
+      //
+      // The check is deliberately one-directional: finding an implementor above skips the
+      // scan, but failing to find one only means we fall through and ask, so a hierarchy
+      // probe that under-reports (it reads environment 0) costs a question, never a wrong
+      // silent delete.
+      inheritedFrom: this.superclassImplementorOf(
+        session,
+        where.dictIndex,
+        where.className,
+        selector,
+        node.isMeta,
+      ),
       alsoIn: this.otherEnvironmentsImplementing(where.envLines, node.isMeta, selector),
     };
+  }
+
+  // The senders of `scanned` that survive removing `removing`: one query for all of them, under
+  // one progress notification, however many there are. Nothing to scan answers nothing. One
+  // query is not one image walk -- the server still walks once per distinct selector, see
+  // `sendersOf`.
+  //
+  // Environment 0 only. The pane removes the environment-0 method (EXPLORER_METHOD_ENVIRONMENT),
+  // and a send resolves in the environment it was compiled in -- a method compiled in
+  // environment 1 that sends the selector gets doesNotUnderstand rather than reaching the
+  // environment-0 method -- so no sender in another environment can be broken by the removal.
+  //
+  // A send from a method that is itself being removed goes away with it, so a recursive
+  // method, or two removed methods sending each other, leave no surviving sender.
+  private async survivingSenders(
+    session: ActiveSession,
+    where: RemovalTarget,
+    scanned: MethodItem[],
+    removing: MethodItem[],
+  ): Promise<{
+    references: queries.MethodSearchResult[];
+    scanFailed?: string;
+    truncated: boolean;
+  }> {
+    if (scanned.length === 0) return { references: [], truncated: false };
+    // One entry per distinct selector. A selection can hold both sides of the same name --
+    // Array >> #size and Array class >> #size are two rows -- but `sendersOf:` asks who sends
+    // the NAME, and which side a send lands on is decided at run time, so both sides have the
+    // same answer. Asking twice walks the whole image twice for it.
+    const selectors = [...new Set(scanned.map((n) => n.info.selector))];
+    const title =
+      selectors.length === 1
+        ? `Finding senders of #${selectors[0]}…`
+        : `Finding senders of ${selectors.length} methods…`;
+    const scan = await this.scanReferences(
+      title,
+      (env) => queries.sendersOf(session, selectors, env),
+      [EXPLORER_METHOD_ENVIRONMENT],
+    );
+    const goingToo = (r: queries.MethodSearchResult) =>
+      r.className === where.className &&
+      removing.some((n) => n.isMeta === r.isMeta && n.info.selector === r.selector);
+    return { ...scan, references: scan.references.filter((r) => !goingToo(r)) };
   }
 
   // Remove every selected Methods-pane row as one action. Same rule as one row: when nothing
@@ -5625,9 +5716,9 @@ export class ExplorerController {
     if (!session || this.state.className === undefined) return;
     const className = this.state.className;
     const dictIndex = this.state.dictIndex;
-    // Captured once, before the first scan, and every row is judged against these. The checks
-    // reach into the pane's own state, which a click could in principle move underneath a run
-    // that is several whole-image scans long.
+    // Captured once, before the scan, and every row is judged against these. The checks reach
+    // into the pane's own state, which a click could in principle move underneath a run that
+    // waits on a whole-image scan.
     const where: RemovalTarget = { className, dictIndex, envLines: this.envLines };
     if (!queries.canClassBeWritten(session, className, dictIndex)) {
       void vscode.window.showWarningMessage(`${className} cannot be modified in this repository.`);
@@ -5635,32 +5726,21 @@ export class ExplorerController {
     }
 
     const sideOf = (n: MethodItem) => (n.isMeta ? `${className} class` : className);
-    const goingToo = (r: queries.MethodSearchResult) =>
-      r.className === className &&
-      r.environmentId === EXPLORER_METHOD_ENVIRONMENT &&
-      rows.some((n) => n.isMeta === r.isMeta && n.info.selector === r.selector);
-
-    const references = new Map<string, queries.MethodSearchResult>();
-    const scanFailures: string[] = [];
-    const notes: string[] = [];
-    const silentNotes: string[] = [];
-    let truncated = false;
+    const checks = rows.map((node) => ({ node, ...this.methodRemovalCheck(session, where, node) }));
     // An override skips the sender scan (see methodRemovalCheck), so it was never searched
     // for senders. "Nothing referenced ..." is a claim about a search, so it names only the
-    // methods a scan actually ran for: "them" when that is all of them, the selectors when it
-    // is some, and nothing at all when none were scanned -- otherwise the notice would deny
-    // an override had senders in the same breath as saying where they now resolve.
-    const scanned: string[] = [];
-    for (const node of rows) {
+    // methods a scan actually ran for: "them" when that is all of them, the methods named by
+    // side when it is some, and nothing at all when none were scanned -- otherwise the notice
+    // would deny an override had senders in the same breath as saying where they now resolve.
+    // By side, because a selection can hold the same selector on both sides of a class, and a
+    // bare list of selectors would name it twice with nothing to tell the two apart.
+    const scanned = checks.filter((c) => c.inheritedFrom === undefined).map((c) => c.node);
+    const scan = await this.survivingSenders(session, where, scanned, rows);
+
+    const notes: string[] = [];
+    const silentNotes: string[] = [];
+    for (const { node, inheritedFrom, alsoIn } of checks) {
       const selector = node.info.selector;
-      const { inheritedFrom, scan, alsoIn } = await this.methodRemovalCheck(session, where, node);
-      for (const r of scan.references) {
-        if (goingToo(r)) continue;
-        references.set(`${r.className}|${r.isMeta}|${r.selector}|${r.environmentId}`, r);
-      }
-      if (scan.scanFailed) scanFailures.push(`#${selector}: ${scan.scanFailed}`);
-      truncated ||= scan.truncated;
-      if (inheritedFrom === undefined) scanned.push(`#${selector}`);
       if (inheritedFrom) {
         const resolve = `senders of #${selector} now resolve to ${inheritedFrom} >> #${selector}`;
         notes.push(`${resolve[0].toUpperCase()}${resolve.slice(1)}.`);
@@ -5679,14 +5759,14 @@ export class ExplorerController {
       scanned.length === 0
         ? []
         : [
-            `nothing referenced ${scanned.length === rows.length ? 'them' : [...new Set(scanned)].join(', ')}`,
+            `nothing referenced ${scanned.length === rows.length ? 'them' : methodsBySide(className, scanned)}`,
           ];
     const target: SafeDeleteTarget = {
       kind: `${rows.length} methods`,
       label: `from ${methodsBySide(className, rows)}`,
-      references: [...references.values()],
-      scanFailed: scanFailures.length > 0 ? scanFailures.join('; ') : undefined,
-      truncated,
+      references: scan.references,
+      scanFailed: scan.scanFailed,
+      truncated: scan.truncated,
       note: notes.length > 0 ? notes.join('\n\n') : undefined,
       silentNote: [...unreferenced, ...silentNotes].join('; ') || undefined,
     };
@@ -9007,6 +9087,8 @@ export function registerGemStoneExplorer(
   hierarchyView.onDidChangeSelection((e) => {
     if (e.selection[0]) ctl.selectHierarchyNode(e.selection[0]);
   });
+  hierarchyView.onDidCollapseElement((e) => ctl.onHierarchyRowCollapsed(e.element));
+  hierarchyView.onDidExpandElement((e) => ctl.onHierarchyRowExpanded(e.element));
   // Catch each pane up on the cascade highlight it skipped while it was closed
   // (see ExplorerController.revealCascade). Without these, guarding the reveals
   // would leave a pane opened later sitting on a stale row until the next

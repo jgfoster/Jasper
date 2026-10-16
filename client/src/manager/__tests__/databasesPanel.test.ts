@@ -22,6 +22,8 @@ vi.mock('../../sysadminChannel', () => ({ appendSysadmin: vi.fn(), showSysadmin:
 vi.mock('../../wslBridge', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../wslBridge')>()),
   needsWsl: vi.fn(() => false),
+  // Never the real probe, which runs wsl.exe on a Windows test host.
+  getWslInfoAsync: vi.fn(async () => ({ available: true })),
 }));
 
 import * as fs from 'fs';
@@ -32,7 +34,7 @@ import { DatabaseManager } from '../databaseManager';
 import { DatabasesPanel } from '../databasesPanel';
 import type { GemStoneVersion } from '../../sysadminTypes';
 import { SysadminStorage } from '../../sysadminStorage';
-import { needsWsl } from '../../wslBridge';
+import { getWslInfoAsync, needsWsl } from '../../wslBridge';
 import { showSysadmin } from '../../sysadminChannel';
 import { __setConfig, __resetConfig, __configUpdates } from '../../__mocks__/vscode';
 
@@ -155,6 +157,7 @@ function makeDeps() {
 beforeEach(() => {
   DatabasesPanel.close();
   vi.mocked(needsWsl).mockReturnValue(false);
+  vi.mocked(getWslInfoAsync).mockResolvedValue({ available: true } as never);
   vi.mocked(vscode.window.createWebviewPanel).mockClear();
   vi.mocked(vscode.commands.executeCommand).mockClear();
   onDisk = [{ ...RELEASE }];
@@ -204,6 +207,7 @@ function lastState(): {
   }[];
   create: { nfsWarning: boolean; rootPath: string; ldiNames: string[]; dbLdiNames: string[] };
   versions: { version: string }[];
+  installBlocked?: string;
   rootProblem?: string;
   rootFrom: string;
 } {
@@ -818,6 +822,138 @@ describe('Install and Remove are inverses', () => {
   });
 });
 
+describe('Install Version… offers the full server', () => {
+  it('says it is the whole server, with the download and about what it takes unpacked', async () => {
+    await openPanel();
+    let details: (string | undefined)[] = [];
+    vi.mocked(vscode.window.showQuickPick).mockImplementation(async (items) => {
+      details = (items as vscode.QuickPickItem[]).map((i) => i.detail);
+      return undefined;
+    });
+
+    await sendMessage({ command: 'installNewVersion' });
+
+    // RELEASE is 2,000,000,000 bytes: 1.9 GB, and three times that unpacked.
+    expect(details).toEqual(['Full server · 1.9 GB download · about 5.6 GB installed']);
+  });
+
+  it('is refused on Windows without WSL, where the server has nowhere to run', async () => {
+    vi.mocked(needsWsl).mockReturnValue(true);
+    vi.mocked(getWslInfoAsync).mockResolvedValue({ available: false } as never);
+    await openPanel();
+
+    expect(lastState().installBlocked).toContain('WSL');
+    vi.mocked(vscode.window.showQuickPick).mockClear();
+    await sendMessage({ command: 'installNewVersion' });
+
+    expect(vscode.window.showQuickPick).not.toHaveBeenCalled();
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
+      expect.stringContaining('Download Client Libraries…'),
+    );
+    expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
+      'gemstone.downloadVersion',
+      expect.anything(),
+    );
+  });
+
+  it('is allowed on Windows with WSL, and everywhere else', async () => {
+    for (const windows of [true, false]) {
+      vi.mocked(needsWsl).mockReturnValue(windows);
+      await openPanel();
+      expect(lastState().installBlocked).toBeUndefined();
+    }
+  });
+});
+
+describe('Install Version… and Download Client Libraries… with nothing left to offer', () => {
+  /** Open the panel with a catalog that can or cannot be reached. */
+  async function openWithCatalog(reachable: boolean): Promise<void> {
+    const deps = makeDeps();
+    (
+      deps as unknown as { versionManager: { fetchCatalog: () => Promise<unknown[]> } }
+    ).versionManager.fetchCatalog = reachable
+      ? async () => []
+      : async () => {
+          throw new Error('getaddrinfo ENOTFOUND downloads.gemtalksystems.com');
+        };
+    DatabasesPanel.show(deps);
+    await sendMessage({ command: 'ready' });
+  }
+
+  for (const [command, done] of [
+    ['downloadVersionFiles', 'Jasper can already log in to every GemStone version available.'],
+    ['installNewVersion', 'Every available GemStone version is already installed.'],
+  ]) {
+    it(`${command}: says so when the download site answered`, async () => {
+      onDisk = [{ ...RELEASE, extracted: true, clientExtracted: true }];
+      await openWithCatalog(true);
+
+      await sendMessage({ command });
+
+      expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(done);
+    });
+
+    it(`${command}: says the site could not be reached, not that nothing is left`, async () => {
+      onDisk = [{ ...RELEASE, extracted: true, clientExtracted: true }];
+      await openWithCatalog(false);
+
+      await sendMessage({ command });
+
+      expect(vscode.window.showInformationMessage).not.toHaveBeenCalledWith(done);
+      expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
+        expect.stringContaining('could not reach GemTalk’s download site'),
+      );
+    });
+  }
+});
+
+describe('downloading only the files a login needs', () => {
+  it('offers the versions without them, and downloads the one picked', async () => {
+    onDisk = [
+      { ...RELEASE },
+      { ...RELEASE, version: '3.7.5', clientExtracted: true },
+      { ...RELEASE, version: '3.7.4', extracted: true },
+    ];
+    await openPanel();
+    vi.mocked(vscode.window.showQuickPick).mockImplementation(async (items) => {
+      const labels = (items as { label: string }[]).map((i) => i.label);
+      // A full install off Windows already has them; on Linux it is not offered again.
+      expect(labels).toEqual(['3.7.6']);
+      return { label: '3.7.6' };
+    });
+
+    await sendMessage({ command: 'downloadVersionFiles' });
+
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+      'gemstone.downloadClient',
+      expect.objectContaining({ version: expect.objectContaining({ version: '3.7.6' }) }),
+    );
+  });
+
+  it('the row button runs the same command as the login page', async () => {
+    await openPanel();
+    await sendMessage({ command: 'installClient', version: '3.7.6' });
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+      'gemstone.downloadClient',
+      expect.objectContaining({ version: expect.objectContaining({ version: '3.7.6' }) }),
+    );
+  });
+
+  it('removing them leaves the server install alone', async () => {
+    onDisk = [{ ...RELEASE, extracted: true, clientExtracted: true }];
+    await openPanel();
+    await sendMessage({ command: 'deleteClient', version: '3.7.6' });
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+      'gemstone.deleteClient',
+      expect.objectContaining({ version: expect.objectContaining({ version: '3.7.6' }) }),
+    );
+    expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
+      'gemstone.deleteExtracted',
+      expect.anything(),
+    );
+  });
+});
+
 describe('overlapping state passes', () => {
   /** A database row, distinguishable by its directory name. */
   function db(dirName: string) {
@@ -1223,4 +1359,18 @@ describe('deleting a login from the panel', () => {
       expect.anything(),
     );
   });
+});
+
+describe('version status colors', () => {
+  // A status with no color rule inherits the badge's foreground, which is meant
+  // for a filled badge: on a light theme that is white on white, and "Client libraries only"
+  // was invisible. Theme variables keep each one legible on light and dark alike.
+  for (const state of ['installed', 'local', 'downloaded', 'available', 'client']) {
+    it(`gives the ${state} status a theme color`, async () => {
+      await openPanel();
+      expect(lastPanel().webview.html).toMatch(
+        new RegExp(`\\.badge-state\\.state-${state} \\{ color: var\\(--`),
+      );
+    });
+  }
 });

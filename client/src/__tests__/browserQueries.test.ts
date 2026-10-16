@@ -7,46 +7,41 @@ vi.mock('vscode', () => ({
 }));
 
 import { ActiveSession } from '../sessionManager';
-import { GemStoneLogin } from '../loginTypes';
 import * as queries from '../browserQueries';
+import { sessionOn } from './fakeActiveSession';
 
-function createMockSession(executeFetchData = ''): ActiveSession {
-  const mockGci = {
-    executeAndFetchString: vi.fn(() => executeFetchData),
+function createMockGci(executeFetchData = '') {
+  return {
+    executeAndFetchString: vi.fn((_session: unknown, _code: string) => executeFetchData),
     GciTsCallInProgress: vi.fn(() => ({ result: 0 })),
     GciTsPerform: vi.fn(),
   };
+}
 
-  return {
-    id: 1,
-    gci: mockGci as unknown as ActiveSession['gci'],
-    handle: {},
-    login: { label: 'Test' } as GemStoneLogin,
-    stoneVersion: '3.7.2',
-  };
+function createMockSession(executeFetchData = ''): ActiveSession {
+  return sessionOn(createMockGci(executeFetchData));
 }
 
 describe('browserQueries', () => {
   describe('compileMethod', () => {
     it('uses pure Smalltalk (no GciTsPerform) via Behavior>>compileMethod:dictionaries:category:environmentId:', () => {
-      const session = createMockSession('Compiled: Array >> foo');
+      const gci = createMockGci('Compiled: Array >> foo');
+      const session = sessionOn(gci);
 
       queries.compileMethod(session, 'Array', false, 'test', 'foo\n  ^ 42');
 
-      const mockPerform = session.gci.GciTsPerform as ReturnType<typeof vi.fn>;
-      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
-      expect(mockPerform).not.toHaveBeenCalled();
-      expect(mockExec).toHaveBeenCalledTimes(1);
-      const code = mockExec.mock.calls[0][1] as string;
+      expect(gci.GciTsPerform).not.toHaveBeenCalled();
+      expect(gci.executeAndFetchString).toHaveBeenCalledTimes(1);
+      const code = gci.executeAndFetchString.mock.calls[0][1];
       expect(code).toContain('compileMethod:');
       expect(code).toContain('dictionaries: System myUserProfile symbolList');
     });
 
     it('branches on isMeta inside the Smalltalk, not via a GCI perform', () => {
-      const session = createMockSession('ok');
+      const gci = createMockGci('ok');
+      const session = sessionOn(gci);
       queries.compileMethod(session, 'Array', true, 'test', 'foo');
-      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
-      const code = mockExec.mock.calls[0][1] as string;
+      const code = gci.executeAndFetchString.mock.calls[0][1];
       expect(code).toContain('target := base class');
     });
   });
@@ -57,7 +52,7 @@ describe('browserQueries', () => {
         'Globals\tArray\t0\tsize\taccessing\nUserGlobals\tMyClass\t1\tprintOn:\tprinting\n';
       const session = createMockSession(payload);
 
-      const results = queries.sendersOf(session, 'size');
+      const results = queries.sendersOf(session, 'size', 0);
 
       expect(results).toHaveLength(2);
       expect(results[0]).toEqual({
@@ -80,15 +75,15 @@ describe('browserQueries', () => {
 
     it('returns empty array for no results', () => {
       const session = createMockSession('');
-      expect(queries.sendersOf(session, 'nonExistent')).toEqual([]);
+      expect(queries.sendersOf(session, 'nonExistent', 0)).toEqual([]);
     });
 
     it('passes environmentId to Smalltalk code', () => {
-      const session = createMockSession('');
+      const gci = createMockGci('');
+      const session = sessionOn(gci);
       queries.sendersOf(session, 'size', 2);
 
-      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
-      const code = mockExec.mock.calls[0][1] as string;
+      const code = gci.executeAndFetchString.mock.calls[0][1];
       expect(code).toContain('environmentId: 2');
     });
   });
@@ -117,11 +112,11 @@ describe('browserQueries', () => {
     });
 
     it('uses asArray to handle non-Array collections', () => {
-      const session = createMockSession('');
+      const gci = createMockGci('');
+      const session = sessionOn(gci);
       queries.implementorsOf(session, 'size');
 
-      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
-      const code = mockExec.mock.calls[0][1] as string;
+      const code = gci.executeAndFetchString.mock.calls[0][1];
       expect(code).toContain('asArray');
     });
   });
@@ -168,31 +163,31 @@ describe('browserQueries', () => {
     });
 
     it('defaults to global objectNamed: lookup when no dict is given', () => {
-      const session = createMockSession('');
+      const gci = createMockGci('');
+      const session = sessionOn(gci);
       queries.fileOutClass(session, 'MyClass');
 
-      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
-      const code = mockExec.mock.calls[0][1] as string;
+      const code = gci.executeAndFetchString.mock.calls[0][1];
       expect(code).toContain("objectNamed: #'MyClass'");
       expect(code).toContain('fileOutClass');
     });
 
     it('scopes to a dictionary by 1-based index when given a number', () => {
-      const session = createMockSession('');
+      const gci = createMockGci('');
+      const session = sessionOn(gci);
       queries.fileOutClass(session, 'MyClass', 3);
 
-      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
-      const code = mockExec.mock.calls[0][1] as string;
+      const code = gci.executeAndFetchString.mock.calls[0][1];
       expect(code).toContain('symbolList at: 3');
       expect(code).toContain("#'MyClass' ifAbsent: [nil]");
     });
 
     it('escapes single quotes in class names', () => {
-      const session = createMockSession('');
+      const gci = createMockGci('');
+      const session = sessionOn(gci);
       queries.fileOutClass(session, "Class'Name");
 
-      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
-      const code = mockExec.mock.calls[0][1] as string;
+      const code = gci.executeAndFetchString.mock.calls[0][1];
       expect(code).toContain("#'Class''Name'");
     });
   });
@@ -209,11 +204,11 @@ describe('browserQueries', () => {
     });
 
     it('scopes to a dictionary by 1-based index', () => {
-      const session = createMockSession('');
+      const gci = createMockGci('');
+      const session = sessionOn(gci);
       queries.getDictionaryClassFileOutOrder(session, 5);
 
-      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
-      const code = mockExec.mock.calls[0][1] as string;
+      const code = gci.executeAndFetchString.mock.calls[0][1];
       expect(code).toContain('symbolList at: 5');
     });
   });
@@ -262,11 +257,11 @@ describe('browserQueries', () => {
     });
 
     it('embeds the dictIndex in the Smalltalk code', () => {
-      const session = createMockSession('');
+      const gci = createMockGci('');
+      const session = sessionOn(gci);
       queries.getGlobalsForDictionary(session, 3);
 
-      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
-      const code = mockExec.mock.calls[0][1] as string;
+      const code = gci.executeAndFetchString.mock.calls[0][1];
       expect(code).toContain('symbolList at: 3');
     });
   });
@@ -318,11 +313,11 @@ describe('browserQueries', () => {
     });
 
     it('embeds the class name in the Smalltalk code', () => {
-      const session = createMockSession('');
+      const gci = createMockGci('');
+      const session = sessionOn(gci);
       queries.getMethodList(session, 'MyClass');
 
-      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
-      const code = mockExec.mock.calls[0][1] as string;
+      const code = gci.executeAndFetchString.mock.calls[0][1];
       expect(code).toContain('class := MyClass');
     });
   });
@@ -349,18 +344,19 @@ describe('browserQueries', () => {
     });
 
     it('cannot tell when the session is busy with another operation', () => {
-      const session = createMockSession('true');
-      (session.gci.GciTsCallInProgress as ReturnType<typeof vi.fn>).mockReturnValue({ result: 1 });
+      const gci = createMockGci('true');
+      const session = sessionOn(gci);
+      gci.GciTsCallInProgress.mockReturnValue({ result: 1 });
       expect(queries.sessionNeedsCommit(session)).toBeUndefined();
     });
 
     it('asks the image via System needsCommit', () => {
-      const session = createMockSession('false');
+      const gci = createMockGci('false');
+      const session = sessionOn(gci);
 
       queries.sessionNeedsCommit(session);
 
-      const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
-      expect(mockExec.mock.calls[0][1]).toContain('System needsCommit');
+      expect(gci.executeAndFetchString.mock.calls[0][1]).toContain('System needsCommit');
     });
   });
 });

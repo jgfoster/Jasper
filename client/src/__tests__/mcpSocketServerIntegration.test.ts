@@ -77,6 +77,7 @@ import { ActiveSession } from '../sessionManager';
 import * as queries from '../browserQueries';
 import { temporarySidecarPath } from './support/file';
 import { temporarySocketPath } from './support/socket';
+import { fakeActiveSession } from './fakeActiveSession';
 
 // ── A minimal client Transport that wraps a raw socket ───────────────────
 
@@ -119,13 +120,13 @@ class SocketClientTransport implements Transport {
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 function makeMockSession(): ActiveSession {
-  return {
+  return fakeActiveSession({
     id: 1,
-    gci: {} as ActiveSession['gci'],
+    gci: {},
     handle: {},
-    login: { label: 'DataCurator on gs64stone (localhost)' } as ActiveSession['login'],
+    login: { label: 'DataCurator on gs64stone (localhost)' },
     stoneVersion: '3.7.4',
-  };
+  });
 }
 
 async function connectClient(socketPath: string): Promise<{ client: Client; socket: net.Socket }> {

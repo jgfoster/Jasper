@@ -6,6 +6,7 @@ import { renderClassPanelHtml, renderClassCards } from '../renameClassPanelHtml'
 import { renderInstVarPanelHtml, renderInstVarCards } from '../instVarRefactorPanelHtml';
 import { ClassRenameChange } from '../renameClassPreview';
 import { InstVarChange, InstVarOutOfScope } from '../instVarRefactorPreview';
+import '../../webview/enterToApply.js';
 
 /**
  * A preview row says which dictionary its class came from only when the change set claims that

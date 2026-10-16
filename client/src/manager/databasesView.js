@@ -18,7 +18,7 @@
   // Sections the user has opened or closed by hand, against whatever the panel
   // would have chosen — their answer, kept across re-renders.
   const sectionChoice = new Map();
-  // Windows with WSL: gates the actions that only mean anything there.
+  // A Windows host, with or without WSL: gates the actions that only mean anything there.
   let windowsHost = false;
   // The last state drawn, so a click that only changes what is on screen can
   // redraw without the host having to post the state again. Null until the host
@@ -324,6 +324,7 @@
     if (v.local) return 'local';
     if (v.extracted) return 'installed';
     if (v.downloaded) return 'downloaded';
+    if (v.clientExtracted) return 'client';
     return 'available';
   }
 
@@ -348,26 +349,39 @@
       iconOnly: true,
       title: 'Open a terminal for this version',
     });
-    // The Windows client is a separate download from the server product, and only
-    // means anything on Windows.
-    const client = !windowsHost
-      ? ''
-      : v.clientExtracted
-        ? btn('openWindowsClientFolder', 'Open Client Folder', 'folder', 'btn-secondary', {
+    // The files a login needs (GCI client libraries) are a download of their own,
+    // in a folder apart from the server's. Off Windows a server install already
+    // has them, so they are offered there only on Windows, whose server install is
+    // a Linux build a Windows login cannot load.
+    const openClient = btn(
+      'openClientFolder',
+      'Open Login Files Folder',
+      'folder',
+      'btn-secondary',
+      {
+        version: v.version,
+        iconOnly: true,
+        title:
+          'Open the folder of files Jasper downloaded to log in to this version (GCI client libraries)',
+      },
+    );
+    const deleteClient = (iconOnly) =>
+      btn('deleteClient', 'Remove', 'trash', 'btn-secondary', {
+        version: v.version,
+        iconOnly,
+        title:
+          'Delete the files downloaded to log in to this version — a full install is not touched',
+      });
+    const client = v.clientExtracted
+      ? openClient + deleteClient(true)
+      : windowsHost
+        ? btn('installClient', 'Download Files', 'install', 'btn-secondary', {
             version: v.version,
             iconOnly: true,
-            title: 'Open the Windows client folder',
-          }) +
-          btn('deleteWindowsClient', 'Delete Client', 'trash', 'btn-secondary', {
-            version: v.version,
-            iconOnly: true,
-            title: 'Remove the extracted Windows client',
+            title:
+              'Download the files Jasper needs to log in to a stone of this version (GCI client libraries)',
           })
-        : btn('installWindowsClient', 'Install Client', 'install', 'btn-secondary', {
-            version: v.version,
-            iconOnly: true,
-            title: 'Download and extract the Windows client',
-          });
+        : '';
 
     if (state === 'downloaded') {
       return (
@@ -385,6 +399,9 @@
           }),
         )
       );
+    }
+    if (state === 'client') {
+      return cell(openClient) + cell(deleteClient(false));
     }
     if (state === 'local') {
       return (
@@ -414,19 +431,41 @@
       downloaded: 'Downloaded',
       available: 'Available',
       local: 'Local',
+      client: 'Client libraries only',
     };
-    return `<span class="badge badge-state state-${state}">${labels[state]}</span>`;
+    // "Client libraries only" says what is there; the tip says what it is for,
+    // which the button that fetched them used the same words for.
+    const tip =
+      state === 'client'
+        ? tipAttr(
+            'Only the GCI client libraries are installed: enough to log in to a stone of this version on another machine, but no server to run one here',
+          )
+        : '';
+    return `<span class="badge badge-state state-${state}"${tip}>${labels[state]}</span>`;
   }
 
   function versionsInstalledCount(versions) {
     return versions.filter((v) => v.extracted || v.local).length;
   }
 
+  /** Versions with the client libraries and no server: the rows marked so. */
+  function versionsClientOnlyCount(versions) {
+    return versions.filter((v) => versionState(v) === 'client').length;
+  }
+
+  // The Versions header's count. A bare "0 installed" above a row of client
+  // libraries read as the row not counting, so once there are any it names both.
+  function versionsCount(versions) {
+    const installed = versionsInstalledCount(versions);
+    const clients = versionsClientOnlyCount(versions);
+    if (!clients) return `${installed} installed`;
+    return `${installed} server${installed === 1 ? '' : 's'} · ${clients} client libraries only`;
+  }
+
   function renderVersions(versions, open) {
     const onDisk = versions.filter(
       (v) => v.extracted || v.downloaded || v.local || v.clientExtracted,
     );
-    const installed = versionsInstalledCount(versions);
     // The way to get a version carries its words. It was icon-only, which read as
     // decoration: an unlabelled glyph in a header is not an answer to "how do I
     // get a new version?". The walkthrough stays a glyph — it is a pointer to
@@ -438,10 +477,34 @@
     // alike, and a stone that already runs from such a tree is adopted by
     // Register Existing Database — which records where it really lives instead
     // of needing a link in Jasper's root at all.
-    const getActions = btn('installNewVersion', 'Install Version…', 'plus', 'btn-secondary', {
-      title: 'Choose a version from the download site, then download and unpack it',
-    });
-    const actions = getActions;
+    // Off, not gone, on Windows without WSL: the server has nowhere to run, and
+    // the tip says why, so a full install is still known to exist.
+    const blocked = lastState && lastState.installBlocked;
+    const getActions = btn(
+      'installNewVersion',
+      'Install Version…',
+      'plus',
+      'btn-secondary',
+      blocked
+        ? { disabled: true, title: blocked }
+        : {
+            title:
+              'Choose a version from the download site, then download and unpack the full server',
+          },
+    );
+    // The login page's download, for a stone on another machine: the few files
+    // a login needs, not the server.
+    const getFiles = btn(
+      'downloadVersionFiles',
+      'Download Client Libraries…',
+      'download',
+      'btn-secondary',
+      {
+        title:
+          'Download only what Jasper needs to log in to a stone of a version (GCI client libraries) — no server is installed',
+      },
+    );
+    const actions = getActions + getFiles;
 
     if (!onDisk.length) {
       // Nothing installed is the one state where this section is the whole job,
@@ -450,11 +513,12 @@
       // go hunting for it. Moved, not repeated: the header keeps none of it, or
       // the same button appears twice within one section.
       return section(
-        { key: 'versions', title: 'Versions', count: `${installed} installed`, actions: '', open },
+        { key: 'versions', title: 'Versions', count: versionsCount(versions), actions: '', open },
         `<div class="empty">
           <div>No GemStone version on this machine yet. Install one from the download site,
-          or put a build you already have in ${esc((lastState && lastState.rootPath) || 'the versions folder')}.</div>
-          <div class="empty-acts">${getActions}</div>
+          or put a build you already have in ${esc((lastState && lastState.rootPath) || 'the versions folder')}.
+          To log in to a stone on another machine, download just the client libraries for its version.</div>
+          <div class="empty-acts">${getActions}${getFiles}</div>
         </div>`,
       );
     }
@@ -464,13 +528,15 @@
     const rows = onDisk
       .map((v) => {
         const state = versionState(v);
+        // A login-only row's files are a few MB; the catalog size is the whole server.
+        const size = state === 'client' ? v.clientSize : v.size;
         return `<tr>
           <td>
             <span class="v-name mono">${esc(v.version)}</span>
             ${v.bundled ? badge('bundled GCI') : ''}
           </td>
           <td>${pill(state)}</td>
-          <td class="v-num">${v.size ? esc(formatBytes(v.size)) : '—'}</td>
+          <td class="v-num">${size ? esc(formatBytes(size)) : '—'}</td>
           <td class="v-num">${v.date ? esc(v.date) : '—'}</td>
           ${versionActions(v)}
         </tr>`;
@@ -486,7 +552,7 @@
       <tbody>${rows}</tbody>
     </table>`;
     return section(
-      { key: 'versions', title: 'Versions', count: `${installed} installed`, actions, open },
+      { key: 'versions', title: 'Versions', count: versionsCount(versions), actions, open },
       body,
     );
   }
@@ -1092,16 +1158,22 @@
   function renderHeader(state) {
     const dbs = (state.databases || []).length;
     const installed = versionsInstalledCount(state.versions || []);
+    const clients = versionsClientOnlyCount(state.versions || []);
     // A registered database runs from an installation outside Jasper's root, so
     // "nothing installed" is not "nothing here": the count leads whenever there
-    // are databases, or the header denied the very rows beneath it.
+    // are databases, or the header denied the very rows beneath it. Client
+    // libraries are not nothing either: they are how a stone elsewhere is reached.
     const lead = dbs
       ? installed
         ? `${dbs} database${dbs === 1 ? '' : 's'} · ${installed} version${installed === 1 ? '' : 's'} installed`
         : `${dbs} database${dbs === 1 ? '' : 's'} · no version installed here`
       : installed
         ? 'No databases yet — make one from a version you have installed.'
-        : 'No GemStone version on this machine yet — install one to make a database, or register a database that already exists.';
+        : clients
+          ? state.installBlocked
+            ? 'No GemStone server on this machine — it needs WSL to run one. The client libraries here log in to stones running elsewhere.'
+            : 'No GemStone server on this machine — the client libraries here log in to stones running elsewhere. Install a server to make a database here.'
+          : 'No GemStone version on this machine yet — install one to make a database, or register a database that already exists.';
     // Creating needs something to create from, so the button waits for a version.
     const create = installed ? btn('beginCreate', 'New Database\u2026', 'plus', 'btn-primary') : '';
     // Registering does not: the installation it adopts brings its own version,

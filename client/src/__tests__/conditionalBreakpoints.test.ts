@@ -11,7 +11,7 @@ import {
   logMessageExpression,
 } from '../conditionalBreakpoints';
 import { OOP_NIL } from '../gciConstants';
-import type { ActiveSession } from '../sessionManager';
+import { fakeActiveSession } from './fakeActiveSession';
 
 const spec = (over: Partial<BreakpointRule> = {}): BreakpointRule => ({
   methodExpr: '(Account compiledMethodAt: #deposit: environmentId: 0)',
@@ -301,7 +301,7 @@ function stubSession(
     },
   };
   return {
-    session: { id: 1, gci, handle: {} } as unknown as ActiveSession,
+    session: fakeActiveSession({ id: 1, gci, handle: {} }),
     executed,
     performed,
     continues,
@@ -326,14 +326,11 @@ describe('applyBreakpointRules', () => {
   it('compiles the decider with debug flags off', async () => {
     // It must not break on the very breakpoints it is judging.
     const { session } = stubSession([DECISION.Stop], []);
-    const execute = vi.spyOn(
-      session.gci as unknown as { GciTsExecute: (...args: unknown[]) => unknown },
-      'GciTsExecute',
-    );
+    const execute = vi.spyOn(session, 'GciTsExecute');
 
     await applyBreakpointRules(session, 7n, [spec()]);
 
-    expect(execute.mock.calls[0][5]).toBe(0);
+    expect(execute.mock.calls[0][4]).toBe(0);
   });
 
   it('compiles once and then performs, however many hits it judges', async () => {

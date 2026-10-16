@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
-import { needsWsl, windowsPathToWsl, wslExecSync } from './wslBridge';
+import { needsWsl, requireWslInstalled, windowsPathToWsl, wslExecSync } from './wslBridge';
 
 /**
  * Filesystem helpers that transparently route through WSL when the target
@@ -154,6 +154,7 @@ export function wslWriteFileSync(p: string, content: string): void {
     fs.writeFileSync(p, content);
     return;
   }
+  requireWslInstalled();
   const wslPath = windowsPathToWsl(p);
   const result = spawnSync('wsl.exe', ['-e', 'sh', '-c', `cat > ${shellQuote(wslPath)}`], {
     input: content,

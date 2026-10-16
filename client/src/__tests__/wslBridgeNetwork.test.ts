@@ -13,8 +13,17 @@ vi.mock('child_process', () => ({
   execFile: vi.fn(),
 }));
 
+// Installed wherever the platform is Windows, as the real check is absent
+// everywhere else; the not-installed tests below flip it per call.
+vi.mock('../wslInstall', () => ({
+  isWslInstalled: vi.fn(() => process.platform === 'win32'),
+  isWslInstalledAsync: vi.fn(async () => process.platform === 'win32'),
+  forgetWslInstalled: vi.fn(),
+}));
+
 import * as fs from 'fs';
-import { exec, execSync, type ChildProcess } from 'child_process';
+import { exec, execFile, execSync, spawn, type ChildProcess } from 'child_process';
+import { forgetWslInstalled, isWslInstalled, isWslInstalledAsync } from '../wslInstall';
 import {
   parseWslConfigForMirrored,
   parseWslCoreVersion,
@@ -26,6 +35,12 @@ import {
   getWslNetworkInfoCached,
   updateWslConfigMirrored,
   wslExecSync,
+  wslExec,
+  wslSpawn,
+  getWslInfo,
+  getWslInfoAsync,
+  invalidateWslCache,
+  WslNotInstalledError,
 } from '../wslBridge';
 
 // ── Helpers ────────────────────────────────────────────────
@@ -428,5 +443,70 @@ describe('wslExecSync', () => {
     const options = vi.mocked(execSync).mock.calls[0][1] as { env?: Record<string, string> };
     expect(options.env?.BASH_ENV).toBe('');
     expect(options.env?.GEMSTONE).toBe('/gs/3.7.4');
+  });
+});
+
+// On Windows without WSL, the `wsl.exe` launcher still in System32 opens a
+// "Press any key to install WSL" window on most calls — so once the install
+// check says no, no path may run it.
+describe('Windows with WSL not installed', () => {
+  const realPlatform = process.platform;
+  beforeEach(() => {
+    setPlatform('win32');
+    vi.clearAllMocks();
+    vi.mocked(isWslInstalled).mockReturnValue(false);
+    vi.mocked(isWslInstalledAsync).mockResolvedValue(false);
+    invalidateWslCache();
+  });
+  afterEach(() => {
+    setPlatform(realPlatform);
+    vi.mocked(isWslInstalled).mockImplementation(() => process.platform === 'win32');
+    vi.mocked(isWslInstalledAsync).mockImplementation(async () => process.platform === 'win32');
+    invalidateWslCache();
+  });
+
+  it('getWslInfo and getWslInfoAsync report unavailable without running wsl.exe', async () => {
+    expect(getWslInfo().available).toBe(false);
+    invalidateWslCache();
+    expect((await getWslInfoAsync()).available).toBe(false);
+    expect(execSync).not.toHaveBeenCalled();
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  // The sync check blocks the extension host on `wsl --status` when its cache
+  // is cold, which every Refresh leaves it.
+  it('the async entry points ask the install check without blocking', async () => {
+    await getWslInfoAsync();
+    await getWslIpAddressAsync();
+    await getWslCoreVersionAsync();
+    expect(isWslInstalledAsync).toHaveBeenCalledTimes(3);
+    expect(isWslInstalled).not.toHaveBeenCalled();
+  });
+
+  it('the network probes answer undefined without running wsl.exe', async () => {
+    await expect(getWslIpAddressAsync()).resolves.toBeUndefined();
+    await expect(getWslCoreVersionAsync()).resolves.toBeUndefined();
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it('wslExecSync, wslExec and wslSpawn fail the way a missing wsl.exe does, without running it', async () => {
+    expect(() => wslExecSync('true')).toThrow(WslNotInstalledError);
+    await expect(wslExec('true')).rejects.toThrow(WslNotInstalledError);
+    expect(() => wslSpawn('true', [])).toThrow(WslNotInstalledError);
+    expect(execSync).not.toHaveBeenCalled();
+    expect(execFile).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('after WSL is installed, invalidateWslCache lets the next look find it', () => {
+    expect(getWslInfo().available).toBe(false);
+    vi.mocked(isWslInstalled).mockReturnValue(true);
+    vi.mocked(execSync).mockReturnValue('/home/u');
+    // Still the cached answer until someone asks again.
+    expect(getWslInfo().available).toBe(false);
+    vi.mocked(forgetWslInstalled).mockClear();
+    invalidateWslCache();
+    expect(forgetWslInstalled).toHaveBeenCalledOnce();
+    expect(getWslInfo()).toMatchObject({ available: true, homeDir: '/home/u' });
   });
 });

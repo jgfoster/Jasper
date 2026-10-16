@@ -7,6 +7,7 @@ import { useIntegrationTest } from '../../__tests__/useIntegrationTest';
 import { GciLibrary } from '../../gciLibrary';
 import * as q from '../../browserQueries';
 import type { ActiveSession } from '../../sessionManager';
+import { testActiveSession } from '../../__tests__/testActiveSession';
 
 /**
  * The file-out queries against a live stone (issue #539).
@@ -30,7 +31,7 @@ describe('file out queries (integration)', () => {
     handle = testContext.session;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
   const exec = (code: string): string => q.executeFetchString(session(), code);
 
   const dictIndexOf = (name: string): number =>

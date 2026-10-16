@@ -1,5 +1,8 @@
 import * as vscode from 'vscode';
 import { GciLibrary, GciError } from './gciLibrary';
+import { ActiveSession } from './activeSession';
+// Type-only: a value use (`new`, `instanceof`) must import from './activeSession'.
+export type { ActiveSession } from './activeSession';
 import { OOP_NIL } from './gciConstants';
 import { GemStoneLogin, gemNrsFor, loginLabel, stoneNrsFor } from './loginTypes';
 import { logInfo, logWarning } from './gciLog';
@@ -17,36 +20,6 @@ import {
 // that connect latency is imperceptible, large enough not to busy-spin while the
 // background login thread works.
 const LOGIN_POLL_INTERVAL_MS = 25;
-
-export interface ActiveSession {
-  id: number;
-  gci: GciLibrary;
-  handle: unknown;
-  login: GemStoneLogin;
-  stoneVersion: string;
-  enhancedInspectorAvailable?: boolean;
-  /** Whether the server-side refactoring engine (GsRenameInstanceVariableRefactoring)
-   *  is resolvable in this session's stone. Drives the `gemstone.rbSupportAvailable`
-   *  context key and the Explorer's rename-instance-variable command. Latched at
-   *  login (and re-probed after an install) — see refactoringAvailability.ts. */
-  rbSupportAvailable?: boolean;
-  /** `System myUserProfile symbolList`, memoized on first use — see
-   *  `sessionSymbolListOop` in debugQueries.ts, which owns this field. */
-  symbolListOop?: bigint;
-  /** The session's GemStone transaction mode, as last read from the stone, or
-   *  `undefined` when it has not been read (or could not be). Never assumed:
-   *  `STN_GEM_INITIAL_TRANSACTION_MODE` lets a stone hand out any of the three
-   *  at login. Owned by `SessionManager.refreshTransactionState`. */
-  transactionMode?: TransactionMode;
-  /** Whether the session was inside a transaction when the state was last read.
-   *  This — not the mode — decides whether a commit can land. Owned by
-   *  `SessionManager.refreshTransactionState`. */
-  inTransaction?: boolean;
-  /** Whether `GemAutoServiceSigAbort` has been armed on this session — set only
-   *  once arming succeeds, so a failed attempt is retried on the next read that
-   *  finds the session in `manualBegin`. Owned by `SessionManager`. */
-  sigAbortArmed?: boolean;
-}
 
 /**
  * Decide whether a new login may proceed given the current session count.
@@ -338,15 +311,9 @@ export class SessionManager {
   private finalizeSession(gci: GciLibrary, login: GemStoneLogin, handle: unknown): ActiveSession {
     const { version } = gci.GciTsVersion();
 
-    const session: ActiveSession = {
-      id: this.nextId++,
-      gci,
-      handle,
-      login,
-      stoneVersion: version,
-      enhancedInspectorAvailable: false,
-      rbSupportAvailable: false,
-    };
+    const session = new ActiveSession(this.nextId++, gci, handle, login, version);
+    session.enhancedInspectorAvailable = false;
+    session.rbSupportAvailable = false;
 
     this.sessions.set(session.id, session);
     logInfo(
@@ -381,7 +348,7 @@ export class SessionManager {
     // abort only refreshes the view. Nothing the user began can be lost here,
     // because nothing has happened yet.
     try {
-      const { success, err } = session.gci.GciTsAbort(session.handle);
+      const { success, err } = session.GciTsAbort();
       if (!success) {
         logInfo(
           `[Session ${session.id}] Post-login abort failed (error ${err.number}); leaving spurious uncommitted state`,
@@ -417,47 +384,24 @@ export class SessionManager {
   // restore) that log in and out repeatedly across a stone stop/start cycle. It
   // does NOT create an interactive session — no Transcript sink, no Sessions-view
   // entry, no single-session-mode gating, no auto-select — so it never disturbs
-  // the user's session state. Reuses an existing GciLibrary (typically the
-  // initiating session's, which survives that session's logout). The caller MUST
-  // log out via the returned `logout`.
+  // the user's session state. Logs in on `session`'s GciLibrary, which
+  // survives `session`'s logout, so `session` may already be logged out. The
+  // caller MUST log out via the returned `logout`.
   loginTransient(
     login: GemStoneLogin,
-    gci: GciLibrary,
+    session: ActiveSession,
   ): { session: ActiveSession; logout: () => void } {
-    const stoneNrs = stoneNrsFor(login);
-    const gemNrs = gemNrsFor(login);
-
-    const result = gci.GciTsLogin(
-      stoneNrs,
-      login.host_user || null,
-      login.host_password || null,
-      false,
-      gemNrs,
-      login.gs_user,
-      login.gs_password,
-      0,
-      0,
-    );
-
-    if (!result.session) {
-      throw new Error(result.err.message || `Login failed (error ${result.err.number})`);
+    const { session: transient, err } = session.transientLogin(login);
+    if (!transient) {
+      throw new Error(err.message || `Login failed (error ${err.number})`);
     }
-
-    const { version } = gci.GciTsVersion();
-    const session: ActiveSession = {
-      id: -1,
-      gci,
-      handle: result.session,
-      login,
-      stoneVersion: version,
-      enhancedInspectorAvailable: false,
-      rbSupportAvailable: false,
-    };
+    transient.enhancedInspectorAvailable = false;
+    transient.rbSupportAvailable = false;
     return {
-      session,
+      session: transient,
       logout: () => {
         try {
-          gci.GciTsLogout(result.session);
+          transient.GciTsLogout();
         } catch {
           /* already gone */
         }
@@ -497,7 +441,7 @@ export class SessionManager {
     if (!s) return;
     logInfo(`[Session ${id}] Logging out: ${s.login.gs_user}@${s.login.gem_host}/${s.login.stone}`);
     try {
-      s.gci.GciTsLogout(s.handle);
+      s.GciTsLogout();
     } catch {
       // Session may already be dead — remove it regardless
     }
@@ -570,11 +514,9 @@ export class SessionManager {
     const s = this.sessions.get(id);
     if (!s) return;
     try {
-      const { result: inProgress } = s.gci.GciTsCallInProgress(s.handle);
+      const { result: inProgress } = s.GciTsCallInProgress();
       if (inProgress !== 0) return;
-      const { mode, inTransaction } = getTransactionState((code) =>
-        s.gci.executeAndFetchString(s.handle, code),
-      );
+      const { mode, inTransaction } = getTransactionState((code) => s.executeAndFetchString(code));
       if (mode === undefined && inTransaction === undefined) return;
       // Each half is kept independently: a read that parses one and not the other
       // must not blank the half it did read, which is what the promise above says.
@@ -616,7 +558,7 @@ export class SessionManager {
    */
   private armGemAutoServiceSigAbort(s: ActiveSession): void {
     try {
-      setGemAutoServiceSigAbort((code) => s.gci.executeAndFetchString(s.handle, code), true);
+      setGemAutoServiceSigAbort((code) => s.executeAndFetchString(code), true);
       s.sigAbortArmed = true;
     } catch (e: unknown) {
       logWarning(
@@ -648,10 +590,7 @@ export class SessionManager {
   setTransactionMode(id: number, mode: TransactionMode): void {
     const s = this.sessions.get(id);
     if (!s) throw new Error('Session not found');
-    const reached = applyTransactionMode(
-      (code) => s.gci.executeAndFetchString(s.handle, code),
-      mode,
-    );
+    const reached = applyTransactionMode((code) => s.executeAndFetchString(code), mode);
     this.refreshTransactionState(id);
     if (reached !== mode) {
       throw new Error(
@@ -663,7 +602,7 @@ export class SessionManager {
   begin(id: number): { success: boolean; err: GciError } {
     const s = this.sessions.get(id);
     if (!s) throw new Error('Session not found');
-    const result = s.gci.GciTsBegin(s.handle);
+    const result = s.GciTsBegin();
     this.refreshTransactionState(id);
     return result;
   }
@@ -671,7 +610,7 @@ export class SessionManager {
   commit(id: number): { success: boolean; err: GciError } {
     const s = this.sessions.get(id);
     if (!s) throw new Error('Session not found');
-    const result = s.gci.GciTsCommit(s.handle);
+    const result = s.GciTsCommit();
     // Under manualBegin a commit leaves the session outside a transaction, so the
     // state has moved whether or not the commit itself succeeded.
     this.refreshTransactionState(id);
@@ -681,7 +620,7 @@ export class SessionManager {
   abort(id: number): { success: boolean; err: GciError } {
     const s = this.sessions.get(id);
     if (!s) throw new Error('Session not found');
-    const result = s.gci.GciTsAbort(s.handle);
+    const result = s.GciTsAbort();
     // Same as commit: under manualBegin this drops the session out of its
     // transaction, and nothing starts another one.
     this.refreshTransactionState(id);
@@ -696,7 +635,7 @@ export class SessionManager {
   ping(id: number): { success: boolean; err: GciError } {
     const s = this.sessions.get(id);
     if (!s) throw new Error('Session not found');
-    const { err } = s.gci.GciTsFetchSize(s.handle, OOP_NIL);
+    const { err } = s.GciTsFetchSize(OOP_NIL);
     return { success: err.number === 0, err };
   }
 
@@ -707,7 +646,7 @@ export class SessionManager {
   dispose(): void {
     for (const s of this.sessions.values()) {
       try {
-        s.gci.GciTsLogout(s.handle);
+        s.GciTsLogout();
       } catch {
         /* ignore */
       }

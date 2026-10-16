@@ -9,6 +9,7 @@ import * as browserQueries from '../browserQueries';
 import type { ActiveSession } from '../sessionManager';
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- forking is this file's subject, so it is the one integration test allowed to spawn a gem the harness never armed; the forked gems here only sleep, and write nothing
 import { canForkGem, forkGemRunning } from '../queries/forkGem';
+import { testActiveSession } from './testActiveSession';
 
 /**
  * Forking a gem, against a live stone.
@@ -31,7 +32,7 @@ describe('forking a gem (integration)', () => {
     handle = testContext.session;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
   const execute = (code: string): string => browserQueries.executeFetchString(session(), code);
 
   // The NetLDI this stone actually uses, as the harness itself connects through.

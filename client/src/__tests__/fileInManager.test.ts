@@ -38,11 +38,12 @@ import { SystemBrowser } from '../systemBrowser';
 import * as queries from '../browserQueries';
 import { captureDictionary } from '../undo/queries/dictionaryQueries';
 import { peekUndoEntry, resetUndoStacks, undoStackDepth } from '../undo/undoStack';
+import { fakeActiveSession } from './fakeActiveSession';
 
 function createMockSession(overrides?: Partial<GemStoneLogin>): ActiveSession {
-  return {
+  return fakeActiveSession({
     id: 1,
-    gci: {} as ActiveSession['gci'],
+    gci: {},
     handle: {},
     login: {
       label: 'Test',
@@ -57,7 +58,7 @@ function createMockSession(overrides?: Partial<GemStoneLogin>): ActiveSession {
       ...overrides,
     },
     stoneVersion: '3.7.2',
-  };
+  });
 }
 
 function createMockSessionManager(sessions: ActiveSession[] = []): SessionManager {

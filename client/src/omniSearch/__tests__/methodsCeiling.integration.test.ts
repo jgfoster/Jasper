@@ -26,6 +26,7 @@ import { createMethodsProvider, SERVER_OVERFETCH } from '../providers/methodsPro
 import { OMNI_DEFAULTS } from '../omniConfig';
 import { NEVER_CANCELLED, OmniConfig } from '../omniTypes';
 import type { ActiveSession } from '../../sessionManager';
+import { testActiveSession } from '../../__tests__/testActiveSession';
 
 describe('methods fetch ceiling (integration)', () => {
   let gci: GciLibrary;
@@ -35,7 +36,7 @@ describe('methods fetch ceiling (integration)', () => {
     handle = testContext.session;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
 
   const CLS = 'SelectorScanCeilingDemo';
   /** Unique enough that only the fixture's own methods can match — keeps the counts exact. */

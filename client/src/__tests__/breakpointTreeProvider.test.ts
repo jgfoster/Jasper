@@ -18,6 +18,7 @@ import {
 import { SessionManager } from '../sessionManager';
 import { BreakpointManager } from '../breakpointManager';
 import { getAllBreakpoints, GemStoneBreakpoint } from '../browserQueries';
+import { fakeActiveSession } from './fakeActiveSession';
 
 const mockGetAll = vi.mocked(getAllBreakpoints);
 
@@ -137,14 +138,14 @@ describe('BreakpointTreeProvider', () => {
     return {
       getSelectedSession: vi.fn(() =>
         hasSession
-          ? {
+          ? fakeActiveSession({
               id: 1,
               gci: {},
               handle: 'h',
               // The heading names the session the way Logins & Sessions does.
               login: { gs_user: 'DataCurator', stone: 'gs64stone_375', gem_host: 'localhost' },
               stoneVersion: '3.7.5',
-            }
+            })
           : undefined,
       ),
       onDidChangeSelection: vi.fn(() => ({ dispose: () => {} })),

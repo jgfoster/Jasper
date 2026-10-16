@@ -424,10 +424,9 @@ export function decodeDecision(decision: number, message: string, rule = 0): Dec
  * One doit per run of skipping, however many hits it goes on to judge.
  */
 function installDecider(session: ActiveSession, specs: BreakpointRule[]): bigint {
-  const { result, err } = session.gci.GciTsExecute(
-    session.handle,
+  const { result, err } = session.GciTsExecute(
     deciderSource(specs),
-    session.gci.utf8ClassOop(session.handle),
+    session.utf8ClassOop(),
     OOP_ILLEGAL,
     OOP_NIL,
     0, // debug OFF: the decider must not break on the breakpoints it is judging
@@ -445,8 +444,7 @@ function installDecider(session: ActiveSession, specs: BreakpointRule[]): bigint
  * needs no oop lookup either.
  */
 function decideWith(session: ActiveSession, decider: bigint, process: bigint): Decision {
-  const { result: arrayOop, err } = session.gci.GciTsPerform(
-    session.handle,
+  const { result: arrayOop, err } = session.GciTsPerform(
     decider,
     OOP_ILLEGAL,
     'value:',
@@ -457,19 +455,18 @@ function decideWith(session: ActiveSession, decider: bigint, process: bigint): D
   if (err.number !== 0) throw new Error(err.message || `GemStone error ${err.number}`);
 
   // Three slots in one fetch: the decision, its message, and which rule matched.
-  const { oops, err: fetchErr } = session.gci.GciTsFetchOops(session.handle, arrayOop, 1n, 3);
+  const { oops, err: fetchErr } = session.GciTsFetchOops(arrayOop, 1n, 3);
   if (fetchErr.number !== 0) {
     throw new Error(fetchErr.message || `GemStone error ${fetchErr.number}`);
   }
-  const decision = Number(session.gci.oopToInteger(session.handle, oops[0]));
-  const rule =
-    oops[2] === undefined ? 0 : Number(session.gci.oopToInteger(session.handle, oops[2]));
+  const decision = Number(session.oopToInteger(oops[0]));
+  const rule = oops[2] === undefined ? 0 : Number(session.oopToInteger(oops[2]));
 
   let message = '';
   const carriesText =
     decision === DECISION.Failed || decision === DECISION.Log || decision === DECISION.LogFailed;
   if (carriesText && oops[1] !== OOP_NIL) {
-    const fetched = session.gci.GciTsFetchChars(session.handle, oops[1], 1n, MAX_MESSAGE);
+    const fetched = session.GciTsFetchChars(oops[1], 1n, MAX_MESSAGE);
     if (fetched.err.number === 0) message = fetched.data;
     else logError(session.id, fetched.err.message || `GCI error ${fetched.err.number}`);
   }
@@ -555,8 +552,7 @@ export async function applyBreakpointRules(
       // suspended at a real breakpoint.
       if (cancelled) return { kind: 'stopped', skipped };
 
-      const { result, err } = await session.gci.GciTsContinueWithAsync(
-        session.handle,
+      const { result, err } = await session.GciTsContinueWithAsync(
         process,
         // Resume as-is rather than forcing the top of stack to nil — see
         // `continueExecution` in debugQueries for why that distinction matters.

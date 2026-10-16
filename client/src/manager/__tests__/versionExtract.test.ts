@@ -338,6 +338,19 @@ describe.runIf(process.platform === 'darwin')(
       expect(fs.existsSync(`/Volumes/${volume}`)).toBe(false);
     });
 
+    it('unpacking again replaces the files of the existing tree rather than nesting a copy in it', async () => {
+      await extract();
+      // The fixture ships a read-only file; this is about where cp puts files, not permissions.
+      execFileSync('chmod', ['-R', 'u+w', f.productDir]);
+      const gem = path.join(f.productDir, 'bin', 'gem');
+      fs.writeFileSync(gem, 'stale');
+
+      await extract();
+
+      expect(fs.readFileSync(gem, 'utf8')).not.toBe('stale');
+      expect(fs.existsSync(path.join(f.productDir, path.basename(f.productDir)))).toBe(false);
+    });
+
     it('on cancel, stops the copy, removes the partial tree and ejects the image', async () => {
       // cp's arguments are -Rv SRC DEST.
       fakeCommand(f, 'cp', `${partialTree('$3')}\nexec sleep 30`);
