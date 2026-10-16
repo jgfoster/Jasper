@@ -13,7 +13,7 @@ const executeFetchStringMock = executeFetchString as ReturnType<typeof vi.fn>;
 const checkAvailableMock = checkRefactoringSupportAvailable as ReturnType<typeof vi.fn>;
 
 function createMockSession() {
-  const commit = vi.fn(() => ({ success: true, err: { number: 0 } }));
+  const commit = vi.fn(() => ({ success: true, err: { number: 0, message: '' } }));
   const abort = vi.fn(() => ({ success: true, err: { number: 0 } }));
   const session = fakeActiveSession({
     id: 1,
@@ -72,11 +72,11 @@ describe('uninstallRefactoringSupport', () => {
   });
 
   it('rolls back and reports failure when the commit fails', async () => {
-    const { session, abort } = createMockSession();
-    session.gci.GciTsCommit = vi.fn(() => ({
+    const { session, commit, abort } = createMockSession();
+    commit.mockReturnValue({
       success: false,
       err: { number: 4001, message: 'commit refused' },
-    })) as unknown as typeof session.gci.GciTsCommit;
+    });
 
     const result = await uninstallRefactoringSupport(session);
 

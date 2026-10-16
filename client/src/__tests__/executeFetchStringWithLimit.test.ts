@@ -9,6 +9,7 @@ vi.mock('vscode', () => ({
 
 import { executeFetchStringWithLimit, BrowserQueryError } from '../browserQueries';
 import { ActiveSession } from '../sessionManager';
+import type { GciLibrary } from '../gciLibrary';
 import { fakeActiveSession } from './fakeActiveSession';
 
 function makeSession(gciOverrides: Record<string, unknown> = {}): ActiveSession {
@@ -21,7 +22,7 @@ function makeSession(gciOverrides: Record<string, unknown> = {}): ActiveSession 
   return fakeActiveSession({
     id: 1,
     handle: {},
-    gci: gci as unknown as ActiveSession['gci'],
+    gci,
     login: {},
     stoneVersion: '3.7.2',
   });
@@ -31,19 +32,28 @@ describe('executeFetchStringWithLimit', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('passes the requested maxBytes through to the GCI fetch', () => {
-    const session = makeSession();
+    const fetchBytes = vi.fn((..._args: Parameters<GciLibrary['GciTsExecuteFetchBytes']>) => ({
+      bytesReturned: 3,
+      data: 'abc',
+      err: { number: 0 },
+    }));
+    const session = makeSession({ GciTsExecuteFetchBytes: fetchBytes });
     const out = executeFetchStringWithLimit(session, 'label', 'CODE', 8 * 1024 * 1024);
     expect(out).toBe('abc');
-    const call = (session.gci.GciTsExecuteFetchBytes as ReturnType<typeof vi.fn>).mock.calls[0];
+    const call = fetchBytes.mock.calls[0];
     // signature: (handle, code, -1, utf8Oop, ctx, symbolList, maxResultSize)
     expect(call[1]).toBe('CODE');
     expect(call[6]).toBe(8 * 1024 * 1024);
   });
 
   it('throws when the session is busy', () => {
-    const session = makeSession({ GciTsCallInProgress: vi.fn(() => ({ result: 1 })) });
+    const fetchBytes = vi.fn();
+    const session = makeSession({
+      GciTsCallInProgress: vi.fn(() => ({ result: 1 })),
+      GciTsExecuteFetchBytes: fetchBytes,
+    });
     expect(() => executeFetchStringWithLimit(session, 'l', 'C', 1024)).toThrow(/busy/i);
-    expect(session.gci.GciTsExecuteFetchBytes).not.toHaveBeenCalled();
+    expect(fetchBytes).not.toHaveBeenCalled();
   });
 
   it('throws a BrowserQueryError with the underlying GCI error message', () => {

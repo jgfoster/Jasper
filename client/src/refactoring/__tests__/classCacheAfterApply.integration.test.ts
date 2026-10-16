@@ -19,6 +19,7 @@ import { GciLibrary } from '../../gciLibrary';
 import * as q from '../../browserQueries';
 import type { ActiveSession } from '../../sessionManager';
 import { requireServerPluginFeature } from '../../__tests__/requireServerPluginFeature';
+import { testActiveSession } from '../../__tests__/testActiveSession';
 import { pluginFeatures } from '../../serverPlugin/pluginFeatures';
 import { PREVIEW_PAGE_BYTES } from '../queries/previewRenameMethod';
 import { getClassHierarchy } from '../../queries/getClassHierarchy';
@@ -58,7 +59,7 @@ describe('the Hierarchy after a class-reshaping refactoring (integration)', () =
     handle = testContext.session;
   });
 
-  const session = (): ActiveSession => ({ id: 1, gci, handle }) as unknown as ActiveSession;
+  const session = (): ActiveSession => testActiveSession(gci, handle);
   const exec = (code: string): string => q.executeFetchString(session(), code);
   const asyncExec = (_label: string, code: string): Promise<string> => Promise.resolve(exec(code));
   const ug = (): number =>

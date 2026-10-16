@@ -348,7 +348,7 @@ export class SessionManager {
     // abort only refreshes the view. Nothing the user began can be lost here,
     // because nothing has happened yet.
     try {
-      const { success, err } = session.gci.GciTsAbort(session.handle);
+      const { success, err } = session.GciTsAbort();
       if (!success) {
         logInfo(
           `[Session ${session.id}] Post-login abort failed (error ${err.number}); leaving spurious uncommitted state`,
@@ -441,7 +441,7 @@ export class SessionManager {
     if (!s) return;
     logInfo(`[Session ${id}] Logging out: ${s.login.gs_user}@${s.login.gem_host}/${s.login.stone}`);
     try {
-      s.gci.GciTsLogout(s.handle);
+      s.GciTsLogout();
     } catch {
       // Session may already be dead — remove it regardless
     }
@@ -514,11 +514,9 @@ export class SessionManager {
     const s = this.sessions.get(id);
     if (!s) return;
     try {
-      const { result: inProgress } = s.gci.GciTsCallInProgress(s.handle);
+      const { result: inProgress } = s.GciTsCallInProgress();
       if (inProgress !== 0) return;
-      const { mode, inTransaction } = getTransactionState((code) =>
-        s.gci.executeAndFetchString(s.handle, code),
-      );
+      const { mode, inTransaction } = getTransactionState((code) => s.executeAndFetchString(code));
       if (mode === undefined && inTransaction === undefined) return;
       // Each half is kept independently: a read that parses one and not the other
       // must not blank the half it did read, which is what the promise above says.
@@ -560,7 +558,7 @@ export class SessionManager {
    */
   private armGemAutoServiceSigAbort(s: ActiveSession): void {
     try {
-      setGemAutoServiceSigAbort((code) => s.gci.executeAndFetchString(s.handle, code), true);
+      setGemAutoServiceSigAbort((code) => s.executeAndFetchString(code), true);
       s.sigAbortArmed = true;
     } catch (e: unknown) {
       logWarning(
@@ -592,10 +590,7 @@ export class SessionManager {
   setTransactionMode(id: number, mode: TransactionMode): void {
     const s = this.sessions.get(id);
     if (!s) throw new Error('Session not found');
-    const reached = applyTransactionMode(
-      (code) => s.gci.executeAndFetchString(s.handle, code),
-      mode,
-    );
+    const reached = applyTransactionMode((code) => s.executeAndFetchString(code), mode);
     this.refreshTransactionState(id);
     if (reached !== mode) {
       throw new Error(
@@ -607,7 +602,7 @@ export class SessionManager {
   begin(id: number): { success: boolean; err: GciError } {
     const s = this.sessions.get(id);
     if (!s) throw new Error('Session not found');
-    const result = s.gci.GciTsBegin(s.handle);
+    const result = s.GciTsBegin();
     this.refreshTransactionState(id);
     return result;
   }
@@ -615,7 +610,7 @@ export class SessionManager {
   commit(id: number): { success: boolean; err: GciError } {
     const s = this.sessions.get(id);
     if (!s) throw new Error('Session not found');
-    const result = s.gci.GciTsCommit(s.handle);
+    const result = s.GciTsCommit();
     // Under manualBegin a commit leaves the session outside a transaction, so the
     // state has moved whether or not the commit itself succeeded.
     this.refreshTransactionState(id);
@@ -625,7 +620,7 @@ export class SessionManager {
   abort(id: number): { success: boolean; err: GciError } {
     const s = this.sessions.get(id);
     if (!s) throw new Error('Session not found');
-    const result = s.gci.GciTsAbort(s.handle);
+    const result = s.GciTsAbort();
     // Same as commit: under manualBegin this drops the session out of its
     // transaction, and nothing starts another one.
     this.refreshTransactionState(id);
@@ -640,7 +635,7 @@ export class SessionManager {
   ping(id: number): { success: boolean; err: GciError } {
     const s = this.sessions.get(id);
     if (!s) throw new Error('Session not found');
-    const { err } = s.gci.GciTsFetchSize(s.handle, OOP_NIL);
+    const { err } = s.GciTsFetchSize(OOP_NIL);
     return { success: err.number === 0, err };
   }
 
@@ -651,7 +646,7 @@ export class SessionManager {
   dispose(): void {
     for (const s of this.sessions.values()) {
       try {
-        s.gci.GciTsLogout(s.handle);
+        s.GciTsLogout();
       } catch {
         /* ignore */
       }

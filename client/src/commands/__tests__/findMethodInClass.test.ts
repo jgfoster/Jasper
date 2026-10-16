@@ -32,7 +32,7 @@ type QuickPickHandle = vscode.QuickPick<ClassPickItem> & {
 const classListPayload = '1\tUserGlobals\tArray\n2\tGlobals\tString\n';
 const methodListPayload = '0\tprinting\tfoo\n1\taccessing\tbar\n';
 
-function createMockSession(): ActiveSession {
+function createMockSession(executeAndFetchString = vi.fn(() => '')): ActiveSession {
   const mockGci = {
     GciTsPerform: vi.fn(() => ({ result: 2000n, err: { ...noErr } })),
     GciTsNewString: vi.fn(() => ({ result: 3000n, err: { ...noErr } })),
@@ -40,14 +40,14 @@ function createMockSession(): ActiveSession {
     GciTsCompileMethod: vi.fn(() => ({ result: 5000n, err: { ...noErr } })),
     GciTsExecuteFetchBytes: vi.fn(() => ({ data: '', err: { ...noErr } })),
     GciTsPerformFetchBytes: vi.fn(() => ({ data: '', err: { ...noErr } })),
-    executeAndFetchString: vi.fn(() => ''),
+    executeAndFetchString,
     GciTsCallInProgress: vi.fn(() => ({ result: 0 })),
     GciTsClearStack: vi.fn(),
   };
 
   return fakeActiveSession({
     id: 1,
-    gci: mockGci as unknown as ActiveSession['gci'],
+    gci: mockGci,
     handle: {},
     login: { label: 'Test' },
     stoneVersion: '3.7.2',
@@ -59,11 +59,12 @@ function createMockSession(): ActiveSession {
 // the fake GCI answers the first call with the class payload and the second
 // with the method payload.
 function createSequencedSession(methodPayload = methodListPayload): ActiveSession {
-  const session = createMockSession();
-  vi.mocked(session.gci.executeAndFetchString)
-    .mockReturnValueOnce(classListPayload)
-    .mockReturnValueOnce(methodPayload);
-  return session;
+  return createMockSession(
+    vi
+      .fn(() => '')
+      .mockReturnValueOnce(classListPayload)
+      .mockReturnValueOnce(methodPayload),
+  );
 }
 
 function lastQuickPick(): QuickPickHandle {

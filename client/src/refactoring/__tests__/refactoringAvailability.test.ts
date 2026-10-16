@@ -9,21 +9,17 @@ vi.mock('vscode', () => ({
 import { ActiveSession } from '../../sessionManager';
 import * as queries from '../../browserQueries';
 import { refreshRefactoringSupportAvailable } from '../refactoringAvailability';
-import { fakeActiveSession } from '../../__tests__/fakeActiveSession';
+import { sessionOn } from '../../__tests__/fakeActiveSession';
 
-function createMockSession(executeFetchData = '', stoneVersion = '3.7.5'): ActiveSession {
-  const mockGci = {
-    executeAndFetchString: vi.fn(() => executeFetchData),
+function createMockGci(executeFetchData = '') {
+  return {
+    executeAndFetchString: vi.fn((_session: unknown, _code: string) => executeFetchData),
     GciTsCallInProgress: vi.fn(() => ({ result: 0 })),
   };
+}
 
-  return fakeActiveSession({
-    id: 1,
-    gci: mockGci as unknown as ActiveSession['gci'],
-    handle: {},
-    login: { label: 'Test' },
-    stoneVersion,
-  });
+function createMockSession(executeFetchData = '', stoneVersion = '3.7.5'): ActiveSession {
+  return sessionOn(createMockGci(executeFetchData), { stoneVersion });
 }
 
 describe('checkRefactoringSupportAvailable', () => {
@@ -46,8 +42,9 @@ describe('checkRefactoringSupportAvailable', () => {
   });
 
   it('reports unavailable when GCI errors', () => {
-    const session = createMockSession('');
-    (session.gci.executeAndFetchString as ReturnType<typeof vi.fn>).mockImplementation(() => {
+    const gci = createMockGci('');
+    const session = sessionOn(gci);
+    gci.executeAndFetchString.mockImplementation(() => {
       throw new Error('GCI error');
     });
 
@@ -55,12 +52,12 @@ describe('checkRefactoringSupportAvailable', () => {
   });
 
   it('probes for the rename-instance-variable refactoring class', () => {
-    const session = createMockSession('true');
+    const gci = createMockGci('true');
+    const session = sessionOn(gci);
 
     queries.checkRefactoringSupportAvailable(session);
 
-    const code = (session.gci.executeAndFetchString as ReturnType<typeof vi.fn>).mock
-      .calls[0][1] as string;
+    const code = gci.executeAndFetchString.mock.calls[0][1];
     expect(code).toContain('GsRenameInstanceVariableRefactoring');
   });
 });

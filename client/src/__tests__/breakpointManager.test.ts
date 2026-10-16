@@ -1206,14 +1206,12 @@ describe('BreakpointManager', () => {
     const SESSION_ONE = fakeActiveSession({
       id: 1,
       gci: {},
-      handle: 'gem-one',
       login: { label: 'One' },
       stoneVersion: '3.7.2',
     });
     const SESSION_TWO = fakeActiveSession({
       id: 2,
       gci: {},
-      handle: 'gem-two',
       login: { label: 'Two' },
       stoneVersion: '3.7.2',
     });
@@ -1234,7 +1232,7 @@ describe('BreakpointManager', () => {
       const calls = vi.mocked(debug.onDidChangeBreakpoints).mock.calls;
       calls[calls.length - 1][0]({ added: [], removed: [], changed: [], ...event });
     }
-    const handlesSetIn = () => mockSetBreakAtStepPoint.mock.calls.map((c) => c[0].handle);
+    const sessionsSetIn = () => mockSetBreakAtStepPoint.mock.calls.map((c) => c[0].id);
 
     beforeEach(() => {
       vi.mocked(debug.onDidChangeBreakpoints).mockClear();
@@ -1257,7 +1255,7 @@ describe('BreakpointManager', () => {
       fire({ added: [bp] });
 
       // Armed in session one — the method on screen belongs to its gem.
-      expect(handlesSetIn()).toEqual(['gem-one']);
+      expect(sessionsSetIn()).toEqual([1]);
     });
 
     it("does not clear the selected session's breakpoints on the same method", () => {
@@ -1269,7 +1267,7 @@ describe('BreakpointManager', () => {
 
       // `applyToUri` clears the method before re-arming it. Aimed at the wrong
       // gem, that clear would take out breakpoints the other session had set.
-      expect(mockClearAllBreaks.mock.calls.map((c) => c[0].handle)).toEqual(['gem-one']);
+      expect(mockClearAllBreaks.mock.calls.map((c) => c[0].id)).toEqual([1]);
     });
 
     it('leaves a breakpoint whose session has logged out alone', () => {
@@ -1335,7 +1333,7 @@ describe('BreakpointManager', () => {
 
       // "All" spans one breakpoint list across every session, so a gem left
       // un-swept keeps stopping execution behind a row that reads "disabled".
-      expect(mockDisableAll.mock.calls.map((c) => c[0].handle)).toEqual(['gem-one', 'gem-two']);
+      expect(mockDisableAll.mock.calls.map((c) => c[0].id)).toEqual([1, 2]);
     });
 
     it('sweeps every live gem when all breakpoints are enabled again', () => {
@@ -1346,7 +1344,7 @@ describe('BreakpointManager', () => {
 
       managerOverTwo().setAllEnabled(true);
 
-      expect(mockEnableAll.mock.calls.map((c) => c[0].handle)).toEqual(['gem-one', 'gem-two']);
+      expect(mockEnableAll.mock.calls.map((c) => c[0].id)).toEqual([1, 2]);
     });
 
     it('sweeps every live gem when all breakpoints are removed', () => {
@@ -1357,7 +1355,7 @@ describe('BreakpointManager', () => {
 
       managerOverTwo().removeAll();
 
-      expect(mockRemoveAll.mock.calls.map((c) => c[0].handle)).toEqual(['gem-one', 'gem-two']);
+      expect(mockRemoveAll.mock.calls.map((c) => c[0].id)).toEqual([1, 2]);
     });
 
     it('keeps sweeping the other gems when one fails, and says which failed', () => {

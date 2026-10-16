@@ -8,7 +8,7 @@ vi.mock('vscode', () => ({
 
 import { ActiveSession } from '../sessionManager';
 import { fetchPrintString, fetchFullPrintString } from '../debugQueries';
-import { fakeActiveSession } from './fakeActiveSession';
+import { sessionOn } from './fakeActiveSession';
 
 const noErr = {
   number: 0,
@@ -33,13 +33,7 @@ function createPrintStringSession(
       err: { ...noErr, number: errNumber, message: errNumber === 0 ? '' : 'GCI error' },
     })),
   };
-  return fakeActiveSession({
-    id: 1,
-    gci: mockGci as unknown as ActiveSession['gci'],
-    handle: {},
-    login: { label: 'Test' },
-    stoneVersion: '3.7.5',
-  });
+  return sessionOn(mockGci);
 }
 
 function createFullPrintSession(data = '', execThrows = false): ActiveSession {
@@ -49,13 +43,7 @@ function createFullPrintSession(data = '', execThrows = false): ActiveSession {
       return data;
     }),
   };
-  return fakeActiveSession({
-    id: 1,
-    gci: mockGci as unknown as ActiveSession['gci'],
-    handle: {},
-    login: { label: 'Test' },
-    stoneVersion: '3.7.5',
-  });
+  return sessionOn(mockGci);
 }
 
 describe('fetchPrintString', () => {
@@ -114,9 +102,10 @@ describe('fetchPrintString', () => {
 
   it('returns error value and truncated:false when GCI throws', () => {
     expect.assertions(2);
-    const session = createPrintStringSession('hello');
-    (session.gci.GciTsPerformFetchBytes as ReturnType<typeof vi.fn>).mockImplementation(() => {
-      throw new Error('connection lost');
+    const session = sessionOn({
+      GciTsPerformFetchBytes: vi.fn(() => {
+        throw new Error('connection lost');
+      }),
     });
     const result = fetchPrintString(session, 1000n, 10);
     expect(result.value).toBe('<error getting printString>');
@@ -163,10 +152,10 @@ describe('fetchFullPrintString', () => {
 
   it('embeds the oop in emitted Smalltalk', () => {
     expect.assertions(1);
-    const session = createFullPrintSession('result');
+    const gci = { executeAndFetchString: vi.fn((_session: unknown, _code: string) => 'result') };
+    const session = sessionOn(gci);
     fetchFullPrintString(session, 99999n);
-    const mockExec = session.gci.executeAndFetchString as ReturnType<typeof vi.fn>;
-    const code = mockExec.mock.calls[0][1] as string;
+    const code = gci.executeAndFetchString.mock.calls[0][1];
     expect(code).toContain('99999');
   });
 });

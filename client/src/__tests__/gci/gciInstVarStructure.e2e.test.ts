@@ -100,7 +100,7 @@ describe('instance-variable structure, committing path (gci e2e)', () => {
   });
 
   afterAll(() => {
-    if (session?.handle) gci.GciTsLogout(session.handle);
+    session?.GciTsLogout();
     gci?.close();
   });
 

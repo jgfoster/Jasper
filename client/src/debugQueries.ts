@@ -26,15 +26,7 @@ function gciPerform(
   selector: string,
   args: bigint[] = [],
 ): bigint {
-  const { result, err } = session.gci.GciTsPerform(
-    session.handle,
-    receiver,
-    OOP_ILLEGAL,
-    selector,
-    args,
-    0,
-    0,
-  );
+  const { result, err } = session.GciTsPerform(receiver, OOP_ILLEGAL, selector, args, 0, 0);
   if (err.number !== 0) {
     throw new Error(err.message || `GCI error ${err.number} in ${selector}`);
   }
@@ -47,13 +39,7 @@ function gciPerformFetchString(
   selector: string,
   args: bigint[] = [],
 ): string {
-  const { data, err } = session.gci.GciTsPerformFetchBytes(
-    session.handle,
-    receiver,
-    selector,
-    args,
-    MAX_RESULT,
-  );
+  const { data, err } = session.GciTsPerformFetchBytes(receiver, selector, args, MAX_RESULT);
   if (err.number !== 0) {
     throw new Error(err.message || `GCI error ${err.number} in ${selector}`);
   }
@@ -61,11 +47,11 @@ function gciPerformFetchString(
 }
 
 function oopToInt(session: ActiveSession, oop: bigint): number {
-  return Number(session.gci.oopToInteger(session.handle, oop));
+  return Number(session.oopToInteger(oop));
 }
 
 function intToOop(session: ActiveSession, n: number): bigint {
-  const { result, err } = session.gci.GciTsI64ToOop(session.handle, BigInt(n));
+  const { result, err } = session.GciTsI64ToOop(BigInt(n));
   if (err.number !== 0) {
     throw new Error(err.message || `GCI error ${err.number} in I64ToOop`);
   }
@@ -74,7 +60,7 @@ function intToOop(session: ActiveSession, n: number): bigint {
 
 function executeAndFetchString(session: ActiveSession, code: string): string {
   try {
-    return session.gci.executeAndFetchString(session.handle, code);
+    return session.executeAndFetchString(code);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     logError(session.id, msg);
@@ -224,14 +210,14 @@ export function getFrameInfo(session: ActiveSession, gsProcess: bigint, level: n
   const arrayOop = gciPerform(session, gsProcess, '_frameContentsAt:', [levelOop]);
 
   // Fetch the size of the returned array
-  const { result: sizeRaw, err: sizeErr } = session.gci.GciTsFetchSize(session.handle, arrayOop);
+  const { result: sizeRaw, err: sizeErr } = session.GciTsFetchSize(arrayOop);
   if (sizeErr.number !== 0) {
     throw new Error(sizeErr.message || `Cannot fetch array size`);
   }
   const size = Number(sizeRaw);
 
   // Fetch all OOPs from the array (1-based indexing in GemStone, 0-based in GciTsFetchOops)
-  const { oops, err: fetchErr } = session.gci.GciTsFetchOops(session.handle, arrayOop, 1n, size);
+  const { oops, err: fetchErr } = session.GciTsFetchOops(arrayOop, 1n, size);
   if (fetchErr.number !== 0) {
     throw new Error(fetchErr.message || `Cannot fetch frame contents`);
   }
@@ -261,15 +247,10 @@ export function getFrameInfo(session: ActiveSession, gsProcess: bigint, level: n
   // Fetch arg and temp names from the names array
   const argAndTempNames: string[] = [];
   if (namesArrayOop !== OOP_NIL) {
-    const { result: namesSizeRaw } = session.gci.GciTsFetchSize(session.handle, namesArrayOop);
+    const { result: namesSizeRaw } = session.GciTsFetchSize(namesArrayOop);
     const namesSize = Number(namesSizeRaw);
     if (namesSize > 0) {
-      const { oops: nameOops } = session.gci.GciTsFetchOops(
-        session.handle,
-        namesArrayOop,
-        1n,
-        namesSize,
-      );
+      const { oops: nameOops } = session.GciTsFetchOops(namesArrayOop, 1n, namesSize);
       for (const nameOop of nameOops) {
         const name = gciPerformFetchString(session, nameOop, 'asString');
         argAndTempNames.push(name);
@@ -650,11 +631,11 @@ export function getLineForIp(session: ActiveSession, methodOop: bigint, ipOffset
 export function getSourceOffsetsForMethod(session: ActiveSession, methodOop: bigint): number[] {
   const arrayOop = gciPerform(session, methodOop, '_sourceOffsets');
   if (arrayOop === OOP_NIL) return [];
-  const { result: sizeRaw, err: sizeErr } = session.gci.GciTsFetchSize(session.handle, arrayOop);
+  const { result: sizeRaw, err: sizeErr } = session.GciTsFetchSize(arrayOop);
   if (sizeErr.number !== 0) return [];
   const size = Number(sizeRaw);
   if (size <= 0) return [];
-  const { oops, err: fetchErr } = session.gci.GciTsFetchOops(session.handle, arrayOop, 1n, size);
+  const { oops, err: fetchErr } = session.GciTsFetchOops(arrayOop, 1n, size);
   if (fetchErr.number !== 0) return [];
   return oops.map((oop) => oopToInt(session, oop));
 }
@@ -724,8 +705,7 @@ export function fetchPrintString(
   maxBytes: number,
 ): { value: string; truncated: boolean } {
   try {
-    const { bytesReturned, data, err } = session.gci.GciTsPerformFetchBytes(
-      session.handle,
+    const { bytesReturned, data, err } = session.GciTsPerformFetchBytes(
       oop,
       'printString',
       [],
@@ -1022,7 +1002,7 @@ export function getObjectClassName(session: ActiveSession, oop: bigint): string 
  * Returns true if the OOP is a special (immediate) value — SmallInteger, Character, etc.
  */
 export function isSpecialOop(session: ActiveSession, oop: bigint): boolean {
-  return session.gci.GciTsOopIsSpecial(oop);
+  return session.GciTsOopIsSpecial(oop);
 }
 
 /**
@@ -1031,11 +1011,11 @@ export function isSpecialOop(session: ActiveSession, oop: bigint): boolean {
 export function getInstVarNames(session: ActiveSession, oop: bigint): string[] {
   const classOop = gciPerform(session, oop, 'class');
   const namesArrayOop = gciPerform(session, classOop, 'allInstVarNames');
-  const { result: sizeRaw } = session.gci.GciTsFetchSize(session.handle, namesArrayOop);
+  const { result: sizeRaw } = session.GciTsFetchSize(namesArrayOop);
   const size = Number(sizeRaw);
   const names: string[] = [];
   if (size > 0) {
-    const { oops } = session.gci.GciTsFetchOops(session.handle, namesArrayOop, 1n, size);
+    const { oops } = session.GciTsFetchOops(namesArrayOop, 1n, size);
     for (const nameOop of oops) {
       names.push(gciPerformFetchString(session, nameOop, 'asString'));
     }
@@ -1052,7 +1032,7 @@ export function getInstVarNames(session: ActiveSession, oop: bigint): string[] {
  */
 export function getNamedInstVarOops(session: ActiveSession, oop: bigint, count: number): bigint[] {
   if (count <= 0) return [];
-  const { oops, err } = session.gci.GciTsFetchOops(session.handle, oop, 1n, count);
+  const { oops, err } = session.GciTsFetchOops(oop, 1n, count);
   if (err.number !== 0) return [];
   return oops;
 }
@@ -1061,7 +1041,7 @@ export function getNamedInstVarOops(session: ActiveSession, oop: bigint, count: 
  * Returns the varying (indexed) size of an object.
  */
 export function getIndexedSize(session: ActiveSession, oop: bigint): number {
-  const { result, err } = session.gci.GciTsFetchVaryingSize(session.handle, oop);
+  const { result, err } = session.GciTsFetchVaryingSize(oop);
   if (err.number !== 0) return 0;
   return Number(result);
 }
@@ -1082,14 +1062,9 @@ export function getIndexedOops(
   count: number,
 ): bigint[] {
   if (count <= 0) return [];
-  const { info, err: infoErr } = session.gci.GciTsFetchObjInfo(session.handle, oop, false, 0);
+  const { info, err: infoErr } = session.GciTsFetchObjInfo(oop, false, 0);
   if (infoErr.number !== 0) return [];
-  const { oops, err } = session.gci.GciTsFetchOops(
-    session.handle,
-    oop,
-    BigInt(info.namedSize + startIndex),
-    count,
-  );
+  const { oops, err } = session.GciTsFetchOops(oop, BigInt(info.namedSize + startIndex), count);
   if (err.number !== 0) return [];
   return oops;
 }
@@ -1137,8 +1112,7 @@ function performStep(
   selector: string,
   args: bigint[],
 ): StepResult {
-  const { result, err } = session.gci.GciTsPerform(
-    session.handle,
+  const { result, err } = session.GciTsPerform(
     gsProcess,
     OOP_ILLEGAL,
     selector,
@@ -1198,18 +1172,9 @@ function performStepNb(
 ): Promise<StepResult> {
   return runNbCall(
     session,
-    () =>
-      session.gci.GciTsNbPerform(
-        session.handle,
-        gsProcess,
-        OOP_ILLEGAL,
-        selector,
-        args,
-        STEP_FLAGS,
-        0,
-      ),
+    () => session.GciTsNbPerform(gsProcess, OOP_ILLEGAL, selector, args, STEP_FLAGS, 0),
     () => {
-      const { result, err } = session.gci.GciTsNbResult(session.handle);
+      const { result, err } = session.GciTsNbResult();
       if (err.number !== 0) {
         return {
           completed: false,
@@ -1290,13 +1255,7 @@ export function continueExecution(session: ActiveSession, gsProcess: bigint): St
   // to its FIRST instruction with a fresh, empty evaluation stack — clobbering
   // its TOS with nil corrupts the frame, so continuing it never returns (the gem
   // hangs). OOP_ILLEGAL handles both cases correctly.
-  const { result, err } = session.gci.GciTsContinueWith(
-    session.handle,
-    gsProcess,
-    OOP_ILLEGAL,
-    null,
-    STEP_FLAGS,
-  );
+  const { result, err } = session.GciTsContinueWith(gsProcess, OOP_ILLEGAL, null, STEP_FLAGS);
   if (err.number !== 0) {
     return {
       completed: false,
@@ -1315,7 +1274,7 @@ export function continueExecution(session: ActiveSession, gsProcess: bigint): St
 export function clearStack(session: ActiveSession, gsProcess: bigint): void {
   logInfo(`[Session ${session.id}] Debug: clearStack`);
   try {
-    session.gci.GciTsClearStack(session.handle, gsProcess);
+    session.GciTsClearStack(gsProcess);
   } catch {
     // Ignore — process may already be gone
   }
@@ -1347,18 +1306,9 @@ export function trimStackToLevelNb(
   logInfo(`[Session ${session.id}] Debug: trimStackToLevel (nb) ${level}`);
   return runNbCall(
     session,
-    () =>
-      session.gci.GciTsNbPerform(
-        session.handle,
-        gsProcess,
-        OOP_ILLEGAL,
-        'trimStackToLevel:',
-        [levelOop],
-        0,
-        0,
-      ),
+    () => session.GciTsNbPerform(gsProcess, OOP_ILLEGAL, 'trimStackToLevel:', [levelOop], 0, 0),
     () => {
-      const { err } = session.gci.GciTsNbResult(session.handle);
+      const { err } = session.GciTsNbResult();
       if (err.number !== 0) {
         throw new Error(err.message || `GemStone error ${err.number} in trimStackToLevel:`);
       }
@@ -1451,7 +1401,7 @@ export function evaluateInFrameNb(
   }
   const { selfOop, selfIsUnavailable, names, oops } = context;
 
-  const { result: exprOop, err: strErr } = session.gci.GciTsNewString(session.handle, expression);
+  const { result: exprOop, err: strErr } = session.GciTsNewString(expression);
   if (strErr.number !== 0) {
     return Promise.reject(new Error(strErr.message || 'Cannot create expression string'));
   }
@@ -1462,9 +1412,9 @@ export function evaluateInFrameNb(
 
   return runNbCall(
     session,
-    () => session.gci.GciTsNbPerform(session.handle, exprOop, OOP_ILLEGAL, selector, args, 0, 0),
+    () => session.GciTsNbPerform(exprOop, OOP_ILLEGAL, selector, args, 0, 0),
     () => {
-      const { result, err } = session.gci.GciTsNbResult(session.handle);
+      const { result, err } = session.GciTsNbResult();
       if (err.number !== 0) {
         throw new Error(
           withSelfUnavailableNote(
@@ -1514,7 +1464,7 @@ export function evaluateInFrameToOop(
     level,
   );
 
-  const { result: exprOop, err: strErr } = session.gci.GciTsNewString(session.handle, expression);
+  const { result: exprOop, err: strErr } = session.GciTsNewString(expression);
   if (strErr.number !== 0) {
     throw new Error(strErr.message || 'Cannot create expression string');
   }
@@ -1725,7 +1675,7 @@ export function evaluateWithReceiverToOop(
   receiverOop: bigint,
   expression: string,
 ): bigint {
-  const { result: exprOop, err } = session.gci.GciTsNewString(session.handle, expression);
+  const { result: exprOop, err } = session.GciTsNewString(expression);
   if (err.number !== 0) {
     throw new Error(err.message || 'Cannot create expression string');
   }
@@ -1792,7 +1742,7 @@ export function getDictionaryValueOop(
  */
 export function saveObjs(session: ActiveSession, oops: bigint[]): void {
   if (oops.length === 0) return;
-  const { success, err } = session.gci.GciTsSaveObjs(session.handle, oops);
+  const { success, err } = session.GciTsSaveObjs(oops);
   if (!success || err.number !== 0) {
     throw new Error(err.message || 'GciTsSaveObjs failed');
   }
@@ -1805,7 +1755,7 @@ export function saveObjs(session: ActiveSession, oops: bigint[]): void {
  *  same session still needs isn't unpinned out from under it. */
 export function releaseObjs(session: ActiveSession, oops: bigint[]): void {
   if (oops.length === 0) return;
-  const { success, err } = session.gci.GciTsReleaseObjs(session.handle, oops);
+  const { success, err } = session.GciTsReleaseObjs(oops);
   if (!success || err.number !== 0) {
     throw new Error(err.message || 'GciTsReleaseObjs failed');
   }
@@ -1814,7 +1764,7 @@ export function releaseObjs(session: ActiveSession, oops: bigint[]): void {
 /** Resolve a global (e.g. a class name) to its OOP; null if it doesn't resolve. */
 function resolveGlobalOop(session: ActiveSession, name: string): bigint | null {
   try {
-    return session.gci.resolveSymbol(session.handle, name);
+    return session.resolveSymbol(name);
   } catch {
     return null;
   }
@@ -1890,7 +1840,7 @@ function buildFrameSymbolList(
 
   const dictOop = gciPerform(session, symDictClass, 'new');
   for (const { name, oop } of bindings) {
-    const { result: symOop, err } = session.gci.GciTsNewSymbol(session.handle, name);
+    const { result: symOop, err } = session.GciTsNewSymbol(name);
     if (err.number !== 0) continue; // skip un-internable names defensively
     gciPerform(session, dictOop, 'at:put:', [symOop, oop]);
   }
