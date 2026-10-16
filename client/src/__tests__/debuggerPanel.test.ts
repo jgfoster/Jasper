@@ -1507,7 +1507,7 @@ describe('DebuggerPanel', () => {
       ['File I/O', 'toServerTextFile:'],
       ['Init / Release', 'initialize'],
       ['*rowan-tonel-gemstone-kernel', '<<'],
-    ])('opens %s >> %s as that method', (category, selector) => {
+    ])('builds a URI that parses back to %s >> %s', (category, selector) => {
       const uri = buildMethodSourceUri(7, {
         ...URI_INFO,
         className: 'SmallInteger',
@@ -4971,6 +4971,7 @@ describe('DebuggerPanel', () => {
       groups.push({ viewColumn: 9, tabs: [methodTab] });
 
       closePanel(panel);
+
       expect(vi.mocked(vscode.window.tabGroups.close)).toHaveBeenCalledWith(methodTab);
     });
 
@@ -4993,6 +4994,7 @@ describe('DebuggerPanel', () => {
       groups.push({ viewColumn: 9, tabs: [methodTab] });
 
       closePanel(panel);
+
       expect(vi.mocked(vscode.window.tabGroups.close)).toHaveBeenCalledWith(methodTab);
     });
 
