@@ -142,7 +142,7 @@ export class GemStoneCompletionProvider implements vscode.CompletionItemProvider
     const parts = uri.path.split('/').filter((s) => s.length > 0);
     // path: /{dictName}/{className}/{side}/{category}/{selector}
     if (parts.length < 2) return null;
-    return decodeURIComponent(parts[1]);
+    return parts[1];
   }
 
   private getClassNameItems(session: ActiveSession): vscode.CompletionItem[] {
