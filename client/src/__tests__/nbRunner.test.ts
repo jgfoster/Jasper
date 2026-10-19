@@ -935,6 +935,35 @@ describe('a session whose stopped call is still being drained', () => {
     }
   });
 
+  it('neither holds up nor is released by a call on another session', async () => {
+    vi.useFakeTimers();
+    try {
+      const { session, gci } = makeSession([{ result: 0 }]);
+      (gci.GciTsNbPoll as ReturnType<typeof vi.fn>).mockReturnValue({ result: 0, err: noErr });
+      const other = makeSession([{ result: 1 }]).session;
+      await hardBreakAndStayInTheDrain(session);
+      const start = vi.fn(() => 'started');
+
+      const answer = whenSessionFree(other, start);
+      const run = runNbCall(
+        other,
+        () => ({ success: true, err: noErr as never }),
+        () => 'done',
+        {
+          suppressNotification: true,
+        },
+      );
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(answer).toBe('started');
+      await expect(run).resolves.toBe('done');
+      expect(() => ensureSessionFree(session)).toThrow(/still finishing/);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
   it('starts a call at once, before answering, when there is nothing to wait for', () => {
     const { session } = makeSession([{ result: 0 }]);
     const start = vi.fn(() => 'started');
