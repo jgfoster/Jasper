@@ -218,6 +218,15 @@ jobs:
       SKIP_REPORT_BARE_PATH: ${{ github.workspace }}/test-results/skips-${{ matrix.platform }}-${{ matrix.gemstone-version }}-${{ matrix.node-version || 'nvmrc' }}-bare.json
       SKIP_REPORT_PLUGIN_NAME: skips-${{ matrix.platform }}-${{ matrix.gemstone-version }}-${{ matrix.node-version || 'nvmrc' }}-plugin
       SKIP_REPORT_PLUGIN_PATH: ${{ github.workspace }}/test-results/skips-${{ matrix.platform }}-${{ matrix.gemstone-version }}-${{ matrix.node-version || 'nvmrc' }}-plugin.json
+      # GemStone 3.6.x marks its shared libraries (libpgsvr, libgcits, ...)
+      # as needing an executable stack, and glibc 2.41+ (ubuntu-latest has
+      # been 26.04 with glibc 2.43 since 2026-10-19) refuses to dlopen them.
+      # The failure is silent: copydbf exits 3 with no output, so the
+      # GemStone setup step dies right after "Extracting...". This tunable
+      # restores the old behavior; 3.7.x needs no executable stack and is
+      # unaffected. Harmless on the macOS and Windows hosts, which don't use
+      # glibc.
+      GLIBC_TUNABLES: glibc.rtld.execstack=2
     strategy:
       matrix:
         # macOS is deliberately absent from this axis — it gets a single
