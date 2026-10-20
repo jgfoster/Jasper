@@ -4,6 +4,10 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+### Fixed
+
+- **A saved GCI library that is missing or for another platform now says so, instead of failing every login.** A path in `gemstone.gciLibraries` was used as-is, so one that no longer existed, or that pointed at a Linux `.so` on a Mac, failed each login for that version with a raw loader error, and Jasper never tried its other ways to find a library. The login now stops on a message naming the saved path. If Jasper has a library for that version (a full install or downloaded files), it shows that library's path and offers **Use Suggested Library**, which saves it in the setting. Otherwise it offers **Download**. **Browse...** is always there, and opens in the nearest folder of the saved path that still exists, and so is **Edit Setting**, which opens `gemstone.gciLibraries` in Settings so you can fix the entry yourself. Jasper never swaps in a different library without asking, and **Cancel** leaves the setting as it was. ([#486](https://github.com/GemTalk/Jasper/issues/486))
+
 ## [1.15.0] - 2026-10-16
 
 ### Added
