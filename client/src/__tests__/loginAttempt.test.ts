@@ -284,7 +284,8 @@ describe('attempting a login', () => {
     });
 
     it('saves a library browsed to in place of the saved path', async () => {
-      const picked = realFile('picked/lib/libgcits-3.7.5-64.dylib');
+      // As the picker reports it: on Windows, Uri.fsPath lowercases the drive letter.
+      const picked = vscode.Uri.file(realFile('picked/lib/libgcits-3.7.5-64.dylib')).fsPath;
       answer('Browse...');
       vi.mocked(vscode.window.showOpenDialog).mockResolvedValueOnce([vscode.Uri.file(picked)]);
       const deps = makeDeps({
