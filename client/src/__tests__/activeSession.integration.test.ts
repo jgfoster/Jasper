@@ -1,5 +1,10 @@
 import { describe, it, expect, onTestFinished, vi } from 'vitest';
+
+vi.mock('vscode', () => import('../__mocks__/vscode.js'));
+
 import type { ActiveSession } from '../activeSession';
+import { OOP_CLASS_UTF8, OOP_ILLEGAL, OOP_NIL } from '../gciConstants';
+import { runNbCall } from '../nbRunner';
 import { testActiveSession } from './testActiveSession';
 import { useIntegrationTest } from './useIntegrationTest';
 
@@ -80,5 +85,48 @@ describe('a logged-out session (integration)', () => {
     const loggedOut = loggedOutSession();
 
     expect(() => loggedOut.logout()).toThrow(loggedOutError);
+  });
+
+  it('rejects a non-blocking call that is outstanding when the session logs out', async () => {
+    const transient = transientSession();
+    let started = false;
+    const runningCall = runNbCall(
+      transient,
+      // Shorter than the test's 5s timeout, so a call the logout fails to settle
+      // resolves and fails the assertion instead of timing the test out.
+      () =>
+        transient.GciTsNbExecute(
+          '(Delay forSeconds: 3) wait',
+          OOP_CLASS_UTF8,
+          OOP_ILLEGAL,
+          OOP_NIL,
+          0,
+          0,
+        ),
+      () => transient.GciTsNbResult(),
+      {
+        suppressNotification: true,
+        onStart: () => {
+          started = true;
+        },
+      },
+    );
+    // A logout the session refuses leaves it alive, so cleanup can't trust that
+    // the logout below took effect.
+    onTestFinished(async () => {
+      await runningCall.catch(() => {});
+      try {
+        transient.logout();
+      } catch (e) {
+        if (!(e instanceof Error && e.message === loggedOutError)) throw e;
+      }
+    });
+    // A logout that lands before the call starts would reject it with the same
+    // error, passing without ever covering an outstanding call.
+    expect(started).toBe(true);
+
+    transient.logout();
+
+    await expect(runningCall).rejects.toThrow(loggedOutError);
   });
 });
