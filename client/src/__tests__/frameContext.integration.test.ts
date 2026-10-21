@@ -7,12 +7,13 @@ import { useIntegrationTest } from './useIntegrationTest';
 import { testActiveSession } from './testActiveSession';
 import * as debug from '../debugQueries';
 import { OOP_ILLEGAL, OOP_NIL } from '../gciConstants';
+import { getGciLog } from '../gciLog';
 
 /**
  * What the debugger can see of a suspended frame, driven against a REAL halt.
  *
- * Every assertion here failed before the fix, and none of them could fail in the
- * unit suite: `fetchFrameVariables` is mocked wholesale wherever the panel is
+ * Every assertion here, bar the controls beside them, failed before its fix, and
+ * none of them could fail in the unit suite: `fetchFrameVariables` is mocked wholesale wherever the panel is
  * tested, and `debugQueries.test.ts` exercises only the payload parsers against
  * hand-written strings. The faults were all in Smalltalk the mocks never run:
  *
@@ -23,7 +24,10 @@ import { OOP_ILLEGAL, OOP_NIL } from '../gciConstants';
  *    on every frame, of every halt, on every release;
  *  - the eval bar and the Variables pane read the frame's *receiver* (slot 10 of
  *    `_frameContentsAt:`) as `self`. In a block frame that is the ExecBlock, so
- *    `self`, instance variables and class variables all failed there.
+ *    `self`, instance variables and class variables all failed there;
+ *  - the method-URI query sent `theNonMetaClass` to the class of a doit's
+ *    method, which is nil, so every debugger open wrote an ERROR to the GemStone
+ *    GCI channel for the "Executed Code" frame.
  *
  * The fixture class is created inside the harness transaction and never
  * committed. Each halt's suspended process is released with `GciTsClearStack`.
@@ -353,6 +357,57 @@ cls setup.
     atHalt(`(${TEST_CLASS} new limit: 99; yourself) haltWithArgAndTemp: 21`, (gsProcess, s) => {
       const level = methodFrameLevel(s, gsProcess, 'AbstractException', 'signal');
       expect(debug.evaluateInFrame(s, gsProcess, '3 + 4', level)).toBe('7');
+    });
+  });
+
+  describe("a frame's method URI", () => {
+    const errorLines = (log: { mock: { calls: unknown[][] } }): string[] =>
+      log.mock.calls.map((call) => String(call[0])).filter((line) => line.includes('ERROR'));
+
+    /** The oop of the doit's own method: the one frame whose method has no class. */
+    const doitMethodOop = (s: ActiveSession, gsProcess: bigint): bigint => {
+      const depth = debug.getStackDepth(s, gsProcess);
+      for (let level = 1; level <= depth; level++) {
+        const { methodOop } = debug.getFrameInfo(s, gsProcess, level);
+        const classless = gci.executeAndFetchString(
+          handle,
+          `(Object _objectForOop: ${methodOop}) inClass isNil printString`,
+        );
+        if (classless === 'true') return methodOop;
+      }
+      throw new Error('no classless (doit) frame on the stack');
+    };
+
+    // A halt run from a workspace has the doit itself near the bottom of the
+    // stack — the "Executed Code" frame — and its method has no class. The
+    // debugger asks for every frame's URI each time it opens, so an error here
+    // was an ERROR line in the GemStone GCI channel on every debugger open.
+    it('answers nothing for the doit frame, and logs no error', () => {
+      atHalt(`(${TEST_CLASS} new limit: 99; yourself) haltWithArgAndTemp: 21`, (gsProcess, s) => {
+        const methodOop = doitMethodOop(s, gsProcess);
+        const log = vi.spyOn(getGciLog(), 'appendLine');
+        try {
+          expect(debug.getMethodUriInfo(s, methodOop)).toBeUndefined();
+          expect(errorLines(log)).toEqual([]);
+        } finally {
+          log.mockRestore();
+        }
+      });
+    });
+
+    it("still resolves a real method's frame", () => {
+      atHalt(`(${TEST_CLASS} new limit: 99; yourself) haltWithArgAndTemp: 21`, (gsProcess, s) => {
+        const level = methodFrameLevel(s, gsProcess, TEST_CLASS, 'haltWithArgAndTemp:');
+        const info = debug.getFrameInfo(s, gsProcess, level);
+
+        expect(debug.getMethodUriInfo(s, info.methodOop)).toEqual({
+          dictName: 'UserGlobals',
+          className: TEST_CLASS,
+          isMeta: false,
+          category: 'jasper-test',
+          selector: 'haltWithArgAndTemp:',
+        });
+      });
     });
   });
 });
