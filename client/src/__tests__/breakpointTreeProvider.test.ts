@@ -7,12 +7,15 @@ vi.mock('../browserQueries', () => ({
   getSourceOffsets: vi.fn(() => []),
 }));
 
-import { TreeItemCheckboxState } from '../__mocks__/vscode';
+import { TreeItemCheckboxState, Uri, window, workspace } from '../__mocks__/vscode';
 import {
   BreakpointTreeProvider,
   BreakpointNode,
   classLabel,
+  editBreakpointCondition,
+  editBreakpointTrigger,
   groupBreakpoints,
+  revealBreakpoint,
 } from '../breakpointTreeProvider';
 import { rowDescription } from '../breakpointRuleText';
 import { SessionManager } from '../sessionManager';
@@ -335,6 +338,32 @@ describe('BreakpointTreeProvider', () => {
       expect(item.contextValue).toBe('gemstoneBreakpointDoit');
     });
 
+    it('offers Break Only After only on a row for a breakpoint Jasper set', () => {
+      // A trigger is recorded against a breakpoint in VS Code's list; one set
+      // from topaz has none, so the button could only say there is nothing there.
+      vi.mocked(manager.appliedForStoneBreakpoint).mockReturnValueOnce({
+        stepPoint: 3,
+        offset: 0,
+        line: 1,
+        enabled: true,
+      });
+      const owned = provider.getTreeItem({ kind: 'breakpoint', bp: bp() });
+      expect(owned.contextValue).toBe('gemstoneBreakpointOwned');
+    });
+
+    it('says on the row and in its tooltip why a waiting breakpoint will not stop', () => {
+      vi.mocked(manager.ruleForStoneBreakpoint).mockReturnValueOnce({
+        triggeredBy: {
+          uri: 'gemstone://1/Globals/Account/instance/accessing/deposit%3A',
+          stepPoint: 2,
+        },
+        triggerProblem: 'disabled',
+      });
+      const item = provider.getTreeItem({ kind: 'breakpoint', bp: bp() });
+      expect(item.description).toBe('@ 3 · after Account>>deposit: @2 (disabled)');
+      expect(String((item.tooltip as { value: string }).value)).toContain('which is disabled');
+    });
+
     it('counts a class node’s breakpoints, calling out the disabled ones', () => {
       const node: BreakpointNode = {
         kind: 'class',
@@ -356,5 +385,68 @@ describe('BreakpointTreeProvider', () => {
       };
       expect(provider.getTreeItem(node).description).toBe('2');
     });
+  });
+});
+
+describe('acting on a row', () => {
+  const sessionManager = {
+    getSelectedSession: vi.fn(() =>
+      fakeActiveSession({ id: 1, gci: {}, handle: 'h', login: {}, stoneVersion: '3.7.5' }),
+    ),
+  } as unknown as SessionManager;
+  const EXPLORER_URI = Uri.parse('gemstone://1/Globals/Account/instance/accessing/balance?dict=4');
+
+  function managerWith(owned?: typeof EXPLORER_URI) {
+    return {
+      uriForStoneBreakpoint: vi.fn(() => owned),
+      editConditionAtStepPoint: vi.fn(async () => {}),
+      editTriggerAtStepPoint: vi.fn(async () => {}),
+    } as unknown as BreakpointManager;
+  }
+
+  beforeEach(() => {
+    vi.mocked(workspace.openTextDocument).mockClear();
+    // An unrelated editor is active: the edit must not be aimed at it.
+    (window as { activeTextEditor?: unknown }).activeTextEditor = {
+      document: { uri: Uri.parse('gemstone://1/Globals/Other/instance/x/y') },
+    };
+  });
+
+  it('opens the editor the breakpoint was set in, when Jasper set it', async () => {
+    const uri = await revealBreakpoint(sessionManager, managerWith(EXPLORER_URI), {
+      kind: 'breakpoint',
+      bp: bp(),
+    });
+    expect(uri).toBe(EXPLORER_URI);
+    expect(vi.mocked(workspace.openTextDocument)).toHaveBeenCalledWith(EXPLORER_URI);
+  });
+
+  it('builds the URI from what the gem reports for a breakpoint Jasper did not set', async () => {
+    const uri = await revealBreakpoint(sessionManager, managerWith(undefined), {
+      kind: 'breakpoint',
+      bp: bp(),
+    });
+    expect(uri?.toString()).toContain('/Account/instance/accessing/balance');
+  });
+
+  it('edits the condition through the URI it opened, at the row’s step point', async () => {
+    const manager = managerWith(EXPLORER_URI);
+    await editBreakpointCondition(sessionManager, manager, { kind: 'breakpoint', bp: bp() });
+    expect(vi.mocked(manager.editConditionAtStepPoint)).toHaveBeenCalledWith(EXPLORER_URI, 3);
+  });
+
+  it('edits the trigger through the URI it opened, at the row’s step point', async () => {
+    const manager = managerWith(EXPLORER_URI);
+    await editBreakpointTrigger(sessionManager, manager, { kind: 'breakpoint', bp: bp() });
+    expect(vi.mocked(manager.editTriggerAtStepPoint)).toHaveBeenCalledWith(EXPLORER_URI, 3);
+  });
+
+  it('does nothing for executed code, which has no method to open', async () => {
+    const manager = managerWith(EXPLORER_URI);
+    const doit: BreakpointNode = { kind: 'breakpoint', bp: bp({ className: '', selector: '' }) };
+    await editBreakpointCondition(sessionManager, manager, doit);
+    await editBreakpointTrigger(sessionManager, manager, doit);
+    expect(vi.mocked(manager.editConditionAtStepPoint)).not.toHaveBeenCalled();
+    expect(vi.mocked(manager.editTriggerAtStepPoint)).not.toHaveBeenCalled();
   });
 });

@@ -130,6 +130,15 @@ describe('triggered breakpoints: what the manifest offers', () => {
     }
   });
 
+  it('names the label setting for everything it draws, not just conditions', () => {
+    const properties = Object.assign(
+      {},
+      ...pkg.contributes.configuration.map((c: { properties: object }) => c.properties),
+    );
+    expect(properties['gemstone.breakpoints.showRulesInEditor']?.type).toBe('boolean');
+    expect(properties['gemstone.breakpoints.showConditionInEditor']).toBeUndefined();
+  });
+
   it('registers a handler for each declared command', () => {
     // A command in the manifest with nothing behind it fails at the click with
     // "command not found", which reads as the feature being broken.

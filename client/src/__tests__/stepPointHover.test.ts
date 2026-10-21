@@ -221,6 +221,54 @@ describe('StepPointHoverProvider', () => {
     expect(text).toContain('Conditional breakpoint set but disabled');
   });
 
+  it('says what a breakpoint waits for, and offers to change it', () => {
+    // The hover used to leave the trigger out, so a breakpoint that only waited
+    // on another one said nothing about why it was not stopping.
+    const waiting = {
+      stepPoint: 2,
+      offset: 14,
+      line: 2,
+      enabled: true,
+      triggeredBy: {
+        uri: 'gemstone://1/Globals/Account/instance/accessing/deposit%3A',
+        stepPoint: 4,
+      },
+    };
+    const manager = makeManager([waiting]);
+    vi.mocked(manager.ruleOf).mockReturnValue({ ...waiting, triggerProblem: 'disabled' });
+    const provider = new StepPointHoverProvider(new StepPointModel(makeSessionManager()), manager);
+    const text = hoverText(provider.provideHover(makeDocument(), pos(1, 6)));
+    expect(text).toContain('Waits for **Account>>deposit: @4**, which is disabled');
+    expect(text).toContain('Edit trigger](command:gemstone.breakpoints.editTriggerAtStepPoint?');
+  });
+
+  it('offers to make a breakpoint wait for another', () => {
+    const provider = new StepPointHoverProvider(
+      new StepPointModel(makeSessionManager()),
+      makeManager([{ stepPoint: 2, offset: 14, line: 2, enabled: true }]),
+    );
+    const text = hoverText(provider.provideHover(makeDocument(), pos(1, 6)));
+    expect(text).toContain(
+      'Break only after…](command:gemstone.breakpoints.editTriggerAtStepPoint?',
+    );
+  });
+
+  it('trusts only the commands its own links run', () => {
+    // The hover shows the developer's own condition, so wholesale trust would
+    // run any command link written into one.
+    const provider = new StepPointHoverProvider(
+      new StepPointModel(makeSessionManager()),
+      makeManager([{ stepPoint: 2, offset: 14, line: 2, enabled: true, condition: 'x' }]),
+    );
+    const hover = provider.provideHover(makeDocument(), pos(1, 6));
+    const md = hover?.contents as unknown as { value: string; isTrusted: unknown };
+    const trusted = (md.isTrusted as { enabledCommands: string[] }).enabledCommands;
+    const linked = [...md.value.matchAll(/\(command:([\w.]+)/g)].map((m) => m[1]);
+    expect(linked.length).toBeGreaterThan(0);
+    for (const id of linked) expect(trusted).toContain(id);
+    expect(trusted.every((id) => id.startsWith('gemstone.breakpoints.'))).toBe(true);
+  });
+
   it('says nothing when the pointer is not on a step point token', () => {
     // Character 0 of line 1 is '^', which carries no selector range here — and
     // the caret rule would otherwise fall forward and misreport a step point.

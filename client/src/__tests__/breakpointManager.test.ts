@@ -1005,6 +1005,78 @@ describe('BreakpointManager', () => {
       expect(manager.appliedFor(Uri.parse(METHOD_URI))[0].condition).toBe('a');
     });
 
+    describe('two breakpoints on one step point', () => {
+      // A gutter click on a blank line falls forward onto the next line's step
+      // point, so two breakpoints sharing one is easy to come by.
+      const sole = (manager: BreakpointManager) => {
+        const applied = manager.appliedFor(Uri.parse(METHOD_URI));
+        expect(applied).toHaveLength(1);
+        return applied[0];
+      };
+
+      it('does not let a disabled logpoint stop an enabled breakpoint from stopping', () => {
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [
+          { line: 2, enabled: false, logMessage: 'x={x}' },
+          { line: 2, enabled: true },
+        ]);
+        expect(sole(manager)).toMatchObject({ enabled: true, logMessage: undefined });
+      });
+
+      it("does not let a disabled plain breakpoint erase an enabled one's condition", () => {
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [
+          { line: 2, enabled: false },
+          { line: 2, enabled: true, condition: 'index > 3' },
+        ]);
+        expect(sole(manager).condition).toBe('index > 3');
+      });
+
+      it('does not let a disabled plain breakpoint stop an enabled logpoint from logging', () => {
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [
+          { line: 2, enabled: false },
+          { line: 2, enabled: true, logMessage: 'x={x}' },
+        ]);
+        expect(sole(manager).logMessage).toBe('x={x}');
+      });
+
+      it('still stops for an enabled plain breakpoint beside an enabled logpoint', () => {
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [
+          { line: 2, enabled: true, logMessage: 'x={x}' },
+          { line: 2, enabled: true },
+        ]);
+        expect(sole(manager).logMessage).toBeUndefined();
+      });
+
+      it('keeps the log message when every breakpoint on it logs', () => {
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [
+          { line: 2, enabled: true, logMessage: 'first' },
+          { line: 2, enabled: true, logMessage: 'second' },
+        ]);
+        expect(sole(manager).logMessage).toBe('first');
+      });
+
+      it('reads the disabled ones when none is enabled', () => {
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [
+          { line: 2, enabled: false, condition: 'a' },
+          { line: 2, enabled: false, condition: 'b' },
+        ]);
+        expect(sole(manager)).toMatchObject({ enabled: false, condition: 'a' });
+      });
+    });
+
+    it('treats a blank log message as none, so the breakpoint still stops', () => {
+      // A blank message would make a breakpoint that never stops and logs
+      // nothing but empty lines.
+      const manager = makeManager();
+      applyWith(manager, METHOD_URI, [{ line: 2, enabled: true, logMessage: '   ' }]);
+      expect(manager.appliedFor(Uri.parse(METHOD_URI))[0].logMessage).toBeUndefined();
+    });
+
     describe('a condition written while the editor is dirty', () => {
       /**
        * The quietest way this feature can fail: the breakpoint is already armed,
@@ -1235,6 +1307,59 @@ describe('BreakpointManager', () => {
         expect(labels[0].hoverMessage.value).toContain(
           'command:gemstone.breakpoints.showLogpointOutput',
         );
+      });
+
+      it('draws the label of a breakpoint that only waits, with a hover saying so', () => {
+        // A breakpoint waiting on another carries nothing else, so without its
+        // own hover text the label's hover was empty.
+        mockGetMethodSource.mockReturnValue(SOURCE);
+        mockGetSourceOffsets.mockReturnValue([3]);
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [{ line: 2, enabled: true }]);
+        const trigger = { uri: 'gemstone://1/Globals/Array/instance/accessing/size', stepPoint: 4 };
+        manager.setTrigger(Uri.parse(METHOD_URI), 1, trigger);
+        const { editor, drawn } = editorOver(SOURCE);
+        manager.refreshDecorations(editor);
+
+        const labels = drawn[drawn.length - 1].value as {
+          hoverMessage: { value: string };
+          renderOptions: { after: { contentText: string } };
+        }[];
+        // Nothing is set at size @4, so the label says it will not stop.
+        expect(labels[0].renderOptions.after.contentText).toBe(
+          'Break after Array>>size @4 (removed)',
+        );
+        expect(labels[0].hoverMessage.value).toContain('Waits for **Array>>size @4**');
+      });
+
+      it('trusts the label hover for its own link only', () => {
+        mockGetMethodSource.mockReturnValue(SOURCE);
+        mockGetSourceOffsets.mockReturnValue([3]);
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [{ line: 2, enabled: true, logMessage: 'x={x}' }]);
+        const { editor, drawn } = editorOver(SOURCE);
+        manager.refreshDecorations(editor);
+        const labels = drawn[drawn.length - 1].value as { hoverMessage: { isTrusted: unknown } }[];
+        expect(labels[0].hoverMessage.isTrusted).toEqual({
+          enabledCommands: ['gemstone.breakpoints.showLogpointOutput'],
+        });
+      });
+
+      it('says which breakpoint each label is about when a line holds two', () => {
+        // `x := x + i`: step points on `:=` and `+`, both on line 2.
+        mockGetMethodSource.mockReturnValue(SOURCE);
+        mockGetSourceOffsets.mockReturnValue([5, 10]);
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [
+          { line: 2, character: 2, enabled: true, condition: 'i > 3' },
+          { line: 2, character: 7, enabled: true },
+        ]);
+        const { editor, drawn } = editorOver(SOURCE);
+        manager.refreshDecorations(editor);
+        const labels = drawn[drawn.length - 1].value as {
+          renderOptions: { after: { contentText: string } };
+        }[];
+        expect(labels.map((l) => l.renderOptions.after.contentText)).toEqual(['@1 Break if i > 3']);
       });
 
       it('draws nothing when the setting is off', () => {
@@ -1606,7 +1731,9 @@ describe('BreakpointManager', () => {
 
           // Nothing left to offer, so it says so rather than showing an empty list.
           expect(vi.mocked(window.showQuickPick)).not.toHaveBeenCalled();
-          expect(vi.mocked(window.showInformationMessage)).toHaveBeenCalled();
+          expect(vi.mocked(window.showInformationMessage)).toHaveBeenCalledWith(
+            expect.stringContaining('no other breakpoint to wait for'),
+          );
         });
 
         it('refuses a step point with no breakpoint on it', async () => {
@@ -1639,6 +1766,17 @@ describe('BreakpointManager', () => {
           vi.mocked(window.showQuickPick).mockResolvedValue({ label: 'Always armed' });
           await manager.editTriggerAtStepPoint(Uri.parse(METHOD_URI), 2);
           expect(manager.triggerFor(Uri.parse(METHOD_URI), 2)).toBeUndefined();
+        });
+
+        it('lets the picker close when focus moves away, like every other picker', async () => {
+          // Nothing is typed into it, so nothing is lost by closing it.
+          const manager = makeManager();
+          threeMethods(manager);
+          vi.mocked(window.showQuickPick).mockResolvedValue(undefined);
+          await manager.editTriggerAtStepPoint(Uri.parse(METHOD_URI), 2);
+          expect(vi.mocked(window.showQuickPick).mock.calls[0][1]).not.toHaveProperty(
+            'ignoreFocusOut',
+          );
         });
 
         it('changes nothing when the picker is cancelled', async () => {
@@ -2184,6 +2322,113 @@ describe('BreakpointManager', () => {
     });
   });
 
+  describe('the at-Cursor commands that edit a breakpoint', () => {
+    /**
+     * The breakpoint they act on is the one on the caret's line when the caret
+     * is not on its exact token: a developer right-clicking a line with one red
+     * dot means that breakpoint, and the caret's nearest step point is
+     * routinely another token on the same line.
+     */
+    // 'x := self foo': step point 1 is `self` (column 5), 2 is `foo` (column 10).
+    const SOURCE = 'm\nx := self foo';
+    const editorAt = (offset: number) => {
+      const starts = buildLineStarts(SOURCE);
+      const positionAt = (o: number) => {
+        const line = o >= starts[2] ? 2 : 1;
+        return new Position(line - 1, o - starts[line]);
+      };
+      return {
+        document: {
+          uri: Uri.parse(METHOD_URI),
+          isDirty: false,
+          getText: () => SOURCE,
+          offsetAt: () => offset,
+          positionAt,
+        },
+        selection: { active: positionAt(offset) },
+      } as unknown as import('vscode').TextEditor;
+    };
+    // The caret on `foo`, right of a gutter breakpoint that sits on `self`.
+    const ON_FOO = 12;
+
+    beforeEach(() => {
+      mockGetMethodSource.mockReturnValue(SOURCE);
+      mockGetSourceOffsets.mockReturnValue([8, 13]);
+      vi.mocked(window.showInputBox).mockReset();
+      vi.mocked(window.showQuickPick).mockReset();
+      vi.mocked(window.showInformationMessage).mockClear();
+    });
+
+    it("edits the line's breakpoint rather than adding a second one", async () => {
+      const gutter = sourceBreakpoint(METHOD_URI, { line: 2, condition: 'x > 1' });
+      debug.breakpoints = [gutter];
+      vi.mocked(window.showInputBox).mockResolvedValue('x > 2');
+
+      await makeManager().editConditionAtCursor(editorAt(ON_FOO));
+
+      expect(vi.mocked(window.showInputBox).mock.calls[0][0]).toMatchObject({ value: 'x > 1' });
+      expect(debug.breakpoints).toHaveLength(1);
+      expect((debug.breakpoints[0] as SourceBreakpoint).condition).toBe('x > 2');
+    });
+
+    it("offers the trigger picker for the line's breakpoint", async () => {
+      const manager = makeManager();
+      applyWith(manager, METHOD_URI, [{ line: 2 }]);
+      applyWith(manager, 'gemstone://1/Globals/Array/instance/accessing/size', [{ line: 2 }]);
+      vi.mocked(window.showQuickPick).mockResolvedValue(undefined);
+
+      await manager.editTriggerAtCursor(editorAt(ON_FOO));
+
+      expect(vi.mocked(window.showInformationMessage)).not.toHaveBeenCalled();
+      expect(vi.mocked(window.showQuickPick).mock.calls[0][1]).toMatchObject({
+        title: 'Break at step point 1 only after…',
+      });
+    });
+
+    it('names the line, not a step point, when the line has no breakpoint', async () => {
+      debug.breakpoints = [];
+      await makeManager().editTriggerAtCursor(editorAt(ON_FOO));
+      expect(vi.mocked(window.showInformationMessage)).toHaveBeenCalledWith(
+        expect.stringContaining('no breakpoint on line 2'),
+      );
+    });
+
+    it("disables the line's breakpoint", () => {
+      const gutter = sourceBreakpoint(METHOD_URI, { line: 2 });
+      debug.breakpoints = [gutter];
+
+      makeManager().setEnabledAtCursor(editorAt(ON_FOO), false);
+
+      expect(vi.mocked(debug.removeBreakpoints)).toHaveBeenCalledWith([gutter]);
+      expect(debug.breakpoints).toHaveLength(1);
+      expect((debug.breakpoints[0] as SourceBreakpoint).enabled).toBe(false);
+    });
+
+    it('takes the nearest when the line has several and the caret is on neither', async () => {
+      // Three step points: `x` (2), `self` (7), `foo` (12). Breakpoints on the
+      // first and last; the caret on `self` is nearer `foo`.
+      mockGetSourceOffsets.mockReturnValue([3, 8, 13]);
+      const onX = sourceBreakpoint(METHOD_URI, { line: 2, condition: 'on x' });
+      const onFoo = sourceBreakpoint(METHOD_URI, { line: 2, character: 10, condition: 'on foo' });
+      debug.breakpoints = [onX, onFoo];
+      vi.mocked(window.showInputBox).mockResolvedValue(undefined);
+
+      await makeManager().editConditionAtCursor(editorAt(8));
+
+      expect(vi.mocked(window.showInputBox).mock.calls[0][0]).toMatchObject({ value: 'on foo' });
+    });
+
+    it('still toggles exactly at the caret, beside the breakpoint already on the line', () => {
+      const gutter = sourceBreakpoint(METHOD_URI, { line: 2 });
+      debug.breakpoints = [gutter];
+
+      makeManager().toggleAtCursor(editorAt(ON_FOO));
+
+      expect(vi.mocked(debug.removeBreakpoints)).not.toHaveBeenCalled();
+      expect(debug.breakpoints).toHaveLength(2);
+    });
+  });
+
   describe('removeAll', () => {
     it('drops gemstone breakpoints from VS Code and sweeps the gem', () => {
       const gemstoneBp = new SourceBreakpoint(
@@ -2249,6 +2494,37 @@ describe('BreakpointManager', () => {
       workspace.textDocuments = [
         { uri: Uri.parse(METHOD_URI), languageId: METHOD_LANGUAGE, isDirty: false },
       ];
+    });
+
+    it("offers as triggers only the breakpoints in the method's own gem", async () => {
+      // A trigger is judged in the gem the run is in. One from the selected
+      // session's gem could never be reached there, and would leave this
+      // breakpoint reading "Break after …" while stopping every time.
+      mockGetMethodSource.mockReturnValue('foo\n^1');
+      mockGetSourceOffsets.mockReturnValue([1, 5]);
+      const manager = managerOverTwo();
+      const inOne = 'gemstone://1/Globals/Array/instance/accessing/size';
+      const inTwo = 'gemstone://2/Globals/Array/instance/accessing/size';
+      const apply = (uri: string, s: typeof SESSION_ONE) => {
+        debug.breakpoints = [
+          ...debug.breakpoints,
+          new SourceBreakpoint(new Location(Uri.parse(uri), new Position(1, 0))),
+        ];
+        manager.applyToUri(s, Uri.parse(uri));
+      };
+      debug.breakpoints = [];
+      apply(METHOD_URI, SESSION_ONE);
+      apply(inOne, SESSION_ONE);
+      apply(inTwo, SESSION_TWO);
+      vi.mocked(window.showQuickPick).mockReset().mockResolvedValue(undefined);
+
+      await manager.editTriggerAtStepPoint(Uri.parse(METHOD_URI), 2);
+
+      const items = vi.mocked(window.showQuickPick).mock.calls[0][0] as unknown as {
+        label: string;
+        ref?: { uri: string };
+      }[];
+      expect(items.filter((i) => i.ref).map((i) => i.ref!.uri)).toEqual([inOne]);
     });
 
     it('arms a breakpoint in the gem the method was opened from, not the selected one', () => {
