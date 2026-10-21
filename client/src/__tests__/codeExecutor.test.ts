@@ -34,6 +34,11 @@ vi.mock('../basicInspector/basicInspector', () => ({
   BasicInspector: { create: vi.fn() },
 }));
 
+vi.mock('../logpointChannel', () => ({
+  appendLogpoint: vi.fn(),
+  showLogpointChannel: vi.fn(),
+}));
+
 import { CodeExecutor } from '../codeExecutor';
 import { pollNbToCompletion, type NbRunOptions } from '../nbRunner';
 import { DebuggerPanel } from '../debuggerPanel';
@@ -44,6 +49,8 @@ import * as vscode from 'vscode';
 import { __resetConfig, __setConfig } from '../__mocks__/vscode';
 import { appendTranscript, appendTranscriptOutput, showTranscript } from '../transcriptChannel';
 import { pollReadable } from '../socketPoll';
+import { appendLogpoint, showLogpointChannel } from '../logpointChannel';
+import { NbCancelledError } from '../nbRunner';
 import {
   GCI_PERFORM_FLAG_ENABLE_DEBUG,
   GCI_PERFORM_FLAG_SINGLE_STEP,
@@ -241,9 +248,9 @@ function lastDiagCollection() {
 }
 
 /**
- * No breakpoint is conditional. The executor then skips the condition machinery
- * entirely, which is what every test here that is not about conditions wants —
- * see `codeExecutorConditions.test.ts` for the ones that are.
+ * No breakpoint carries a rule. The executor then skips the rule machinery
+ * entirely, which is what every test here that is not about rules wants — see
+ * the `conditional breakpoints` describe below for the ones that are.
  */
 const NO_CONDITIONS = { breakpointRulesFor: () => [] };
 
@@ -536,6 +543,11 @@ describe('CodeExecutor', () => {
 
       expect(appendTranscriptOutput).toHaveBeenCalledWith('live text');
       expect((gci as Record<string, unknown>).GciTsContinueWithAsync).toHaveBeenCalledTimes(1);
+      // Resumed with the run's own debug flags. With 0, every breakpoint after
+      // the first Transcript write was disarmed for the rest of the run.
+      expect(
+        ((gci as Record<string, unknown>).GciTsContinueWithAsync as Mock).mock.calls[0][4],
+      ).toBe(GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED);
       // The execution completed normally — no error dialog, no diagnostic.
       expect(vscode.window.showErrorMessage).not.toHaveBeenCalled();
     });
@@ -1795,7 +1807,16 @@ describe('CodeExecutor', () => {
      */
     function haltingGci(
       decisions: number[],
-      resumes: { result?: bigint; err: { number: number; message?: string; context?: bigint } }[],
+      resumes: {
+        result?: bigint;
+        err: {
+          number: number;
+          message?: string;
+          context?: bigint;
+          args?: bigint[];
+          argCount?: number;
+        };
+      }[],
       message = '',
     ) {
       let decisionIndex = 0;
@@ -1811,15 +1832,25 @@ describe('CodeExecutor', () => {
         })),
         // One execute compiles the decider; every hit after is a perform on it.
         GciTsExecute: vi.fn(() => ({ result: 400n, err: { number: 0, message: '' } })),
-        GciTsPerform: vi.fn(() => ({ result: 500n, err: { number: 0, message: '' } })),
-        GciTsFetchOops: vi.fn(() => {
+        GciTsPerformAsync: vi.fn(async () => ({ result: 500n, err: { number: 0, message: '' } })),
+        GciTsFetchOops: vi.fn((_h: unknown, oop: bigint) => {
+          // The argument Array of a Transcript write, not a decision.
+          if (oop === 0x13n) return { result: 1, oops: [0x77n], err: { number: 0 } };
           const decision = decisions[Math.min(decisionIndex, decisions.length - 1)];
           decisionIndex += 1;
           return {
-            oops: [1000n + BigInt(decision), message === '' ? OOP_NIL : 77n],
+            // decision, message, and which rule matched (the first)
+            oops: [1000n + BigInt(decision), message === '' ? OOP_NIL : 77n, 1001n],
             err: { number: 0, message: '' },
           };
         }),
+        GciTsOopToI64: vi.fn(() => ({ success: true, value: 2n, err: { number: 0 } })),
+        GciTsFetchUtf8: vi.fn((_h: unknown, oop: bigint) =>
+          oop === 0x12n
+            ? { data: 'nextPutAll:', err: { number: 0 } }
+            : { data: 'written while skipping', err: { number: 0 } },
+        ),
+        GciTsBreak: vi.fn(() => ({ success: true, err: { number: 0 } })),
         GciTsFetchChars: vi.fn(() => ({ data: message, err: { number: 0, message: '' } })),
         oopToInteger: vi.fn((_h: unknown, oop: bigint) => Number(oop - 1000n)),
         GciTsContinueWithAsync: vi.fn(() => {
@@ -1873,7 +1904,7 @@ describe('CodeExecutor', () => {
       // The decider was compiled and asked about this stop, and nothing was
       // resumed past.
       expect(mockOf(gci, 'GciTsExecute').mock.calls[0][1]).toContain('decider := [:p |');
-      expect(mockOf(gci, 'GciTsPerform').mock.calls[0][4]).toEqual([PROCESS_OOP]);
+      expect(mockOf(gci, 'GciTsPerformAsync').mock.calls[0][4]).toEqual([PROCESS_OOP]);
       expect(mockOf(gci, 'GciTsContinueWithAsync')).not.toHaveBeenCalled();
     });
 
@@ -1902,17 +1933,191 @@ describe('CodeExecutor', () => {
 
     it('opens the debugger on an error the code raised while being skipped', async () => {
       // The raise is the thing worth seeing, not the breakpoint we were
-      // stepping past — so its description is what gets reported.
+      // stepping past — so its description is what gets reported, and the
+      // debugger opens on the process it was raised in.
       const gci = haltingGci(
         [GO],
         [{ err: { number: 2010, message: 'doesNotUnderstand: #foo', context: 1234n } }],
       );
       const session = makeSession(gci);
       const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+      vi.mocked(vscode.window.showErrorMessage).mockResolvedValueOnce('Debug' as never);
+      vi.mocked(DebuggerPanel.create).mockClear();
 
       const outcome = await executor.executeWithDebugger(session, '3 + 4', 'run');
 
       expect(outcome).toEqual({ raised: true, message: 'doesNotUnderstand: #foo' });
+      expect(vi.mocked(DebuggerPanel.create).mock.calls[0][1]).toBe(1234n);
+    });
+
+    it('reports a raise with no process to debug as a plain failure', async () => {
+      // Offering Debug on process 0 opens nothing and then clears nothing.
+      const gci = haltingGci([GO], [{ err: { number: 4001, message: 'fatal', context: 0n } }]);
+      const session = makeSession(gci);
+      const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+      vi.mocked(vscode.window.showErrorMessage).mockClear();
+
+      await expect(executor.executeWithDebugger(session, '3 + 4', 'run')).rejects.toThrow('fatal');
+      expect(vscode.window.showErrorMessage).not.toHaveBeenCalled();
+    });
+
+    it('reports a soft break while skipping as a cancel, and releases the process', async () => {
+      // The developer pressed Cancel. Read as error 0 it was a test error with a
+      // Debug prompt.
+      const gci = haltingGci(
+        [GO],
+        [{ err: { number: 6003, message: 'a soft break was received', context: 1234n } }],
+      );
+      const session = makeSession(gci);
+      const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+      vi.mocked(vscode.window.showErrorMessage).mockClear();
+
+      await expect(executor.executeWithDebugger(session, '3 + 4', 'run')).resolves.toEqual({
+        raised: false,
+        cancelled: true,
+      });
+      expect(vscode.window.showErrorMessage).not.toHaveBeenCalled();
+      expect(mockOf(gci, 'GciTsClearStack')).toHaveBeenCalledWith(expect.anything(), 1234n);
+    });
+
+    it('reports a cancel that stopped the judgement as a cancel', async () => {
+      const gci = haltingGci([STOP], []);
+      mockOf(gci, 'GciTsPerformAsync').mockResolvedValue({
+        result: OOP_NIL,
+        err: { number: 6003, message: 'a soft break was received', context: 601n },
+      });
+      const session = makeSession(gci);
+      const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+
+      await expect(executor.executeWithDebugger(session, '3 + 4', 'run')).resolves.toEqual({
+        raised: false,
+        cancelled: true,
+      });
+      // The decider's own process, and then the run's: no debugger owns either.
+      expect(mockOf(gci, 'GciTsClearStack')).toHaveBeenCalledWith(expect.anything(), 601n);
+      expect(mockOf(gci, 'GciTsClearStack')).toHaveBeenCalledWith(expect.anything(), PROCESS_OOP);
+    });
+
+    it('lets a hard-break cancel through, without a warning', async () => {
+      const gci = haltingGci([GO], []);
+      mockOf(gci, 'GciTsContinueWithAsync').mockRejectedValue(new NbCancelledError());
+      const session = makeSession(gci);
+      const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+
+      await expect(executor.executeWithDebugger(session, '3 + 4', 'run')).resolves.toEqual({
+        raised: false,
+        cancelled: true,
+      });
+      expect(vscode.window.showWarningMessage).not.toHaveBeenCalled();
+    });
+
+    it('offers no breakpoint and no debugger once the session has logged out', async () => {
+      // "Stopping at the breakpoint" for a session that no longer exists, and a
+      // Debug button that would fail on it, are both untrue.
+      const gci = haltingGci([GO], [hitsBreakpoint(1000n)]);
+      (gci as Record<string, unknown>).logout = vi.fn(() => ({ sessionFreed: true }));
+      const session = makeSession(gci);
+      mockOf(gci, 'GciTsContinueWithAsync').mockImplementation(async () => {
+        session.logout();
+        return { result: 0n, err: { number: BREAKPOINT, message: '', context: 1000n } };
+      });
+      const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+      vi.mocked(vscode.window.showErrorMessage).mockClear();
+
+      await expect(executor.executeWithDebugger(session, '3 + 4', 'run')).rejects.toThrow(
+        'logged out',
+      );
+      expect(vscode.window.showWarningMessage).not.toHaveBeenCalled();
+      expect(vscode.window.showErrorMessage).not.toHaveBeenCalled();
+    });
+
+    it('shows a Transcript write made while skipping, and carries on', async () => {
+      const gci = haltingGci(
+        [GO, STOP],
+        [
+          {
+            err: {
+              number: 2336,
+              context: 0x999n,
+              argCount: 4,
+              args: [0x10n, 0x11n, 0x12n, 0x13n],
+              message: 'clientForwarderSend',
+            },
+          },
+          hitsBreakpoint(1000n),
+        ],
+      );
+      const session = makeSession(gci);
+      const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+      vi.mocked(appendTranscriptOutput).mockClear();
+
+      const outcome = await executor.executeWithDebugger(session, '3 + 4', 'run');
+
+      expect(appendTranscriptOutput).toHaveBeenCalledWith('written while skipping');
+      expect(outcome).toEqual({ raised: true, message: 'Method breakpoint encountered.' });
+    });
+
+    describe('logpoints', () => {
+      const oneLogpoint = {
+        breakpointRulesFor: () => [
+          {
+            methodExpr: "(Account compiledMethodAt: #'deposit:' environmentId: 0)",
+            label: 'Account>>deposit:',
+            stepPoint: 4,
+            logMessage: "'x=', (x) printString",
+          },
+        ],
+      };
+      const LOG = 4;
+      const LOG_FAILED = 5;
+
+      beforeEach(() => {
+        vi.mocked(appendLogpoint).mockClear();
+        vi.mocked(showLogpointChannel).mockClear();
+      });
+
+      it('writes a line per hit, naming where it came from, and shows the panel once', async () => {
+        const gci = haltingGci(
+          [LOG, LOG],
+          [hitsBreakpoint(1000n), { result: 42n, err: { number: 0 } }],
+          'x=1',
+        );
+        const session = makeSession(gci);
+        const executor = new CodeExecutor(makeSessionManager(session), oneLogpoint);
+
+        await expect(executor.executeWithDebugger(session, '3 + 4', 'run')).resolves.toEqual({
+          raised: false,
+        });
+        expect(vi.mocked(appendLogpoint).mock.calls).toEqual([
+          ['Account>>deposit: @4', 'x=1'],
+          ['Account>>deposit: @4', 'x=1'],
+        ]);
+        expect(showLogpointChannel).toHaveBeenCalledTimes(1);
+      });
+
+      it('says once, in the panel and out loud, that a message would not evaluate', async () => {
+        const gci = haltingGci(
+          [LOG_FAILED, LOG_FAILED],
+          [hitsBreakpoint(1000n), { result: 42n, err: { number: 0 } }],
+          'undefined symbol  x',
+        );
+        const session = makeSession(gci);
+        const executor = new CodeExecutor(makeSessionManager(session), oneLogpoint);
+
+        await executor.executeWithDebugger(session, '3 + 4', 'run');
+
+        expect(vi.mocked(appendLogpoint).mock.calls).toEqual([
+          [
+            'Account>>deposit: @4',
+            '!! the log message could not be evaluated: undefined symbol  x',
+          ],
+        ]);
+        expect(vscode.window.showWarningMessage).toHaveBeenCalledTimes(1);
+        expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
+          "A logpoint's message could not be evaluated: undefined symbol  x. Execution carried " +
+            'on; see the GemStone Logpoints panel in Output.',
+        );
+      });
     });
 
     it('says so, and stops, when the condition itself cannot be evaluated', async () => {
@@ -1946,7 +2151,7 @@ describe('CodeExecutor', () => {
       // A breakpoint that stops when it should not have is a nuisance; one that
       // silently does not stop is a bug hunt.
       const gci = haltingGci([STOP], []);
-      (gci as unknown as Record<string, Mock>).GciTsFetchOops.mockReturnValue({
+      mockOf(gci, 'GciTsFetchOops').mockReturnValue({
         oops: [],
         err: { number: 2101, message: 'no such object' },
       });

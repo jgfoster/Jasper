@@ -55,7 +55,13 @@ vi.mock('../debugQueries', () => ({
   evaluateInFrame: vi.fn(() => '42'),
 }));
 
+vi.mock('../conditionalBreakpoints', () => ({
+  resumeNeedsRules: vi.fn(() => false),
+  honourRulesAfterResume: vi.fn(),
+}));
+
 import { GemStoneDebugSession } from '../gemstoneDebugSession';
+import { honourRulesAfterResume, resumeNeedsRules } from '../conditionalBreakpoints';
 import { SessionManager } from '../sessionManager';
 import * as debugQueries from '../debugQueries';
 import { OOP_NIL } from '../gciConstants';
@@ -431,6 +437,34 @@ describe('GemStoneDebugSession', () => {
       callRequest(session, 'continueRequest', response, { threadId: 1 });
 
       expect(sent).toContainEqual(expect.objectContaining({ type: 'event', event: 'terminated' }));
+    });
+
+    it('carries on past a stop a breakpoint rule passes, then reports where it ended', async () => {
+      // As in the run that opened the session: a logpoint reached on continue
+      // logs and carries on rather than stopping.
+      const atLogpoint = {
+        completed: false,
+        errorMessage: 'Method breakpoint encountered',
+        errorContext: 999n,
+        errorNumber: 6005,
+      };
+      vi.mocked(debugQueries.continueExecution).mockReturnValueOnce(atLogpoint);
+      vi.mocked(resumeNeedsRules).mockReturnValueOnce(true);
+      vi.mocked(honourRulesAfterResume).mockResolvedValueOnce({ completed: true });
+
+      const { session, sent } = createTestSession();
+      callRequest(session, 'attachRequest', makeResponse('attach'), {
+        sessionId: 1,
+        gsProcess: '12345',
+      });
+      sent.length = 0;
+
+      callRequest(session, 'continueRequest', makeResponse('continue'), { threadId: 1 });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(vi.mocked(honourRulesAfterResume).mock.calls[0][1]).toBe(atLogpoint);
+      expect(sent).toContainEqual(expect.objectContaining({ type: 'event', event: 'terminated' }));
+      expect(sent).not.toContainEqual(expect.objectContaining({ type: 'event', event: 'stopped' }));
     });
 
     it('sends StoppedEvent when continue hits another error', () => {

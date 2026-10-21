@@ -6,6 +6,7 @@ import {
   GCI_PERFORM_FLAG_ENABLE_DEBUG,
   GCI_PERFORM_FLAG_SINGLE_STEP,
   GCI_PERFORM_FLAG_INTERPRETED,
+  toBigInt,
 } from './gciConstants';
 import { logError, logInfo } from './gciLog';
 import { routeInspect } from './inspectRouter';
@@ -19,8 +20,14 @@ import {
   settleNbResult,
 } from './transcriptSink';
 import { pollNbToCompletion, NbCancelledError } from './nbRunner';
-import { applyBreakpointRules, BreakpointRule, ConditionOutcome } from './conditionalBreakpoints';
-import { appendLogpoint, showLogpointChannel } from './logpointChannel';
+import {
+  BREAKPOINT_ERROR,
+  BreakpointRuleSource,
+  CONTINUE_FLAGS,
+  SOFT_BREAK_ERROR,
+  resolveBreakpointStop,
+  setBreakpointRuleSource,
+} from './conditionalBreakpoints';
 
 const MAX_RESULT_SIZE = 64 * 1024;
 
@@ -66,58 +73,20 @@ const DISPLAY_RESULT_CONTEXT = 'gemstone.displayResultVisible';
 // is always available via the hover and the Expand action).
 const MAX_OVERLAY_PREVIEW = 100;
 
-// GemStone's "a soft break was received" error. A soft break only ever reaches
-// the gem because the user asked to cancel, so it says nothing about the code
-// that was running — see executeWithDebugger, which reports it as a cancellation
-// rather than opening a debugger on it.
-const SOFT_BREAK_ERROR_NUMBER = 6003;
-
-// GemStone's "method breakpoint encountered". The one error number a breakpoint
-// condition can apply to: every other way execution stops (an error, a halt, a
-// soft break) is not a breakpoint and has no condition to consult.
-const BREAKPOINT_ERROR_NUMBER = 6005;
-
-// What an error raised by the developer's code *while breakpoints were being
-// skipped* is reported as. Deliberately not 6005: it is not a breakpoint, and
-// `executeWithDebugger` decides what to do with a stop by its error number — a
-// raise dressed up as a breakpoint would be reported as one.
-const RAISED_WHILE_SKIPPING = 0;
-
-/**
- * Where the conditions on the currently armed breakpoints come from.
- *
- * Narrowed to the one question the executor asks so it does not depend on the
- * whole breakpoint manager — and so a test can answer it with a literal.
- */
-export interface ConditionalBreakpointSource {
-  breakpointRulesFor(session: ActiveSession): BreakpointRule[];
-}
-
 class DebuggableError extends Error {
   constructor(
     message: string,
     public readonly context: bigint,
     public readonly errorNumber: number,
+    /**
+     * The developer cancelled while breakpoint rules were being applied, and
+     * the process is suspended at the hit the skip had reached. A cancel all the
+     * same, which is what `executeWithDebugger` has to report it as.
+     */
+    public readonly cancelled = false,
   ) {
     super(message);
   }
-}
-
-/**
- * Where a logpoint line came from, for the log's own prefix.
- *
- * `Account>>deposit: @4`. Falls back to the method expression the gem was handed
- * if a rule reached here without a label — not a shape the manager produces, but
- * a line naming its source awkwardly beats one naming nothing.
- */
-function describeRule(rule: BreakpointRule): string {
-  return `${rule.label ?? rule.methodExpr} @${rule.stepPoint}`;
-}
-
-// koffi returns uint64 as Number when the value fits in MAX_SAFE_INTEGER.
-// Normalize to bigint for correct comparison with OOP_NIL etc.
-function toBigInt(value: number | bigint): bigint {
-  return typeof value === 'bigint' ? value : BigInt(value);
 }
 
 export class CodeExecutor {
@@ -137,8 +106,11 @@ export class CodeExecutor {
 
   constructor(
     private sessionManager: SessionManager,
-    private conditions: ConditionalBreakpointSource,
+    rules: BreakpointRuleSource,
   ) {
+    // Every run that meets a breakpoint consults these — this executor's, and
+    // the debugger's Resume on a run this executor started.
+    setBreakpointRuleSource(rules);
     this.diagnostics = vscode.languages.createDiagnosticCollection('gemstone-execute');
     this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
   }
@@ -535,9 +507,11 @@ export class CodeExecutor {
    * Answers whether the code raised, or whether the user cancelled it — and no
    * more than that. Once the process is suspended it belongs to the debugger the
    * user opened on it, so its eventual fate isn't ours to report. A
-   * cancel (a soft or hard break) is reported as `cancelled`, not `raised`, and
-   * never opens a debugger: it was the user's decision, not the code's fault.
-   * Throws when the execution could not be started at all.
+   * cancel (a soft or hard break, or Cancel while breakpoint rules are being
+   * applied) is reported as `cancelled`, not `raised`, and never opens a
+   * debugger: it was the user's decision, not the code's fault. Throws when the
+   * execution could not be started at all, or stopped with nothing left to
+   * debug (no process, or the session logged out).
    */
   async executeWithDebugger(
     session: ActiveSession,
@@ -569,12 +543,15 @@ export class CodeExecutor {
     } catch (e: unknown) {
       // A cancelled run tells us nothing about the code — it was the user's
       // decision, not the test's fault — so report it as cancelled and never
-      // open a debugger on it. Cancel arrives two ways: a hard break rejects
-      // with NbCancelledError, while a soft break lets the gem raise its "a soft
+      // open a debugger on it. Cancel arrives three ways: a hard break rejects
+      // with NbCancelledError; a soft break lets the gem raise its "a soft
       // break was received" error (6003), which surfaces here as a
-      // DebuggableError with a live context like any other break.
+      // DebuggableError with a live context like any other break; and a cancel
+      // while breakpoint rules are being applied stops at the hit it reached.
+      // No debugger will own the suspended process, so it is released here.
       if (e instanceof NbCancelledError) return { raised: false, cancelled: true };
-      if (e instanceof DebuggableError && e.errorNumber === SOFT_BREAK_ERROR_NUMBER) {
+      if (e instanceof DebuggableError && (e.cancelled || e.errorNumber === SOFT_BREAK_ERROR)) {
+        clearStack(session, e.context);
         return { raised: false, cancelled: true };
       }
 
@@ -766,153 +743,38 @@ export class CodeExecutor {
     // Transcript writes arrive here as forwarder sends (error 2336) while the
     // code is still running: settleNbResult displays each one and resumes the
     // execution, only returning when a real result or error arrives.
+    // Each resume keeps the flags the run started with (less Debug It's single
+    // step): dropping the debug flag would disarm every breakpoint after the
+    // first Transcript write.
+    const onTranscript = (text: string): void => appendTranscriptOutput(text);
     const { result: resultOop, err: resultErr } = await settleNbResult(
       session,
-      (text) => appendTranscriptOutput(text),
+      onTranscript,
       signal,
+      CONTINUE_FLAGS,
     );
     if (resultErr.number !== 0) {
       const msg = resultErr.message || `GemStone error ${resultErr.number}`;
       const context = toBigInt(resultErr.context);
       if (context !== OOP_NIL && context !== 0n) {
         this.validateContextOop(session, context);
-        if (resultErr.number === BREAKPOINT_ERROR_NUMBER) {
-          const resolved = await this.honourBreakpointConditions(session, context, msg);
-          if (resolved.kind === 'completed') return resolved.resultOop;
-          // Skipping can move the process on to another stop, and an error
-          // raised on the way is reported on the process it was raised in — so
-          // the debugger must open on THAT one, not on the breakpoint we left.
-          throw new DebuggableError(resolved.message, resolved.context, resolved.errorNumber);
+        if (resultErr.number === BREAKPOINT_ERROR) {
+          // A breakpoint may carry a rule that passes this stop. Skipping can
+          // move the run on to another stop, or to an error raised on the way —
+          // so the debugger must open where it ended up, not on the breakpoint
+          // we left.
+          const stop = await resolveBreakpointStop(session, context, msg, {
+            signal,
+            onTranscript,
+          });
+          if (stop.kind === 'completed') return stop.resultOop;
+          throw new DebuggableError(stop.message, stop.context, stop.errorNumber, stop.cancelled);
         }
         throw new DebuggableError(msg, context, resultErr.number);
       }
       throw new Error(msg);
     }
     return resultOop;
-  }
-
-  /**
-   * Decide whether this breakpoint is one the developer asked to stop at.
-   *
-   * A method breakpoint has already unwound to us by the time this runs — that
-   * is the whole shape of the problem, see `conditionalBreakpoints.ts` — so the
-   * work is to resume the suspended process past every stop whose condition is
-   * false and report where it ended up.
-   *
-   * Costs nothing when no breakpoint is conditional, which is the ordinary case:
-   * the specs are read from what is already applied, and an empty list short
-   * circuits before any GCI call.
-   */
-  private async honourBreakpointConditions(
-    session: ActiveSession,
-    context: bigint,
-    message: string,
-  ): Promise<
-    | { kind: 'break'; message: string; context: bigint; errorNumber: number }
-    | { kind: 'completed'; resultOop: bigint }
-  > {
-    const stopHere = {
-      kind: 'break' as const,
-      message,
-      context,
-      errorNumber: BREAKPOINT_ERROR_NUMBER,
-    };
-    const specs = this.conditions.breakpointRulesFor(session);
-    // Logged even when there are none. "Stopped at a breakpoint" looks identical
-    // whether a condition was consulted and held, or was never seen at all — so
-    // the one place that knows says which, rather than leaving it to be guessed
-    // from the outside.
-    logInfo(
-      `[Session ${session.id}] breakpoint at a stop: ${specs.length} breakpoint rule(s) armed` +
-        specs
-          .map(
-            (s) =>
-              `\n  ${s.methodExpr} @${s.stepPoint}` +
-              (s.condition === undefined ? '' : ` if ${s.condition}`) +
-              (s.logMessage === undefined ? '' : ' (logpoint)'),
-          )
-          .join(''),
-    );
-    if (specs.length === 0) return stopHere;
-
-    let outcome: ConditionOutcome;
-    try {
-      // Revealed once per run, on the first line. A logpoint writing to a
-      // channel nobody has opened is barely better than no logpoint at all —
-      // but reopening it on every line would fight the developer for focus.
-      let revealed = false;
-      const reveal = (): void => {
-        if (revealed) return;
-        revealed = true;
-        showLogpointChannel();
-      };
-      outcome = await applyBreakpointRules(
-        session,
-        context,
-        specs,
-        (text, rule) => {
-          appendLogpoint(rule === undefined ? `session ${session.id}` : describeRule(rule), text);
-          reveal();
-        },
-        (failure, rule) => {
-          // Into the log the lines would have gone to, where the developer is
-          // already looking, and said once out loud — a logpoint that silently
-          // writes nothing is the failure this whole feature exists to avoid.
-          appendLogpoint(
-            rule === undefined ? `session ${session.id}` : describeRule(rule),
-            `!! the log message could not be evaluated: ${failure}`,
-          );
-          reveal();
-          vscode.window.showWarningMessage(
-            `A logpoint's message could not be evaluated: ${failure}. Execution carried on; ` +
-              'see the GemStone Logpoints panel in Output.',
-          );
-        },
-      );
-    } catch (e: unknown) {
-      // A cancel is the developer's answer, not a failure: let it unwind the
-      // execution the same way cancelling any other run does.
-      if (e instanceof NbCancelledError) throw e;
-      // Anything else, and the breakpoint still happened. Falling back to
-      // stopping is the safe end of the trade: a breakpoint that stops when it
-      // should not have is a nuisance, one that silently does not is a bug hunt.
-      const detail = e instanceof Error ? e.message : String(e);
-      logError(session.id, `breakpoint conditions could not be evaluated: ${detail}`);
-      vscode.window.showWarningMessage(
-        `Could not evaluate the breakpoint conditions (${detail}) — stopping at the breakpoint.`,
-      );
-      return stopHere;
-    }
-
-    logInfo(
-      `[Session ${session.id}] breakpoint conditions: ${outcome.kind} after ${outcome.skipped} skipped hit(s)`,
-    );
-
-    switch (outcome.kind) {
-      case 'completed':
-        return { kind: 'completed', resultOop: outcome.resultOop };
-      case 'raised':
-        // The developer's own code raised while we were skipping. That is the
-        // thing worth showing, so the debugger opens on it rather than on the
-        // breakpoint we were stepping past.
-        return {
-          kind: 'break',
-          message: outcome.description,
-          context: outcome.context,
-          errorNumber: RAISED_WHILE_SKIPPING,
-        };
-      case 'conditionFailed':
-        // Said out loud, because the alternative is a breakpoint that stops for
-        // no visible reason and a condition that was never really applied.
-        vscode.window.showWarningMessage(
-          `Breakpoint rule could not be evaluated: ${outcome.message} — ` +
-            'stopping at the breakpoint. A logpoint writes to the GemStone Logpoints ' +
-            'panel in Output.',
-        );
-        return { ...stopHere, message: `${message} (condition: ${outcome.message})` };
-      default:
-        return stopHere;
-    }
   }
 
   private async fetchResultString(session: ActiveSession, signal?: AbortSignal): Promise<string> {

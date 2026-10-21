@@ -5,9 +5,17 @@ import {
   GCI_PERFORM_FLAG_INTERPRETED,
   OOP_ILLEGAL,
   OOP_NIL,
+  toBigInt,
 } from './gciConstants';
-import { escapeString } from './queries/util';
-import { logError } from './gciLog';
+import { gsStringLiteral as literal } from './serverPlugin/installHelpers';
+import { logError, logInfo } from './gciLog';
+import { NbCancelledError } from './nbRunner';
+import { continueThroughForwarderSends } from './transcriptSink';
+import { FRAME_SELF_SMALLTALK } from './debugQueries';
+import type { StepResult } from './debugQueries';
+import type { GciError } from './gciLibrary';
+import { appendLogpoint, showLogpointChannel } from './logpointChannel';
+import { skipLiteral } from './smalltalkScan';
 
 /**
  * The rule a breakpoint carries: stop only when a condition holds, stop only
@@ -23,15 +31,14 @@ import { logError } from './gciLog';
  * work here is deciding, after the fact, whether this particular stop is one the
  * developer asked for — and resuming when it is not.
  *
- * Each skipped hit therefore costs exactly **two** GCI round trips: one
- * `perform:` on a decider block that judges the stop in the suspended frame, and
- * one `GciTsContinueWith` that resumes. Everything the judgement needs — the
+ * Each skipped hit costs **three** GCI round trips — a `perform:` on a decider
+ * block that judges the stop in the suspended frame, a `GciTsFetchOops` to read
+ * its verdict, and the `GciTsContinueWith` that resumes — and a hit that logs
+ * costs a fourth, to fetch the line. Everything the judgement needs — the
  * receiver, the frame's names and values, the symbol list, the
  * `evaluateInContext:` — happens inside that block rather than as the 15-20
- * separate calls it would take to assemble a frame's variables from here
- * (measured at 1.9-2.7 ms per skipped hit locally, and every one of them
- * scaling with network latency). Measured end to end at **~0.25 ms per skipped
- * hit** against a local stone: 900 skips in 215-256 ms.
+ * separate calls it would take to assemble a frame's variables from here, every
+ * one of them scaling with network latency.
  *
  * **Why not do the whole loop inside the gem.** `GsProcess>>_continue` resumes a
  * suspended process and returns control to its *Smalltalk* caller, which would
@@ -46,24 +53,33 @@ import { logError } from './gciLog';
  * GCI execute has not. `GciTsContinueWith` is the one resume that behaves the
  * same on both releases, so the loop lives here and pays for the round trips.
  *
+ * **The rules hold for the whole run**, not just until the first stop: the
+ * debugger's Resume and Run to Cursor come back through
+ * {@link honourRulesAfterResume}, so a false condition is still skipped, a
+ * logpoint still logs and a trigger stays armed after the debugger opens. Steps
+ * are explicit, and are never filtered.
+ *
  * The developer's code is never touched either way: not wrapped, not recompiled,
  * its step points untouched. Nothing is written to the repository: the only
- * thing left behind is the decider block in the session's own temporaries, under
- * one key that each run overwrites, which is never committed and goes away with
- * the session — the same lifetime as the breakpoints it serves.
+ * thing left behind is the decider in the session's own temporaries, under one
+ * key that each run overwrites, which is never committed and goes away with the
+ * session — the same lifetime as the breakpoints it serves.
  */
 export interface BreakpointRule {
   /**
    * Smalltalk expression resolving the compiled method the breakpoint is in —
    * `compiledMethodExpr`'s output. An expression rather than an OOP so no round
    * trip is spent resolving one, and so a method that has since been recompiled
-   * or removed fails as "no such spec" instead of matching a stale OOP.
+   * or removed fails as "no such spec" instead of matching a stale OOP. The
+   * decider compiles it in the gem, inside an error guard, so one that no
+   * longer compiles (its class was removed) costs only its own rule.
    */
   methodExpr: string;
   stepPoint: number;
   /**
-   * The Smalltalk expression that has to answer true to stop here. Undefined on
-   * a pure logpoint, which never stops and so has nothing to test.
+   * The Smalltalk expression that has to answer true to stop here. Undefined
+   * when the rule has no condition: a pure logpoint, or a breakpoint listed only
+   * because it is one end of a trigger.
    */
   condition?: string;
   /**
@@ -91,23 +107,69 @@ export interface BreakpointRule {
    * An index rather than a method-and-step-point pair because the decider works
    * in indices already: the arming state is one Array parallel to the specs, so
    * a trigger firing is a single at:put: rather than another lookup.
+   *
+   * A rule may name its **own** index: that is how a breakpoint whose trigger
+   * was disabled or removed is kept disarmed. It works because a breakpoint
+   * still waiting arms nothing — itself included — so it is passed over on
+   * every hit.
    */
   triggeredBy?: number;
 }
 
-/** What came of running a suspended process past its false conditions. */
-export type ConditionOutcome =
-  /** Execution is suspended at a breakpoint that should stop: open the debugger. */
-  | { kind: 'stopped'; skipped: number }
-  /** No breakpoint wanted to stop, and the code ran to completion. */
-  | { kind: 'completed'; resultOop: bigint; skipped: number }
-  /** The developer's code raised while we were skipping past false conditions. */
-  | { kind: 'raised'; description: string; context: bigint; skipped: number }
-  /** A condition or a log message could not be evaluated. */
-  | { kind: 'conditionFailed'; message: string; skipped: number };
+/**
+ * Where the rules on the currently armed breakpoints come from.
+ *
+ * Narrowed to the one question asked here so this module does not depend on the
+ * whole breakpoint manager — and so a test can answer it with a literal.
+ */
+export interface BreakpointRuleSource {
+  breakpointRulesFor(session: ActiveSession): BreakpointRule[];
+}
+
+let ruleSource: BreakpointRuleSource | undefined;
 
 /**
- * What the per-stop doit answers, as SmallIntegers.
+ * Name the source every run consults. The executor registers the breakpoint
+ * manager here when it is built, which is how the debugger's Resume reaches the
+ * same rules as the run that opened it without depending on either.
+ */
+export function setBreakpointRuleSource(source: BreakpointRuleSource | undefined): void {
+  ruleSource = source;
+}
+
+function rulesFor(session: ActiveSession): BreakpointRule[] {
+  return ruleSource?.breakpointRulesFor(session) ?? [];
+}
+
+/**
+ * What came of running a suspended process past every stop its breakpoint rules
+ * declined. Each outcome that leaves a process suspended names it in `context`:
+ * that is the one the debugger has to open on.
+ */
+export type ConditionOutcome =
+  /** Execution is suspended at a breakpoint that should stop: open the debugger. */
+  | { kind: 'stopped'; context: bigint; skipped: number }
+  /** The developer asked to stop skipping; suspended at the hit it had reached. */
+  | { kind: 'cancelled'; context: bigint; skipped: number }
+  /** No breakpoint wanted to stop, and the code ran to completion. */
+  | { kind: 'completed'; resultOop: bigint; skipped: number }
+  /**
+   * The run stopped for something that is not a breakpoint while we were
+   * skipping: the developer's code raised, or a soft break (6003) arrived.
+   * `errorNumber` is GemStone's own, so a caller can tell the two apart.
+   */
+  | {
+      kind: 'raised';
+      description: string;
+      errorNumber: number;
+      context: bigint;
+      skipped: number;
+    }
+  /** A condition could not be evaluated. */
+  | { kind: 'conditionFailed'; message: string; context: bigint; skipped: number };
+
+/**
+ * What the decider answers, as SmallIntegers.
  *
  * Integers rather than Symbols so reading the answer back is an OOP-to-integer
  * decode rather than another round trip to fetch a symbol's characters — this
@@ -135,21 +197,35 @@ export const DECISION = {
 export const BREAKPOINT_ERROR = 6005;
 
 /**
+ * GemStone's "a soft break was received". Only ever the developer's Cancel, so
+ * a skip it interrupts is a cancelled skip, not a failed one.
+ */
+export const SOFT_BREAK_ERROR = 6003;
+
+/**
  * Resumed execution stays interpreted and debuggable, the same flags the
  * debugger's own Resume uses (see `debugQueries`): GemStone cannot step native
  * code, and dropping the debug flag would disarm every remaining breakpoint in
  * the run.
  */
-const CONTINUE_FLAGS = GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED;
+export const CONTINUE_FLAGS = GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED;
 
-/** How much of a condition's error message is worth reading back. */
-const MAX_MESSAGE = 4096;
+/**
+ * How many characters of a log line or a condition's error are read back. Cut
+ * in the gem, by characters, so a long non-ASCII line is never split inside a
+ * character, and marked with `...` so a cut line does not pass for a whole one.
+ */
+const MAX_MESSAGE_CHARS = 4096;
+
+/** Room for `MAX_MESSAGE_CHARS` characters of UTF-8 and the cut marker. */
+const MAX_MESSAGE_BYTES = MAX_MESSAGE_CHARS * 4 + 16;
 
 /** How long a skip runs before it is worth telling the developer about. */
 const PROGRESS_AFTER_MS = 1500;
 
 /**
- * How long the loop may hold the event loop before yielding a macrotask.
+ * How long the loop may hold the event loop before yielding a macrotask, and
+ * how often the progress notification is updated.
  *
  * The resume settles from a worker thread's callback, which gives timers a turn
  * already, but the loop does not rely on how the resume settles: a promise that
@@ -165,11 +241,6 @@ const YIELD_EVERY_MS = 25;
 /** Let pending timers — the progress notification, and its Cancel — run. */
 function yieldToTimers(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
-/** A Smalltalk string literal for `text`. */
-function literal(text: string): string {
-  return `'${escapeString(text)}'`;
 }
 
 /**
@@ -194,6 +265,31 @@ function developerText(text: string): string {
 }
 
 /**
+ * Where the `}` that closes the placeholder opened at `open` is, or -1.
+ *
+ * Read the way Smalltalk reads it, because a placeholder is Smalltalk: a brace
+ * array (`{a. b}`) nests, and a `}` inside a string literal, a comment or a
+ * character literal (`$}`) closes nothing.
+ */
+function closingBrace(message: string, open: number): number {
+  let depth = 0;
+  for (let i = open + 1; i < message.length;) {
+    const quoted = skipLiteral(message, i);
+    if (quoted) {
+      i = quoted.end;
+      continue;
+    }
+    if (message[i] === '{') depth += 1;
+    else if (message[i] === '}') {
+      if (depth === 0) return i;
+      depth -= 1;
+    }
+    i += 1;
+  }
+  return -1;
+}
+
+/**
  * Compile a logpoint's message into one Smalltalk expression answering a String.
  *
  * The message is plain text with `{…}` placeholders, as VS Code writes them.
@@ -209,6 +305,7 @@ function developerText(text: string): string {
  * Each placeholder is wrapped in `printString`, so `{each}` is written rather
  * than `{each printString}`. GemStone has no `displayString`, so a String logs
  * with its quotes — `'demo'` rather than `demo` — which is at least unambiguous.
+ * A placeholder is one expression, not a sequence of statements.
  *
  * An unclosed `{` is treated as literal text: a message is prose, and refusing
  * to log because a brace was left open would be worse than logging the brace.
@@ -220,7 +317,7 @@ export function logMessageExpression(message: string): string {
   while (rest.length > 0) {
     const open = rest.indexOf('{');
     if (open === -1) break;
-    const close = rest.indexOf('}', open + 1);
+    const close = closingBrace(rest, open);
     if (close === -1) break; // unclosed — the remainder is literal
 
     if (open > 0) parts.push(literal(rest.slice(0, open)));
@@ -239,29 +336,33 @@ export function logMessageExpression(message: string): string {
 }
 
 /**
- * The key the compiled decider is parked under, in the session's temporaries.
+ * The key the current run's decider is parked under, in the session's
+ * temporaries.
  *
  * `SessionTemps` is per-session VM state, exactly like the breakpoints this
  * serves: it is never committed, is invisible to every other session, and goes
- * away at logout. One key, overwritten by each run, so a session accumulates at
- * most one of these however many times it is used.
+ * away at logout. It is also what keeps the decider alive between the
+ * `perform:`s that use it — a GCI result is not otherwise pinned. One key, so a
+ * session holds one run's decider however many runs it makes.
  */
 const DECIDER_KEY = 'JasperConditionalBreakpointDecider';
 
 /**
- * A doit that compiles the decision logic **once** and answers the block.
+ * A doit that compiles the decision logic for one run and answers the block.
  *
  * Compiled once and then performed, rather than sent as a doit per hit, because
- * the source below is ~1.8 KB and GemStone compiles a doit every time it is
+ * the source below is several KB and GemStone compiles a doit every time it is
  * executed: measured against a live stone, a ~1.2 KB doit that does no work at
  * all costs 0.21 ms, while a `perform:` on an already-compiled block costs
- * 0.048 ms. At 900 skipped hits that is the difference between ~330 ms and
- * ~45 ms spent deciding, on top of the ~0.32 ms per hit the resume itself
- * costs and which no amount of cleverness here can avoid.
+ * 0.048 ms. The developer's condition and log message are still compiled on
+ * every hit, by `evaluateInContext:` — the price of never touching their method.
  *
- * The specs are baked in rather than passed per call: the armed conditional
- * breakpoints cannot change while a single run is being skipped, and a block
- * that closes over them needs no argument but the process.
+ * The specs are baked in rather than passed per call, and the block needs no
+ * argument but the process. Each spec's method is resolved by compiling its
+ * expression in the gem, inside the error guard: a method whose class has since
+ * been removed then costs its own rule (it matches nothing, so that breakpoint
+ * simply stops), where a bare class name in this source would fail to compile
+ * the whole decider and every rule with it.
  *
  * **Every stop is re-identified from its own frame.** A resume can land on a
  * *different* breakpoint — another condition, or none at all — so the block
@@ -273,53 +374,70 @@ const DECIDER_KEY = 'JasperConditionalBreakpointDecider';
  *
  * **Triggers are an Array of flags the block closes over**, parallel to the
  * specs: a breakpoint waiting on another starts false and is skipped like a
- * false condition until the breakpoint it names is reached. Because the block is
- * compiled once per run and performed per hit, that Array survives every hit of
- * the run at no cost — arming is one `at:put:`, not a round trip — and the arm
- * necessarily happens before anything downstream can be reached, since both the
- * trigger and the thing it arms are judged in the same gem in execution order.
- * The flags start over on the next run, which is the same lifetime the decider
- * itself has.
+ * false condition until the breakpoint it names is reached. Arming is one
+ * `at:put:`, not a round trip, and the arm necessarily happens before anything
+ * downstream can be reached, since both the trigger and the thing it arms are
+ * judged in the same gem in execution order.
  *
- * The receiver a condition is evaluated against comes from the breakpoint's
- * **home** frame, not the frame that stopped. For a breakpoint inside a
- * non-inlined block the stopped frame's receiver is the `ExecBlock` itself, so
- * `self` and every instance and class variable would fail to resolve — verified
- * against a live stone, and the same defect the debugger's eval bar has in a
- * block frame (GemTalk/Jasper#561). Walking down to the frame whose method is
- * the block's `homeMethod` recovers the real receiver. Names and values still
- * come from the stopped frame, which is where the block's own arguments and
- * temporaries live.
+ * **The flags last for the run, not for one call.** The run's process, specs
+ * and flags are parked together under {@link DECIDER_KEY}. When the debugger
+ * resumes that same process, the decider is rebuilt from whatever the rules are
+ * now — the developer may have edited one while stopped — and every breakpoint
+ * that is still the same breakpoint waiting on the same trigger keeps the flag
+ * it had. So a trigger that stopped the run has still armed what waits on it
+ * when Resume is pressed. A different process is a different run, and starts
+ * from the specs' own flags.
+ *
+ * The receiver and names a condition sees are the debugger's: `self` is the
+ * frame's self as {@link FRAME_SELF_SMALLTALK} recovers it — the receiver a
+ * block captured, else the home activation's — and the names are the home
+ * method's arguments and temporaries overlaid with the block's own, as the eval
+ * bar binds them. A block that captured `self` is judged against the receiver
+ * that made it even when a deeper activation of the same method is on the stack.
  *
  * Written without `^`: a non-local return from a block whose home doit has
  * already finished is an error, so each exit assigns `answerArray` and the
- * steps after it are guarded on its being nil.
+ * steps after it are guarded on its being nil. Kept ASCII, comments included:
+ * the 3.6 compiler fails on anything else.
  */
-export function deciderSource(specs: BreakpointRule[]): string {
+export function deciderSource(specs: BreakpointRule[], processOop: bigint): string {
   const specLines = specs
     .map(
       (spec) =>
-        `specs add: (Array with: ([ ${spec.methodExpr} ] on: Error do: [:ex | nil ]) ` +
+        `specs add: (Array with: ([ ${developerText(spec.methodExpr)} evaluate ] on: Error do: [:ex | nil ]) ` +
         `with: ${spec.stepPoint} ` +
         `with: ${spec.condition === undefined ? 'nil' : developerText(spec.condition)} ` +
         `with: ${spec.logMessage === undefined ? 'nil' : developerText(spec.logMessage)} ` +
         // The fifth slot is the trigger's index, 0 for "armed from the start".
-        // `Array with:` takes five on both 3.6.2 and 3.7 — checked against a
-        // live 3.6.2 stone, and the integration tests run on both.
+        // `Array with:` takes five on both 3.6.2 and 3.7.
         `with: ${spec.triggeredBy ?? 0}).`,
     )
     .join('\n');
 
-  // A breakpoint waiting on a trigger starts disarmed; every other one starts
-  // armed, which is what keeps an ordinary breakpoint's path through the decider
-  // exactly what it was.
-  const armedInit = specs.map((spec) => (spec.triggeredBy === undefined ? 'true' : 'false'));
-
-  return `| specs armed decider |
+  return `| proc specs armed old oldSpecs entry decider homeFrameOf frameSelfOf |
+proc := Object _objectForOop: ${processOop}.
+${FRAME_SELF_SMALLTALK}
 specs := Array new.
 ${specLines}
-armed := Array withAll: #(${armedInit.join(' ')}).
-decider := [:p | | answerArray fc frameMethod home sp spec idx rcvr found lvl depth names dict sl answer |
+armed := specs collect: [:s | (s at: 5) = 0].
+"Carry the flags over from this process's previous decider: a breakpoint that is
+ the same step point, waiting on the same step point, keeps its arming."
+old := SessionTemps current at: #'${DECIDER_KEY}' otherwise: nil.
+(old notNil and: [ (old at: 1) == proc ]) ifTrue: [
+  oldSpecs := old at: 3.
+  1 to: specs size do: [:k | | s t |
+    s := specs at: k.
+    ((s at: 5) > 0 and: [ (s at: 1) notNil ]) ifTrue: [
+      t := specs at: (s at: 5).
+      1 to: oldSpecs size do: [:j | | os ot |
+        os := oldSpecs at: j.
+        (((os at: 1) == (s at: 1) and: [ (os at: 2) = (s at: 2) ]) and: [ (os at: 5) > 0 ]) ifTrue: [
+          ot := oldSpecs at: (os at: 5).
+          ((ot at: 1) == (t at: 1) and: [ (ot at: 2) = (t at: 2) ])
+            ifTrue: [ armed at: k put: ((old at: 4) at: j) ] ] ] ] ] ].
+entry := Array with: proc with: nil with: specs with: armed.
+decider := [:p | | answerArray fc frameMethod home sp spec idx rcvr fetch depth hArr dict bind sl answer |
+  entry at: 1 put: p.
   answerArray := nil.
   idx := 0.
   fc := p _frameContentsAt: 1.
@@ -338,33 +456,27 @@ decider := [:p | | answerArray fc frameMethod home sp spec idx rcvr found lvl de
     spec := idx = 0 ifTrue: [ nil ] ifFalse: [ specs at: idx ].
     spec isNil ifTrue: [ answerArray := Array with: ${DECISION.Stop} with: nil ].
     "A breakpoint still waiting on its trigger is skipped exactly as a false
-     condition is. It arms nothing on the way past, either: it was reached, but
-     it is not a stop the developer has asked for yet."
+     condition is, and arms nothing on the way past."
     (answerArray isNil and: [ (armed at: idx) not ])
       ifTrue: [ answerArray := Array with: ${DECISION.Go} with: nil ] ].
   answerArray isNil ifTrue: [
-    rcvr := fc at: 10.
-    frameMethod isMethodForBlock ifTrue: [
-      found := false.
-      lvl := 2.
-      depth := p localStackDepth.
-      [ found not and: [ lvl <= depth ] ] whileTrue: [ | outer |
-        outer := p _frameContentsAt: lvl.
-        (outer notNil and: [ (outer at: 1) == home ]) ifTrue: [
-          rcvr := outer at: 10.
-          found := true ].
-        lvl := lvl + 1 ] ].
-    names := fc at: 9.
+    fetch := [:j | [ p _frameContentsAt: j ] on: Error do: [:e | nil ] ].
+    depth := p localStackDepth.
+    rcvr := (frameSelfOf value: fetch value: 1 value: fc value: depth)
+              ifNil: [ (fc at: 7) isNil ifTrue: [ fc at: 10 ] ifFalse: [ nil ] ].
+    hArr := homeFrameOf value: fetch value: 1 value: fc value: depth.
     dict := SymbolDictionary new.
-    names ifNotNil: [
+    bind := [:a | (a at: 9) ifNotNil: [:names |
       1 to: names size do: [:k | | nm |
         nm := (names at: k) asString.
-        (nm isEmpty or: [ (nm at: 1) == $. ]) ifFalse: [
-          dict at: nm asSymbol put: (fc at: 10 + k) ] ] ].
+        ((nm isEmpty or: [ (nm at: 1) == $. ]) or: [ (10 + k) > a size ])
+          ifFalse: [ dict at: nm asSymbol put: (a at: 10 + k) ] ] ] ].
+    hArr ifNotNil: [:h | bind value: h ].
+    bind value: fc.
     sl := (SymbolList with: dict), System myUserProfile symbolList.
     "A rule with no condition always applies; one with a condition has to answer
      true, and anything that is not a Boolean is a mistake worth reporting
-     rather than a quiet 'no'."
+     rather than a quiet no."
     (spec at: 3) ifNotNil: [
       answer := [ (spec at: 3) evaluateInContext: rcvr symbolList: sl ]
                   on: Error
@@ -380,12 +492,9 @@ decider := [:p | | answerArray fc frameMethod home sp spec idx rcvr found lvl de
                                         ([ answer printString ] on: Error do: [:ex | answer class name asString ]),
                                         ', not true or false') ]
           ifTrue: [ answer ifFalse: [ answerArray := Array with: ${DECISION.Go} with: nil ] ] ] ].
-    "Here the rule applies: no condition, or one that held, so this breakpoint
-     counts as reached and anything waiting on it is armed from now on. Done
-     before deciding what to do about this stop, so a trigger that goes on to
-     stop the run has still armed its dependents by the time it does.
-     Kept to ASCII: every byte of this source is compiled in the gem, and the
-     comment is part of it."
+    "Here the rule applies, so this breakpoint counts as reached and anything
+     waiting on it is armed from now on - before deciding what to do about this
+     stop, so a trigger that stops the run has already armed its dependents."
     answerArray isNil ifTrue: [
       1 to: specs size do: [:k |
         (((specs at: k) at: 5) = idx) ifTrue: [ armed at: k put: true ] ] ].
@@ -402,12 +511,14 @@ decider := [:p | | answerArray fc frameMethod home sp spec idx rcvr found lvl de
           answerArray isNil ifTrue: [
             answerArray := Array with: ${DECISION.Log}
                                  with: ([ text asString ] on: Error do: [:ex | text printString ]) ] ] ] ].
-  "The message goes back as UTF-8, because the client decodes the bytes it
-   fetches as UTF-8: a plain String holding an accented letter would arrive
-   garbled in a log line or a condition's error."
-  (answerArray at: 2) ifNotNil: [:m | answerArray at: 2 put: m encodeAsUTF8 ].
+  "Cut by characters, then sent as UTF-8, which is how the client decodes it."
+  (answerArray at: 2) ifNotNil: [:m | | t |
+    t := m.
+    t size > ${MAX_MESSAGE_CHARS} ifTrue: [ t := (t copyFrom: 1 to: ${MAX_MESSAGE_CHARS}), '...' ].
+    answerArray at: 2 put: t encodeAsUTF8 ].
   answerArray , (Array with: idx) ].
-SessionTemps current at: #'${DECIDER_KEY}' put: decider.
+entry at: 2 put: decider.
+SessionTemps current at: #'${DECIDER_KEY}' put: entry.
 decider`;
 }
 
@@ -422,7 +533,7 @@ export type Decision =
   | { kind: 'failed'; message: string };
 
 /**
- * Read the doit's `{ decision. message }` back.
+ * Read the decider's `{ decision. message. rule index }` back.
  *
  * An unrecognised decision is read as a stop: the process really is suspended at
  * a breakpoint, so opening the debugger on it is both true and the reading that
@@ -443,33 +554,67 @@ export function decodeDecision(decision: number, message: string, rule = 0): Dec
   }
 }
 
+/** A GCI call of ours that failed, keeping GemStone's error number. */
+class DeciderError extends Error {
+  constructor(
+    message: string,
+    readonly errorNumber: number,
+  ) {
+    super(message);
+  }
+}
+
 /**
- * Compile the decider for `specs` and answer the block.
- *
- * One doit per run of skipping, however many hits it goes on to judge.
+ * Release a process one of our own calls left suspended. The decider runs in a
+ * process of its own, never the developer's, so whatever stopped it — a soft or
+ * hard break, an error — leaves nothing anyone will resume.
  */
-function installDecider(session: ActiveSession, specs: BreakpointRule[]): bigint {
+function releaseProcess(session: ActiveSession, context: number | bigint | undefined): void {
+  if (context === undefined) return;
+  const process = toBigInt(context);
+  if (process === 0n || process === OOP_NIL) return;
+  try {
+    session.GciTsClearStack(process);
+  } catch (e) {
+    logError(session.id, `Could not release a stopped process: ${errorText(e)}`);
+  }
+}
+
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/** Compile this run's decider and answer the block. One doit per run or Resume. */
+function installDecider(session: ActiveSession, specs: BreakpointRule[], process: bigint): bigint {
   const { result, err } = session.GciTsExecute(
-    deciderSource(specs),
+    deciderSource(specs, process),
     session.utf8ClassOop(),
     OOP_ILLEGAL,
     OOP_NIL,
     0, // debug OFF: the decider must not break on the breakpoints it is judging
     0,
   );
-  if (err.number !== 0) throw new Error(err.message || `GemStone error ${err.number}`);
+  if (err.number !== 0) {
+    releaseProcess(session, err.context);
+    throw new DeciderError(err.message || `GemStone error ${err.number}`, err.number);
+  }
   return result;
 }
 
 /**
  * Ask the compiled decider what to do about the stop `process` is parked at.
  *
- * A `perform:` rather than a doit, so nothing is compiled per hit — see
- * `deciderSource`. The process is handed over as the object it is, so the block
- * needs no oop lookup either.
+ * A `perform:` rather than a doit, so the decider itself is not recompiled per
+ * hit, and on a worker thread, because what it evaluates is the developer's: a
+ * condition that loops or crawls must leave VS Code responsive, and a soft
+ * break from Cancel must be able to reach it.
  */
-function decideWith(session: ActiveSession, decider: bigint, process: bigint): Decision {
-  const { result: arrayOop, err } = session.GciTsPerform(
+async function decideWith(
+  session: ActiveSession,
+  decider: bigint,
+  process: bigint,
+): Promise<Decision> {
+  const { result: arrayOop, err } = await session.GciTsPerformAsync(
     decider,
     OOP_ILLEGAL,
     'value:',
@@ -477,94 +622,165 @@ function decideWith(session: ActiveSession, decider: bigint, process: bigint): D
     0,
     0,
   );
-  if (err.number !== 0) throw new Error(err.message || `GemStone error ${err.number}`);
+  if (err.number !== 0) {
+    releaseProcess(session, err.context);
+    throw new DeciderError(err.message || `GemStone error ${err.number}`, err.number);
+  }
 
   // Three slots in one fetch: the decision, its message, and which rule matched.
   const { oops, err: fetchErr } = session.GciTsFetchOops(arrayOop, 1n, 3);
   if (fetchErr.number !== 0) {
-    throw new Error(fetchErr.message || `GemStone error ${fetchErr.number}`);
+    throw new DeciderError(
+      fetchErr.message || `GemStone error ${fetchErr.number}`,
+      fetchErr.number,
+    );
   }
   const decision = Number(session.oopToInteger(oops[0]));
-  const rule = oops[2] === undefined ? 0 : Number(session.oopToInteger(oops[2]));
+  const rule = Number(session.oopToInteger(oops[2]));
 
   let message = '';
   const carriesText =
     decision === DECISION.Failed || decision === DECISION.Log || decision === DECISION.LogFailed;
   if (carriesText && oops[1] !== OOP_NIL) {
-    const fetched = session.GciTsFetchChars(oops[1], 1n, MAX_MESSAGE);
+    const fetched = session.GciTsFetchChars(oops[1], 1n, MAX_MESSAGE_BYTES);
     if (fetched.err.number === 0) message = fetched.data;
     else logError(session.id, fetched.err.message || `GCI error ${fetched.err.number}`);
   }
   return decodeDecision(decision, message, rule);
 }
 
-/**
- * Resume `processOop` past every breakpoint whose condition is false, and answer
- * where it ended up.
- *
- * The resume runs on a worker thread (`GciTsContinueWithAsync`), so a condition
- * that is never true over a long-running loop leaves VS Code responsive instead
- * of freezing the extension host for the length of the run. Past
- * `PROGRESS_AFTER_MS` a cancellable notification appears; cancelling stops at
- * whatever hit the run has reached, which is a real place to be — the process is
- * suspended at a breakpoint either way.
- */
-export async function applyBreakpointRules(
-  session: ActiveSession,
-  processOop: bigint,
-  specs: BreakpointRule[],
-  onLog?: (text: string, rule: BreakpointRule | undefined) => void,
+/** What a caller can hand the skip loop. */
+export interface RuleRunOptions {
+  onLog?: (text: string, rule: BreakpointRule | undefined) => void;
   /**
    * A logpoint whose message would not evaluate, reported **once per rule** —
    * the message is wrong for every hit, and a thousand identical complaints
    * would bury the run's real output.
    */
-  onLogFailure?: (message: string, rule: BreakpointRule | undefined) => void,
+  onLogFailure?: (message: string, rule: BreakpointRule | undefined) => void;
+  /**
+   * Transcript text the resumed run wrote. In clientForwarder mode each write
+   * stops the run as error 2336 and has to be shown and resumed, exactly as
+   * `settleNbResult` does before the first breakpoint; without this the text is
+   * dropped but the run still carries on.
+   */
+  onTranscript?: (text: string) => void;
+  /**
+   * A hard break from the runner the loop is part of: the caller has already
+   * given up on the run, so the loop releases the process and stops.
+   */
+  signal?: AbortSignal;
+  /**
+   * Handed the loop's cancel, for a caller with a Cancel of its own (the
+   * debugger's busy overlay). The same thing the notification's Cancel does.
+   */
+  onStart?: (cancel: () => void) => void;
+  /** Skip the loop's own progress notification; see `onStart`. */
+  suppressNotification?: boolean;
+}
+
+/**
+ * Resume `processOop` past every stop its rules decline — a false condition, a
+ * logpoint, a trigger not yet reached — and answer where it ended up.
+ *
+ * Every GCI call that runs the developer's code — the resume and the judgement
+ * — runs on a worker thread, so a long run of skipped hits, or a slow
+ * condition, leaves VS Code responsive. Past `PROGRESS_AFTER_MS` a cancellable
+ * notification appears. Cancel sends a soft break if one of those calls is
+ * running, and otherwise stops at the hit the run has reached, which is a real
+ * place to be — the process is suspended at a breakpoint either way. A soft
+ * break that lands in the resumed code comes back as a `raised` 6003, exactly
+ * as a soft break anywhere else in a run does.
+ */
+export async function applyBreakpointRules(
+  session: ActiveSession,
+  processOop: bigint,
+  specs: BreakpointRule[],
+  options: RuleRunOptions = {},
 ): Promise<ConditionOutcome> {
-  const decider = installDecider(session, specs);
+  const { onLog, onLogFailure, onTranscript, signal } = options;
+  const decider = installDecider(session, specs, processOop);
   let process = processOop;
   let skipped = 0;
   let logged = 0;
   const reportedBadLog = new Set<number>();
   let lastYield = Date.now();
   let cancelled = false;
+  let calling = false;
   let report: (() => void) | undefined;
   let closeProgress: (() => void) | undefined;
 
-  const progressTimer = setTimeout(() => {
-    void vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: 'GemStone: applying breakpoint conditions',
-        cancellable: true,
-      },
-      (progress, token) =>
-        new Promise<void>((resolve) => {
-          closeProgress = resolve;
-          report = () =>
-            progress.report({
-              message: logged > 0 ? `${skipped} skipped, ${logged} logged` : `${skipped} skipped`,
-            });
-          report();
-          token.onCancellationRequested(() => {
-            cancelled = true;
-          });
-        }),
-    );
-  }, PROGRESS_AFTER_MS);
+  const cancel = (): void => {
+    if (cancelled) return;
+    cancelled = true;
+    if (!calling) return;
+    try {
+      session.GciTsBreak(false);
+    } catch (e) {
+      logError(session.id, `Could not send a soft break: ${errorText(e)}`);
+    }
+  };
+  options.onStart?.(cancel);
+
+  // The hard break has already rejected the run, so nobody else will release
+  // what it stopped.
+  const abandon = (): never => {
+    releaseProcess(session, process);
+    throw new NbCancelledError();
+  };
+
+  const progressTimer = options.suppressNotification
+    ? undefined
+    : setTimeout(() => {
+        void vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: 'GemStone: applying breakpoint rules',
+            cancellable: true,
+          },
+          (progress, token) =>
+            new Promise<void>((resolve) => {
+              closeProgress = resolve;
+              report = () =>
+                progress.report({
+                  message:
+                    logged > 0
+                      ? `${skipped - logged} skipped, ${logged} logged`
+                      : `${skipped} skipped`,
+                });
+              report();
+              token.onCancellationRequested(cancel);
+            }),
+        );
+      }, PROGRESS_AFTER_MS);
 
   try {
     for (;;) {
-      const decision = decideWith(session, decider, process);
-      if (decision.kind === 'stop') return { kind: 'stopped', skipped };
+      if (signal?.aborted) abandon();
+      let decision: Decision;
+      calling = true;
+      try {
+        decision = await decideWith(session, decider, process);
+      } catch (e) {
+        if (signal?.aborted) abandon();
+        // A soft break that landed in the judgement stopped only the decider's
+        // own process; the run is still suspended at this hit.
+        if (cancelled || (e instanceof DeciderError && e.errorNumber === SOFT_BREAK_ERROR)) {
+          return { kind: 'cancelled', context: process, skipped };
+        }
+        throw e;
+      } finally {
+        calling = false;
+      }
+
+      if (decision.kind === 'stop') return { kind: 'stopped', context: process, skipped };
       if (decision.kind === 'failed') {
-        return { kind: 'conditionFailed', message: decision.message, skipped };
+        return { kind: 'conditionFailed', message: decision.message, context: process, skipped };
       }
       // A logpoint writes its line and carries on. It never stops, which is the
       // whole point: it instruments a method without editing it.
       if (decision.kind === 'log') {
         onLog?.(decision.text, specs[decision.rule - 1]);
-        logged += 1;
       }
       // …and a logpoint whose message is broken carries on too. Stopping would
       // drop the developer into a debugger they did not ask for, over a typo in
@@ -573,38 +789,54 @@ export async function applyBreakpointRules(
         reportedBadLog.add(decision.rule);
         onLogFailure?.(decision.message, specs[decision.rule - 1]);
       }
-      // Asked to stop: this hit is as good a place as any, and the process is
-      // suspended at a real breakpoint.
-      if (cancelled) return { kind: 'stopped', skipped };
+      if (signal?.aborted) abandon();
+      if (cancelled) return { kind: 'cancelled', context: process, skipped };
 
-      const { result, err } = await session.GciTsContinueWithAsync(
-        process,
-        // Resume as-is rather than forcing the top of stack to nil — see
-        // `continueExecution` in debugQueries for why that distinction matters.
-        OOP_ILLEGAL,
-        null,
-        CONTINUE_FLAGS,
-      );
+      let resumed: { result: bigint; err: GciError };
+      calling = true;
+      try {
+        resumed = await continueThroughForwarderSends(
+          session,
+          await session.GciTsContinueWithAsync(
+            process,
+            // Resume as-is rather than forcing the top of stack to nil — see
+            // `continueExecution` in debugQueries for why that distinction matters.
+            OOP_ILLEGAL,
+            null,
+            CONTINUE_FLAGS,
+          ),
+          (text) => onTranscript?.(text),
+          CONTINUE_FLAGS,
+          signal,
+        );
+      } finally {
+        calling = false;
+      }
+      // Whatever the break stopped has been released by the forwarder loop.
+      if (signal?.aborted) throw new NbCancelledError();
       skipped += 1;
-      report?.();
+      if (decision.kind === 'log' || decision.kind === 'logFailed') logged += 1;
 
       if (Date.now() - lastYield >= YIELD_EVERY_MS) {
+        report?.();
         await yieldToTimers();
         lastYield = Date.now();
       }
 
+      const { result, err } = resumed;
       if (err.number === 0) return { kind: 'completed', resultOop: result, skipped };
+      const next = toBigInt(err.context ?? 0n);
       if (err.number !== BREAKPOINT_ERROR) {
         // The developer's own code raised, or execution stopped for some other
         // reason. Either way that is the thing worth showing.
         return {
           kind: 'raised',
           description: err.message || `GemStone error ${err.number}`,
-          context: toBigInt(err.context),
+          errorNumber: err.number,
+          context: next,
           skipped,
         };
       }
-      const next = toBigInt(err.context);
       if (next !== 0n && next !== OOP_NIL) process = next;
     }
   } finally {
@@ -613,7 +845,208 @@ export async function applyBreakpointRules(
   }
 }
 
-/** koffi hands back a uint64 as a Number when it fits; normalise to bigint. */
-function toBigInt(value: number | bigint): bigint {
-  return typeof value === 'bigint' ? value : BigInt(value);
+/**
+ * Where a logpoint line came from, for the log's own prefix.
+ *
+ * `Account>>deposit: @4`. Falls back to the method expression the gem was handed
+ * if a rule reached here without a label — not a shape the manager produces, but
+ * a line naming its source awkwardly beats one naming nothing.
+ */
+function describeRule(rule: BreakpointRule): string {
+  return `${rule.label ?? rule.methodExpr} @${rule.stepPoint}`;
+}
+
+/** How a stop at a breakpoint resolved once its rules had been applied. */
+export type BreakpointStop =
+  | { kind: 'completed'; resultOop: bigint }
+  /**
+   * Suspended at `context`, for the debugger. `cancelled` when the developer
+   * asked to stop skipping, so a caller that treats a cancel differently from a
+   * stop (a SUnit run reports it as cancelled) can tell.
+   */
+  | {
+      kind: 'stopped';
+      message: string;
+      context: bigint;
+      errorNumber: number;
+      cancelled?: boolean;
+    };
+
+/**
+ * Decide whether the breakpoint `context` is stopped at is one the developer
+ * asked to stop at, resuming past every one they did not, and say where the run
+ * ended up.
+ *
+ * Costs nothing when no breakpoint carries a rule, which is the ordinary case:
+ * the rules are read from what is already applied, and an empty list short
+ * circuits before any GCI call.
+ *
+ * Throws `NbCancelledError` on a hard break, and a plain Error when there is
+ * nothing left to debug — the session logged out, or the run stopped somewhere
+ * with no process to open a debugger on.
+ */
+export async function resolveBreakpointStop(
+  session: ActiveSession,
+  context: bigint,
+  message: string,
+  options: Omit<RuleRunOptions, 'onLog' | 'onLogFailure'> = {},
+): Promise<BreakpointStop> {
+  const stopHere = {
+    kind: 'stopped' as const,
+    message,
+    context,
+    errorNumber: BREAKPOINT_ERROR,
+  };
+  const specs = rulesFor(session);
+  // Logged even when there are none. "Stopped at a breakpoint" looks identical
+  // whether a condition was consulted and held, or was never seen at all — so
+  // the one place that knows says which, rather than leaving it to be guessed
+  // from the outside.
+  logInfo(
+    `[Session ${session.id}] breakpoint at a stop: ${specs.length} breakpoint rule(s) armed` +
+      specs
+        .map(
+          (s) =>
+            `\n  ${s.methodExpr} @${s.stepPoint}` +
+            (s.condition === undefined ? '' : ` if ${s.condition}`) +
+            (s.logMessage === undefined ? '' : ' (logpoint)'),
+        )
+        .join(''),
+  );
+  if (specs.length === 0) return stopHere;
+
+  let outcome: ConditionOutcome;
+  try {
+    // Revealed once per run, on the first line. A logpoint writing to a
+    // channel nobody has opened is barely better than no logpoint at all —
+    // but reopening it on every line would fight the developer for focus.
+    let revealed = false;
+    const reveal = (): void => {
+      if (revealed) return;
+      revealed = true;
+      showLogpointChannel();
+    };
+    outcome = await applyBreakpointRules(session, context, specs, {
+      ...options,
+      onLog: (text, rule) => {
+        appendLogpoint(rule === undefined ? `session ${session.id}` : describeRule(rule), text);
+        reveal();
+      },
+      onLogFailure: (failure, rule) => {
+        // Into the log the lines would have gone to, where the developer is
+        // already looking, and said once out loud — a logpoint that silently
+        // writes nothing is the failure this whole feature exists to avoid.
+        appendLogpoint(
+          rule === undefined ? `session ${session.id}` : describeRule(rule),
+          `!! the log message could not be evaluated: ${failure}`,
+        );
+        reveal();
+        vscode.window.showWarningMessage(
+          `A logpoint's message could not be evaluated: ${failure}. Execution carried on; ` +
+            'see the GemStone Logpoints panel in Output.',
+        );
+      },
+    });
+  } catch (e: unknown) {
+    // A cancel is the developer's answer, not a failure: let it unwind the
+    // execution the same way cancelling any other run does.
+    if (e instanceof NbCancelledError) throw e;
+    // With the session gone there is no breakpoint left to stop at, and no
+    // debugger to offer.
+    if (session.isLoggedOut()) throw new Error('The GemStone session is logged out.', { cause: e });
+    // Anything else, and the breakpoint still happened. Falling back to
+    // stopping is the safe end of the trade: a breakpoint that stops when it
+    // should not have is a nuisance, one that silently does not is a bug hunt.
+    const detail = errorText(e);
+    logError(session.id, `breakpoint rules could not be evaluated: ${detail}`);
+    vscode.window.showWarningMessage(
+      `Could not evaluate the breakpoint rules (${detail}) — stopping at the breakpoint.`,
+    );
+    return stopHere;
+  }
+
+  logInfo(
+    `[Session ${session.id}] breakpoint rules: ${outcome.kind} after ${outcome.skipped} skipped hit(s)`,
+  );
+
+  switch (outcome.kind) {
+    case 'completed':
+      return { kind: 'completed', resultOop: outcome.resultOop };
+    case 'raised':
+      // The run stopped for something that is not a breakpoint while we were
+      // skipping. That is the thing worth showing, on the process it stopped.
+      if (outcome.context === 0n || outcome.context === OOP_NIL) {
+        throw new Error(outcome.description);
+      }
+      return {
+        kind: 'stopped',
+        message: outcome.description,
+        context: outcome.context,
+        errorNumber: outcome.errorNumber,
+      };
+    case 'cancelled':
+      return {
+        ...stopHere,
+        message: `${message} (cancelled while applying breakpoint rules)`,
+        context: outcome.context,
+        cancelled: true,
+      };
+    case 'conditionFailed':
+      // Said out loud, because the alternative is a breakpoint that stops for
+      // no visible reason and a condition that was never really applied.
+      vscode.window.showWarningMessage(
+        `Breakpoint condition could not be evaluated: ${outcome.message} — ` +
+          'stopping at the breakpoint.',
+      );
+      return {
+        ...stopHere,
+        message: `${message} (condition: ${outcome.message})`,
+        context: outcome.context,
+      };
+    default:
+      return { ...stopHere, context: outcome.context };
+  }
+}
+
+/**
+ * Whether a debugger Resume that answered `result` stopped at a breakpoint the
+ * rules may want to pass — the one case {@link honourRulesAfterResume} has
+ * anything to do. Lets a caller keep its ordinary, synchronous path for every
+ * other stop.
+ */
+export function resumeNeedsRules(session: ActiveSession, result: StepResult): boolean {
+  if (result.completed || result.errorNumber !== BREAKPOINT_ERROR) return false;
+  const context = toBigInt(result.errorContext ?? 0n);
+  if (context === 0n || context === OOP_NIL) return false;
+  return rulesFor(session).length > 0;
+}
+
+/**
+ * Carry a debugger Resume on past every stop its rules decline, from the stop
+ * `result` reports, and answer it in the debugger's own terms.
+ *
+ * The same rule application as the run's first stop, with the same decider —
+ * see `deciderSource` — so a trigger armed before the debugger opened is still
+ * armed. Only for a Resume (and Run to Cursor): a step is explicit and goes
+ * where it was told.
+ */
+export async function honourRulesAfterResume(
+  session: ActiveSession,
+  result: StepResult,
+  options: Omit<RuleRunOptions, 'onLog' | 'onLogFailure'> = {},
+): Promise<StepResult> {
+  if (!resumeNeedsRules(session, result)) return result;
+  const stop = await resolveBreakpointStop(
+    session,
+    toBigInt(result.errorContext ?? 0n),
+    result.errorMessage ?? 'Method breakpoint encountered',
+    options,
+  );
+  if (stop.kind === 'completed') return { completed: true, resultOop: stop.resultOop };
+  return {
+    completed: false,
+    errorMessage: stop.message,
+    errorContext: stop.context,
+    errorNumber: stop.errorNumber,
+  };
 }

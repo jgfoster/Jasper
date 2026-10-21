@@ -139,6 +139,13 @@ vi.mock('../basicInspector/basicInspector', () => ({
   BasicInspector: { create: vi.fn(() => ({ close: vi.fn() })) },
 }));
 
+// Breakpoint rules after a Resume: no rule applies unless a test says one does.
+vi.mock('../conditionalBreakpoints', async (orig) => ({
+  ...(await orig<typeof import('../conditionalBreakpoints')>()),
+  resumeNeedsRules: vi.fn(() => false),
+  honourRulesAfterResume: vi.fn(),
+}));
+
 // The frozen System Browser is stubbed, not exercised: Browse from a frame goes
 // to the GemStone Explorer now, and a test below asserts this entry point is
 // never called. The stub also keeps the whole browser module (and its many
@@ -195,6 +202,7 @@ import { GemStoneLogin } from '../loginTypes';
 import { SMALLTALK_LANGUAGE } from '../languageIds';
 import { OOP_NIL } from '../gciConstants';
 import { fakeActiveSession } from './fakeActiveSession';
+import { honourRulesAfterResume, resumeNeedsRules } from '../conditionalBreakpoints';
 import { buildMethodUri, parseUri } from '../gemstoneFileSystemProvider';
 
 const GS_PROCESS = 0x123n;
@@ -3717,6 +3725,67 @@ describe('DebuggerPanel', () => {
       expect(lastPosted(panel, 'init').errorMessage).toBe('next error');
     });
 
+    describe('a Resume that stops at a breakpoint carrying a rule', () => {
+      const AT_LOGPOINT = {
+        completed: false,
+        errorMessage: 'Method breakpoint encountered',
+        errorContext: GS_PROCESS,
+        errorNumber: 6005,
+      };
+
+      it('carries on past it the way the run did, and closes when the run completes', async () => {
+        // A logpoint reached after Resume logs and carries on; it never stops
+        // the debugger.
+        vi.mocked(debug.continueExecution).mockReturnValueOnce(AT_LOGPOINT);
+        vi.mocked(resumeNeedsRules).mockReturnValueOnce(true);
+        vi.mocked(honourRulesAfterResume).mockResolvedValueOnce({ completed: true });
+        const panel = openPanel();
+
+        sendMessage(panel, { command: 'resume' });
+        await tick();
+
+        expect(honourRulesAfterResume).toHaveBeenCalledWith(
+          session,
+          AT_LOGPOINT,
+          expect.objectContaining({ suppressNotification: true, onStart: expect.any(Function) }),
+        );
+        expect(panel.dispose).toHaveBeenCalled();
+      });
+
+      it('refreshes on wherever the rules let the run stop', async () => {
+        vi.mocked(debug.continueExecution).mockReturnValueOnce(AT_LOGPOINT);
+        vi.mocked(resumeNeedsRules).mockReturnValueOnce(true);
+        vi.mocked(honourRulesAfterResume).mockResolvedValueOnce({
+          completed: false,
+          errorMessage: 'Method breakpoint encountered (condition held)',
+          errorContext: GS_PROCESS,
+          errorNumber: 6005,
+        });
+        const panel = openPanel();
+
+        sendMessage(panel, { command: 'resume' });
+        await tick();
+
+        expect(panel.dispose).not.toHaveBeenCalled();
+        expect(lastPosted(panel, 'init').errorMessage).toBe(
+          'Method breakpoint encountered (condition held)',
+        );
+      });
+
+      it('goes straight to the stop when no rule applies', () => {
+        vi.mocked(debug.continueExecution).mockReturnValueOnce({
+          completed: false,
+          errorMessage: 'next error',
+        });
+        const panel = openPanel();
+
+        sendMessage(panel, { command: 'resume' });
+
+        expect(honourRulesAfterResume).not.toHaveBeenCalled();
+        expect(lastPosted(panel, 'init').errorMessage).toBe('next error');
+      });
+    });
+
     // Run to Cursor (#2): a Resume bracketed by a temporary step-point breakpoint at
     // the cursor's line in the (editable) source pane. The break is set, the
     // process continues, and the break is cleared afterward — unless the user owns
@@ -3810,6 +3879,31 @@ describe('DebuggerPanel', () => {
         expect(queries.clearBreakAtStepPoint).toHaveBeenCalled();
         expect(panel.dispose).not.toHaveBeenCalled();
         expect(posted(panel, 'init').length).toBe(before + 1); // refreshed → variables re-fetch
+      });
+
+      it('keeps the temp break until the breakpoint rules have finished resuming', async () => {
+        // Skipping past a false condition keeps running towards the cursor; a
+        // temp break cleared before that would let the run sail past it.
+        vi.mocked(debug.continueExecution).mockReturnValueOnce({
+          completed: false,
+          errorContext: GS_PROCESS,
+          errorNumber: 6005,
+        });
+        vi.mocked(resumeNeedsRules).mockReturnValueOnce(true);
+        let finish: (r: debug.StepResult) => void = () => {};
+        vi.mocked(honourRulesAfterResume).mockReturnValueOnce(
+          new Promise((resolve) => (finish = resolve)),
+        );
+        const panel = await openWithCursor(1);
+
+        sendMessage(panel, { command: 'runToCursor', level: 3 });
+        await flush();
+        expect(queries.clearBreakAtStepPoint).not.toHaveBeenCalled();
+
+        finish({ completed: true });
+        await flush();
+        expect(queries.clearBreakAtStepPoint).toHaveBeenCalled();
+        expect(panel.dispose).toHaveBeenCalled();
       });
 
       it("does NOT clear a break the user already set at the cursor's step point", async () => {

@@ -1,5 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 vi.mock('vscode', () => import('../__mocks__/vscode.js'));
+// Where a logpoint's line goes once it leaves the loop; read back by the
+// Resume tests, which go through the whole path rather than a callback.
+vi.mock('../logpointChannel', () => ({
+  appendLogpoint: vi.fn(),
+  showLogpointChannel: vi.fn(),
+}));
 
 import { GciLibrary } from '../gciLibrary';
 import * as queries from '../browserQueries';
@@ -7,9 +13,20 @@ import * as debugQueries from '../debugQueries';
 import { compiledMethodExpr } from '../queries/util';
 import {
   BreakpointRule,
+  CONTINUE_FLAGS,
   applyBreakpointRules,
+  honourRulesAfterResume,
   logMessageExpression,
+  setBreakpointRuleSource,
 } from '../conditionalBreakpoints';
+import {
+  endClientForwarderMode,
+  installTranscriptSink,
+  settleNbResult,
+  startClientForwarderMode,
+} from '../transcriptSink';
+import { runNbCall } from '../nbRunner';
+import { appendLogpoint } from '../logpointChannel';
 import {
   GCI_PERFORM_FLAG_ENABLE_DEBUG,
   GCI_PERFORM_FLAG_INTERPRETED,
@@ -185,7 +202,7 @@ describe('conditional breakpoints (integration)', () => {
       specFor('countTo:', 'total := total + i', 'i >= 150'),
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 149 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 149 });
     // And the process is still readable and still suspended right there, which
     // is what lets the debugger open on it as if nothing had happened.
     expect(debugQueries.getStepPoint(session(), process, 1)).toBe(
@@ -225,7 +242,7 @@ describe('conditional breakpoints (integration)', () => {
       specFor('sumOf:', 'total := total + each', 'each >= 150'),
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 149 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 149 });
     release(process);
   });
 
@@ -248,7 +265,7 @@ describe('conditional breakpoints (integration)', () => {
       ),
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 0 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 0 });
     release(process);
   });
 
@@ -264,7 +281,81 @@ describe('conditional breakpoints (integration)', () => {
       specFor('sumOf:', 'total := total + each', 'total > 5000'),
     ]);
 
-    expect(outcome.kind).toBe('stopped');
+    // 1 + … + 100 = 5050 is the first total over 5000, read before each = 101.
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 100 });
+    expect(valueInTopFrame(process, 'each')).toBe('101');
+    release(process);
+  });
+
+  it('resolves a home-method temporary the block never mentions', async () => {
+    // The block frame lists only the names it uses; the rest of the home
+    // method's arguments and temporaries come from the home activation, as the
+    // debugger's eval bar binds them.
+    fixture();
+    queries.compileMethod(
+      session(),
+      TEST_CLASS,
+      false,
+      'test',
+      `sumWith: coll\n  | total bonus |\n  bonus := 7.\n  total := 0.\n  coll do: [:each |\n` +
+        `    total := total + each ].\n  ^ total + bonus`,
+    );
+    const process = haltAt(
+      'sumWith:',
+      'total := total + each',
+      `${TEST_CLASS} new sumWith: (1 to: 20) asArray`,
+    );
+
+    const outcome = await applyBreakpointRules(session(), process, [
+      specFor('sumWith:', 'total := total + each', 'bonus = 7 and: [ each = 3 ]'),
+    ]);
+
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 2 });
+    release(process);
+  });
+
+  it('judges a block against the receiver that made it, not a deeper activation', async () => {
+    // The block is made at the outermost activation (limit 99) and run at the
+    // innermost (limit 1) of the same method. Walking to the nearest home
+    // activation judged it against the wrong object, silently.
+    fixture();
+    queries.compileMethod(
+      session(),
+      TEST_CLASS,
+      false,
+      'test',
+      `visit: depth with: blk\n  | b |\n  b := blk ifNil: [[:x | x + 0. self]].\n` +
+        `  depth > 0 ifTrue: [^ (self class new limit: depth) visit: depth - 1 with: b].\n` +
+        `  ^ b value: depth`,
+    );
+    const process = haltAt(
+      'visit:with:',
+      'x + 0',
+      `(${TEST_CLASS} new limit: 99) visit: 2 with: nil`,
+    );
+
+    const outcome = await applyBreakpointRules(session(), process, [
+      specFor('visit:with:', 'x + 0', 'limit = 99'),
+    ]);
+
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 0 });
+    release(process);
+  });
+
+  it('judges a block whose home method has already returned', async () => {
+    fixture();
+    queries.compileMethod(session(), TEST_CLASS, false, 'test', `makeBlock\n  ^ [:x | x + limit]`);
+    const process = haltAt(
+      'makeBlock',
+      'x + limit',
+      `(${TEST_CLASS} new limit: 7) makeBlock value: 3`,
+    );
+
+    const outcome = await applyBreakpointRules(session(), process, [
+      specFor('makeBlock', 'x + limit', 'limit = 7 and: [ x = 3 ]'),
+    ]);
+
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 0 });
     release(process);
   });
 
@@ -315,7 +406,7 @@ describe('conditional breakpoints (integration)', () => {
       { methodExpr, stepPoint: returnStep, condition: 'total > 0' },
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 20 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 20 });
     expect(debugQueries.getStepPoint(session(), process, 1)).toBe(returnStep);
     release(process);
   });
@@ -339,7 +430,7 @@ describe('conditional breakpoints (integration)', () => {
       { methodExpr, stepPoint: returnStep, condition: 'total > 999999' },
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 149 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 149 });
     expect(debugQueries.getStepPoint(session(), process, 1)).toBe(loopStep);
     release(process);
   });
@@ -361,7 +452,7 @@ describe('conditional breakpoints (integration)', () => {
           logMessage: logMessageExpression('i={i} total={total}'),
         },
       ],
-      (text) => lines.push(text),
+      { onLog: (text) => lines.push(text) },
     );
 
     expect(outcome.kind).toBe('completed');
@@ -386,7 +477,7 @@ describe('conditional breakpoints (integration)', () => {
           logMessage: logMessageExpression('late: {i}'),
         },
       ],
-      (text) => lines.push(text),
+      { onLog: (text) => lines.push(text) },
     );
 
     expect(outcome.kind).toBe('completed');
@@ -414,7 +505,7 @@ describe('conditional breakpoints (integration)', () => {
           logMessage: logMessageExpression('{self class} limit={limit} each={each}'),
         },
       ],
-      (text) => lines.push(text),
+      { onLog: (text) => lines.push(text) },
     );
 
     expect(lines[0]).toBe(`${TEST_CLASS} limit=99 each=1`);
@@ -440,8 +531,7 @@ describe('conditional breakpoints (integration)', () => {
           logMessage: logMessageExpression('{noSuchVariable}'),
         },
       ],
-      (text) => lines.push(text),
-      (message) => failures.push(message),
+      { onLog: (text) => lines.push(text), onLogFailure: (message) => failures.push(message) },
     );
 
     expect(outcome.kind).toBe('completed');
@@ -470,9 +560,9 @@ describe('conditional breakpoints (integration)', () => {
     const process = BigInt(err.context);
     const seen: { text: string; step: number | undefined }[] = [];
 
-    await applyBreakpointRules(session(), process, rules, (text, rule) =>
-      seen.push({ text, step: rule?.stepPoint }),
-    );
+    await applyBreakpointRules(session(), process, rules, {
+      onLog: (text, rule) => seen.push({ text, step: rule?.stepPoint }),
+    });
 
     expect(seen.map((l) => l.text)).toEqual(['loop 1', 'loop 2', 'loop 3', 'done 6']);
     expect(seen[0].step).toBe(loopStep);
@@ -492,8 +582,16 @@ describe('conditional breakpoints (integration)', () => {
     expect(outcome.kind).toBe('raised');
     if (outcome.kind !== 'raised') return;
     expect(outcome.description).toContain('deliberate');
-    // And on the process the error was raised in, so the debugger opens there.
-    expect(outcome.context).not.toBe(0n);
+    // And on the process the error was raised in, so the debugger opens there:
+    // the one whose stack holds `failAt:`.
+    expect(
+      gci.executeAndFetchString(
+        handle,
+        `| p | p := Object _objectForOop: ${outcome.context}.
+((1 to: p localStackDepth) detect: [:k | ((p _frameContentsAt: k) at: 1) selector == #failAt:]
+  ifNone: [nil]) notNil printString`,
+      ),
+    ).toBe('true');
     release(outcome.context);
   });
 
@@ -541,7 +639,7 @@ describe('conditional breakpoints (integration)', () => {
     expect(outcome.kind).toBe('conditionFailed');
     if (outcome.kind !== 'conditionFailed') return;
     expect(outcome.skipped).toBe(0);
-    expect(outcome.message).not.toBe('');
+    expect(outcome.message).toMatch(/CompileError|expected/i);
     release(process);
   });
 
@@ -578,7 +676,7 @@ describe('conditional breakpoints (integration)', () => {
 
     // Before each = 15 runs, total = 1 + … + 14 = 105, the first total over
     // limit = 100; but each = 15 is odd, so the stop is at each = 16, total = 120.
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 15 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 15 });
     expect(valueInTopFrame(process, 'each')).toBe('16');
     release(process);
   });
@@ -591,7 +689,7 @@ describe('conditional breakpoints (integration)', () => {
     gci.executeAndFetchString(handle, 'System gemVersionAt: #gsVersion').startsWith('3.6');
 
   it('compares a string in the condition as a workspace would', async (ctx) => {
-    if (onRelease36()) return ctx.skip();
+    if (onRelease36()) return ctx.skip('3.6.x raises on a String = Unicode comparison');
     fixture();
     const process = haltAt('countTo:', 'total := total + i', `${TEST_CLASS} new countTo: 200`);
 
@@ -599,13 +697,13 @@ describe('conditional breakpoints (integration)', () => {
       specFor('countTo:', 'total := total + i', "i printString = '150'"),
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 149 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 149 });
     expect(valueInTopFrame(process, 'i')).toBe('150');
     release(process);
   });
 
   it('reports the 3.6 String-to-Unicode comparison error, as a workspace would', async (ctx) => {
-    if (!onRelease36()) return ctx.skip();
+    if (!onRelease36()) return ctx.skip('only 3.6.x raises on a String = Unicode comparison');
     fixture();
     const process = haltAt('countTo:', 'total := total + i', `${TEST_CLASS} new countTo: 200`);
 
@@ -631,7 +729,7 @@ describe('conditional breakpoints (integration)', () => {
       specFor('countTo:', 'total := total + i', "'caf\u00e9' size = 4 and: [ i >= 150 ]"),
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 149 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 149 });
     release(process);
   });
 
@@ -650,7 +748,7 @@ describe('conditional breakpoints (integration)', () => {
           logMessage: logMessageExpression('caf\u00e9 \u65e5\u672c {i}'),
         },
       ],
-      (text) => lines.push(text),
+      { onLog: (text) => lines.push(text) },
     );
 
     expect(outcome.kind).toBe('completed');
@@ -669,7 +767,7 @@ describe('conditional breakpoints (integration)', () => {
       specFor('countTo:', 'total := total + i', 'i >= 150', true),
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 149 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 149 });
     expect(valueInTopFrame(process, 'i')).toBe('150');
     release(process);
   });
@@ -677,7 +775,7 @@ describe('conditional breakpoints (integration)', () => {
   it('stops at a breakpoint no condition claims', async () => {
     // The first thing the loop does on every stop is ask whether this step point
     // is one of the conditional ones. Nothing conditional at all is the ordinary
-    // case, and it must cost one round trip and stop where it stopped.
+    // case, and it must stop where it stopped without resuming.
     fixture();
     const process = haltAt('countTo:', 'total := total + i', `${TEST_CLASS} new countTo: 200`);
 
@@ -685,7 +783,7 @@ describe('conditional breakpoints (integration)', () => {
       specFor('sumOf:', 'total := total + each', 'each > 1'),
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 0 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 0 });
     release(process);
   });
 
@@ -701,7 +799,185 @@ describe('conditional breakpoints (integration)', () => {
       },
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 0 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 0 });
+    release(process);
+  });
+
+  it('keeps every other rule working when a spec names a class that is gone', async () => {
+    // A class removed or renamed elsewhere left a bare name the decider could
+    // not compile, and every rule in the session fell back to stopping.
+    fixture();
+    const process = haltAt('countTo:', 'total := total + i', `${TEST_CLASS} new countTo: 200`);
+
+    const outcome = await applyBreakpointRules(session(), process, [
+      {
+        methodExpr: compiledMethodExpr('NoSuchClassXyzzy', false, 'foo', 0),
+        stepPoint: 1,
+        condition: 'true',
+      },
+      specFor('countTo:', 'total := total + i', 'i >= 150'),
+    ]);
+
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 149 });
+    release(process);
+  });
+
+  it('cuts a long non-ASCII log line between characters, and says it was cut', async () => {
+    fixture();
+    const process = haltAt('countTo:', 'total := total + i', `${TEST_CLASS} new countTo: 1`);
+    const lines: string[] = [];
+
+    await applyBreakpointRules(
+      session(),
+      process,
+      [
+        {
+          methodExpr: compiledMethodExpr(TEST_CLASS, false, 'countTo:', 0),
+          stepPoint: stepPointAt('countTo:', 'total := total + i'),
+          logMessage: logMessageExpression('\u00e9'.repeat(5000)),
+        },
+      ],
+      { onLog: (text) => lines.push(text) },
+    );
+
+    expect(lines).toEqual(['\u00e9'.repeat(4096) + '...']);
+  });
+
+  it('reads a placeholder the way Smalltalk does: strings, characters, brace arrays', async () => {
+    fixture();
+    const process = haltAt('countTo:', 'total := total + i', `${TEST_CLASS} new countTo: 1`);
+    const lines: string[] = [];
+    const failures: string[] = [];
+
+    await applyBreakpointRules(
+      session(),
+      process,
+      [
+        {
+          methodExpr: compiledMethodExpr(TEST_CLASS, false, 'countTo:', 0),
+          stepPoint: stepPointAt('countTo:', 'total := total + i'),
+          logMessage: logMessageExpression("v={i printString, '}'} c={$}} n={ {i. i} size }"),
+        },
+      ],
+      { onLog: (text) => lines.push(text), onLogFailure: (m) => failures.push(m) },
+    );
+
+    expect(failures).toEqual([]);
+    expect(lines).toEqual(["v='1}' c=$} n=2"]);
+  });
+
+  it('shows a Transcript write in a run being skipped, and stops where it should', async () => {
+    // Execute It runs in clientForwarder mode, where every Transcript write
+    // stops the run as 2336. Inside the skip loop that was taken for an error
+    // the code raised: a Debug prompt on the Transcript's internals, and the
+    // breakpoint the developer wanted never reached.
+    fixture();
+    expect(installTranscriptSink(session())).toBe(true);
+    queries.compileMethod(
+      session(),
+      TEST_CLASS,
+      false,
+      'test',
+      `noisyCountTo: n\n  | total |\n  total := 0.\n  1 to: n do: [:i |\n` +
+        `    total := total + i.\n    Transcript nextPutAll: i printString ].\n  ^ total`,
+    );
+    const stepPoint = stepPointAt('noisyCountTo:', 'total := total + i');
+    queries.setBreakAtStepPoint(session(), TEST_CLASS, false, 'noisyCountTo:', stepPoint, 0);
+    const code = `${TEST_CLASS} new noisyCountTo: 20`;
+    const written: string[] = [];
+
+    startClientForwarderMode(session(), code);
+    try {
+      const { err } = await runNbCall(
+        session(),
+        () =>
+          gci.GciTsNbExecute(
+            handle,
+            code,
+            gci.utf8ClassOop(handle),
+            OOP_ILLEGAL,
+            OOP_NIL,
+            CONTINUE_FLAGS,
+            0,
+          ),
+        (signal) => settleNbResult(session(), (t) => written.push(t), signal, CONTINUE_FLAGS),
+        { suppressNotification: true },
+      );
+      expect(err.number).toBe(6005);
+      const process = BigInt(err.context);
+
+      const outcome = await applyBreakpointRules(
+        session(),
+        process,
+        [specFor('noisyCountTo:', 'total := total + i', 'i >= 5')],
+        { onTranscript: (t) => written.push(t) },
+      );
+
+      expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 4 });
+      expect(written.join('')).toBe('1234');
+      release(process);
+    } finally {
+      endClientForwarderMode(session());
+    }
+  });
+
+  it('keeps breakpoints armed after a Transcript write in Execute It', async () => {
+    // The forwarder resumed every write with flags 0, which disarmed every
+    // breakpoint for the rest of the run: a plain breakpoint after one
+    // `Transcript show:` never stopped.
+    fixture();
+    expect(installTranscriptSink(session())).toBe(true);
+    const stepPoint = stepPointAt('countTo:', 'total := total + i');
+    queries.setBreakAtStepPoint(session(), TEST_CLASS, false, 'countTo:', stepPoint, 0);
+    const code = `Transcript show: 'first'. ${TEST_CLASS} new countTo: 3`;
+
+    startClientForwarderMode(session(), code);
+    try {
+      const { err } = await runNbCall(
+        session(),
+        () =>
+          gci.GciTsNbExecute(
+            handle,
+            code,
+            gci.utf8ClassOop(handle),
+            OOP_ILLEGAL,
+            OOP_NIL,
+            CONTINUE_FLAGS,
+            0,
+          ),
+        (signal) => settleNbResult(session(), () => {}, signal, CONTINUE_FLAGS),
+        { suppressNotification: true },
+      );
+      expect(err.number).toBe(6005);
+      release(BigInt(err.context));
+    } finally {
+      endClientForwarderMode(session());
+    }
+  });
+
+  it('stops judging a condition that never finishes when asked to', async () => {
+    // Judged on a worker thread, so VS Code stays responsive and Cancel's soft
+    // break reaches it; the run is left at the hit it had reached.
+    fixture();
+    const process = haltAt('countTo:', 'total := total + i', `${TEST_CLASS} new countTo: 3`);
+    let cancel = (): void => {};
+    let ticks = 0;
+    const ticker = setInterval(() => (ticks += 1), 10);
+    setTimeout(() => cancel(), 300);
+
+    try {
+      const outcome = await applyBreakpointRules(
+        session(),
+        process,
+        [specFor('countTo:', 'total := total + i', '[ true ] whileTrue: [ nil ]. true')],
+        { onStart: (c) => (cancel = c), suppressNotification: true },
+      );
+
+      expect(outcome).toEqual({ kind: 'cancelled', context: process, skipped: 0 });
+      expect(ticks).toBeGreaterThan(5);
+    } finally {
+      clearInterval(ticker);
+    }
     release(process);
   });
 
@@ -801,11 +1077,8 @@ describe('conditional breakpoints (integration)', () => {
     release(process);
   });
 
-  it('arms on the trigger even when the trigger goes on to stop the run', async () => {
-    // The arm is recorded BEFORE the decision to stop, so a trigger that is an
-    // ordinary stopping breakpoint still arms what waits on it. Proven by
-    // resuming the same suspended process through a second pass of the loop:
-    // the arm has to have survived the stop.
+  /** `armThenCount:` with breakpoints on its trigger send and its loop. */
+  const armThenCountFixture = (): { armStep: number; loopStep: number; methodExpr: string } => {
     fixture();
     const live = session();
     queries.compileMethod(
@@ -822,32 +1095,162 @@ describe('conditional breakpoints (integration)', () => {
     const loopStep = stepPointAt('armThenCount:', 'total := total + i');
     queries.setBreakAtStepPoint(live, TEST_CLASS, false, 'armThenCount:', armStep, 0);
     queries.setBreakAtStepPoint(live, TEST_CLASS, false, 'armThenCount:', loopStep, 0);
+    return {
+      armStep,
+      loopStep,
+      methodExpr: compiledMethodExpr(TEST_CLASS, false, 'armThenCount:', 0),
+    };
+  };
 
+  /** What the debugger's Resume does first: one plain continue to the next stop. */
+  const resume = (process: bigint) =>
+    gci.GciTsContinueWith(handle, process, OOP_ILLEGAL, null, CONTINUE_FLAGS);
+
+  it('keeps the arming a stopping trigger made when the run is resumed', async () => {
+    // The arm is recorded BEFORE the decision to stop, and the run's decider is
+    // parked with its process, so a trigger that is an ordinary stopping
+    // breakpoint has still armed what waits on it when the debugger resumes.
+    const { armStep, loopStep, methodExpr } = armThenCountFixture();
     const { err } = exec(
       `${TEST_CLASS} new armThenCount: 20`,
       GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED,
     );
     const process = BigInt(err.context);
-
     const specs: BreakpointRule[] = [
       // 1: a plain stopping breakpoint that is also a trigger.
-      {
-        methodExpr: compiledMethodExpr(TEST_CLASS, false, 'armThenCount:', 0),
-        stepPoint: armStep,
-      },
-      {
-        methodExpr: compiledMethodExpr(TEST_CLASS, false, 'armThenCount:', 0),
-        stepPoint: loopStep,
-        triggeredBy: 1,
-      },
+      { methodExpr, stepPoint: armStep },
+      { methodExpr, stepPoint: loopStep, triggeredBy: 1 },
     ];
 
-    // First pass: the process is already parked on the trigger, so the decider
-    // arms 2 and then stops at 1 as any plain breakpoint would.
     const first = await applyBreakpointRules(session(), process, specs);
-    expect(first).toEqual({ kind: 'stopped', skipped: 0 });
+    expect(first).toEqual({ kind: 'stopped', context: process, skipped: 0 });
     expect(debugQueries.getStepPoint(session(), process, 1)).toBe(armStep);
+
+    // Resume: the gem stops at the loop, and the rules are applied again from
+    // there. Disarmed, the loop would be passed over to the end of the run.
+    expect(resume(process).err.number).toBe(6005);
+    const second = await applyBreakpointRules(session(), process, specs);
+
+    expect(second).toEqual({ kind: 'stopped', context: process, skipped: 0 });
+    expect(debugQueries.getStepPoint(session(), process, 1)).toBe(loopStep);
+    expect(valueInTopFrame(process, 'i')).toBe('1');
     release(process);
+  });
+
+  it('keeps that arming when a rule is edited while the debugger is open', async () => {
+    const { armStep, loopStep, methodExpr } = armThenCountFixture();
+    const { err } = exec(
+      `${TEST_CLASS} new armThenCount: 20`,
+      GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED,
+    );
+    const process = BigInt(err.context);
+    await applyBreakpointRules(session(), process, [
+      { methodExpr, stepPoint: armStep },
+      { methodExpr, stepPoint: loopStep, triggeredBy: 1 },
+    ]);
+
+    // The developer adds a condition to the waiting breakpoint, then resumes.
+    expect(resume(process).err.number).toBe(6005);
+    const outcome = await applyBreakpointRules(session(), process, [
+      { methodExpr, stepPoint: armStep },
+      { methodExpr, stepPoint: loopStep, triggeredBy: 1, condition: 'i >= 4' },
+    ]);
+
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 3 });
+    expect(valueInTopFrame(process, 'i')).toBe('4');
+    release(process);
+  });
+
+  it('starts a new run with its triggers disarmed', async () => {
+    // The arming belongs to one run. A second run of the same code, on a new
+    // process, must wait for its trigger all over again.
+    const { armStep, loopStep, methodExpr } = armThenCountFixture();
+    const specs: BreakpointRule[] = [
+      { methodExpr, stepPoint: armStep, logMessage: logMessageExpression('armed') },
+      { methodExpr, stepPoint: loopStep, triggeredBy: 1 },
+    ];
+    const firstRun = BigInt(
+      exec(
+        `${TEST_CLASS} new armThenCount: 3`,
+        GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED,
+      ).err.context,
+    );
+    expect((await applyBreakpointRules(session(), firstRun, specs)).kind).toBe('stopped');
+    release(firstRun);
+
+    // Run two stops at its trigger, which this time never holds: the loop must
+    // be passed over to the end of the run, whatever run one armed.
+    const secondRun = BigInt(
+      exec(
+        `${TEST_CLASS} new armThenCount: 3`,
+        GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED,
+      ).err.context,
+    );
+    expect(debugQueries.getStepPoint(session(), secondRun, 1)).toBe(armStep);
+    const outcome = await applyBreakpointRules(session(), secondRun, [
+      { methodExpr, stepPoint: armStep, condition: 'false' },
+      { methodExpr, stepPoint: loopStep, triggeredBy: 1 },
+    ]);
+    expect(outcome.kind).toBe('completed');
+  });
+
+  it('applies the rules to a debugger Resume, start to finish', async () => {
+    // The whole Resume path, with the rules read from where the executor
+    // registers them: a plain breakpoint stops the run, and after Resume a
+    // logpoint further on logs every hit and the run completes, rather than the
+    // debugger stopping at the logpoint.
+    const { armStep, loopStep, methodExpr } = armThenCountFixture();
+    const specs: BreakpointRule[] = [
+      {
+        methodExpr,
+        stepPoint: loopStep,
+        label: 'loop',
+        logMessage: logMessageExpression('i={i}'),
+      },
+    ];
+    setBreakpointRuleSource({ breakpointRulesFor: () => specs });
+    vi.mocked(appendLogpoint).mockClear();
+    try {
+      const { err } = exec(
+        `${TEST_CLASS} new armThenCount: 5`,
+        GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED,
+      );
+      const process = BigInt(err.context);
+      expect(debugQueries.getStepPoint(session(), process, 1)).toBe(armStep);
+
+      const result = await honourRulesAfterResume(
+        session(),
+        debugQueries.continueExecution(session(), process),
+        { suppressNotification: true },
+      );
+
+      expect(result.completed).toBe(true);
+      expect(vi.mocked(appendLogpoint).mock.calls.map((c) => c[1])).toEqual([
+        'i=1',
+        'i=2',
+        'i=3',
+        'i=4',
+        'i=5',
+      ]);
+    } finally {
+      setBreakpointRuleSource(undefined);
+    }
+  });
+
+  it('never arms a breakpoint that waits on itself', async () => {
+    // How a breakpoint whose trigger was disabled or removed is kept disarmed:
+    // it names its own index, and a waiting breakpoint arms nothing, so every
+    // hit is passed over and the run completes.
+    fixture();
+    const { loopStep, returnStep, process } = haltInCountTo(20);
+    const methodExpr = compiledMethodExpr(TEST_CLASS, false, 'countTo:', 0);
+
+    const outcome = await applyBreakpointRules(session(), process, [
+      { methodExpr, stepPoint: loopStep, triggeredBy: 1 },
+      { methodExpr, stepPoint: returnStep, logMessage: logMessageExpression('done') },
+    ]);
+
+    expect(outcome).toEqual({ kind: 'completed', resultOop: expect.any(BigInt), skipped: 21 });
   });
 
   it('keeps a disarmed breakpoint from stopping while OTHER breakpoints still do', async () => {
@@ -867,7 +1270,7 @@ describe('conditional breakpoints (integration)', () => {
       { methodExpr: compiledMethodExpr(TEST_CLASS, false, 'limit:', 0), stepPoint: 1 },
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 20 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 20 });
     expect(debugQueries.getStepPoint(session(), process, 1)).toBe(returnStep);
     release(process);
   });
@@ -988,7 +1391,7 @@ describe('conditional breakpoints (integration)', () => {
     ]);
 
     // Only the trigger's own resume: the loop stopped on its first hit.
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 1 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 1 });
     expect(debugQueries.getStepPoint(session(), process, 1)).toBe(loopStep);
     release(process);
   });
@@ -1016,6 +1419,11 @@ describe('the manager and the gem, together (integration)', () => {
 
   const session = (): ActiveSession => testActiveSession(gci, handle);
   const TEST_CLASS = 'VsCodeBreakpointRuleTest';
+
+  // VS Code's breakpoint list is a global; a failing test must not leak it.
+  afterEach(() => {
+    debug.breakpoints = [];
+  });
   const SELECTOR = 'countTo:';
 
   /** A manager wired to the live session, over VS Code's real breakpoint list. */
@@ -1106,6 +1514,7 @@ describe('the manager and the gem, together (integration)', () => {
 
     await expect(applyBreakpointRules(session(), process, specs)).resolves.toEqual({
       kind: 'stopped',
+      context: process,
       skipped: 149,
     });
 
@@ -1204,7 +1613,7 @@ describe('the manager and the gem, together (integration)', () => {
     // Twenty disarmed loop hits passed over, then `^ total` stopped as the plain
     // breakpoint it is. The loop never stops, because its trigger only fires at
     // the very end of the run.
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 20 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 20 });
     expect(debugQueries.getStepPoint(session(), process, 1)).toBe(ret.stepPoint);
 
     try {
