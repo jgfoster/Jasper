@@ -1006,7 +1006,9 @@ export const debug = {
 };
 
 export class Breakpoint {
-  id = '';
+  // Unique, as VS Code's are: the breakpoint manager keys what it applied by id.
+  private static nextId = 0;
+  id = `bp-${++Breakpoint.nextId}`;
   enabled = true;
   condition?: string;
   hitCondition?: string;

@@ -71,7 +71,10 @@ function makeDocument(uriStr = METHOD_URI) {
 }
 
 function makeManager(applied: AppliedBreakpoint[] = []) {
-  return { appliedFor: vi.fn(() => applied) } as unknown as BreakpointManager;
+  return {
+    appliedFor: vi.fn(() => applied),
+    ruleOf: vi.fn((bp: AppliedBreakpoint) => ({ ...bp })),
+  } as unknown as BreakpointManager;
 }
 
 function hoverText(hover: import('vscode').Hover | null): string {

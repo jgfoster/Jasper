@@ -57,9 +57,11 @@ describe('triggered breakpoints: what the manifest offers', () => {
     );
   });
 
-  it('puts the row command inline on a GemStone Breakpoints row', () => {
+  it('puts the row command inline on a row for a breakpoint Jasper set', () => {
+    // A breakpoint set from topaz has no VS Code breakpoint to record a trigger
+    // against, so the button would only ever answer "there is no breakpoint".
     expect(entry('view/item/context', FROM_ROW)?.when).toBe(
-      'view == gemstoneBreakpoints && viewItem == gemstoneBreakpoint',
+      'view == gemstoneBreakpoints && viewItem == gemstoneBreakpointOwned',
     );
     expect(entry('view/item/context', FROM_ROW)?.group).toMatch(/^inline@/);
   });
@@ -110,6 +112,22 @@ describe('triggered breakpoints: what the manifest offers', () => {
     expect(entry('editor/lineNumber/context', id)?.when).toBe('resourceLangId == gemstone-method');
     expect(entry('commandPalette', id)?.when).toBe('false');
     expect(extensionSource).toContain(`registerCommand('${id}'`);
+  });
+
+  it('hides the step point command the hover links to, and registers it', () => {
+    const id = 'gemstone.breakpoints.editTriggerAtStepPoint';
+    expect(command(id)).toBeDefined();
+    expect(entry('commandPalette', id)?.when).toBe('false');
+    expect(extensionSource).toContain(`'${id}'`);
+  });
+
+  it('offers every other row action on both kinds of method row', () => {
+    for (const id of ['reveal', 'editCondition', 'remove', 'enable', 'disable']) {
+      const when = entry('view/item/context', `gemstone.breakpoints.${id}`)?.when ?? '';
+      const pattern = new RegExp(when.match(/viewItem =~ \/(.*)\/$/)?.[1] ?? '^$');
+      expect(pattern.test('gemstoneBreakpoint'), id).toBe(true);
+      expect(pattern.test('gemstoneBreakpointOwned'), id).toBe(true);
+    }
   });
 
   it('registers a handler for each declared command', () => {

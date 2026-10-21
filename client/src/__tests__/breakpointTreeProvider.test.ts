@@ -13,8 +13,8 @@ import {
   BreakpointNode,
   classLabel,
   groupBreakpoints,
-  ruleDescription,
 } from '../breakpointTreeProvider';
+import { rowDescription } from '../breakpointRuleText';
 import { SessionManager } from '../sessionManager';
 import { BreakpointManager } from '../breakpointManager';
 import { getAllBreakpoints, GemStoneBreakpoint } from '../browserQueries';
@@ -52,29 +52,29 @@ describe('classLabel', () => {
   });
 });
 
-describe('ruleDescription', () => {
+describe('rowDescription', () => {
   const TRIGGER = { uri: 'gemstone://1/Globals/Array/instance/accessing/size', stepPoint: 4 };
 
   it('says nothing for a breakpoint with no rule at all', () => {
-    expect(ruleDescription(undefined)).toBe('');
-    expect(ruleDescription({})).toBe('');
+    expect(rowDescription(undefined)).toBe('');
+    expect(rowDescription({})).toBe('');
   });
 
   it('names the breakpoint a triggered one is waiting for', () => {
-    expect(ruleDescription({ triggeredBy: TRIGGER })).toBe(' \u00b7 after Array>>size @4');
+    expect(rowDescription({ triggeredBy: TRIGGER })).toBe(' \u00b7 after Array>>size @4');
   });
 
   it('puts the trigger ahead of the condition', () => {
     // The trigger is why the row will not stop yet, which outranks the terms of
     // a stop it is not eligible for.
-    expect(ruleDescription({ triggeredBy: TRIGGER, condition: 'x > 1' })).toBe(
+    expect(rowDescription({ triggeredBy: TRIGGER, condition: 'x > 1' })).toBe(
       ' \u00b7 after Array>>size @4 \u00b7 if x > 1',
     );
   });
 
   it('still describes a plain condition and a logpoint', () => {
-    expect(ruleDescription({ condition: 'x > 1' })).toBe(' \u00b7 if x > 1');
-    expect(ruleDescription({ logMessage: 'hi' })).toBe(' \u00b7 logs');
+    expect(rowDescription({ condition: 'x > 1' })).toBe(' \u00b7 if x > 1');
+    expect(rowDescription({ logMessage: 'hi' })).toBe(' \u00b7 logs');
   });
 });
 
@@ -159,6 +159,8 @@ describe('BreakpointTreeProvider', () => {
     // The gem records no condition, so a row's condition can only come from
     // what Jasper applied. Undefined by default: most rows have none.
     ruleForStoneBreakpoint: vi.fn(() => undefined),
+    // Whether Jasper set the row's breakpoint. Undefined: a gem-only row.
+    appliedForStoneBreakpoint: vi.fn(() => undefined),
   } as unknown as BreakpointManager;
 
   beforeEach(() => {
@@ -300,10 +302,6 @@ describe('BreakpointTreeProvider', () => {
       // that can tell the developer their breakpoint is not going to stop every
       // time — and the condition is the thing they actually want to re-read.
       vi.mocked(manager.ruleForStoneBreakpoint).mockReturnValueOnce({
-        stepPoint: 3,
-        offset: 0,
-        line: 1,
-        enabled: true,
         condition: 'amount > 100',
       });
       const item = provider.getTreeItem({ kind: 'breakpoint', bp: bp() });
@@ -320,10 +318,6 @@ describe('BreakpointTreeProvider', () => {
     it('elides a long condition on the row but keeps it whole in the tooltip', () => {
       const long = 'anOrder customer name = ' + "'".repeat(2) + ' and this goes on for a while yet';
       vi.mocked(manager.ruleForStoneBreakpoint).mockReturnValue({
-        stepPoint: 3,
-        offset: 0,
-        line: 1,
-        enabled: true,
         condition: long,
       });
       const item = provider.getTreeItem({ kind: 'breakpoint', bp: bp() });

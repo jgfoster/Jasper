@@ -3360,6 +3360,12 @@ export function activate(context: vscode.ExtensionContext) {
         breakpointManager.editConditionAtStepPoint(vscode.Uri.parse(arg.uri), arg.stepPoint),
     ),
 
+    vscode.commands.registerCommand(
+      'gemstone.breakpoints.editTriggerAtStepPoint',
+      (arg: { uri: string; stepPoint: number }) =>
+        breakpointManager.editTriggerAtStepPoint(vscode.Uri.parse(arg.uri), arg.stepPoint),
+    ),
+
     vscode.commands.registerCommand('gemstone.breakpoints.enableAll', () =>
       breakpointManager.setAllEnabled(true),
     ),
@@ -3379,7 +3385,7 @@ export function activate(context: vscode.ExtensionContext) {
     ),
 
     vscode.commands.registerCommand('gemstone.breakpoints.reveal', (node?: BreakpointNode) =>
-      revealBreakpoint(sessionManager, node),
+      revealBreakpoint(sessionManager, breakpointManager, node),
     ),
 
     vscode.commands.registerCommand('gemstone.breakpoints.editCondition', (node?: BreakpointNode) =>

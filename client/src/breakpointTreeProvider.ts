@@ -5,8 +5,7 @@ import * as queries from './browserQueries';
 import { GemStoneBreakpoint } from './browserQueries';
 import { BreakpointManager } from './breakpointManager';
 import { loginLabel } from './loginTypes';
-import { methodSourceRef } from './languageIds';
-import { methodLabel } from './methodResultsPicker';
+import { RuleParts, appendRuleMarkdown, rowDescription } from './breakpointRuleText';
 
 /**
  * The session heading, a class (or metaclass) heading under it, or one
@@ -17,53 +16,6 @@ export type BreakpointNode =
   | { kind: 'class'; className: string; isMeta: boolean; breakpoints: GemStoneBreakpoint[] }
   | { kind: 'breakpoint'; bp: GemStoneBreakpoint }
   | { kind: 'notice'; text: string; icon?: string };
-
-/**
- * How much of a condition a row shows before eliding it. A row is one line and
- * has a selector and a step point to fit as well; the tooltip has the rest.
- */
-const MAX_ROW_CONDITION = 40;
-
-/**
- * A rule as a row's trailing description, beside its step point.
- *
- * A logpoint says `logs` rather than repeating its message: the message is prose
- * and a row is one line, and what the reader needs from the row is which *kind*
- * of breakpoint this is. The message is in the tooltip.
- */
-export function ruleDescription(rule?: {
-  condition?: string;
-  logMessage?: string;
-  triggeredBy?: { uri: string; stepPoint: number };
-}): string {
-  if (!rule) return '';
-  const parts: string[] = [];
-  // The trigger comes first: it is the reason the breakpoint is not going to
-  // stop yet, which outranks the terms of a stop it is not eligible for.
-  if (rule.triggeredBy) parts.push(`after ${elide(triggerLabel(rule.triggeredBy))}`);
-  if (rule.condition !== undefined) parts.push(`if ${elide(rule.condition)}`);
-  if (rule.logMessage !== undefined) parts.push('logs');
-  return parts.length === 0 ? '' : ` \u00b7 ${parts.join(' \u00b7 ')}`;
-}
-
-/**
- * How a trigger reads on the row that waits for it — `Account>>deposit: @4`.
- *
- * Falls back to the step point alone when the URI no longer parses as a method,
- * which is what a row shows for the moment between a method being recompiled and
- * the trigger being swept: "after @4" is thin, but it is not wrong.
- */
-function triggerLabel(ref: { uri: string; stepPoint: number }): string {
-  const method = methodSourceRef(vscode.Uri.parse(ref.uri));
-  return method ? `${methodLabel(method)} @${ref.stepPoint}` : `@${ref.stepPoint}`;
-}
-
-function elide(text: string): string {
-  const oneLine = text.replace(/\s+/g, ' ').trim();
-  return oneLine.length > MAX_ROW_CONDITION
-    ? `${oneLine.slice(0, MAX_ROW_CONDITION - 1)}\u2026`
-    : oneLine;
-}
 
 /** Label for a class heading — `Foo class` for the metaclass, as Smalltalk writes it. */
 export function classLabel(className: string, isMeta: boolean): string {
@@ -248,22 +200,32 @@ export class BreakpointTreeProvider implements vscode.TreeDataProvider<Breakpoin
     const bp = element.bp;
     const rule = this.breakpoints.ruleForStoneBreakpoint(bp);
     const item = new vscode.TreeItem(bp.selector === '' ? '(executed code)' : bp.selector);
-    item.description = `@ ${bp.stepPoint}${ruleDescription(rule)}`;
+    item.description = `@ ${bp.stepPoint}${rowDescription(rule)}`;
     item.checkboxState = bp.disabled
       ? vscode.TreeItemCheckboxState.Unchecked
       : vscode.TreeItemCheckboxState.Checked;
     item.tooltip = breakpointTooltip(bp, rule);
-    // A conditional breakpoint gets the icon VS Code's own Breakpoints view
-    // gives one, so the two views agree on sight. The plain rows keep no icon at
-    // all: their checkbox already carries enabled-vs-disabled, and an icon on
-    // every row would make the conditional ones harder to pick out, not easier.
+    // A conditional breakpoint or a logpoint gets the icon VS Code's own
+    // Breakpoints view gives it, so the two views agree on sight. A breakpoint
+    // that only waits on a trigger has no VS Code counterpart, and keeps the
+    // plain row. The plain rows keep no icon at all: their checkbox already
+    // carries enabled-vs-disabled, and an icon on every row would make the
+    // conditional ones harder to pick out, not easier.
     if (rule?.logMessage !== undefined) {
       item.iconPath = new vscode.ThemeIcon('debug-breakpoint-log');
     } else if (rule?.condition !== undefined) {
       item.iconPath = new vscode.ThemeIcon('debug-breakpoint-conditional');
     }
-    // Only a real method can be opened; a doit's source is long gone.
-    item.contextValue = bp.selector === '' ? 'gemstoneBreakpointDoit' : 'gemstoneBreakpoint';
+    // Only a real method can be opened; a doit's source is long gone. And only
+    // a breakpoint Jasper set can wait for another one: a trigger is recorded
+    // against a breakpoint in VS Code's list, which one set from topaz, say, is
+    // not in.
+    item.contextValue =
+      bp.selector === ''
+        ? 'gemstoneBreakpointDoit'
+        : this.breakpoints.appliedForStoneBreakpoint(bp)
+          ? 'gemstoneBreakpointOwned'
+          : 'gemstoneBreakpoint';
     if (bp.selector !== '') {
       item.command = {
         title: 'Reveal in source',
@@ -328,14 +290,7 @@ export class BreakpointTreeProvider implements vscode.TreeDataProvider<Breakpoin
   }
 }
 
-function breakpointTooltip(
-  bp: GemStoneBreakpoint,
-  rule?: {
-    condition?: string;
-    logMessage?: string;
-    triggeredBy?: { uri: string; stepPoint: number };
-  },
-): vscode.MarkdownString {
+function breakpointTooltip(bp: GemStoneBreakpoint, rule?: RuleParts): vscode.MarkdownString {
   const md = new vscode.MarkdownString();
   const where =
     bp.className === ''
@@ -344,99 +299,98 @@ function breakpointTooltip(
   md.appendMarkdown(`**${where}**\n\nStep point ${bp.stepPoint}`);
   if (bp.disabled) md.appendMarkdown(' — disabled');
   // In full, and unelided — the row above had to cut it short.
-  if (rule?.condition !== undefined) {
-    md.appendMarkdown(
-      `\n\n${rule.logMessage === undefined ? 'Stops only when' : 'Logs only when'}:` +
-        `\n\n\`\`\`smalltalk\n${rule.condition}\n\`\`\``,
-    );
-  }
-  if (rule?.logMessage !== undefined) {
-    md.appendMarkdown(
-      `\n\nWrites to the **GemStone Logpoints** panel in Output, without stopping:` +
-        `\n\n\`\`\`\n${rule.logMessage}\n\`\`\``,
-    );
-  }
-  if (rule?.triggeredBy) {
-    md.appendMarkdown(
-      `\n\nArmed only once **${triggerLabel(rule.triggeredBy)}** has been reached. ` +
-        'Until then it is passed over. Arming starts over on each run.',
-    );
-  }
+  if (rule) appendRuleMarkdown(md, rule);
   if (bp.dictName) md.appendMarkdown(`\n\nDictionary: ${bp.dictName}`);
   if (bp.environmentId > 0) md.appendMarkdown(`\n\nEnvironment: ${bp.environmentId}`);
   return md;
 }
 
 /**
- * Open the method a breakpoint is in and put the caret on the step point.
+ * Open this row's method, then ask for the condition on its breakpoint.
  *
- * The step point is resolved from the *stone's* offsets for the method just
- * opened, rather than trusting the line the gem reported, so the selection lands
- * on the token that will actually break.
+ * Revealed first: the condition is about this method's code, and seeing it is
+ * most of the point of editing it from a row rather than from the gutter.
  */
 export async function editBreakpointCondition(
   sessionManager: SessionManager,
   breakpoints: BreakpointManager,
   node?: BreakpointNode,
 ): Promise<void> {
-  if (node?.kind !== 'breakpoint') return;
-  const bp = node.bp;
-  if (bp.selector === '' || bp.className === '') return;
-
-  // Reveal first: the condition is edited against the method's open editor, and
-  // seeing the code the condition is about is most of the point of editing it
-  // from a row rather than from the gutter.
-  await revealBreakpoint(sessionManager, node);
-  const editor = vscode.window.activeTextEditor;
-  if (!editor) return;
-  await breakpoints.editConditionAtStepPoint(editor.document.uri, bp.stepPoint);
+  await revealThen(sessionManager, breakpoints, node, (uri, stepPoint) =>
+    breakpoints.editConditionAtStepPoint(uri, stepPoint),
+  );
 }
 
 /**
- * Ask which breakpoint has to be reached before this row's one stops.
- *
- * Reveals first for the same reason editing a condition does: the answer is
- * about this method's code, and a picker over a file you cannot see is a guess.
+ * Open this row's method, then ask which breakpoint has to be reached before
+ * its breakpoint stops — a picker over a file you cannot see is a guess.
  */
 export async function editBreakpointTrigger(
   sessionManager: SessionManager,
   breakpoints: BreakpointManager,
   node?: BreakpointNode,
 ): Promise<void> {
-  if (node?.kind !== 'breakpoint') return;
-  const bp = node.bp;
-  if (bp.selector === '' || bp.className === '') return;
-
-  await revealBreakpoint(sessionManager, node);
-  const editor = vscode.window.activeTextEditor;
-  if (!editor) return;
-  await breakpoints.editTriggerAtStepPoint(editor.document.uri, bp.stepPoint);
+  await revealThen(sessionManager, breakpoints, node, (uri, stepPoint) =>
+    breakpoints.editTriggerAtStepPoint(uri, stepPoint),
+  );
 }
 
-export async function revealBreakpoint(
+/**
+ * Reveal a row's breakpoint, then act on it through the URI that was opened.
+ *
+ * That URI, not whichever editor is active afterwards: when the open fails the
+ * active editor is some unrelated method, and step point N of it is the wrong
+ * breakpoint.
+ */
+async function revealThen(
   sessionManager: SessionManager,
-  node?: BreakpointNode,
+  breakpoints: BreakpointManager,
+  node: BreakpointNode | undefined,
+  act: (uri: vscode.Uri, stepPoint: number) => Promise<void>,
 ): Promise<void> {
   if (node?.kind !== 'breakpoint') return;
+  const uri = await revealBreakpoint(sessionManager, breakpoints, node);
+  if (uri) await act(uri, node.bp.stepPoint);
+}
+
+/**
+ * Open the method a breakpoint is in and put the caret on the step point.
+ * Answers the URI it opened, or undefined when there was nothing to open.
+ *
+ * Opens the editor the breakpoint was set in when Jasper set it, so its red dot
+ * is there to see; the Explorer opens a method under a URI of its own, and a
+ * second editor built from what the gem reports would be the same method
+ * without it. The step point is resolved from the *stone's* offsets for the
+ * method just opened, rather than trusting the line the gem reported, so the
+ * selection lands on the token that will actually break.
+ */
+export async function revealBreakpoint(
+  sessionManager: SessionManager,
+  breakpoints: BreakpointManager,
+  node?: BreakpointNode,
+): Promise<vscode.Uri | undefined> {
+  if (node?.kind !== 'breakpoint') return undefined;
   const bp = node.bp;
-  if (bp.selector === '' || bp.className === '') return;
+  if (bp.selector === '' || bp.className === '') return undefined;
 
   const session = sessionManager.getSelectedSession();
-  if (!session) return;
+  if (!session) return undefined;
 
-  const uri = buildMethodUri({
-    kind: 'method',
-    sessionId: session.id,
-    dictName: bp.dictName || 'Globals',
-    className: bp.className,
-    isMeta: bp.isMeta,
-    // The category only labels the URI path; the file system provider resolves
-    // the method by class and selector. 'other' keeps the path well-formed when
-    // the gem couldn't name a category (an inherited or removed method).
-    category: bp.category || 'other',
-    selector: bp.selector,
-    environmentId: bp.environmentId,
-  });
+  const uri =
+    breakpoints.uriForStoneBreakpoint(bp) ??
+    buildMethodUri({
+      kind: 'method',
+      sessionId: session.id,
+      dictName: bp.dictName || 'Globals',
+      className: bp.className,
+      isMeta: bp.isMeta,
+      // The category only labels the URI path; the file system provider resolves
+      // the method by class and selector. 'other' keeps the path well-formed when
+      // the gem couldn't name a category (an inherited or removed method).
+      category: bp.category || 'other',
+      selector: bp.selector,
+      environmentId: bp.environmentId,
+    });
 
   const document = await vscode.workspace.openTextDocument(uri);
   const editor = await vscode.window.showTextDocument(document, { preview: false });
@@ -451,10 +405,10 @@ export async function revealBreakpoint(
       bp.environmentId,
     );
   } catch {
-    return;
+    return uri;
   }
   const at = offsets[bp.stepPoint - 1];
-  if (at === undefined) return;
+  if (at === undefined) return uri;
 
   const position = document.positionAt(at - 1); // _sourceOffsets is 1-based
   editor.selection = new vscode.Selection(position, position);
@@ -462,4 +416,5 @@ export async function revealBreakpoint(
     new vscode.Range(position, position),
     vscode.TextEditorRevealType.InCenterIfOutsideViewport,
   );
+  return uri;
 }

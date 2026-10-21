@@ -1,6 +1,22 @@
 import * as vscode from 'vscode';
 import { StepPointModel, stepPointAtOffset, rangesForStepPoint } from './stepPointModel';
 import { BreakpointManager } from './breakpointManager';
+import { appendRuleMarkdown } from './breakpointRuleText';
+
+/**
+ * The commands the hover's links run. The hover is trusted for these alone, not
+ * wholesale: it shows the developer's condition and log message, and full trust
+ * would run any command link written into one.
+ */
+const HOVER_COMMANDS = [
+  'gemstone.breakpoints.toggleAtStepPoint',
+  'gemstone.breakpoints.clearAtStepPoint',
+  'gemstone.breakpoints.enableAtStepPoint',
+  'gemstone.breakpoints.disableAtStepPoint',
+  'gemstone.breakpoints.editConditionAtStepPoint',
+  'gemstone.breakpoints.editTriggerAtStepPoint',
+  'gemstone.breakpoints.showLogpointOutput',
+];
 
 /**
  * Tells you the step point under the pointer, and lets you act on it.
@@ -45,7 +61,7 @@ export class StepPointHoverProvider implements vscode.HoverProvider {
       .find((bp) => bp.stepPoint === resolved.stepPoint);
 
     const md = new vscode.MarkdownString();
-    md.isTrusted = true;
+    md.isTrusted = { enabledCommands: HOVER_COMMANDS };
     md.supportThemeIcons = true;
     md.appendMarkdown(`**Step point ${resolved.stepPoint}** of ${info.offsets.length}`);
 
@@ -65,18 +81,7 @@ export class StepPointHoverProvider implements vscode.HoverProvider {
       );
       // In full, unelided — the label beside the code shortens a long one, and
       // this is where the rest of it lives.
-      if (applied.condition !== undefined) {
-        md.appendMarkdown(
-          `\n\n${logs ? 'Logs only when' : 'Stops only when'}:` +
-            `\n\n\`\`\`smalltalk\n${applied.condition}\n\`\`\``,
-        );
-      }
-      if (applied.logMessage !== undefined) {
-        md.appendMarkdown(
-          `\n\nWrites to the **GemStone Logpoints** panel in Output, without stopping:` +
-            `\n\n\`\`\`\n${applied.logMessage}\n\`\`\``,
-        );
-      }
+      appendRuleMarkdown(md, this.breakpoints.ruleOf(applied));
     }
 
     const arg = encodeURIComponent(
@@ -96,6 +101,11 @@ export class StepPointHoverProvider implements vscode.HoverProvider {
         applied.condition === undefined
           ? `[$(debug-breakpoint-conditional) Add condition](command:gemstone.breakpoints.editConditionAtStepPoint?${arg} "Only stop here when an expression answers true")`
           : `[$(debug-breakpoint-conditional) Edit condition](command:gemstone.breakpoints.editConditionAtStepPoint?${arg} "Change the condition on the breakpoint at step point ${resolved.stepPoint}")`,
+      );
+      links.push(
+        applied.triggeredBy === undefined
+          ? `[$(debug-breakpoint-unverified) Break only after…](command:gemstone.breakpoints.editTriggerAtStepPoint?${arg} "Only stop here once another breakpoint has been reached")`
+          : `[$(debug-breakpoint-unverified) Edit trigger](command:gemstone.breakpoints.editTriggerAtStepPoint?${arg} "Change which breakpoint has to be reached before this one stops")`,
       );
       // A logpoint's output is in a panel that has to be found; from here it is
       // one click.
