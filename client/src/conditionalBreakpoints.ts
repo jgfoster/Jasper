@@ -673,8 +673,10 @@ export interface RuleRunOptions {
   /**
    * Handed the loop's cancel, for a caller with a Cancel of its own (the
    * debugger's busy overlay). The same thing the notification's Cancel does.
+   * Also handed `stopRequested`, shaped like the non-blocking runner's, which
+   * answers whether either Cancel has been used.
    */
-  onStart?: (cancel: () => void) => void;
+  onStart?: (cancel: () => void, stopRequested: () => boolean) => void;
   /** Skip the loop's own progress notification; see `onStart`. */
   suppressNotification?: boolean;
 }
@@ -720,7 +722,7 @@ export async function applyBreakpointRules(
       logError(session.id, `Could not send a soft break: ${errorText(e)}`);
     }
   };
-  options.onStart?.(cancel);
+  options.onStart?.(cancel, () => cancelled);
 
   // The hard break has already rejected the run, so nobody else will release
   // what it stopped.

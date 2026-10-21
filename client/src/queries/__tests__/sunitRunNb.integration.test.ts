@@ -197,6 +197,20 @@ describe('SUnit non-blocking runs (integration)', () => {
     ).resolves.toMatchObject({ status: 'passed' });
   }, 120_000);
 
+  it('answers a test stopped with one press with the Break as its error', async () => {
+    // The Testing view recognises a stop it asked for by this answer, and reports
+    // it as stopped rather than blaming the test; see sunitTestController.
+    installSlowTest();
+    const { run, cancel } = await startSlowRun();
+
+    cancel();
+
+    await expect(run).resolves.toMatchObject({
+      status: 'error',
+      message: expect.stringMatching(/^Break: /),
+    });
+  }, 120_000);
+
   it('takes a second press without faulting the client', async () => {
     // Pressing stop twice in a row is the gesture that once faulted the client
     // process outright, because the hard break went out on the heels of the soft

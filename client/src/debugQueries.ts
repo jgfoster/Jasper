@@ -1169,17 +1169,28 @@ export function stepOut(session: ActiveSession, gsProcess: bigint, level: number
  * Issue a step message non-blocking and resolve with its StepResult. A halt /
  * breakpoint / error stopping the process is a normal outcome (completed=false
  * with errorMessage), NOT a thrown error — only an outright GCI failure rejects.
+ *
+ * The level's OOP is made inside the start, like every GCI call here, so none
+ * is made before runNbCall knows the session is free (see whenSessionFree).
  */
 function performStepNb(
   session: ActiveSession,
   gsProcess: bigint,
   selector: string,
-  args: bigint[],
+  level: number,
   opts: NbRunOptions,
 ): Promise<StepResult> {
   return runNbCall(
     session,
-    () => session.GciTsNbPerform(gsProcess, OOP_ILLEGAL, selector, args, STEP_FLAGS, 0),
+    () =>
+      session.GciTsNbPerform(
+        gsProcess,
+        OOP_ILLEGAL,
+        selector,
+        [intToOop(session, level)],
+        STEP_FLAGS,
+        0,
+      ),
     () => {
       const { result, err } = session.GciTsNbResult();
       if (err.number !== 0) {
@@ -1205,9 +1216,8 @@ export async function stepOverNb(
   level: number,
   opts: NbRunOptions = {},
 ): Promise<StepResult> {
-  const levelOop = intToOop(session, level);
   logInfo(`[Session ${session.id}] Debug: stepOver (nb) from level ${level}`);
-  return await performStepNb(session, gsProcess, 'gciStepOverFromLevel:', [levelOop], {
+  return await performStepNb(session, gsProcess, 'gciStepOverFromLevel:', level, {
     title: 'GemStone: stepping over…',
     ...opts,
   });
@@ -1219,9 +1229,8 @@ export async function stepIntoNb(
   level: number,
   opts: NbRunOptions = {},
 ): Promise<StepResult> {
-  const levelOop = intToOop(session, level);
   logInfo(`[Session ${session.id}] Debug: stepInto (nb) from level ${level}`);
-  return await performStepNb(session, gsProcess, 'gciStepIntoFromLevel:', [levelOop], {
+  return await performStepNb(session, gsProcess, 'gciStepIntoFromLevel:', level, {
     title: 'GemStone: stepping into…',
     ...opts,
   });
@@ -1233,9 +1242,8 @@ export async function stepThruNb(
   level: number,
   opts: NbRunOptions = {},
 ): Promise<StepResult> {
-  const levelOop = intToOop(session, level);
   logInfo(`[Session ${session.id}] Debug: stepThru (nb) from level ${level}`);
-  return await performStepNb(session, gsProcess, 'gciStepThruFromLevel:', [levelOop], {
+  return await performStepNb(session, gsProcess, 'gciStepThruFromLevel:', level, {
     title: 'GemStone: stepping through…',
     ...opts,
   });
@@ -1309,11 +1317,19 @@ export async function trimStackToLevelNb(
   level: number,
   opts: NbRunOptions = {},
 ): Promise<void> {
-  const levelOop = intToOop(session, level);
   logInfo(`[Session ${session.id}] Debug: trimStackToLevel (nb) ${level}`);
   return await runNbCall(
     session,
-    () => session.GciTsNbPerform(gsProcess, OOP_ILLEGAL, 'trimStackToLevel:', [levelOop], 0, 0),
+    // The level's OOP is made inside the start; see performStepNb.
+    () =>
+      session.GciTsNbPerform(
+        gsProcess,
+        OOP_ILLEGAL,
+        'trimStackToLevel:',
+        [intToOop(session, level)],
+        0,
+        0,
+      ),
     () => {
       const { err } = session.GciTsNbResult();
       if (err.number !== 0) {
@@ -1398,24 +1414,33 @@ export async function evaluateInFrameNb(
   level: number,
   opts: NbRunOptions = {},
 ): Promise<string> {
-  const { selfOop, selfIsUnavailable, names, oops } = getFrameEvalContext(
-    session,
-    gsProcess,
-    level,
-  );
-
-  const { result: exprOop, err: strErr } = session.GciTsNewString(expression);
-  if (strErr.number !== 0) {
-    throw new Error(strErr.message || 'Cannot create expression string');
-  }
-
-  const symbolListOop = buildFrameSymbolList(session, names, oops) ?? sessionSymbolListOop(session);
   const selector = 'evaluateInContext:symbolList:';
-  const args = [selfOop, symbolListOop];
+  let selfIsUnavailable = false;
 
   return await runNbCall(
     session,
-    () => session.GciTsNbPerform(exprOop, OOP_ILLEGAL, selector, args, 0, 0),
+    // The frame setup is GCI calls too, so it goes inside the start, which
+    // runNbCall makes only once the session is free; see whenSessionFree.
+    () => {
+      const context = getFrameEvalContext(session, gsProcess, level);
+      selfIsUnavailable = context.selfIsUnavailable;
+
+      const { result: exprOop, err: strErr } = session.GciTsNewString(expression);
+      if (strErr.number !== 0) {
+        throw new Error(strErr.message || 'Cannot create expression string');
+      }
+
+      const symbolListOop =
+        buildFrameSymbolList(session, context.names, context.oops) ?? sessionSymbolListOop(session);
+      return session.GciTsNbPerform(
+        exprOop,
+        OOP_ILLEGAL,
+        selector,
+        [context.selfOop, symbolListOop],
+        0,
+        0,
+      );
+    },
     () => {
       const { result, err } = session.GciTsNbResult();
       if (err.number !== 0) {

@@ -665,6 +665,27 @@ describe('applyBreakpointRules', () => {
       expect(breaks).toEqual([]);
     });
 
+    it('tells a caller with its own Cancel whether a stop has been asked for', async () => {
+      let cancel = (): void => {};
+      let stopRequested = (): boolean => false;
+      const asked: boolean[] = [];
+      const { session } = stubSession([DECISION.Log, DECISION.Log], [hitsBreakpoint(8n)], 'x');
+
+      await applyBreakpointRules(session, 7n, [spec({ logMessage: "'x'" })], {
+        onStart: (c, requested) => {
+          cancel = c;
+          stopRequested = requested;
+        },
+        onLog: () => {
+          asked.push(stopRequested());
+          cancel();
+          asked.push(stopRequested());
+        },
+      });
+
+      expect(asked).toEqual([false, true]);
+    });
+
     it('sends a soft break to a resume that is running', async () => {
       // Otherwise Cancel waits for the next hit, which slow code between hits
       // may not reach for a long time, or ever.
