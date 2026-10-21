@@ -107,6 +107,11 @@ export interface BreakpointRule {
    * An index rather than a method-and-step-point pair because the decider works
    * in indices already: the arming state is one Array parallel to the specs, so
    * a trigger firing is a single at:put: rather than another lookup.
+   *
+   * A rule may name its **own** index: that is how a breakpoint whose trigger
+   * was disabled or removed is kept disarmed. It works because a breakpoint
+   * still waiting arms nothing — itself included — so it is passed over on
+   * every hit.
    */
   triggeredBy?: number;
 }

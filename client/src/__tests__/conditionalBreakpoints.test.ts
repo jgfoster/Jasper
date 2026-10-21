@@ -98,6 +98,18 @@ describe('deciderSource', () => {
     expect(source).toContain('(armed at: idx) not');
   });
 
+  it('lets a breakpoint that waits on itself stay disarmed for good', () => {
+    // How a breakpoint whose trigger was disabled or removed is kept disarmed:
+    // its rule names its own index. A waiting breakpoint answers Go before the
+    // arming sweep is reached, so it arms nothing — itself included. The live
+    // proof is the integration test of the same name.
+    const source = decider([spec({ triggeredBy: 1 })]);
+    expect(source).toContain('with: 1).');
+    expect(source.indexOf('(armed at: idx) not')).toBeLessThan(
+      source.indexOf('armed at: k put: true'),
+    );
+  });
+
   it('arms every spec that names the one just reached', () => {
     // A sweep of the whole array, not a single at:put:, so one trigger can arm
     // several breakpoints at once.

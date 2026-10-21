@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { stamp } from './gciLog';
 
 /**
  * Where logpoints write.
@@ -22,19 +23,13 @@ export function getLogpointChannel(): vscode.OutputChannel {
   return channel;
 }
 
-/** Local wall-clock time as `[HH:MM:SS.mmm]`, matching the GCI log's prefix. */
-function stamp(): string {
-  const d = new Date();
-  const pad = (n: number, width = 2): string => n.toString().padStart(width, '0');
-  return `[${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}]`;
-}
-
 /**
  * Write one logpoint's line.
  *
- * Timestamped, because the interesting thing about a logpoint on a loop is
- * usually *when* and *how often* rather than any one line, and a logpoint's
- * output does not interleave with the Transcript's in any guaranteed order.
+ * Timestamped with the GCI log's own prefix, because the interesting thing
+ * about a logpoint on a loop is usually *when* and *how often* rather than any
+ * one line, and a logpoint's output does not interleave with the Transcript's
+ * in any guaranteed order.
  * `where` names the method and step point so two logpoints in one run are
  * distinguishable.
  */
@@ -47,7 +42,7 @@ export function showLogpointChannel(): void {
   getLogpointChannel().show(true);
 }
 
-/** Drop the channel, for tests and for `deactivate`. */
+/** Drop the channel, for tests. In the extension it is disposed with `context.subscriptions`. */
 export function disposeLogpointChannel(): void {
   channel?.dispose();
   channel = undefined;
