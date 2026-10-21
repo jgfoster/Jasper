@@ -3322,7 +3322,7 @@ export function activate(context: vscode.ExtensionContext) {
       vscode.window.showInformationMessage(
         "VS Code's Add Triggered Breakpoint, and Wait for Breakpoint in Edit Breakpoint, " +
           "don't work in Jasper yet: the breakpoint stops every time. To make a " +
-          'breakpoint wait for another one, use Break Only After… on its row in the GemStone ' +
+          'breakpoint wait for another one, use the Break Only After… icon on its row in the GemStone ' +
           "Breakpoints view, or Edit Breakpoint Trigger at Cursor in the editor's right-click menu.",
       );
     }),

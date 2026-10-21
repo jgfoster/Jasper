@@ -363,13 +363,14 @@ the thing it was set in goes away:
   stop only when it answers `true`. Set one VS Code's way (right-click the gutter
   → _Add Conditional Breakpoint_, or _Edit Breakpoint_ on an existing one), or
   Jasper's: **Edit Breakpoint Condition at Cursor** from the editor's right-click
-  menu, the _Add/Edit condition_ link on the step-point hover, or the ✎ on a row
-  in the **GemStone Breakpoints** view. The condition is written at the end of the
+  menu, the _Add/Edit condition_ link on the step-point hover, or the **Edit
+  Condition…** icon on a row in the **GemStone Breakpoints** view. The condition is written at the end of the
   line it guards, dimmed, as `Break if each > 900`, so you can read it without
   going looking for it, and
   the gutter shows VS Code's own conditional-breakpoint icon. Set
-  `gemstone.breakpoints.showConditionInEditor` to `false` if you would rather not
-  have it there — the icon, the hover and the Breakpoints view still show it.
+  `gemstone.breakpoints.showRulesInEditor` to `false` if you would rather not
+  have it there (it covers log messages and triggers too) — the icon, the hover
+  and the Breakpoints view still show it.
 
   The expression is evaluated **in the suspended frame**, so it can name the
   method's arguments and temporaries, the block's own variables, `self`, instance
@@ -381,30 +382,42 @@ the thing it was set in goes away:
   GemStone has no conditional breakpoints of its own — a method breakpoint always
   stops the process and tells the client — so Jasper evaluates the condition
   afterwards and resumes the process when it does not hold. A skipped hit costs
-  two round trips to the stone (one to judge the condition in the suspended
-  frame, one to resume), which measured **about 0.25 ms per skipped hit** against
-  a local stone — 900 skips in a quarter of a second. Over a slower link it grows
-  with the latency, so a condition that skips tens of thousands of hits will be
-  felt. Past a second and a half a cancellable progress notification appears, and
-  cancelling stops at whatever hit it has reached. Your code is never rewritten or
-  recompiled to make any of this work, and nothing is written to the repository. A
-  breakpoint reached while skipping still stops if _it_ has no condition, and an
-  error raised by your code while skipping opens the debugger on the error
+  three round trips to the stone (two to judge the condition in the suspended
+  frame and read the answer, one to resume), and a fourth when it logs. Over a
+  slower link that grows with the latency, so a condition that skips tens of
+  thousands of hits will be felt. Past a second and a half a cancellable progress
+  notification appears, and cancelling stops at whatever hit it has reached; a
+  condition that runs slowly, or never finishes, can be cancelled the same way.
+  Your code is never rewritten or recompiled to make any of this work, and nothing
+  is written to the repository. A breakpoint reached while skipping still stops if
+  _it_ has no condition, and an error raised by your code while skipping opens the
+  debugger on the error, not on the breakpoint being skipped past.
+
+  Conditions, logpoints and triggers hold for the **whole run**. Resume and Run
+  to Cursor in the GemStone Debugger pass over the same hits the first stop did,
+  so opening the debugger part way through does not switch them off. Stepping is
+  never filtered: a step stops at the next step point, whatever rule is on it. A
+  `Transcript show:` in the code being skipped is written to the Transcript output
+  and the run carries on
 
 - **Triggered breakpoints — stop here, but only once that has happened.** Tell a
   breakpoint to stay out of the way until another one has been reached:
-  **Break Only After…** on a row in the **GemStone Breakpoints** view, or
-  **Edit Breakpoint Trigger at Cursor** from the editor's right-click menu. Both
-  offer every other breakpoint in the session. Until the trigger is reached the
+  the **Break Only After…** icon on a row in the **GemStone Breakpoints** view,
+  **Edit Breakpoint Trigger at Cursor** from the editor's right-click menu, or the
+  _Break only after…_ link on the step-point hover. Each offers every other
+  breakpoint in the session. Until the trigger is reached the
   breakpoint is passed over; afterwards it stops as usual, and its own condition
   (if it has one) still has to hold. The line says `Break after Account>>deposit: @4`
   so a breakpoint that is deliberately not stopping cannot be mistaken for a
   broken one, and the Breakpoints row says it too.
 
-  Arming lasts for **one run** and starts over on the next. A trigger that goes on
-  to stop the run arms what waits on it first, and a _logpoint_ makes a good
-  trigger because it arms without stopping. Several breakpoints can wait on the
-  same one. The arming costs nothing per hit: it rides along in the same judgement
+  Arming lasts for **one run**, through any stops in the debugger along the way,
+  and starts over on the next. A trigger that goes on to stop the run arms what
+  waits on it first, so Resume carries on with it armed, and a _logpoint_ makes a
+  good trigger because it arms without stopping. Several breakpoints can wait on
+  the same one. A breakpoint waiting on one that is disabled or removed stays
+  disarmed, and its label says so (`Break after Account>>deposit: @4 (disabled)`).
+  Removing a breakpoint drops its trigger too. The arming costs nothing per hit: it rides along in the same judgement
   that already handles conditions, so it is a flag flipped in the gem rather than
   another round trip.
 
@@ -419,7 +432,8 @@ the thing it was set in goes away:
 - **Logpoints — print without stopping, and without editing the method.** Right-click
   the gutter → _Add Logpoint…_ and type a message. Every time the breakpoint is
   reached, the message is written to the **GemStone Logpoints** panel in Output
-  and execution carries straight on. It is the `Transcript show:` you would
+  and execution carries straight on, even after the debugger has opened on the
+  run. It is the `Transcript show:` you would
   otherwise add — except there is nothing to compile, nothing to commit, and
   nothing to remember to take out afterwards, and it works on code you cannot or
   should not edit.
@@ -432,7 +446,8 @@ the thing it was set in goes away:
   message has, it costs one evaluation.
 
   Give a logpoint a **condition** as well and it logs only when the condition
-  holds — and still never stops. Each line names the method and step point that
+  holds — and still never stops. An ordinary breakpoint on the same step point as
+  a logpoint still stops there. Each line names the method and step point that
   wrote it (`Account>>deposit: @4`, with `[env 1]` when the method is not in
   environment 0) and carries a timestamp, so two logpoints in one run stay
   distinguishable. A message that cannot be evaluated — naming a variable the
@@ -477,8 +492,9 @@ The **Breakpoints** view in the GemStone sidebar lists what the current session'
 gem actually holds, under a heading naming that session — a breakpoint is per-gem
 state, so without it a row is a breakpoint in an unnamed stone, and switching the
 selected session switches the whole list. Beneath the heading they are grouped by
-class and method, with the step point each breakpoint resolved to and, for a
-conditional one, its condition. It shows breakpoints Jasper never set, which are
+class and method, with the step point each breakpoint resolved to and what it
+waits for: `if …` for a condition, `logs` for a logpoint, `after …` for a
+triggered breakpoint, all in full in the row's tooltip. It shows breakpoints Jasper never set, which are
 otherwise invisible until execution stops on one. Rows carry an enable checkbox;
 clicking one opens the method with the caret on the step point. The view reads
 only the selected session's gem — it does not go asking every session you are
