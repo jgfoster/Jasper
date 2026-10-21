@@ -1350,6 +1350,23 @@ describe('SunitTestController', () => {
       ctrl.dispose();
     });
 
+    it("skips the rest of a run's tests once one of them is stopped", async () => {
+      // A row's ■ reaches only the test in flight; the rest of the run must not go
+      // on without it, or be refused one by one while that test's gem finishes.
+      const held = heldRun<typeof BREAK_ANSWER>();
+      vi.mocked(sunit.runTestMethodNb).mockImplementationOnce(held.impl);
+      const ctrl = new SunitTestController(makeSessionManager(true));
+      const running = ctrl.runTestsByName('UserGlobals', 'MyTestCase', ['testAdd', 'testRemove']);
+      await vi.waitFor(() => expect(ctrl.isRunning).toBe(true));
+
+      ctrl.cancelActiveRun();
+      held.finish(BREAK_ANSWER);
+      await running;
+
+      expect(sunit.runTestMethodNb).toHaveBeenCalledTimes(1);
+      ctrl.dispose();
+    });
+
     it('refuses a run of several tests once, with one warning', async () => {
       vi.mocked(whenSessionFree).mockImplementationOnce(() => {
         throw new NbSessionBusyError();

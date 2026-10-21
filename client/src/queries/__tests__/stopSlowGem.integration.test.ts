@@ -9,9 +9,10 @@
 // installed inside each test's own transaction, so the harness's per-test abort
 // cleans it up. Nothing commits.
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type TestContext } from 'vitest';
 vi.mock('vscode', () => import('../../__mocks__/vscode.js'));
 
+import * as os from 'node:os';
 import * as vscode from 'vscode';
 import { useIntegrationTest } from '../../__tests__/useIntegrationTest';
 import { GciLibrary } from '../../gciLibrary';
@@ -45,8 +46,18 @@ const SLOW_TEARDOWN_MS = 4000;
 /** Generous: the gem only has to finish the tearDown, and the runner polls every 500ms. */
 const FREED_WITHIN_MS = 20_000;
 
-// SIGSTOP needs the gem on this machine. On Windows CI it runs inside WSL.
+// SIGSTOP needs the gem on this machine. On Windows CI it runs inside WSL; a stone
+// elsewhere is checked per test (localGemPid).
 const canPauseGem = process.platform !== 'win32';
+
+/** The names a gem started on this machine can report as its host. */
+const THIS_MACHINE = new Set([
+  'localhost',
+  '127.0.0.1',
+  '::1',
+  os.hostname(),
+  os.hostname().split('.')[0],
+]);
 
 describe('stopping a run while the gem is slow to answer (integration)', () => {
   let gci: GciLibrary;
@@ -80,8 +91,16 @@ describe('stopping a run while the gem is slow to answer (integration)', () => {
     });
   }, FREED_WITHIN_MS + 5000);
 
-  const gemPid = (): number =>
-    Number(exec('((System descriptionOfSession: System session) at: 2) printString'));
+  /**
+   * The gem's process id, to pause it with. Skips the test when the gem runs on
+   * another host: the id would belong to an unrelated process here.
+   */
+  const localGemPid = (ctx: TestContext): number => {
+    const host = exec('((System descriptionOfSession: System session) at: 3) asString');
+    if (!THIS_MACHINE.has(host))
+      ctx.skip(`the gem runs on ${host}, so it cannot be paused from here`);
+    return Number(exec('((System descriptionOfSession: System session) at: 2) printString'));
+  };
 
   /** Stop the slow test with a soft then a hard break, and answer once the run has rejected. */
   async function stopSlowTest(beforeBreak: () => void = () => {}): Promise<void> {
@@ -186,7 +205,9 @@ describe('stopping a run while the gem is slow to answer (integration)', () => {
     await vi.waitFor(() => expect(cancel).toBeDefined());
     await sleep(250);
     cancel!();
-    await sleep(1000);
+    // Long enough for the break to land, and well inside the tearDown: GemStone
+    // breaks it again by itself about 2s after the first.
+    await sleep(300);
 
     const early = passingRun();
 
@@ -198,10 +219,10 @@ describe('stopping a run while the gem is slow to answer (integration)', () => {
 
   it.runIf(canPauseGem)(
     'frees the session after the gem was too slow to answer the break',
-    async () => {
+    async (ctx) => {
       // A paused gem is what a loaded machine looks like from here: the break is
       // sent, and the answer comes back long after the drain's budget.
-      const pid = gemPid();
+      const pid = localGemPid(ctx);
       try {
         await stopSlowTest(() => process.kill(pid, 'SIGSTOP'));
         await sleep(3000); // past the drain's 2s budget
@@ -223,8 +244,8 @@ describe('stopping a run while the gem is slow to answer (integration)', () => {
   for (const transcript of [false, true]) {
     it.runIf(canPauseGem)(
       `frees the session after a notebook cell ${transcript ? 'that writes to the Transcript ' : ''}was stopped on a slow gem`,
-      async () => {
-        const pid = gemPid();
+      async (ctx) => {
+        const pid = localGemPid(ctx);
         try {
           await stopCell(
             `| n | ${transcript ? "Transcript show: 'hello'. " : ''}n := 0.

@@ -348,6 +348,8 @@ export class SunitTestController implements vscode.Disposable {
   private activeCancel: (() => void) | undefined;
   /** How many runs are in flight, so the row ■ stays while any of them is. */
   private activeRuns = 0;
+  /** Each run in flight's way to skip the rest of its queue; see cancelActiveRun. */
+  private readonly queueStops = new Set<() => void>();
 
   /** True when a run is in flight and can be stopped. */
   get isRunning(): boolean {
@@ -366,6 +368,10 @@ export class SunitTestController implements vscode.Disposable {
     }
     logInfo('SUnit: stop requested — sending a soft break.');
     cancel();
+    // A stop is of the run, not only of the test in flight. The Testing view's own
+    // Stop cancels the run's token as well; a row's ■ only comes here, and without
+    // this the rest of the queue would run on, or be refused one by one.
+    this.queueStops.forEach((stop) => stop());
     // A soft break is the right first move — it lets the gem stop at a safe point
     // and leaves the session healthy. But a test spinning in a tight loop never
     // reaches one, and making the user press stop a second time to find that out
@@ -825,12 +831,17 @@ export class SunitTestController implements vscode.Disposable {
     // gives no way to replace it, but an extension may contribute inline actions —
     // so the stop appears BESIDE the run icon, on class and method rows alike, and
     // only while there is a run to stop.
+    let queueStopped = false;
+    const stopQueue = (): void => {
+      queueStopped = true;
+    };
+    this.queueStops.add(stopQueue);
     this.activeRuns += 1;
     await setTestRunningContext(true);
 
     try {
       for (const item of queue) {
-        if (token.isCancellationRequested) {
+        if (token.isCancellationRequested || queueStopped) {
           run.skipped(item);
           continue;
         }
@@ -845,6 +856,7 @@ export class SunitTestController implements vscode.Disposable {
       }
     } finally {
       stopped.dispose();
+      this.queueStops.delete(stopQueue);
       // Not simply false: a run refused while a stopped one is still finishing
       // ends first, and must not take the stopped run's ■ with it.
       this.activeRuns -= 1;
