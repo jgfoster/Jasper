@@ -412,7 +412,9 @@ the thing it was set in goes away:
   VS Code's debug UI and records the relationship somewhere no extension can read,
   and it arms only inside a live debug session, which a Jasper run does not have.
   It stays in the gutter menu because it is hung off the same contribution that
-  gives Jasper a breakpoint gutter at all; use the two commands above instead.
+  gives Jasper a breakpoint gutter at all; use the two commands above instead. A
+  line just under it in that menu, _⚠ Add Triggered Breakpoint doesn't work in
+  Jasper yet_, says so and points to them.
 
 - **Logpoints — print without stopping, and without editing the method.** Right-click
   the gutter → _Add Logpoint…_ and type a message. Every time the breakpoint is

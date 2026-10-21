@@ -1328,6 +1328,11 @@
         "icon": "$(debug-breakpoint-unverified)"
       },
       {
+        "command": "gemstone.breakpoints.triggeredNotSupported",
+        "title": "\u26a0 Add Triggered Breakpoint doesn't work in Jasper yet",
+        "category": "GemStone"
+      },
+      {
         "command": "gemstone.breakpoints.showLogpointOutput",
         "title": "Show Logpoint Output",
         "category": "GemStone",
@@ -2236,6 +2241,13 @@
           "group": "gemstone@0"
         }
       ],
+      "editor/lineNumber/context": [
+        {
+          "command": "gemstone.breakpoints.triggeredNotSupported",
+          "when": "resourceLangId == gemstone-method",
+          "group": "gemstoneBreakpoints@1"
+        }
+      ],
       "commandPalette": [
         {
           "command": "gemstone.breakpoints.toggleAtStepPoint",
@@ -2263,6 +2275,10 @@
         },
         {
           "command": "gemstone.breakpoints.editTrigger",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.breakpoints.triggeredNotSupported",
           "when": "false"
         },
         {

@@ -102,6 +102,16 @@ describe('triggered breakpoints: what the manifest offers', () => {
     expect(entry('commandPalette', AT_CURSOR)).toBeUndefined();
   });
 
+  it("says, in the gutter menu, that VS Code's Add Triggered Breakpoint does not work", () => {
+    // That item cannot be changed or hidden, so a line of our own under it is
+    // the only place to say so where the developer is about to click.
+    const id = 'gemstone.breakpoints.triggeredNotSupported';
+    expect(command(id)?.title).toBe("⚠ Add Triggered Breakpoint doesn't work in Jasper yet");
+    expect(entry('editor/lineNumber/context', id)?.when).toBe('resourceLangId == gemstone-method');
+    expect(entry('commandPalette', id)?.when).toBe('false');
+    expect(extensionSource).toContain(`registerCommand('${id}'`);
+  });
+
   it('registers a handler for each declared command', () => {
     // A command in the manifest with nothing behind it fails at the click with
     // "command not found", which reads as the feature being broken.

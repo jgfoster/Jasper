@@ -3316,6 +3316,17 @@ export function activate(context: vscode.ExtensionContext) {
       if (editor) void breakpointManager.editTriggerAtCursor(editor);
     }),
 
+    // A line in the gutter menu, under VS Code's own Add Triggered Breakpoint,
+    // which no extension can change or hide: it says that item does nothing here.
+    vscode.commands.registerCommand('gemstone.breakpoints.triggeredNotSupported', () => {
+      vscode.window.showInformationMessage(
+        "VS Code's Add Triggered Breakpoint, and Wait for Breakpoint in Edit Breakpoint, " +
+          "don't work in Jasper yet: the breakpoint stops every time. To make a " +
+          'breakpoint wait for another one, use Break Only After… on its row in the GemStone ' +
+          "Breakpoints view, or Edit Breakpoint Trigger at Cursor in the editor's right-click menu.",
+      );
+    }),
+
     // The step-point commands take their target from the click that fired them —
     // an inlay hint number or a hover link — rather than from the caret, so they
     // act on the step point the developer actually pointed at.
