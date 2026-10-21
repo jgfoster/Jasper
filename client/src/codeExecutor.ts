@@ -18,7 +18,12 @@ import {
   drainTranscript,
   settleNbResult,
 } from './transcriptSink';
-import { pollNbToCompletion, NbCancelledError } from './nbRunner';
+import {
+  pollNbToCompletion,
+  NbCancelledError,
+  NbSessionBusyError,
+  ensureSessionFree,
+} from './nbRunner';
 
 const MAX_RESULT_SIZE = 64 * 1024;
 
@@ -178,6 +183,8 @@ export class CodeExecutor {
       vscode.window.showWarningMessage('No code to execute.');
       return;
     }
+
+    if (!this.isSessionFree(session)) return;
 
     const oopClassString = this.resolveUtf8ClassOopUsing(session);
 
@@ -510,6 +517,7 @@ export class CodeExecutor {
     if (this.executing.has(session.id)) {
       throw new Error('A GemStone execution is already in progress on this session.');
     }
+    ensureSessionFree(session);
 
     const oopClassString = this.resolveUtf8ClassOopUsing(session);
     this.setExecuting(session.id, true);
@@ -700,6 +708,23 @@ export class CodeExecutor {
     return new vscode.Range(pos, lineEnd);
   }
 
+  /**
+   * False, once the user has been told, while the session still has a run on
+   * it — one they stopped that is still finishing, or one still going: until
+   * then GemStone refuses every call on the session, clientForwarder mode's
+   * start included.
+   */
+  private isSessionFree(session: ActiveSession): boolean {
+    try {
+      ensureSessionFree(session);
+      return true;
+    } catch (e) {
+      if (!(e instanceof NbSessionBusyError)) throw e;
+      vscode.window.showWarningMessage(e.message);
+      return false;
+    }
+  }
+
   private pollForCompletion<T>(
     session: ActiveSession,
     onReady: (signal: AbortSignal) => Promise<T>,
@@ -806,6 +831,8 @@ export class CodeExecutor {
     code: string,
     label: string,
   ): Promise<void> {
+    if (!this.isSessionFree(session)) return;
+
     const oopClassString = this.resolveUtf8ClassOopUsing(session);
 
     // Dim the selected code in the active editor while executing

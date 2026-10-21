@@ -66,7 +66,7 @@ vi.mock('../sunitQueries', () => ({
 
 import { tests, window, commands, TestRunProfileKind } from '../__mocks__/vscode';
 import { buildClassDefinitionUri, buildMethodUri } from '../gemstoneFileSystemProvider';
-import { NbCancelledError } from '../nbRunner';
+import { NbCancelledError, NbSessionBusyError } from '../nbRunner';
 import { SunitTestController, SunitDebugOutcome } from '../sunitTestController';
 import { SessionManager } from '../sessionManager';
 import * as sunit from '../sunitQueries';
@@ -1222,6 +1222,42 @@ describe('SunitTestController', () => {
       ctrl.dispose();
     });
 
+    it('keeps a stopped run stoppable when a run started meanwhile is refused', async () => {
+      // A soft break the test handles leaves the gem in its tearDown, still
+      // running; the run started meanwhile is refused, and must not take the
+      // stopped run's stop state with it.
+      let finishStopped: ((e: Error) => void) | undefined;
+      let breaks = 0;
+      vi.mocked(sunit.runTestMethodNb)
+        .mockImplementationOnce((_s, _c, _sel, _d, onStart?: (cancel: () => void) => void) => {
+          onStart?.(() => {
+            breaks += 1;
+          });
+          return new Promise((_resolve, reject) => {
+            finishStopped = reject;
+          });
+        })
+        .mockRejectedValueOnce(new NbSessionBusyError());
+      const ctrl = new SunitTestController(makeSessionManager(true));
+      const stopped = ctrl.runTestsByName('UserGlobals', 'MyTestCase', ['testAdd']);
+      await vi.waitFor(() => expect(ctrl.isRunning).toBe(true));
+      ctrl.cancelActiveRun();
+
+      await ctrl.runTestsByName('UserGlobals', 'MyTestCase', ['testRemove']);
+
+      expect(ctrl.resultFor('UserGlobals', 'MyTestCase', 'testRemove')).toMatchObject({
+        outcome: 'error',
+        message: expect.stringMatching(/still finishing/),
+      });
+      expect(ctrl.isRunning).toBe(true);
+      expect(ctrl.cancelActiveRun()).toBe(true);
+      expect(breaks).toBe(2);
+      finishStopped!(new Error('a Break'));
+      await stopped;
+      expect(ctrl.resultFor('UserGlobals', 'MyTestCase', 'testAdd')).toBeUndefined();
+      ctrl.dispose();
+    });
+
     it('leaves no verdict on a test whose run was stopped', async () => {
       // Reporting "error" would blame the test for the user's decision to stop.
       vi.mocked(sunit.runTestMethodNb).mockRejectedValueOnce(
@@ -1232,6 +1268,85 @@ describe('SunitTestController', () => {
       await ctrl.runTestsByName('UserGlobals', 'MyTestCase', ['testAdd']);
 
       expect(ctrl.resultFor('UserGlobals', 'MyTestCase', 'testAdd')).toBeUndefined();
+      ctrl.dispose();
+    });
+
+    it('leaves no verdict on a stopped test that answers the break as its error', async () => {
+      // A soft break the test's own runner catches comes back as the test's error,
+      // not as a failed run.
+      let release: (() => void) | undefined;
+      vi.mocked(sunit.runTestMethodNb).mockImplementationOnce(
+        (_s, _c, _sel, _d, onStart?: (cancel: () => void) => void) => {
+          onStart?.(() => release?.());
+          return new Promise((resolve) => {
+            release = () =>
+              resolve({
+                className: 'MyTestCase',
+                selector: 'testAdd',
+                status: 'error',
+                message: 'Break: a Break occurred (error 6003)',
+                durationMs: 5,
+              });
+          });
+        },
+      );
+      const ctrl = new SunitTestController(makeSessionManager(true));
+      const running = ctrl.runTestsByName('UserGlobals', 'MyTestCase', ['testAdd']);
+      await vi.waitFor(() => expect(ctrl.isRunning).toBe(true));
+
+      ctrl.cancelActiveRun();
+      await running;
+
+      expect(ctrl.resultFor('UserGlobals', 'MyTestCase', 'testAdd')).toBeUndefined();
+      ctrl.dispose();
+    });
+
+    it("leaves no verdict on a test stopped from the progress notification's Cancel", async () => {
+      // That Cancel breaks the gem without this view hearing of it; the Break the
+      // test answers is the only sign.
+      vi.mocked(sunit.runTestMethodNb).mockResolvedValueOnce({
+        className: 'MyTestCase',
+        selector: 'testAdd',
+        status: 'error',
+        message: 'Break: a Break occurred (error 6003)',
+        durationMs: 5,
+      });
+      const ctrl = new SunitTestController(makeSessionManager(true));
+
+      await ctrl.runTestsByName('UserGlobals', 'MyTestCase', ['testAdd']);
+
+      expect(ctrl.resultFor('UserGlobals', 'MyTestCase', 'testAdd')).toBeUndefined();
+      ctrl.dispose();
+    });
+
+    it('keeps a real failure that comes back after a stop', async () => {
+      // The test failed on its own before the break landed: that is its outcome.
+      let release: (() => void) | undefined;
+      vi.mocked(sunit.runTestMethodNb).mockImplementationOnce(
+        (_s, _c, _sel, _d, onStart?: (cancel: () => void) => void) => {
+          onStart?.(() => release?.());
+          return new Promise((resolve) => {
+            release = () =>
+              resolve({
+                className: 'MyTestCase',
+                selector: 'testAdd',
+                status: 'failed',
+                message: 'TestFailure: Assertion failed',
+                durationMs: 5,
+              });
+          });
+        },
+      );
+      const ctrl = new SunitTestController(makeSessionManager(true));
+      const running = ctrl.runTestsByName('UserGlobals', 'MyTestCase', ['testAdd']);
+      await vi.waitFor(() => expect(ctrl.isRunning).toBe(true));
+
+      ctrl.cancelActiveRun();
+      await running;
+
+      expect(ctrl.resultFor('UserGlobals', 'MyTestCase', 'testAdd')).toMatchObject({
+        outcome: 'failed',
+      });
       ctrl.dispose();
     });
 

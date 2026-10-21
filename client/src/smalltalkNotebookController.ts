@@ -4,7 +4,7 @@ import { wrapExecuteCode } from './queries/executeCode';
 import { GemStoneNotebookKernel, GEMSTONE_NOTEBOOK_TYPE } from './gemstoneNotebookKernel';
 import { startClientForwarderMode, endClientForwarderMode, settleNbResult } from './transcriptSink';
 import { appendTranscriptOutput } from './transcriptChannel';
-import { runNbCall } from './nbRunner';
+import { runNbCall, ensureSessionFree } from './nbRunner';
 import { OOP_ILLEGAL, OOP_NIL, OOP_CLASS_UTF8 } from './gciConstants';
 import { SMALLTALK_LANGUAGE } from './languageIds';
 import { sessionKernelId } from './sessionKernels';
@@ -41,6 +41,9 @@ export async function evalSmalltalk(session: ActiveSession, source: string): Pro
       'Session is busy with another operation. Please wait or use a different session.',
     );
   }
+  // Before clientForwarder mode's start, which a stopped call still on the
+  // session would make GemStone refuse.
+  ensureSessionFree(session);
 
   const code = wrapExecuteCode(source);
   appendTranscriptOutput(startClientForwarderMode(session, code));

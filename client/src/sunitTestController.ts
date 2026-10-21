@@ -346,9 +346,11 @@ export class SunitTestController implements vscode.Disposable {
    * does. Set while a run is in flight and cleared when it settles.
    */
   private activeCancel: (() => void) | undefined;
-  /** True once a stop was asked for, until the next run starts. Lets a run that
-   *  ends in a Break error be reported as stopped rather than as a test error. */
-  private cancelRequested = false;
+  /** The runs, by canceller, that a stop was asked for. Lets a run that ends in
+   *  a Break error be reported as stopped rather than as a test error. Per run,
+   *  because a run started while a stopped one is still finishing is refused,
+   *  and must not wipe out the stopped run's state. */
+  private readonly stopRequested = new WeakSet<() => void>();
 
   /** True when a run is in flight and can be stopped. */
   get isRunning(): boolean {
@@ -366,7 +368,7 @@ export class SunitTestController implements vscode.Disposable {
       return false;
     }
     logInfo('SUnit: stop requested — sending a soft break.');
-    this.cancelRequested = true;
+    this.stopRequested.add(cancel);
     cancel();
     // A soft break is the right first move — it lets the gem stop at a safe point
     // and leaves the session healthy. But a test spinning in a tight loop never
@@ -879,6 +881,12 @@ export class SunitTestController implements vscode.Disposable {
       const result = await this.whileCancellable((onStart) =>
         sunit.runTestMethodNb(session, className, selector, dictName, onStart),
       );
+      // A soft break only ever comes from a stop — this view's, or the progress
+      // notification's Cancel, which this view never hears about — so a test that
+      // answers one was stopped, whichever button did it.
+      if (result.status === 'error' && result.message.startsWith('Break: ')) {
+        throw new NbCancelledError();
+      }
       this.reportResult(run, item, result);
     } catch (e: unknown) {
       if (this.wasStopped(e)) {
@@ -894,12 +902,14 @@ export class SunitTestController implements vscode.Disposable {
 
   /**
    * Whether a failed run failed because it was stopped. A hard break rejects with
-   * NbCancelledError, but a soft break usually lets the gem raise a Break error
-   * instead, which arrives as an ordinary failure — indistinguishable from a real
-   * one except that we asked for it.
+   * NbCancelledError. A soft break lets the gem raise a Break instead: a class
+   * run's SUnit does not catch it, so the run fails like any other — which
+   * whileCancellable rethrows as NbCancelledError when this view stopped it — and
+   * a single test's runner catches it and answers it as the test's error, which
+   * runSingleTest turns into NbCancelledError.
    */
   private wasStopped(e: unknown): boolean {
-    return e instanceof NbCancelledError || this.cancelRequested;
+    return e instanceof NbCancelledError;
   }
 
   /**
@@ -910,13 +920,20 @@ export class SunitTestController implements vscode.Disposable {
   private async whileCancellable<T>(
     call: (onStart: (cancel: () => void) => void) => Promise<T>,
   ): Promise<T> {
-    this.cancelRequested = false;
+    let mine: (() => void) | undefined;
     try {
       return await call((cancel) => {
+        mine = cancel;
         this.activeCancel = cancel;
       });
+    } catch (e) {
+      // See wasStopped: a stopped run's Break error is not a test outcome.
+      if (mine && this.stopRequested.has(mine) && !(e instanceof NbCancelledError)) {
+        throw new NbCancelledError();
+      }
+      throw e;
     } finally {
-      this.activeCancel = undefined;
+      if (mine && this.activeCancel === mine) this.activeCancel = undefined;
     }
   }
 

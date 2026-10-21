@@ -58,6 +58,7 @@ vi.mock('../nbRunner', () => ({
     sentTo.push(session);
     return 1n;
   }),
+  ensureSessionFree: vi.fn(),
 }));
 
 import { window, notebooks, __setConfig, __resetConfig } from '../__mocks__/vscode';

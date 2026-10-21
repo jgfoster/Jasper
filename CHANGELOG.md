@@ -4,6 +4,10 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ## [Unreleased]
 
+### Fixed
+
+- **Stopping a run no longer leaves the session refusing everything until you log out.** A stopped test, notebook cell or Execute It is not over until Jasper collects its result from the gem, and Jasper only waited two seconds for it. A gem that took longer to answer the stop — a test with a slow `tearDown` or `ensure:` block, or a loaded machine — left the result uncollected for good, and every later run, cell and Explorer query failed with `session has a GciTsNb operation in progress`. Jasper now goes on collecting it in the background, so the session frees itself once the gem finishes. Until then a new run says the stopped one is still finishing, instead of GemStone's message. The same message now covers a run started while one stopped with a single press is still in its `tearDown`, and that refused run no longer takes away the stopped run's stop button. A test stopped with a single press that ends quickly is now marked stopped in the Testing view, as a slower one already was, instead of failing with `Break: a Break occurred`. ([#560](https://github.com/GemTalk/Jasper/issues/560))
+
 ## [1.15.0] - 2026-10-16
 
 ### Added

@@ -28,14 +28,23 @@ vi.mock('../enhancedInspector/enhancedInspector', () => ({
 // Call-through spies, so a test can read the options a caller hands the runner.
 vi.mock('../nbRunner', async (orig) => {
   const actual = await orig<typeof import('../nbRunner')>();
-  return { ...actual, pollNbToCompletion: vi.fn(actual.pollNbToCompletion) };
+  return {
+    ...actual,
+    pollNbToCompletion: vi.fn(actual.pollNbToCompletion),
+    ensureSessionFree: vi.fn(actual.ensureSessionFree),
+  };
 });
 vi.mock('../basicInspector/basicInspector', () => ({
   BasicInspector: { create: vi.fn() },
 }));
 
 import { CodeExecutor } from '../codeExecutor';
-import { pollNbToCompletion, type NbRunOptions } from '../nbRunner';
+import {
+  pollNbToCompletion,
+  ensureSessionFree,
+  NbSessionBusyError,
+  type NbRunOptions,
+} from '../nbRunner';
 import { DebuggerPanel } from '../debuggerPanel';
 import { EnhancedInspector } from '../enhancedInspector/enhancedInspector';
 import { BasicInspector } from '../basicInspector/basicInspector';
@@ -453,6 +462,37 @@ describe('CodeExecutor', () => {
         expect(sinkCalls[1]).toContain('jasperEndClientForwarderMode');
       },
     );
+
+    // A stopped run the gem is still finishing makes GemStone refuse the start, and
+    // its message names a GCI condition, not anything the user did.
+    it.each(['executeIt', 'displayIt', 'inspectIt'] as const)(
+      '%s says a stopped run is still finishing, and starts nothing',
+      async (command) => {
+        setActiveEditor(makeEditor('3 + 4'));
+        vi.mocked(ensureSessionFree).mockImplementationOnce(() => {
+          throw new NbSessionBusyError();
+        });
+
+        await executor[command]();
+
+        expect(gci.GciTsNbExecute).not.toHaveBeenCalled();
+        expect(gci.executeAndFetchString).not.toHaveBeenCalled();
+        expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
+          expect.stringMatching(/still finishing/),
+        );
+      },
+    );
+
+    it('executeWithDebugger rejects while a stopped run is still finishing, and starts nothing', async () => {
+      vi.mocked(ensureSessionFree).mockImplementationOnce(() => {
+        throw new NbSessionBusyError();
+      });
+
+      await expect(executor.executeWithDebugger(session, '3 + 4', 'test')).rejects.toBeInstanceOf(
+        NbSessionBusyError,
+      );
+      expect(gci.GciTsNbExecute).not.toHaveBeenCalled();
+    });
 
     // After a hard break the `finally`'s end is refused while the call is
     // still being collected; the runner calls this hook once it has been. When
