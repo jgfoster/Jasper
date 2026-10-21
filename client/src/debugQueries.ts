@@ -341,6 +341,12 @@ export function getMethodBlockInfo(session: ActiveSession, methodOop: bigint): M
  * last one holding its name — a shadowed name otherwise built a URI onto a
  * same-named class in another dictionary, which the source pane then opened and
  * offered to edit. '' when no slot binds it under its own name.
+ *
+ * Undefined for a doit's method, which has no class (`inClass` is nil) — the
+ * "Executed Code" frame near the bottom of every stack run from a workspace. The
+ * query answers '' for it rather than sending `theNonMetaClass` to nil: the
+ * debugger asks about every frame each time it opens, and the failure landed in
+ * the GemStone GCI channel as an ERROR on every one, for a case that is normal.
  */
 export function getMethodUriInfo(
   session: ActiveSession,
@@ -350,14 +356,15 @@ export function getMethodUriInfo(
     const code = `| method class baseClass dictName category |
 method := Object _objectForOop: ${methodOop}.
 class := method inClass.
-baseClass := class theNonMetaClass.
-dictName := ${homeDictionaryNameExpr('baseClass')}.
-category := (class categoryOfSelector: method selector environmentId: 0) ifNil: ['as yet unclassified'].
-dictName, (String with: Character tab),
-  baseClass name, (String with: Character tab),
-  (class isMeta ifTrue: ['class'] ifFalse: ['instance']), (String with: Character tab),
-  category, (String with: Character tab),
-  method selector asString`;
+class isNil ifTrue: [ '' ] ifFalse: [
+  baseClass := class theNonMetaClass.
+  dictName := ${homeDictionaryNameExpr('baseClass')}.
+  category := (class categoryOfSelector: method selector environmentId: 0) ifNil: ['as yet unclassified'].
+  dictName, (String with: Character tab),
+    baseClass name, (String with: Character tab),
+    (class isMeta ifTrue: ['class'] ifFalse: ['instance']), (String with: Character tab),
+    category, (String with: Character tab),
+    method selector asString ]`;
 
     const data = executeAndFetchString(session, code);
 
