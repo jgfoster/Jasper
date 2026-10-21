@@ -31,7 +31,7 @@ vi.mock('../nbRunner', async (orig) => {
   return {
     ...actual,
     pollNbToCompletion: vi.fn(actual.pollNbToCompletion),
-    acquireSession: vi.fn(actual.acquireSession),
+    whenSessionFree: vi.fn(actual.whenSessionFree),
   };
 });
 vi.mock('../basicInspector/basicInspector', () => ({
@@ -41,7 +41,7 @@ vi.mock('../basicInspector/basicInspector', () => ({
 import { CodeExecutor } from '../codeExecutor';
 import {
   pollNbToCompletion,
-  acquireSession,
+  whenSessionFree,
   forgetSession,
   NbSessionBusyError,
   type NbRunOptions,
@@ -473,7 +473,7 @@ describe('CodeExecutor', () => {
       '%s says a stopped run is still finishing, and starts nothing',
       async (command) => {
         setActiveEditor(makeEditor('3 + 4'));
-        vi.mocked(acquireSession).mockImplementationOnce(() => {
+        vi.mocked(whenSessionFree).mockImplementationOnce(() => {
           throw new NbSessionBusyError();
         });
 
@@ -494,8 +494,11 @@ describe('CodeExecutor', () => {
       async (command) => {
         setActiveEditor(makeEditor('3 + 4'));
         let drained: (() => void) | undefined;
-        vi.mocked(acquireSession).mockImplementationOnce(
-          () => new Promise<void>((resolve) => (drained = resolve)),
+        vi.mocked(whenSessionFree).mockImplementationOnce(
+          (_session, start) =>
+            new Promise((resolve) => {
+              drained = () => resolve(start());
+            }),
         );
         const gciCallsBefore = Object.values(gci).filter(
           (f) => typeof f === 'function' && 'mock' in f && (f as Mock).mock.calls.length > 0,
@@ -515,7 +518,7 @@ describe('CodeExecutor', () => {
     );
 
     it('executeWithDebugger rejects while a stopped run is still finishing, and starts nothing', async () => {
-      vi.mocked(acquireSession).mockImplementationOnce(() => {
+      vi.mocked(whenSessionFree).mockImplementationOnce(() => {
         throw new NbSessionBusyError();
       });
 

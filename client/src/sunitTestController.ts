@@ -7,7 +7,7 @@ import {
 } from './gemstoneFileSystemProvider';
 import { debugTestMethodCode } from './queries/debugTestMethod';
 import { logInfo } from './gciLog';
-import { NbCancelledError, NbSessionBusyError } from './nbRunner';
+import { NbCancelledError, NbSessionBusyError, whenSessionFree } from './nbRunner';
 import { ActiveSession, SessionManager } from './sessionManager';
 import * as sunit from './sunitQueries';
 
@@ -807,6 +807,16 @@ export class SunitTestController implements vscode.Disposable {
 
     const queue = this.getTestsToRun(request);
     const run = this.controller.createTestRun(request, runLabel(queue));
+    // Once for the whole queue, and before any row is touched: a run refused
+    // here must leave alone the rows of a stopped run that is still finishing,
+    // and say so once, not once per test.
+    try {
+      await whenSessionFree(session, () => undefined);
+    } catch (e) {
+      run.end();
+      if (!this.wasRefused(e)) throw e;
+      return;
+    }
     // The Testing view's stop button. It could do nothing before: the run held the
     // extension host inside a synchronous GCI call, so this event could not even
     // be delivered until the run had already finished.
@@ -995,6 +1005,10 @@ export class SunitTestController implements vscode.Disposable {
       this.reportError(run, item, outcome.message ?? 'Test raised an exception.');
       return 'raised';
     } catch (e: unknown) {
+      if (this.wasRefused(e)) {
+        this.reportSkipped(run, item);
+        return 'cancelled';
+      }
       const msg = e instanceof Error ? e.message : String(e);
       this.reportError(run, item, `Execution error: ${msg}`);
       return 'raised';

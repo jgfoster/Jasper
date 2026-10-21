@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('vscode', () => import('../__mocks__/vscode.js'));
+// Call-through, so a test can make the session look busy.
+vi.mock('../nbRunner', async (orig) => {
+  const actual = await orig<typeof import('../nbRunner')>();
+  return { ...actual, whenSessionFree: vi.fn(actual.whenSessionFree) };
+});
 
 vi.mock('../sunitQueries', () => ({
   discoverTestClasses: vi.fn(() => [
@@ -66,7 +71,7 @@ vi.mock('../sunitQueries', () => ({
 
 import { tests, window, commands, TestRunProfileKind } from '../__mocks__/vscode';
 import { buildClassDefinitionUri, buildMethodUri } from '../gemstoneFileSystemProvider';
-import { NbCancelledError, NbSessionBusyError } from '../nbRunner';
+import { NbCancelledError, NbSessionBusyError, whenSessionFree } from '../nbRunner';
 import { SunitTestController, SunitDebugOutcome } from '../sunitTestController';
 import { SessionManager } from '../sessionManager';
 import * as sunit from '../sunitQueries';
@@ -892,6 +897,20 @@ describe('SunitTestController', () => {
       ctrl.dispose();
     });
 
+    it('reports a debug run refused because the session is busy as not run, and says why', async () => {
+      const debugExecutor = makeDebugExecutor();
+      debugExecutor.executeWithDebugger.mockRejectedValueOnce(new NbSessionBusyError());
+      const ctrl = new SunitTestController(makeSessionManager(true), debugExecutor);
+
+      await ctrl.runTestsByName('UserGlobals', 'MyTestCase', ['testAdd'], 'debug');
+
+      expect(ctrl.resultFor('UserGlobals', 'MyTestCase', 'testAdd')).toBeUndefined();
+      expect(window.showWarningMessage).toHaveBeenCalledWith(
+        expect.stringMatching(/still finishing/),
+      );
+      ctrl.dispose();
+    });
+
     it('runs the test through the debug executor, not the ordinary run query', async () => {
       const debugExecutor = makeDebugExecutor();
       const ctrl = new SunitTestController(makeSessionManager(true), debugExecutor);
@@ -1304,6 +1323,43 @@ describe('SunitTestController', () => {
       await stopped;
       expect(testRunningContext()).toBe(false);
       expect(ctrl.resultFor('UserGlobals', 'MyTestCase', 'testAdd')).toBeUndefined();
+      ctrl.dispose();
+    });
+
+    it("leaves a stopped test's row alone when the same test is run again while it finishes", async () => {
+      // Its tearDown is still running: re-running it is refused before any row is
+      // marked, so the row keeps its running state and its ■.
+      const held = heldRun<typeof BREAK_ANSWER>();
+      vi.mocked(sunit.runTestMethodNb).mockImplementationOnce(held.impl);
+      const ctrl = new SunitTestController(makeSessionManager(true));
+      const stopped = ctrl.runTestsByName('UserGlobals', 'MyTestCase', ['testAdd']);
+      await vi.waitFor(() => expect(ctrl.isRunning).toBe(true));
+      ctrl.cancelActiveRun();
+      vi.mocked(whenSessionFree).mockImplementationOnce(() => {
+        throw new NbSessionBusyError();
+      });
+
+      await ctrl.runTestsByName('UserGlobals', 'MyTestCase', ['testAdd']);
+
+      expect(ctrl.resultFor('UserGlobals', 'MyTestCase', 'testAdd')).toMatchObject({
+        outcome: 'running',
+      });
+      expect(sunit.runTestMethodNb).toHaveBeenCalledTimes(1);
+      held.finish(BREAK_ANSWER);
+      await stopped;
+      ctrl.dispose();
+    });
+
+    it('refuses a run of several tests once, with one warning', async () => {
+      vi.mocked(whenSessionFree).mockImplementationOnce(() => {
+        throw new NbSessionBusyError();
+      });
+      const ctrl = new SunitTestController(makeSessionManager(true));
+
+      await ctrl.runTestsByName('UserGlobals', 'MyTestCase', ['testAdd', 'testRemove']);
+
+      expect(window.showWarningMessage).toHaveBeenCalledTimes(1);
+      expect(sunit.runTestMethodNb).not.toHaveBeenCalled();
       ctrl.dispose();
     });
 

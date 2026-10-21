@@ -1,7 +1,7 @@
 import { ActiveSession } from './sessionManager';
 import { OOP_ILLEGAL, OOP_NIL } from './gciConstants';
 import { logError } from './gciLog';
-import { runNbCall, acquireSession, NbRunOptions } from './nbRunner';
+import { runNbCall, NbRunOptions } from './nbRunner';
 
 import { QueryExecutor } from './queries/types';
 
@@ -390,21 +390,21 @@ export async function executeFetchStringNb(
   // See NbRunOptions.onStart for its second argument.
   onStart?: NbRunOptions['onStart'],
 ): Promise<string> {
-  // Before any GCI call, for the reasons runNbCall gives; synchronous when there
-  // is nothing to wait for, so the call still starts in this tick.
-  for (let wait = acquireSession(session); wait; wait = acquireSession(session)) await wait;
-  const { result: inProgress } = session.GciTsCallInProgress();
-  if (inProgress !== 0) {
-    const msg = 'Session is busy with another operation. Please wait or use a different session.';
-    logError(session.id, msg);
-    throw new BrowserQueryError(msg);
-  }
-
-  const oopClassUtf8 = resolveClassUtf8(session);
-
   const data = await runNbCall(
     session,
-    () => session.GciTsNbExecute(code, oopClassUtf8, OOP_ILLEGAL, OOP_NIL, 0, 0),
+    // Every GCI call here, the busy check included, goes inside the start, which
+    // runNbCall makes only once the session is free; see whenSessionFree.
+    () => {
+      const { result: inProgress } = session.GciTsCallInProgress();
+      if (inProgress !== 0) {
+        const msg =
+          'Session is busy with another operation. Please wait or use a different session.';
+        logError(session.id, msg);
+        throw new BrowserQueryError(msg);
+      }
+      const oopClassUtf8 = resolveClassUtf8(session);
+      return session.GciTsNbExecute(code, oopClassUtf8, OOP_ILLEGAL, OOP_NIL, 0, 0);
+    },
     () => {
       const { result: resultOop, err } = session.GciTsNbResult();
       if (err.number !== 0) {

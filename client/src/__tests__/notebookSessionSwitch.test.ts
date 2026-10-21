@@ -58,7 +58,7 @@ vi.mock('../nbRunner', () => ({
     sentTo.push(session);
     return 1n;
   }),
-  acquireSession: vi.fn(),
+  whenSessionFree: vi.fn((_session: unknown, start: () => unknown) => start()),
   forgetSession: vi.fn(),
 }));
 

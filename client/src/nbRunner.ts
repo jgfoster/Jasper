@@ -171,7 +171,7 @@ const COLLECT_FAILURES_TO_GIVE_UP = 3;
  * Sessions still busy with a call we gave up on: its result is still being
  * collected ({@link drainAbandonedCall}), or its `onReady` is still resuming it
  * on a worker thread ({@link awaitAbandonedRead}). The next call on that
- * session waits for it ({@link acquireSession}): either takes as long as the gem
+ * session waits for it ({@link whenSessionFree}): either takes as long as the gem
  * takes to notice the break, and a run started in the meantime would be refused
  * outright — which, from the user's side, is pressing stop and then having the
  * next run do nothing. While a worker may own the session, a call from the main
@@ -253,10 +253,28 @@ function drainAbandonedCall(
       return { state: 'gone', reason: e instanceof Error ? e.message : String(e) };
     }
   };
-  const done = new Promise<void>((resolve) => {
+  let failuresInARow = 0;
+  const done: Promise<void> = new Promise<void>((resolve) => {
     const attempt = (n: number): void => {
-      const { state } = tryCollect();
+      // Forgotten on logout (forgetSession): stop, rather than poll a session
+      // nobody is keeping any more.
+      if (n > 0 && draining.get(session.id) !== done) {
+        resolve();
+        return;
+      }
+      const { state, reason } = tryCollect();
       if (state === 'collected' || state === 'gone') {
+        resolve();
+        return;
+      }
+      failuresInARow = state === 'failed' ? failuresInARow + 1 : 0;
+      if (failuresInARow >= COLLECT_FAILURES_TO_GIVE_UP) {
+        // Persistent, not transient (a broken connection, say): hold nobody up
+        // with a session that will never answer, and don't call it busy.
+        logInfo(
+          `[Session ${session.id}] Gave up collecting a cancelled call after ` +
+            `${Date.now() - startedAt}ms (${reason ?? state}).`,
+        );
         resolve();
         return;
       }
@@ -269,7 +287,7 @@ function drainAbandonedCall(
     };
     attempt(0);
   }).finally(() => {
-    draining.delete(session.id);
+    if (draining.get(session.id) === done) draining.delete(session.id);
   });
 
   draining.set(session.id, done);
@@ -343,7 +361,7 @@ function collectLate(
  * a stopped call whose result is in, or throw {@link NbSessionBusyError} while
  * the gem is still finishing one, while one is still being drained, or while
  * another call is still being polled. For a caller that cannot wait; one that
- * can uses {@link acquireSession}, which waits out the drain first.
+ * can uses {@link whenSessionFree}, which waits out the drain first.
  */
 export function ensureSessionFree(session: ActiveSession): void {
   if (draining.has(session.id)) throw new NbSessionBusyError();
@@ -361,26 +379,36 @@ export function ensureSessionFree(session: ActiveSession): void {
 }
 
 /**
- * Check the session is free before starting a call on it: answers a promise to
- * wait for while a stopped call is still being drained, and otherwise checks
- * it synchronously ({@link ensureSessionFree}, which throws). Every caller that
- * starts a call does this before its first GCI call, since anything that call
- * runs first would be refused too, or, while a worker owns the session, could
- * kill the process.
+ * Start a call once the session is free: `start` runs as soon as nothing is
+ * left on the session ({@link ensureSessionFree}), after waiting out a stopped
+ * call still being drained. Throws or rejects with {@link NbSessionBusyError}
+ * otherwise. Every caller that starts a call goes through this, before its first
+ * GCI call, since anything that call runs first would be refused too, or, while a
+ * worker owns the session, could kill the process.
  *
- * After waiting, ask again — `for (let w = acquireSession(s); w; w =
- * acquireSession(s)) await w;` — and start the call in the same synchronous step
- * as the answer that returned nothing. Two callers can wait on the same drain,
- * and only a check made right before the start sees the other's call. No await
- * at all when there is nothing to wait for, so a call with nothing before it
- * still begins in the same tick (see {@link runNbCall}). The wait is bounded by
- * the drain's own budget, or by ABANDONED_READ_WAIT_MS.
+ * The check and `start` run in one synchronous step, and `start` must claim the
+ * session before it returns (a {@link pollNbToCompletion} does). Two callers can
+ * wait on the same drain, and only a check made right before the start sees the
+ * other's call. With nothing to wait for, `start` runs before this returns, so a
+ * call with nothing before it still begins in the same tick (see
+ * {@link runNbCall}). The wait is bounded by the drain's own budget, or by
+ * ABANDONED_READ_WAIT_MS.
  */
-export function acquireSession(session: ActiveSession): Promise<void> | undefined {
-  const pending = draining.get(session.id);
-  if (pending) return pending;
-  ensureSessionFree(session);
-  return undefined;
+export function whenSessionFree<T>(
+  session: ActiveSession,
+  start: () => T,
+): T | Promise<Awaited<T>> {
+  if (!draining.has(session.id)) {
+    ensureSessionFree(session);
+    return start();
+  }
+  return (async (): Promise<Awaited<T>> => {
+    for (let pending = draining.get(session.id); pending; pending = draining.get(session.id)) {
+      await pending;
+    }
+    ensureSessionFree(session);
+    return await start();
+  })();
 }
 
 /**
@@ -740,14 +768,13 @@ export async function runNbCall<T>(
   opts: NbRunOptions = {},
 ): Promise<T> {
   // A call we gave up on may still be being collected; starting now would be
-  // refused as "an operation is in progress". acquireSession waits for it, and
+  // refused as "an operation is in progress". whenSessionFree waits for it, and
   // only ever defers when there IS something to wait for: the call (and with it
   // opts.onStart, which hands out the canceller) still begins synchronously in
   // the ordinary case, so a stop pressed the moment a run starts still has
   // something to press. GciTsCallInProgress is no help here: it can answer
   // "idle" while the abandoned Nb result is still uncollected.
-  for (let wait = acquireSession(session); wait; wait = acquireSession(session)) await wait;
-  return await beginNbCall(session, start, onReady, opts);
+  return await whenSessionFree(session, () => beginNbCall(session, start, onReady, opts));
 }
 
 function beginNbCall<T>(

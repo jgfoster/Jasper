@@ -14,7 +14,7 @@ import {
   MIN_HARD_BREAK_GAP_MS,
   LATE_COLLECT_INTERVAL_MS,
   LATE_COLLECT_LIMIT_MS,
-  acquireSession,
+  whenSessionFree,
   forgetSession,
 } from '../nbRunner';
 import { fakeActiveSession } from './fakeActiveSession';
@@ -920,15 +920,66 @@ describe('a session whose stopped call is still being drained', () => {
       const poll = gci.GciTsNbPoll as ReturnType<typeof vi.fn>;
       poll.mockReturnValue({ result: 0, err: noErr });
       await hardBreakAndStayInTheDrain(session);
-      const wait = acquireSession(session);
-      expect(wait).toBeInstanceOf(Promise);
+      const start = vi.fn(() => 'started');
+      const wait = whenSessionFree(session, start);
+      expect(start).not.toHaveBeenCalled();
 
       poll.mockReturnValue({ result: 1, err: noErr });
       await vi.advanceTimersByTimeAsync(100);
-      await wait;
 
+      await expect(wait).resolves.toBe('started');
       expect(gci.GciTsNbResult).toHaveBeenCalledTimes(1);
-      expect(acquireSession(session)).toBeUndefined();
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('starts a call at once, before answering, when there is nothing to wait for', () => {
+    const { session } = makeSession([{ result: 0 }]);
+    const start = vi.fn(() => 'started');
+
+    const answer = whenSessionFree(session, start);
+
+    expect(answer).toBe('started');
+  });
+
+  it('frees the session within the drain when its polls keep failing', async () => {
+    // A broken connection, say: not a gem still finishing, so nothing should be
+    // held up for the drain's whole budget, nor refused as busy.
+    vi.useFakeTimers();
+    try {
+      const { session, gci } = makeSession([{ result: 0 }]);
+      const poll = gci.GciTsNbPoll as ReturnType<typeof vi.fn>;
+      poll.mockReturnValue({ result: 0, err: noErr });
+      await hardBreakAndStayInTheDrain(session);
+      poll.mockReturnValue({ result: -1, err: { number: 9, message: 'poll err' } });
+
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(() => ensureSessionFree(session)).not.toThrow();
+      const pollsAfterGivingUp = poll.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(poll.mock.calls.length).toBe(pollsAfterGivingUp);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops polling once the session is forgotten', async () => {
+    vi.useFakeTimers();
+    try {
+      const { session, gci } = makeSession([{ result: 0 }]);
+      const poll = gci.GciTsNbPoll as ReturnType<typeof vi.fn>;
+      poll.mockReturnValue({ result: 0, err: noErr });
+      await hardBreakAndStayInTheDrain(session);
+
+      forgetSession(session.id);
+      const pollsAtLogout = poll.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(poll.mock.calls.length).toBe(pollsAtLogout);
     } finally {
       vi.clearAllTimers();
       vi.useRealTimers();
