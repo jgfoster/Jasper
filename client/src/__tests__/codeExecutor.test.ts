@@ -28,14 +28,24 @@ vi.mock('../enhancedInspector/enhancedInspector', () => ({
 // Call-through spies, so a test can read the options a caller hands the runner.
 vi.mock('../nbRunner', async (orig) => {
   const actual = await orig<typeof import('../nbRunner')>();
-  return { ...actual, pollNbToCompletion: vi.fn(actual.pollNbToCompletion) };
+  return {
+    ...actual,
+    pollNbToCompletion: vi.fn(actual.pollNbToCompletion),
+    whenSessionFree: vi.fn(actual.whenSessionFree),
+  };
 });
 vi.mock('../basicInspector/basicInspector', () => ({
   BasicInspector: { create: vi.fn() },
 }));
 
 import { CodeExecutor } from '../codeExecutor';
-import { pollNbToCompletion, type NbRunOptions } from '../nbRunner';
+import {
+  pollNbToCompletion,
+  whenSessionFree,
+  forgetSession,
+  NbSessionBusyError,
+  type NbRunOptions,
+} from '../nbRunner';
 import { DebuggerPanel } from '../debuggerPanel';
 import { EnhancedInspector } from '../enhancedInspector/enhancedInspector';
 import { BasicInspector } from '../basicInspector/basicInspector';
@@ -255,6 +265,9 @@ describe('CodeExecutor', () => {
     __resetConfig();
     gci = makeGci();
     session = makeSession(gci);
+    // Every test's session has the same id, and a call one test stopped is still
+    // tracked for it by the runner, as for a real session until logout.
+    forgetSession(session.id);
     sessionManager = makeSessionManager(session);
     executor = new CodeExecutor(sessionManager);
   });
@@ -453,6 +466,67 @@ describe('CodeExecutor', () => {
         expect(sinkCalls[1]).toContain('jasperEndClientForwarderMode');
       },
     );
+
+    // A stopped run the gem is still finishing makes GemStone refuse the start, and
+    // its message names a GCI condition, not anything the user did.
+    it.each(['executeIt', 'displayIt', 'inspectIt'] as const)(
+      '%s says a stopped run is still finishing, and starts nothing',
+      async (command) => {
+        setActiveEditor(makeEditor('3 + 4'));
+        vi.mocked(whenSessionFree).mockImplementationOnce(() => {
+          throw new NbSessionBusyError();
+        });
+
+        await executor[command]();
+
+        expect(gci.GciTsNbExecute).not.toHaveBeenCalled();
+        expect(gci.executeAndFetchString).not.toHaveBeenCalled();
+        expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
+          expect.stringMatching(/still finishing/),
+        );
+      },
+    );
+
+    // A stopped call still being drained: a GCI call made now would be refused, or,
+    // while a worker owns the session, could kill the process.
+    it.each(['executeIt', 'displayIt', 'inspectIt'] as const)(
+      '%s waits for a stopped call to be drained before its first GCI call',
+      async (command) => {
+        setActiveEditor(makeEditor('3 + 4'));
+        let drained: (() => void) | undefined;
+        vi.mocked(whenSessionFree).mockImplementationOnce(
+          (_session, start) =>
+            new Promise((resolve) => {
+              drained = () => resolve(start());
+            }),
+        );
+        const gciCallsBefore = Object.values(gci).filter(
+          (f) => typeof f === 'function' && 'mock' in f && (f as Mock).mock.calls.length > 0,
+        ).length;
+
+        const running = executor[command]();
+        await new Promise((r) => setTimeout(r, 0));
+
+        const gciCallsDuring = Object.values(gci).filter(
+          (f) => typeof f === 'function' && 'mock' in f && (f as Mock).mock.calls.length > 0,
+        ).length;
+        expect(gciCallsDuring).toBe(gciCallsBefore);
+        drained!();
+        await running;
+        expect(gci.GciTsNbExecute).toHaveBeenCalled();
+      },
+    );
+
+    it('executeWithDebugger rejects while a stopped run is still finishing, and starts nothing', async () => {
+      vi.mocked(whenSessionFree).mockImplementationOnce(() => {
+        throw new NbSessionBusyError();
+      });
+
+      await expect(executor.executeWithDebugger(session, '3 + 4', 'test')).rejects.toBeInstanceOf(
+        NbSessionBusyError,
+      );
+      expect(gci.GciTsNbExecute).not.toHaveBeenCalled();
+    });
 
     // After a hard break the `finally`'s end is refused while the call is
     // still being collected; the runner calls this hook once it has been. When

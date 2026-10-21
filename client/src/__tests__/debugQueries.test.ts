@@ -9,7 +9,7 @@ vi.mock('vscode', () => ({
 
 import { ActiveSession } from '../sessionManager';
 import * as debug from '../debugQueries';
-import type { NbRunOptions } from '../nbRunner';
+import { runNbCall, NbSessionBusyError, type NbRunOptions } from '../nbRunner';
 import { homeDictionaryNameExpr } from '../queries/util';
 import { fakeActiveSession } from './fakeActiveSession';
 
@@ -1026,7 +1026,7 @@ describe('debugQueries', () => {
 
     // A frame with no named temps to bind, with the non-blocking calls wired to
     // report "ready immediately" and hand back EVAL_RESULT.
-    function nbEvalSession() {
+    function nbEvalSession(id = 1) {
       const gci = {
         GciTsI64ToOop: vi.fn(() => ({ result: 0xaan, err: { ...noErr } })),
         oopToInteger: vi.fn(() => 5n),
@@ -1057,7 +1057,7 @@ describe('debugQueries', () => {
         GciTsNbResult: vi.fn(() => ({ result: EVAL_RESULT, err: { ...noErr } })),
       };
       const session = fakeActiveSession({
-        id: 1,
+        id,
         handle: {},
         login: { label: 'T' },
         stoneVersion: '3.7.2',
@@ -1065,6 +1065,49 @@ describe('debugQueries', () => {
       });
       return { session, gci };
     }
+
+    // Every debugger action sets up with GCI calls of its own. Made while the
+    // session still has a run on it, they would get GemStone's raw error, or,
+    // while a worker owns the session, could kill the process.
+    it.each([
+      ['Evaluate', (s: ActiveSession) => debug.evaluateInFrameNb(s, GS_PROCESS, '3 + 4', 3)],
+      ['Step Over', (s: ActiveSession) => debug.stepOverNb(s, GS_PROCESS, 3)],
+      ['Step Into', (s: ActiveSession) => debug.stepIntoNb(s, GS_PROCESS, 3)],
+      ['Step Out', (s: ActiveSession) => debug.stepThruNb(s, GS_PROCESS, 3)],
+      ['Trim Stack', (s: ActiveSession) => debug.trimStackToLevelNb(s, GS_PROCESS, 3)],
+    ])('%s makes no GCI call while the session still has a run on it', async (_name, action) => {
+      vi.useFakeTimers();
+      try {
+        const id = 1000 + Math.floor(Math.random() * 1_000_000);
+        const busy = fakeActiveSession({
+          id,
+          handle: {},
+          gci: {
+            isAvailable: (n: string) => n === 'GciTsNbPoll',
+            GciTsNbPoll: vi.fn(() => ({ result: 0, err: { ...noErr } })),
+            GciTsCallInProgress: vi.fn(() => ({ result: 0, err: { ...noErr } })),
+          },
+        });
+        const running = runNbCall(
+          busy,
+          () => ({ success: true, err: noErr as never }),
+          () => 'never',
+          { suppressNotification: true },
+        );
+        running.catch(() => {});
+        const { session, gci } = nbEvalSession(id);
+
+        await expect(action(session)).rejects.toBeInstanceOf(NbSessionBusyError);
+
+        expect(gci.GciTsI64ToOop).not.toHaveBeenCalled();
+        expect(gci.GciTsNewString).not.toHaveBeenCalled();
+        expect(gci.executeAndFetchString).not.toHaveBeenCalled();
+        expect(gci.GciTsNbPerform).not.toHaveBeenCalled();
+      } finally {
+        vi.clearAllTimers();
+        vi.useRealTimers();
+      }
+    });
 
     it('resolves with the result printString once the non-blocking call is ready', async () => {
       const { session } = nbEvalSession();

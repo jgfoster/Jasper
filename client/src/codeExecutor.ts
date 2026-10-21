@@ -18,7 +18,12 @@ import {
   drainTranscript,
   settleNbResult,
 } from './transcriptSink';
-import { pollNbToCompletion, NbCancelledError } from './nbRunner';
+import {
+  pollNbToCompletion,
+  NbCancelledError,
+  NbSessionBusyError,
+  whenSessionFree,
+} from './nbRunner';
 
 const MAX_RESULT_SIZE = 64 * 1024;
 
@@ -179,6 +184,20 @@ export class CodeExecutor {
       return;
     }
 
+    await this.whenFree(session, () =>
+      this.runExecution(session, editor, selection, code, mode, displayResult),
+    );
+  }
+
+  /** Everything in `execute` after the session check, started inside it; see whenFree. */
+  private async runExecution(
+    session: ActiveSession,
+    editor: vscode.TextEditor,
+    selection: vscode.Selection,
+    code: string,
+    mode: 'display' | 'execute' | 'debug',
+    displayResult: boolean,
+  ): Promise<void> {
     const oopClassString = this.resolveUtf8ClassOopUsing(session);
 
     // Dim the selected code while executing
@@ -510,7 +529,15 @@ export class CodeExecutor {
     if (this.executing.has(session.id)) {
       throw new Error('A GemStone execution is already in progress on this session.');
     }
+    return await whenSessionFree(session, () => this.runWithDebugger(session, code, label));
+  }
 
+  /** Everything in `executeWithDebugger` after the session check; see whenSessionFree. */
+  private async runWithDebugger(
+    session: ActiveSession,
+    code: string,
+    label: string,
+  ): Promise<{ raised: boolean; cancelled?: boolean; message?: string }> {
     const oopClassString = this.resolveUtf8ClassOopUsing(session);
     this.setExecuting(session.id, true);
     appendTranscriptOutput(startClientForwarderMode(session, code));
@@ -700,6 +727,21 @@ export class CodeExecutor {
     return new vscode.Range(pos, lineEnd);
   }
 
+  /**
+   * Run `start` once the session is free ({@link whenSessionFree}), or, while it
+   * still has a run on it — one the user stopped that is still finishing, or one
+   * still going — tell them so and start nothing: until then GemStone refuses
+   * every call on the session, clientForwarder mode's start included.
+   */
+  private async whenFree(session: ActiveSession, start: () => Promise<void>): Promise<void> {
+    try {
+      await whenSessionFree(session, start);
+    } catch (e) {
+      if (!(e instanceof NbSessionBusyError)) throw e;
+      vscode.window.showWarningMessage(e.message);
+    }
+  }
+
   private pollForCompletion<T>(
     session: ActiveSession,
     onReady: (signal: AbortSignal) => Promise<T>,
@@ -806,6 +848,11 @@ export class CodeExecutor {
     code: string,
     label: string,
   ): Promise<void> {
+    await this.whenFree(session, () => this.runInspection(session, code, label));
+  }
+
+  /** Everything in `executeAndInspect` after the session check; see whenFree. */
+  private async runInspection(session: ActiveSession, code: string, label: string): Promise<void> {
     const oopClassString = this.resolveUtf8ClassOopUsing(session);
 
     // Dim the selected code in the active editor while executing
