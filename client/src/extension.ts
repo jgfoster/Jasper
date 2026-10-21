@@ -2343,6 +2343,7 @@ export function activate(context: vscode.ExtensionContext) {
             keychainPassword: (login) => getLoginPassword(context.secrets, login),
             getGciLibraryPath: (version) => storage.getGciLibraryPath(version),
             setGciLibraryPath: (version, gciPath) => storage.setGciLibraryPath(version, gciPath),
+            removeGciLibraryPath: (version) => storage.removeGciLibraryPath(version),
             getGemstonePath: (version) => sysadminStorage.getGemstonePath(version),
             getClientGciPath: (version) => sysadminStorage.getClientGciPath(version),
             getRootPath: () => sysadminStorage.getRootPath(),
