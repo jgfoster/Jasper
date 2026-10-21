@@ -4,7 +4,7 @@ import { wrapExecuteCode } from './queries/executeCode';
 import { GemStoneNotebookKernel, GEMSTONE_NOTEBOOK_TYPE } from './gemstoneNotebookKernel';
 import { startClientForwarderMode, endClientForwarderMode, settleNbResult } from './transcriptSink';
 import { appendTranscriptOutput } from './transcriptChannel';
-import { runNbCall, ensureSessionFree } from './nbRunner';
+import { runNbCall, acquireSession } from './nbRunner';
 import { OOP_ILLEGAL, OOP_NIL, OOP_CLASS_UTF8 } from './gciConstants';
 import { SMALLTALK_LANGUAGE } from './languageIds';
 import { sessionKernelId } from './sessionKernels';
@@ -35,15 +35,16 @@ const MAX_CELL_RESULT = 256 * 1024;
 // `Transcript show:` output streams to the GemStone Transcript channel while
 // the cell runs (and a long cell doesn't freeze the extension host).
 export async function evalSmalltalk(session: ActiveSession, source: string): Promise<string> {
+  // Before any GCI call: a stopped call still on the session would make GemStone
+  // refuse clientForwarder mode's start, and while a worker still owns the
+  // session a call from here could kill the process.
+  for (let wait = acquireSession(session); wait; wait = acquireSession(session)) await wait;
   const { result: inProgress } = session.GciTsCallInProgress();
   if (inProgress !== 0) {
     throw new Error(
       'Session is busy with another operation. Please wait or use a different session.',
     );
   }
-  // Before clientForwarder mode's start, which a stopped call still on the
-  // session would make GemStone refuse.
-  ensureSessionFree(session);
 
   const code = wrapExecuteCode(source);
   appendTranscriptOutput(startClientForwarderMode(session, code));

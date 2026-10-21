@@ -1,7 +1,7 @@
 import { ActiveSession } from './sessionManager';
 import { OOP_ILLEGAL, OOP_NIL } from './gciConstants';
 import { logError } from './gciLog';
-import { runNbCall } from './nbRunner';
+import { runNbCall, acquireSession, NbRunOptions } from './nbRunner';
 
 import { QueryExecutor } from './queries/types';
 
@@ -387,8 +387,12 @@ export async function executeFetchStringNb(
   // Handed a `cancel` fn once polling starts — soft break on the first call, hard
   // on the second. Lets a caller drive the break from its own UI (the Testing
   // view's stop button, an Explorer row's ■) rather than only the ~2s toast.
-  onStart?: (cancel: () => void) => void,
+  // See NbRunOptions.onStart for its second argument.
+  onStart?: NbRunOptions['onStart'],
 ): Promise<string> {
+  // Before any GCI call, for the reasons runNbCall gives; synchronous when there
+  // is nothing to wait for, so the call still starts in this tick.
+  for (let wait = acquireSession(session); wait; wait = acquireSession(session)) await wait;
   const { result: inProgress } = session.GciTsCallInProgress();
   if (inProgress !== 0) {
     const msg = 'Session is busy with another operation. Please wait or use a different session.';

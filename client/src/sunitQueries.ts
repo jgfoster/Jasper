@@ -19,6 +19,7 @@ import {
 } from './queries/runTestClass';
 import { runFailingTests as sharedRunFailingTests } from './queries/runFailingTests';
 import { describeTestFailure as sharedDescribeTestFailure } from './queries/describeTestFailure';
+import type { NbRunOptions } from './nbRunner';
 
 // Re-export types from the shared layer.
 export type { TestClassInfo } from './queries/discoverTestClasses';
@@ -61,7 +62,7 @@ export function runTestClassNb(
   session: ActiveSession,
   className: string,
   dictName?: string,
-  onStart?: (cancel: () => void) => void,
+  onStart?: NbRunOptions['onStart'],
 ) {
   return executeFetchStringNb(
     session,
@@ -78,7 +79,7 @@ export function runTestMethodNb(
   className: string,
   selector: string,
   dictName?: string,
-  onStart?: (cancel: () => void) => void,
+  onStart?: NbRunOptions['onStart'],
 ) {
   return executeFetchStringNb(
     session,

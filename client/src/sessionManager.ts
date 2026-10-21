@@ -8,6 +8,7 @@ import { GemStoneLogin, gemNrsFor, loginLabel, stoneNrsFor } from './loginTypes'
 import { logInfo, logWarning } from './gciLog';
 import { createSessionGciLibrary } from './enhancedInspector/enhancedInspectorPerfTracker';
 import { installTranscriptSink } from './transcriptSink';
+import { forgetSession } from './nbRunner';
 import { installMethodHistory } from './methodHistory/methodHistoryServer';
 import {
   TransactionMode,
@@ -445,6 +446,7 @@ export class SessionManager {
     } catch {
       // Session may already be dead — remove it regardless
     }
+    forgetSession(id);
     this.sessions.delete(id);
     // Drop it from the selection order too, so it cannot be promoted later. This
     // is what makes that guarantee, for a background session as much as the
@@ -650,6 +652,7 @@ export class SessionManager {
       } catch {
         /* ignore */
       }
+      forgetSession(s.id);
     }
     this.sessions.clear();
     // Both halves of the selection go with the sessions. getSelectedSession()

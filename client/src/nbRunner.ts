@@ -95,8 +95,12 @@ export interface NbRunOptions {
    * the progress notification's Cancel does. Lets a caller drive cancellation
    * from its own UI (e.g. the debugger's in-panel Cancel button) instead of only
    * the notification toast. The fn is a no-op once the call has settled.
+   *
+   * Also handed `stopRequested`, which answers whether a stop has been asked for
+   * on this call by anyone, the notification's Cancel included: a caller whose
+   * call answers a soft break as an ordinary result can tell it from a real one.
    */
-  onStart?: (cancel: () => void) => void;
+  onStart?: (cancel: () => void, stopRequested: () => boolean) => void;
   /**
    * Whether the process this call stops is the call's own, to be thrown away
    * with it. True for anything that starts a fresh execution: abandoned inside
@@ -151,18 +155,27 @@ const DRAIN_INTERVAL_MS = 50;
  * the life of the window; past the bound, the next run still collects it (see
  * {@link ensureSessionFree}).
  *
- * Exported so the tests can step past the bound instead of repeating it.
+ * Exported so the tests can step by them instead of repeating them.
  */
-const LATE_COLLECT_INTERVAL_MS = 500;
+export const LATE_COLLECT_INTERVAL_MS = 500;
 export const LATE_COLLECT_LIMIT_MS = 5 * 60_000;
+
+/**
+ * How many poll errors in a row it takes to give up on collecting a stopped
+ * call. One can be transient, and giving up leaves the session refusing every
+ * call until logout.
+ */
+const COLLECT_FAILURES_TO_GIVE_UP = 3;
 
 /**
  * Sessions still busy with a call we gave up on: its result is still being
  * collected ({@link drainAbandonedCall}), or its `onReady` is still resuming it
  * on a worker thread ({@link awaitAbandonedRead}). The next call on that
- * session waits for it: either takes as long as the gem takes to notice the
- * break, and a run started in the meantime would be refused outright — which,
- * from the user's side, is pressing stop and then having the next run do nothing.
+ * session waits for it ({@link acquireSession}): either takes as long as the gem
+ * takes to notice the break, and a run started in the meantime would be refused
+ * outright — which, from the user's side, is pressing stop and then having the
+ * next run do nothing. While a worker may own the session, a call from the main
+ * thread can also kill the process; see {@link awaitAbandonedRead}.
  *
  * Keyed by session id, not by the ActiveSession object: callers build those
  * freely and two of them can stand for the same logged-in session, which is the
@@ -172,10 +185,13 @@ const draining = new Map<number, Promise<void>>();
 
 /**
  * Sessions whose stopped call outlived the drain and is not collected yet, keyed
- * like {@link draining}. Each entry tries to collect the call now, answering
- * whether the session has nothing left to wait for.
+ * like {@link draining}. `collect` tries to collect the call now, answering
+ * whether the session has nothing left to wait for; `forget` stops polling for it.
  */
-const uncollected = new Map<number, () => boolean>();
+const uncollected = new Map<number, { collect: () => boolean; forget: () => void }>();
+
+/** What one attempt to collect a stopped call found. */
+type CollectState = 'collected' | 'pending' | 'failed' | 'gone';
 
 /**
  * Sessions with a call still being polled ({@link pollNbToCompletion}), keyed
@@ -214,35 +230,33 @@ function drainAbandonedCall(
   if (existing) return existing;
 
   const startedAt = Date.now();
-  // Giving up leaves the session refusing every call until logout, with
-  // nothing to show why, so say so.
-  const giveUp = (reason: string): void =>
-    logInfo(
-      `[Session ${session.id}] Gave up collecting a cancelled call after ` +
-        `${Date.now() - startedAt}ms (${reason}); the session stays busy until it is collected.`,
-    );
-  const tryCollect = (): 'collected' | 'pending' | 'failed' => {
+  // A poll error can be transient, so it is retried like a pending poll (see
+  // COLLECT_FAILURES_TO_GIVE_UP); a throw means the session is gone (logged
+  // out), and there is nothing left to collect.
+  const tryCollect = (): { state: CollectState; reason?: string } => {
     try {
       const { result, err } = pollNbResultReady(session);
       if (result === 1) {
         const { err } = session.GciTsNbResult();
         if (disposableProcess) clearStoppedProcess(session, err?.context);
         runCollectedHook(session, onCollected);
-        return 'collected';
+        return { state: 'collected' };
       }
       if (result === -1) {
-        giveUp(`poll error ${err?.number ?? ''} ${err?.message ?? ''}`.trim());
-        return 'failed';
+        return {
+          state: 'failed',
+          reason: `poll error ${err?.number ?? ''} ${err?.message ?? ''}`.trim(),
+        };
       }
-      return 'pending';
+      return { state: 'pending' };
     } catch (e) {
-      giveUp(e instanceof Error ? e.message : String(e));
-      return 'failed';
+      return { state: 'gone', reason: e instanceof Error ? e.message : String(e) };
     }
   };
   const done = new Promise<void>((resolve) => {
     const attempt = (n: number): void => {
-      if (tryCollect() !== 'pending') {
+      const { state } = tryCollect();
+      if (state === 'collected' || state === 'gone') {
         resolve();
         return;
       }
@@ -271,7 +285,7 @@ function drainAbandonedCall(
  */
 function collectLate(
   session: ActiveSession,
-  tryCollect: () => 'collected' | 'pending' | 'failed',
+  tryCollect: () => { state: CollectState; reason?: string },
   startedAt: number,
 ): void {
   logInfo(
@@ -280,21 +294,35 @@ function collectLate(
       'The session refuses new calls until it finishes.',
   );
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const settled = (): boolean => {
-    const state = tryCollect();
-    if (state === 'pending') return false;
+  let failuresInARow = 0;
+  const forget = (): void => {
     clearTimeout(timer);
-    if (uncollected.get(session.id) === settled) uncollected.delete(session.id);
+    if (uncollected.get(session.id) === entry) uncollected.delete(session.id);
+  };
+  const settled = (): boolean => {
+    const { state, reason } = tryCollect();
+    if (state === 'pending') {
+      failuresInARow = 0;
+      return false;
+    }
+    if (state === 'failed' && ++failuresInARow < COLLECT_FAILURES_TO_GIVE_UP) return false;
+    forget();
     if (state === 'collected') {
       logInfo(
         `[Session ${session.id}] Collected a cancelled call after ` +
           `${Date.now() - startedAt}ms; the session is free again.`,
       );
+    } else {
+      // Nothing left to wait for: the caller's own call reports the session as
+      // it is. Said, because a session left busy has nothing else to show why.
+      logInfo(
+        `[Session ${session.id}] Gave up collecting a cancelled call after ` +
+          `${Date.now() - startedAt}ms (${reason ?? state}).`,
+      );
     }
-    // A failed collection (a poll error, a logout) has been logged, and leaves
-    // nothing to wait for: the caller's own call reports the session as it is.
     return true;
   };
+  const entry = { collect: settled, forget };
   const tick = (n: number): void => {
     if (settled()) return;
     if (n * LATE_COLLECT_INTERVAL_MS >= LATE_COLLECT_LIMIT_MS) {
@@ -306,19 +334,19 @@ function collectLate(
     }
     timer = setTimeout(() => tick(n + 1), LATE_COLLECT_INTERVAL_MS);
   };
-  uncollected.set(session.id, settled);
+  uncollected.set(session.id, entry);
   timer = setTimeout(() => tick(1), LATE_COLLECT_INTERVAL_MS);
 }
 
 /**
  * Make sure the session has no call left on it before starting another: collect
  * a stopped call whose result is in, or throw {@link NbSessionBusyError} while
- * the gem is still finishing one, or while another call is still being polled.
- * {@link runNbCall} does this itself; a caller that starts its own call (Execute
- * It, a notebook cell) does it before its first GCI call, since anything that
- * call runs first would be refused too.
+ * the gem is still finishing one, while one is still being drained, or while
+ * another call is still being polled. For a caller that cannot wait; one that
+ * can uses {@link acquireSession}, which waits out the drain first.
  */
 export function ensureSessionFree(session: ActiveSession): void {
+  if (draining.has(session.id)) throw new NbSessionBusyError();
   const stopRequested = live.get(session.id);
   if (stopRequested) {
     throw stopRequested()
@@ -328,8 +356,42 @@ export function ensureSessionFree(session: ActiveSession): void {
             'it, before starting another.',
         );
   }
-  const settled = uncollected.get(session.id);
-  if (settled && !settled()) throw new NbSessionBusyError();
+  const pending = uncollected.get(session.id);
+  if (pending && !pending.collect()) throw new NbSessionBusyError();
+}
+
+/**
+ * Check the session is free before starting a call on it: answers a promise to
+ * wait for while a stopped call is still being drained, and otherwise checks
+ * it synchronously ({@link ensureSessionFree}, which throws). Every caller that
+ * starts a call does this before its first GCI call, since anything that call
+ * runs first would be refused too, or, while a worker owns the session, could
+ * kill the process.
+ *
+ * After waiting, ask again — `for (let w = acquireSession(s); w; w =
+ * acquireSession(s)) await w;` — and start the call in the same synchronous step
+ * as the answer that returned nothing. Two callers can wait on the same drain,
+ * and only a check made right before the start sees the other's call. No await
+ * at all when there is nothing to wait for, so a call with nothing before it
+ * still begins in the same tick (see {@link runNbCall}). The wait is bounded by
+ * the drain's own budget, or by ABANDONED_READ_WAIT_MS.
+ */
+export function acquireSession(session: ActiveSession): Promise<void> | undefined {
+  const pending = draining.get(session.id);
+  if (pending) return pending;
+  ensureSessionFree(session);
+  return undefined;
+}
+
+/**
+ * Forget everything kept for a session that has logged out: its id may come back
+ * for another login, and polling a closed session could reach a GCI library that
+ * has already been unloaded.
+ */
+export function forgetSession(sessionId: number): void {
+  uncollected.get(sessionId)?.forget();
+  draining.delete(sessionId);
+  live.delete(sessionId);
 }
 
 /**
@@ -571,7 +633,7 @@ export function pollNbToCompletion<T>(
         setTimeout(sendHardBreak, MIN_HARD_BREAK_GAP_MS - waited);
       }
     });
-    if (opts.onStart) opts.onStart(requestCancel);
+    if (opts.onStart) opts.onStart(requestCancel, () => softBreakSent);
 
     const doPoll = settleOnThrow(() => {
       if (settled) return;
@@ -677,23 +739,14 @@ export async function runNbCall<T>(
   onReady: (signal: AbortSignal) => T | Promise<T>,
   opts: NbRunOptions = {},
 ): Promise<T> {
-  // A call we gave up on may still be being collected. Starting now would be
-  // refused as "an operation is in progress" — so wait for the session to be free
-  // rather than failing a run whose only crime is following a stop.
-  //
-  // Only ever deferred when there IS something to wait for: the call (and with it
-  // opts.onStart, which hands out the canceller) still begins synchronously in the
-  // ordinary case, so a stop pressed the moment a run starts still has something
-  // to press.
-  // GciTsCallInProgress is no help here: it can answer "idle" while the abandoned
-  // Nb result is still uncollected, and it is that result the next GciTsNbExecute
-  // refuses over ("session has a GciTsNb operation in progress"). Only the drain
-  // itself knows when the session is really free, so wait on it. Bounded by
-  // DRAIN_ATTEMPTS (or ABANDONED_READ_WAIT_MS), so it always resolves — and a
-  // call still uncollected by then is refused with a message that says why.
-  const pending = draining.get(session.id);
-  if (pending) await pending;
-  ensureSessionFree(session);
+  // A call we gave up on may still be being collected; starting now would be
+  // refused as "an operation is in progress". acquireSession waits for it, and
+  // only ever defers when there IS something to wait for: the call (and with it
+  // opts.onStart, which hands out the canceller) still begins synchronously in
+  // the ordinary case, so a stop pressed the moment a run starts still has
+  // something to press. GciTsCallInProgress is no help here: it can answer
+  // "idle" while the abandoned Nb result is still uncollected.
+  for (let wait = acquireSession(session); wait; wait = acquireSession(session)) await wait;
   return await beginNbCall(session, start, onReady, opts);
 }
 

@@ -12,7 +12,10 @@ import {
   NbSessionBusyError,
   ensureSessionFree,
   MIN_HARD_BREAK_GAP_MS,
+  LATE_COLLECT_INTERVAL_MS,
   LATE_COLLECT_LIMIT_MS,
+  acquireSession,
+  forgetSession,
 } from '../nbRunner';
 import { fakeActiveSession } from './fakeActiveSession';
 
@@ -855,6 +858,198 @@ describe('a stopped call the gem takes longer than the drain budget to finish', 
           { suppressNotification: true },
         ),
       ).rejects.toThrow('The GemStone session is logged out.');
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('a session whose stopped call is still being drained', () => {
+  // The drain's 2s after a hard break: the stopped call is still on the session,
+  // and a call from the main thread is refused, or, while a worker owns the
+  // session, can kill the process.
+
+  /** Hard-break a call, and stop short of the drain's budget. */
+  async function hardBreakAndStayInTheDrain(session: ReturnType<typeof makeSession>['session']) {
+    let cancel: (() => void) | undefined;
+    const p = runNbCall(
+      session,
+      () => ({ success: true, err: noErr as never }),
+      () => 'x',
+      {
+        suppressNotification: true,
+        onStart: (c) => {
+          cancel = c;
+        },
+      },
+    );
+    p.catch(() => {});
+    cancel!();
+    cancel!();
+    await vi.advanceTimersByTimeAsync(PAST_HARD_BREAK_GAP_MS);
+    await expect(p).rejects.toBeInstanceOf(NbCancelledError);
+  }
+
+  it('refuses a call that cannot wait, with a message that says why', async () => {
+    vi.useFakeTimers();
+    try {
+      const { session, gci } = makeSession([{ result: 0 }]);
+      (gci.GciTsNbPoll as ReturnType<typeof vi.fn>).mockReturnValue({ result: 0, err: noErr });
+      await hardBreakAndStayInTheDrain(session);
+
+      expect(() => ensureSessionFree(session)).toThrow(/still finishing/);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('holds a call that can wait until the drain is over', async () => {
+    vi.useFakeTimers();
+    try {
+      const { session, gci } = makeSession([{ result: 0 }]);
+      const poll = gci.GciTsNbPoll as ReturnType<typeof vi.fn>;
+      poll.mockReturnValue({ result: 0, err: noErr });
+      await hardBreakAndStayInTheDrain(session);
+      const wait = acquireSession(session);
+      expect(wait).toBeInstanceOf(Promise);
+
+      poll.mockReturnValue({ result: 1, err: noErr });
+      await vi.advanceTimersByTimeAsync(100);
+      await wait;
+
+      expect(gci.GciTsNbResult).toHaveBeenCalledTimes(1);
+      expect(acquireSession(session)).toBeUndefined();
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('starts only one of two runs waiting on the same drain', async () => {
+    vi.useFakeTimers();
+    try {
+      const { session, gci } = makeSession([{ result: 0 }]);
+      const poll = gci.GciTsNbPoll as ReturnType<typeof vi.fn>;
+      poll.mockReturnValue({ result: 0, err: noErr });
+      await hardBreakAndStayInTheDrain(session);
+      const starts = vi.fn(() => ({ success: true, err: noErr as never }));
+      const first = runNbCall(session, starts, () => 'first', { suppressNotification: true });
+      const second = runNbCall(session, starts, () => 'second', { suppressNotification: true });
+      first.catch(() => {});
+      second.catch(() => {});
+
+      poll.mockReturnValue({ result: 1, err: noErr });
+      await vi.advanceTimersByTimeAsync(100);
+
+      await expect(second).rejects.toThrow(/still in progress/);
+      await expect(first).resolves.toBe('first');
+      expect(starts).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('a stopped call whose collection hits a poll error', () => {
+  it('goes on collecting after one error, so the session is not left refusing every call', async () => {
+    vi.useFakeTimers();
+    try {
+      const { session, gci } = makeSession([{ result: 0 }]);
+      const poll = gci.GciTsNbPoll as ReturnType<typeof vi.fn>;
+      poll.mockReturnValue({ result: 0, err: noErr });
+      await stopRun(session);
+      await vi.advanceTimersByTimeAsync(PAST_DRAIN_BUDGET_MS);
+      poll.mockReturnValueOnce({ result: -1, err: { number: 9, message: 'poll err' } });
+      await vi.advanceTimersByTimeAsync(LATE_COLLECT_INTERVAL_MS);
+
+      expect(() => ensureSessionFree(session)).toThrow(/still finishing/);
+
+      poll.mockReturnValue({ result: 1, err: noErr });
+      await vi.advanceTimersByTimeAsync(LATE_COLLECT_INTERVAL_MS);
+      expect(gci.GciTsNbResult).toHaveBeenCalledTimes(1);
+      expect(() => ensureSessionFree(session)).not.toThrow();
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives up, and says so, after several errors in a row', async () => {
+    vi.useFakeTimers();
+    try {
+      const { session, gci } = makeSession([{ result: 0 }]);
+      const poll = gci.GciTsNbPoll as ReturnType<typeof vi.fn>;
+      poll.mockReturnValue({ result: 0, err: noErr });
+      await stopRun(session);
+      await vi.advanceTimersByTimeAsync(PAST_DRAIN_BUDGET_MS);
+      vi.mocked(logInfo).mockClear();
+
+      poll.mockReturnValue({ result: -1, err: { number: 9, message: 'poll err' } });
+      await vi.advanceTimersByTimeAsync(5 * LATE_COLLECT_INTERVAL_MS);
+      const pollsAfterGivingUp = poll.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(10 * LATE_COLLECT_INTERVAL_MS);
+
+      expect(poll.mock.calls.length).toBe(pollsAfterGivingUp);
+      expect(vi.mocked(logInfo).mock.calls.flat().join('\n')).toMatch(/Gave up collecting/);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('forgetSession', () => {
+  it('stops polling for a logged-out session, and leaves nothing behind for its id', async () => {
+    vi.useFakeTimers();
+    try {
+      const { session, gci } = makeSession([{ result: 0 }]);
+      const poll = gci.GciTsNbPoll as ReturnType<typeof vi.fn>;
+      poll.mockReturnValue({ result: 0, err: noErr });
+      await stopRun(session);
+      await vi.advanceTimersByTimeAsync(PAST_DRAIN_BUDGET_MS);
+
+      forgetSession(session.id);
+      const pollsAtLogout = poll.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(10 * LATE_COLLECT_INTERVAL_MS);
+
+      expect(poll.mock.calls.length).toBe(pollsAtLogout);
+      expect(() => ensureSessionFree(session)).not.toThrow();
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("onStart's stopRequested", () => {
+  it('answers whether a stop has been asked for on the call, from whichever control', async () => {
+    vi.useFakeTimers();
+    try {
+      const { session, gci } = makeSession([{ result: 0 }]);
+      (gci.GciTsNbPoll as ReturnType<typeof vi.fn>).mockReturnValue({ result: 0, err: noErr });
+      let cancel: (() => void) | undefined;
+      let stopRequested: (() => boolean) | undefined;
+      const p = runNbCall(
+        session,
+        () => ({ success: true, err: noErr as never }),
+        () => 'x',
+        {
+          suppressNotification: true,
+          onStart: (c, requested) => {
+            cancel = c;
+            stopRequested = requested;
+          },
+        },
+      );
+      p.catch(() => {});
+      expect(stopRequested!()).toBe(false);
+
+      cancel!();
+
+      expect(stopRequested!()).toBe(true);
     } finally {
       vi.clearAllTimers();
       vi.useRealTimers();

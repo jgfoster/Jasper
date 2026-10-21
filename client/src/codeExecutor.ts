@@ -22,7 +22,7 @@ import {
   pollNbToCompletion,
   NbCancelledError,
   NbSessionBusyError,
-  ensureSessionFree,
+  acquireSession,
 } from './nbRunner';
 
 const MAX_RESULT_SIZE = 64 * 1024;
@@ -184,7 +184,12 @@ export class CodeExecutor {
       return;
     }
 
-    if (!this.isSessionFree(session)) return;
+    let free = this.isSessionFree(session);
+    while (free instanceof Promise) {
+      await free;
+      free = this.isSessionFree(session);
+    }
+    if (!free) return;
 
     const oopClassString = this.resolveUtf8ClassOopUsing(session);
 
@@ -517,7 +522,7 @@ export class CodeExecutor {
     if (this.executing.has(session.id)) {
       throw new Error('A GemStone execution is already in progress on this session.');
     }
-    ensureSessionFree(session);
+    for (let wait = acquireSession(session); wait; wait = acquireSession(session)) await wait;
 
     const oopClassString = this.resolveUtf8ClassOopUsing(session);
     this.setExecuting(session.id, true);
@@ -712,12 +717,12 @@ export class CodeExecutor {
    * False, once the user has been told, while the session still has a run on
    * it — one they stopped that is still finishing, or one still going: until
    * then GemStone refuses every call on the session, clientForwarder mode's
-   * start included.
+   * start included. A promise while a stopped call is still being drained: wait
+   * for it and ask again, as acquireSession explains.
    */
-  private isSessionFree(session: ActiveSession): boolean {
+  private isSessionFree(session: ActiveSession): boolean | Promise<void> {
     try {
-      ensureSessionFree(session);
-      return true;
+      return acquireSession(session) ?? true;
     } catch (e) {
       if (!(e instanceof NbSessionBusyError)) throw e;
       vscode.window.showWarningMessage(e.message);
@@ -831,7 +836,12 @@ export class CodeExecutor {
     code: string,
     label: string,
   ): Promise<void> {
-    if (!this.isSessionFree(session)) return;
+    let free = this.isSessionFree(session);
+    while (free instanceof Promise) {
+      await free;
+      free = this.isSessionFree(session);
+    }
+    if (!free) return;
 
     const oopClassString = this.resolveUtf8ClassOopUsing(session);
 

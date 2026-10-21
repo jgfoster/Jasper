@@ -31,7 +31,7 @@ vi.mock('../nbRunner', async (orig) => {
   return {
     ...actual,
     pollNbToCompletion: vi.fn(actual.pollNbToCompletion),
-    ensureSessionFree: vi.fn(actual.ensureSessionFree),
+    acquireSession: vi.fn(actual.acquireSession),
   };
 });
 vi.mock('../basicInspector/basicInspector', () => ({
@@ -41,7 +41,8 @@ vi.mock('../basicInspector/basicInspector', () => ({
 import { CodeExecutor } from '../codeExecutor';
 import {
   pollNbToCompletion,
-  ensureSessionFree,
+  acquireSession,
+  forgetSession,
   NbSessionBusyError,
   type NbRunOptions,
 } from '../nbRunner';
@@ -264,6 +265,9 @@ describe('CodeExecutor', () => {
     __resetConfig();
     gci = makeGci();
     session = makeSession(gci);
+    // Every test's session has the same id, and a call one test stopped is still
+    // tracked for it by the runner, as for a real session until logout.
+    forgetSession(session.id);
     sessionManager = makeSessionManager(session);
     executor = new CodeExecutor(sessionManager);
   });
@@ -469,7 +473,7 @@ describe('CodeExecutor', () => {
       '%s says a stopped run is still finishing, and starts nothing',
       async (command) => {
         setActiveEditor(makeEditor('3 + 4'));
-        vi.mocked(ensureSessionFree).mockImplementationOnce(() => {
+        vi.mocked(acquireSession).mockImplementationOnce(() => {
           throw new NbSessionBusyError();
         });
 
@@ -483,8 +487,35 @@ describe('CodeExecutor', () => {
       },
     );
 
+    // A stopped call still being drained: a GCI call made now would be refused, or,
+    // while a worker owns the session, could kill the process.
+    it.each(['executeIt', 'displayIt', 'inspectIt'] as const)(
+      '%s waits for a stopped call to be drained before its first GCI call',
+      async (command) => {
+        setActiveEditor(makeEditor('3 + 4'));
+        let drained: (() => void) | undefined;
+        vi.mocked(acquireSession).mockImplementationOnce(
+          () => new Promise<void>((resolve) => (drained = resolve)),
+        );
+        const gciCallsBefore = Object.values(gci).filter(
+          (f) => typeof f === 'function' && 'mock' in f && (f as Mock).mock.calls.length > 0,
+        ).length;
+
+        const running = executor[command]();
+        await new Promise((r) => setTimeout(r, 0));
+
+        const gciCallsDuring = Object.values(gci).filter(
+          (f) => typeof f === 'function' && 'mock' in f && (f as Mock).mock.calls.length > 0,
+        ).length;
+        expect(gciCallsDuring).toBe(gciCallsBefore);
+        drained!();
+        await running;
+        expect(gci.GciTsNbExecute).toHaveBeenCalled();
+      },
+    );
+
     it('executeWithDebugger rejects while a stopped run is still finishing, and starts nothing', async () => {
-      vi.mocked(ensureSessionFree).mockImplementationOnce(() => {
+      vi.mocked(acquireSession).mockImplementationOnce(() => {
         throw new NbSessionBusyError();
       });
 
