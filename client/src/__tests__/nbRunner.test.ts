@@ -91,14 +91,22 @@ describe('runNbCall', () => {
   });
 
   it('rejects when polling reports an error (-1)', async () => {
-    const { session } = makeSession([{ result: -1, err: { number: 7, message: 'pollbad' } }]);
-    await expect(
-      runNbCall(
-        session,
-        () => ({ success: true, err: noErr as never }),
-        () => 'unused',
-      ),
-    ).rejects.toThrow('pollbad');
+    // Fake timers: the drain retries a poll error after the run has rejected, and
+    // on real timers that retry would fire inside whichever test runs next.
+    vi.useFakeTimers();
+    try {
+      const { session } = makeSession([{ result: -1, err: { number: 7, message: 'pollbad' } }]);
+      await expect(
+        runNbCall(
+          session,
+          () => ({ success: true, err: noErr as never }),
+          () => 'unused',
+        ),
+      ).rejects.toThrow('pollbad');
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
   });
 
   it('keeps polling while pending, then resolves when ready', async () => {
