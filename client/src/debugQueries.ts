@@ -94,7 +94,7 @@ function executeAndFetchString(session: ActiveSession, code: string): string {
  * Four `value:` arguments is the GemStone ExecBlock maximum, so nothing more can
  * be passed in without wrapping the arguments in an Array.
  */
-const FRAME_SELF_SMALLTALK = `homeFrameOf := [:fetchFrame :aLvl :arr :depth | | res |
+export const FRAME_SELF_SMALLTALK = `homeFrameOf := [:fetchFrame :aLvl :arr :depth | | res |
   (arr at: 7) ifNil: [nil] ifNotNil: [:home |
     aLvl + 1 to: depth do: [:j |
       res isNil ifTrue: [ | fj |

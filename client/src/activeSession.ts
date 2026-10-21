@@ -97,6 +97,15 @@ export class ActiveSession {
     if (this.gci.logout(this.handle()).sessionFreed) this.handle = loggedOut;
   }
 
+  /**
+   * Whether a logout has freed this session. For code that has to tell "the
+   * session went away under me" from a real failure — a breakpoint rule that
+   * could not be judged because the session is gone has nothing to stop at.
+   */
+  isLoggedOut(): boolean {
+    return this.handle === loggedOut;
+  }
+
   // Each method below is a pass-through to the GciLibrary method of the same
   // name with this session's handle bound in. The contract lives there: the
   // GciTsXxx calls return a GciError, the rest throw GciLibraryError. One
@@ -327,6 +336,26 @@ export class ActiveSession {
     environmentId: number,
   ) {
     return this.gci.GciTsPerform(
+      this.handle(),
+      receiver,
+      selector,
+      selectorStr,
+      args,
+      flags,
+      environmentId,
+    );
+  }
+
+  /** See {@link GciLibrary.GciTsPerformAsync}. */
+  async GciTsPerformAsync(
+    receiver: bigint,
+    selector: bigint,
+    selectorStr: string | null,
+    args: bigint[],
+    flags: number,
+    environmentId: number,
+  ) {
+    return await this.gci.GciTsPerformAsync(
       this.handle(),
       receiver,
       selector,

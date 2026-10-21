@@ -97,6 +97,7 @@ const libraryLevelMembers = [
   'GciTsOopIsSpecial',
   'GciTsVersion',
   'isAvailable',
+  'isLoggedOut',
 ];
 const membersThatNeedTheSession = Object.getOwnPropertyNames(ActiveSession.prototype).filter(
   (name) => !libraryLevelMembers.includes(name),

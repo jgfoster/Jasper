@@ -185,7 +185,7 @@ describe('conditional breakpoints (integration)', () => {
       specFor('countTo:', 'total := total + i', 'i >= 150'),
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 149 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 149 });
     // And the process is still readable and still suspended right there, which
     // is what lets the debugger open on it as if nothing had happened.
     expect(debugQueries.getStepPoint(session(), process, 1)).toBe(
@@ -225,7 +225,7 @@ describe('conditional breakpoints (integration)', () => {
       specFor('sumOf:', 'total := total + each', 'each >= 150'),
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 149 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 149 });
     release(process);
   });
 
@@ -248,7 +248,7 @@ describe('conditional breakpoints (integration)', () => {
       ),
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 0 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 0 });
     release(process);
   });
 
@@ -315,7 +315,7 @@ describe('conditional breakpoints (integration)', () => {
       { methodExpr, stepPoint: returnStep, condition: 'total > 0' },
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 20 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 20 });
     expect(debugQueries.getStepPoint(session(), process, 1)).toBe(returnStep);
     release(process);
   });
@@ -339,7 +339,7 @@ describe('conditional breakpoints (integration)', () => {
       { methodExpr, stepPoint: returnStep, condition: 'total > 999999' },
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 149 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 149 });
     expect(debugQueries.getStepPoint(session(), process, 1)).toBe(loopStep);
     release(process);
   });
@@ -361,7 +361,7 @@ describe('conditional breakpoints (integration)', () => {
           logMessage: logMessageExpression('i={i} total={total}'),
         },
       ],
-      (text) => lines.push(text),
+      { onLog: (text) => lines.push(text) },
     );
 
     expect(outcome.kind).toBe('completed');
@@ -386,7 +386,7 @@ describe('conditional breakpoints (integration)', () => {
           logMessage: logMessageExpression('late: {i}'),
         },
       ],
-      (text) => lines.push(text),
+      { onLog: (text) => lines.push(text) },
     );
 
     expect(outcome.kind).toBe('completed');
@@ -414,7 +414,7 @@ describe('conditional breakpoints (integration)', () => {
           logMessage: logMessageExpression('{self class} limit={limit} each={each}'),
         },
       ],
-      (text) => lines.push(text),
+      { onLog: (text) => lines.push(text) },
     );
 
     expect(lines[0]).toBe(`${TEST_CLASS} limit=99 each=1`);
@@ -440,8 +440,7 @@ describe('conditional breakpoints (integration)', () => {
           logMessage: logMessageExpression('{noSuchVariable}'),
         },
       ],
-      (text) => lines.push(text),
-      (message) => failures.push(message),
+      { onLog: (text) => lines.push(text), onLogFailure: (message) => failures.push(message) },
     );
 
     expect(outcome.kind).toBe('completed');
@@ -470,9 +469,9 @@ describe('conditional breakpoints (integration)', () => {
     const process = BigInt(err.context);
     const seen: { text: string; step: number | undefined }[] = [];
 
-    await applyBreakpointRules(session(), process, rules, (text, rule) =>
-      seen.push({ text, step: rule?.stepPoint }),
-    );
+    await applyBreakpointRules(session(), process, rules, {
+      onLog: (text, rule) => seen.push({ text, step: rule?.stepPoint }),
+    });
 
     expect(seen.map((l) => l.text)).toEqual(['loop 1', 'loop 2', 'loop 3', 'done 6']);
     expect(seen[0].step).toBe(loopStep);
@@ -578,7 +577,7 @@ describe('conditional breakpoints (integration)', () => {
 
     // Before each = 15 runs, total = 1 + … + 14 = 105, the first total over
     // limit = 100; but each = 15 is odd, so the stop is at each = 16, total = 120.
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 15 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 15 });
     expect(valueInTopFrame(process, 'each')).toBe('16');
     release(process);
   });
@@ -599,7 +598,7 @@ describe('conditional breakpoints (integration)', () => {
       specFor('countTo:', 'total := total + i', "i printString = '150'"),
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 149 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 149 });
     expect(valueInTopFrame(process, 'i')).toBe('150');
     release(process);
   });
@@ -631,7 +630,7 @@ describe('conditional breakpoints (integration)', () => {
       specFor('countTo:', 'total := total + i', "'caf\u00e9' size = 4 and: [ i >= 150 ]"),
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 149 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 149 });
     release(process);
   });
 
@@ -650,7 +649,7 @@ describe('conditional breakpoints (integration)', () => {
           logMessage: logMessageExpression('caf\u00e9 \u65e5\u672c {i}'),
         },
       ],
-      (text) => lines.push(text),
+      { onLog: (text) => lines.push(text) },
     );
 
     expect(outcome.kind).toBe('completed');
@@ -669,7 +668,7 @@ describe('conditional breakpoints (integration)', () => {
       specFor('countTo:', 'total := total + i', 'i >= 150', true),
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 149 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 149 });
     expect(valueInTopFrame(process, 'i')).toBe('150');
     release(process);
   });
@@ -685,7 +684,7 @@ describe('conditional breakpoints (integration)', () => {
       specFor('sumOf:', 'total := total + each', 'each > 1'),
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 0 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 0 });
     release(process);
   });
 
@@ -701,7 +700,7 @@ describe('conditional breakpoints (integration)', () => {
       },
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 0 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 0 });
     release(process);
   });
 
@@ -845,7 +844,7 @@ describe('conditional breakpoints (integration)', () => {
     // First pass: the process is already parked on the trigger, so the decider
     // arms 2 and then stops at 1 as any plain breakpoint would.
     const first = await applyBreakpointRules(session(), process, specs);
-    expect(first).toEqual({ kind: 'stopped', skipped: 0 });
+    expect(first).toEqual({ kind: 'stopped', context: process, skipped: 0 });
     expect(debugQueries.getStepPoint(session(), process, 1)).toBe(armStep);
     release(process);
   });
@@ -867,7 +866,7 @@ describe('conditional breakpoints (integration)', () => {
       { methodExpr: compiledMethodExpr(TEST_CLASS, false, 'limit:', 0), stepPoint: 1 },
     ]);
 
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 20 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 20 });
     expect(debugQueries.getStepPoint(session(), process, 1)).toBe(returnStep);
     release(process);
   });
@@ -988,7 +987,7 @@ describe('conditional breakpoints (integration)', () => {
     ]);
 
     // Only the trigger's own resume: the loop stopped on its first hit.
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 1 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 1 });
     expect(debugQueries.getStepPoint(session(), process, 1)).toBe(loopStep);
     release(process);
   });
@@ -1106,6 +1105,7 @@ describe('the manager and the gem, together (integration)', () => {
 
     await expect(applyBreakpointRules(session(), process, specs)).resolves.toEqual({
       kind: 'stopped',
+      context: process,
       skipped: 149,
     });
 
@@ -1204,7 +1204,7 @@ describe('the manager and the gem, together (integration)', () => {
     // Twenty disarmed loop hits passed over, then `^ total` stopped as the plain
     // breakpoint it is. The loop never stops, because its trigger only fires at
     // the very end of the run.
-    expect(outcome).toEqual({ kind: 'stopped', skipped: 20 });
+    expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 20 });
     expect(debugQueries.getStepPoint(session(), process, 1)).toBe(ret.stepPoint);
 
     try {
