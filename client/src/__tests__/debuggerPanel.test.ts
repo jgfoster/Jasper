@@ -195,6 +195,7 @@ import { GemStoneLogin } from '../loginTypes';
 import { SMALLTALK_LANGUAGE } from '../languageIds';
 import { OOP_NIL } from '../gciConstants';
 import { fakeActiveSession } from './fakeActiveSession';
+import { buildMethodUri, parseUri } from '../gemstoneFileSystemProvider';
 
 const GS_PROCESS = 0x123n;
 const ERROR_MSG = 'a UndefinedObject does not understand #foo';
@@ -1467,15 +1468,76 @@ describe('DebuggerPanel', () => {
     }
 
     it('builds a gemstone:// URI of the form scheme/dict/class/side/category/selector', () => {
-      expect(buildMethodSourceUri(7, URI_INFO)).toBe(
+      expect(buildMethodSourceUri(7, URI_INFO)?.toString()).toBe(
         'gemstone://7/UserGlobals/JasperDebugDemo/instance/accessing/accumulateFrom%3Ato%3A',
       );
     });
 
     it('uses the "class" side for metaclass methods', () => {
-      expect(buildMethodSourceUri(7, { ...URI_INFO, isMeta: true })).toContain(
+      expect(buildMethodSourceUri(7, { ...URI_INFO, isMeta: true })?.toString()).toContain(
         '/JasperDebugDemo/class/',
       );
+    });
+
+    // A dictionary or class name holding a '/' has no escape — unlike a selector
+    // or a category, parseUri never reverses one — so buildMethodUri refuses it.
+    // Answering undefined lets the caller fall back instead of throwing out of a
+    // best-effort reveal.
+    it.each([
+      ['dictionary', { dictName: 'App/Core' }],
+      ['class', { className: 'Foo/Bar' }],
+    ])('answers undefined when the %s name holds a slash', (_which, overrides) => {
+      expect(buildMethodSourceUri(7, { ...URI_INFO, ...overrides })).toBeUndefined();
+    });
+
+    it('logs what it swallowed, naming the method', () => {
+      // The catch covers any failure in buildMethodUri, not only the slash check,
+      // so a future one would turn edit-and-continue off with nothing said.
+      vi.mocked(logWarning).mockClear();
+
+      buildMethodSourceUri(7, { ...URI_INFO, dictName: 'App/Core' });
+
+      const warning = vi
+        .mocked(logWarning)
+        .mock.calls.map((c) => String(c[0]))
+        .join('\n');
+      expect(warning).toContain(URI_INFO.selector);
+      expect(warning).toContain("must not contain '/'");
+    });
+
+    // Binary selectors and categories found in a stock stone. A '/' in either one,
+    // percent-encoded, decodes back to a separator: `SmallInteger>>/` opened as an
+    // empty "Arithmetic" editor, and `File I/O` split the category in two. The
+    // decoded path must keep exactly the six segments, and parse back unchanged.
+    it.each([
+      ['Arithmetic', '/'],
+      ['Arithmetic', '//'],
+      ['Arithmetic', '\\\\'],
+      ['Comparing', '~='],
+      ['Converting', '->'],
+      ['Logical Operations', '|'],
+      ['Logical Operations', '&'],
+      ['Concatenating', ','],
+      ['operators-mapping', '==>'],
+      ['File I/O', 'toServerTextFile:'],
+      ['Init / Release', 'initialize'],
+      ['*rowan-tonel-gemstone-kernel', '<<'],
+    ])('builds a URI that parses back to %s >> %s', (category, selector) => {
+      const uri = buildMethodSourceUri(7, {
+        ...URI_INFO,
+        className: 'SmallInteger',
+        category,
+        selector,
+      });
+      if (!uri) throw new Error('expected a URI');
+
+      expect(uri.path.split('/')).toHaveLength(6);
+      expect(parseUri(uri)).toMatchObject({
+        kind: 'method',
+        className: 'SmallInteger',
+        category,
+        selector,
+      });
     });
 
     it('opens the method source (gemstone://) in a group BELOW the panel, keeping focus', async () => {
@@ -1609,6 +1671,22 @@ describe('DebuggerPanel', () => {
         expect.anything(),
         SMALLTALK_LANGUAGE,
       );
+    });
+
+    it('falls back to the read-only view for a frame whose dictionary name holds a slash', async () => {
+      // buildMethodUri refuses such a name, and the throw used to land in
+      // revealFrameSource's best-effort try — so the frame opened nothing at all
+      // instead of the read-only view sitting right there.
+      const panel = openPanelWithStack();
+      vi.mocked(debug.getMethodUriInfo).mockReturnValueOnce({
+        ...URI_INFO,
+        dictName: 'App/Core',
+      });
+      sendMessage(panel, { command: 'selectFrame', level: 3 });
+      await flush();
+
+      const openUri = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      expect(openUri.scheme).toBe('gemstone-debug');
     });
 
     it('titles a read-only NON-symbol-list method by its method name (C3: never mislabel as Executed Code)', async () => {
@@ -4808,8 +4886,8 @@ describe('DebuggerPanel', () => {
      * are DNU machinery (defaultAction, doesNotUnderstand:) so they're trimmed and
      * the topmost DISPLAYED frame — the re-enterable sender — is server level 3.
      */
-    function openWithDnu() {
-      vi.mocked(debug.getDoesNotUnderstandInfo).mockReturnValue(DNU);
+    function openWithDnu(dnu: typeof DNU = DNU) {
+      vi.mocked(debug.getDoesNotUnderstandInfo).mockReturnValue(dnu);
       vi.mocked(debug.getMethodInfo).mockImplementation((_s: unknown, oop: bigint) => {
         if (oop === 1n) return { className: 'MessageNotUnderstood', selector: 'defaultAction' };
         if (oop === 2n) return { className: 'Object', selector: 'doesNotUnderstand:' };
@@ -4893,8 +4971,8 @@ describe('DebuggerPanel', () => {
       await flush();
       // The FS provider swaps the template tab to this real method URI on save —
       // built via vscode.Uri.from (keyword ':' left un-encoded). closeSourceEditors
-      // must match THIS form; buildMethodSourceUri's %3A encoding would not, and the
-      // tab would linger ("stuck around"). Guards that regression.
+      // must match THIS form, or the tab would linger ("stuck around"). Guards that
+      // regression.
       const compiledUri = vscode.Uri.from({
         scheme: 'gemstone',
         authority: '1',
@@ -4908,7 +4986,91 @@ describe('DebuggerPanel', () => {
       groups.push({ viewColumn: 9, tabs: [methodTab] });
 
       closePanel(panel);
+
       expect(vi.mocked(vscode.window.tabGroups.close)).toHaveBeenCalledWith(methodTab);
+    });
+
+    it('closes the created method tab for a selector containing "/"', async () => {
+      const panel = openWithDnu({ ...DNU, selector: '//', argCount: 1 });
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+      sendMessage(panel, { command: 'createDnuMethod' });
+      await flush();
+      // Swap the template for the compiled method exactly as the FS provider does
+      // on save: parse the template URI, rebuild it with the real selector.
+      const template = vi.mocked(vscode.workspace.openTextDocument).mock.calls[0][0] as vscode.Uri;
+      const parsed = parseUri(template);
+      if (parsed.kind !== 'new-method') throw new Error(`template parsed as ${parsed.kind}`);
+      const compiledUri = buildMethodUri({ ...parsed, kind: 'method', selector: '//' });
+      const methodTab = { label: '//', input: new vscode.TabInputText(compiledUri) };
+      const groups = vscode.window.tabGroups.all as unknown as {
+        viewColumn: number;
+        tabs: unknown[];
+      }[];
+      groups.push({ viewColumn: 9, tabs: [methodTab] });
+
+      closePanel(panel);
+
+      expect(vi.mocked(vscode.window.tabGroups.close)).toHaveBeenCalledWith(methodTab);
+    });
+
+    // GemStone accepts `App/Core` as a dictionary name (verified on 3.6.2), and a
+    // URI path can't carry it. Building the URI threw out of a `void`-invoked
+    // handler, so Create died with nothing on screen and an unhandled rejection.
+    describe('a dictionary name holding a slash', () => {
+      const SLASHED = { ...DNU, dictName: 'App/Core' };
+
+      it('explains the refusal in the banner, naming the dictionary and the selector', async () => {
+        const panel = openWithDnu(SLASHED);
+
+        sendMessage(panel, { command: 'createDnuMethod' });
+        await flush();
+
+        const message = String(lastPosted(panel, 'init').errorMessage);
+        expect(message).toContain('App/Core');
+        expect(message).toContain(`#${DNU.selector}`);
+        expect(message).toContain("'/'");
+      });
+
+      it('reports back to the panel rather than dying silently', async () => {
+        // Asserting "no editor opened" alone would pass against the throw too —
+        // nothing opened then either. What changed is that the panel hears about it.
+        const panel = openWithDnu(SLASHED);
+        vi.mocked(vscode.workspace.openTextDocument).mockClear();
+        const before = posted(panel, 'init').length;
+
+        sendMessage(panel, { command: 'createDnuMethod' });
+        await flush();
+
+        expect(posted(panel, 'init').length).toBe(before + 1);
+        expect(vscode.workspace.openTextDocument).not.toHaveBeenCalled();
+      });
+
+      it('logs the reason, so the banner is not the only record', async () => {
+        const panel = openWithDnu(SLASHED);
+        vi.mocked(logWarning).mockClear();
+
+        sendMessage(panel, { command: 'createDnuMethod' });
+        await flush();
+
+        expect(
+          vi
+            .mocked(logWarning)
+            .mock.calls.map((c) => String(c[0]))
+            .join('\n'),
+        ).toContain("must not contain '/'");
+      });
+
+      it('still opens the template when the dictionary name is ordinary', async () => {
+        // The guard must refuse the slash case ONLY — a banner on every Create
+        // would pass the three tests above just as well.
+        const panel = openWithDnu();
+        vi.mocked(vscode.workspace.openTextDocument).mockClear();
+
+        sendMessage(panel, { command: 'createDnuMethod' });
+        await flush();
+
+        expect(vscode.workspace.openTextDocument).toHaveBeenCalled();
+      });
     });
 
     it('does NOT trim (and keeps the template pending) when the compile fails', async () => {
@@ -5093,6 +5255,21 @@ describe('DebuggerPanel', () => {
 
       expect(vscode.workspace.openTextDocument).not.toHaveBeenCalled();
       expect(lastPosted(panel, 'init').errorMessage).toMatch(/symbol list/i);
+    });
+
+    it('refuses to implement when the target dictionary name holds a slash', async () => {
+      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce([
+        { className: 'SmallInteger', isMeta: false, dictName: 'App/Core' },
+      ]);
+      const panel = openPanel();
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+      sendMessage(panel, { command: 'implementInReceiver', level: 2 });
+      await flush();
+
+      expect(vscode.workspace.openTextDocument).not.toHaveBeenCalled();
+      const message = String(lastPosted(panel, 'init').errorMessage);
+      expect(message).toContain('App/Core');
+      expect(message).toContain("'/'");
     });
 
     // The receiver (Interval) chain for #asOrderedCollection: two override targets
@@ -5358,6 +5535,26 @@ describe('DebuggerPanel', () => {
       const payload = initPayload(openPanel());
       expect(payload.subclassResp).toBeUndefined();
       expect(payload.dnu).toBeDefined();
+    });
+
+    it('refuses with a banner when the picked dictionary name holds a slash', async () => {
+      setUpSubclassRespStack();
+      vi.mocked(debug.getReceiverClassChain).mockReturnValueOnce(
+        SR_CHAIN.map((c) => ({ ...c, dictName: 'App/Core' })),
+      );
+      vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
+        async (items: unknown) => (items as { index: number }[])[0] as never,
+      );
+      const panel = openPanel();
+      vi.mocked(vscode.workspace.openTextDocument).mockClear();
+
+      sendMessage(panel, { command: 'implementSubclassResponsibility' });
+      await flush();
+
+      expect(vscode.workspace.openTextDocument).not.toHaveBeenCalled();
+      const message = String(lastPosted(panel, 'init').errorMessage);
+      expect(message).toContain('App/Core');
+      expect(message).toContain("'/'");
     });
 
     it('QuickPicks the chain BOUNDED at the abstract definer, then opens a stub', async () => {

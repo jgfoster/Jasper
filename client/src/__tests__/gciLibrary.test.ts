@@ -2,7 +2,11 @@ import { describe, expect, it, vi, beforeEach, type TestContext } from 'vitest';
 import { GciLibrary } from '../gciLibrary';
 import { GciTestContext, useIntegrationTest } from './useIntegrationTest';
 import { GciLibraryError } from '../gciLibraryError';
-import { GCI_ERR_BAD_SESSION_ID } from '../gciConstants';
+import {
+  GCI_ERR_BAD_SESSION_ID,
+  GCI_ERR_OP_IN_PROGRESS,
+  GS_ERR_SESSION_SHUTDOWN,
+} from '../gciConstants';
 import {
   expectUtf8OopToBeCached,
   expectUtf8OopToResolveViaSymbolLookup,
@@ -1564,6 +1568,50 @@ describe('GciLibrary', () => {
 
     it('does not include an oop that was never stored', () => {
       expectPureExportSetToIncludeOop(false, gciLibrary.nilOop());
+    });
+  });
+
+  describe('logging out', () => {
+    function simulateLogoutFailure(number: number) {
+      vi.spyOn(gciLibrary, 'GciTsLogout').mockReturnValueOnce({
+        success: false,
+        err: {
+          number,
+          message: 'simulated GciTsLogout failure',
+          category: 0n,
+          context: 0n,
+          exceptionObj: 0n,
+          args: [],
+          argCount: 0,
+          fatal: 0,
+          reason: '',
+        },
+      });
+      vi.spyOn(console, 'warn').mockImplementationOnce(() => {});
+    }
+
+    // Mocked rather than provoked for real: a refusal needs a call in progress
+    // on another thread, and a failure that frees the session would free the
+    // harness's own session.
+    it('answers that the session is still there when a call in progress refuses the logout', () => {
+      simulateLogoutFailure(GCI_ERR_OP_IN_PROGRESS);
+
+      expect(gciLibrary.logout(session)).toEqual({ sessionFreed: false });
+    });
+
+    it('keeps the cached Utf8 oop when a call in progress refuses the logout', () => {
+      gciLibrary.utf8ClassOop(session);
+      simulateLogoutFailure(GCI_ERR_OP_IN_PROGRESS);
+
+      gciLibrary.logout(session);
+
+      expectUtf8OopToBeCached(session, gciLibrary);
+    });
+
+    it('answers that the session is gone when the logout fails for any other reason', () => {
+      simulateLogoutFailure(GS_ERR_SESSION_SHUTDOWN);
+
+      expect(gciLibrary.logout(session)).toEqual({ sessionFreed: true });
     });
   });
 

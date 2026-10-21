@@ -2,7 +2,14 @@ import koffi from 'koffi';
 import * as fs from 'fs';
 import * as path from 'path';
 import { setTimeout as sleep } from 'timers/promises';
-import { GCI_LOGIN_QUIET, OOP_FALSE, OOP_ILLEGAL, OOP_NIL, OOP_TRUE } from './gciConstants';
+import {
+  GCI_ERR_OP_IN_PROGRESS,
+  GCI_LOGIN_QUIET,
+  OOP_FALSE,
+  OOP_ILLEGAL,
+  OOP_NIL,
+  OOP_TRUE,
+} from './gciConstants';
 import { GciLibraryError } from './gciLibraryError';
 import { escapeString } from './queries/util';
 import type { NotPromise } from './syncTypes';
@@ -944,9 +951,6 @@ export class GciLibrary {
   GciTsLogout(session: unknown): { success: boolean; err: GciError } {
     const err: Record<string, unknown> = {};
     const result = this._GciTsLogout(session, err);
-    // TODO: cache cleanup lives here temporarily; move into a `logout()`
-    // ergonomic method once call sites are migrated off GciTsLogout directly.
-    this.deleteCachedUtf8OopFor(session);
     return {
       success: result !== 0,
       err: err as unknown as GciError,
@@ -2183,16 +2187,29 @@ export class GciLibrary {
 
   /**
    * Logs out `session`. Failures are logged via `console.warn` rather than
-   * thrown — the session is gone regardless, and a teardown error would
-   * obscure real test failures above it.
+   * thrown. Every caller is a teardown path that drops the session whatever
+   * the outcome (`SessionManager.logout` and `dispose`, transient logins, test
+   * teardown), so a throw would only be swallowed there, taking the error
+   * message with it, or, in a test, obscure the real failure above it.
+   *
+   * Clears the session's cached Utf8 class oop only once the session is freed;
+   * a refused logout leaves the session, and so its cache, alive.
    *
    * @param session - The GemStone session to log out.
+   * @returns `sessionFreed`: whether the handle is gone. A failed logout frees
+   *   it too: a gem the stone already stopped answers
+   *   `GS_ERR_SESSION_SHUTDOWN` and the next call answers
+   *   `GCI_ERR_BAD_SESSION_ID`. Only a refusal because a call is still in
+   *   progress on another thread (`GCI_ERR_OP_IN_PROGRESS`) leaves it
+   *   usable. Other failures count as freed, so an unforeseen one costs a live
+   *   session rather than a call on a freed handle.
    */
-  public logout(session: unknown) {
+  public logout(session: unknown): { sessionFreed: boolean } {
     const { success, err } = this.GciTsLogout(session);
-    // Warn rather than throw — the session is gone regardless, and a
-    // teardown error would obscure real test failures above it.
     if (!success) console.warn(`GciTsLogout failed [${err.number}]: ${err.message}`);
+    const sessionFreed = success || err.number !== GCI_ERR_OP_IN_PROGRESS;
+    if (sessionFreed) this.deleteCachedUtf8OopFor(session);
+    return { sessionFreed };
   }
 
   /**
