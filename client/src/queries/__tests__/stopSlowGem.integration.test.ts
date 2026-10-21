@@ -3,7 +3,9 @@
 // A hard break does not end the GCI call: until its result is collected, GemStone
 // refuses every call on the session. The runner gives a stopped call 2s to be
 // collected before it lets the next run start. These tests cover the gem that
-// takes longer than that: a slow tearDown, or a machine too loaded to answer.
+// takes longer than that. A paused gem (SIGSTOP) is the dependable stand-in for a
+// machine too loaded to answer; a slow tearDown keeps the gem busy only under a
+// soft break, since a hard break usually ends its busy-wait at once.
 //
 // Fully transient, like sunitRunNb.integration.test.ts next door: the fixture is
 // installed inside each test's own transaction, so the harness's per-test abort
@@ -40,7 +42,7 @@ const SLOW_SOURCE = `${SLOW_SELECTOR}
     1 to: 177000000 do: [:k | n := n max: k]].
   self assert: n > 0`;
 
-/** How long the slow tearDown keeps the gem busy after a break: twice the drain's 2s budget. */
+/** How long the slow tearDown runs when nothing breaks it: twice the drain's 2s budget. */
 const SLOW_TEARDOWN_MS = 4000;
 
 /** Generous: the gem only has to finish the tearDown, and the runner polls every 500ms. */
@@ -167,19 +169,17 @@ describe('stopping a run while the gem is slow to answer (integration)', () => {
     }
   }
 
-  it('frees the session once a slow tearDown finishes, without the user doing anything', async () => {
+  it('leaves the session usable after a stop during a slow tearDown, without the user doing anything', async () => {
+    // How long the gem stays busy after the hard break varies: it usually ends the
+    // tearDown's busy-wait at once. So nothing here depends on catching it still
+    // busy; the paused-gem tests below hold it busy for certain.
     installSlowTearDown();
 
     await stopSlowTest();
 
-    // Still in the tearDown: the next run says why it cannot start, instead of
-    // GemStone's "session has a GciTsNb operation in progress".
-    const early = passingRun();
-    await expect(early).rejects.toBeInstanceOf(NbSessionBusyError);
-    await expect(early).rejects.toThrow(/still finishing/);
-
     // A blocking query, which never collects anything itself, works again once the
-    // gem is done: the runner collected the stopped call in the background.
+    // gem is done: the runner collected the stopped call, in the background if the
+    // drain's 2s were not enough.
     await vi.waitFor(() => expect(exec("'alive'")).toBe('alive'), {
       timeout: FREED_WITHIN_MS,
       interval: 250,
