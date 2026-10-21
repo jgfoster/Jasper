@@ -173,6 +173,27 @@ function literal(text: string): string {
 }
 
 /**
+ * A Smalltalk expression answering the developer's `text` as a Unicode string,
+ * for the decider's own source, which has to stay ASCII.
+ *
+ * ASCII text is an ordinary literal. Anything else is spelled out as code points
+ * and built in the gem: a condition like `name = 'café'` written as a literal
+ * broke the 3.6.x compiler on the WHOLE decider ("ComStrmSetCursor: new cursor
+ * out of range"), so one accented letter in one condition failed every
+ * breakpoint rule in the session. Answered as a Unicode string either way, so
+ * `evaluateInContext:` compiles the condition exactly as a workspace would
+ * compile the same text — the same literal classes, the same comparisons.
+ */
+function developerText(text: string): string {
+  const codePoints = [...text].map((c) => c.codePointAt(0) as number);
+  if (codePoints.every((cp) => cp < 128)) return literal(text);
+  return (
+    `((String withAll: (#(${codePoints.join(' ')}) collect: [:c | Character codePoint: c])) ` +
+    `asUnicodeString)`
+  );
+}
+
+/**
  * Compile a logpoint's message into one Smalltalk expression answering a String.
  *
  * The message is plain text with `{…}` placeholders, as VS Code writes them.
@@ -280,8 +301,8 @@ export function deciderSource(specs: BreakpointRule[]): string {
       (spec) =>
         `specs add: (Array with: ([ ${spec.methodExpr} ] on: Error do: [:ex | nil ]) ` +
         `with: ${spec.stepPoint} ` +
-        `with: ${spec.condition === undefined ? 'nil' : literal(spec.condition)} ` +
-        `with: ${spec.logMessage === undefined ? 'nil' : literal(spec.logMessage)} ` +
+        `with: ${spec.condition === undefined ? 'nil' : developerText(spec.condition)} ` +
+        `with: ${spec.logMessage === undefined ? 'nil' : developerText(spec.logMessage)} ` +
         // The fifth slot is the trigger's index, 0 for "armed from the start".
         // `Array with:` takes five on both 3.6.2 and 3.7 — checked against a
         // live 3.6.2 stone, and the integration tests run on both.
@@ -381,6 +402,10 @@ decider := [:p | | answerArray fc frameMethod home sp spec idx rcvr found lvl de
           answerArray isNil ifTrue: [
             answerArray := Array with: ${DECISION.Log}
                                  with: ([ text asString ] on: Error do: [:ex | text printString ]) ] ] ] ].
+  "The message goes back as UTF-8, because the client decodes the bytes it
+   fetches as UTF-8: a plain String holding an accented letter would arrive
+   garbled in a log line or a condition's error."
+  (answerArray at: 2) ifNotNil: [:m | answerArray at: 2 put: m encodeAsUTF8 ].
   answerArray , (Array with: idx) ].
 SessionTemps current at: #'${DECIDER_KEY}' put: decider.
 decider`;

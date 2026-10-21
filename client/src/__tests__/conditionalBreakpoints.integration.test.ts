@@ -111,15 +111,23 @@ describe('conditional breakpoints (integration)', () => {
       `failAt: n\n  | total |\n  total := 0.\n  1 to: 100 do: [:i |\n    total := total + i.\n` +
         `    i = n ifTrue: [ self error: 'deliberate' ] ].\n  ^ total`,
     );
+    queries.compileMethod(
+      session(),
+      TEST_CLASS,
+      true,
+      'test',
+      `countTo: n\n  | total |\n  total := 0.\n  1 to: n do: [:i |\n    total := total + i ].\n  ^ total`,
+    );
   };
 
   /**
    * The earliest step point at or after `needle` in the method's source, which
-   * is how a developer clicking that line would land on one.
+   * is how a developer clicking that line would land on one. `isMeta` picks the
+   * class-side method of that name.
    */
-  const stepPointAt = (selector: string, needle: string): number => {
-    const offsets = queries.getSourceOffsets(session(), TEST_CLASS, false, selector, 0);
-    const source = queries.getMethodSource(session(), TEST_CLASS, false, selector, 0);
+  const stepPointAt = (selector: string, needle: string, isMeta = false): number => {
+    const offsets = queries.getSourceOffsets(session(), TEST_CLASS, isMeta, selector, 0);
+    const source = queries.getMethodSource(session(), TEST_CLASS, isMeta, selector, 0);
     const at = source.indexOf(needle);
     expect(at).toBeGreaterThanOrEqual(0);
     let found = 0;
@@ -132,20 +140,33 @@ describe('conditional breakpoints (integration)', () => {
   };
 
   /** Arm a breakpoint and run `code` until it stops there. Answers the process. */
-  const haltAt = (selector: string, needle: string, code: string): bigint => {
-    const stepPoint = stepPointAt(selector, needle);
-    queries.setBreakAtStepPoint(session(), TEST_CLASS, false, selector, stepPoint, 0);
+  const haltAt = (selector: string, needle: string, code: string, isMeta = false): bigint => {
+    const stepPoint = stepPointAt(selector, needle, isMeta);
+    queries.setBreakAtStepPoint(session(), TEST_CLASS, isMeta, selector, stepPoint, 0);
     const { err } = exec(code, GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED);
     // 6005 is the whole premise: the break has already unwound to us.
     expect(err.number).toBe(6005);
     return BigInt(err.context);
   };
 
-  const specFor = (selector: string, needle: string, condition: string): BreakpointRule => ({
-    methodExpr: compiledMethodExpr(TEST_CLASS, false, selector, 0),
-    stepPoint: stepPointAt(selector, needle),
+  const specFor = (
+    selector: string,
+    needle: string,
+    condition: string,
+    isMeta = false,
+  ): BreakpointRule => ({
+    methodExpr: compiledMethodExpr(TEST_CLASS, isMeta, selector, 0),
+    stepPoint: stepPointAt(selector, needle, isMeta),
     condition,
   });
+
+  /** The printString of a temporary or argument in the stopped (top) frame. */
+  const valueInTopFrame = (process: bigint, name: string): string => {
+    const frame = debugQueries.getFrameInfo(session(), process, 1);
+    const at = frame.argAndTempNames.indexOf(name);
+    expect(at).toBeGreaterThanOrEqual(0);
+    return printString(frame.argAndTempOops[at]);
+  };
 
   /** Let go of a suspended process so the gem isn't left holding it. */
   const release = (process: bigint): void => {
@@ -504,6 +525,152 @@ describe('conditional breakpoints (integration)', () => {
     expect(outcome.kind).toBe('conditionFailed');
     if (outcome.kind !== 'conditionFailed') return;
     expect(outcome.message).toContain('not true or false');
+    release(process);
+  });
+
+  it('reports a condition that is not valid Smalltalk', async () => {
+    // Compiled only when it is judged, so a syntax error arrives as an error at
+    // the first hit — and has to stop there, not read as "false" forever.
+    fixture();
+    const process = haltAt('countTo:', 'total := total + i', `${TEST_CLASS} new countTo: 200`);
+
+    const outcome = await applyBreakpointRules(session(), process, [
+      specFor('countTo:', 'total := total + i', 'i >'),
+    ]);
+
+    expect(outcome.kind).toBe('conditionFailed');
+    if (outcome.kind !== 'conditionFailed') return;
+    expect(outcome.skipped).toBe(0);
+    expect(outcome.message).not.toBe('');
+    release(process);
+  });
+
+  it('reports a condition that compiles but raises when it runs', async () => {
+    fixture();
+    const process = haltAt('countTo:', 'total := total + i', `${TEST_CLASS} new countTo: 200`);
+
+    const outcome = await applyBreakpointRules(session(), process, [
+      specFor('countTo:', 'total := total + i', 'i noSuchMessage > 1'),
+    ]);
+
+    expect(outcome.kind).toBe('conditionFailed');
+    if (outcome.kind !== 'conditionFailed') return;
+    expect(outcome.skipped).toBe(0);
+    expect(outcome.message).toContain('noSuchMessage');
+    release(process);
+  });
+
+  it('resolves frame variables inside a block the condition itself contains', async () => {
+    // `and: [ … ]` is a block of the condition's own, compiled where the frame's
+    // names are only reachable through the symbol list the decider builds — an
+    // instance variable, a home-method temporary and the block argument, all in
+    // one expression.
+    fixture();
+    const process = haltAt(
+      'sumOf:',
+      'total := total + each',
+      `(${TEST_CLASS} new limit: 100) sumOf: (1 to: 200) asArray`,
+    );
+
+    const outcome = await applyBreakpointRules(session(), process, [
+      specFor('sumOf:', 'total := total + each', 'total > limit and: [ each even ]'),
+    ]);
+
+    // Before each = 15 runs, total = 1 + … + 14 = 105, the first total over
+    // limit = 100; but each = 15 is odd, so the stop is at each = 16, total = 120.
+    expect(outcome).toEqual({ kind: 'stopped', skipped: 15 });
+    expect(valueInTopFrame(process, 'each')).toBe('16');
+    release(process);
+  });
+
+  // A condition compiles as workspace code does, so its string literals are
+  // Unicode. On 3.6.x a String compared to one raises ArgumentError 2718 —
+  // `3 printString = '3'` fails the same way in a 3.6 workspace — and the
+  // condition has to report that rather than read as "false" for ever.
+  const onRelease36 = (): boolean =>
+    gci.executeAndFetchString(handle, 'System gemVersionAt: #gsVersion').startsWith('3.6');
+
+  it('compares a string in the condition as a workspace would', async (ctx) => {
+    if (onRelease36()) return ctx.skip();
+    fixture();
+    const process = haltAt('countTo:', 'total := total + i', `${TEST_CLASS} new countTo: 200`);
+
+    const outcome = await applyBreakpointRules(session(), process, [
+      specFor('countTo:', 'total := total + i', "i printString = '150'"),
+    ]);
+
+    expect(outcome).toEqual({ kind: 'stopped', skipped: 149 });
+    expect(valueInTopFrame(process, 'i')).toBe('150');
+    release(process);
+  });
+
+  it('reports the 3.6 String-to-Unicode comparison error, as a workspace would', async (ctx) => {
+    if (!onRelease36()) return ctx.skip();
+    fixture();
+    const process = haltAt('countTo:', 'total := total + i', `${TEST_CLASS} new countTo: 200`);
+
+    const outcome = await applyBreakpointRules(session(), process, [
+      specFor('countTo:', 'total := total + i', "i printString = '150'"),
+    ]);
+
+    expect(outcome).toMatchObject({ kind: 'conditionFailed', skipped: 0 });
+    expect(outcome).toHaveProperty(
+      'message',
+      expect.stringContaining('Unicode argument disallowed'),
+    );
+    release(process);
+  });
+
+  it('keeps non-ASCII text in the condition intact', async () => {
+    // The decider's own source is kept to ASCII, but a condition is the
+    // developer's, and a string in it can hold anything.
+    fixture();
+    const process = haltAt('countTo:', 'total := total + i', `${TEST_CLASS} new countTo: 200`);
+
+    const outcome = await applyBreakpointRules(session(), process, [
+      specFor('countTo:', 'total := total + i', "'caf\u00e9' size = 4 and: [ i >= 150 ]"),
+    ]);
+
+    expect(outcome).toEqual({ kind: 'stopped', skipped: 149 });
+    release(process);
+  });
+
+  it('writes non-ASCII text in a logpoint message as it was typed', async () => {
+    fixture();
+    const process = haltAt('countTo:', 'total := total + i', `${TEST_CLASS} new countTo: 3`);
+    const lines: string[] = [];
+
+    const outcome = await applyBreakpointRules(
+      session(),
+      process,
+      [
+        {
+          methodExpr: compiledMethodExpr(TEST_CLASS, false, 'countTo:', 0),
+          stepPoint: stepPointAt('countTo:', 'total := total + i'),
+          logMessage: logMessageExpression('caf\u00e9 \u65e5\u672c {i}'),
+        },
+      ],
+      (text) => lines.push(text),
+    );
+
+    expect(outcome.kind).toBe('completed');
+    expect(lines).toEqual([
+      'caf\u00e9 \u65e5\u672c 1',
+      'caf\u00e9 \u65e5\u672c 2',
+      'caf\u00e9 \u65e5\u672c 3',
+    ]);
+  });
+
+  it('judges a condition on a class-side method', async () => {
+    fixture();
+    const process = haltAt('countTo:', 'total := total + i', `${TEST_CLASS} countTo: 200`, true);
+
+    const outcome = await applyBreakpointRules(session(), process, [
+      specFor('countTo:', 'total := total + i', 'i >= 150', true),
+    ]);
+
+    expect(outcome).toEqual({ kind: 'stopped', skipped: 149 });
+    expect(valueInTopFrame(process, 'i')).toBe('150');
     release(process);
   });
 

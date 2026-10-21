@@ -1930,6 +1930,18 @@ describe('CodeExecutor', () => {
       );
     });
 
+    it('names the failed condition in the message the debugger opens with', async () => {
+      // The toast goes away; the debugger's header is where the developer is
+      // looking when they wonder why it stopped on the very first hit.
+      const gci = haltingGci([FAILED], [], 'undefined symbol  nosuchvar');
+      const session = makeSession(gci);
+      const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+
+      const outcome = await executor.executeWithDebugger(session, '3 + 4', 'run');
+
+      expect(outcome.message).toContain('(condition: undefined symbol  nosuchvar)');
+    });
+
     it('stops at the breakpoint when the skip loop itself fails', async () => {
       // A breakpoint that stops when it should not have is a nuisance; one that
       // silently does not stop is a bug hunt.

@@ -96,6 +96,25 @@ describe('deciderSource', () => {
     expect(offending).toEqual([]);
   });
 
+  it('keeps the generated source ASCII when a condition or log message is not', () => {
+    // A developer's text can hold anything. Written as a literal, one accented
+    // letter in one condition took every breakpoint rule in the session down
+    // with the same compiler error, so it is spelled out as code points instead.
+    const source = deciderSource([
+      spec({ stepPoint: 3, condition: "name = 'caf\u00e9'" }),
+      spec({ stepPoint: 9, logMessage: "'\u65e5\u672c ', i printString" }),
+    ]);
+
+    expect([...source].filter((c) => c.charCodeAt(0) > 127)).toEqual([]);
+    expect(source).toContain('233');
+    expect(source).toContain('26085 26412');
+    expect(source).toContain('Character codePoint: c');
+  });
+
+  it('leaves an ASCII condition readable, as a plain literal', () => {
+    expect(deciderSource([spec({ condition: 'i > 5' })])).toContain("with: 'i > 5'");
+  });
+
   it("doubles a quote in the developer's condition", () => {
     // Otherwise `name = 'ada'` would close the literal early and the doit would
     // fail to compile — reported as if the breakpoint itself were broken.
