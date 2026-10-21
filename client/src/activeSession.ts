@@ -176,7 +176,7 @@ export class ActiveSession {
     environmentId: number,
   ) {
     return this.gci.GciTsExecute(
-      this.handle,
+      this.handle(),
       sourceStr,
       sourceOop,
       contextObject,
