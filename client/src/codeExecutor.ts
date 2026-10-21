@@ -507,9 +507,11 @@ export class CodeExecutor {
    * Answers whether the code raised, or whether the user cancelled it — and no
    * more than that. Once the process is suspended it belongs to the debugger the
    * user opened on it, so its eventual fate isn't ours to report. A
-   * cancel (a soft or hard break) is reported as `cancelled`, not `raised`, and
-   * never opens a debugger: it was the user's decision, not the code's fault.
-   * Throws when the execution could not be started at all.
+   * cancel (a soft or hard break, or Cancel while breakpoint rules are being
+   * applied) is reported as `cancelled`, not `raised`, and never opens a
+   * debugger: it was the user's decision, not the code's fault. Throws when the
+   * execution could not be started at all, or stopped with nothing left to
+   * debug (no process, or the session logged out).
    */
   async executeWithDebugger(
     session: ActiveSession,

@@ -775,7 +775,7 @@ describe('conditional breakpoints (integration)', () => {
   it('stops at a breakpoint no condition claims', async () => {
     // The first thing the loop does on every stop is ask whether this step point
     // is one of the conditional ones. Nothing conditional at all is the ordinary
-    // case, and it must cost one round trip and stop where it stopped.
+    // case, and it must stop where it stopped without resuming.
     fixture();
     const process = haltAt('countTo:', 'total := total + i', `${TEST_CLASS} new countTo: 200`);
 
