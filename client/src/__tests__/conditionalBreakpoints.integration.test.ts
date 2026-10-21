@@ -879,7 +879,7 @@ describe('conditional breakpoints (integration)', () => {
       false,
       'test',
       `noisyCountTo: n\n  | total |\n  total := 0.\n  1 to: n do: [:i |\n` +
-        `    total := total + i.\n    Transcript show: i printString ].\n  ^ total`,
+        `    total := total + i.\n    Transcript nextPutAll: i printString ].\n  ^ total`,
     );
     const stepPoint = stepPointAt('noisyCountTo:', 'total := total + i');
     queries.setBreakAtStepPoint(session(), TEST_CLASS, false, 'noisyCountTo:', stepPoint, 0);
@@ -914,8 +914,7 @@ describe('conditional breakpoints (integration)', () => {
       );
 
       expect(outcome).toEqual({ kind: 'stopped', context: process, skipped: 4 });
-      // `show:` prints its argument, quotes and all.
-      expect(written.join('')).toBe("'1''2''3''4'");
+      expect(written.join('')).toBe('1234');
       release(process);
     } finally {
       endClientForwarderMode(session());
