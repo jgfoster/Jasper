@@ -198,7 +198,8 @@ describe('attempting a login', () => {
         'Browse...',
         EDIT,
       );
-      expect(deps.setGciLibraryPath).toHaveBeenCalledWith('3.7.5', found);
+      expect(deps.removeGciLibraryPath).toHaveBeenCalledWith('3.7.5');
+      expect(deps.setGciLibraryPath).not.toHaveBeenCalled();
       expect(deps.connect).toHaveBeenCalledWith(expect.anything(), found);
     });
 
@@ -219,8 +220,33 @@ describe('attempting a login', () => {
         'Browse...',
         EDIT,
       );
-      expect(deps.setGciLibraryPath).toHaveBeenCalledWith('3.7.5', client);
+      expect(deps.removeGciLibraryPath).toHaveBeenCalledWith('3.7.5');
+      expect(deps.setGciLibraryPath).not.toHaveBeenCalled();
       expect(deps.connect).toHaveBeenCalledWith(expect.anything(), client);
+    });
+
+    it('does not ask again after an extension update moves the suggested bundled library', async () => {
+      onPlatform('win32');
+      // The bundled folder's path carries the extension version.
+      let bundled = 'C:\\ext-1.15.0\\resources\\gci\\libgcits-3.7.5-64.dll';
+      vi.mocked(bundledWindowsClientGciPath).mockImplementation(() => bundled);
+      const saved = new Map([['3.7.5', path.join(scratch, 'gone', 'libgcits-3.7.5-64.dll')]]);
+      answer(USE);
+      const deps = makeDeps({
+        getGciLibraryPath: vi.fn((version: string) => saved.get(version)),
+        setGciLibraryPath: vi.fn(async (version: string, gciPath: string) => {
+          saved.set(version, gciPath);
+        }),
+        removeGciLibraryPath: vi.fn(async (version: string) => {
+          saved.delete(version);
+        }),
+      });
+
+      expect(await attemptLogin(LOGIN, deps)).toBe('connected');
+      bundled = 'C:\\ext-1.16.0\\resources\\gci\\libgcits-3.7.5-64.dll';
+      expect(await attemptLogin(LOGIN, deps)).toBe('connected');
+      expect(vscode.window.showWarningMessage).toHaveBeenCalledTimes(1);
+      expect(deps.connect).toHaveBeenLastCalledWith(expect.anything(), bundled);
     });
 
     it('does not log in, and leaves the setting alone, when the question is cancelled', async () => {
@@ -230,7 +256,7 @@ describe('attempting a login', () => {
         getClientGciPath: vi.fn(() => GCI),
       });
 
-      expect(await attemptLogin(LOGIN, deps)).toBe('cancelled');
+      expect(await attemptLogin(LOGIN, deps)).toBe('noClientLibrary');
       expect(deps.connect).not.toHaveBeenCalled();
       expect(deps.setGciLibraryPath).not.toHaveBeenCalled();
       expect(deps.removeGciLibraryPath).not.toHaveBeenCalled();
@@ -273,7 +299,7 @@ describe('attempting a login', () => {
         getClientGciPath: vi.fn(() => GCI),
       });
 
-      expect(await attemptLogin(LOGIN, deps)).toBe('cancelled');
+      expect(await attemptLogin(LOGIN, deps)).toBe('noClientLibrary');
       expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
         'workbench.action.openSettings',
         'gemstone.gciLibraries',
@@ -349,7 +375,7 @@ describe('attempting a login', () => {
         onPlatform(platform);
         const deps = makeDeps({ getGciLibraryPath: vi.fn(() => realFile(saved)) });
 
-        expect(await attemptLogin(LOGIN, deps)).toBe('cancelled');
+        expect(await attemptLogin(LOGIN, deps)).toBe('noClientLibrary');
         expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
           `The GCI library saved for GemStone 3.7.5 ${problem}.`,
           expect.objectContaining({ modal: true }),
@@ -378,24 +404,28 @@ describe('attempting a login', () => {
         'Browse...',
         EDIT,
       );
-      expect(deps.setGciLibraryPath).toHaveBeenCalledWith('3.7.5', bundled);
+      expect(deps.removeGciLibraryPath).toHaveBeenCalledWith('3.7.5');
+      expect(deps.setGciLibraryPath).not.toHaveBeenCalled();
       expect(deps.connect).toHaveBeenCalledWith(expect.anything(), bundled);
     });
 
-    it('on Windows, does not suggest a bundled library this VS Code cannot load', async () => {
+    it('on Windows, says to run x64 VS Code rather than suggest an x64 library this one cannot load', async () => {
       onPlatform('win32');
       vi.mocked(bundledWindowsClientGciPath).mockReturnValue('C:\\bundled\\libgcits-3.7.5-64.dll');
       vi.mocked(bundledGciArchSupported).mockReturnValue(false);
-      const client = 'C:\\client\\libgcits-3.7.5-64.dll';
-      answer(USE);
+      // The client files' DLL is x64 too, so it is no way out.
       const deps = makeDeps({
         getGciLibraryPath: vi.fn(() => path.join(scratch, 'gone', 'libgcits-3.7.5-64.dll')),
-        getClientGciPath: vi.fn(() => client),
+        getClientGciPath: vi.fn(() => 'C:\\client\\libgcits-3.7.5-64.dll'),
       });
 
-      expect(await attemptLogin(LOGIN, deps)).toBe('connected');
-      expect(deps.connect).toHaveBeenCalledWith(expect.anything(), client);
-      expect(vscode.window.showErrorMessage).not.toHaveBeenCalled();
+      expect(await attemptLogin(LOGIN, deps)).toBe('noClientLibrary');
+      expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+        expect.stringContaining('Install and run the x64 build of VS Code'),
+      );
+      expect(vscode.window.showWarningMessage).not.toHaveBeenCalled();
+      expect(deps.connect).not.toHaveBeenCalled();
+      expect(deps.removeGciLibraryPath).not.toHaveBeenCalled();
     });
 
     it('on Windows, accepts a saved library whatever the case of its extension', async () => {

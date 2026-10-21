@@ -7,6 +7,10 @@ import type { LoginOutcome } from './telemetry';
 import { bundledWindowsClientGciPath, bundledGciArchSupported } from './bundledGci';
 import { showInstallOutcome } from './manager/versionManager';
 
+// Library prompt buttons; both prompts offer them, and the answer is compared later.
+const DOWNLOAD = 'Download';
+const BROWSE = 'Browse...';
+
 /** What {@link attemptLogin} needs from the extension's storage, installers and connect UI. */
 export interface LoginAttemptDeps {
   keychainPassword(login: GemStoneLogin): Promise<string | undefined>;
@@ -78,6 +82,23 @@ export async function attemptLogin(
   // Where the file picker starts: by the broken saved path, if there is one.
   let browseFrom: string | undefined;
 
+  if (
+    (!gciPath || savedProblem) &&
+    process.platform === 'win32' &&
+    bundledWindowsClientGciPath(login.version) &&
+    !bundledGciArchSupported()
+  ) {
+    // The bundled DLLs are x64; an ARM64 VS Code process cannot load
+    // them. Guide the user to the x64 build instead of letting the
+    // native loader fail with a cryptic architecture-mismatch error.
+    vscode.window.showErrorMessage(
+      `The GemStone ${login.version} client library bundled with Jasper is x64, but VS Code is ` +
+        `running as ${process.arch}. Install and run the x64 build of VS Code (it runs under ` +
+        `emulation on Windows on ARM) to use the bundled library.`,
+    );
+    return 'noClientLibrary';
+  }
+
   if (gciPath && savedProblem) {
     // The user chose this library, so Jasper never swaps in another one
     // unasked: it says what it found and lets them pick.
@@ -97,37 +118,24 @@ export async function attemptLogin(
             ? `Jasper found a GemStone ${login.version} library at:\n${found}`
             : `Jasper found no other GemStone ${login.version} library on this machine.`),
       },
-      ...(found ? [use, 'Browse...', edit] : ['Download', 'Browse...', edit]),
+      ...(found ? [use, BROWSE, edit] : [DOWNLOAD, BROWSE, edit]),
     );
     if (!answer) {
-      return 'cancelled';
+      return 'noClientLibrary';
     }
     if (answer === edit) {
       void vscode.commands.executeCommand('workbench.action.openSettings', 'gemstone.gciLibraries');
-      return 'cancelled';
+      return 'noClientLibrary';
     }
     if (found && answer === use) {
       gciPath = found;
-      await deps.setGciLibraryPath(login.version, found);
+      // Not registered, like a download below: findGciLibrary finds it again,
+      // and a bundled path would go stale at the next extension update.
+      await deps.removeGciLibraryPath(login.version);
     } else {
       choice = answer;
     }
   } else if (!gciPath) {
-    if (
-      process.platform === 'win32' &&
-      bundledWindowsClientGciPath(login.version) &&
-      !bundledGciArchSupported()
-    ) {
-      // The bundled DLLs are x64; an ARM64 VS Code process cannot load
-      // them. Guide the user to the x64 build instead of letting the
-      // native loader fail with a cryptic architecture-mismatch error.
-      vscode.window.showErrorMessage(
-        `The GemStone ${login.version} client library bundled with Jasper is x64, but VS Code is ` +
-          `running as ${process.arch}. Install and run the x64 build of VS Code (it runs under ` +
-          `emulation on Windows on ARM) to use the bundled library.`,
-      );
-      return 'noClientLibrary';
-    }
     gciPath = findGciLibrary(login.version, deps);
 
     // Nothing for this version on the machine yet: offer to fetch the few files
@@ -141,8 +149,8 @@ export async function attemptLogin(
       }
       choice = await vscode.window.showInformationMessage(
         `Jasper needs a few files to talk to GemStone ${login.version}. Download them now?`,
-        'Download',
-        'Browse...',
+        DOWNLOAD,
+        BROWSE,
       );
       if (!choice) {
         return 'noClientLibrary';
@@ -150,7 +158,7 @@ export async function attemptLogin(
     }
   }
 
-  if (choice === 'Download') {
+  if (choice === DOWNLOAD) {
     try {
       await vscode.window.withProgress(
         {
@@ -175,15 +183,8 @@ export async function attemptLogin(
   }
 
   if (!gciPath) {
-    const filters: Record<string, string[]> =
-      process.platform === 'win32'
-        ? { 'DLL files': ['dll'] }
-        : process.platform === 'darwin'
-          ? { 'Dynamic libraries': ['dylib'] }
-          : { 'Shared libraries': ['so'] };
-
-    const ext =
-      process.platform === 'win32' ? 'dll' : process.platform === 'darwin' ? 'dylib' : 'so';
+    const { ext, filter } = platformLibrary();
+    const filters = { [filter]: [ext] };
     const expectedName = `libgcits-${login.version}-64.${ext}`;
 
     const result = await vscode.window.showOpenDialog({
@@ -246,8 +247,7 @@ function findGciLibrary(version: string, deps: LoginAttemptDeps): string | undef
     // the GCI for a Windows host has to come from the Windows client below.
     const gsPath = deps.getGemstonePath(version);
     if (gsPath) {
-      const ext = process.platform === 'darwin' ? 'dylib' : 'so';
-      const candidate = path.join(gsPath, 'lib', `libgcits-${version}-64.${ext}`);
+      const candidate = path.join(gsPath, 'lib', `libgcits-${version}-64.${platformLibrary().ext}`);
       if (fs.existsSync(candidate)) {
         return candidate;
       }
@@ -271,19 +271,28 @@ function nearestExistingFolder(file: string): string | undefined {
   return dir;
 }
 
-const PLATFORM_LIBRARY: Partial<Record<NodeJS.Platform, { name: string; ext: string }>> = {
-  win32: { name: 'Windows', ext: '.dll' },
-  darwin: { name: 'macOS', ext: '.dylib' },
+/** A GCI library's kind on each platform: `ext` has no dot, as the file picker wants it. */
+const PLATFORM_LIBRARY = {
+  win32: { name: 'Windows', ext: 'dll', filter: 'DLL files' },
+  darwin: { name: 'macOS', ext: 'dylib', filter: 'Dynamic libraries' },
+  linux: { name: 'Linux', ext: 'so', filter: 'Shared libraries' },
 };
+
+/** This machine's entry in {@link PLATFORM_LIBRARY}; any other platform is taken as Linux. */
+function platformLibrary(): (typeof PLATFORM_LIBRARY)['linux'] {
+  return (
+    PLATFORM_LIBRARY[process.platform as keyof typeof PLATFORM_LIBRARY] ?? PLATFORM_LIBRARY.linux
+  );
+}
 
 /** Why this machine cannot load the library at `gciPath`, or undefined if it can. */
 function gciLibraryProblem(gciPath: string): string | undefined {
-  const expected = PLATFORM_LIBRARY[process.platform] ?? { name: 'Linux', ext: '.so' };
+  const expected = platformLibrary();
   if (!fs.existsSync(gciPath)) {
     return 'is not on disk';
   }
-  if (path.extname(gciPath).toLowerCase() !== expected.ext) {
-    return `is not a ${expected.name} library (${expected.ext})`;
+  if (path.extname(gciPath).toLowerCase() !== `.${expected.ext}`) {
+    return `is not a ${expected.name} library (.${expected.ext})`;
   }
   return undefined;
 }
