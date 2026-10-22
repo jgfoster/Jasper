@@ -119,7 +119,7 @@ import { resyncEditorsAfterAbort } from './afterAbort';
 import { clearUndoStack, onUndoStackChanged } from './undo/undoStack';
 import { registerStashRelease } from './undo/releaseStash';
 import { supportsEnhancedInspector } from './enhancedInspector/enhancedInspectorInstall';
-import { DebuggerPanel } from './debuggerPanel';
+import { DebuggerPanel } from './debugger/debuggerPanel';
 import { InlineValuesCodeLensProvider } from './inlineValuesCodeLens';
 import {
   GemStoneFileSystemProvider,
@@ -153,7 +153,7 @@ import {
 import { SessionEditorDecorationProvider } from './sessionEditorDecoration';
 import { registerStartHere, StartHereStatusBar, resetStartHere } from './startHere';
 import { openTutorialNotebook, registerTutorialContext } from './tutorialNotebook';
-import { GemStoneDebugSession } from './gemstoneDebugSession';
+import { GemStoneDebugSession } from './debugger/gemstoneDebugSession';
 import { registerGemStoneExplorer } from './gemstoneExplorer';
 import { registerMethodHistoryDiff } from './methodHistory/methodHistoryDiff';
 import { renameTemporaryCommand } from './refactoring/renameTemporaryCommand';
@@ -170,27 +170,27 @@ import { GemStoneWorkspaceSymbolProvider } from './gemstoneSymbolProvider';
 import { GemStoneDefinitionProvider } from './gemstoneDefinitionProvider';
 import { GemStoneHoverProvider } from './gemstoneHoverProvider';
 import { GemStoneCompletionProvider } from './gemstoneCompletionProvider';
-import { BreakpointManager } from './breakpointManager';
-import { setBreakpointRuleSource } from './conditionalBreakpoints';
-import { StepPointModel } from './stepPointModel';
-import { StepPointHintsProvider } from './stepPointHints';
-import { StepPointHoverProvider } from './stepPointHover';
+import { BreakpointManager } from './debugger/breakpointManager';
+import { setBreakpointRuleSource } from './debugger/conditionalBreakpoints';
+import { StepPointModel } from './debugger/stepPointModel';
+import { StepPointHintsProvider } from './debugger/stepPointHints';
+import { StepPointHoverProvider } from './debugger/stepPointHover';
 import {
   BreakpointTreeProvider,
   BreakpointNode,
   editBreakpointCondition,
   editBreakpointTrigger,
   revealBreakpoint,
-} from './breakpointTreeProvider';
+} from './debugger/breakpointTreeProvider';
 import { SunitTestController } from './sunitTestController';
 import { GrailNotebookController, grailSessionKernel } from './grailNotebookController';
 import { SmalltalkNotebookController, smalltalkSessionKernel } from './smalltalkNotebookController';
-import { registerNotebookBreakpointHint } from './notebookBreakpointHint';
+import { registerNotebookBreakpointHint } from './debugger/notebookBreakpointHint';
 import { SessionKernels } from './sessionKernels';
 import { ExportManager } from './exportManager';
 import { FileInManager } from './fileInManager';
 import { showTranscript, getTranscriptChannel } from './transcriptChannel';
-import { getLogpointChannel, showLogpointChannel } from './logpointChannel';
+import { getLogpointChannel, showLogpointChannel } from './debugger/logpointChannel';
 import { getGciLog, logError, logWarning } from './gciLog';
 import { commitFailureMessage, isCommitConflict } from './commitFailure';
 import { CODE_LENS_SELECTORS, GemStoneCodeLensProvider } from './gemstoneCodeLensProvider';
