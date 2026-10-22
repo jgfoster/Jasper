@@ -13,9 +13,10 @@ import { getGciLog } from '../gciLog';
  * What the debugger can see of a suspended frame, driven against a REAL halt.
  *
  * Every assertion here, bar the controls beside them, failed before its fix, and
- * none of them could fail in the unit suite: `fetchFrameVariables` is mocked wholesale wherever the panel is
- * tested, and `debugQueries.test.ts` exercises only the payload parsers against
- * hand-written strings. The faults were all in Smalltalk the mocks never run:
+ * none of them could fail in the unit suite: `fetchFrameVariables` is mocked
+ * wholesale wherever the panel is tested, and `debugQueries.test.ts` exercises
+ * only the payload parsers against hand-written strings. The faults were all in
+ * Smalltalk the mocks never run:
  *
  *  - the variable doits filtered names with `startsWith:`, which GemStone does
  *    not implement (it is `beginsWith:`). The MessageNotUnderstood landed in the
