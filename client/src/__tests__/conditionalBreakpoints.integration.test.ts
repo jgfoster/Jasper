@@ -682,14 +682,24 @@ describe('conditional breakpoints (integration)', () => {
   });
 
   // A condition compiles as workspace code does, so its string literals are
-  // Unicode. On 3.6.x a String compared to one raises ArgumentError 2718 —
-  // `3 printString = '3'` fails the same way in a 3.6 workspace — and the
-  // condition has to report that rather than read as "false" for ever.
-  const onRelease36 = (): boolean =>
-    gci.executeAndFetchString(handle, 'System gemVersionAt: #gsVersion').startsWith('3.6');
+  // the class a workspace's are. Where those are Unicode, a String compared to
+  // one raises ArgumentError 2718 — `3 printString = '3'` fails the same way in
+  // the workspace — and the condition has to report that rather than read as
+  // "false" for ever. Which releases do that isn't a clean version line (3.6.x
+  // and 3.7.2 raise), so ask the stone what a workspace does.
+  const workspaceRaisesOnStringUnicode = (): boolean => {
+    try {
+      gci.executeAndFetchString(handle, "(3 printString = '3') printString");
+      return false;
+    } catch {
+      return true;
+    }
+  };
 
   it('compares a string in the condition as a workspace would', async (ctx) => {
-    if (onRelease36()) return ctx.skip('3.6.x raises on a String = Unicode comparison');
+    if (workspaceRaisesOnStringUnicode()) {
+      return ctx.skip('a workspace on this release raises on a String = Unicode comparison');
+    }
     fixture();
     const process = haltAt('countTo:', 'total := total + i', `${TEST_CLASS} new countTo: 200`);
 
@@ -702,8 +712,10 @@ describe('conditional breakpoints (integration)', () => {
     release(process);
   });
 
-  it('reports the 3.6 String-to-Unicode comparison error, as a workspace would', async (ctx) => {
-    if (!onRelease36()) return ctx.skip('only 3.6.x raises on a String = Unicode comparison');
+  it('reports the String-to-Unicode comparison error, as a workspace would', async (ctx) => {
+    if (!workspaceRaisesOnStringUnicode()) {
+      return ctx.skip('a workspace on this release compares a String with a literal');
+    }
     fixture();
     const process = haltAt('countTo:', 'total := total + i', `${TEST_CLASS} new countTo: 200`);
 
