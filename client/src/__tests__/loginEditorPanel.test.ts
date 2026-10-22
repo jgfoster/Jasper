@@ -15,6 +15,7 @@ import { LoginStorage } from '../loginStorage';
 import { LoginTreeProvider } from '../loginTreeProvider';
 import { SysadminStorage } from '../sysadminStorage';
 import { DEFAULT_LOGIN, GemStoneLogin, loginLabel } from '../loginTypes';
+import { fakeSecretStorage } from './support/secretStorage';
 
 function makeLogin(overrides: Partial<GemStoneLogin> = {}): GemStoneLogin {
   return { ...DEFAULT_LOGIN, label: 'Test', ...overrides };
@@ -27,31 +28,22 @@ function makeSysadminStorage(extractedVersions: string[] = []): SysadminStorage 
   } as unknown as SysadminStorage;
 }
 
-function makeSecrets() {
-  return {
-    get: vi.fn(async (_k: string) => undefined as string | undefined),
-    store: vi.fn(async (_k: string, _v: string) => undefined),
-    delete: vi.fn(async (_k: string) => undefined),
-    onDidChange: vi.fn(),
-  };
-}
-
 const realPlatform = process.platform;
 
 describe('LoginEditorPanel', () => {
   let storage: LoginStorage;
   let treeProvider: LoginTreeProvider;
-  let secrets: ReturnType<typeof makeSecrets>;
+  let secrets: ReturnType<typeof fakeSecretStorage>;
   // `secrets` keeps its mock type so tests can assert on `.get`/`.store`/`.delete`;
   // this is the same mock, cast once for handing to `show()`.
   let secretsArg: vscode.SecretStorage;
 
   beforeEach(() => {
     __resetConfig();
-    storage = new LoginStorage();
-    treeProvider = new LoginTreeProvider(storage);
-    secrets = makeSecrets();
+    secrets = fakeSecretStorage();
     secretsArg = secrets;
+    storage = new LoginStorage(secretsArg);
+    treeProvider = new LoginTreeProvider(storage);
     // Reset the static currentPanel between tests
     (LoginEditorPanel as unknown as { currentPanel: unknown }).currentPanel = undefined;
     vi.clearAllMocks();
@@ -431,13 +423,13 @@ describe('LoginEditorPanel', () => {
   });
 
   describe('OS keychain option', () => {
-    it('renders a "Store password in OS keychain" checkbox in the HTML', async () => {
+    it('renders a "Store passwords in OS keychain" checkbox in the HTML', async () => {
       await LoginEditorPanel.show(storage, secretsArg, treeProvider);
       const panel = window.createWebviewPanel.mock.results[0].value;
       const html = panel.webview.html;
 
       expect(html).toContain('id="password_in_keychain"');
-      expect(html).toContain('Store password in OS keychain');
+      expect(html).toContain('Store passwords in OS keychain');
     });
 
     it('renders a hint about leaving the password blank to be prompted', async () => {
@@ -456,8 +448,9 @@ describe('LoginEditorPanel', () => {
       expect(html).toContain('requires host authentication');
     });
 
-    it('pre-fills password from SecretStorage when editing a keychain-backed login', async () => {
-      secrets.get.mockResolvedValueOnce('kc-secret');
+    it('pre-fills both passwords from SecretStorage when editing a keychain-backed login', async () => {
+      secrets.entries.set('jasper-gemstone-login:DataCurator@localhost/gs64stone', 'kc-secret');
+      secrets.entries.set('jasper-gemstone-login:DataCurator@localhost/gs64stone#host', 'kc-host');
       const login = makeLogin({
         gs_user: 'DataCurator',
         gem_host: 'localhost',
@@ -468,20 +461,28 @@ describe('LoginEditorPanel', () => {
 
       await LoginEditorPanel.show(storage, secretsArg, treeProvider, login);
 
-      expect(secrets.get).toHaveBeenCalledWith(
-        'jasper-gemstone-login:DataCurator@localhost/gs64stone',
-      );
       const panel = window.createWebviewPanel.mock.results[0].value;
       const loadCall = panel.webview.postMessage.mock.calls.find(
         (c: unknown[]) => (c[0] as { command?: string })?.command === 'loadData',
       );
-      expect((loadCall?.[0] as { data: { gs_password: string } }).data.gs_password).toBe(
-        'kc-secret',
+      expect((loadCall?.[0] as { data: GemStoneLogin }).data).toMatchObject({
+        gs_password: 'kc-secret',
+        host_password: 'kc-host',
+      });
+    });
+
+    it('starts a new login with the keychain box checked', async () => {
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider);
+
+      const panel = window.createWebviewPanel.mock.results[0].value;
+      const loadCall = panel.webview.postMessage.mock.calls.find(
+        (c: unknown[]) => (c[0] as { command?: string })?.command === 'loadData',
       );
+      expect((loadCall?.[0] as { data: GemStoneLogin }).data.password_in_keychain).toBe(true);
     });
 
     it('does not call SecretStorage when editing a non-keychain login', async () => {
-      const login = makeLogin({ gs_password: 'plain' });
+      const login = makeLogin({ gs_password: 'plain', password_in_keychain: false });
 
       await LoginEditorPanel.show(storage, secretsArg, treeProvider, login);
 
@@ -739,24 +740,28 @@ describe('LoginEditorPanel', () => {
       await handler({ command: 'save', data, originalLabel: existingLogin?.label ?? null });
     }
 
-    it('stores the password in SecretStorage and saves with empty gs_password', async () => {
-      const saveSpy = vi.spyOn(storage, 'saveLogin').mockResolvedValue();
-
+    it('keeps both passwords out of the settings file when the box is checked', async () => {
       await simulateSave(undefined, {
         gs_user: 'DataCurator',
         gem_host: 'localhost',
         stone: 'gs64stone',
         gs_password: 'newpw',
+        host_user: 'gs',
+        host_password: 'hostpw',
         password_in_keychain: true,
       });
 
-      expect(secrets.store).toHaveBeenCalledWith(
-        'jasper-gemstone-login:DataCurator@localhost/gs64stone',
+      expect(secrets.entries.get('jasper-gemstone-login:DataCurator@localhost/gs64stone')).toBe(
         'newpw',
       );
-      const saved = saveSpy.mock.calls[0][0];
-      expect(saved.gs_password).toBe('');
-      expect(saved.password_in_keychain).toBe(true);
+      expect(
+        secrets.entries.get('jasper-gemstone-login:DataCurator@localhost/gs64stone#host'),
+      ).toBe('hostpw');
+      expect(storage.getLogins()[0]).toMatchObject({
+        gs_password: '',
+        host_password: '',
+        password_in_keychain: true,
+      });
     });
 
     it('persists the sync_classes flag from the form', async () => {
@@ -771,7 +776,7 @@ describe('LoginEditorPanel', () => {
       expect(saveSpy.mock.calls[0][0].sync_classes).toBe(false);
     });
 
-    it('deletes the SecretStorage entry when unchecking the box', async () => {
+    it('moves both passwords back to the settings file when unchecking the box', async () => {
       const existing = makeLogin({
         gs_user: 'DataCurator',
         gem_host: 'localhost',
@@ -779,24 +784,27 @@ describe('LoginEditorPanel', () => {
         gs_password: '',
         password_in_keychain: true,
       });
-      vi.spyOn(storage, 'saveLogin').mockResolvedValue();
+      __setConfig('gemstone', 'logins', [{ ...existing, label: loginLabel(existing) }]);
+      secrets.entries.set('jasper-gemstone-login:DataCurator@localhost/gs64stone', 'kc');
 
-      await simulateSave(existing, {
-        gs_user: 'DataCurator',
-        gem_host: 'localhost',
-        stone: 'gs64stone',
-        gs_password: 'plain-now',
-        password_in_keychain: false,
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider, {
+        ...existing,
+        label: loginLabel(existing),
+      });
+      const panel = window.createWebviewPanel.mock.results[0].value;
+      const handler = panel.webview.onDidReceiveMessage.mock.calls[0][0];
+      await handler({
+        command: 'save',
+        data: { ...existing, gs_password: 'plain-now', password_in_keychain: false },
+        originalLabel: loginLabel(existing),
       });
 
-      expect(secrets.delete).toHaveBeenCalledWith(
-        'jasper-gemstone-login:DataCurator@localhost/gs64stone',
-      );
+      expect(secrets.entries.size).toBe(0);
+      expect(storage.getLogins()).toHaveLength(1);
+      expect(storage.getLogins()[0].gs_password).toBe('plain-now');
     });
 
     it('does not touch SecretStorage when saving a plain-password login', async () => {
-      vi.spyOn(storage, 'saveLogin').mockResolvedValue();
-
       await simulateSave(undefined, {
         gs_password: 'plainpw',
         password_in_keychain: false,

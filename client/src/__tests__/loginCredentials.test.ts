@@ -3,9 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   KEYCHAIN_SERVICE,
   loginCredentialAccount,
-  setLoginPassword,
-  getLoginPassword,
-  deleteLoginPassword,
+  storeLoginPasswords,
+  getLoginPasswords,
+  deleteLoginPasswords,
 } from '../loginCredentials';
 import { GemStoneLogin } from '../loginTypes';
 
@@ -64,55 +64,67 @@ describe('loginCredentials', () => {
     });
   });
 
-  describe('setLoginPassword', () => {
-    it('stores under a key namespaced by KEYCHAIN_SERVICE and the account identifier', async () => {
-      await setLoginPassword(secrets, makeLogin());
+  const GS_KEY = 'jasper-gemstone-login:DataCurator@localhost/gs64stone';
+  const HOST_KEY = `${GS_KEY}#host`;
 
-      expect(secrets.store).toHaveBeenCalledWith(
-        'jasper-gemstone-login:DataCurator@localhost/gs64stone',
-        'swordfish',
-      );
+  describe('storeLoginPasswords', () => {
+    it('stores both passwords under keys namespaced by KEYCHAIN_SERVICE and the account', async () => {
+      await storeLoginPasswords(secrets, makeLogin({ host_password: 'hostpw' }));
+
+      expect(secrets.store).toHaveBeenCalledWith(GS_KEY, 'swordfish');
+      expect(secrets.store).toHaveBeenCalledWith(HOST_KEY, 'hostpw');
+    });
+
+    it('deletes the entry of a password left empty', async () => {
+      await storeLoginPasswords(secrets, makeLogin({ host_password: '' }));
+
+      expect(secrets.store).toHaveBeenCalledWith(GS_KEY, 'swordfish');
+      expect(secrets.delete).toHaveBeenCalledWith(HOST_KEY);
+    });
+
+    it('throws when SecretStorage cannot be written', async () => {
+      secrets.store.mockRejectedValueOnce(new Error('no keyring'));
+      await expect(storeLoginPasswords(secrets, makeLogin())).rejects.toThrow('no keyring');
     });
   });
 
-  describe('getLoginPassword', () => {
-    it('returns the stored password from SecretStorage', async () => {
-      secrets.get.mockResolvedValueOnce('stored-pw');
-      const pw = await getLoginPassword(secrets, makeLogin());
-
-      expect(secrets.get).toHaveBeenCalledWith(
-        'jasper-gemstone-login:DataCurator@localhost/gs64stone',
+  describe('getLoginPasswords', () => {
+    it('returns both stored passwords', async () => {
+      secrets.get.mockImplementation(async (k: string) =>
+        k === GS_KEY ? 'stored-pw' : k === HOST_KEY ? 'stored-host' : undefined,
       );
-      expect(pw).toBe('stored-pw');
+
+      expect(await getLoginPasswords(secrets, makeLogin())).toEqual({
+        gs_password: 'stored-pw',
+        host_password: 'stored-host',
+      });
     });
 
-    it('returns undefined when no password is stored', async () => {
-      secrets.get.mockResolvedValueOnce(undefined);
-      const pw = await getLoginPassword(secrets, makeLogin());
-      expect(pw).toBeUndefined();
+    it('returns an empty string for a password that is not stored', async () => {
+      expect(await getLoginPasswords(secrets, makeLogin())).toEqual({
+        gs_password: '',
+        host_password: '',
+      });
     });
 
-    it('returns undefined when SecretStorage throws', async () => {
-      secrets.get.mockRejectedValueOnce(new Error('SecretStorage unavailable'));
-      const pw = await getLoginPassword(secrets, makeLogin());
-      expect(pw).toBeUndefined();
+    it('returns an empty string when SecretStorage throws', async () => {
+      secrets.get.mockRejectedValue(new Error('SecretStorage unavailable'));
+      expect((await getLoginPasswords(secrets, makeLogin())).gs_password).toBe('');
     });
   });
 
-  describe('deleteLoginPassword', () => {
-    it('delegates to SecretStorage.delete and returns true on success', async () => {
-      const ok = await deleteLoginPassword(secrets, makeLogin());
+  describe('deleteLoginPasswords', () => {
+    it('deletes both entries and returns true on success', async () => {
+      const ok = await deleteLoginPasswords(secrets, makeLogin());
 
-      expect(secrets.delete).toHaveBeenCalledWith(
-        'jasper-gemstone-login:DataCurator@localhost/gs64stone',
-      );
+      expect(secrets.delete).toHaveBeenCalledWith(GS_KEY);
+      expect(secrets.delete).toHaveBeenCalledWith(HOST_KEY);
       expect(ok).toBe(true);
     });
 
     it('returns false when SecretStorage throws', async () => {
       secrets.delete.mockRejectedValueOnce(new Error('no entry'));
-      const ok = await deleteLoginPassword(secrets, makeLogin());
-      expect(ok).toBe(false);
+      expect(await deleteLoginPasswords(secrets, makeLogin())).toBe(false);
     });
   });
 });

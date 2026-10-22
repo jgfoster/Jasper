@@ -11,44 +11,65 @@ import { GemStoneLogin } from './loginTypes';
 
 export const KEYCHAIN_SERVICE = 'jasper-gemstone-login';
 
+type LoginIdentity = Pick<GemStoneLogin, 'gs_user' | 'gem_host' | 'stone'>;
+
+export type LoginPasswords = Pick<GemStoneLogin, 'gs_password' | 'host_password'>;
+
 /** Build a unique account identifier for a login. */
-export function loginCredentialAccount(
-  login: Pick<GemStoneLogin, 'gs_user' | 'gem_host' | 'stone'>,
-): string {
+export function loginCredentialAccount(login: LoginIdentity): string {
   return `${login.gs_user}@${login.gem_host}/${login.stone}`;
 }
 
-function loginSecretKey(login: Pick<GemStoneLogin, 'gs_user' | 'gem_host' | 'stone'>): string {
-  return `${KEYCHAIN_SERVICE}:${loginCredentialAccount(login)}`;
+// The GemStone password's key has no suffix: entries saved before the host
+// password could be kept here must still be found.
+function secretKeys(login: LoginIdentity): Record<keyof LoginPasswords, string> {
+  const base = `${KEYCHAIN_SERVICE}:${loginCredentialAccount(login)}`;
+  return { gs_password: base, host_password: `${base}#host` };
 }
 
-/** Store the login's password in SecretStorage. */
-export async function setLoginPassword(
+/** An empty password deletes its entry. Throws when SecretStorage can't be written. */
+export async function storeLoginPasswords(
   secrets: vscode.SecretStorage,
   login: GemStoneLogin,
 ): Promise<void> {
-  await secrets.store(loginSecretKey(login), login.gs_password);
-}
-
-/** Fetch a login's password from SecretStorage. Returns undefined if missing or unreadable. */
-export async function getLoginPassword(
-  secrets: vscode.SecretStorage,
-  login: Pick<GemStoneLogin, 'gs_user' | 'gem_host' | 'stone'>,
-): Promise<string | undefined> {
-  try {
-    return await secrets.get(loginSecretKey(login));
-  } catch {
-    return undefined;
+  const keys = secretKeys(login);
+  for (const field of ['gs_password', 'host_password'] as const) {
+    if (login[field]) {
+      await secrets.store(keys[field], login[field]);
+    } else {
+      await secrets.delete(keys[field]);
+    }
   }
 }
 
-/** Remove a login's password from SecretStorage. Returns true on success. */
-export async function deleteLoginPassword(
+/** A password missing or unreadable comes back ''. */
+export async function getLoginPasswords(
   secrets: vscode.SecretStorage,
-  login: Pick<GemStoneLogin, 'gs_user' | 'gem_host' | 'stone'>,
+  login: LoginIdentity,
+): Promise<LoginPasswords> {
+  const keys = secretKeys(login);
+  const read = async (key: string) => {
+    try {
+      return (await secrets.get(key)) ?? '';
+    } catch {
+      return '';
+    }
+  };
+  return {
+    gs_password: await read(keys.gs_password),
+    host_password: await read(keys.host_password),
+  };
+}
+
+/** Returns false when SecretStorage throws. */
+export async function deleteLoginPasswords(
+  secrets: vscode.SecretStorage,
+  login: LoginIdentity,
 ): Promise<boolean> {
+  const keys = secretKeys(login);
   try {
-    await secrets.delete(loginSecretKey(login));
+    await secrets.delete(keys.gs_password);
+    await secrets.delete(keys.host_password);
     return true;
   } catch {
     return false;

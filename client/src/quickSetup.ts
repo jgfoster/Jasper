@@ -214,6 +214,7 @@ export async function runQuickSetup(deps: QuickSetupDeps): Promise<void> {
     netldi: ldiName,
     host_user: '',
     host_password: '',
+    password_in_keychain: true,
   };
 
   // Auto-detect GCI library path

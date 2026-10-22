@@ -9,7 +9,8 @@ import {
   TransportKind,
 } from 'vscode-languageclient/node';
 import { LoginStorage } from './loginStorage';
-import { getLoginPassword, deleteLoginPassword } from './loginCredentials';
+import { getLoginPasswords } from './loginCredentials';
+import { offerToMovePlainTextPasswords } from './plainTextPasswordOffer';
 import { runStopStone } from './stopStoneManager';
 import { LoginTreeProvider, GemStoneLoginItem, GemStoneSessionItem } from './loginTreeProvider';
 import { registerTransactionStatusBar } from './transactionStatusBar';
@@ -888,7 +889,7 @@ export function activate(context: vscode.ExtensionContext) {
   client.start();
 
   // ── Login Management ─────────────────────────────────────
-  const storage = new LoginStorage();
+  const storage = new LoginStorage(context.secrets);
   const sysadminStorage = new SysadminStorage();
   // SessionManager is created early so the Logins panel can mark the connected
   // login row (and swap its inline Login action for Logout) in single-session mode.
@@ -913,6 +914,7 @@ export function activate(context: vscode.ExtensionContext) {
   // returns undefined and the rows show no MCP state at all.
   let mcpOwnership: () => McpOwnership | undefined = () => undefined;
   const treeProvider = new LoginTreeProvider(storage, sessionManager, () => mcpOwnership());
+  void offerToMovePlainTextPasswords(storage, context.globalState, () => treeProvider.refresh());
 
   // MCP is a property of this window, so its readout goes on the Databases
   // section header — of which there is exactly one — and the detail goes in the
@@ -2188,9 +2190,6 @@ export function activate(context: vscode.ExtensionContext) {
         'Delete',
       );
       if (confirmed === 'Delete') {
-        if (item.login.password_in_keychain) {
-          await deleteLoginPassword(context.secrets, item.login);
-        }
         await storage.deleteLogin(loginLabel(item.login));
         treeProvider.refresh();
       }
@@ -2352,7 +2351,7 @@ export function activate(context: vscode.ExtensionContext) {
         let afterReported: (() => void) | undefined;
         await reportingLoginAttempt(item.login, () =>
           attemptLogin(item.login, {
-            keychainPassword: (login) => getLoginPassword(context.secrets, login),
+            keychainPasswords: (login) => getLoginPasswords(context.secrets, login),
             getGciLibraryPath: (version) => storage.getGciLibraryPath(version),
             setGciLibraryPath: (version, gciPath) => storage.setGciLibraryPath(version, gciPath),
             removeGciLibraryPath: (version) => storage.removeGciLibraryPath(version),
@@ -4918,7 +4917,9 @@ export function activate(context: vscode.ExtensionContext) {
             if (!adminLogin) return undefined;
             if (adminLogin.gs_password) return adminLogin.gs_password;
             if (adminLogin.password_in_keychain) {
-              return (await getLoginPassword(context.secrets, adminLogin)) || undefined;
+              return (
+                (await getLoginPasswords(context.secrets, adminLogin)).gs_password || undefined
+              );
             }
             return undefined;
           },

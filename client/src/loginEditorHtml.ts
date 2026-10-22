@@ -208,9 +208,9 @@ export function loginEditorHtml(nonce: string): string {
     <input type="password" id="gs_password">
     <div class="checkbox-row">
       <input type="checkbox" id="password_in_keychain">
-      <label for="password_in_keychain" class="inline-label">Store password in OS keychain</label>
+      <label for="password_in_keychain" class="inline-label">Store passwords in OS keychain</label>
     </div>
-    <div class="field-help">The password for the GemStone user. Leave it blank to be prompted on each login, or check the box above to store it securely in your OS keychain.</div>
+    <div class="field-help">The password for the GemStone user. Leave it blank to be prompted on each login. With the box above checked, this password and the Host Password below are kept in your OS keychain; unchecked, they are saved as plain text in your VS Code settings.</div>
   </div>
 
   <div class="field-group">

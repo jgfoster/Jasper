@@ -151,6 +151,8 @@ The **Logins & Sessions** view stores connection configurations for your GemSton
 - GemStone and host credentials
 - Optional per-login export path template
 
+**Where passwords are kept.** With **Store passwords in OS keychain** checked — the default for a new login — both the GemStone and host passwords go to your operating system's password store through VS Code: Keychain on macOS, Windows' built-in credential encryption, and GNOME Keyring or KWallet on Linux. Unchecked, they are saved as plain text in your VS Code user `settings.json`, and so in anything that copies it (backups, a dotfiles repo, Settings Sync). Leave a password blank and Jasper asks for it at each login. When Jasper finds a login whose password is in plain text, it offers once to move it to the keychain. On Linux with no keyring running, VS Code falls back to a weaker store of its own and says so; install GNOME Keyring or KWallet to avoid that.
+
 Each login is a row in the tree; click **Login** to start a session, which appears as a child beneath it. A login with no children is idle; a login with children is connected — so the tree itself shows what's running.
 
 **Login rows** offer Edit, Duplicate, Delete, and Login. A login **cannot be edited or deleted while it has an active session** — log out first. **Session rows** (the children) offer:

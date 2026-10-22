@@ -49,8 +49,8 @@ export interface GemStoneLogin {
   host_user: string;
   host_password: string;
   /**
-   * When true, the GemStone password is stored in the OS keychain and
-   * `gs_password` in the settings file is left empty. See loginCredentials.ts.
+   * When true, the GemStone and host passwords are stored in the OS keychain
+   * and left empty in the settings file. See loginCredentials.ts.
    */
   password_in_keychain?: boolean;
   /**
@@ -139,6 +139,7 @@ export const DEFAULT_LOGIN: GemStoneLogin = {
   netldi: 'gs64ldi',
   host_user: '',
   host_password: '',
+  password_in_keychain: true,
 };
 
 /** The connection coordinates of a Jasper-managed database, enough to build a
@@ -183,6 +184,7 @@ export function buildDataCuratorLogin(config: ManagedStoneConfig): GemStoneLogin
     netldi: loginNetldiTarget(config),
     host_user: '',
     host_password: '',
+    password_in_keychain: true,
   };
 }
 

@@ -5,7 +5,7 @@ import { LoginStorage } from './loginStorage';
 import { LoginTreeProvider } from './loginTreeProvider';
 import { SysadminStorage } from './sysadminStorage';
 import { bundledWindowsClientVersions, bundledGciArchSupported } from './bundledGci';
-import { setLoginPassword, getLoginPassword, deleteLoginPassword } from './loginCredentials';
+import { getLoginPasswords } from './loginCredentials';
 import { loginEditorHtml } from './loginEditorHtml';
 
 /**
@@ -92,13 +92,15 @@ export class LoginEditorPanel {
       version: versions[0] ?? '',
     };
 
-    // If the login has its password in SecretStorage, load it so the user can
-    // view or change it in the editor.
+    // Saving writes back whatever the form holds, and an empty field clears
+    // its keychain entry.
     if (existingLogin?.password_in_keychain) {
-      const pw = await getLoginPassword(secrets, existingLogin);
-      if (pw !== undefined) {
-        login = { ...login, gs_password: pw };
-      }
+      const stored = await getLoginPasswords(secrets, existingLogin);
+      login = {
+        ...login,
+        gs_password: login.gs_password || stored.gs_password,
+        host_password: login.host_password || stored.host_password,
+      };
     }
 
     if (LoginEditorPanel.currentPanel) {
@@ -128,7 +130,6 @@ export class LoginEditorPanel {
     LoginEditorPanel.currentPanel = new LoginEditorPanel(
       panel,
       storage,
-      secrets,
       treeProvider,
       login,
       versions,
@@ -140,7 +141,6 @@ export class LoginEditorPanel {
   private constructor(
     panel: vscode.WebviewPanel,
     private storage: LoginStorage,
-    private secrets: vscode.SecretStorage,
     private treeProvider: LoginTreeProvider,
     private login: GemStoneLogin,
     private versions: string[],
@@ -235,21 +235,6 @@ export class LoginEditorPanel {
           `the existing one.`,
       );
       return;
-    }
-
-    if (data.password_in_keychain) {
-      // Store the password in SecretStorage and strip it from the settings
-      // object before we persist.
-      if (data.gs_password) {
-        await setLoginPassword(this.secrets, data);
-      }
-      data = { ...data, gs_password: '' };
-    } else {
-      // If SecretStorage was previously enabled and the user unchecked it,
-      // clean up the stored entry so we don't leave stale secrets behind.
-      if (this.login.password_in_keychain) {
-        await deleteLoginPassword(this.secrets, this.login);
-      }
     }
 
     await this.storage.saveLogin(data, originalLabel);
