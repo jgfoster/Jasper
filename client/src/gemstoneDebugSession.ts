@@ -15,6 +15,7 @@ import { SessionManager, ActiveSession } from './sessionManager';
 import { OOP_NIL } from './gciConstants';
 import * as debug from './debugQueries';
 import { logInfo, logError } from './gciLog';
+import { honourRulesAfterResume, resumeNeedsRules } from './conditionalBreakpoints';
 
 const THREAD_ID = 1;
 const MAX_PRINT_STRING = 1024;
@@ -511,6 +512,24 @@ export class GemStoneDebugSession extends DebugSession {
     this.sendResponse(response);
 
     const result = debug.continueExecution(this.session, this.gsProcess);
+    // A stop a breakpoint rule passes carries on, as it does in the run that
+    // opened this session and in the GemStone Debugger.
+    if (resumeNeedsRules(this.session, result)) {
+      const session = this.session;
+      void honourRulesAfterResume(session, result).then(
+        (settled) => this.reportContinued(settled),
+        (e: unknown) =>
+          this.reportContinued({
+            completed: false,
+            errorMessage: e instanceof Error ? e.message : String(e),
+          }),
+      );
+      return;
+    }
+    this.reportContinued(result);
+  }
+
+  private reportContinued(result: debug.StepResult): void {
     if (result.completed) {
       this.gsProcess = 0n;
       this.sendEvent(new TerminatedEvent());

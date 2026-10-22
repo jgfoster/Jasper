@@ -23,6 +23,7 @@ import { routeInspect, InspectorHandle } from './inspectRouter';
 import { logError, logInfo, logWarning } from './gciLog';
 import { buildMethodUri } from './gemstoneFileSystemProvider';
 import { NbCancelledError, NbRunOptions } from './nbRunner';
+import { honourRulesAfterResume, resumeNeedsRules } from './conditionalBreakpoints';
 import { extensionPathFrom } from './extensionPath';
 import { readWebviewScript } from './webviewAssets';
 import {
@@ -3138,7 +3139,37 @@ export class DebuggerPanel {
     // Leaving this halt: drop revert state + release pinned originals.
     this.clearUndoState();
     const result = debug.continueExecution(this.session, this.gsProcess);
+    if (resumeNeedsRules(this.session, result)) {
+      void this.continueHonouringRules('Resume', result);
+      return;
+    }
     this.handleContinueResult(result);
+  }
+
+  /**
+   * Carry a Resume past the stops its breakpoint rules decline, keeping the
+   * run's trigger arming, on a worker thread under the busy overlay, whose
+   * Cancel stops at the hit reached. `after` runs once it settles, whatever the
+   * outcome; Run to Cursor clears its temporary breakpoint there.
+   */
+  private async continueHonouringRules(
+    action: string,
+    first: debug.StepResult,
+    after?: () => void,
+  ): Promise<void> {
+    await this.runNb(action, async (opts) => {
+      try {
+        const result = await honourRulesAfterResume(this.session, first, {
+          suppressNotification: true,
+          onStart: opts.onStart,
+          onTranscript: (text) => appendTranscriptOutput(text),
+        });
+        if (this.disposed) return;
+        this.handleContinueResult(result);
+      } finally {
+        after?.();
+      }
+    });
   }
 
   /**
@@ -3245,18 +3276,28 @@ export class DebuggerPanel {
 
     // Leaving this halt: drop revert state + release pinned originals (as Resume).
     this.clearUndoState();
+    const releaseBreak = (): void => {
+      if (userOwns) return;
+      try {
+        clearBreak();
+      } catch (e: unknown) {
+        logError(this.sessionId, e instanceof Error ? e.message : String(e));
+      }
+    };
     let result: debug.StepResult;
     try {
       result = debug.continueExecution(this.session, this.gsProcess);
-    } finally {
-      if (!userOwns) {
-        try {
-          clearBreak();
-        } catch (e: unknown) {
-          logError(this.sessionId, e instanceof Error ? e.message : String(e));
-        }
-      }
+    } catch (e: unknown) {
+      releaseBreak();
+      throw e;
     }
+    // A stop the rules pass keeps running towards the cursor, so the temporary
+    // breakpoint has to outlast that too.
+    if (resumeNeedsRules(this.session, result)) {
+      void this.continueHonouringRules('Run to Cursor', result, releaseBreak);
+      return;
+    }
+    releaseBreak();
     this.handleContinueResult(result);
   }
 

@@ -282,6 +282,11 @@
       {
         "title": "GemStone",
         "properties": {
+          "gemstone.breakpoints.showRulesInEditor": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Write what a breakpoint does beyond stopping \u2014 its condition, its log message, and the breakpoint that has to be reached before it stops \u2014 at the end of its line in GemStone method source, as a dimmed annotation (never as text in the method). Turn it off if a permanently visible label is distracting: the gutter still shows VS Code's conditional-breakpoint and logpoint icons, hovering the step point still reports all three in full, and the **GemStone Breakpoints** view still shows them on the row."
+          },
           "gemstone.stepPoints.display": {
             "type": "string",
             "enum": [
@@ -1299,6 +1304,41 @@
         "icon": "$(debug-breakpoint-unsupported)"
       },
       {
+        "command": "gemstone.breakpoints.editConditionAtCursor",
+        "title": "Edit Breakpoint Condition at Cursor",
+        "category": "GemStone",
+        "icon": "$(debug-breakpoint-conditional)"
+      },
+      {
+        "command": "gemstone.breakpoints.editCondition",
+        "title": "Edit Condition\u2026",
+        "category": "GemStone",
+        "icon": "$(debug-breakpoint-conditional)"
+      },
+      {
+        "command": "gemstone.breakpoints.editTriggerAtCursor",
+        "title": "Edit Breakpoint Trigger at Cursor",
+        "category": "GemStone",
+        "icon": "$(debug-breakpoint-unverified)"
+      },
+      {
+        "command": "gemstone.breakpoints.editTrigger",
+        "title": "Break Only After\u2026",
+        "category": "GemStone",
+        "icon": "$(debug-breakpoint-unverified)"
+      },
+      {
+        "command": "gemstone.breakpoints.triggeredNotSupported",
+        "title": "\u26a0 Add Triggered Breakpoint doesn't work in Jasper yet",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.breakpoints.showLogpointOutput",
+        "title": "Show Logpoint Output",
+        "category": "GemStone",
+        "icon": "$(output)"
+      },
+      {
         "command": "gemstone.breakpoints.enableAll",
         "title": "Enable All Breakpoints",
         "category": "GemStone",
@@ -1376,6 +1416,16 @@
       {
         "command": "gemstone.breakpoints.clearAtStepPoint",
         "title": "Clear Breakpoint at Step Point",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.breakpoints.editConditionAtStepPoint",
+        "title": "Edit Breakpoint Condition at Step Point",
+        "category": "GemStone"
+      },
+      {
+        "command": "gemstone.breakpoints.editTriggerAtStepPoint",
+        "title": "Edit Breakpoint Trigger at Step Point",
         "category": "GemStone"
       },
       {
@@ -2196,6 +2246,13 @@
           "group": "gemstone@0"
         }
       ],
+      "editor/lineNumber/context": [
+        {
+          "command": "gemstone.breakpoints.triggeredNotSupported",
+          "when": "resourceLangId == gemstone-method",
+          "group": "gemstoneBreakpoints@1"
+        }
+      ],
       "commandPalette": [
         {
           "command": "gemstone.breakpoints.toggleAtStepPoint",
@@ -2211,6 +2268,26 @@
         },
         {
           "command": "gemstone.breakpoints.clearAtStepPoint",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.breakpoints.editConditionAtStepPoint",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.breakpoints.editTriggerAtStepPoint",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.breakpoints.editCondition",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.breakpoints.editTrigger",
+          "when": "false"
+        },
+        {
+          "command": "gemstone.breakpoints.triggeredNotSupported",
           "when": "false"
         },
         {
@@ -2771,22 +2848,32 @@
       "view/item/context": [
         {
           "command": "gemstone.breakpoints.reveal",
-          "when": "view == gemstoneBreakpoints && viewItem == gemstoneBreakpoint",
+          "when": "view == gemstoneBreakpoints && viewItem =~ /^gemstoneBreakpoint(Owned)?$/",
           "group": "inline@0"
         },
         {
-          "command": "gemstone.breakpoints.remove",
-          "when": "view == gemstoneBreakpoints && viewItem =~ /^gemstoneBreakpoint(Doit)?$/",
+          "command": "gemstone.breakpoints.editCondition",
+          "when": "view == gemstoneBreakpoints && viewItem =~ /^gemstoneBreakpoint(Owned)?$/",
           "group": "inline@1"
         },
         {
+          "command": "gemstone.breakpoints.editTrigger",
+          "when": "view == gemstoneBreakpoints && viewItem == gemstoneBreakpointOwned",
+          "group": "inline@2"
+        },
+        {
+          "command": "gemstone.breakpoints.remove",
+          "when": "view == gemstoneBreakpoints && viewItem =~ /^gemstoneBreakpoint(Owned|Doit)?$/",
+          "group": "inline@3"
+        },
+        {
           "command": "gemstone.breakpoints.enable",
-          "when": "view == gemstoneBreakpoints && viewItem =~ /^gemstoneBreakpoint(Doit)?$/",
+          "when": "view == gemstoneBreakpoints && viewItem =~ /^gemstoneBreakpoint(Owned|Doit)?$/",
           "group": "1_state@0"
         },
         {
           "command": "gemstone.breakpoints.disable",
-          "when": "view == gemstoneBreakpoints && viewItem =~ /^gemstoneBreakpoint(Doit)?$/",
+          "when": "view == gemstoneBreakpoints && viewItem =~ /^gemstoneBreakpoint(Owned|Doit)?$/",
           "group": "1_state@1"
         },
         {
@@ -3454,14 +3541,24 @@
           "group": "3_gemstoneBreakpoints@2"
         },
         {
-          "command": "gemstone.breakpoints.clearMethod",
+          "command": "gemstone.breakpoints.editConditionAtCursor",
           "when": "editorTextFocus && resourceLangId == gemstone-method",
           "group": "3_gemstoneBreakpoints@3"
         },
         {
-          "command": "gemstone.breakpoints.toggleStepPoints",
+          "command": "gemstone.breakpoints.editTriggerAtCursor",
           "when": "editorTextFocus && resourceLangId == gemstone-method",
           "group": "3_gemstoneBreakpoints@4"
+        },
+        {
+          "command": "gemstone.breakpoints.clearMethod",
+          "when": "editorTextFocus && resourceLangId == gemstone-method",
+          "group": "3_gemstoneBreakpoints@5"
+        },
+        {
+          "command": "gemstone.breakpoints.toggleStepPoints",
+          "when": "editorTextFocus && resourceLangId == gemstone-method",
+          "group": "3_gemstoneBreakpoints@6"
         },
         {
           "command": "gemstone.fileInFile",

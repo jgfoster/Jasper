@@ -110,6 +110,7 @@ const libraryLevelMembers = [
   'GciTsOopIsSpecial',
   'GciTsVersion',
   'isAvailable',
+  'isLoggedOut',
 ];
 const membersThatNeedTheSession = Object.getOwnPropertyNames(ActiveSession.prototype).filter(
   (name) => !libraryLevelMembers.includes(name),
@@ -136,6 +137,16 @@ describe('logging a session out', () => {
 
     expect(fetch).toThrow('The GemStone session is logged out.');
     expect(calls).toEqual([]);
+  });
+
+  it('says whether it has been logged out', () => {
+    const gci = { logout: vi.fn((_session: unknown) => ({ sessionFreed: true })) };
+    const session = fakeActiveSession({ gci, handle: {} });
+    expect(session.isLoggedOut()).toBe(false);
+
+    session.logout();
+
+    expect(session.isLoggedOut()).toBe(true);
   });
 
   it('keeps the session usable when the logout leaves it alive', () => {

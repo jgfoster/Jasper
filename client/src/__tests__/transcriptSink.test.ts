@@ -289,6 +289,28 @@ describe('transcriptSink', () => {
       );
     });
 
+    it('resumes each write with the flags the run started with', async () => {
+      // With 0, the debug flag is dropped for the rest of the run and every
+      // breakpoint after the first Transcript write is disarmed.
+      const gci = makeGci({
+        GciTsNbResult: vi.fn(() => ({ result: OOP_ILLEGAL, err: forwarderError() })),
+      });
+
+      await settleNbResult(makeSession(gci), vi.fn(), undefined, 0x21);
+
+      expect((gci.GciTsContinueWithAsync as ReturnType<typeof vi.fn>).mock.calls[0][4]).toBe(0x21);
+    });
+
+    it('resumes with flags 0 when none are given, as a notebook cell runs', async () => {
+      const gci = makeGci({
+        GciTsNbResult: vi.fn(() => ({ result: OOP_ILLEGAL, err: forwarderError() })),
+      });
+
+      await settleNbResult(makeSession(gci), vi.fn());
+
+      expect((gci.GciTsContinueWithAsync as ReturnType<typeof vi.fn>).mock.calls[0][4]).toBe(0);
+    });
+
     it('still resumes a foreign forwarder send without displaying it', async () => {
       const gci = makeGci({
         // clientObject decodes to something other than the Transcript id.

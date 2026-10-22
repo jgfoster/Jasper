@@ -1,6 +1,22 @@
 import * as vscode from 'vscode';
 import { StepPointModel, stepPointAtOffset, rangesForStepPoint } from './stepPointModel';
 import { BreakpointManager } from './breakpointManager';
+import { appendRuleMarkdown } from './breakpointRuleText';
+
+/**
+ * The commands the hover's links run. The hover is trusted for these alone, not
+ * wholesale: it shows the developer's condition and log message, and full trust
+ * would run any command link written into one.
+ */
+const HOVER_COMMANDS = [
+  'gemstone.breakpoints.toggleAtStepPoint',
+  'gemstone.breakpoints.clearAtStepPoint',
+  'gemstone.breakpoints.enableAtStepPoint',
+  'gemstone.breakpoints.disableAtStepPoint',
+  'gemstone.breakpoints.editConditionAtStepPoint',
+  'gemstone.breakpoints.editTriggerAtStepPoint',
+  'gemstone.breakpoints.showLogpointOutput',
+];
 
 /**
  * Tells you the step point under the pointer, and lets you act on it.
@@ -45,16 +61,25 @@ export class StepPointHoverProvider implements vscode.HoverProvider {
       .find((bp) => bp.stepPoint === resolved.stepPoint);
 
     const md = new vscode.MarkdownString();
-    md.isTrusted = true;
+    md.isTrusted = { enabledCommands: HOVER_COMMANDS };
     md.supportThemeIcons = true;
     md.appendMarkdown(`**Step point ${resolved.stepPoint}** of ${info.offsets.length}`);
 
     if (applied) {
+      const logs = applied.logMessage !== undefined;
+      const conditional = applied.condition !== undefined;
+      const kind = logs ? 'Logpoint' : conditional ? 'Conditional breakpoint' : 'Breakpoint';
+      const icon = logs
+        ? 'debug-breakpoint-log'
+        : conditional
+          ? 'debug-breakpoint-conditional'
+          : 'debug-breakpoint';
       md.appendMarkdown(
         applied.enabled
-          ? `\n\n$(debug-breakpoint) Breakpoint set`
-          : `\n\n$(debug-breakpoint-disabled) Breakpoint set but disabled`,
+          ? `\n\n$(${icon}) ${kind} set`
+          : `\n\n$(debug-breakpoint-disabled) ${kind} set but disabled`,
       );
+      appendRuleMarkdown(md, this.breakpoints.ruleOf(applied));
     }
 
     const arg = encodeURIComponent(
@@ -70,6 +95,21 @@ export class StepPointHoverProvider implements vscode.HoverProvider {
           ? `[$(debug-breakpoint-disabled) Disable](command:gemstone.breakpoints.disableAtStepPoint?${arg} "Disable the breakpoint at step point ${resolved.stepPoint}")`
           : `[$(debug-breakpoint) Enable](command:gemstone.breakpoints.enableAtStepPoint?${arg} "Enable the breakpoint at step point ${resolved.stepPoint}")`,
       );
+      links.push(
+        applied.condition === undefined
+          ? `[$(debug-breakpoint-conditional) Add condition](command:gemstone.breakpoints.editConditionAtStepPoint?${arg} "Only stop here when an expression answers true")`
+          : `[$(debug-breakpoint-conditional) Edit condition](command:gemstone.breakpoints.editConditionAtStepPoint?${arg} "Change the condition on the breakpoint at step point ${resolved.stepPoint}")`,
+      );
+      links.push(
+        applied.triggeredBy === undefined
+          ? `[$(debug-breakpoint-unverified) Break only after…](command:gemstone.breakpoints.editTriggerAtStepPoint?${arg} "Only stop here once another breakpoint has been reached")`
+          : `[$(debug-breakpoint-unverified) Edit trigger](command:gemstone.breakpoints.editTriggerAtStepPoint?${arg} "Change which breakpoint has to be reached before this one stops")`,
+      );
+      if (applied.logMessage !== undefined) {
+        links.push(
+          `[$(output) Show logpoint output](command:gemstone.breakpoints.showLogpointOutput "Open the GemStone Logpoints panel in Output")`,
+        );
+      }
     } else {
       links.push(
         `[$(debug-breakpoint) Set breakpoint](command:gemstone.breakpoints.toggleAtStepPoint?${arg} "Set a breakpoint at step point ${resolved.stepPoint}")`,

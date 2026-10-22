@@ -94,7 +94,7 @@ function executeAndFetchString(session: ActiveSession, code: string): string {
  * Four `value:` arguments is the GemStone ExecBlock maximum, so nothing more can
  * be passed in without wrapping the arguments in an Array.
  */
-const FRAME_SELF_SMALLTALK = `homeFrameOf := [:fetchFrame :aLvl :arr :depth | | res |
+export const FRAME_SELF_SMALLTALK = `homeFrameOf := [:fetchFrame :aLvl :arr :depth | | res |
   (arr at: 7) ifNil: [nil] ifNotNil: [:home |
     aLvl + 1 to: depth do: [:j |
       res isNil ifTrue: [ | fj |
@@ -341,6 +341,11 @@ export function getMethodBlockInfo(session: ActiveSession, methodOop: bigint): M
  * last one holding its name — a shadowed name otherwise built a URI onto a
  * same-named class in another dictionary, which the source pane then opened and
  * offered to edit. '' when no slot binds it under its own name.
+ *
+ * Undefined for a doit's method, which has no class (`inClass` is nil): the
+ * "Executed Code" frame of every workspace run. The query answers '' rather
+ * than send `theNonMetaClass` to nil, which logged a GCI ERROR for every such
+ * frame each time the debugger opened.
  */
 export function getMethodUriInfo(
   session: ActiveSession,
@@ -350,14 +355,15 @@ export function getMethodUriInfo(
     const code = `| method class baseClass dictName category |
 method := Object _objectForOop: ${methodOop}.
 class := method inClass.
-baseClass := class theNonMetaClass.
-dictName := ${homeDictionaryNameExpr('baseClass')}.
-category := (class categoryOfSelector: method selector environmentId: 0) ifNil: ['as yet unclassified'].
-dictName, (String with: Character tab),
-  baseClass name, (String with: Character tab),
-  (class isMeta ifTrue: ['class'] ifFalse: ['instance']), (String with: Character tab),
-  category, (String with: Character tab),
-  method selector asString`;
+class isNil ifTrue: [ '' ] ifFalse: [
+  baseClass := class theNonMetaClass.
+  dictName := ${homeDictionaryNameExpr('baseClass')}.
+  category := (class categoryOfSelector: method selector environmentId: 0) ifNil: ['as yet unclassified'].
+  dictName, (String with: Character tab),
+    baseClass name, (String with: Character tab),
+    (class isMeta ifTrue: ['class'] ifFalse: ['instance']), (String with: Character tab),
+    category, (String with: Character tab),
+    method selector asString ]`;
 
     const data = executeAndFetchString(session, code);
 

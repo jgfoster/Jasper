@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 vi.mock('vscode', () => import('../__mocks__/vscode.js'));
 
@@ -41,7 +41,10 @@ import {
   FunctionBreakpoint,
 } from '../__mocks__/vscode';
 import type * as vscodeApi from 'vscode';
+import * as vscode from 'vscode';
+import { __resetConfig } from '../__mocks__/vscode';
 import { BreakpointManager } from '../breakpointManager';
+import { conditionLabel, editorLabel } from '../breakpointRuleText';
 import { METHOD_LANGUAGE, SMALLTALK_LANGUAGE } from '../languageIds';
 import { SessionManager } from '../sessionManager';
 import { StepPointModel, buildLineStarts } from '../stepPointModel';
@@ -88,17 +91,40 @@ function session() {
  * `applyToUri` reads. Lines are 1-based, as the gem counts them; no `character`
  * is a gutter click.
  */
-function setVsCodeBreakpoints(
-  uri: string,
-  wanted: { line: number; character?: number; enabled?: boolean }[],
-): void {
-  debug.breakpoints = wanted.map(
-    (w) =>
-      new SourceBreakpoint(
-        new Location(Uri.parse(uri), new Position(w.line - 1, w.character ?? 0)),
-        w.enabled ?? true,
-      ),
+function setVsCodeBreakpoints(uri: string, wanted: Wanted[]): void {
+  debug.breakpoints = wanted.map((w) => sourceBreakpoint(uri, w));
+}
+
+type Wanted = {
+  line: number;
+  character?: number;
+  enabled?: boolean;
+  condition?: string;
+  logMessage?: string;
+};
+
+function sourceBreakpoint(uri: string, w: Wanted): SourceBreakpoint {
+  return new SourceBreakpoint(
+    new Location(Uri.parse(uri), new Position(w.line - 1, w.character ?? 0)),
+    w.enabled ?? true,
+    w.condition,
+    undefined,
+    w.logMessage,
   );
+}
+
+/**
+ * Make `wanted` VS Code's breakpoints on `uri`, keeping every other method's,
+ * then apply `uri` — so several methods can be armed side by side.
+ */
+function applyWith(manager: BreakpointManager, uri: string, wanted: Wanted[]): void {
+  debug.breakpoints = [
+    ...debug.breakpoints.filter(
+      (bp) => !(bp instanceof SourceBreakpoint) || bp.location.uri.toString() !== uri,
+    ),
+    ...wanted.map((w) => sourceBreakpoint(uri, w)),
+  ];
+  manager.applyToUri(session(), Uri.parse(uri));
 }
 
 /** The step point each `setBreakAtStepPoint` call armed, in order. */
@@ -835,6 +861,7 @@ describe('BreakpointManager', () => {
         removed: event.removed ?? [],
         changed: event.changed ?? [],
       });
+      return manager;
     }
 
     const withFields = (fields: {
@@ -857,11 +884,10 @@ describe('BreakpointManager', () => {
       mockGetSourceOffsets.mockReturnValue([1, 5]);
     });
 
-    it('warns that a condition is ignored, rather than silently not honouring it', () => {
-      fire({ added: [withFields({ condition: 'x > 3' })] });
-      expect(vi.mocked(window.showWarningMessage)).toHaveBeenCalledWith(
-        expect.stringContaining('ignore conditions'),
-      );
+    it('says nothing about a condition — conditions are honoured', () => {
+      debug.breakpoints = [withFields({ condition: 'x > 3' })];
+      fire({ added: debug.breakpoints });
+      expect(vi.mocked(window.showWarningMessage)).not.toHaveBeenCalled();
     });
 
     it('warns for a hit count', () => {
@@ -869,15 +895,23 @@ describe('BreakpointManager', () => {
       expect(vi.mocked(window.showWarningMessage)).toHaveBeenCalled();
     });
 
-    it('warns for a log message (a logpoint)', () => {
-      fire({ added: [withFields({ logMessage: 'here' })] });
-      expect(vi.mocked(window.showWarningMessage)).toHaveBeenCalled();
+    it('says nothing about a log message — logpoints are honoured', () => {
+      debug.breakpoints = [withFields({ logMessage: 'here' })];
+      fire({ added: debug.breakpoints });
+      expect(vi.mocked(window.showWarningMessage)).not.toHaveBeenCalled();
     });
 
-    it('warns when a condition is added to an existing breakpoint', () => {
-      // Edit Breakpoint on an existing one arrives as a change, not an addition.
-      fire({ changed: [withFields({ condition: 'x > 3' })] });
-      expect(vi.mocked(window.showWarningMessage)).toHaveBeenCalled();
+    it('names only what is really ignored, and where log output goes', () => {
+      fire({ added: [withFields({ hitCondition: '5' })] });
+      const said = vi.mocked(window.showWarningMessage).mock.calls[0][0] as string;
+      expect(said).toContain('ignore hit counts');
+      expect(said).not.toContain('log messages —');
+      expect(said).toContain('GemStone Logpoints');
+    });
+
+    it('warns once for several unsupported breakpoints, not once each', () => {
+      fire({ added: [withFields({ hitCondition: '1' }), withFields({ hitCondition: '2' })] });
+      expect(vi.mocked(window.showWarningMessage)).toHaveBeenCalledTimes(1);
     });
 
     it('says nothing for a plain breakpoint', () => {
@@ -887,23 +921,18 @@ describe('BreakpointManager', () => {
       expect(vi.mocked(window.showWarningMessage)).not.toHaveBeenCalled();
     });
 
-    it('warns once for several conditional breakpoints, not once each', () => {
-      fire({ added: [withFields({ condition: 'a' }), withFields({ condition: 'b' })] });
-      expect(vi.mocked(window.showWarningMessage)).toHaveBeenCalledTimes(1);
-    });
-
-    it('ignores a conditional breakpoint on a non-gemstone file', () => {
+    it('ignores an unsupported field on a non-gemstone file', () => {
       const fileBp = new SourceBreakpoint(
         new Location(Uri.parse('file:///a.ts'), new Position(0, 0)),
         true,
-        'x > 3',
+        undefined,
+        '3',
       );
       fire({ added: [fileBp] });
       expect(vi.mocked(window.showWarningMessage)).not.toHaveBeenCalled();
     });
 
     it('still carries the fields across an enable/disable round trip', () => {
-      // Nothing is lost if conditions are honoured later.
       const bp = withFields({ condition: 'x > 3', hitCondition: '2', logMessage: 'hi' });
       debug.breakpoints = [bp];
 
@@ -915,6 +944,1211 @@ describe('BreakpointManager', () => {
       expect(replacement?.hitCondition).toBe('2');
       expect(replacement?.logMessage).toBe('hi');
       expect(replacement?.enabled).toBe(false);
+    });
+  });
+
+  describe('conditions', () => {
+    beforeEach(() => {
+      mockGetMethodSource.mockReturnValue('foo\n^1');
+      mockGetSourceOffsets.mockReturnValue([1, 5]);
+      vi.mocked(window.showWarningMessage).mockClear();
+    });
+
+    const conditional = (condition?: string, enabled = true) =>
+      new SourceBreakpoint(
+        new Location(Uri.parse(METHOD_URI), new Position(1, 0)),
+        enabled,
+        condition,
+      );
+
+    it('records the condition on the applied breakpoint', () => {
+      debug.breakpoints = [conditional('index > 3')];
+      const manager = makeManager();
+      manager.applyToUri(session(), Uri.parse(METHOD_URI));
+      expect(manager.appliedFor(Uri.parse(METHOD_URI))[0].condition).toBe('index > 3');
+    });
+
+    it('arms a conditional breakpoint in the gem like any other', () => {
+      // The gem has no idea a breakpoint is conditional: it stops every time and
+      // the condition is applied afterwards. Nothing about arming changes.
+      debug.breakpoints = [conditional('index > 3')];
+      makeManager().applyToUri(session(), Uri.parse(METHOD_URI));
+      expect(mockSetBreakAtStepPoint).toHaveBeenCalledTimes(1);
+    });
+
+    it('treats a blank condition as no condition', () => {
+      // VS Code hands back whatever was typed; a breakpoint that can never stop
+      // is not what an accidentally emptied box meant.
+      debug.breakpoints = [conditional('   ')];
+      const manager = makeManager();
+      manager.applyToUri(session(), Uri.parse(METHOD_URI));
+      expect(manager.appliedFor(Uri.parse(METHOD_URI))[0].condition).toBeUndefined();
+    });
+
+    it('an unconditional breakpoint wins over a conditional one on the same step point', () => {
+      // One step point, one gem breakpoint. Honouring the condition would
+      // silently break the plain breakpoint sitting on the same token.
+      const manager = makeManager();
+      applyWith(manager, METHOD_URI, [
+        { line: 2, enabled: true, condition: 'index > 3' },
+        { line: 2, enabled: true },
+      ]);
+      expect(manager.appliedFor(Uri.parse(METHOD_URI))[0].condition).toBeUndefined();
+    });
+
+    it('keeps the first of two conditions on one step point', () => {
+      const manager = makeManager();
+      applyWith(manager, METHOD_URI, [
+        { line: 2, enabled: true, condition: 'a' },
+        { line: 2, enabled: true, condition: 'b' },
+      ]);
+      expect(manager.appliedFor(Uri.parse(METHOD_URI))[0].condition).toBe('a');
+    });
+
+    describe('two breakpoints on one step point', () => {
+      // A gutter click on a blank line falls forward onto the next line's step
+      // point, so two breakpoints sharing one is easy to come by.
+      const sole = (manager: BreakpointManager) => {
+        const applied = manager.appliedFor(Uri.parse(METHOD_URI));
+        expect(applied).toHaveLength(1);
+        return applied[0];
+      };
+
+      it('does not let a disabled logpoint stop an enabled breakpoint from stopping', () => {
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [
+          { line: 2, enabled: false, logMessage: 'x={x}' },
+          { line: 2, enabled: true },
+        ]);
+        expect(sole(manager)).toMatchObject({ enabled: true, logMessage: undefined });
+      });
+
+      it("does not let a disabled plain breakpoint erase an enabled one's condition", () => {
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [
+          { line: 2, enabled: false },
+          { line: 2, enabled: true, condition: 'index > 3' },
+        ]);
+        expect(sole(manager).condition).toBe('index > 3');
+      });
+
+      it('does not let a disabled plain breakpoint stop an enabled logpoint from logging', () => {
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [
+          { line: 2, enabled: false },
+          { line: 2, enabled: true, logMessage: 'x={x}' },
+        ]);
+        expect(sole(manager).logMessage).toBe('x={x}');
+      });
+
+      it('still stops for an enabled plain breakpoint beside an enabled logpoint', () => {
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [
+          { line: 2, enabled: true, logMessage: 'x={x}' },
+          { line: 2, enabled: true },
+        ]);
+        expect(sole(manager).logMessage).toBeUndefined();
+      });
+
+      it('keeps the log message when every breakpoint on it logs', () => {
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [
+          { line: 2, enabled: true, logMessage: 'first' },
+          { line: 2, enabled: true, logMessage: 'second' },
+        ]);
+        expect(sole(manager).logMessage).toBe('first');
+      });
+
+      it('reads the disabled ones when none is enabled', () => {
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [
+          { line: 2, enabled: false, condition: 'a' },
+          { line: 2, enabled: false, condition: 'b' },
+        ]);
+        expect(sole(manager)).toMatchObject({ enabled: false, condition: 'a' });
+      });
+    });
+
+    it('treats a blank log message as none, so the breakpoint still stops', () => {
+      // A blank message would make a breakpoint that never stops and logs
+      // nothing but empty lines.
+      const manager = makeManager();
+      applyWith(manager, METHOD_URI, [{ line: 2, enabled: true, logMessage: '   ' }]);
+      expect(manager.appliedFor(Uri.parse(METHOD_URI))[0].logMessage).toBeUndefined();
+    });
+
+    describe('a condition written while the editor is dirty', () => {
+      /**
+       * The quietest way this feature can fail: the breakpoint is already armed,
+       * so nothing is refused and VS Code goes on showing the condition — but
+       * the hold means it never reaches the gem and the breakpoint stops every
+       * time. Exactly what conditional breakpoints exist to avoid.
+       */
+      const dirtyEditorOn = (uriStr: string) => {
+        workspace.textDocuments = [{ uri: Uri.parse(uriStr), isDirty: true }];
+      };
+
+      function fireChanged(changed: unknown[]) {
+        const manager = makeManager();
+        manager.register({
+          subscriptions: [] as unknown[],
+        } as unknown as vscodeApi.ExtensionContext);
+        const calls = vi.mocked(debug.onDidChangeBreakpoints).mock.calls;
+        calls[calls.length - 1][0]({ added: [], removed: [], changed });
+        return manager;
+      }
+
+      beforeEach(() => {
+        vi.mocked(debug.onDidChangeBreakpoints).mockClear();
+        vi.mocked(window.showWarningMessage).mockClear();
+      });
+
+      it('says the condition is not in effect', () => {
+        dirtyEditorOn(METHOD_URI);
+        const bp = conditional('index > 3');
+        debug.breakpoints = [bp];
+
+        fireChanged([bp]);
+
+        expect(vi.mocked(window.showWarningMessage)).toHaveBeenCalledWith(
+          expect.stringContaining('condition or log message is NOT in effect'),
+        );
+      });
+
+      it('leaves the breakpoint alone — it is still armed and still stops', () => {
+        dirtyEditorOn(METHOD_URI);
+        const bp = conditional('index > 3');
+        debug.breakpoints = [bp];
+
+        fireChanged([bp]);
+
+        expect(vi.mocked(debug.removeBreakpoints)).not.toHaveBeenCalled();
+      });
+
+      it('says nothing for a change that carries no condition', () => {
+        dirtyEditorOn(METHOD_URI);
+        const bp = conditional(undefined);
+        debug.breakpoints = [bp];
+
+        fireChanged([bp]);
+
+        expect(vi.mocked(window.showWarningMessage)).not.toHaveBeenCalled();
+      });
+
+      /** Apply `bp` while the editor is clean, then dirty it and report `edit`. */
+      function appliedThenChanged(bp: SourceBreakpoint, edit: (bp: SourceBreakpoint) => void) {
+        debug.breakpoints = [bp];
+        const manager = makeManager();
+        manager.register({
+          subscriptions: [] as unknown[],
+        } as unknown as vscodeApi.ExtensionContext);
+        manager.applyToUri(session(), Uri.parse(METHOD_URI));
+        dirtyEditorOn(METHOD_URI);
+        edit(bp);
+        const calls = vi.mocked(debug.onDidChangeBreakpoints).mock.calls;
+        calls[calls.length - 1][0]({ added: [], removed: [], changed: [bp] });
+      }
+
+      it('says nothing when the condition is the one already in effect', () => {
+        // Unticking an applied conditional breakpoint changes no condition: the
+        // gem is still deciding with the one shown, so a warning that it is
+        // NOT in effect would be false.
+        appliedThenChanged(conditional('index > 3'), (bp) => {
+          bp.enabled = false;
+        });
+        expect(vi.mocked(window.showWarningMessage)).not.toHaveBeenCalled();
+      });
+
+      it('says so when an applied condition is cleared — the old one still decides', () => {
+        appliedThenChanged(conditional('index > 3'), (bp) => {
+          bp.condition = undefined;
+        });
+        expect(vi.mocked(window.showWarningMessage)).toHaveBeenCalledWith(
+          expect.stringContaining('NOT in effect'),
+        );
+      });
+
+      it('says so when a log message is edited', () => {
+        const bp = conditional(undefined);
+        bp.logMessage = 'n={n}';
+        appliedThenChanged(bp, (b) => {
+          b.logMessage = 'n={n} m={m}';
+        });
+        expect(vi.mocked(window.showWarningMessage)).toHaveBeenCalledWith(
+          expect.stringContaining('NOT in effect'),
+        );
+      });
+    });
+
+    describe('conditionLabel', () => {
+      it('names the verb, so the label is a sentence and not a fragment', () => {
+        expect(conditionLabel('each > 900')).toBe('Break if each > 900');
+      });
+
+      it('flattens a multi-line condition onto one line', () => {
+        expect(conditionLabel('each > 900\n  and: [ each even ]')).toBe(
+          'Break if each > 900 and: [ each even ]',
+        );
+      });
+
+      it('elides a condition too long to sit beside the code', () => {
+        const long = `each > ${'9'.repeat(80)}`;
+        const label = conditionLabel(long);
+        expect(label.startsWith('Break if ')).toBe(true);
+        expect(label.endsWith('…')).toBe(true);
+        // The prefix does not eat into what the developer wrote.
+        expect(label.length).toBe('Break if '.length + 48);
+      });
+    });
+
+    describe('the label for a breakpoint that waits', () => {
+      const TRIGGER = { uri: 'gemstone://1/Globals/Array/instance/accessing/size', stepPoint: 4 };
+
+      it('names the breakpoint that has to be reached first', () => {
+        expect(editorLabel({ triggeredBy: TRIGGER })).toBe('Break after Array>>size @4');
+      });
+
+      it('leads with the trigger and keeps the condition as a clause', () => {
+        // `Break after …, Break if …` would repeat the verb, and the trigger has
+        // to come first: it is why the breakpoint will be passed over at all.
+        expect(editorLabel({ triggeredBy: TRIGGER, condition: 'each > 900' })).toBe(
+          'Break after Array>>size @4, if each > 900',
+        );
+      });
+
+      it('falls back to the step point when the URI is not a method', () => {
+        expect(editorLabel({ triggeredBy: { uri: 'file:///tmp/x.st', stepPoint: 7 } })).toBe(
+          'Break after @7',
+        );
+      });
+    });
+
+    describe('the condition drawn beside the code', () => {
+      /**
+       * An editor over the fixture source that records what was decorated.
+       * `refreshDecorations` is the only thing that draws the label, and where
+       * it lands is the whole question: a step point sits on a token in the
+       * middle of a statement, so anchoring there splits the code.
+       */
+      function editorOver(source: string) {
+        const starts = buildLineStarts(source);
+        const positionAt = (o: number) => {
+          let line = 1;
+          for (let l = 1; l < starts.length; l++) {
+            if (starts[l] <= o) line = l;
+            else break;
+          }
+          return new Position(line - 1, o - starts[line]);
+        };
+        const lines = source.split('\n');
+        const drawn: { type: unknown; value: unknown[] }[] = [];
+        return {
+          drawn,
+          editor: {
+            document: {
+              uri: Uri.parse(METHOD_URI),
+              isDirty: false,
+              getText: () => source,
+              positionAt,
+              lineAt: (line: number) => ({
+                range: {
+                  start: new Position(line, 0),
+                  end: new Position(line, lines[line].length),
+                },
+              }),
+            },
+            setDecorations: (type: unknown, value: unknown[]) => drawn.push({ type, value }),
+          } as unknown as import('vscode').TextEditor,
+        };
+      }
+
+      // `x := x + i` — the step point is the `:=`, mid statement.
+      const SOURCE = 'm\nx := x + i';
+
+      function drawFor(condition: string | undefined) {
+        mockGetMethodSource.mockReturnValue(SOURCE);
+        mockGetSourceOffsets.mockReturnValue([3]);
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [{ line: 2, enabled: true, condition }]);
+        const { editor, drawn } = editorOver(SOURCE);
+        manager.refreshDecorations(editor);
+        // The label decoration is the last of the three passes.
+        return drawn[drawn.length - 1].value as { range: { start: Position } }[];
+      }
+
+      beforeEach(() => {
+        __resetConfig();
+      });
+
+      it('puts the label at the END of the line, not on the step point token', () => {
+        const labels = drawFor('i > 3');
+        expect(labels).toHaveLength(1);
+        // Line 1 (0-based), at its end — `x := x + i` is 10 characters.
+        expect(labels[0].range.start.line).toBe(1);
+        expect(labels[0].range.start.character).toBe(10);
+      });
+
+      it('draws nothing for a breakpoint with no condition', () => {
+        expect(drawFor(undefined)).toHaveLength(0);
+      });
+
+      it('the label’s own hover names the channel and links to it', () => {
+        // The label is one of the two things a developer actually hovers, and
+        // "Logs: …" alone does not say where the output went.
+        mockGetMethodSource.mockReturnValue(SOURCE);
+        mockGetSourceOffsets.mockReturnValue([3]);
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [{ line: 2, enabled: true, logMessage: 'x={x}' }]);
+        const { editor, drawn } = editorOver(SOURCE);
+        manager.refreshDecorations(editor);
+
+        const labels = drawn[drawn.length - 1].value as { hoverMessage: { value: string } }[];
+        expect(labels[0].hoverMessage.value).toContain('GemStone Logpoints');
+        expect(labels[0].hoverMessage.value).toContain(
+          'command:gemstone.breakpoints.showLogpointOutput',
+        );
+      });
+
+      it('draws the label of a breakpoint that only waits, with a hover saying so', () => {
+        // A breakpoint waiting on another carries nothing else, so without its
+        // own hover text the label's hover was empty.
+        mockGetMethodSource.mockReturnValue(SOURCE);
+        mockGetSourceOffsets.mockReturnValue([3]);
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [{ line: 2, enabled: true }]);
+        const trigger = { uri: 'gemstone://1/Globals/Array/instance/accessing/size', stepPoint: 4 };
+        manager.setTrigger(Uri.parse(METHOD_URI), 1, trigger);
+        const { editor, drawn } = editorOver(SOURCE);
+        manager.refreshDecorations(editor);
+
+        const labels = drawn[drawn.length - 1].value as {
+          hoverMessage: { value: string };
+          renderOptions: { after: { contentText: string } };
+        }[];
+        // Nothing is set at size @4, so the label says it will not stop.
+        expect(labels[0].renderOptions.after.contentText).toBe(
+          'Break after Array>>size @4 (removed)',
+        );
+        expect(labels[0].hoverMessage.value).toContain('Waits for **Array>>size @4**');
+      });
+
+      it('trusts the label hover for its own link only', () => {
+        mockGetMethodSource.mockReturnValue(SOURCE);
+        mockGetSourceOffsets.mockReturnValue([3]);
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [{ line: 2, enabled: true, logMessage: 'x={x}' }]);
+        const { editor, drawn } = editorOver(SOURCE);
+        manager.refreshDecorations(editor);
+        const labels = drawn[drawn.length - 1].value as { hoverMessage: { isTrusted: unknown } }[];
+        expect(labels[0].hoverMessage.isTrusted).toEqual({
+          enabledCommands: ['gemstone.breakpoints.showLogpointOutput'],
+        });
+      });
+
+      it('says which breakpoint each label is about when a line holds two', () => {
+        // `x := x + i`: step points on `:=` and `+`, both on line 2.
+        mockGetMethodSource.mockReturnValue(SOURCE);
+        mockGetSourceOffsets.mockReturnValue([5, 10]);
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [
+          { line: 2, character: 2, enabled: true, condition: 'i > 3' },
+          { line: 2, character: 7, enabled: true },
+        ]);
+        const { editor, drawn } = editorOver(SOURCE);
+        manager.refreshDecorations(editor);
+        const labels = drawn[drawn.length - 1].value as {
+          renderOptions: { after: { contentText: string } };
+        }[];
+        expect(labels.map((l) => l.renderOptions.after.contentText)).toEqual(['@1 Break if i > 3']);
+      });
+
+      it('draws nothing when the setting is off', () => {
+        vscode.workspace
+          .getConfiguration('gemstone')
+          .update('breakpoints.showRulesInEditor', false);
+        expect(drawFor('i > 3')).toHaveLength(0);
+      });
+    });
+
+    describe('breakpointRulesFor', () => {
+      it('answers nothing when no breakpoint is conditional', () => {
+        debug.breakpoints = [conditional(undefined)];
+        const manager = makeManager();
+        manager.applyToUri(session(), Uri.parse(METHOD_URI));
+        expect(manager.breakpointRulesFor(session())).toEqual([]);
+      });
+
+      it('labels the method for a log line, without an environment when it is 0', () => {
+        debug.breakpoints = [
+          new SourceBreakpoint(
+            new Location(Uri.parse(METHOD_URI), new Position(1, 0)),
+            true,
+            undefined,
+            undefined,
+            'x={x}',
+          ),
+        ];
+        const manager = makeManager();
+        manager.applyToUri(session(), Uri.parse(METHOD_URI));
+
+        const [rule] = manager.breakpointRulesFor(session());
+        expect(rule.label).toBe('Array>>at:');
+        expect(rule.logMessage).toBe("'x=', (x) printString");
+      });
+
+      it('names the method, step point and condition', () => {
+        debug.breakpoints = [conditional('index > 3')];
+        const manager = makeManager();
+        manager.applyToUri(session(), Uri.parse(METHOD_URI));
+        expect(manager.breakpointRulesFor(session())).toEqual([
+          {
+            methodExpr: "(Array compiledMethodAt: #'at:' environmentId: 0)",
+            stepPoint: 2,
+            condition: 'index > 3',
+            logMessage: undefined,
+            label: 'Array>>at:',
+          },
+        ]);
+      });
+
+      it('leaves out a disabled conditional breakpoint', () => {
+        // A disabled breakpoint is not armed, so it cannot be why execution
+        // stopped — a spec for it would be dead weight in the doit.
+        debug.breakpoints = [conditional('index > 3', false)];
+        const manager = makeManager();
+        manager.applyToUri(session(), Uri.parse(METHOD_URI));
+        expect(manager.breakpointRulesFor(session())).toEqual([]);
+      });
+
+      it('leaves out another session\u2019s methods', () => {
+        debug.breakpoints = [conditional('index > 3')];
+        const manager = makeManager();
+        manager.applyToUri(session(), Uri.parse(METHOD_URI));
+        const other = { ...TEST_SESSION, id: 2 } as unknown as Parameters<
+          typeof manager.breakpointRulesFor
+        >[0];
+        expect(manager.breakpointRulesFor(other)).toEqual([]);
+      });
+    });
+
+    describe('triggers', () => {
+      // A second method, so a trigger can point across methods the way the
+      // picker offers it — and so a renumbering bug cannot hide behind both
+      // ends being the same record.
+      const OTHER_METHOD = 'gemstone://1/Globals/Array/instance/accessing/size';
+
+      /** Arm `METHOD_URI` and `OTHER_METHOD`, each with one breakpoint. */
+      const twoMethods = (manager: ReturnType<typeof makeManager>) => {
+        applyWith(manager, METHOD_URI, [{ line: 2, enabled: true }]);
+        mockGetMethodSource.mockReturnValue('foo\n^1');
+        mockGetSourceOffsets.mockReturnValue([1, 5]);
+        applyWith(manager, OTHER_METHOD, [{ line: 2, enabled: true }]);
+      };
+
+      it('answers no rules at all while nothing is triggered', () => {
+        // The ordinary case stays free: two plain breakpoints, no decider.
+        const manager = makeManager();
+        twoMethods(manager);
+        expect(manager.breakpointRulesFor(session())).toEqual([]);
+      });
+
+      it('gives a plain triggered breakpoint and its plain trigger a spec each', () => {
+        // Both ends earn a spec purely by being in a trigger relationship: a
+        // step point no spec claims answers Stop, so leaving either out would
+        // mean the triggered one stopped on its first hit, or the trigger armed
+        // nothing.
+        const manager = makeManager();
+        twoMethods(manager);
+        manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+
+        const rules = manager.breakpointRulesFor(session());
+        expect(rules).toHaveLength(2);
+        const triggered = rules.find((r) => r.label === 'Array>>at:');
+        const trigger = rules.find((r) => r.label === 'Array>>size');
+        expect(trigger?.triggeredBy).toBeUndefined();
+        // 1-based, and pointing at the trigger's position in this same array.
+        expect(triggered?.triggeredBy).toBe(rules.indexOf(trigger!) + 1);
+      });
+
+      it('records the trigger on the applied breakpoint', () => {
+        const manager = makeManager();
+        twoMethods(manager);
+        manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+        expect(manager.appliedFor(Uri.parse(METHOD_URI))[0].triggeredBy).toEqual({
+          uri: OTHER_METHOD,
+          stepPoint: 2,
+        });
+        expect(manager.triggerFor(Uri.parse(METHOD_URI), 2)).toEqual({
+          uri: OTHER_METHOD,
+          stepPoint: 2,
+        });
+      });
+
+      it('renumbers a trigger index past a breakpoint that earns no spec', () => {
+        // The regression this guards: specs are pruned to the ones the gem needs,
+        // so a trigger's index has to be translated into the pruned array. A
+        // third, plain, untriggered breakpoint sits between the two ends and must
+        // NOT shift the index that reaches the decider.
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [
+          { line: 2, enabled: true },
+          { line: 1, enabled: true },
+        ]);
+        mockGetMethodSource.mockReturnValue('foo\n^1');
+        mockGetSourceOffsets.mockReturnValue([1, 5]);
+        applyWith(manager, OTHER_METHOD, [{ line: 2, enabled: true }]);
+        manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+
+        const rules = manager.breakpointRulesFor(session());
+        // Only the two ends of the relationship, not the bystander.
+        expect(rules).toHaveLength(2);
+        const triggered = rules.find((r) => r.triggeredBy !== undefined)!;
+        // The index resolves, inside this array, to the breakpoint in the other
+        // method — which is the whole point of renumbering.
+        expect(rules[triggered.triggeredBy! - 1].label).toBe('Array>>size');
+      });
+
+      /** The rule for `label`, and whether it names itself as its trigger. */
+      const disarmed = (
+        rules: ReturnType<BreakpointManager['breakpointRulesFor']>,
+        label: string,
+      ) => {
+        const at = rules.findIndex((r) => r.label === label);
+        return at >= 0 && rules[at].triggeredBy === at + 1;
+      };
+
+      it('keeps a breakpoint waiting on a disabled breakpoint disarmed', () => {
+        // As VS Code's own triggered breakpoints do: disabling the trigger must
+        // not quietly turn the pair into a breakpoint that stops every time.
+        // The spec names itself as its trigger, which it can never reach.
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [{ line: 2, enabled: true }]);
+        mockGetMethodSource.mockReturnValue('foo\n^1');
+        mockGetSourceOffsets.mockReturnValue([1, 5]);
+        applyWith(manager, OTHER_METHOD, [{ line: 2, enabled: false }]);
+        manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+
+        const rules = manager.breakpointRulesFor(session());
+        expect(rules).toHaveLength(1);
+        expect(disarmed(rules, 'Array>>at:')).toBe(true);
+        expect(manager.ruleOf(manager.appliedFor(Uri.parse(METHOD_URI))[0]).triggerProblem).toBe(
+          'disabled',
+        );
+      });
+
+      it('keeps a breakpoint waiting on a step point with no breakpoint left disarmed', () => {
+        const manager = makeManager();
+        twoMethods(manager);
+        manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 99 });
+        const rules = manager.breakpointRulesFor(session());
+        expect(rules).toHaveLength(1);
+        expect(disarmed(rules, 'Array>>at:')).toBe(true);
+      });
+
+      it('arms it again once the breakpoint it waits for is enabled again', () => {
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [{ line: 2, enabled: true }]);
+        mockGetMethodSource.mockReturnValue('foo\n^1');
+        mockGetSourceOffsets.mockReturnValue([1, 5]);
+        applyWith(manager, OTHER_METHOD, [{ line: 2, enabled: false }]);
+        manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+        applyWith(manager, OTHER_METHOD, [{ line: 2, enabled: true }]);
+
+        const rules = manager.breakpointRulesFor(session());
+        expect(rules).toHaveLength(2);
+        expect(disarmed(rules, 'Array>>at:')).toBe(false);
+        expect(rules[rules.find((r) => r.label === 'Array>>at:')!.triggeredBy! - 1].label).toBe(
+          'Array>>size',
+        );
+      });
+
+      it('keeps the condition on a breakpoint that also waits for a trigger', () => {
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [{ line: 2, enabled: true, condition: 'index > 3' }]);
+        mockGetMethodSource.mockReturnValue('foo\n^1');
+        mockGetSourceOffsets.mockReturnValue([1, 5]);
+        applyWith(manager, OTHER_METHOD, [{ line: 2, enabled: true }]);
+        manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+
+        const rules = manager.breakpointRulesFor(session());
+        const triggered = rules.find((r) => r.label === 'Array>>at:')!;
+        expect(triggered.condition).toBe('index > 3');
+        expect(triggered.triggeredBy).toBeDefined();
+      });
+
+      it('clearing a trigger puts the breakpoint back to stopping every time', () => {
+        const manager = makeManager();
+        twoMethods(manager);
+        manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+        manager.setTrigger(Uri.parse(METHOD_URI), 2, undefined);
+
+        expect(manager.triggerFor(Uri.parse(METHOD_URI), 2)).toBeUndefined();
+        expect(manager.breakpointRulesFor(session())).toEqual([]);
+      });
+
+      it('forgets a trigger when the triggered method is recompiled', () => {
+        const manager = makeManager();
+        twoMethods(manager);
+        manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+        manager.invalidateForUri(Uri.parse(METHOD_URI));
+        expect(manager.triggerFor(Uri.parse(METHOD_URI), 2)).toBeUndefined();
+      });
+
+      it('keeps the waiting breakpoint disarmed when the TRIGGERING method is recompiled', () => {
+        // The recompile takes the trigger's breakpoint away. The breakpoint
+        // waiting on it keeps waiting, and says the one it waits for is gone,
+        // rather than starting to stop every time.
+        const manager = makeManager();
+        twoMethods(manager);
+        manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+        manager.invalidateForUri(Uri.parse(OTHER_METHOD));
+
+        const rules = manager.breakpointRulesFor(session());
+        expect(disarmed(rules, 'Array>>at:')).toBe(true);
+        expect(manager.ruleOf(manager.appliedFor(Uri.parse(METHOD_URI))[0]).triggerProblem).toBe(
+          'removed',
+        );
+      });
+
+      it('forgets the trigger when the breakpoint that waited is removed', () => {
+        // Otherwise a breakpoint set later on the same step point silently
+        // inherits "Break after …", which nobody asked it to.
+        const manager = makeManager();
+        twoMethods(manager);
+        manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+
+        applyWith(manager, METHOD_URI, []);
+        applyWith(manager, METHOD_URI, [{ line: 2, enabled: true }]);
+
+        expect(manager.triggerFor(Uri.parse(METHOD_URI), 2)).toBeUndefined();
+        expect(manager.appliedFor(Uri.parse(METHOD_URI))[0].triggeredBy).toBeUndefined();
+        expect(manager.breakpointRulesFor(session())).toEqual([]);
+      });
+
+      describe('when VS Code reports the change before the call returns', () => {
+        // VS Code fires `onDidChangeBreakpoints` from inside `removeBreakpoints`
+        // and `addBreakpoints`. The shared mock does not, so these tests do —
+        // without that, a trigger lost between the remove and the add goes unseen.
+        const plainAdd = (bps: unknown[]): void => {
+          debug.breakpoints = [...debug.breakpoints, ...bps];
+        };
+        const plainRemove = (bps: unknown[]): void => {
+          debug.breakpoints = debug.breakpoints.filter((bp) => !bps.includes(bp));
+        };
+        const reportAtOnce = (manager: ReturnType<typeof makeManager>): void => {
+          vi.mocked(debug.addBreakpoints).mockImplementation((bps: unknown[]) => {
+            plainAdd(bps);
+            manager.applyToUri(session(), Uri.parse(METHOD_URI));
+          });
+          vi.mocked(debug.removeBreakpoints).mockImplementation((bps: unknown[]) => {
+            plainRemove(bps);
+            manager.applyToUri(session(), Uri.parse(METHOD_URI));
+          });
+        };
+
+        afterEach(() => {
+          vi.mocked(debug.addBreakpoints).mockImplementation(plainAdd);
+          vi.mocked(debug.removeBreakpoints).mockImplementation(plainRemove);
+          workspace.textDocuments = [];
+        });
+
+        it('keeps the trigger of a breakpoint that is disabled and enabled again', () => {
+          const manager = makeManager();
+          twoMethods(manager);
+          manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+          reportAtOnce(manager);
+
+          manager.setAllEnabled(false);
+          manager.setAllEnabled(true);
+
+          expect(manager.triggerFor(Uri.parse(METHOD_URI), 2)).toEqual({
+            uri: OTHER_METHOD,
+            stepPoint: 2,
+          });
+          const rules = manager.breakpointRulesFor(session());
+          const triggered = rules.find((r) => r.label === 'Array>>at:')!;
+          expect(rules[triggered.triggeredBy! - 1].label).toBe('Array>>size');
+        });
+
+        it('keeps the trigger of a breakpoint whose condition is edited', async () => {
+          const starts = buildLineStarts('foo\n^1');
+          workspace.textDocuments = [
+            {
+              uri: Uri.parse(METHOD_URI),
+              isDirty: false,
+              getText: () => 'foo\n^1',
+              positionAt: (o: number) => {
+                const line = o >= starts[2] ? 2 : 1;
+                return new Position(line - 1, o - starts[line]);
+              },
+            },
+          ];
+          const manager = makeManager();
+          twoMethods(manager);
+          manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+          reportAtOnce(manager);
+          vi.mocked(window.showInputBox).mockResolvedValue('index > 3');
+
+          await manager.editConditionAtStepPoint(Uri.parse(METHOD_URI), 2);
+
+          const edited = (debug.breakpoints as SourceBreakpoint[]).find(
+            (bp) => bp.location.uri.toString() === Uri.parse(METHOD_URI).toString(),
+          );
+          expect(edited?.condition).toBe('index > 3');
+          expect(manager.triggerFor(Uri.parse(METHOD_URI), 2)).toEqual({
+            uri: OTHER_METHOD,
+            stepPoint: 2,
+          });
+        });
+
+        it('still forgets the trigger when the breakpoint that waited is removed', () => {
+          const manager = makeManager();
+          twoMethods(manager);
+          manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+          reportAtOnce(manager);
+
+          debug.removeBreakpoints(
+            debug.breakpoints.filter(
+              (bp) => (bp as SourceBreakpoint).location.uri.toString() === METHOD_URI,
+            ),
+          );
+
+          expect(manager.triggerFor(Uri.parse(METHOD_URI), 2)).toBeUndefined();
+        });
+      });
+
+      it('keeps the trigger of a breakpoint that is still there when another goes', () => {
+        const manager = makeManager();
+        mockGetMethodSource.mockReturnValue('foo\n^1');
+        mockGetSourceOffsets.mockReturnValue([1, 5]);
+        applyWith(manager, OTHER_METHOD, [{ line: 2, enabled: true }]);
+        applyWith(manager, METHOD_URI, [
+          { line: 1, enabled: true },
+          { line: 2, enabled: true },
+        ]);
+        manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+
+        applyWith(manager, METHOD_URI, [{ line: 2, enabled: true }]);
+
+        expect(manager.triggerFor(Uri.parse(METHOD_URI), 2)).toEqual({
+          uri: OTHER_METHOD,
+          stepPoint: 2,
+        });
+      });
+
+      it('forgets every trigger on Remove All', () => {
+        const manager = makeManager();
+        twoMethods(manager);
+        manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+        manager.removeAll();
+        expect(manager.triggerFor(Uri.parse(METHOD_URI), 2)).toBeUndefined();
+      });
+
+      it('tells the views a trigger changed — no breakpoint event will', () => {
+        const manager = makeManager();
+        twoMethods(manager);
+        const fired = vi.fn();
+        manager.onDidApply(fired);
+        manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+        expect(fired).toHaveBeenCalledTimes(1);
+      });
+
+      describe('the picker', () => {
+        const THIRD = 'gemstone://1/Globals/Array/instance/accessing/first';
+
+        /** Arm three methods, one breakpoint each, and answer their URIs. */
+        const threeMethods = (manager: ReturnType<typeof makeManager>) => {
+          applyWith(manager, METHOD_URI, [{ line: 2, enabled: true }]);
+          mockGetMethodSource.mockReturnValue('foo\n^1');
+          mockGetSourceOffsets.mockReturnValue([1, 5]);
+          applyWith(manager, OTHER_METHOD, [{ line: 2, enabled: true }]);
+          applyWith(manager, THIRD, [{ line: 2, enabled: true }]);
+        };
+
+        /** The labels the picker offered, minus the "always armed" escape. */
+        const offered = (): string[] => {
+          const items = vi.mocked(window.showQuickPick).mock.calls[0][0] as {
+            label: string;
+          }[];
+          return items.map((i) => i.label).filter((l) => l !== 'Always armed');
+        };
+
+        beforeEach(() => {
+          vi.mocked(window.showQuickPick).mockReset();
+          vi.mocked(window.showInformationMessage).mockClear();
+        });
+
+        it('offers every other breakpoint in the session', async () => {
+          const manager = makeManager();
+          threeMethods(manager);
+          vi.mocked(window.showQuickPick).mockResolvedValue(undefined);
+
+          await manager.editTriggerAtStepPoint(Uri.parse(METHOD_URI), 2);
+
+          expect(offered()).toEqual(['Array>>size @2', 'Array>>first @2']);
+        });
+
+        it('leaves out the breakpoint being edited', async () => {
+          const manager = makeManager();
+          threeMethods(manager);
+          vi.mocked(window.showQuickPick).mockResolvedValue(undefined);
+
+          await manager.editTriggerAtStepPoint(Uri.parse(OTHER_METHOD), 2);
+
+          expect(offered()).not.toContain('Array>>size @2');
+        });
+
+        it('leaves out a breakpoint that already waits on this one', async () => {
+          const manager = makeManager();
+          threeMethods(manager);
+          // size waits on at:, so at: cannot be made to wait on size.
+          manager.setTrigger(Uri.parse(OTHER_METHOD), 2, { uri: METHOD_URI, stepPoint: 2 });
+          vi.mocked(window.showQuickPick).mockResolvedValue(undefined);
+
+          await manager.editTriggerAtStepPoint(Uri.parse(METHOD_URI), 2);
+
+          expect(offered()).toEqual(['Array>>first @2']);
+        });
+
+        it('leaves out a breakpoint that waits on this one through a chain', async () => {
+          // first → size → at:. Offering either as at:'s trigger would close a
+          // ring in which nothing is ever reached and nothing ever says so.
+          const manager = makeManager();
+          threeMethods(manager);
+          manager.setTrigger(Uri.parse(OTHER_METHOD), 2, { uri: METHOD_URI, stepPoint: 2 });
+          manager.setTrigger(Uri.parse(THIRD), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+          vi.mocked(window.showQuickPick).mockResolvedValue(undefined);
+
+          await manager.editTriggerAtStepPoint(Uri.parse(METHOD_URI), 2);
+
+          // Nothing left to offer, so it says so rather than showing an empty list.
+          expect(vi.mocked(window.showQuickPick)).not.toHaveBeenCalled();
+          expect(vi.mocked(window.showInformationMessage)).toHaveBeenCalledWith(
+            expect.stringContaining('no other breakpoint to wait for'),
+          );
+        });
+
+        it('refuses a step point with no breakpoint on it', async () => {
+          const manager = makeManager();
+          threeMethods(manager);
+
+          await manager.editTriggerAtStepPoint(Uri.parse(METHOD_URI), 99);
+
+          expect(vi.mocked(window.showQuickPick)).not.toHaveBeenCalled();
+          expect(vi.mocked(window.showInformationMessage)).toHaveBeenCalledWith(
+            expect.stringContaining('no breakpoint at step point 99'),
+          );
+        });
+
+        it('records what was picked, and clears on "Always armed"', async () => {
+          const manager = makeManager();
+          threeMethods(manager);
+
+          vi.mocked(window.showQuickPick).mockResolvedValue({
+            label: 'Array>>size @2',
+            ref: { uri: OTHER_METHOD, stepPoint: 2 },
+          });
+          await manager.editTriggerAtStepPoint(Uri.parse(METHOD_URI), 2);
+          expect(manager.triggerFor(Uri.parse(METHOD_URI), 2)).toEqual({
+            uri: OTHER_METHOD,
+            stepPoint: 2,
+          });
+
+          // The escape hatch carries no ref, which is what clears the trigger.
+          vi.mocked(window.showQuickPick).mockResolvedValue({ label: 'Always armed' });
+          await manager.editTriggerAtStepPoint(Uri.parse(METHOD_URI), 2);
+          expect(manager.triggerFor(Uri.parse(METHOD_URI), 2)).toBeUndefined();
+        });
+
+        it('lets the picker close when focus moves away, like every other picker', async () => {
+          // Nothing is typed into it, so nothing is lost by closing it.
+          const manager = makeManager();
+          threeMethods(manager);
+          vi.mocked(window.showQuickPick).mockResolvedValue(undefined);
+          await manager.editTriggerAtStepPoint(Uri.parse(METHOD_URI), 2);
+          expect(vi.mocked(window.showQuickPick).mock.calls[0][1]).not.toHaveProperty(
+            'ignoreFocusOut',
+          );
+        });
+
+        it('changes nothing when the picker is cancelled', async () => {
+          const manager = makeManager();
+          threeMethods(manager);
+          manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+
+          vi.mocked(window.showQuickPick).mockResolvedValue(undefined);
+          await manager.editTriggerAtStepPoint(Uri.parse(METHOD_URI), 2);
+
+          expect(manager.triggerFor(Uri.parse(METHOD_URI), 2)).toEqual({
+            uri: OTHER_METHOD,
+            stepPoint: 2,
+          });
+        });
+      });
+
+      it('forgets every trigger when the session logs out', () => {
+        const manager = makeManager();
+        twoMethods(manager);
+        manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+        manager.clearAllForSession(1);
+        expect(manager.triggerFor(Uri.parse(METHOD_URI), 2)).toBeUndefined();
+      });
+    });
+
+    describe('the same method reached by two URIs', () => {
+      /**
+       * One compiled method can be addressed by more than one `gemstone://` URI
+       * — the Explorer scopes its URIs to a dictionary index, a GemStone
+       * Breakpoints row builds one from what the gem reports. The gem has ONE
+       * set of breakpoints for the method, so whatever is done through either
+       * URI has to act on the breakpoints set through both: a row's buttons
+       * open the gem-built URI for a breakpoint set in an Explorer editor.
+       */
+      const OTHER_URI = `${METHOD_URI}?dict=4`;
+      const SIZE_METHOD = 'gemstone://1/Globals/Array/instance/accessing/size';
+
+      it('arms the breakpoints set through either URI, whichever one is applied', () => {
+        // The gem's method is cleared before anything is armed, so arming only
+        // the applied URI's breakpoints would silently disarm the other's while
+        // its red dot stayed.
+        const manager = makeManager();
+        applyWith(manager, OTHER_URI, [{ line: 2, enabled: true, condition: 'index = 900' }]);
+        mockSetBreakAtStepPoint.mockClear();
+        applyWith(manager, METHOD_URI, [{ line: 1, enabled: true }]);
+
+        expect([...armedStepPoints()].sort()).toEqual([1, 2]);
+        expect(manager.appliedFor(Uri.parse(METHOD_URI)).map((a) => a.stepPoint)).toEqual([2, 1]);
+      });
+
+      it('answers the same record whichever URI asks', () => {
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [{ line: 2, enabled: true, condition: 'index = 900' }]);
+        applyWith(manager, OTHER_URI, [{ line: 1, enabled: true }]);
+
+        expect(manager.appliedFor(Uri.parse(OTHER_URI))).toBe(
+          manager.appliedFor(Uri.parse(METHOD_URI)),
+        );
+        expect(manager.appliedFor(Uri.parse(METHOD_URI))[0].condition).toBe('index = 900');
+      });
+
+      it('sends the gem one rule per breakpoint, not one per URI', () => {
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [{ line: 2, enabled: true, condition: 'index = 900' }]);
+        applyWith(manager, OTHER_URI, [{ line: 1, enabled: true }]);
+
+        const specs = manager.breakpointRulesFor(session());
+        expect(specs).toHaveLength(1);
+        expect(specs[0].condition).toBe('index = 900');
+      });
+
+      it('leaves a different method alone', () => {
+        mockGetMethodSource.mockReturnValue('foo\n^1');
+        mockGetSourceOffsets.mockReturnValue([1, 5]);
+        const manager = makeManager();
+        applyWith(manager, METHOD_URI, [{ line: 2, enabled: true, condition: 'index = 900' }]);
+        applyWith(manager, SIZE_METHOD, [{ line: 2, enabled: true, condition: 'n > 1' }]);
+
+        expect(manager.appliedFor(Uri.parse(METHOD_URI))).toHaveLength(1);
+        expect(manager.breakpointRulesFor(session())).toHaveLength(2);
+      });
+
+      describe('acting through the other URI', () => {
+        /** METHOD_URI open and saved — the editor a Breakpoints row reveals. */
+        beforeEach(() => {
+          const starts = buildLineStarts('foo\n^1');
+          workspace.textDocuments = [
+            {
+              uri: Uri.parse(METHOD_URI),
+              isDirty: false,
+              getText: () => 'foo\n^1',
+              positionAt: (o: number) => {
+                const line = o >= starts[2] ? 2 : 1;
+                return new Position(line - 1, o - starts[line]);
+              },
+            },
+          ];
+          vi.mocked(window.showInputBox).mockReset();
+          vi.mocked(window.showQuickPick).mockReset();
+          vi.mocked(window.showInformationMessage).mockClear();
+        });
+
+        it('edits the condition of the breakpoint set through the Explorer URI', async () => {
+          const manager = makeManager();
+          applyWith(manager, OTHER_URI, [{ line: 2, enabled: true, condition: 'index = 900' }]);
+          const original = debug.breakpoints[0];
+          vi.mocked(window.showInputBox).mockResolvedValue('index = 950');
+
+          await manager.editConditionAtStepPoint(Uri.parse(METHOD_URI), 2);
+
+          // The box shows the condition the breakpoint has, and the edit replaces
+          // that breakpoint — not a second one added beside it.
+          expect(vi.mocked(window.showInputBox).mock.calls[0][0]).toMatchObject({
+            value: 'index = 900',
+          });
+          expect(vi.mocked(debug.removeBreakpoints)).toHaveBeenCalledWith([original]);
+          expect(debug.breakpoints).toHaveLength(1);
+          const [edited] = debug.breakpoints as SourceBreakpoint[];
+          expect(edited.condition).toBe('index = 950');
+          expect(edited.location.uri.toString()).toBe(Uri.parse(OTHER_URI).toString());
+        });
+
+        it('clears, from a hover link, the breakpoint set through the Explorer URI', () => {
+          const manager = makeManager();
+          applyWith(manager, OTHER_URI, [{ line: 2, enabled: true }]);
+          manager.clearAtStepPoint(Uri.parse(METHOD_URI), 2);
+          expect(debug.breakpoints).toEqual([]);
+        });
+
+        it('offers the trigger picker for a breakpoint applied through the Explorer URI', async () => {
+          const manager = makeManager();
+          applyWith(manager, OTHER_URI, [{ line: 2, enabled: true }]);
+          applyWith(manager, SIZE_METHOD, [{ line: 2, enabled: true }]);
+          vi.mocked(window.showQuickPick).mockResolvedValue(undefined);
+
+          await manager.editTriggerAtStepPoint(Uri.parse(METHOD_URI), 2);
+
+          expect(vi.mocked(window.showInformationMessage)).not.toHaveBeenCalled();
+          expect(vi.mocked(window.showQuickPick)).toHaveBeenCalled();
+        });
+
+        it('keeps a trigger set through one URI when the method is applied through the other', () => {
+          const manager = makeManager();
+          applyWith(manager, METHOD_URI, [{ line: 2, enabled: true }]);
+          applyWith(manager, SIZE_METHOD, [{ line: 2, enabled: true }]);
+          manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: SIZE_METHOD, stepPoint: 2 });
+
+          applyWith(manager, OTHER_URI, [{ line: 1, enabled: true }]);
+
+          expect(
+            manager.appliedFor(Uri.parse(OTHER_URI)).find((a) => a.stepPoint === 2),
+          ).toMatchObject({ triggeredBy: { uri: SIZE_METHOD, stepPoint: 2 } });
+          const rules = manager.breakpointRulesFor(session());
+          const waiting = rules.find((r) => r.label === 'Array>>at:')!;
+          expect(rules[waiting.triggeredBy! - 1].label).toBe('Array>>size');
+        });
+
+        it('drops the breakpoints set through every URI when the method is recompiled', () => {
+          const manager = makeManager();
+          applyWith(manager, OTHER_URI, [{ line: 2, enabled: true }]);
+          manager.invalidateForUri(Uri.parse(METHOD_URI));
+          expect(debug.breakpoints).toEqual([]);
+          expect(manager.appliedFor(Uri.parse(OTHER_URI))).toEqual([]);
+        });
+      });
+    });
+
+    describe('ruleForStoneBreakpoint', () => {
+      const stoneBp = (over: Record<string, unknown> = {}) => ({
+        breakNumber: 1,
+        className: 'Array',
+        isMeta: false,
+        selector: 'at:',
+        stepPoint: 2,
+        disabled: false,
+        environmentId: 0,
+        methodOop: '1',
+        dictName: 'Globals',
+        category: 'accessing',
+        ...over,
+      });
+
+      it('finds the condition Jasper set', () => {
+        // The gem records no condition, so the view has no other way to know.
+        debug.breakpoints = [conditional('index > 3')];
+        const manager = makeManager();
+        manager.applyToUri(session(), Uri.parse(METHOD_URI));
+        expect(manager.ruleForStoneBreakpoint(stoneBp())?.condition).toBe('index > 3');
+      });
+
+      it('answers nothing for a breakpoint at another step point', () => {
+        debug.breakpoints = [conditional('index > 3')];
+        const manager = makeManager();
+        manager.applyToUri(session(), Uri.parse(METHOD_URI));
+        expect(manager.ruleForStoneBreakpoint(stoneBp({ stepPoint: 1 }))).toBeUndefined();
+      });
+
+      it('answers nothing for a breakpoint Jasper did not set', () => {
+        expect(makeManager().ruleForStoneBreakpoint(stoneBp())).toBeUndefined();
+      });
+    });
+
+    describe('editing a condition', () => {
+      /** The method's editor, open and saved — what `contextFor` needs. */
+      const openDocument = (source: string) => {
+        const starts = buildLineStarts(source);
+        return {
+          uri: Uri.parse(METHOD_URI),
+          isDirty: false,
+          getText: () => source,
+          positionAt: (o: number) => {
+            let line = 1;
+            for (let l = 1; l < starts.length; l++) {
+              if (starts[l] <= o) line = l;
+              else break;
+            }
+            return new Position(line - 1, o - starts[line]);
+          },
+        };
+      };
+
+      beforeEach(() => {
+        workspace.textDocuments = [openDocument('foo\n^1')];
+        vi.mocked(window.showInputBox).mockReset();
+      });
+
+      it('opens the box with the condition already in it', async () => {
+        // Seeing a condition and changing one are the same gesture.
+        debug.breakpoints = [conditional('index > 3')];
+        vi.mocked(window.showInputBox).mockResolvedValue(undefined);
+        await makeManager().editConditionAtStepPoint(Uri.parse(METHOD_URI), 2);
+        expect(vi.mocked(window.showInputBox).mock.calls[0][0]).toMatchObject({
+          value: 'index > 3',
+        });
+      });
+
+      it('replaces the breakpoint with one carrying the new condition', async () => {
+        const bp = conditional('index > 3');
+        debug.breakpoints = [bp];
+        vi.mocked(window.showInputBox).mockResolvedValue('index > 9');
+
+        await makeManager().editConditionAtStepPoint(Uri.parse(METHOD_URI), 2);
+
+        expect(vi.mocked(debug.removeBreakpoints)).toHaveBeenCalledWith([bp]);
+        const added = vi.mocked(debug.addBreakpoints).mock.calls.at(-1)?.[0][0] as SourceBreakpoint;
+        expect(added.condition).toBe('index > 9');
+      });
+
+      it('an emptied box removes the condition', async () => {
+        debug.breakpoints = [conditional('index > 3')];
+        vi.mocked(window.showInputBox).mockResolvedValue('   ');
+
+        await makeManager().editConditionAtStepPoint(Uri.parse(METHOD_URI), 2);
+
+        const added = vi.mocked(debug.addBreakpoints).mock.calls.at(-1)?.[0][0] as SourceBreakpoint;
+        expect(added.condition).toBeUndefined();
+      });
+
+      it('a cancelled box changes nothing', async () => {
+        debug.breakpoints = [conditional('index > 3')];
+        vi.mocked(window.showInputBox).mockResolvedValue(undefined);
+
+        await makeManager().editConditionAtStepPoint(Uri.parse(METHOD_URI), 2);
+
+        expect(vi.mocked(debug.removeBreakpoints)).not.toHaveBeenCalled();
+        expect(vi.mocked(debug.addBreakpoints)).not.toHaveBeenCalled();
+      });
+
+      it('sets a new conditional breakpoint where there was none', async () => {
+        // "Break here, but only when…" is a reasonable thing to ask at a step
+        // point with no breakpoint yet.
+        debug.breakpoints = [];
+        vi.mocked(window.showInputBox).mockResolvedValue('index > 9');
+
+        await makeManager().editConditionAtStepPoint(Uri.parse(METHOD_URI), 2);
+
+        const added = vi.mocked(debug.addBreakpoints).mock.calls.at(-1)?.[0][0] as SourceBreakpoint;
+        expect(added.condition).toBe('index > 9');
+      });
     });
   });
 
@@ -1180,6 +2414,113 @@ describe('BreakpointManager', () => {
     });
   });
 
+  describe('the at-Cursor commands that edit a breakpoint', () => {
+    /**
+     * The breakpoint they act on is the one on the caret's line when the caret
+     * is not on its exact token: a developer right-clicking a line with one red
+     * dot means that breakpoint, and the caret's nearest step point is
+     * routinely another token on the same line.
+     */
+    // 'x := self foo': step point 1 is `self` (column 5), 2 is `foo` (column 10).
+    const SOURCE = 'm\nx := self foo';
+    const editorAt = (offset: number) => {
+      const starts = buildLineStarts(SOURCE);
+      const positionAt = (o: number) => {
+        const line = o >= starts[2] ? 2 : 1;
+        return new Position(line - 1, o - starts[line]);
+      };
+      return {
+        document: {
+          uri: Uri.parse(METHOD_URI),
+          isDirty: false,
+          getText: () => SOURCE,
+          offsetAt: () => offset,
+          positionAt,
+        },
+        selection: { active: positionAt(offset) },
+      } as unknown as import('vscode').TextEditor;
+    };
+    // The caret on `foo`, right of a gutter breakpoint that sits on `self`.
+    const ON_FOO = 12;
+
+    beforeEach(() => {
+      mockGetMethodSource.mockReturnValue(SOURCE);
+      mockGetSourceOffsets.mockReturnValue([8, 13]);
+      vi.mocked(window.showInputBox).mockReset();
+      vi.mocked(window.showQuickPick).mockReset();
+      vi.mocked(window.showInformationMessage).mockClear();
+    });
+
+    it("edits the line's breakpoint rather than adding a second one", async () => {
+      const gutter = sourceBreakpoint(METHOD_URI, { line: 2, condition: 'x > 1' });
+      debug.breakpoints = [gutter];
+      vi.mocked(window.showInputBox).mockResolvedValue('x > 2');
+
+      await makeManager().editConditionAtCursor(editorAt(ON_FOO));
+
+      expect(vi.mocked(window.showInputBox).mock.calls[0][0]).toMatchObject({ value: 'x > 1' });
+      expect(debug.breakpoints).toHaveLength(1);
+      expect((debug.breakpoints[0] as SourceBreakpoint).condition).toBe('x > 2');
+    });
+
+    it("offers the trigger picker for the line's breakpoint", async () => {
+      const manager = makeManager();
+      applyWith(manager, METHOD_URI, [{ line: 2 }]);
+      applyWith(manager, 'gemstone://1/Globals/Array/instance/accessing/size', [{ line: 2 }]);
+      vi.mocked(window.showQuickPick).mockResolvedValue(undefined);
+
+      await manager.editTriggerAtCursor(editorAt(ON_FOO));
+
+      expect(vi.mocked(window.showInformationMessage)).not.toHaveBeenCalled();
+      expect(vi.mocked(window.showQuickPick).mock.calls[0][1]).toMatchObject({
+        title: 'Break at step point 1 only after…',
+      });
+    });
+
+    it('names the line, not a step point, when the line has no breakpoint', async () => {
+      debug.breakpoints = [];
+      await makeManager().editTriggerAtCursor(editorAt(ON_FOO));
+      expect(vi.mocked(window.showInformationMessage)).toHaveBeenCalledWith(
+        expect.stringContaining('no breakpoint on line 2'),
+      );
+    });
+
+    it("disables the line's breakpoint", () => {
+      const gutter = sourceBreakpoint(METHOD_URI, { line: 2 });
+      debug.breakpoints = [gutter];
+
+      makeManager().setEnabledAtCursor(editorAt(ON_FOO), false);
+
+      expect(vi.mocked(debug.removeBreakpoints)).toHaveBeenCalledWith([gutter]);
+      expect(debug.breakpoints).toHaveLength(1);
+      expect((debug.breakpoints[0] as SourceBreakpoint).enabled).toBe(false);
+    });
+
+    it('takes the nearest when the line has several and the caret is on neither', async () => {
+      // Three step points: `x` (2), `self` (7), `foo` (12). Breakpoints on the
+      // first and last; the caret on `self` is nearer `foo`.
+      mockGetSourceOffsets.mockReturnValue([3, 8, 13]);
+      const onX = sourceBreakpoint(METHOD_URI, { line: 2, condition: 'on x' });
+      const onFoo = sourceBreakpoint(METHOD_URI, { line: 2, character: 10, condition: 'on foo' });
+      debug.breakpoints = [onX, onFoo];
+      vi.mocked(window.showInputBox).mockResolvedValue(undefined);
+
+      await makeManager().editConditionAtCursor(editorAt(8));
+
+      expect(vi.mocked(window.showInputBox).mock.calls[0][0]).toMatchObject({ value: 'on foo' });
+    });
+
+    it('still toggles exactly at the caret, beside the breakpoint already on the line', () => {
+      const gutter = sourceBreakpoint(METHOD_URI, { line: 2 });
+      debug.breakpoints = [gutter];
+
+      makeManager().toggleAtCursor(editorAt(ON_FOO));
+
+      expect(vi.mocked(debug.removeBreakpoints)).not.toHaveBeenCalled();
+      expect(debug.breakpoints).toHaveLength(2);
+    });
+  });
+
   describe('removeAll', () => {
     it('drops gemstone breakpoints from VS Code and sweeps the gem', () => {
       const gemstoneBp = new SourceBreakpoint(
@@ -1245,6 +2586,37 @@ describe('BreakpointManager', () => {
       workspace.textDocuments = [
         { uri: Uri.parse(METHOD_URI), languageId: METHOD_LANGUAGE, isDirty: false },
       ];
+    });
+
+    it("offers as triggers only the breakpoints in the method's own gem", async () => {
+      // A trigger is judged in the gem the run is in. One from the selected
+      // session's gem could never be reached there, and would leave this
+      // breakpoint reading "Break after …" while stopping every time.
+      mockGetMethodSource.mockReturnValue('foo\n^1');
+      mockGetSourceOffsets.mockReturnValue([1, 5]);
+      const manager = managerOverTwo();
+      const inOne = 'gemstone://1/Globals/Array/instance/accessing/size';
+      const inTwo = 'gemstone://2/Globals/Array/instance/accessing/size';
+      const apply = (uri: string, s: typeof SESSION_ONE) => {
+        debug.breakpoints = [
+          ...debug.breakpoints,
+          new SourceBreakpoint(new Location(Uri.parse(uri), new Position(1, 0))),
+        ];
+        manager.applyToUri(s, Uri.parse(uri));
+      };
+      debug.breakpoints = [];
+      apply(METHOD_URI, SESSION_ONE);
+      apply(inOne, SESSION_ONE);
+      apply(inTwo, SESSION_TWO);
+      vi.mocked(window.showQuickPick).mockReset().mockResolvedValue(undefined);
+
+      await manager.editTriggerAtStepPoint(Uri.parse(METHOD_URI), 2);
+
+      const items = vi.mocked(window.showQuickPick).mock.calls[0][0] as unknown as {
+        label: string;
+        ref?: { uri: string };
+      }[];
+      expect(items.filter((i) => i.ref).map((i) => i.ref!.uri)).toEqual([inOne]);
     });
 
     it('arms a breakpoint in the gem the method was opened from, not the selected one', () => {

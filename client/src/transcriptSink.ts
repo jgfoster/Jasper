@@ -1,6 +1,6 @@
 import type { GciError } from './gciLibrary';
 import type { ActiveSession } from './sessionManager';
-import { OOP_ILLEGAL, OOP_NIL } from './gciConstants';
+import { OOP_ILLEGAL, OOP_NIL, toBigInt } from './gciConstants';
 import { logError, logInfo } from './gciLog';
 
 /**
@@ -329,11 +329,6 @@ export function isForwarderSendError(err: GciError): boolean {
   return err.number === CLIENT_FORWARDER_SEND_ERR;
 }
 
-// koffi returns uint64 as Number when it fits; normalize for comparisons.
-function toBigInt(value: number | bigint): bigint {
-  return typeof value === 'bigint' ? value : BigInt(value);
-}
-
 /**
  * Decode a 2336 error into the transcript text it carries, or null when the
  * forwarder send is not ours (different clientObject / selector).
@@ -368,10 +363,36 @@ export function decodeTranscriptForwarderSend(
 
 /**
  * Read a non-blocking call's result, forwarding transcript sends as they
- * arrive: on 2336, display the text via `onTranscript` and resume with
- * GciTsContinueWith on a koffi worker thread, so the extension host stays free
- * even if the resumed code runs for minutes, looping until a real result or
- * error.
+ * arrive — see {@link continueThroughForwarderSends}, which does the work once
+ * the result is read.
+ *
+ * `flags` are what each resume runs with, and must be the flags the call was
+ * started with, less any single-step: a resume with the debug flag dropped runs
+ * the rest of the call with every breakpoint disarmed. Notebook cells start
+ * with 0, so the default keeps them as they were.
+ */
+export async function settleNbResult(
+  session: ActiveSession,
+  onTranscript: (text: string) => void,
+  abandoned?: AbortSignal,
+  flags = 0,
+): Promise<{ result: bigint; err: GciError }> {
+  return await continueThroughForwarderSends(
+    session,
+    session.GciTsNbResult(),
+    onTranscript,
+    flags,
+    abandoned,
+  );
+}
+
+/**
+ * Starting from an answer the gem has already given (`first`): on 2336, display
+ * the text via `onTranscript` and resume with GciTsContinueWith on a koffi
+ * worker thread, so the extension host stays free even if the resumed code runs
+ * for minutes, looping until a real result or error. Shared by
+ * {@link settleNbResult} and the breakpoint-rule loop, which meets the same
+ * sends whenever a run it is resuming writes to the Transcript.
  *
  * A 2336 that is NOT ours (unknown clientObject) is still continued — there is
  * no meaningful reply we can give, but abandoning it would strand the user's
@@ -400,12 +421,14 @@ export function decodeTranscriptForwarderSend(
  * stopped inside a write, it holds the semaphore just the same (measured on
  * 3.6.2 and 3.7.5).
  */
-export async function settleNbResult(
+export async function continueThroughForwarderSends(
   session: ActiveSession,
+  first: { result: bigint; err: GciError },
   onTranscript: (text: string) => void,
+  flags: number,
   abandoned?: AbortSignal,
 ): Promise<{ result: bigint; err: GciError }> {
-  let { result, err } = session.GciTsNbResult();
+  let { result, err } = first;
   while (isForwarderSendError(err)) {
     const suspended = toBigInt(err.context);
     if (abandoned?.aborted) {
@@ -415,7 +438,7 @@ export async function settleNbResult(
     try {
       const text = decodeTranscriptForwarderSend(session, err);
       if (text !== null && text.length > 0) onTranscript(text);
-      ({ result, err } = await session.GciTsContinueWithAsync(suspended, OOP_ILLEGAL, null, 0));
+      ({ result, err } = await session.GciTsContinueWithAsync(suspended, OOP_ILLEGAL, null, flags));
     } catch (e) {
       clearSuspendedWriter(session, suspended);
       throw e;

@@ -9,6 +9,7 @@ import {
   OOP_ILLEGAL,
   OOP_NIL,
   OOP_TRUE,
+  toBigInt,
 } from './gciConstants';
 import { GciLibraryError } from './gciLibraryError';
 import { escapeString } from './queries/util';
@@ -160,12 +161,6 @@ export interface GciError {
   fatal: number;
   message: string;
   reason: string;
-}
-
-// koffi returns uint64 as Number when the value fits in Number.MAX_SAFE_INTEGER,
-// and BigInt otherwise. This helper normalizes to always return BigInt.
-function toBigInt(value: number | bigint): bigint {
-  return typeof value === 'bigint' ? value : BigInt(value);
 }
 
 // Forces GCI_LOGIN_QUIET on top of a caller's loginFlags. Jasper never wants
@@ -1427,6 +1422,45 @@ export class GciLibrary {
       err,
     );
     return { result: toBigInt(raw), err: err as unknown as GciError };
+  }
+
+  /**
+   * GciTsPerform on a koffi worker thread, for a send whose cost is the
+   * developer's and not ours: a breakpoint condition is their Smalltalk, and one
+   * that loops would otherwise freeze the extension host on the main thread.
+   * Interrupted by a GciTsBreak from the main thread like any running call.
+   * Same contract as {@link GciTsContinueWithAsync}: no blocking fallback.
+   */
+  GciTsPerformAsync(
+    session: unknown,
+    receiver: bigint,
+    selector: bigint,
+    selectorStr: string | null,
+    args: bigint[],
+    flags: number,
+    environmentId: number,
+  ): Promise<{ result: bigint; err: GciError }> {
+    const err: Record<string, unknown> = {};
+    return new Promise((resolve, reject) => {
+      this._GciTsPerform.async(
+        session,
+        receiver,
+        selector,
+        selectorStr,
+        args.length > 0 ? args : null,
+        args.length,
+        flags,
+        environmentId,
+        err,
+        (asyncErr: unknown, raw: number | bigint) => {
+          if (asyncErr) {
+            reject(asyncErr instanceof Error ? asyncErr : new Error(String(asyncErr)));
+            return;
+          }
+          resolve({ result: toBigInt(raw), err: err as unknown as GciError });
+        },
+      );
+    });
   }
 
   GciTsPerformFetchBytes(

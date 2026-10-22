@@ -71,7 +71,10 @@ function makeDocument(uriStr = METHOD_URI) {
 }
 
 function makeManager(applied: AppliedBreakpoint[] = []) {
-  return { appliedFor: vi.fn(() => applied) } as unknown as BreakpointManager;
+  return {
+    appliedFor: vi.fn(() => applied),
+    ruleOf: vi.fn((bp: AppliedBreakpoint) => ({ ...bp })),
+  } as unknown as BreakpointManager;
 }
 
 function hoverText(hover: import('vscode').Hover | null): string {
@@ -150,6 +153,120 @@ describe('StepPointHoverProvider', () => {
     const text = hoverText(provider.provideHover(makeDocument(), pos(1, 6)));
     expect(text).toContain('disabled');
     expect(text).toContain('gemstone.breakpoints.enableAtStepPoint');
+  });
+
+  it('offers to add a condition to a breakpoint that has none', () => {
+    const provider = new StepPointHoverProvider(
+      new StepPointModel(makeSessionManager()),
+      makeManager([{ stepPoint: 2, offset: 14, line: 2, enabled: true }]),
+    );
+    const text = hoverText(provider.provideHover(makeDocument(), pos(1, 6)));
+    expect(text).toContain('Add condition');
+    expect(text).toContain('gemstone.breakpoints.editConditionAtStepPoint');
+  });
+
+  it('shows a condition in full, and offers to edit it', () => {
+    // The marker beside the token elides a long condition; the hover is where
+    // the whole of it can be read, and where it can be changed.
+    const provider = new StepPointHoverProvider(
+      new StepPointModel(makeSessionManager()),
+      makeManager([{ stepPoint: 2, offset: 14, line: 2, enabled: true, condition: 'total > 100' }]),
+    );
+    const text = hoverText(provider.provideHover(makeDocument(), pos(1, 6)));
+    expect(text).toContain('Conditional breakpoint set');
+    expect(text).toContain('total > 100');
+    expect(text).toContain('Edit condition');
+  });
+
+  it('says where a logpoint writes, and offers a way there', () => {
+    // The two places a developer actually points — the label and the gutter —
+    // name a channel they then have to go and find. This hover is where the way
+    // in lives.
+    const provider = new StepPointHoverProvider(
+      new StepPointModel(makeSessionManager()),
+      makeManager([
+        {
+          stepPoint: 2,
+          offset: 14,
+          line: 2,
+          enabled: true,
+          logMessage: 'total={total}',
+        },
+      ]),
+    );
+    const text = hoverText(provider.provideHover(makeDocument(), pos(1, 6)));
+    expect(text).toContain('Logpoint set');
+    expect(text).toContain('GemStone Logpoints');
+    expect(text).toContain('total={total}');
+    expect(text).toContain('command:gemstone.breakpoints.showLogpointOutput');
+  });
+
+  it('offers no logpoint output link on a breakpoint that only stops', () => {
+    const provider = new StepPointHoverProvider(
+      new StepPointModel(makeSessionManager()),
+      makeManager([{ stepPoint: 2, offset: 14, line: 2, enabled: true, condition: 'x > 1' }]),
+    );
+    const text = hoverText(provider.provideHover(makeDocument(), pos(1, 6)));
+    expect(text).not.toContain('showLogpointOutput');
+  });
+
+  it('says a disabled conditional breakpoint is both', () => {
+    const provider = new StepPointHoverProvider(
+      new StepPointModel(makeSessionManager()),
+      makeManager([
+        { stepPoint: 2, offset: 14, line: 2, enabled: false, condition: 'total > 100' },
+      ]),
+    );
+    const text = hoverText(provider.provideHover(makeDocument(), pos(1, 6)));
+    expect(text).toContain('Conditional breakpoint set but disabled');
+  });
+
+  it('says what a breakpoint waits for, and offers to change it', () => {
+    // The hover used to leave the trigger out, so a breakpoint that only waited
+    // on another one said nothing about why it was not stopping.
+    const waiting = {
+      stepPoint: 2,
+      offset: 14,
+      line: 2,
+      enabled: true,
+      triggeredBy: {
+        uri: 'gemstone://1/Globals/Account/instance/accessing/deposit%3A',
+        stepPoint: 4,
+      },
+    };
+    const manager = makeManager([waiting]);
+    vi.mocked(manager.ruleOf).mockReturnValue({ ...waiting, triggerProblem: 'disabled' });
+    const provider = new StepPointHoverProvider(new StepPointModel(makeSessionManager()), manager);
+    const text = hoverText(provider.provideHover(makeDocument(), pos(1, 6)));
+    expect(text).toContain('Waits for **Account>>deposit: @4**, which is disabled');
+    expect(text).toContain('Edit trigger](command:gemstone.breakpoints.editTriggerAtStepPoint?');
+  });
+
+  it('offers to make a breakpoint wait for another', () => {
+    const provider = new StepPointHoverProvider(
+      new StepPointModel(makeSessionManager()),
+      makeManager([{ stepPoint: 2, offset: 14, line: 2, enabled: true }]),
+    );
+    const text = hoverText(provider.provideHover(makeDocument(), pos(1, 6)));
+    expect(text).toContain(
+      'Break only after…](command:gemstone.breakpoints.editTriggerAtStepPoint?',
+    );
+  });
+
+  it('trusts only the commands its own links run', () => {
+    // The hover shows the developer's own condition, so wholesale trust would
+    // run any command link written into one.
+    const provider = new StepPointHoverProvider(
+      new StepPointModel(makeSessionManager()),
+      makeManager([{ stepPoint: 2, offset: 14, line: 2, enabled: true, condition: 'x' }]),
+    );
+    const hover = provider.provideHover(makeDocument(), pos(1, 6));
+    const md = hover?.contents as unknown as { value: string; isTrusted: unknown };
+    const trusted = (md.isTrusted as { enabledCommands: string[] }).enabledCommands;
+    const linked = [...md.value.matchAll(/\(command:([\w.]+)/g)].map((m) => m[1]);
+    expect(linked.length).toBeGreaterThan(0);
+    for (const id of linked) expect(trusted).toContain(id);
+    expect(trusted.every((id) => id.startsWith('gemstone.breakpoints.'))).toBe(true);
   });
 
   it('says nothing when the pointer is not on a step point token', () => {

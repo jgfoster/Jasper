@@ -290,6 +290,13 @@ describe('debugQueries', () => {
       expect(debug.getMethodUriInfo(session, METHOD_OOP)).toBeUndefined();
     });
 
+    it("returns undefined for the empty answer a doit's method gets", () => {
+      const { session, gci } = createMockSession();
+      gci.executeAndFetchString.mockImplementation(() => '');
+
+      expect(debug.getMethodUriInfo(session, METHOD_OOP)).toBeUndefined();
+    });
+
     it('parses class-side methods correctly', () => {
       const { session, gci } = createMockSession();
       gci.executeAndFetchString.mockImplementation(

@@ -171,10 +171,17 @@ import { GemStoneDefinitionProvider } from './gemstoneDefinitionProvider';
 import { GemStoneHoverProvider } from './gemstoneHoverProvider';
 import { GemStoneCompletionProvider } from './gemstoneCompletionProvider';
 import { BreakpointManager } from './breakpointManager';
+import { setBreakpointRuleSource } from './conditionalBreakpoints';
 import { StepPointModel } from './stepPointModel';
 import { StepPointHintsProvider } from './stepPointHints';
 import { StepPointHoverProvider } from './stepPointHover';
-import { BreakpointTreeProvider, BreakpointNode, revealBreakpoint } from './breakpointTreeProvider';
+import {
+  BreakpointTreeProvider,
+  BreakpointNode,
+  editBreakpointCondition,
+  editBreakpointTrigger,
+  revealBreakpoint,
+} from './breakpointTreeProvider';
 import { SunitTestController } from './sunitTestController';
 import { GrailNotebookController, grailSessionKernel } from './grailNotebookController';
 import { SmalltalkNotebookController, smalltalkSessionKernel } from './smalltalkNotebookController';
@@ -183,6 +190,7 @@ import { SessionKernels } from './sessionKernels';
 import { ExportManager } from './exportManager';
 import { FileInManager } from './fileInManager';
 import { showTranscript, getTranscriptChannel } from './transcriptChannel';
+import { getLogpointChannel, showLogpointChannel } from './logpointChannel';
 import { getGciLog, logError, logWarning } from './gciLog';
 import { commitFailureMessage, isCommitConflict } from './commitFailure';
 import { CODE_LENS_SELECTORS, GemStoneCodeLensProvider } from './gemstoneCodeLensProvider';
@@ -787,6 +795,7 @@ export function activate(context: vscode.ExtensionContext) {
     getGciLog(),
     getTranscriptChannel(),
     getSysadminChannel(),
+    getLogpointChannel(),
   );
 
   const finishTelemetry = startActivationTelemetry(context);
@@ -1155,6 +1164,9 @@ export function activate(context: vscode.ExtensionContext) {
   const stepPointModel = new StepPointModel(sessionManager);
   const breakpointManager = new BreakpointManager(sessionManager, stepPointModel);
   breakpointManager.register(context);
+  // Every run that meets a breakpoint consults these rules: Execute It's, and
+  // the debugger's Resume.
+  setBreakpointRuleSource(breakpointManager);
 
   const stepPointHints = new StepPointHintsProvider(stepPointModel);
   stepPointHints.register(context);
@@ -3294,6 +3306,31 @@ export function activate(context: vscode.ExtensionContext) {
       if (editor) breakpointManager.clearMethodBreakpoints(editor);
     }),
 
+    vscode.commands.registerCommand('gemstone.breakpoints.showLogpointOutput', () =>
+      showLogpointChannel(),
+    ),
+
+    vscode.commands.registerCommand('gemstone.breakpoints.editConditionAtCursor', () => {
+      const editor = vscode.window.activeTextEditor;
+      if (editor) void breakpointManager.editConditionAtCursor(editor);
+    }),
+
+    vscode.commands.registerCommand('gemstone.breakpoints.editTriggerAtCursor', () => {
+      const editor = vscode.window.activeTextEditor;
+      if (editor) void breakpointManager.editTriggerAtCursor(editor);
+    }),
+
+    // A line in the gutter menu, under VS Code's own Add Triggered Breakpoint,
+    // which no extension can change or hide: it says that item does nothing here.
+    vscode.commands.registerCommand('gemstone.breakpoints.triggeredNotSupported', () => {
+      vscode.window.showInformationMessage(
+        "VS Code's Add Triggered Breakpoint, and Wait for Breakpoint in Edit Breakpoint, " +
+          "don't work in Jasper yet: the breakpoint stops every time. To make a " +
+          'breakpoint wait for another one, use the Break Only After… icon on its row in the GemStone ' +
+          "Breakpoints view, or Edit Breakpoint Trigger at Cursor in the editor's right-click menu.",
+      );
+    }),
+
     // The step-point commands take their target from the click that fired them —
     // an inlay hint number or a hover link — rather than from the caret, so they
     // act on the step point the developer actually pointed at.
@@ -3321,6 +3358,18 @@ export function activate(context: vscode.ExtensionContext) {
         breakpointManager.clearAtStepPoint(vscode.Uri.parse(arg.uri), arg.stepPoint),
     ),
 
+    vscode.commands.registerCommand(
+      'gemstone.breakpoints.editConditionAtStepPoint',
+      (arg: { uri: string; stepPoint: number }) =>
+        breakpointManager.editConditionAtStepPoint(vscode.Uri.parse(arg.uri), arg.stepPoint),
+    ),
+
+    vscode.commands.registerCommand(
+      'gemstone.breakpoints.editTriggerAtStepPoint',
+      (arg: { uri: string; stepPoint: number }) =>
+        breakpointManager.editTriggerAtStepPoint(vscode.Uri.parse(arg.uri), arg.stepPoint),
+    ),
+
     vscode.commands.registerCommand('gemstone.breakpoints.enableAll', () =>
       breakpointManager.setAllEnabled(true),
     ),
@@ -3340,7 +3389,15 @@ export function activate(context: vscode.ExtensionContext) {
     ),
 
     vscode.commands.registerCommand('gemstone.breakpoints.reveal', (node?: BreakpointNode) =>
-      revealBreakpoint(sessionManager, node),
+      revealBreakpoint(sessionManager, breakpointManager, node),
+    ),
+
+    vscode.commands.registerCommand('gemstone.breakpoints.editCondition', (node?: BreakpointNode) =>
+      editBreakpointCondition(sessionManager, breakpointManager, node),
+    ),
+
+    vscode.commands.registerCommand('gemstone.breakpoints.editTrigger', (node?: BreakpointNode) =>
+      editBreakpointTrigger(sessionManager, breakpointManager, node),
     ),
 
     vscode.commands.registerCommand('gemstone.breakpoints.remove', (node?: BreakpointNode) => {

@@ -4,9 +4,15 @@ import { buildMethodUri } from './gemstoneFileSystemProvider';
 import * as queries from './browserQueries';
 import { GemStoneBreakpoint } from './browserQueries';
 import { BreakpointManager } from './breakpointManager';
+import { loginLabel } from './loginTypes';
+import { RuleParts, appendRuleMarkdown, rowDescription } from './breakpointRuleText';
 
-/** A class (or metaclass) heading, or one breakpoint under it. */
+/**
+ * The session heading, a class (or metaclass) heading under it, or one
+ * breakpoint under that.
+ */
 export type BreakpointNode =
+  | { kind: 'session'; label: string; groups: BreakpointNode[] }
   | { kind: 'class'; className: string; isMeta: boolean; breakpoints: GemStoneBreakpoint[] }
   | { kind: 'breakpoint'; bp: GemStoneBreakpoint }
   | { kind: 'notice'; text: string; icon?: string };
@@ -161,6 +167,23 @@ export class BreakpointTreeProvider implements vscode.TreeDataProvider<Breakpoin
       return item;
     }
 
+    if (element.kind === 'session') {
+      const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.Expanded);
+      const total = element.groups.reduce(
+        (n, g) => n + (g.kind === 'class' ? g.breakpoints.length : 0),
+        0,
+      );
+      item.description = `${total}`;
+      item.iconPath = new vscode.ThemeIcon('plug');
+      item.contextValue = 'gemstoneBreakpointSession';
+      item.tooltip = new vscode.MarkdownString(
+        `Breakpoints in the gem of the **selected** session.\n\n` +
+          `Breakpoints are per-gem state: another session's are not shown here, ` +
+          `and switching the selected session switches this list.`,
+      );
+      return item;
+    }
+
     if (element.kind === 'class') {
       const item = new vscode.TreeItem(
         classLabel(element.className, element.isMeta),
@@ -175,14 +198,29 @@ export class BreakpointTreeProvider implements vscode.TreeDataProvider<Breakpoin
     }
 
     const bp = element.bp;
+    const rule = this.breakpoints.ruleForStoneBreakpoint(bp);
     const item = new vscode.TreeItem(bp.selector === '' ? '(executed code)' : bp.selector);
-    item.description = `@ ${bp.stepPoint}`;
+    item.description = `@ ${bp.stepPoint}${rowDescription(rule)}`;
     item.checkboxState = bp.disabled
       ? vscode.TreeItemCheckboxState.Unchecked
       : vscode.TreeItemCheckboxState.Checked;
-    item.tooltip = breakpointTooltip(bp);
-    // Only a real method can be opened; a doit's source is long gone.
-    item.contextValue = bp.selector === '' ? 'gemstoneBreakpointDoit' : 'gemstoneBreakpoint';
+    item.tooltip = breakpointTooltip(bp, rule);
+    // The same icon VS Code's Breakpoints view uses. Plain rows get none: the
+    // checkbox already shows enabled vs disabled. A breakpoint that only waits
+    // on a trigger has no VS Code icon, so it keeps the plain row.
+    if (rule?.logMessage !== undefined) {
+      item.iconPath = new vscode.ThemeIcon('debug-breakpoint-log');
+    } else if (rule?.condition !== undefined) {
+      item.iconPath = new vscode.ThemeIcon('debug-breakpoint-conditional');
+    }
+    // A doit's source is gone, so only a real method opens. Only a breakpoint
+    // in VS Code's list (one Jasper set) can carry a trigger.
+    item.contextValue =
+      bp.selector === ''
+        ? 'gemstoneBreakpointDoit'
+        : this.breakpoints.appliedForStoneBreakpoint(bp)
+          ? 'gemstoneBreakpointOwned'
+          : 'gemstoneBreakpoint';
     if (bp.selector !== '') {
       item.command = {
         title: 'Reveal in source',
@@ -194,6 +232,7 @@ export class BreakpointTreeProvider implements vscode.TreeDataProvider<Breakpoin
   }
 
   getChildren(element?: BreakpointNode): BreakpointNode[] {
+    if (element?.kind === 'session') return element.groups;
     if (element?.kind === 'class') {
       return element.breakpoints.map((bp) => ({ kind: 'breakpoint' as const, bp }));
     }
@@ -226,7 +265,15 @@ export class BreakpointTreeProvider implements vscode.TreeDataProvider<Breakpoin
         },
       ];
     }
-    return groupBreakpoints(this.lastFetch);
+    // Breakpoints are per gem, and this view shows only the selected
+    // session's, so the heading names which one.
+    return [
+      {
+        kind: 'session',
+        label: loginLabel(session.login),
+        groups: groupBreakpoints(this.lastFetch),
+      },
+    ];
   }
 
   /** Every breakpoint the last fetch saw — for commands that act on all of them. */
@@ -235,7 +282,7 @@ export class BreakpointTreeProvider implements vscode.TreeDataProvider<Breakpoin
   }
 }
 
-function breakpointTooltip(bp: GemStoneBreakpoint): vscode.MarkdownString {
+function breakpointTooltip(bp: GemStoneBreakpoint, rule?: RuleParts): vscode.MarkdownString {
   const md = new vscode.MarkdownString();
   const where =
     bp.className === ''
@@ -243,42 +290,84 @@ function breakpointTooltip(bp: GemStoneBreakpoint): vscode.MarkdownString {
       : `${classLabel(bp.className, bp.isMeta)} >> ${bp.selector}`;
   md.appendMarkdown(`**${where}**\n\nStep point ${bp.stepPoint}`);
   if (bp.disabled) md.appendMarkdown(' — disabled');
+  if (rule) appendRuleMarkdown(md, rule);
   if (bp.dictName) md.appendMarkdown(`\n\nDictionary: ${bp.dictName}`);
   if (bp.environmentId > 0) md.appendMarkdown(`\n\nEnvironment: ${bp.environmentId}`);
   return md;
 }
 
+/** Open this row's method, then ask for the condition on its breakpoint. */
+export async function editBreakpointCondition(
+  sessionManager: SessionManager,
+  breakpoints: BreakpointManager,
+  node?: BreakpointNode,
+): Promise<void> {
+  await revealThen(sessionManager, breakpoints, node, (uri, stepPoint) =>
+    breakpoints.editConditionAtStepPoint(uri, stepPoint),
+  );
+}
+
+/** Open this row's method, then ask which breakpoint its breakpoint waits for. */
+export async function editBreakpointTrigger(
+  sessionManager: SessionManager,
+  breakpoints: BreakpointManager,
+  node?: BreakpointNode,
+): Promise<void> {
+  await revealThen(sessionManager, breakpoints, node, (uri, stepPoint) =>
+    breakpoints.editTriggerAtStepPoint(uri, stepPoint),
+  );
+}
+
 /**
- * Open the method a breakpoint is in and put the caret on the step point.
+ * Reveal a row's breakpoint, then act on it through the URI that was opened —
+ * not the active editor, which after a failed open is some unrelated method.
+ */
+async function revealThen(
+  sessionManager: SessionManager,
+  breakpoints: BreakpointManager,
+  node: BreakpointNode | undefined,
+  act: (uri: vscode.Uri, stepPoint: number) => Promise<void>,
+): Promise<void> {
+  if (node?.kind !== 'breakpoint') return;
+  const uri = await revealBreakpoint(sessionManager, breakpoints, node);
+  if (uri) await act(uri, node.bp.stepPoint);
+}
+
+/**
+ * Open the method a breakpoint is in and put the caret on the step point;
+ * answers the URI opened, or undefined when there was nothing to open.
  *
- * The step point is resolved from the *stone's* offsets for the method just
- * opened, rather than trusting the line the gem reported, so the selection lands
- * on the token that will actually break.
+ * Prefers the URI Jasper set the breakpoint through, since a method opened
+ * under another URI is a separate editor without the red dot. The caret comes
+ * from the stone's offsets for the step point, not the line the gem reported.
  */
 export async function revealBreakpoint(
   sessionManager: SessionManager,
+  breakpoints: BreakpointManager,
   node?: BreakpointNode,
-): Promise<void> {
-  if (node?.kind !== 'breakpoint') return;
+): Promise<vscode.Uri | undefined> {
+  if (node?.kind !== 'breakpoint') return undefined;
   const bp = node.bp;
-  if (bp.selector === '' || bp.className === '') return;
+  if (bp.selector === '' || bp.className === '') return undefined;
 
   const session = sessionManager.getSelectedSession();
-  if (!session) return;
+  if (!session) return undefined;
 
-  const uri = buildMethodUri({
-    kind: 'method',
-    sessionId: session.id,
-    dictName: bp.dictName || 'Globals',
-    className: bp.className,
-    isMeta: bp.isMeta,
-    // The category only labels the URI path; the file system provider resolves
-    // the method by class and selector. 'other' keeps the path well-formed when
-    // the gem couldn't name a category (an inherited or removed method).
-    category: bp.category || 'other',
-    selector: bp.selector,
-    environmentId: bp.environmentId,
-  });
+  const uri =
+    breakpoints.uriForStoneBreakpoint(bp) ??
+    buildMethodUri({
+      kind: 'method',
+      sessionId: session.id,
+      dictName: bp.dictName || 'Globals',
+      className: bp.className,
+      isMeta: bp.isMeta,
+      // The category only labels the URI path; the file system provider resolves
+      // the method by class and selector. 'other' keeps the path well-formed when
+      // the gem couldn't name a category (an inherited or removed method).
+      category: bp.category || 'other',
+      selector: bp.selector,
+      environmentId: bp.environmentId,
+    });
 
   const document = await vscode.workspace.openTextDocument(uri);
   const editor = await vscode.window.showTextDocument(document, { preview: false });
@@ -293,10 +382,10 @@ export async function revealBreakpoint(
       bp.environmentId,
     );
   } catch {
-    return;
+    return uri;
   }
   const at = offsets[bp.stepPoint - 1];
-  if (at === undefined) return;
+  if (at === undefined) return uri;
 
   const position = document.positionAt(at - 1); // _sourceOffsets is 1-based
   editor.selection = new vscode.Selection(position, position);
@@ -304,4 +393,5 @@ export async function revealBreakpoint(
     new vscode.Range(position, position),
     vscode.TextEditorRevealType.InCenterIfOutsideViewport,
   );
+  return uri;
 }

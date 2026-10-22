@@ -62,3 +62,12 @@ export const OOP_CLASS_CHARACTER = 68353n;
 export const OOP_CLASS_SMALL_INTEGER = 74241n;
 export const OOP_CLASS_UNDEFINED_OBJECT = 76289n;
 export const OOP_CLASS_SMALL_DOUBLE = 121345n;
+
+/**
+ * koffi answers a uint64 as a Number when it fits in `Number.MAX_SAFE_INTEGER`
+ * and as a BigInt otherwise; normalise to BigInt so it compares with the OOP
+ * constants above.
+ */
+export function toBigInt(value: number | bigint): bigint {
+  return typeof value === 'bigint' ? value : BigInt(value);
+}

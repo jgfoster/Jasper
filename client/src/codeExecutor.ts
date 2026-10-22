@@ -6,6 +6,7 @@ import {
   GCI_PERFORM_FLAG_ENABLE_DEBUG,
   GCI_PERFORM_FLAG_SINGLE_STEP,
   GCI_PERFORM_FLAG_INTERPRETED,
+  toBigInt,
 } from './gciConstants';
 import { logError, logInfo } from './gciLog';
 import { routeInspect } from './inspectRouter';
@@ -24,6 +25,12 @@ import {
   NbSessionBusyError,
   whenSessionFree,
 } from './nbRunner';
+import {
+  BREAKPOINT_ERROR,
+  CONTINUE_FLAGS,
+  SOFT_BREAK_ERROR,
+  resolveBreakpointStop,
+} from './conditionalBreakpoints';
 
 const MAX_RESULT_SIZE = 64 * 1024;
 
@@ -69,26 +76,20 @@ const DISPLAY_RESULT_CONTEXT = 'gemstone.displayResultVisible';
 // is always available via the hover and the Expand action).
 const MAX_OVERLAY_PREVIEW = 100;
 
-// GemStone's "a soft break was received" error. A soft break only ever reaches
-// the gem because the user asked to cancel, so it says nothing about the code
-// that was running — see executeWithDebugger, which reports it as a cancellation
-// rather than opening a debugger on it.
-const SOFT_BREAK_ERROR_NUMBER = 6003;
-
 class DebuggableError extends Error {
   constructor(
     message: string,
     public readonly context: bigint,
     public readonly errorNumber: number,
+    /**
+     * The developer cancelled while breakpoint rules were being applied, and
+     * the process is suspended at the hit the skip had reached. A cancel all the
+     * same, which is what `executeWithDebugger` has to report it as.
+     */
+    public readonly cancelled = false,
   ) {
     super(message);
   }
-}
-
-// koffi returns uint64 as Number when the value fits in MAX_SAFE_INTEGER.
-// Normalize to bigint for correct comparison with OOP_NIL etc.
-function toBigInt(value: number | bigint): bigint {
-  return typeof value === 'bigint' ? value : BigInt(value);
 }
 
 export class CodeExecutor {
@@ -517,9 +518,11 @@ export class CodeExecutor {
    * Answers whether the code raised, or whether the user cancelled it — and no
    * more than that. Once the process is suspended it belongs to the debugger the
    * user opened on it, so its eventual fate isn't ours to report. A
-   * cancel (a soft or hard break) is reported as `cancelled`, not `raised`, and
-   * never opens a debugger: it was the user's decision, not the code's fault.
-   * Throws when the execution could not be started at all.
+   * cancel (a soft or hard break, or Cancel while breakpoint rules are being
+   * applied) is reported as `cancelled`, not `raised`, and never opens a
+   * debugger: it was the user's decision, not the code's fault. Throws when the
+   * execution could not be started at all, or stopped with nothing left to
+   * debug (no process, or the session logged out).
    */
   async executeWithDebugger(
     session: ActiveSession,
@@ -559,12 +562,15 @@ export class CodeExecutor {
     } catch (e: unknown) {
       // A cancelled run tells us nothing about the code — it was the user's
       // decision, not the test's fault — so report it as cancelled and never
-      // open a debugger on it. Cancel arrives two ways: a hard break rejects
-      // with NbCancelledError, while a soft break lets the gem raise its "a soft
+      // open a debugger on it. Cancel arrives three ways: a hard break rejects
+      // with NbCancelledError; a soft break lets the gem raise its "a soft
       // break was received" error (6003), which surfaces here as a
-      // DebuggableError with a live context like any other break.
+      // DebuggableError with a live context like any other break; and a cancel
+      // while breakpoint rules are being applied stops at the hit it reached.
+      // No debugger will own the suspended process, so it is released here.
       if (e instanceof NbCancelledError) return { raised: false, cancelled: true };
-      if (e instanceof DebuggableError && e.errorNumber === SOFT_BREAK_ERROR_NUMBER) {
+      if (e instanceof DebuggableError && (e.cancelled || e.errorNumber === SOFT_BREAK_ERROR)) {
+        clearStack(session, e.context);
         return { raised: false, cancelled: true };
       }
 
@@ -771,16 +777,33 @@ export class CodeExecutor {
     // Transcript writes arrive here as forwarder sends (error 2336) while the
     // code is still running: settleNbResult displays each one and resumes the
     // execution, only returning when a real result or error arrives.
+    // Each resume keeps the flags the run started with (less Debug It's single
+    // step): dropping the debug flag would disarm every breakpoint after the
+    // first Transcript write.
+    const onTranscript = (text: string): void => appendTranscriptOutput(text);
     const { result: resultOop, err: resultErr } = await settleNbResult(
       session,
-      (text) => appendTranscriptOutput(text),
+      onTranscript,
       signal,
+      CONTINUE_FLAGS,
     );
     if (resultErr.number !== 0) {
       const msg = resultErr.message || `GemStone error ${resultErr.number}`;
       const context = toBigInt(resultErr.context);
       if (context !== OOP_NIL && context !== 0n) {
         this.validateContextOop(session, context);
+        if (resultErr.number === BREAKPOINT_ERROR) {
+          // A breakpoint may carry a rule that passes this stop. Skipping can
+          // move the run on to another stop, or to an error raised on the way —
+          // so the debugger must open where it ended up, not on the breakpoint
+          // we left.
+          const stop = await resolveBreakpointStop(session, context, msg, {
+            signal,
+            onTranscript,
+          });
+          if (stop.kind === 'completed') return stop.resultOop;
+          throw new DebuggableError(stop.message, stop.context, stop.errorNumber, stop.cancelled);
+        }
         throw new DebuggableError(msg, context, resultErr.number);
       }
       throw new Error(msg);
