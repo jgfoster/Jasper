@@ -314,6 +314,9 @@ export class GciLibrary {
   /** Names of optional functions not exported by the loaded library. */
   private _missing = new Set<GciOptionalFunctionName>();
 
+  /** Calls queued on a koffi worker thread whose callback has not run yet. */
+  private _callsOnWorkers = 0;
+
   /**
    * Bind a GCI function that may be absent from the loaded library. If the
    * symbol is missing, returns a stub that throws a descriptive error only if
@@ -1055,6 +1058,7 @@ export class GciLibrary {
         flags,
         err,
         (asyncErr: unknown, raw: number | bigint) => {
+          this._callsOnWorkers--;
           if (asyncErr) {
             reject(asyncErr instanceof Error ? asyncErr : new Error(String(asyncErr)));
             return;
@@ -1062,6 +1066,8 @@ export class GciLibrary {
           resolve({ result: toBigInt(raw), err: err as unknown as GciError });
         },
       );
+      // Counted only once queued: a throw above means no worker took the call.
+      this._callsOnWorkers++;
     });
   }
 
@@ -1453,6 +1459,7 @@ export class GciLibrary {
         environmentId,
         err,
         (asyncErr: unknown, raw: number | bigint) => {
+          this._callsOnWorkers--;
           if (asyncErr) {
             reject(asyncErr instanceof Error ? asyncErr : new Error(String(asyncErr)));
             return;
@@ -1460,6 +1467,8 @@ export class GciLibrary {
           resolve({ result: toBigInt(raw), err: err as unknown as GciError });
         },
       );
+      // Counted only once queued, as in GciTsContinueWithAsync.
+      this._callsOnWorkers++;
     });
   }
 
@@ -2162,6 +2171,16 @@ export class GciLibrary {
     const err: Record<string, unknown> = {};
     const result = this._optional.GciTsDebugStartDebugService(session, token, err);
     return { success: result !== 0, err: err as unknown as GciError };
+  }
+
+  /**
+   * Whether a call queued on a koffi worker thread has not reported back yet.
+   * Unloading the library before it does crashes the process: even a call that
+   * already returned natively leaves its callback to run, and a Transcript
+   * settle loop resumes into the library from there.
+   */
+  hasCallsOnWorkers(): boolean {
+    return this._callsOnWorkers > 0;
   }
 
   close(): void {

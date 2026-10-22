@@ -6,6 +6,8 @@ import {
   GCI_ERR_BAD_SESSION_ID,
   GCI_ERR_OP_IN_PROGRESS,
   GS_ERR_SESSION_SHUTDOWN,
+  OOP_ILLEGAL,
+  OOP_NIL,
 } from '../gciConstants';
 import {
   expectUtf8OopToBeCached,
@@ -1612,6 +1614,52 @@ describe('GciLibrary', () => {
       simulateLogoutFailure(GS_ERR_SESSION_SHUTDOWN);
 
       expect(gciLibrary.logout(session)).toEqual({ sessionFreed: true });
+    });
+  });
+
+  describe('telling whether a call runs on a worker thread', () => {
+    // nil is no process to resume, so the call fails fast: it still runs on a
+    // worker, which is all the count is about.
+    function resumeOnWorker() {
+      return gciLibrary.GciTsContinueWithAsync(session, OOP_NIL, OOP_ILLEGAL, null, 0);
+    }
+
+    it('reports no call when none is running', () => {
+      expect(gciLibrary.hasCallsOnWorkers()).toBe(false);
+    });
+
+    it('reports a call while a resumed process runs on a worker', async () => {
+      const resumed = resumeOnWorker();
+
+      expect(gciLibrary.hasCallsOnWorkers()).toBe(true);
+      await resumed;
+    });
+
+    it('reports no call once the resumed process settles', async () => {
+      await resumeOnWorker();
+
+      expect(gciLibrary.hasCallsOnWorkers()).toBe(false);
+    });
+
+    it('reports a call while a message send runs on a worker', async () => {
+      const sent = gciLibrary.GciTsPerformAsync(
+        session,
+        OOP_NIL,
+        OOP_ILLEGAL,
+        'yourself',
+        [],
+        0,
+        0,
+      );
+
+      expect(gciLibrary.hasCallsOnWorkers()).toBe(true);
+      await sent;
+    });
+
+    it('reports no call once a message send settles', async () => {
+      await gciLibrary.GciTsPerformAsync(session, OOP_NIL, OOP_ILLEGAL, 'yourself', [], 0, 0);
+
+      expect(gciLibrary.hasCallsOnWorkers()).toBe(false);
     });
   });
 
