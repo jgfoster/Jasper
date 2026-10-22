@@ -18,109 +18,69 @@ import { appendLogpoint, showLogpointChannel } from './logpointChannel';
 import { skipLiteral } from './smalltalkScan';
 
 /**
- * The rule a breakpoint carries: stop only when a condition holds, stop only
- * once another breakpoint has been reached, write a line to the log and carry
- * on, or any combination of those.
+ * The rule a breakpoint carries: a condition, a trigger, a log message, or any
+ * combination.
  *
  * **A condition cannot be applied before the stop.** A GemStone method
  * breakpoint always unwinds to the client as error 6005 with the suspended
- * `GsProcess` in `err.context`; a Smalltalk `on: Breakpoint do:` handler is
- * never entered, and neither `GsProcess>>debugActionBlock:` nor
- * `disableDebugging` suppresses it. By the time anyone can evaluate anything,
- * execution has already stopped and the client has already been told. So the
- * work here is deciding, after the fact, whether this particular stop is one the
- * developer asked for — and resuming when it is not.
+ * `GsProcess` in `err.context`; an `on: Breakpoint do:` handler is never
+ * entered, and neither `GsProcess>>debugActionBlock:` nor `disableDebugging`
+ * suppresses it. So each stop is judged after the fact, and resumed when the
+ * rules decline it.
  *
- * Each skipped hit costs **three** GCI round trips — a `perform:` on a decider
- * block that judges the stop in the suspended frame, a `GciTsFetchOops` to read
- * its verdict, and the `GciTsContinueWith` that resumes — and a hit that logs
- * costs a fourth, to fetch the line. Everything the judgement needs — the
- * receiver, the frame's names and values, the symbol list, the
- * `evaluateInContext:` — happens inside that block rather than as the 15-20
- * separate calls it would take to assemble a frame's variables from here, every
- * one of them scaling with network latency.
+ * Each skipped hit costs three GCI round trips (judge, fetch the verdict,
+ * resume), plus one to fetch a log line. The whole judgement runs inside the
+ * decider block; assembling a frame's variables from here would take 15-20
+ * calls, each one scaling with latency.
  *
- * **Why not do the whole loop inside the gem.** `GsProcess>>_continue` resumes a
- * suspended process and returns control to its *Smalltalk* caller, which would
- * put the entire skip loop in one doit — measured at 198 skips in 12-29 ms
- * against 3.6.2, with the cost no longer scaling with hit count or latency at
- * all. It cannot be used: **3.7.x has no `_continue`**. What is left of that
- * primitive there (`_primContinue:`) is unreachable from a GCI-suspended process
- * — it answers "the Process nil to continue from is invalid" whatever it is
- * handed — and 3.7's in-process resume (`setStepOverBreaksAtLevel:breakpointLevel:`)
- * is documented for a *forked* debuggee that has installed its own `Breakpoint`
- * handler and yields to a debugger process, which a process suspended out of a
- * GCI execute has not. `GciTsContinueWith` is the one resume that behaves the
- * same on both releases, so the loop lives here and pays for the round trips.
+ * **Why the loop is not inside the gem.** `GsProcess>>_continue` would let one
+ * doit run the whole loop (198 skips in 12-29 ms on 3.6.2), but **3.7.x has no
+ * `_continue`**. Its `_primContinue:` answers "the Process nil to continue from
+ * is invalid" for a GCI-suspended process, and
+ * `setStepOverBreaksAtLevel:breakpointLevel:` needs a forked debuggee with its
+ * own `Breakpoint` handler. `GciTsContinueWith` is the one resume that behaves
+ * the same on both releases.
  *
- * **The rules hold for the whole run**, not just until the first stop: the
- * debugger's Resume and Run to Cursor come back through
- * {@link honourRulesAfterResume}, so a false condition is still skipped, a
- * logpoint still logs and a trigger stays armed after the debugger opens. Steps
- * are explicit, and are never filtered.
- *
- * The developer's code is never touched either way: not wrapped, not recompiled,
- * its step points untouched. Nothing is written to the repository: the only
- * thing left behind is the decider in the session's own temporaries, under one
- * key that each run overwrites, which is never committed and goes away with the
- * session — the same lifetime as the breakpoints it serves.
+ * The debugger's Resume and Run to Cursor come back through
+ * {@link honourRulesAfterResume}; steps are never filtered.
  */
 export interface BreakpointRule {
   /**
-   * Smalltalk expression resolving the compiled method the breakpoint is in —
-   * `compiledMethodExpr`'s output. An expression rather than an OOP so no round
-   * trip is spent resolving one, and so a method that has since been recompiled
-   * or removed fails as "no such spec" instead of matching a stale OOP. The
-   * decider compiles it in the gem, inside an error guard, so one that no
-   * longer compiles (its class was removed) costs only its own rule.
+   * Smalltalk expression resolving the breakpoint's compiled method
+   * (`compiledMethodExpr`). An expression rather than an OOP, so a recompiled or
+   * removed method matches nothing instead of a stale OOP.
    */
   methodExpr: string;
   stepPoint: number;
   /**
-   * The Smalltalk expression that has to answer true to stop here. Undefined
-   * when the rule has no condition: a pure logpoint, or a breakpoint listed only
-   * because it is one end of a trigger.
+   * Has to answer true to stop. Undefined on a pure logpoint, or on a breakpoint
+   * listed only because it is one end of a trigger.
    */
   condition?: string;
   /**
-   * What to write to the log each time this breakpoint is reached (and its
-   * condition holds), already compiled to a Smalltalk expression answering a
-   * String — see `logMessageExpression`. Undefined on a plain breakpoint.
-   *
-   * A rule with one of these **never stops**: it logs and resumes, which is what
-   * makes a logpoint a way of instrumenting a method without editing it.
+   * Already compiled by `logMessageExpression`. A rule with one **never stops**:
+   * it logs and resumes.
    */
   logMessage?: string;
   /**
-   * How to name this breakpoint's method in a log line — `Account>>deposit:`.
-   *
-   * Presentation only: the gem is handed `methodExpr`, and this exists so a
-   * logpoint's output can say where each line came from without the client
-   * spending a round trip to turn an expression back into a class and selector.
+   * `Account>>deposit:`, for log lines only: it saves a round trip turning
+   * `methodExpr` back into a name.
    */
   label?: string;
   /**
-   * The 1-based index, in this same spec array, of the breakpoint that has to be
-   * reached before this one is allowed to stop. Undefined on a breakpoint that
-   * is armed from the start, which is almost all of them.
+   * 1-based index, in this spec array, of the breakpoint that has to be reached
+   * first. An index because the arming state is one Array parallel to the specs.
    *
-   * An index rather than a method-and-step-point pair because the decider works
-   * in indices already: the arming state is one Array parallel to the specs, so
-   * a trigger firing is a single at:put: rather than another lookup.
-   *
-   * A rule may name its **own** index: that is how a breakpoint whose trigger
-   * was disabled or removed is kept disarmed. It works because a breakpoint
-   * still waiting arms nothing — itself included — so it is passed over on
-   * every hit.
+   * A rule may name its **own** index, which keeps a breakpoint whose trigger was
+   * disabled or removed disarmed: a breakpoint still waiting arms nothing,
+   * itself included.
    */
   triggeredBy?: number;
 }
 
 /**
- * Where the rules on the currently armed breakpoints come from.
- *
- * Narrowed to the one question asked here so this module does not depend on the
- * whole breakpoint manager — and so a test can answer it with a literal.
+ * Where the rules on the armed breakpoints come from, narrowed so this module
+ * does not depend on the breakpoint manager.
  */
 export interface BreakpointRuleSource {
   breakpointRulesFor(session: ActiveSession): BreakpointRule[];
@@ -142,21 +102,17 @@ function rulesFor(session: ActiveSession): BreakpointRule[] {
 }
 
 /**
- * What came of running a suspended process past every stop its breakpoint rules
- * declined. Each outcome that leaves a process suspended names it in `context`:
- * that is the one the debugger has to open on.
+ * Where a run ended up after its rules were applied. An outcome that leaves a
+ * process suspended names it in `context`, for the debugger to open on.
  */
 export type ConditionOutcome =
-  /** Execution is suspended at a breakpoint that should stop: open the debugger. */
   | { kind: 'stopped'; context: bigint; skipped: number }
-  /** The developer asked to stop skipping; suspended at the hit it had reached. */
+  /** Suspended at the hit the skip had reached. */
   | { kind: 'cancelled'; context: bigint; skipped: number }
-  /** No breakpoint wanted to stop, and the code ran to completion. */
   | { kind: 'completed'; resultOop: bigint; skipped: number }
   /**
-   * The run stopped for something that is not a breakpoint while we were
-   * skipping: the developer's code raised, or a soft break (6003) arrived.
-   * `errorNumber` is GemStone's own, so a caller can tell the two apart.
+   * Stopped for something other than a breakpoint while skipping: the code
+   * raised, or a soft break (6003) arrived. `errorNumber` tells them apart.
    */
   | {
       kind: 'raised';
@@ -165,31 +121,20 @@ export type ConditionOutcome =
       context: bigint;
       skipped: number;
     }
-  /** A condition could not be evaluated. */
   | { kind: 'conditionFailed'; message: string; context: bigint; skipped: number };
 
 /**
- * What the decider answers, as SmallIntegers.
- *
- * Integers rather than Symbols so reading the answer back is an OOP-to-integer
- * decode rather than another round trip to fetch a symbol's characters — this
- * runs once per hit, so it is the one thing in the loop worth keeping cheap.
+ * What the decider answers. SmallIntegers rather than Symbols, so reading the
+ * answer back, once per hit, needs no round trip to fetch characters.
  */
 export const DECISION = {
-  /** Stop here: the condition held, or this step point has no condition. */
   Stop: 1,
-  /** Skip: the condition answered false. */
+  /** Resume: a false condition, or a trigger not yet reached. */
   Go: 2,
-  /** The condition could not be evaluated, so it cannot be honoured. */
   Failed: 3,
-  /** Write the answered text to the log, then carry on. Never stops. */
+  /** Log the answered text and resume. */
   Log: 4,
-  /**
-   * The log message could not be evaluated. Reported, then carried on from —
-   * a logpoint that cannot say anything is still a logpoint, and hijacking the
-   * run into a debugger the developer did not ask for is the wrong answer to a
-   * typo in a message.
-   */
+  /** Reported, then resumed: a typo in a message is no reason to stop the run. */
   LogFailed: 5,
 } as const;
 
@@ -224,17 +169,11 @@ const MAX_MESSAGE_BYTES = MAX_MESSAGE_CHARS * 4 + 16;
 const PROGRESS_AFTER_MS = 1500;
 
 /**
- * How long the loop may hold the event loop before yielding a macrotask, and
- * how often the progress notification is updated.
- *
- * The resume settles from a worker thread's callback, which gives timers a turn
- * already, but the loop does not rely on how the resume settles: a promise that
- * arrives already resolved drains only the *microtask* queue, and a loop of
- * thousands of hits would then starve `setTimeout` outright — the progress
- * notification never appears, cancellation never runs, and the editor sits still
- * for the whole run with no way out of it. Yielding on elapsed time rather than
- * every N hits keeps the cost proportional however fast or slow a hit turns out
- * to be: about one timer's minimum delay per 25 ms of work.
+ * How long the loop may run before yielding a macrotask (and updating the
+ * progress notification). A resume that arrives already resolved drains only
+ * microtasks, so without this a loop of thousands of hits starves `setTimeout`:
+ * no progress notification, no Cancel. Timed rather than every N hits, so the
+ * cost stays proportional however long a hit takes.
  */
 const YIELD_EVERY_MS = 25;
 
@@ -244,16 +183,13 @@ function yieldToTimers(): Promise<void> {
 }
 
 /**
- * A Smalltalk expression answering the developer's `text` as a Unicode string,
- * for the decider's own source, which has to stay ASCII.
+ * The developer's `text` as a Smalltalk expression answering a Unicode string,
+ * for the decider's source, which has to stay ASCII.
  *
- * ASCII text is an ordinary literal. Anything else is spelled out as code points
- * and built in the gem: a condition like `name = 'café'` written as a literal
+ * Non-ASCII text is spelled out as code points: as a literal, `name = 'café'`
  * broke the 3.6.x compiler on the WHOLE decider ("ComStrmSetCursor: new cursor
- * out of range"), so one accented letter in one condition failed every
- * breakpoint rule in the session. Answered as a Unicode string either way, so
- * `evaluateInContext:` compiles the condition exactly as a workspace would
- * compile the same text — the same literal classes, the same comparisons.
+ * out of range"), failing every rule in the session. A Unicode string either
+ * way, so `evaluateInContext:` compiles it exactly as a workspace would.
  */
 function developerText(text: string): string {
   const codePoints = [...text].map((c) => c.codePointAt(0) as number);
@@ -292,23 +228,11 @@ function closingBrace(message: string, open: number): number {
 /**
  * Compile a logpoint's message into one Smalltalk expression answering a String.
  *
- * The message is plain text with `{…}` placeholders, as VS Code writes them.
- * Text outside the braces is literal; what is inside is an expression evaluated
- * in the suspended frame, with the same names in scope a condition gets — the
- * method's arguments and temporaries, a block's own variables, `self`, instance
- * and class variables, and the symbol list.
- *
- * The whole message becomes **one** expression rather than one per placeholder,
- * so a message with six of them costs the same single evaluation and single
- * string fetch as a message with one.
- *
- * Each placeholder is wrapped in `printString`, so `{each}` is written rather
- * than `{each printString}`. GemStone has no `displayString`, so a String logs
- * with its quotes — `'demo'` rather than `demo` — which is at least unambiguous.
- * A placeholder is one expression, not a sequence of statements.
- *
- * An unclosed `{` is treated as literal text: a message is prose, and refusing
- * to log because a brace was left open would be worse than logging the brace.
+ * Each `{…}` placeholder is one expression, evaluated in the suspended frame with
+ * the names a condition sees; the rest is literal. One expression for the whole
+ * message, so six placeholders cost one evaluation and one fetch. Placeholders
+ * are sent `printString`; GemStone has no `displayString`, so a String logs with
+ * its quotes. An unclosed `{` is logged as text rather than refusing to log.
  */
 export function logMessageExpression(message: string): string {
   const parts: string[] = [];
@@ -322,86 +246,61 @@ export function logMessageExpression(message: string): string {
 
     if (open > 0) parts.push(literal(rest.slice(0, open)));
     const expression = rest.slice(open + 1, close).trim();
-    // `{}` says nothing; treat it as the literal braces rather than compiling
-    // an empty expression, which would not compile at all.
+    // An empty expression would not compile; log the braces.
     if (expression === '') parts.push(literal('{}'));
     else parts.push(`(${expression}) printString`);
     rest = rest.slice(close + 1);
   }
   if (rest.length > 0) parts.push(literal(rest));
 
-  // A message that is entirely literal, or empty, still has to answer a String.
   if (parts.length === 0) return literal('');
   return parts.join(', ');
 }
 
 /**
- * The key the session's runs and their deciders are parked under, in its
- * temporaries: an identity dictionary from each run's process to its entry.
- *
- * `SessionTemps` is per-session VM state, exactly like the breakpoints this
- * serves: it is never committed, is invisible to every other session, and goes
- * away at logout. It is also what keeps the decider alive between the
- * `perform:`s that use it — a GCI result is not otherwise pinned. Keyed by
- * process because a run paused in the debugger must keep its trigger arming
- * while another run in the same session stops and is judged.
+ * Where the session's runs are parked in `SessionTemps`: an identity dictionary
+ * from each run's process to its entry. `SessionTemps` is never committed, is
+ * invisible to other sessions and goes at logout, like the breakpoints, and it
+ * keeps the decider alive between `perform:`s (a GCI result is not otherwise
+ * pinned). Keyed by process so a run paused in the debugger keeps its arming
+ * while another run in the session stops.
  */
 const DECIDER_KEY = 'JasperBreakpointRuns';
 
 /**
- * A doit that compiles the decision logic for one run and answers the block.
+ * A doit that compiles one run's decision logic and answers the block.
  *
- * Compiled once and then performed, rather than sent as a doit per hit, because
- * the source below is several KB and GemStone compiles a doit every time it is
- * executed: measured against a live stone, a ~1.2 KB doit that does no work at
- * all costs 0.21 ms, while a `perform:` on an already-compiled block costs
- * 0.048 ms. The developer's condition and log message are still compiled on
- * every hit, by `evaluateInContext:` — the price of never touching their method.
+ * Compiled once and performed per hit because GemStone compiles a doit on every
+ * execution: measured, a ~1.2 KB doit doing nothing costs 0.21 ms, a `perform:`
+ * on a compiled block 0.048 ms. The developer's condition and message are still
+ * compiled per hit, by `evaluateInContext:`, since their method is never touched.
  *
- * The specs are baked in rather than passed per call, and the block needs no
- * argument but the process. Each spec's method is resolved by compiling its
- * expression in the gem, inside the error guard: a method whose class has since
- * been removed then costs its own rule (it matches nothing, so that breakpoint
- * simply stops), where a bare class name in this source would fail to compile
- * the whole decider and every rule with it.
+ * Each spec's method is resolved by evaluating its expression inside an error
+ * guard: a removed class then costs only its own rule (that breakpoint simply
+ * stops), where a bare class name here would fail to compile the whole decider.
  *
  * **Every stop is re-identified from its own frame.** A resume can land on a
- * *different* breakpoint — another condition, or none at all — so the block
- * looks up which spec, if any, claims the step point it actually stopped at. A
- * stop that matches none is an unconditional breakpoint (or a `halt`) and
- * answers Stop, which is what keeps a plain breakpoint working while a
- * conditional one is being skipped, and what lets several conditional
- * breakpoints be armed at once with each judged on its own condition.
+ * different breakpoint, so the block looks up the spec claiming the step point
+ * it actually stopped at. None means a plain breakpoint or a `halt`: Stop.
  *
- * **Triggers are an Array of flags the block closes over**, parallel to the
- * specs: a breakpoint waiting on another starts false and is skipped like a
- * false condition until the breakpoint it names is reached. Arming is one
- * `at:put:`, not a round trip, and the arm necessarily happens before anything
- * downstream can be reached, since both the trigger and the thing it arms are
- * judged in the same gem in execution order.
+ * **Triggers are an Array of flags parallel to the specs.** A waiting breakpoint
+ * is skipped like a false condition until its trigger is reached. Arming is one
+ * `at:put:` in the gem, in execution order, so it cannot land after what it arms.
  *
- * **The flags last for the run, not for one call.** The run's process, specs
- * and flags are parked together under {@link DECIDER_KEY}, one entry per run.
- * Entries for runs that have ended are dropped by the next install rather than
- * by each way a run can end, which the debugger has several of. When the debugger
- * resumes that same process, the decider is rebuilt from whatever the rules are
- * now — the developer may have edited one while stopped — and every breakpoint
- * that is still the same breakpoint waiting on the same trigger keeps the flag
- * it had. So a trigger that stopped the run has still armed what waits on it
- * when Resume is pressed. A different process is a different run, and starts
- * from the specs' own flags.
+ * **The flags last for the run.** Each run's process, specs and flags are one
+ * entry under {@link DECIDER_KEY}. A Resume rebuilds the decider from the
+ * current rules (one may have been edited while stopped), and a breakpoint still
+ * waiting on the same trigger keeps its flag. Ended runs are dropped by the next
+ * install rather than by each of the debugger's ways to end one.
  *
- * The receiver and names a condition sees are the debugger's: `self` is the
- * frame's self as {@link FRAME_SELF_SMALLTALK} recovers it — the receiver a
- * block captured, else the home activation's — and the names are the home
- * method's arguments and temporaries overlaid with the block's own, as the eval
- * bar binds them. A block that captured `self` is judged against the receiver
- * that made it even when a deeper activation of the same method is on the stack.
+ * `self` and the names a condition sees are the debugger's: `self` per
+ * {@link FRAME_SELF_SMALLTALK} (a block's captured receiver, else the home
+ * activation's), names from the home method overlaid with the block's own.
  *
  * Written without `^`: a non-local return from a block whose home doit has
- * already finished is an error, so each exit assigns `answerArray` and the
- * steps after it are guarded on its being nil. Kept ASCII, comments included:
- * the 3.6 compiler fails on anything else.
+ * finished is an error, so each exit assigns `answerArray` and later steps are
+ * guarded on it being nil. Kept ASCII, comments included: the 3.6 compiler fails
+ * on anything else.
  */
 export function deciderSource(specs: BreakpointRule[], processOop: bigint): string {
   const specLines = specs
@@ -411,7 +310,7 @@ export function deciderSource(specs: BreakpointRule[], processOop: bigint): stri
         `with: ${spec.stepPoint} ` +
         `with: ${spec.condition === undefined ? 'nil' : developerText(spec.condition)} ` +
         `with: ${spec.logMessage === undefined ? 'nil' : developerText(spec.logMessage)} ` +
-        // The fifth slot is the trigger's index, 0 for "armed from the start".
+        // Fifth slot: the trigger's index, 0 for armed from the start.
         // `Array with:` takes five on both 3.6.2 and 3.7.
         `with: ${spec.triggeredBy ?? 0}).`,
     )
@@ -423,8 +322,8 @@ ${FRAME_SELF_SMALLTALK}
 specs := Array new.
 ${specLines}
 armed := specs collect: [:s | (s at: 5) = 0].
-"Carry the flags over from this process's previous decider: a breakpoint that is
- the same step point, waiting on the same step point, keeps its arming."
+"Carry over this process's flags: the same step point, waiting on the same
+ step point, keeps its arming."
 runs := SessionTemps current at: #'${DECIDER_KEY}' otherwise: nil.
 runs isNil ifTrue: [
   runs := IdentityKeyValueDictionary new.
@@ -464,15 +363,12 @@ decider := [:p | | answerArray fc frameMethod home sp spec idx rcvr fetch depth 
               ifTrue: [ frameMethod homeMethod ]
               ifFalse: [ frameMethod ].
     sp := p _stepPointAt: 1.
-    "The index, not just the spec: a log line has to name which logpoint wrote
-     it, and this is the only place that knows which one matched."
     1 to: specs size do: [:k |
       (idx = 0 and: [ (((specs at: k) at: 1) == home) and: [ ((specs at: k) at: 2) = sp ] ])
         ifTrue: [ idx := k ] ].
     spec := idx = 0 ifTrue: [ nil ] ifFalse: [ specs at: idx ].
     spec isNil ifTrue: [ answerArray := Array with: ${DECISION.Stop} with: nil ].
-    "A breakpoint still waiting on its trigger is skipped exactly as a false
-     condition is, and arms nothing on the way past."
+    "Still waiting on its trigger: skipped, and arms nothing."
     (answerArray isNil and: [ (armed at: idx) not ])
       ifTrue: [ answerArray := Array with: ${DECISION.Go} with: nil ] ].
   answerArray isNil ifTrue: [
@@ -490,9 +386,7 @@ decider := [:p | | answerArray fc frameMethod home sp spec idx rcvr fetch depth 
     hArr ifNotNil: [:h | bind value: h ].
     bind value: fc.
     sl := (SymbolList with: dict), System myUserProfile symbolList.
-    "A rule with no condition always applies; one with a condition has to answer
-     true, and anything that is not a Boolean is a mistake worth reporting
-     rather than a quiet no."
+    "A non-Boolean answer is reported, not read as false."
     (spec at: 3) ifNotNil: [
       answer := [ (spec at: 3) evaluateInContext: rcvr symbolList: sl ]
                   on: Error
@@ -508,9 +402,8 @@ decider := [:p | | answerArray fc frameMethod home sp spec idx rcvr fetch depth 
                                         ([ answer printString ] on: Error do: [:ex | answer class name asString ]),
                                         ', not true or false') ]
           ifTrue: [ answer ifFalse: [ answerArray := Array with: ${DECISION.Go} with: nil ] ] ] ].
-    "Here the rule applies, so this breakpoint counts as reached and anything
-     waiting on it is armed from now on - before deciding what to do about this
-     stop, so a trigger that stops the run has already armed its dependents."
+    "Reached: arm what waits on it before deciding about this stop, so a
+     trigger that stops the run has already armed its dependents."
     answerArray isNil ifTrue: [
       1 to: specs size do: [:k |
         (((specs at: k) at: 5) = idx) ifTrue: [ armed at: k put: true ] ] ].
@@ -544,7 +437,6 @@ export type Decision =
   | { kind: 'go' }
   /** `rule` is the index into the rules the decider was built with, 1-based. */
   | { kind: 'log'; text: string; rule: number }
-  /** A logpoint whose message would not evaluate. Reported, never stopped at. */
   | { kind: 'logFailed'; message: string; rule: number }
   | { kind: 'failed'; message: string };
 
@@ -668,11 +560,7 @@ async function decideWith(
 /** What a caller can hand the skip loop. */
 export interface RuleRunOptions {
   onLog?: (text: string, rule: BreakpointRule | undefined) => void;
-  /**
-   * A logpoint whose message would not evaluate, reported **once per rule** —
-   * the message is wrong for every hit, and a thousand identical complaints
-   * would bury the run's real output.
-   */
+  /** Called once per rule: a broken message is broken on every hit. */
   onLogFailure?: (message: string, rule: BreakpointRule | undefined) => void;
   /**
    * Transcript text the resumed run wrote. In clientForwarder mode each write
@@ -687,10 +575,8 @@ export interface RuleRunOptions {
    */
   signal?: AbortSignal;
   /**
-   * Handed the loop's cancel, for a caller with a Cancel of its own (the
-   * debugger's busy overlay). The same thing the notification's Cancel does.
-   * Also handed `stopRequested`, shaped like the non-blocking runner's, which
-   * answers whether either Cancel has been used.
+   * Hands a caller with its own Cancel (the debugger's busy overlay) the loop's
+   * cancel, and `stopRequested`, shaped like the non-blocking runner's.
    */
   onStart?: (cancel: () => void, stopRequested: () => boolean) => void;
   /** Skip the loop's own progress notification; see `onStart`. */
@@ -698,17 +584,13 @@ export interface RuleRunOptions {
 }
 
 /**
- * Resume `processOop` past every stop its rules decline — a false condition, a
- * logpoint, a trigger not yet reached — and answer where it ended up.
+ * Resume `processOop` past every stop its rules decline, and answer where it
+ * ended up.
  *
- * Every GCI call that runs the developer's code — the resume and the judgement
- * — runs on a worker thread, so a long run of skipped hits, or a slow
- * condition, leaves VS Code responsive. Past `PROGRESS_AFTER_MS` a cancellable
- * notification appears. Cancel sends a soft break if one of those calls is
- * running, and otherwise stops at the hit the run has reached, which is a real
- * place to be — the process is suspended at a breakpoint either way. A soft
- * break that lands in the resumed code comes back as a `raised` 6003, exactly
- * as a soft break anywhere else in a run does.
+ * The resume and the judgement run the developer's code, so both go to a worker
+ * thread: a long skip or a slow condition leaves VS Code responsive. Cancel
+ * sends a soft break if one is running (a break in the resumed code comes back
+ * as a `raised` 6003), and otherwise stops at the hit reached.
  */
 export async function applyBreakpointRules(
   session: ActiveSession,
@@ -795,14 +677,9 @@ export async function applyBreakpointRules(
       if (decision.kind === 'failed') {
         return { kind: 'conditionFailed', message: decision.message, context: process, skipped };
       }
-      // A logpoint writes its line and carries on. It never stops, which is the
-      // whole point: it instruments a method without editing it.
       if (decision.kind === 'log') {
         onLog?.(decision.text, specs[decision.rule - 1]);
       }
-      // …and a logpoint whose message is broken carries on too. Stopping would
-      // drop the developer into a debugger they did not ask for, over a typo in
-      // a message, and take the run with it.
       if (decision.kind === 'logFailed' && !reportedBadLog.has(decision.rule)) {
         reportedBadLog.add(decision.rule);
         onLogFailure?.(decision.message, specs[decision.rule - 1]);
@@ -845,8 +722,6 @@ export async function applyBreakpointRules(
       if (err.number === 0) return { kind: 'completed', resultOop: result, skipped };
       const next = toBigInt(err.context ?? 0n);
       if (err.number !== BREAKPOINT_ERROR) {
-        // The developer's own code raised, or execution stopped for some other
-        // reason. Either way that is the thing worth showing.
         return {
           kind: 'raised',
           description: err.message || `GemStone error ${err.number}`,
@@ -863,13 +738,7 @@ export async function applyBreakpointRules(
   }
 }
 
-/**
- * Where a logpoint line came from, for the log's own prefix.
- *
- * `Account>>deposit: @4`. Falls back to the method expression the gem was handed
- * if a rule reached here without a label — not a shape the manager produces, but
- * a line naming its source awkwardly beats one naming nothing.
- */
+/** A log line's prefix, `Account>>deposit: @4`; the method expression if unlabelled. */
 function describeRule(rule: BreakpointRule): string {
   return `${rule.label ?? rule.methodExpr} @${rule.stepPoint}`;
 }
@@ -877,11 +746,7 @@ function describeRule(rule: BreakpointRule): string {
 /** How a stop at a breakpoint resolved once its rules had been applied. */
 export type BreakpointStop =
   | { kind: 'completed'; resultOop: bigint }
-  /**
-   * Suspended at `context`, for the debugger. `cancelled` when the developer
-   * asked to stop skipping, so a caller that treats a cancel differently from a
-   * stop (a SUnit run reports it as cancelled) can tell.
-   */
+  /** `cancelled` lets a caller (a SUnit run) report a Cancel as one. */
   | {
       kind: 'stopped';
       message: string;
@@ -891,17 +756,12 @@ export type BreakpointStop =
     };
 
 /**
- * Decide whether the breakpoint `context` is stopped at is one the developer
- * asked to stop at, resuming past every one they did not, and say where the run
- * ended up.
- *
- * Costs nothing when no breakpoint carries a rule, which is the ordinary case:
- * the rules are read from what is already applied, and an empty list short
- * circuits before any GCI call.
+ * Apply the rules to the breakpoint `context` is stopped at, and say where the
+ * run ended up. With no rules, returns before any GCI call.
  *
  * Throws `NbCancelledError` on a hard break, and a plain Error when there is
- * nothing left to debug — the session logged out, or the run stopped somewhere
- * with no process to open a debugger on.
+ * nothing left to debug: the session logged out, or the run stopped with no
+ * process to open a debugger on.
  */
 export async function resolveBreakpointStop(
   session: ActiveSession,
@@ -916,10 +776,8 @@ export async function resolveBreakpointStop(
     errorNumber: BREAKPOINT_ERROR,
   };
   const specs = rulesFor(session);
-  // Logged even when there are none. "Stopped at a breakpoint" looks identical
-  // whether a condition was consulted and held, or was never seen at all — so
-  // the one place that knows says which, rather than leaving it to be guessed
-  // from the outside.
+  // Logged even with no rules: otherwise a stop no rule judged looks the same as
+  // one whose condition held.
   logInfo(
     `[Session ${session.id}] breakpoint at a stop: ${specs.length} breakpoint rule(s) armed` +
       specs
@@ -935,9 +793,7 @@ export async function resolveBreakpointStop(
 
   let outcome: ConditionOutcome;
   try {
-    // Revealed once per run, on the first line. A logpoint writing to a
-    // channel nobody has opened is barely better than no logpoint at all —
-    // but reopening it on every line would fight the developer for focus.
+    // Revealed on the first line only: per line, it would fight for focus.
     let revealed = false;
     const reveal = (): void => {
       if (revealed) return;
@@ -951,9 +807,6 @@ export async function resolveBreakpointStop(
         reveal();
       },
       onLogFailure: (failure, rule) => {
-        // Into the log the lines would have gone to, where the developer is
-        // already looking, and said once out loud — a logpoint that silently
-        // writes nothing is the failure this whole feature exists to avoid.
         appendLogpoint(
           rule === undefined ? `session ${session.id}` : describeRule(rule),
           `!! the log message could not be evaluated: ${failure}`,
@@ -966,15 +819,11 @@ export async function resolveBreakpointStop(
       },
     });
   } catch (e: unknown) {
-    // A cancel is the developer's answer, not a failure: let it unwind the
-    // execution the same way cancelling any other run does.
+    // A cancel unwinds the run as it does anywhere else.
     if (e instanceof NbCancelledError) throw e;
-    // With the session gone there is no breakpoint left to stop at, and no
-    // debugger to offer.
     if (session.isLoggedOut()) throw new Error('The GemStone session is logged out.', { cause: e });
-    // Anything else, and the breakpoint still happened. Falling back to
-    // stopping is the safe end of the trade: a breakpoint that stops when it
-    // should not have is a nuisance, one that silently does not is a bug hunt.
+    // Otherwise stop anyway: a breakpoint that stops wrongly is a nuisance, one
+    // that silently does not is a bug hunt.
     const detail = errorText(e);
     logError(session.id, `breakpoint rules could not be evaluated: ${detail}`);
     vscode.window.showWarningMessage(
@@ -991,8 +840,6 @@ export async function resolveBreakpointStop(
     case 'completed':
       return { kind: 'completed', resultOop: outcome.resultOop };
     case 'raised':
-      // The run stopped for something that is not a breakpoint while we were
-      // skipping. That is the thing worth showing, on the process it stopped.
       if (outcome.context === 0n || outcome.context === OOP_NIL) {
         throw new Error(outcome.description);
       }
@@ -1010,8 +857,7 @@ export async function resolveBreakpointStop(
         cancelled: true,
       };
     case 'conditionFailed':
-      // Said out loud, because the alternative is a breakpoint that stops for
-      // no visible reason and a condition that was never really applied.
+      // Said out loud, or the stop looks unexplained.
       vscode.window.showWarningMessage(
         `Breakpoint condition could not be evaluated: ${outcome.message} — ` +
           'stopping at the breakpoint.',
@@ -1027,10 +873,8 @@ export async function resolveBreakpointStop(
 }
 
 /**
- * Whether a debugger Resume that answered `result` stopped at a breakpoint the
- * rules may want to pass — the one case {@link honourRulesAfterResume} has
- * anything to do. Lets a caller keep its ordinary, synchronous path for every
- * other stop.
+ * Whether a debugger Resume's `result` needs {@link honourRulesAfterResume}, so
+ * a caller keeps its synchronous path for every other stop.
  */
 export function resumeNeedsRules(session: ActiveSession, result: StepResult): boolean {
   if (result.completed || result.errorNumber !== BREAKPOINT_ERROR) return false;
@@ -1040,13 +884,9 @@ export function resumeNeedsRules(session: ActiveSession, result: StepResult): bo
 }
 
 /**
- * Carry a debugger Resume on past every stop its rules decline, from the stop
- * `result` reports, and answer it in the debugger's own terms.
- *
- * The same rule application as the run's first stop, with the same decider —
- * see `deciderSource` — so a trigger armed before the debugger opened is still
- * armed. Only for a Resume (and Run to Cursor): a step is explicit and goes
- * where it was told.
+ * Carry a debugger Resume (or Run to Cursor) past every stop its rules decline,
+ * as the run's first stop was, so a trigger armed before the debugger opened is
+ * still armed. Not for steps: a step goes where it was told.
  */
 export async function honourRulesAfterResume(
   session: ActiveSession,

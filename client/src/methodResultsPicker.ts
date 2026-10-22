@@ -37,16 +37,9 @@ export function describeMethodResult(result: {
 }
 
 /**
- * A method named the way Smalltalk writes it, compact enough for a log line.
- *
- * Distinct from `describeMethodResult` above, which spaces itself out for prose
- * in a message box. This one is a prefix repeated on every line of a logpoint's
- * output, so `Account>>deposit:` rather than `Account >> #deposit:`.
- *
- * The environment id appears **only when it is not 0**. Everything anyone
- * ordinarily writes lives in environment 0, so printing `[env 0]` on every line
- * would be noise on every line; a method that is somewhere else is unusual
- * enough that saying so is worth the space.
+ * A method as a compact prefix for log lines, `Account>>deposit:`; unlike
+ * `describeMethodResult`, which is spaced for prose. The environment is shown
+ * only when it is not 0.
  */
 export function methodLabel(method: {
   className: string;

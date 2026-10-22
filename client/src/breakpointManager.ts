@@ -35,47 +35,30 @@ export interface AppliedBreakpoint {
   enabled: boolean;
   /**
    * The Smalltalk expression that has to answer true for this breakpoint to
-   * stop, or undefined when it stops every time.
-   *
-   * Carried on the applied record rather than looked up from VS Code's list on
-   * demand because everything downstream needs it at once — the token marker,
-   * the hover, the breakpoint manager view and the rules handed to the
-   * client-side skip loop — and this is the one place that already knows which
-   * VS Code breakpoint landed on which step point. See `conditionalBreakpoints.ts`
-   * for how it is honoured.
+   * stop, or undefined when it stops every time. Carried here rather than read
+   * off VS Code's list because this is the one place that knows which VS Code
+   * breakpoint landed on which step point.
    */
   condition?: string;
   /**
-   * What to write to the log each time this breakpoint is reached, as the
-   * developer typed it — text with `{…}` placeholders. A breakpoint with one
-   * never stops: it logs and carries on.
+   * What to log each time this breakpoint is reached, as typed — text with
+   * `{…}` placeholders. A breakpoint with one never stops.
    */
   logMessage?: string;
   /**
    * The breakpoint that has to be reached before this one may stop, or
-   * undefined when it is armed from the start.
-   *
-   * Copied onto the applied record from `triggers` for the same reason
-   * `condition` is carried here rather than looked up on demand: the label, the
-   * hovers, the Breakpoints view and the rules all want it at once. Whether the
-   * breakpoint it names can still fire is not stored, because that changes with
-   * the other breakpoint — see `triggerProblem`.
+   * undefined when it is armed from the start. Copied from `triggers`. Whether
+   * that breakpoint can still fire is not stored, since it changes with the
+   * other breakpoint — see `triggerProblem`.
    */
   triggeredBy?: TriggerRef;
 }
 
 /**
- * Which breakpoint arms another, as the one thing VS Code's breakpoint list
- * cannot hold for us.
- *
- * `vscode.Breakpoint` carries an `id`, `enabled`, `condition`, `hitCondition`
- * and `logMessage`, and no field for "triggered by" in any API version to date,
- * so unlike a condition this cannot be read back off VS Code's list and has to
- * be kept alongside it. Identified by method and step point rather than by
- * `vscode.Breakpoint.id`, because a breakpoint is destroyed and recreated on an
- * enable/disable round trip (see `replaceEnabled`, and `replaceCondition` for an
- * edited condition) while the step point it sits on is what the developer
- * actually pointed at.
+ * Which breakpoint arms another. `vscode.Breakpoint` has no "triggered by"
+ * field in any API version, so this is kept alongside VS Code's list.
+ * Identified by method and step point rather than `vscode.Breakpoint.id`,
+ * because `replaceEnabled` and `replaceCondition` recreate the breakpoint.
  */
 export interface TriggerRef {
   /**
@@ -126,16 +109,9 @@ function methodKey(uri: string): string {
 }
 
 /**
- * Marks the exact token a breakpoint sits on.
- *
- * The gutter dot only says "this line"; a Smalltalk line usually holds several
- * step points, so this is what says *which one*.
- *
- * Enabled and disabled are told apart mainly by **colour** — the same
- * red-versus-grey pair VS Code uses for the gutter dot itself — because a
- * dashed-versus-solid 1px border is not a difference anyone notices. The
- * disabled marker also fades its token, which reads as inert without needing the
- * border to be seen at all.
+ * Marks the exact token a breakpoint sits on: a line usually holds several step
+ * points. Enabled and disabled differ mainly by colour, VS Code's own red and
+ * grey; a dashed versus solid 1px border alone goes unnoticed.
  */
 const enabledDecoration = vscode.window.createTextEditorDecorationType({
   borderWidth: '1px',
@@ -151,42 +127,20 @@ const disabledDecoration = vscode.window.createTextEditorDecorationType({
   borderStyle: 'dashed',
   borderColor: new vscode.ThemeColor('debugIcon.breakpointDisabledForeground'),
   borderRadius: '2px',
-  // Fading the token is the cue that survives a theme where the grey border is
-  // nearly invisible — and "is this breakpoint live?" is exactly the question
-  // the marker exists to answer.
+  // Survives a theme where the grey border is nearly invisible.
   opacity: '0.75',
 });
 
 /**
- * Writes what a breakpoint does beyond stopping at the end of its line — its
- * condition, its log message, the breakpoint it waits for, or all three.
- *
- * The gutter already tells a conditional breakpoint from a plain one — VS Code
- * draws its own icon for one carrying a condition — but the icon says only
- * *that* there is one, and for a **trigger** it says nothing at all: VS Code has
- * no idea the breakpoint is waiting, so a triggered one that declines to stop
- * looks exactly like a broken breakpoint unless the line says otherwise.
- *
- * The question a developer actually has, looking at a method they set a
- * breakpoint in ten minutes ago, is **what** the condition says, and a condition
- * that has to be hunted for in the Breakpoints panel may as well not be written
- * down. Drawn as an annotation rather than as text in the document: the method's
- * source is the stone's, and nothing here may modify it.
- *
- * At the **end of the line**, not after the step point's own token. A step point
- * sits on a token in the middle of a statement — step point 5 of `running :=
- * running + each` is the `:=` — so anchoring there splits the code it annotates
- * and is genuinely hard to read. Applied alongside the enabled/disabled border
- * rather than instead of it, so a conditional breakpoint still reads as armed or
- * inert at a glance, and switched off entirely by
- * `gemstone.breakpoints.showRulesInEditor` for anyone who finds a
- * permanently-visible label distracting — the hover and the GemStone Breakpoints
- * view still carry the rule either way.
+ * Writes a breakpoint's condition, log message and trigger at the end of its
+ * line. A decoration, never text: the method's source is the stone's. At the
+ * line's end rather than after the step point's token, which can sit mid
+ * statement (the `:=` of `running := running + each`) and would split the code.
+ * Off when `gemstone.breakpoints.showRulesInEditor` is false.
  */
 const conditionDecoration = vscode.window.createTextEditorDecorationType({
   after: {
-    // Set well clear of the code: at the end of a short line the label would
-    // otherwise read as part of the statement it follows.
+    // Otherwise, after a short line, the label reads as part of the statement.
     margin: '0 0 0 3ch',
     fontStyle: 'italic',
     color: new vscode.ThemeColor('editorCodeLens.foreground'),
@@ -200,14 +154,7 @@ function showRulesInEditor(): boolean {
     .get<boolean>('breakpoints.showRulesInEditor', true);
 }
 
-/**
- * What the label's hover says: the rule in full, and for a logpoint a link that
- * opens the channel it writes to.
- *
- * A logpoint's output lands in a panel the developer has to go and find, so the
- * one hover attached to the label itself carries both the destination and a way
- * to it.
- */
+/** The label's hover: the rule in full, and for a logpoint a link to its output channel. */
 function labelHover(rule: RuleParts): vscode.MarkdownString {
   const md = new vscode.MarkdownString();
   // Trusted for the one command it links to, not wholesale: the rule is text
@@ -233,10 +180,8 @@ function labelHover(rule: RuleParts): vscode.MarkdownString {
  * commands drive GemStone for free — they arrive here as
  * `onDidChangeBreakpoints`.
  *
- * The one thing that list cannot hold is **which breakpoint triggers which**:
- * `vscode.Breakpoint` has no field for it, in any API version, so that lives in
- * `triggers` here and is kept to the same lifetime by hand. Everything else
- * about a breakpoint is still read back off VS Code's list.
+ * The one thing that list cannot hold is which breakpoint triggers which (see
+ * `TriggerRef`); that lives in `triggers`, kept to the same lifetime by hand.
  *
  * The **method** is the unit throughout, not the URI. One method can be open
  * under more than one `gemstone://` URI (see `methodKey`), and the gem has one
@@ -282,16 +227,13 @@ export class BreakpointManager {
 
   /**
    * Which breakpoint arms which: per method (`methodKey`) of the *triggered*
-   * breakpoint, then per its step point. Kept here because VS Code's breakpoint
-   * list has nowhere to put it — see `TriggerRef`.
+   * breakpoint, then per its step point.
    *
    * Lives as long as the breakpoint that waits: dropped when that breakpoint is
-   * removed or its method recompiled (`pruneTriggers`), on Remove All, and when
-   * the session logs out. It is **not** dropped when the breakpoint it waits
-   * for goes away or is disabled. The waiting breakpoint then stays disarmed,
-   * as VS Code's own triggered breakpoints do, and its label, row and hover say
-   * why (`triggerProblem`) — quietly turning it back into a breakpoint that
-   * stops every time would be the opposite of what the developer set up.
+   * removed or its method recompiled (`pruneTriggers`), on Remove All, and at
+   * logout. Not dropped when the breakpoint it waits for goes away or is
+   * disabled: the waiting one stays disarmed, as VS Code's own do, and says why
+   * (`triggerProblem`).
    */
   private triggers = new Map<string, Map<number, TriggerRef>>();
 
@@ -465,12 +407,9 @@ export class BreakpointManager {
 
     const info = this.stepPoints.fetch(session, uri, method);
     if (!info) {
-      // `clearAllBreaks` above has already emptied the method, so anything this
-      // manager still remembers for it is a lie: left in place it keeps drawing
-      // token markers, hover text and breakpoint-view rows for breaks that exist
-      // in no gem. Drop the record and let the views redraw — the same thing the
-      // "nothing wanted" path does — rather than returning early and leaving the
-      // developer looking at markers for breakpoints that are gone.
+      // `clearAllBreaks` has already emptied the method, so drop the record as
+      // the "nothing wanted" path does; returning early would leave markers for
+      // breaks no gem holds.
       const reason =
         `The breakpoints in ${describeMethodResult(method)} were cleared: its step points ` +
         `could not be read. Reopen the method to set them again.`;
@@ -598,11 +537,10 @@ export class BreakpointManager {
   /**
    * Record what the method `uri` names now holds, and redraw what shows it.
    *
-   * A trigger belongs to the breakpoint that waits, so one whose breakpoint is
-   * no longer here goes with it — otherwise a breakpoint set later on the same
-   * step point would silently inherit "Break after …". The editors redrawn
-   * include those of breakpoints waiting on one in this method: whether their
-   * trigger can still fire may just have changed.
+   * A trigger whose waiting breakpoint is gone goes with it, or a breakpoint
+   * later set on that step point would inherit "Break after …". Editors of
+   * breakpoints waiting on this method are redrawn too: whether their trigger
+   * can still fire may just have changed.
    */
   private settle(uri: vscode.Uri, applied: AppliedBreakpoint[]): void {
     if (applied.length > 0) this.applied.set(uri.toString(), applied);
@@ -621,10 +559,9 @@ export class BreakpointManager {
    * breakpoint in it, from whichever URI, under the URI it was called with — so
    * the other URI's record now describes breakpoints that are already gone.
    *
-   * Left in place, that record goes on drawing token markers and a condition
-   * label for breakpoints that do not exist, and — worse — is handed to the gem
-   * as a condition spec of its own, so an edited condition appears to have no
-   * effect while the *previous* one is quietly still deciding.
+   * Left in place, it draws markers for breakpoints that do not exist and is
+   * handed to the gem as a rule of its own, so an edited condition appears to
+   * have no effect while the previous one still decides.
    */
   private dropAliasRecords(uri: vscode.Uri, method: MethodUriRef): void {
     const keep = uri.toString();
@@ -680,16 +617,10 @@ export class BreakpointManager {
    * given. `Shift+F9` refuses the same edit for the same reason, one step
    * earlier (`StepPointModel.explain`).
    *
-   * A **condition or log message** edited on a breakpoint that is already
-   * armed is the third case, and the quietest. Nothing is wrong with the
-   * breakpoint — it stays exactly where it was — so there is nothing to take
-   * back out, and VS Code goes on showing the new text in its gutter and its
-   * Breakpoints panel. But the hold means the edit never reaches the gem, and
-   * the breakpoint goes on doing what it did before: text that is written down,
-   * displayed, and not applied. That is said out loud even though nothing is
-   * refused — but only for an edit that really is being held. A change that
-   * leaves both as they were applied (an enable checkbox flipped, say) alters
-   * nothing the developer can be misled about.
+   * A condition or log message edited on an armed breakpoint is held too, and
+   * quietly: VS Code shows the new text while the gem goes on applying the old.
+   * So that is said out loud, but only when it differs from what was applied
+   * (`appliedAs`); flipping an enable checkbox, say, misleads no one.
    */
   private holdWhileDirty(
     uri: vscode.Uri,
@@ -788,11 +719,6 @@ export class BreakpointManager {
   /**
    * Enable or disable the breakpoint at the caret — the one on the caret's line
    * when the caret is not on its exact token (see `breakpointAtCursor`).
-   *
-   * VS Code makes `Breakpoint.enabled` read-only, so flipping it means removing
-   * the breakpoint and adding an equivalent one — carrying the condition, hit
-   * condition and log message across so an enable/disable round trip doesn't
-   * quietly discard them.
    */
   setEnabledAtCursor(editor: vscode.TextEditor, enabled: boolean): void {
     const found = this.breakpointAtCursor(editor);
@@ -854,16 +780,7 @@ export class BreakpointManager {
 
   // ── Conditions ───────────────────────────────────────────
 
-  /**
-   * Ask for the condition on the breakpoint at the caret, and set it.
-   *
-   * VS Code's own *Add Conditional Breakpoint* (right-click in the gutter) and
-   * *Edit Breakpoint* do the same job and Jasper honours what they produce; this
-   * exists so the condition is reachable from where the developer already is —
-   * the caret, the step point hover, and the breakpoint manager row — without
-   * having to find the right gutter pixel first. The box opens with the current
-   * condition in it, so seeing one and changing one are the same gesture.
-   */
+  /** Ask for the condition on the breakpoint at the caret, and set it. */
   async editConditionAtCursor(editor: vscode.TextEditor): Promise<void> {
     const found = this.breakpointAtCursor(editor);
     if (!found) return;
@@ -879,12 +796,8 @@ export class BreakpointManager {
 
   /**
    * Put a condition on the breakpoint at `stepPoint`, creating the breakpoint if
-   * there isn't one — asking for a condition where no breakpoint exists means
-   * "break here, but only when…", and refusing it would just make the developer
-   * set the breakpoint and ask again.
-   *
-   * An emptied box removes the condition rather than setting a blank one; a
-   * cancelled box changes nothing.
+   * there isn't one. An emptied box removes the condition; a cancelled box
+   * changes nothing.
    */
   private async promptForCondition(
     uri: vscode.Uri,
@@ -1037,13 +950,9 @@ export class BreakpointManager {
    * Make the breakpoint at `stepPoint` wait for `trigger`, or clear that with
    * `undefined`.
    *
-   * Written onto the applied record in place, and **nothing is sent to the
-   * gem**: a trigger changes nothing there. The breakpoint is armed in the gem
-   * either way, and whether this particular stop counts is decided per hit by
-   * the decider — so re-applying the method would spend a `clearAllBreaks` and a
-   * `setBreakAtStepPoint` per breakpoint to write down a fact only the client
-   * holds. Views are told directly instead, since a trigger never round-trips
-   * through VS Code's list the way a condition does and so arrives as no event.
+   * Nothing is sent to the gem: the breakpoint is armed there either way, and
+   * the decider judges each hit. Views are told directly, since a trigger
+   * raises no breakpoint event.
    */
   setTrigger(uri: vscode.Uri, stepPoint: number, trigger: TriggerRef | undefined): void {
     const key = methodKey(uri.toString());
@@ -1082,11 +991,8 @@ export class BreakpointManager {
    * Offer every other breakpoint in the session as the one the breakpoint at
    * `stepPoint` waits for, and record the choice.
    *
-   * Only breakpoints that already exist: unlike a condition, a trigger cannot be
-   * invented on the spot, because naming a breakpoint that is not set anywhere
-   * would leave this one disarmed forever. A breakpoint cannot wait for itself,
-   * and the method takes no trigger at all until it has a breakpoint to put one
-   * on — "stop here only after…" needs a "here" first.
+   * Only breakpoints that already exist: naming one that is not set would leave
+   * this one disarmed forever. A breakpoint cannot wait for itself.
    */
   async editTriggerAtStepPoint(uri: vscode.Uri, stepPoint: number): Promise<void> {
     const mine = this.appliedFor(uri).find((a) => a.stepPoint === stepPoint);
@@ -1168,10 +1074,8 @@ export class BreakpointManager {
     for (const { uriStr, method, bp } of this.appliedInSession(session.id)) {
       const ref: TriggerRef = { uri: uriStr, stepPoint: bp.stepPoint };
       if (sameBreakpoint(ref, self)) continue;
-      // Anything already waiting on this breakpoint — directly or through a
-      // chain of them — cannot also arm it. Such a ring would simply never
-      // fire: every breakpoint in it waits for one that is itself waiting, so
-      // none of them ever stops and none of them says why.
+      // Anything already waiting on this breakpoint, directly or through a
+      // chain, cannot also arm it: the ring would never fire.
       if (this.waitsOn(ref, self)) continue;
       out.push({
         label: `${methodLabel(method)} @${bp.stepPoint}`,
@@ -1200,22 +1104,16 @@ export class BreakpointManager {
    * carrying a condition, a log message or a trigger, plus any breakpoint that is
    * itself somebody's trigger.
    *
-   * A **trigger** has to be listed even when it is otherwise plain, and that is
-   * the one non-obvious entry here: a step point no spec claims answers Stop, so
-   * a trigger left out would still stop the run correctly but would never arm
-   * what is waiting on it. The same goes the other way — a triggered breakpoint
-   * with no condition of its own needs a spec, or it would stop on its first hit
-   * and ignore the trigger entirely.
+   * Both ends of a trigger need a spec even when otherwise plain: a step point
+   * no spec claims answers Stop, so a trigger left out would never arm anything,
+   * and a triggered breakpoint left out would stop on its first hit.
    *
-   * A breakpoint whose trigger is disabled or gone (`triggerProblem`) stays
-   * disarmed for the whole run, as VS Code's triggered breakpoints do: its spec
-   * names **itself** as its trigger. A breakpoint still waiting arms nothing,
-   * itself included, so it is passed over on every hit.
+   * A breakpoint whose trigger is disabled or gone (`triggerProblem`) names
+   * **itself** as its trigger, which keeps it disarmed for the whole run: a
+   * breakpoint still waiting arms nothing, itself included.
    *
-   * Only *enabled* ones: a disabled breakpoint is not armed, so it cannot be the
-   * reason execution stopped and a rule for it would only be dead weight. Empty
-   * when every breakpoint is plain and nothing waits on anything, which is what
-   * lets the whole mechanism cost nothing at all in the ordinary case.
+   * Only enabled ones. Empty when nothing needs judging, so the ordinary case
+   * costs nothing.
    */
   breakpointRulesFor(session: ActiveSession): BreakpointRule[] {
     // Enabled breakpoints only, and gathered before any rule is built: a trigger
@@ -1245,11 +1143,9 @@ export class BreakpointManager {
     for (const [waiting, trigger] of armedBy) needed.add(waiting).add(trigger);
     if (needed.size === 0) return [];
 
-    // Only what is needed goes to the gem: every spec costs a method lookup when
-    // the decider is installed and a comparison on every hit, so a plain
-    // breakpoint that nothing waits on stays out of the array exactly as it did
-    // before triggers existed. That renumbers them, so a trigger's index is
-    // translated into the pruned array rather than being carried across.
+    // Each spec costs a method lookup per install and a comparison per hit, so
+    // only needed ones go. That renumbers them, so trigger indexes are
+    // translated into the pruned array.
     const order = [...needed].sort((a, b) => a - b);
     // 1-based: the decider indexes its spec Array in Smalltalk.
     const specIndex = new Map(order.map((from, to) => [from, to + 1]));
@@ -1266,9 +1162,7 @@ export class BreakpointManager {
         ),
         stepPoint: l.bp.stepPoint,
         condition: l.bp.condition,
-        // Compiled here, not in the gem: turning `{…}` placeholders into one
-        // Smalltalk expression is the client's job, and doing it once per run
-        // keeps it out of the per-hit path entirely.
+        // Compiled once per run here, keeping it out of the per-hit path.
         logMessage:
           l.bp.logMessage === undefined ? undefined : logMessageExpression(l.bp.logMessage),
         label: methodLabel(l.method),
@@ -1361,13 +1255,11 @@ export class BreakpointManager {
    * The breakpoint an "at Cursor" command that edits one is about.
    *
    * The caret's own step point when a breakpoint is on it. Otherwise the
-   * breakpoint on the caret's line, or the nearest of them when the line has
-   * several: a developer right-clicking a line with one red dot means *that*
-   * breakpoint, wherever on the line they clicked, and the caret's nearest step
-   * point is routinely a different token. Answering the caret's step point there
-   * made Edit Condition add a second breakpoint, and Edit Trigger say there was
-   * none. With no breakpoint on the line, `breakpoint` is undefined and
-   * `stepPoint` is the caret's, for a command that sets one there.
+   * breakpoint on the caret's line (the nearest, if several): the caret's
+   * nearest step point is routinely another token, and answering it would make
+   * Edit Condition add a second breakpoint and Edit Trigger find none. With no
+   * breakpoint on the line, `breakpoint` is undefined and `stepPoint` is the
+   * caret's.
    *
    * Toggle at Cursor does not use this: toggling means "at this token".
    */
@@ -1642,11 +1534,7 @@ export class BreakpointManager {
 
   // ── Decorations ──────────────────────────────────────────
 
-  /**
-   * Mark the exact token each breakpoint sits on. The gutter dot already says
-   * "this line has a breakpoint"; a Smalltalk line routinely holds several step
-   * points, so the token marker is what says *which one*.
-   */
+  /** Mark the token each breakpoint sits on, and write its rule after its line. */
   refreshDecorations(editor: vscode.TextEditor): void {
     if (editor.document.uri.scheme !== 'gemstone') return;
 
@@ -1683,10 +1571,7 @@ export class BreakpointManager {
         (bp.enabled ? on : off).push(range);
       }
       // One label per breakpoint, at the end of the line its step point starts
-      // on — never after the step point's own token, which is routinely mid
-      // statement. A trigger is drawn even on a breakpoint that carries nothing
-      // else: an unannotated breakpoint that silently declines to stop is the
-      // failure this annotation exists to prevent.
+      // on (see `conditionDecoration`).
       const line = lineOf(bp);
       if (line === undefined || !withRules) continue;
       const rule = this.ruleOf(bp);
@@ -1695,10 +1580,6 @@ export class BreakpointManager {
       const endOfLine = editor.document.lineAt(line).range.end;
       labels.push({
         range: new vscode.Range(endOfLine, endOfLine),
-        // The label's OWN hover, which is where a developer looking at the
-        // label actually points. It has to say where a logpoint's output goes
-        // and offer a way there: the step-point hover and the Breakpoints row
-        // say so too, but neither is what the pointer is over here.
         hoverMessage: labelHover(rule),
         renderOptions: { after: { contentText: label } },
       });
@@ -1802,12 +1683,10 @@ export class BreakpointManager {
    * Say so when a breakpoint carries a hit count.
    *
    * VS Code offers it through *Edit Breakpoint* and it is honoured entirely by
-   * the debugger — Jasper does not implement it, so the breakpoint stops (or
-   * logs) every time it is reached regardless. Left unsaid, that is the worst
-   * kind of failure this feature has: the developer has written down a precise
-   * intent, the UI accepts it, and execution quietly ignores it. The field is
-   * still carried across enable/disable and name-conversion, so nothing is lost
-   * if it is honoured later.
+   * the debugger. Jasper does not implement it, so the breakpoint stops (or
+   * logs) every time regardless; left unsaid, an intent the UI accepted would be
+   * quietly ignored. The field is still carried across enable/disable and
+   * name-conversion.
    *
    * Conditions and log messages are **not** on this list: both are evaluated in
    * the suspended frame — see `conditionalBreakpoints.ts`.
@@ -1920,20 +1799,12 @@ function logMessageOf(bp: vscode.SourceBreakpoint): string | undefined {
  * The one breakpoint the gem gets for every VS Code breakpoint that landed on
  * one step point.
  *
- * Only the *enabled* ones decide what it does, falling back to all of them when
- * none is enabled: a disabled breakpoint is not meant to do anything, so it must
- * not turn an enabled plain breakpoint beside it into a logpoint, nor strip an
- * enabled one of its condition. The step point is armed if any is enabled.
- *
- * Among those, the reading that stops more often wins. The step point is
- * conditional only while every one carries a condition, and logs instead of
- * stopping only while every one is a logpoint: the gem has one breakpoint there,
- * and honouring one breakpoint's condition or log message would silently break
- * the other one, which asked to stop. Two differing conditions or messages keep
- * the first — there is nowhere to put a second.
- *
- * A trigger is recorded against the step point, not against one of the VS Code
- * breakpoints on it, so they already share the one answer.
+ * Only the enabled ones decide what it does (all of them when none is): a
+ * disabled breakpoint must not turn an enabled plain one beside it into a
+ * logpoint, nor strip its condition. Among those, the reading that stops more
+ * often wins: conditional only while every one has a condition, a logpoint only
+ * while every one logs, since the gem has one breakpoint there. Differing texts
+ * keep the first. A trigger is recorded per step point, so they share it.
  */
 function collapse(
   resolved: ResolvedStepPoint,
@@ -1968,14 +1839,7 @@ const DIRTY_REFUSAL =
   'step points come from the compiled method, not the text on screen. ' +
   'Save the method, or run "File: Revert File", and set the breakpoint then.';
 
-/**
- * Why an edited condition or log message is not in effect while the method's
- * editor is dirty.
- *
- * Names what is actually true — the breakpoint goes on doing what it did before
- * the edit — and the one way out that keeps it: saving recompiles the method,
- * which clears its breakpoints (`invalidateForUri`).
- */
+/** Why an edited condition or log message is not in effect while the method's editor is dirty. */
 const HELD_RULE_REFUSAL =
   'This method has unsaved edits, so its breakpoints are held as they are and ' +
   'the edited condition or log message is NOT in effect — the breakpoint goes on ' +
@@ -1996,11 +1860,9 @@ const NOT_A_METHOD_REFUSAL =
 /**
  * Why a breakpoint with no step point to fall forward to is taken back out.
  *
- * Names the method, since one event can touch several and only the message says
- * which one lost a breakpoint. Below the method's last statement is the usual
- * cause and the one worth the hint, but `resolveStepPoint` also returns null for
- * a method with no step points at all and for a line past the end of its source
- * — so the wording covers all three rather than promising which it was.
+ * Names the method, since one event can touch several. Below the last statement
+ * is the usual cause, but `resolveStepPoint` also returns null for a method with
+ * no step points and for a line past its end, so the wording covers all three.
  */
 function noStepPointRefusal(count: number, where: string): string {
   const [subject, pronoun, verb] =

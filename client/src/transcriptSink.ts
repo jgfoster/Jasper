@@ -368,9 +368,7 @@ export function decodeTranscriptForwarderSend(
  *
  * `flags` are what each resume runs with, and must be the flags the call was
  * started with, less any single-step: a resume with the debug flag dropped runs
- * the rest of the call with every breakpoint disarmed, so one Transcript write
- * in Execute It used to switch off every breakpoint after it. Notebook cells
- * start with 0 and keep 0.
+ * the rest of the call with every breakpoint disarmed.
  */
 export async function settleNbResult(
   session: ActiveSession,

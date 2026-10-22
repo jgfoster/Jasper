@@ -79,8 +79,6 @@ export class StepPointHoverProvider implements vscode.HoverProvider {
           ? `\n\n$(${icon}) ${kind} set`
           : `\n\n$(debug-breakpoint-disabled) ${kind} set but disabled`,
       );
-      // In full, unelided — the label beside the code shortens a long one, and
-      // this is where the rest of it lives.
       appendRuleMarkdown(md, this.breakpoints.ruleOf(applied));
     }
 
@@ -107,8 +105,6 @@ export class StepPointHoverProvider implements vscode.HoverProvider {
           ? `[$(debug-breakpoint-unverified) Break only after…](command:gemstone.breakpoints.editTriggerAtStepPoint?${arg} "Only stop here once another breakpoint has been reached")`
           : `[$(debug-breakpoint-unverified) Edit trigger](command:gemstone.breakpoints.editTriggerAtStepPoint?${arg} "Change which breakpoint has to be reached before this one stops")`,
       );
-      // A logpoint's output is in a panel that has to be found; from here it is
-      // one click.
       if (applied.logMessage !== undefined) {
         links.push(
           `[$(output) Show logpoint output](command:gemstone.breakpoints.showLogpointOutput "Open the GemStone Logpoints panel in Output")`,

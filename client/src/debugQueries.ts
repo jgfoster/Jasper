@@ -342,11 +342,10 @@ export function getMethodBlockInfo(session: ActiveSession, methodOop: bigint): M
  * same-named class in another dictionary, which the source pane then opened and
  * offered to edit. '' when no slot binds it under its own name.
  *
- * Undefined for a doit's method, which has no class (`inClass` is nil) — the
- * "Executed Code" frame near the bottom of every stack run from a workspace. The
- * query answers '' for it rather than sending `theNonMetaClass` to nil: the
- * debugger asks about every frame each time it opens, and the failure landed in
- * the GemStone GCI channel as an ERROR on every one, for a case that is normal.
+ * Undefined for a doit's method, which has no class (`inClass` is nil): the
+ * "Executed Code" frame of every workspace run. The query answers '' rather
+ * than send `theNonMetaClass` to nil, which logged a GCI ERROR for every such
+ * frame each time the debugger opened.
  */
 export function getMethodUriInfo(
   session: ActiveSession,

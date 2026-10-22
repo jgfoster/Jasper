@@ -3147,12 +3147,10 @@ export class DebuggerPanel {
   }
 
   /**
-   * A Resume that stopped at a breakpoint carrying a rule carries on the way
-   * the run did before the debugger opened: past a false condition, a logpoint
-   * or a trigger not yet reached, with the trigger arming it already had. That
-   * part runs on a worker thread under the busy overlay, whose Cancel stops at
-   * the hit it has reached. `after` runs once it settles, whatever the outcome
-   * — Run to Cursor clears its temporary breakpoint there.
+   * Carry a Resume past the stops its breakpoint rules decline, on a worker
+   * thread under the busy overlay, whose Cancel stops at the hit reached.
+   * `after` runs once it settles, whatever the outcome; Run to Cursor clears
+   * its temporary breakpoint there.
    */
   private async continueHonouringRules(
     action: string,

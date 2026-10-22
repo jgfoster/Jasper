@@ -205,21 +205,15 @@ export class BreakpointTreeProvider implements vscode.TreeDataProvider<Breakpoin
       ? vscode.TreeItemCheckboxState.Unchecked
       : vscode.TreeItemCheckboxState.Checked;
     item.tooltip = breakpointTooltip(bp, rule);
-    // A conditional breakpoint or a logpoint gets the icon VS Code's own
-    // Breakpoints view gives it, so the two views agree on sight. A breakpoint
-    // that only waits on a trigger has no VS Code counterpart, and keeps the
-    // plain row. The plain rows keep no icon at all: their checkbox already
-    // carries enabled-vs-disabled, and an icon on every row would make the
-    // conditional ones harder to pick out, not easier.
+    // The same icon VS Code's Breakpoints view uses. Plain rows get none: the
+    // checkbox already shows enabled vs disabled.
     if (rule?.logMessage !== undefined) {
       item.iconPath = new vscode.ThemeIcon('debug-breakpoint-log');
     } else if (rule?.condition !== undefined) {
       item.iconPath = new vscode.ThemeIcon('debug-breakpoint-conditional');
     }
-    // Only a real method can be opened; a doit's source is long gone. And only
-    // a breakpoint Jasper set can wait for another one: a trigger is recorded
-    // against a breakpoint in VS Code's list, which one set from topaz, say, is
-    // not in.
+    // A doit's source is gone, so only a real method opens. Only a breakpoint
+    // in VS Code's list (one Jasper set) can carry a trigger.
     item.contextValue =
       bp.selector === ''
         ? 'gemstoneBreakpointDoit'
@@ -270,11 +264,8 @@ export class BreakpointTreeProvider implements vscode.TreeDataProvider<Breakpoin
         },
       ];
     }
-    // Under a heading naming the session they were read from. This view shows
-    // ONE gem — the selected session's — and a breakpoint is per-gem state, so
-    // without the heading a row is a breakpoint in an unnamed stone. It does not
-    // fetch from every logged-in session: that would be a different view, and a
-    // slower one.
+    // Breakpoints are per gem, and this view shows only the selected
+    // session's, so the heading names which one.
     return [
       {
         kind: 'session',
@@ -298,19 +289,13 @@ function breakpointTooltip(bp: GemStoneBreakpoint, rule?: RuleParts): vscode.Mar
       : `${classLabel(bp.className, bp.isMeta)} >> ${bp.selector}`;
   md.appendMarkdown(`**${where}**\n\nStep point ${bp.stepPoint}`);
   if (bp.disabled) md.appendMarkdown(' — disabled');
-  // In full, and unelided — the row above had to cut it short.
   if (rule) appendRuleMarkdown(md, rule);
   if (bp.dictName) md.appendMarkdown(`\n\nDictionary: ${bp.dictName}`);
   if (bp.environmentId > 0) md.appendMarkdown(`\n\nEnvironment: ${bp.environmentId}`);
   return md;
 }
 
-/**
- * Open this row's method, then ask for the condition on its breakpoint.
- *
- * Revealed first: the condition is about this method's code, and seeing it is
- * most of the point of editing it from a row rather than from the gutter.
- */
+/** Open this row's method, then ask for the condition on its breakpoint. */
 export async function editBreakpointCondition(
   sessionManager: SessionManager,
   breakpoints: BreakpointManager,
@@ -321,10 +306,7 @@ export async function editBreakpointCondition(
   );
 }
 
-/**
- * Open this row's method, then ask which breakpoint has to be reached before
- * its breakpoint stops — a picker over a file you cannot see is a guess.
- */
+/** Open this row's method, then ask which breakpoint its breakpoint waits for. */
 export async function editBreakpointTrigger(
   sessionManager: SessionManager,
   breakpoints: BreakpointManager,
@@ -336,11 +318,8 @@ export async function editBreakpointTrigger(
 }
 
 /**
- * Reveal a row's breakpoint, then act on it through the URI that was opened.
- *
- * That URI, not whichever editor is active afterwards: when the open fails the
- * active editor is some unrelated method, and step point N of it is the wrong
- * breakpoint.
+ * Reveal a row's breakpoint, then act on it through the URI that was opened —
+ * not the active editor, which after a failed open is some unrelated method.
  */
 async function revealThen(
   sessionManager: SessionManager,
@@ -354,15 +333,12 @@ async function revealThen(
 }
 
 /**
- * Open the method a breakpoint is in and put the caret on the step point.
- * Answers the URI it opened, or undefined when there was nothing to open.
+ * Open the method a breakpoint is in and put the caret on the step point;
+ * answers the URI opened, or undefined when there was nothing to open.
  *
- * Opens the editor the breakpoint was set in when Jasper set it, so its red dot
- * is there to see; the Explorer opens a method under a URI of its own, and a
- * second editor built from what the gem reports would be the same method
- * without it. The step point is resolved from the *stone's* offsets for the
- * method just opened, rather than trusting the line the gem reported, so the
- * selection lands on the token that will actually break.
+ * Prefers the URI Jasper set the breakpoint through, since a method opened
+ * under another URI is a separate editor without the red dot. The caret comes
+ * from the stone's offsets for the step point, not the line the gem reported.
  */
 export async function revealBreakpoint(
   sessionManager: SessionManager,
