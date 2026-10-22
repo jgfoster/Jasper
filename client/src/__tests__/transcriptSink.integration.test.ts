@@ -22,7 +22,7 @@ vi.mock('../gciLog', async (orig) => ({
 import { useIntegrationTest } from './useIntegrationTest';
 import { testActiveSession } from './testActiveSession';
 import { GciLibrary } from '../gciLibrary';
-import type { ActiveSession } from '../sessionManager';
+import { SessionManager, type ActiveSession } from '../sessionManager';
 import {
   installTranscriptSink,
   startClientForwarderMode,
@@ -357,15 +357,17 @@ tmps := SessionTemps current.
     // killed mid-wait and left the session busy for the rest of the file.
   }, 30_000);
 
-  it('a logout refused while output streams succeeds once the run is stopped', async () => {
-    // GemStone refuses a logout while a koffi worker thread owns the session,
-    // and dropping the session after that refusal leaves its gem running with
-    // nothing left to reach it. Stopping the run hands the session back.
-    //
-    // On a session of its own, because the logout is the point. The run
-    // writes, which puts it on the worker, then waits there long enough for
-    // the first logout to land; the pause before it lets the worker actually
-    // start, since the write is reported just before the resume is queued.
+  /**
+   * Log in a session of its own and start a run on it that writes, which puts
+   * it on a koffi worker thread, then waits there for ~10s. Resolves once the
+   * worker has the session; the pause lets the worker actually start, since
+   * the write is reported just before the resume is queued.
+   */
+  async function streamOnWorker(): Promise<{
+    busy: ActiveSession;
+    gemSession: string;
+    run: Promise<unknown>;
+  }> {
     const { session: busy, err } = session().transientLogin(session().login);
     if (!busy) throw new Error(`Transient login failed: ${err.message}`);
     const gemSession = busy.executeAndFetchString('System session printString');
@@ -384,11 +386,38 @@ tmps := SessionTemps current.
       (signal) => settleNbResult(busy, () => wroteOnce(), signal),
       { suppressNotification: true, disposableProcess: true },
     );
-    // Claimed now: the stop rejects it before the assertions below run.
+    // Claimed now: the stop rejects it before the callers' assertions run.
     run.catch(() => {});
+    await onWorker;
+    await sleep(200);
+    return { busy, gemSession, run };
+  }
+
+  /** Waits for the stone to deregister `gemSession`, which lags its logout. */
+  async function expectGemToLeave(gemSession: string) {
+    await vi.waitFor(
+      () =>
+        expect(exec(`(System currentSessions includes: ${gemSession}) printString`)).toBe('false'),
+      { timeout: 2000, interval: 100 },
+    );
+  }
+
+  /** Whatever failed, the gem must not outlive the test. */
+  async function logOutForGood(busy: ActiveSession) {
+    await stopCallsOn(busy);
     try {
-      await onWorker;
-      await sleep(200);
+      busy.logout();
+    } catch {
+      /* already logged out */
+    }
+  }
+
+  it('a logout refused while output streams succeeds once the run is stopped', async () => {
+    // GemStone refuses a logout while a koffi worker thread owns the session,
+    // and dropping the session after that refusal leaves its gem running with
+    // nothing left to reach it. Stopping the run hands the session back.
+    const { busy, gemSession, run } = await streamOnWorker();
+    try {
       const firstLogout = busy.logout();
 
       await stopCallsOn(busy);
@@ -397,22 +426,30 @@ tmps := SessionTemps current.
       expect(firstLogout).toBe(false);
       expect(retry).toBe(true);
       await expect(run).rejects.toBeInstanceOf(NbCancelledError);
-      // The stone deregisters a gem shortly after its logout returns.
-      await vi.waitFor(
-        () =>
-          expect(exec(`(System currentSessions includes: ${gemSession}) printString`)).toBe(
-            'false',
-          ),
-        { timeout: 2000, interval: 100 },
-      );
+      await expectGemToLeave(gemSession);
     } finally {
-      // Whatever failed above, the gem must not outlive the test.
-      await stopCallsOn(busy);
-      try {
-        busy.logout();
-      } catch {
-        /* already logged out */
-      }
+      await logOutForGood(busy);
+    }
+  }, 30_000);
+
+  it('shutting down while output streams logs the session out', async () => {
+    // Shutdown used to ignore the refused logout and unload the library under
+    // the worker, which crashed the extension host and left the gem running.
+    // The manager holds only this session and no library of its own, so its
+    // shutdown cannot unload the library the rest of this file runs on.
+    const { busy, gemSession, run } = await streamOnWorker();
+    const manager = new SessionManager();
+    (manager as unknown as { sessions: Map<number, ActiveSession> }).sessions.set(busy.id, busy);
+    try {
+      expect(gci.hasCallsOnWorkers()).toBe(true);
+
+      await manager.dispose();
+
+      await expect(run).rejects.toBeInstanceOf(NbCancelledError);
+      expect(gci.hasCallsOnWorkers()).toBe(false);
+      await expectGemToLeave(gemSession);
+    } finally {
+      await logOutForGood(busy);
     }
   }, 30_000);
 

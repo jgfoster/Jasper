@@ -5452,11 +5452,17 @@ export function deactivate(): Thenable<void> | undefined {
   if (exportManager) {
     exportManager.dispose();
   }
-  if (sessionManager) {
-    sessionManager.dispose();
-  }
-  if (!client) return undefined;
-  return client.stop();
+  // Concurrent, not chained: VS Code gives deactivate one shared time budget,
+  // and a session stopping its call would otherwise eat the client's share.
+  const stopping: Thenable<void>[] = [];
+  if (sessionManager) stopping.push(sessionManager.dispose());
+  if (client) stopping.push(client.stop());
+  if (stopping.length === 0) return undefined;
+  return Promise.allSettled(stopping).then((results) => {
+    for (const r of results) {
+      if (r.status === 'rejected') logWarning(`Shutdown step failed: ${String(r.reason)}`);
+    }
+  });
 }
 
 export async function openTextEditorOn(uri: vscode.Uri) {

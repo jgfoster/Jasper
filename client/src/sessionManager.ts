@@ -36,6 +36,25 @@ export function logOutOrFindGone(session: ActiveSession): boolean {
 }
 
 /**
+ * Log `session` out; when GemStone refuses because a worker thread owns it,
+ * `stop` the calls on it and try once more. Answers whether the session is gone.
+ */
+async function logOutStoppingCalls(
+  session: ActiveSession,
+  stop: () => Promise<void>,
+): Promise<boolean> {
+  if (logOutOrFindGone(session)) return true;
+  await stop();
+  return logOutOrFindGone(session);
+}
+
+// How long shutdown waits for its sessions to log out. VS Code gives
+// deactivate 5s in all before the extension host exits (a race against a 5s
+// timer in its extensionHostProcess.js, as of 1.129), and the language
+// client's stop shares that time.
+const SHUTDOWN_LOGOUT_BUDGET_MS = 3500;
+
+/**
  * Decide whether a new login may proceed given the current session count.
  * Returns an error message to show the user, or null when the login is allowed.
  *
@@ -478,7 +497,7 @@ export class SessionManager {
 
   private async logOutAndDrop(id: number, s: ActiveSession): Promise<boolean> {
     logInfo(`[Session ${id}] Logging out: ${s.login.gs_user}@${s.login.gem_host}/${s.login.stone}`);
-    if (!logOutOrFindGone(s)) {
+    const gone = await logOutStoppingCalls(s, async () => {
       logInfo(`[Session ${id}] Logout refused while a call runs; stopping it and retrying.`);
       // Stopping the call can take a while (the gap before a hard break, then the
       // drain), and without this a Log out click looks like it did nothing.
@@ -489,11 +508,11 @@ export class SessionManager {
         },
         () => stopCallsOn(s),
       );
-      if (!logOutOrFindGone(s)) {
-        throw new Error(
-          `Could not log out session ${id}: a call is still running on it. The session is still open.`,
-        );
-      }
+    });
+    if (!gone) {
+      throw new Error(
+        `Could not log out session ${id}: a call is still running on it. The session is still open.`,
+      );
     }
     forgetSession(id);
     this.sessions.delete(id);
@@ -695,19 +714,48 @@ export class SessionManager {
     return Array.from(this.sessions.values());
   }
 
-  dispose(): void {
-    for (const s of this.sessions.values()) {
-      logOutOrFindGone(s);
-      forgetSession(s.id);
-    }
+  /**
+   * Log every session out and unload the GCI libraries, for extension
+   * shutdown.
+   *
+   * A session whose logout is refused because a worker thread owns it gets its
+   * calls stopped and one more try, as a Log out click does. The wait is
+   * bounded so shutdown finishes in VS Code's time; a session still open after
+   * it is logged and left to process exit.
+   *
+   * A library a worker thread still uses is not unloaded: unloading it crashes
+   * the extension host. Process exit frees it instead.
+   */
+  async dispose(): Promise<void> {
+    const sessions = [...this.sessions.values()];
     this.sessions.clear();
+    const stillOpen = new Set(sessions);
+    const loggedOut = Promise.allSettled(
+      sessions.map(async (s) => {
+        if (await logOutStoppingCalls(s, () => stopCallsOn(s))) stillOpen.delete(s);
+      }),
+    );
+    let budget: NodeJS.Timeout | undefined;
+    await Promise.race([
+      loggedOut,
+      new Promise((resolve) => (budget = setTimeout(resolve, SHUTDOWN_LOGOUT_BUDGET_MS))),
+    ]);
+    clearTimeout(budget);
+    for (const s of stillOpen) {
+      logWarning(`[Session ${s.id}] Still open at shutdown: a call is still running on it.`);
+    }
+    for (const s of sessions) forgetSession(s.id);
     // Both halves of the selection go with the sessions. getSelectedSession()
     // reads through the map so a stale id answered undefined anyway, but leaving
     // one behind while clearing the order it belongs to is a trap for the next
     // reader.
     this._selectedId = null;
     this.selectionOrder = [];
-    for (const gci of this.gciInstances.values()) {
+    for (const [libraryPath, gci] of this.gciInstances) {
+      if (gci.hasCallsOnWorkers()) {
+        logWarning(`Not unloading ${libraryPath} at shutdown: a worker thread still uses it.`);
+        continue;
+      }
       try {
         gci.close();
       } catch {

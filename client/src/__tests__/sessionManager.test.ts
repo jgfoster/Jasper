@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const configValues: Record<string, unknown> = {};
 
@@ -99,6 +99,11 @@ const gciTsNbLoginFinished = vi.fn(() => {
   };
 });
 
+// Whether a call still runs on a worker thread, and the unload that must wait
+// for it.
+const callsOnWorkers = vi.fn(() => false);
+const gciClose = vi.fn();
+
 vi.mock('../gciLibrary', () => ({
   GciLibrary: class {
     GciTsLogin(...args: unknown[]) {
@@ -137,12 +142,18 @@ vi.mock('../gciLibrary', () => ({
     GciTsNbLoginFinished(...args: unknown[]) {
       return gciTsNbLoginFinished(...(args as []));
     }
-    close() {}
+    hasCallsOnWorkers() {
+      return callsOnWorkers();
+    }
+    close() {
+      gciClose();
+    }
   },
 }));
 
 vi.mock('../gciLog', () => ({
   logInfo: vi.fn(),
+  logWarning: vi.fn(),
   logError: vi.fn(),
 }));
 
@@ -798,6 +809,86 @@ describe('SessionManager', () => {
       expect(vi.mocked(vscode.window.withProgress).mock.calls[0][0].title).toContain(
         loginLabel(session.login),
       );
+    });
+  });
+
+  // GemStone refuses a logout while a worker thread owns the session, and
+  // unloading the library under that worker crashes the extension host.
+  describe('shutting down', () => {
+    const refused = { sessionFreed: false };
+    const neverStops = () => new Promise<void>(() => {});
+
+    beforeEach(() => {
+      configValues['sessionMode'] = 'multiple';
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('stops the calls on a session whose logout is refused, then logs it out', async () => {
+      const session = manager.login({ ...DEFAULT_LOGIN, label: 'Busy' }, '/mock/lib');
+      gciLogout.mockReturnValueOnce(refused);
+
+      await manager.dispose();
+
+      expect(vi.mocked(stopCallsOn).mock.calls[0][0]).toBe(session);
+      expect(gciLogout).toHaveBeenCalledTimes(2);
+    });
+
+    it('logs out every session', async () => {
+      manager.login({ ...DEFAULT_LOGIN, label: 'One' }, '/mock/lib');
+      manager.login({ ...DEFAULT_LOGIN, label: 'Two' }, '/mock/lib');
+
+      await manager.dispose();
+
+      expect(gciLogout).toHaveBeenCalledTimes(2);
+      expect(manager.getSessions()).toEqual([]);
+    });
+
+    it('stops every session at once, so a slow stop does not hold up the rest', async () => {
+      manager.login({ ...DEFAULT_LOGIN, label: 'Stuck' }, '/mock/lib');
+      manager.login({ ...DEFAULT_LOGIN, label: 'Busy' }, '/mock/lib');
+      gciLogout.mockReturnValueOnce(refused).mockReturnValueOnce(refused);
+      vi.mocked(stopCallsOn).mockImplementationOnce(neverStops);
+      vi.useFakeTimers();
+
+      const disposed = manager.dispose();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(stopCallsOn).toHaveBeenCalledTimes(2);
+      await vi.runAllTimersAsync();
+      await disposed;
+    });
+
+    it('finishes within VS Code’s shutdown time when a call never stops', async () => {
+      manager.login({ ...DEFAULT_LOGIN, label: 'Stuck' }, '/mock/lib');
+      gciLogout.mockReturnValueOnce(refused);
+      vi.mocked(stopCallsOn).mockImplementationOnce(neverStops);
+      vi.useFakeTimers();
+      let finished = false;
+
+      void manager.dispose().then(() => (finished = true));
+      await vi.advanceTimersByTimeAsync(4999);
+
+      expect(finished).toBe(true);
+    });
+
+    it('does not unload a library while a call runs on a worker thread', async () => {
+      manager.login({ ...DEFAULT_LOGIN, label: 'Busy' }, '/mock/lib');
+      callsOnWorkers.mockReturnValueOnce(true);
+
+      await manager.dispose();
+
+      expect(gciClose).not.toHaveBeenCalled();
+    });
+
+    it('unloads a library no worker thread uses', async () => {
+      manager.login({ ...DEFAULT_LOGIN, label: 'Idle' }, '/mock/lib');
+
+      await manager.dispose();
+
+      expect(gciClose).toHaveBeenCalledTimes(1);
     });
   });
 
