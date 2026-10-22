@@ -55,10 +55,23 @@ describe('a transient login', () => {
     // Logging out is the only way left to observe which handle the session holds.
     transient.logout();
 
-    expect(transient.id).toBe(-1);
+    expect(transient.id).toBeLessThan(0);
     expect(gci.logout.mock.calls[0][0]).toBe(newHandle);
     expect(transient.login).toBe(systemUser);
     expect(transient.stoneVersion).toBe(session.stoneVersion);
+  });
+
+  it('gives every transient login an id of its own', () => {
+    const session = sessionOn(
+      libraryWhoseLoginAnswers({ session: {}, err: { number: 0, message: '' } }),
+    );
+
+    const first = session.transientLogin(login).session!;
+    const second = session.transientLogin(login).session!;
+
+    expect(first.id).toBeLessThan(0);
+    expect(second.id).toBeLessThan(0);
+    expect(second.id).not.toBe(first.id);
   });
 
   it("answers GemStone's error and no session when the login is refused", () => {

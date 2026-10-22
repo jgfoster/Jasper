@@ -49,6 +49,10 @@ export class ActiveSession {
    */
   private handle: () => unknown;
 
+  // Counts down, so a transient login's id never matches a registered session's
+  // (those count up from 1) and per-session state keyed by id stays apart.
+  private static nextTransientId = -1;
+
   constructor(
     public id: number,
     private readonly gci: GciLibrary,
@@ -64,9 +68,9 @@ export class ActiveSession {
    * library. The library outlives its sessions' logouts, so this session may
    * already be logged out.
    *
-   * Answers the new session, which has id -1 and is not registered anywhere,
-   * or no session and GemStone's error when the login is refused. The caller
-   * owns the new session and must log it out.
+   * Answers the new session, which has a negative id no other session has and
+   * is not registered anywhere, or no session and GemStone's error when the
+   * login is refused. The caller owns the new session and must log it out.
    */
   transientLogin(login: GemStoneLogin): { session: ActiveSession | undefined; err: GciError } {
     const result = this.gci.GciTsLogin(
@@ -82,7 +86,13 @@ export class ActiveSession {
     );
     if (!result.session) return { session: undefined, err: result.err };
     return {
-      session: new ActiveSession(-1, this.gci, result.session, login, this.stoneVersion),
+      session: new ActiveSession(
+        ActiveSession.nextTransientId--,
+        this.gci,
+        result.session,
+        login,
+        this.stoneVersion,
+      ),
       err: result.err,
     };
   }
