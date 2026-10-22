@@ -3147,8 +3147,8 @@ export class DebuggerPanel {
   }
 
   /**
-   * Carry a Resume past the stops its breakpoint rules decline, on a worker
-   * thread under the busy overlay, whose Cancel stops at the hit reached.
+   * Carry a Resume past the stops its breakpoint rules decline, keeping the
+   * run's trigger arming, on a worker thread under the busy overlay, whose Cancel stops at the hit reached.
    * `after` runs once it settles, whatever the outcome; Run to Cursor clears
    * its temporary breakpoint there.
    */

@@ -51,6 +51,7 @@ export function logpointLabel(logMessage: string, condition?: string): string {
 }
 
 /**
+ * The label at the end of a breakpoint's line, or undefined when it has no rule.
  * The trigger leads, since it decides whether the breakpoint stops at all.
  * `stepPoint` is given when the line holds more than one breakpoint.
  */

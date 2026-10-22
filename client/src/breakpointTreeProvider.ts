@@ -206,7 +206,8 @@ export class BreakpointTreeProvider implements vscode.TreeDataProvider<Breakpoin
       : vscode.TreeItemCheckboxState.Checked;
     item.tooltip = breakpointTooltip(bp, rule);
     // The same icon VS Code's Breakpoints view uses. Plain rows get none: the
-    // checkbox already shows enabled vs disabled.
+    // checkbox already shows enabled vs disabled. A breakpoint that only waits
+    // on a trigger has no VS Code icon, so it keeps the plain row.
     if (rule?.logMessage !== undefined) {
       item.iconPath = new vscode.ThemeIcon('debug-breakpoint-log');
     } else if (rule?.condition !== undefined) {
