@@ -2699,6 +2699,18 @@ export function activate(context: vscode.ExtensionContext) {
           session.inTransaction,
         );
         if (decision === 'cancel') return;
+        // The session's views close only once it is gone: GemStone can refuse
+        // the logout, and the session then stays open with its views intact.
+        try {
+          // A second click, or a stale tree item, finds the work already done.
+          if (!(await sessionManager.logout(session.id))) return;
+        } catch (e) {
+          vscode.window.showErrorMessage(e instanceof Error ? e.message : String(e));
+          return;
+        }
+        // Before the panels close: the export set went with the session, so a
+        // panel releasing its pins would only fail against the logged-out handle.
+        forgetSessionPins(session.id);
         // Keep the class mirror on disk: it's keyed by connection target and is
         // re-synced incrementally on the next login, which is far cheaper than
         // rebuilding it from scratch (especially for large, remote images).
@@ -2711,14 +2723,7 @@ export function activate(context: vscode.ExtensionContext) {
         void closeGemstoneTabsForSession(session.id);
         EnhancedInspector.disposeForSession(session.id);
         BasicInspector.disposeForSession(session.id);
-        // Dispose before logout so each panel's dispose() can still release its
-        // suspended GsProcess against a live handle.
         DebuggerPanel.disposeForSession(session.id);
-        sessionManager.logout(session.id);
-        // Every panel that held an export-set pin released it in its dispose()
-        // above; drop the registry's bookkeeping for the session anyway, since
-        // its export set went with it.
-        forgetSessionPins(session.id);
         treeProvider.refresh();
         breakpointManager.clearAllForSession(session.id);
         stepPointHints.refresh();
@@ -4471,13 +4476,21 @@ export function activate(context: vscode.ExtensionContext) {
    * `SessionManager.logout` already tolerates a handle whose gem is gone, so
    * this is safe whichever order the two actually die in.
    */
-  function reapSessionsOf(db: GemStoneDatabase): number {
+  async function reapSessionsOf(db: GemStoneDatabase): Promise<number> {
     const doomed = sessionsOnDatabase(
       db,
       sessionManager.getSessions(),
       sysadminStorage.getDatabases(),
     );
-    for (const session of doomed) sessionManager.logout(session.id);
+    // Together, not one after another: a refused logout waits for its call to
+    // stop, and the stone's stop should not wait for each of those in turn.
+    const outcomes = await Promise.allSettled(doomed.map((s) => sessionManager.logout(s.id)));
+    for (const outcome of outcomes) {
+      if (outcome.status === 'rejected') {
+        const e: unknown = outcome.reason;
+        void vscode.window.showErrorMessage(e instanceof Error ? e.message : String(e));
+      }
+    }
     if (doomed.length > 0) treeProvider.refresh();
     return doomed.length;
   }
@@ -4954,7 +4967,7 @@ export function activate(context: vscode.ExtensionContext) {
             // to exit, and one that outlives it holds the extent open against the
             // next start. The user has chosen Force Stop by this point, so there
             // is no cancel left to undo.
-            reapSessionsOf(db);
+            await reapSessionsOf(db);
             const result = await processManager.forceKillStone(db);
             if (!result.killed) vscode.window.showErrorMessage(result.reason);
             return result.killed;
@@ -4964,7 +4977,7 @@ export function activate(context: vscode.ExtensionContext) {
         // A graceful stopstone ends the gems on the server side, but says nothing
         // to this side — so the sessions have to be cleared here too, or the views
         // go on listing sessions whose stone is gone.
-        if (outcome === 'stopped' || outcome === 'killed') reapSessionsOf(db);
+        if (outcome === 'stopped' || outcome === 'killed') await reapSessionsOf(db);
 
         if (outcome === 'stopped') {
           vscode.window.showInformationMessage(`Stone "${stoneName}" stopped.`);
@@ -5350,7 +5363,7 @@ export function activate(context: vscode.ExtensionContext) {
             return serverBackupFilePaths(execute, backupFolderInServer(execute));
           },
           closeCurrentSession: async () => {
-            sessionManager.logout(sessionId);
+            await sessionManager.logout(sessionId);
           },
           stopStone: async () => {
             // GciTsLogout returns before the stone finishes deregistering our gem,
