@@ -179,7 +179,8 @@ const COLLECT_FAILURES_TO_GIVE_UP = 3;
  *
  * Keyed by session id, not by the ActiveSession object: callers build those
  * freely and two of them can stand for the same logged-in session, which is the
- * thing that actually has one call outstanding at a time.
+ * thing that actually has one call outstanding at a time. The id names that
+ * logged-in session alone: transient logins get ids of their own too.
  */
 const draining = new Map<number, Promise<void>>();
 
