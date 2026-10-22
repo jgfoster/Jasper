@@ -67,6 +67,7 @@ import {
   GCI_PERFORM_FLAG_INTERPRETED,
 } from '../gciConstants';
 import {
+  BREAKPOINT_ERROR,
   DECISION,
   setBreakpointRuleSource,
   type BreakpointRuleSource,
@@ -1875,7 +1876,6 @@ describe('CodeExecutor', () => {
     // with the suspended process in err.context. The executor's job is to hand
     // that process to the skip loop and act on what comes back — see
     // conditionalBreakpoints.ts for the loop itself.
-    const BREAKPOINT = 6005;
     const PROCESS_OOP = 999n;
 
     /** One conditional breakpoint, on a method the loop will be told about. */
@@ -1898,7 +1898,7 @@ describe('CodeExecutor', () => {
         GciTsNbResult: vi.fn(() => ({
           result: 0n,
           err: {
-            number: BREAKPOINT,
+            number: BREAKPOINT_ERROR,
             message: 'Method breakpoint encountered.',
             context: PROCESS_OOP,
           },
@@ -2067,7 +2067,7 @@ describe('CodeExecutor', () => {
       const session = makeSession(gci);
       mockOf(gci, 'GciTsContinueWithAsync').mockImplementation(async () => {
         session.logout();
-        return { result: 0n, err: { number: BREAKPOINT, message: '', context: 1000n } };
+        return { result: 0n, err: { number: BREAKPOINT_ERROR, message: '', context: 1000n } };
       });
       const executor = executorWith(makeSessionManager(session), oneCondition);
       vi.mocked(vscode.window.showErrorMessage).mockClear();
