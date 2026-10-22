@@ -27,11 +27,9 @@ import {
 } from './nbRunner';
 import {
   BREAKPOINT_ERROR,
-  BreakpointRuleSource,
   CONTINUE_FLAGS,
   SOFT_BREAK_ERROR,
   resolveBreakpointStop,
-  setBreakpointRuleSource,
 } from './conditionalBreakpoints';
 
 const MAX_RESULT_SIZE = 64 * 1024;
@@ -109,13 +107,7 @@ export class CodeExecutor {
   // full result if the user chooses to materialize it in place.
   private overlaySelection: vscode.Selection | undefined;
 
-  constructor(
-    private sessionManager: SessionManager,
-    rules: BreakpointRuleSource,
-  ) {
-    // Every run that meets a breakpoint consults these — this executor's, and
-    // the debugger's Resume on a run this executor started.
-    setBreakpointRuleSource(rules);
+  constructor(private sessionManager: SessionManager) {
     this.diagnostics = vscode.languages.createDiagnosticCollection('gemstone-execute');
     this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
   }

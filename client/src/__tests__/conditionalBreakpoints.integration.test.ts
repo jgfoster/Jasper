@@ -1273,7 +1273,7 @@ describe('conditional breakpoints (integration)', () => {
   });
 
   it('applies the rules to a debugger Resume, start to finish', async () => {
-    // The whole Resume path, with the rules read from where the executor
+    // The whole Resume path, with the rules read from where `activate`
     // registers them: a plain breakpoint stops the run, and after Resume a
     // logpoint further on logs every hit and the run completes, rather than the
     // debugger stopping at the logpoint.

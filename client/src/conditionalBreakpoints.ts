@@ -129,9 +129,9 @@ export interface BreakpointRuleSource {
 let ruleSource: BreakpointRuleSource | undefined;
 
 /**
- * Name the source every run consults. The executor registers the breakpoint
- * manager here when it is built, which is how the debugger's Resume reaches the
- * same rules as the run that opened it without depending on either.
+ * Name the source every run consults. `activate` registers the breakpoint
+ * manager here, which is how the debugger's Resume reaches the same rules as the
+ * run that opened it without depending on either.
  */
 export function setBreakpointRuleSource(source: BreakpointRuleSource | undefined): void {
   ruleSource = source;

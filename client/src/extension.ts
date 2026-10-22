@@ -171,6 +171,7 @@ import { GemStoneDefinitionProvider } from './gemstoneDefinitionProvider';
 import { GemStoneHoverProvider } from './gemstoneHoverProvider';
 import { GemStoneCompletionProvider } from './gemstoneCompletionProvider';
 import { BreakpointManager } from './breakpointManager';
+import { setBreakpointRuleSource } from './conditionalBreakpoints';
 import { StepPointModel } from './stepPointModel';
 import { StepPointHintsProvider } from './stepPointHints';
 import { StepPointHoverProvider } from './stepPointHover';
@@ -1163,6 +1164,9 @@ export function activate(context: vscode.ExtensionContext) {
   const stepPointModel = new StepPointModel(sessionManager);
   const breakpointManager = new BreakpointManager(sessionManager, stepPointModel);
   breakpointManager.register(context);
+  // Every run that meets a breakpoint consults these rules: Execute It's, and
+  // the debugger's Resume.
+  setBreakpointRuleSource(breakpointManager);
 
   const stepPointHints = new StepPointHintsProvider(stepPointModel);
   stepPointHints.register(context);
@@ -1274,7 +1278,7 @@ export function activate(context: vscode.ExtensionContext) {
   // ── Code Execution ─────────────────────────────────────
   // Constructed before the SUnit controller, which borrows its debug-enabled
   // execution path to run a single test under the debugger.
-  const codeExecutor = new CodeExecutor(sessionManager, breakpointManager);
+  const codeExecutor = new CodeExecutor(sessionManager);
   context.subscriptions.push(codeExecutor);
 
   // ── SUnit Test Controller ────────────────────────────────

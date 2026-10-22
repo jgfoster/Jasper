@@ -66,6 +66,7 @@ import {
   GCI_PERFORM_FLAG_SINGLE_STEP,
   GCI_PERFORM_FLAG_INTERPRETED,
 } from '../gciConstants';
+import { setBreakpointRuleSource, type BreakpointRuleSource } from '../conditionalBreakpoints';
 import { fakeActiveSession } from './fakeActiveSession';
 
 /** Set the gemstone.displayItMode setting for the current test. */
@@ -264,6 +265,12 @@ function lastDiagCollection() {
  */
 const NO_CONDITIONS = { breakpointRulesFor: () => [] };
 
+/** An executor whose runs consult `rules`, as `activate` wires them. */
+function executorWith(sessionManager: SessionManager, rules: BreakpointRuleSource): CodeExecutor {
+  setBreakpointRuleSource(rules);
+  return new CodeExecutor(sessionManager);
+}
+
 // ── Tests ────────────────────────────────────────────────────
 
 describe('CodeExecutor', () => {
@@ -283,7 +290,7 @@ describe('CodeExecutor', () => {
     // tracked for it by the runner, as for a real session until logout.
     forgetSession(session.id);
     sessionManager = makeSessionManager(session);
-    executor = new CodeExecutor(sessionManager, NO_CONDITIONS);
+    executor = executorWith(sessionManager, NO_CONDITIONS);
   });
 
   // ── Syntax error diagnostics ───────────────────────────────
@@ -736,7 +743,7 @@ describe('CodeExecutor', () => {
     function setup() {
       gci = debuggableGci();
       session = makeSession(gci, handle);
-      executor = new CodeExecutor(makeSessionManager(session), NO_CONDITIONS);
+      executor = executorWith(makeSessionManager(session), NO_CONDITIONS);
       setActiveEditor(makeEditor('Array new add: 1; add: 2'));
     }
 
@@ -1491,7 +1498,7 @@ describe('CodeExecutor', () => {
     it('shows a modal dialog when Execute It raises a DebuggableError', async () => {
       gci = debuggableGci();
       session = makeSession(gci, handle);
-      executor = new CodeExecutor(makeSessionManager(session), NO_CONDITIONS);
+      executor = executorWith(makeSessionManager(session), NO_CONDITIONS);
 
       const editor = makeEditor('nil foo');
       setActiveEditor(editor);
@@ -1505,7 +1512,7 @@ describe('CodeExecutor', () => {
     it('offers Debug in the modal dialog on Execute It', async () => {
       gci = debuggableGci();
       session = makeSession(gci, handle);
-      executor = new CodeExecutor(makeSessionManager(session), NO_CONDITIONS);
+      executor = executorWith(makeSessionManager(session), NO_CONDITIONS);
 
       const editor = makeEditor('nil foo');
       setActiveEditor(editor);
@@ -1520,7 +1527,7 @@ describe('CodeExecutor', () => {
     it('shows a modal dialog when Inspect It raises a DebuggableError', async () => {
       gci = debuggableGci();
       session = makeSession(gci, handle);
-      executor = new CodeExecutor(makeSessionManager(session), NO_CONDITIONS);
+      executor = executorWith(makeSessionManager(session), NO_CONDITIONS);
 
       const editor = makeEditor('nil foo');
       setActiveEditor(editor);
@@ -1534,7 +1541,7 @@ describe('CodeExecutor', () => {
     it('offers Debug in the modal dialog on Inspect It', async () => {
       gci = debuggableGci();
       session = makeSession(gci, handle);
-      executor = new CodeExecutor(makeSessionManager(session), NO_CONDITIONS);
+      executor = executorWith(makeSessionManager(session), NO_CONDITIONS);
 
       const editor = makeEditor('nil foo');
       setActiveEditor(editor);
@@ -1573,7 +1580,7 @@ describe('CodeExecutor', () => {
     function setup() {
       gci = debuggableGci();
       session = makeSession(gci, handle);
-      executor = new CodeExecutor(makeSessionManager(session), NO_CONDITIONS);
+      executor = executorWith(makeSessionManager(session), NO_CONDITIONS);
       const editor = makeEditor('nil foo');
       setActiveEditor(editor);
     }
@@ -1686,7 +1693,7 @@ describe('CodeExecutor', () => {
       const gci = makeGci({ isAvailable: (name: string) => name !== 'GciTsNbPoll' });
       const handle = {};
       const session = makeSession(gci, handle);
-      const executor = new CodeExecutor(makeSessionManager(session), NO_CONDITIONS);
+      const executor = executorWith(makeSessionManager(session), NO_CONDITIONS);
 
       const editor = makeEditor('3 + 4');
       setActiveEditor(editor);
@@ -1711,7 +1718,7 @@ describe('CodeExecutor', () => {
         })),
       });
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), NO_CONDITIONS);
+      const executor = executorWith(makeSessionManager(session), NO_CONDITIONS);
 
       const editor = makeEditor('3 + 4');
       setActiveEditor(editor);
@@ -1732,7 +1739,7 @@ describe('CodeExecutor', () => {
     it('runs the code with the debugger enabled and answers that it did not raise', async () => {
       const gci = makeGci();
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), NO_CONDITIONS);
+      const executor = executorWith(makeSessionManager(session), NO_CONDITIONS);
 
       const outcome = await executor.executeWithDebugger(session, '3 + 4', 'MyTest>>testAdd');
 
@@ -1745,7 +1752,7 @@ describe('CodeExecutor', () => {
     it('starts clientForwarder mode for the exact code it runs, and ends it after', async () => {
       const gci = makeGci();
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), NO_CONDITIONS);
+      const executor = executorWith(makeSessionManager(session), NO_CONDITIONS);
 
       await executor.executeWithDebugger(session, "MyTest debug: #'testAdd'", 'MyTest>>testAdd');
 
@@ -1762,7 +1769,7 @@ describe('CodeExecutor', () => {
     it('ends clientForwarder mode once a hard-broken call is collected', async () => {
       const gci = makeGci();
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), NO_CONDITIONS);
+      const executor = executorWith(makeSessionManager(session), NO_CONDITIONS);
       await executor.executeWithDebugger(session, '3 + 4', 'MyTest>>testAdd');
       const opts = vi.mocked(pollNbToCompletion).mock.lastCall![2] as NbRunOptions;
       (gci.executeAndFetchString as Mock).mockClear();
@@ -1777,7 +1784,7 @@ describe('CodeExecutor', () => {
     it('needs no active editor — a test is debugged from a row, not from text', async () => {
       (vscode.window as unknown as Record<string, unknown>).activeTextEditor = undefined;
       const session = makeSession();
-      const executor = new CodeExecutor(makeSessionManager(session), NO_CONDITIONS);
+      const executor = executorWith(makeSessionManager(session), NO_CONDITIONS);
 
       await expect(
         executor.executeWithDebugger(session, '3 + 4', 'MyTest>>testAdd'),
@@ -1792,7 +1799,7 @@ describe('CodeExecutor', () => {
         })),
       });
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), NO_CONDITIONS);
+      const executor = executorWith(makeSessionManager(session), NO_CONDITIONS);
 
       const outcome = await executor.executeWithDebugger(session, '3 + 4', 'MyTest>>testAdd');
 
@@ -1815,7 +1822,7 @@ describe('CodeExecutor', () => {
         })),
       });
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), NO_CONDITIONS);
+      const executor = executorWith(makeSessionManager(session), NO_CONDITIONS);
 
       const outcome = await executor.executeWithDebugger(session, '3 + 4', 'MyTest>>testSlow');
 
@@ -1826,7 +1833,7 @@ describe('CodeExecutor', () => {
     it('releases the session lock so the next test can run', async () => {
       const gci = makeGci();
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), NO_CONDITIONS);
+      const executor = executorWith(makeSessionManager(session), NO_CONDITIONS);
 
       await executor.executeWithDebugger(session, '3 + 4', 'MyTest>>testAdd');
       await executor.executeWithDebugger(session, '3 + 4', 'MyTest>>testRemove');
@@ -1837,7 +1844,7 @@ describe('CodeExecutor', () => {
     it('refuses to start on a session that is already executing', async () => {
       const gci = makeGci();
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), NO_CONDITIONS);
+      const executor = executorWith(makeSessionManager(session), NO_CONDITIONS);
       // Hold the first execution open so the session is genuinely busy.
       gci.GciTsNbPoll.mockReturnValue({ result: 0, err: { number: 0 } });
       const pending = executor.executeWithDebugger(session, '3 + 4', 'MyTest>>testAdd');
@@ -1958,7 +1965,7 @@ describe('CodeExecutor', () => {
       // The ordinary case, and it must stay free: no decision, no resume.
       const gci = haltingGci([STOP], []);
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), NO_CONDITIONS);
+      const executor = executorWith(makeSessionManager(session), NO_CONDITIONS);
 
       const outcome = await executor.executeWithDebugger(session, '3 + 4', 'run');
 
@@ -1970,7 +1977,7 @@ describe('CodeExecutor', () => {
     it('stops at a breakpoint whose condition held', async () => {
       const gci = haltingGci([STOP], []);
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+      const executor = executorWith(makeSessionManager(session), oneCondition);
 
       const outcome = await executor.executeWithDebugger(session, '3 + 4', 'run');
 
@@ -1987,7 +1994,7 @@ describe('CodeExecutor', () => {
       // code simply ran, which is exactly what a false condition means.
       const gci = haltingGci([GO], [{ result: 4242n, err: { number: 0 } }]);
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+      const executor = executorWith(makeSessionManager(session), oneCondition);
 
       await expect(executor.executeWithDebugger(session, '3 + 4', 'run')).resolves.toEqual({
         raised: false,
@@ -1997,7 +2004,7 @@ describe('CodeExecutor', () => {
     it('skips several hits before one holds', async () => {
       const gci = haltingGci([GO, GO, STOP], [hitsBreakpoint(1000n), hitsBreakpoint(1001n)]);
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+      const executor = executorWith(makeSessionManager(session), oneCondition);
 
       const outcome = await executor.executeWithDebugger(session, '3 + 4', 'run');
 
@@ -2014,7 +2021,7 @@ describe('CodeExecutor', () => {
         [{ err: { number: 2010, message: 'doesNotUnderstand: #foo', context: 1234n } }],
       );
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+      const executor = executorWith(makeSessionManager(session), oneCondition);
       vi.mocked(vscode.window.showErrorMessage).mockResolvedValueOnce('Debug' as never);
       vi.mocked(DebuggerPanel.create).mockClear();
 
@@ -2028,7 +2035,7 @@ describe('CodeExecutor', () => {
       // Offering Debug on process 0 opens nothing and then clears nothing.
       const gci = haltingGci([GO], [{ err: { number: 4001, message: 'fatal', context: 0n } }]);
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+      const executor = executorWith(makeSessionManager(session), oneCondition);
       vi.mocked(vscode.window.showErrorMessage).mockClear();
 
       await expect(executor.executeWithDebugger(session, '3 + 4', 'run')).rejects.toThrow('fatal');
@@ -2043,7 +2050,7 @@ describe('CodeExecutor', () => {
         [{ err: { number: 6003, message: 'a soft break was received', context: 1234n } }],
       );
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+      const executor = executorWith(makeSessionManager(session), oneCondition);
       vi.mocked(vscode.window.showErrorMessage).mockClear();
 
       await expect(executor.executeWithDebugger(session, '3 + 4', 'run')).resolves.toEqual({
@@ -2061,7 +2068,7 @@ describe('CodeExecutor', () => {
         err: { number: 6003, message: 'a soft break was received', context: 601n },
       });
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+      const executor = executorWith(makeSessionManager(session), oneCondition);
 
       await expect(executor.executeWithDebugger(session, '3 + 4', 'run')).resolves.toEqual({
         raised: false,
@@ -2076,7 +2083,7 @@ describe('CodeExecutor', () => {
       const gci = haltingGci([GO], []);
       mockOf(gci, 'GciTsContinueWithAsync').mockRejectedValue(new NbCancelledError());
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+      const executor = executorWith(makeSessionManager(session), oneCondition);
 
       await expect(executor.executeWithDebugger(session, '3 + 4', 'run')).resolves.toEqual({
         raised: false,
@@ -2095,7 +2102,7 @@ describe('CodeExecutor', () => {
         session.logout();
         return { result: 0n, err: { number: BREAKPOINT, message: '', context: 1000n } };
       });
-      const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+      const executor = executorWith(makeSessionManager(session), oneCondition);
       vi.mocked(vscode.window.showErrorMessage).mockClear();
 
       await expect(executor.executeWithDebugger(session, '3 + 4', 'run')).rejects.toThrow(
@@ -2122,7 +2129,7 @@ describe('CodeExecutor', () => {
         ],
       );
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+      const executor = executorWith(makeSessionManager(session), oneCondition);
       vi.mocked(appendTranscriptOutput).mockClear();
 
       const outcome = await executor.executeWithDebugger(session, '3 + 4', 'run');
@@ -2157,7 +2164,7 @@ describe('CodeExecutor', () => {
           'x=1',
         );
         const session = makeSession(gci);
-        const executor = new CodeExecutor(makeSessionManager(session), oneLogpoint);
+        const executor = executorWith(makeSessionManager(session), oneLogpoint);
 
         await expect(executor.executeWithDebugger(session, '3 + 4', 'run')).resolves.toEqual({
           raised: false,
@@ -2176,7 +2183,7 @@ describe('CodeExecutor', () => {
           'undefined symbol  x',
         );
         const session = makeSession(gci);
-        const executor = new CodeExecutor(makeSessionManager(session), oneLogpoint);
+        const executor = executorWith(makeSessionManager(session), oneLogpoint);
 
         await executor.executeWithDebugger(session, '3 + 4', 'run');
 
@@ -2199,7 +2206,7 @@ describe('CodeExecutor', () => {
       // a breakpoint that never fired, with nothing said about either.
       const gci = haltingGci([FAILED], [], 'undefined symbol  nosuchvar');
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+      const executor = executorWith(makeSessionManager(session), oneCondition);
 
       const outcome = await executor.executeWithDebugger(session, '3 + 4', 'run');
 
@@ -2214,7 +2221,7 @@ describe('CodeExecutor', () => {
       // looking when they wonder why it stopped on the very first hit.
       const gci = haltingGci([FAILED], [], 'undefined symbol  nosuchvar');
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+      const executor = executorWith(makeSessionManager(session), oneCondition);
 
       const outcome = await executor.executeWithDebugger(session, '3 + 4', 'run');
 
@@ -2230,7 +2237,7 @@ describe('CodeExecutor', () => {
         err: { number: 2101, message: 'no such object' },
       });
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+      const executor = executorWith(makeSessionManager(session), oneCondition);
 
       const outcome = await executor.executeWithDebugger(session, '3 + 4', 'run');
 
@@ -2251,7 +2258,7 @@ describe('CodeExecutor', () => {
         GciTsObjExists: vi.fn(() => true),
       });
       const session = makeSession(gci);
-      const executor = new CodeExecutor(makeSessionManager(session), oneCondition);
+      const executor = executorWith(makeSessionManager(session), oneCondition);
 
       const outcome = await executor.executeWithDebugger(session, '3 + 4', 'run');
 
