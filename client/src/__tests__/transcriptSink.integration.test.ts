@@ -30,7 +30,7 @@ import {
   drainTranscript,
   settleNbResult,
 } from '../transcriptSink';
-import { runNbCall, NbCancelledError, pollNbResultReady } from '../nbRunner';
+import { runNbCall, NbCancelledError, pollNbResultReady, stopCallsOn } from '../nbRunner';
 import { expectEventLoopToRemainResponsiveDuring } from './support/timers';
 import {
   OOP_CLASS_STRING,
@@ -355,6 +355,65 @@ tmps := SessionTemps current.
     // quiet machine settles the break in ~25ms and finishes the whole test in
     // ~325ms; a loaded CI runner has taken the full loop, which the default
     // killed mid-wait and left the session busy for the rest of the file.
+  }, 30_000);
+
+  it('a logout refused while output streams succeeds once the run is stopped', async () => {
+    // GemStone refuses a logout while a koffi worker thread owns the session,
+    // and dropping the session after that refusal leaves its gem running with
+    // nothing left to reach it. Stopping the run hands the session back.
+    //
+    // On a session of its own, because the logout is the point. The run
+    // writes, which puts it on the worker, then waits there long enough for
+    // the first logout to land; the pause before it lets the worker actually
+    // start, since the write is reported just before the resume is queued.
+    const { session: busy, err } = session().transientLogin(session().login);
+    if (!busy) throw new Error(`Transient login failed: ${err.message}`);
+    const gemSession = busy.executeAndFetchString('System session printString');
+    expect(installTranscriptSink(busy)).toBe(true);
+    let wroteOnce: () => void = () => {};
+    const onWorker = new Promise<void>((resolve) => {
+      wroteOnce = resolve;
+    });
+    const code =
+      "Transcript nextPutAll: 'streaming'. " +
+      '200 timesRepeat: [(Delay forMilliseconds: 50) wait]. 42';
+    startClientForwarderMode(busy, code);
+    const run = runNbCall(
+      busy,
+      () => busy.GciTsNbExecute(code, OOP_CLASS_UTF8, OOP_ILLEGAL, OOP_NIL, 0, 0),
+      (signal) => settleNbResult(busy, () => wroteOnce(), signal),
+      { suppressNotification: true, disposableProcess: true },
+    );
+    // Claimed now: the stop rejects it before the assertions below run.
+    run.catch(() => {});
+    try {
+      await onWorker;
+      await sleep(200);
+      const firstLogout = busy.logout();
+
+      await stopCallsOn(busy);
+      const retry = busy.logout();
+
+      expect(firstLogout).toBe(false);
+      expect(retry).toBe(true);
+      await expect(run).rejects.toBeInstanceOf(NbCancelledError);
+      // The stone deregisters a gem shortly after its logout returns.
+      await vi.waitFor(
+        () =>
+          expect(exec(`(System currentSessions includes: ${gemSession}) printString`)).toBe(
+            'false',
+          ),
+        { timeout: 2000, interval: 100 },
+      );
+    } finally {
+      // Whatever failed above, the gem must not outlive the test.
+      await stopCallsOn(busy);
+      try {
+        busy.logout();
+      } catch {
+        /* already logged out */
+      }
+    }
   }, 30_000);
 
   it('a live write with no worker thread fails loudly and strands nothing', async () => {
