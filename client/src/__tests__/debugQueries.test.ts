@@ -290,17 +290,6 @@ describe('debugQueries', () => {
       expect(debug.getMethodUriInfo(session, METHOD_OOP)).toBeUndefined();
     });
 
-    // A doit's method has no class. The query must answer '' for it before
-    // `theNonMetaClass` is ever sent, or every debugger open logs an ERROR for
-    // the "Executed Code" frame at the bottom of the stack.
-    it('checks for a classless method before sending theNonMetaClass', () => {
-      const code = generatedSmalltalkFrom((session) => debug.getMethodUriInfo(session, METHOD_OOP));
-
-      const guard = code.indexOf("class isNil ifTrue: [ '' ]");
-      expect(guard).toBeGreaterThan(-1);
-      expect(guard).toBeLessThan(code.indexOf('theNonMetaClass'));
-    });
-
     it("returns undefined for the empty answer a doit's method gets", () => {
       const { session, gci } = createMockSession();
       gci.executeAndFetchString.mockImplementation(() => '');

@@ -320,13 +320,12 @@ describe('BreakpointTreeProvider', () => {
 
     it('elides a long condition on the row but keeps it whole in the tooltip', () => {
       const long = 'anOrder customer name = ' + "'".repeat(2) + ' and this goes on for a while yet';
-      vi.mocked(manager.ruleForStoneBreakpoint).mockReturnValue({
+      vi.mocked(manager.ruleForStoneBreakpoint).mockReturnValueOnce({
         condition: long,
       });
       const item = provider.getTreeItem({ kind: 'breakpoint', bp: bp() });
       expect(String(item.description)).toContain('…');
       expect(String((item.tooltip as { value: string }).value)).toContain(long);
-      vi.mocked(manager.ruleForStoneBreakpoint).mockReturnValue(undefined);
     });
 
     it('gives executed code no reveal command — there is no source to open', () => {

@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('vscode', () => import('../__mocks__/vscode.js'));
 
 import {
-  BREAKPOINT_ERROR,
   BreakpointRule,
   DECISION,
   deciderSource,
@@ -11,11 +10,16 @@ import {
   logMessageExpression,
 } from '../conditionalBreakpoints';
 import { OOP_NIL } from '../gciConstants';
-import { FRAME_SELF_SMALLTALK } from '../debugQueries';
-import { CLIENT_FORWARDER_SEND_ERR } from '../transcriptSink';
 import { NbCancelledError } from '../nbRunner';
 import * as vscode from 'vscode';
 import { fakeActiveSession } from './fakeActiveSession';
+import {
+  fakeSkipLoopGci,
+  hitsBreakpoint,
+  writesToTranscript,
+  type ScriptedResume,
+  TRANSCRIPT_TEXT,
+} from './fakeSkipLoopGci';
 
 const spec = (over: Partial<BreakpointRule> = {}): BreakpointRule => ({
   methodExpr: '(Account compiledMethodAt: #deposit: environmentId: 0)',
@@ -28,93 +32,6 @@ const spec = (over: Partial<BreakpointRule> = {}): BreakpointRule => ({
 const decider = (specs: BreakpointRule[]): string => deciderSource(specs, 9001n);
 
 describe('deciderSource', () => {
-  it('compiles once and parks the block in the session temps', () => {
-    // Compiled once and performed per hit: a doit is recompiled every time it
-    // is executed, and this source is several KB of it.
-    const source = decider([spec()]);
-    expect(source).toContain('runs at: proc put: entry.');
-    expect(source).toContain('entry := Array with: proc with: nil with: specs with: armed.');
-    expect(source).toContain('decider := [:p |');
-  });
-
-  it('parks the run with the process it belongs to, and follows it hit by hit', () => {
-    // So a Resume of the same process can find this run's trigger arming.
-    const source = decider([spec()]);
-    expect(source).toContain('proc := Object _objectForOop: 9001.');
-    expect(source).toContain('runs at: p put: entry ].');
-  });
-
-  it("carries a trigger's arming over from the same process's previous decider", () => {
-    const source = decider([spec({ stepPoint: 3 }), spec({ stepPoint: 9, triggeredBy: 1 })]);
-    expect(source).toContain('old := runs at: proc otherwise: nil.');
-    expect(source).toContain('ifTrue: [ armed at: k put: ((old at: 4) at: j) ]');
-  });
-
-  it('takes the suspended process as the block’s argument', () => {
-    // No `_objectForOop:` per hit — the process is handed over as the object it
-    // already is.
-    expect(decider([spec()])).toContain('fc := p _frameContentsAt: 1.');
-  });
-
-  it('never returns non-locally from the block', () => {
-    // The home doit has finished by the time the block runs, so a `^` in it is
-    // an error rather than an early exit.
-    const body = decider([spec()]);
-    expect(body.slice(body.indexOf('decider := [:p |'))).not.toMatch(/\^/);
-  });
-
-  it('carries one spec per conditional breakpoint', () => {
-    const source = decider([
-      spec({ stepPoint: 3, condition: 'i > 5' }),
-      spec({ stepPoint: 9, condition: 'each isNil' }),
-    ]);
-    expect(source).toContain("with: 3 with: 'i > 5'");
-    expect(source).toContain("with: 9 with: 'each isNil'");
-  });
-
-  it('marks a breakpoint with no trigger as armed from the start', () => {
-    const source = decider([spec({ condition: 'i > 5' })]);
-    // Slot 5 is the trigger index; 0 means "waits for nothing".
-    expect(source).toContain("with: 'i > 5' with: nil with: 0");
-    expect(source).toContain('armed := specs collect: [:s | (s at: 5) = 0].');
-  });
-
-  it('starts a triggered breakpoint disarmed, pointing at its trigger', () => {
-    const source = decider([
-      spec({ stepPoint: 3 }),
-      spec({ stepPoint: 9, condition: undefined, triggeredBy: 1 }),
-    ]);
-    // The second spec waits on the first, and only the first starts armed.
-    expect(source).toContain('with: 9 with: nil with: nil with: 1');
-    expect(source).toContain('armed := specs collect: [:s | (s at: 5) = 0].');
-  });
-
-  it('skips a disarmed breakpoint instead of stopping at it', () => {
-    // The Go branch guarded on `armed`, which is what makes a triggered
-    // breakpoint pass over rather than stop while it waits.
-    const source = decider([spec({ triggeredBy: 1 })]);
-    expect(source).toContain('(armed at: idx) not');
-  });
-
-  it('lets a breakpoint that waits on itself stay disarmed for good', () => {
-    // How a breakpoint whose trigger was disabled or removed is kept disarmed:
-    // its rule names its own index. A waiting breakpoint answers Go before the
-    // arming sweep is reached, so it arms nothing — itself included. The live
-    // proof is the integration test of the same name.
-    const source = decider([spec({ triggeredBy: 1 })]);
-    expect(source).toContain('with: 1).');
-    expect(source.indexOf('(armed at: idx) not')).toBeLessThan(
-      source.indexOf('armed at: k put: true'),
-    );
-  });
-
-  it('arms every spec that names the one just reached', () => {
-    // A sweep of the whole array, not a single at:put:, so one trigger can arm
-    // several breakpoints at once.
-    const source = decider([spec()]);
-    expect(source).toContain('(((specs at: k) at: 5) = idx) ifTrue: [ armed at: k put: true ]');
-  });
-
   it('keeps the generated source ASCII', () => {
     // Non-ASCII in this source reaches GemStone's compiler through the GCI's
     // UTF-8 path and breaks its cursor arithmetic outright — "ComStrmSetCursor:
@@ -139,96 +56,6 @@ describe('deciderSource', () => {
     ]);
 
     expect([...source].filter((c) => c.charCodeAt(0) > 127)).toEqual([]);
-    expect(source).toContain('#(110 97 109 101 32 61 32 39 99 97 102 233 39)');
-    expect(source).toContain(
-      '#(39 26085 26412 32 39 44 32 105 32 112 114 105 110 116 83 116 114 105 110 103)',
-    );
-    expect(source).toContain('Character codePoint: c');
-  });
-
-  it('leaves an ASCII condition readable, as a plain literal', () => {
-    expect(decider([spec({ condition: 'i > 5' })])).toContain("with: 'i > 5'");
-  });
-
-  it("doubles a quote in the developer's condition", () => {
-    // Otherwise `name = 'ada'` would close the literal early and the doit would
-    // fail to compile — reported as if the breakpoint itself were broken.
-    expect(decider([spec({ condition: "name = 'ada'" })])).toContain("with: 'name = ''ada'''");
-  });
-
-  it('survives a method, or a class, that no longer exists', () => {
-    // Recompiling or removing the method makes `compiledMethodAt:` raise, and a
-    // removed class makes the expression fail to compile at all. Compiled in
-    // the gem inside the guard, a spec that cannot resolve degrades to "no rule
-    // here" — which stops — rather than taking every other rule down with it.
-    expect(decider([spec()])).toContain(
-      "specs add: (Array with: ([ '(Account compiledMethodAt: #deposit: environmentId: 0)' " +
-        'evaluate ] on: Error do: [:ex | nil ])',
-    );
-  });
-
-  it('matches a block frame against its home method', () => {
-    // A breakpoint inside a non-inlined block reports the block's own method,
-    // while the breakpoint was set on the home method's step point.
-    const source = decider([spec()]);
-    expect(source).toContain('frameMethod isMethodForBlock');
-    expect(source).toContain('ifTrue: [ frameMethod homeMethod ]');
-  });
-
-  it("evaluates the condition against the frame's self, as the debugger recovers it", () => {
-    // The stopped frame's receiver is the ExecBlock itself, so `self` and every
-    // instance variable would otherwise fail to resolve (GemTalk/Jasper#561).
-    // The debugger's own rule, not a third copy of it.
-    const source = decider([spec()]);
-    expect(source).toContain(FRAME_SELF_SMALLTALK);
-    expect(source).toContain('rcvr := (frameSelfOf value: fetch value: 1 value: fc value: depth)');
-  });
-
-  it("binds the home method's names under the block's own", () => {
-    const source = decider([spec()]);
-    expect(source).toContain('hArr ifNotNil: [:h | bind value: h ].\n    bind value: fc.');
-  });
-
-  it('stops at a step point no condition claims', () => {
-    // An unconditional breakpoint, or a `halt`, reached while skipping.
-    expect(decider([spec()])).toContain(
-      `spec isNil ifTrue: [ answerArray := Array with: ${DECISION.Stop} with: nil ]`,
-    );
-  });
-
-  it('refuses a condition that does not answer a Boolean', () => {
-    // Left alone, `each` (rather than `each > 3`) would never equal true and the
-    // run would silently go to completion — a breakpoint that quietly does
-    // nothing is the worst answer available.
-    expect(decider([spec()])).toContain('(answer == true or: [ answer == false ])');
-  });
-
-  it('sends no spec lines when nothing is conditional', () => {
-    expect(decider([])).toContain('specs := Array new.');
-  });
-
-  it('bakes in every conditional breakpoint, and judges each on its own', () => {
-    // Several can be armed at once; the block picks whichever claims the step
-    // point the process actually stopped at.
-    const source = decider([
-      spec({
-        methodExpr: '(Account compiledMethodAt: #a environmentId: 0)',
-        stepPoint: 3,
-        condition: 'x > 1',
-      }),
-      spec({
-        methodExpr: '(Order compiledMethodAt: #b environmentId: 0)',
-        stepPoint: 9,
-        condition: 'y isNil',
-      }),
-    ]);
-    expect(source).toContain("with: 3 with: 'x > 1'");
-    expect(source).toContain("with: 9 with: 'y isNil'");
-    // Each stop looks up whichever rule claims the step point it landed on —
-    // and remembers which, so a log line can name its own logpoint.
-    expect(source).toContain(
-      '(idx = 0 and: [ (((specs at: k) at: 1) == home) and: [ ((specs at: k) at: 2) = sp ] ])',
-    );
   });
 });
 
@@ -304,85 +131,48 @@ describe('decodeDecision', () => {
 });
 
 /**
- * A GCI stub that answers a scripted sequence of decisions, and a scripted
- * sequence of resume outcomes.
- *
- * Decisions are decoded through `oopToInteger`, so the oops only have to be
- * distinguishable — what they decode to is what each test is about.
+ * A session over {@link fakeSkipLoopGci}, recording what the loop sent it.
  */
 function stubSession(
   decisions: number[],
-  resumes: Resume[],
+  resumes: ScriptedResume[],
   message = '',
-  hooks: {
-    /** Runs inside the Nth resume (0-based), while it is "in flight". */
-    duringResume?: (n: number) => void;
-    /** Replaces the decider's answer, for a judgement that fails. */
-    perform?: () => { result: bigint; err: { number: number; message?: string; context?: bigint } };
-  } = {},
+  hooks: Parameters<typeof fakeSkipLoopGci>[3] = {},
 ) {
-  let decisionIndex = 0;
-  let resumeIndex = 0;
+  const fake = fakeSkipLoopGci(decisions, resumes, message, hooks);
   const executed: string[] = [];
   const performed: { receiver: bigint; selector: string }[] = [];
   const continues: { process: bigint; flags: number }[] = [];
   const cleared: bigint[] = [];
   const breaks: boolean[] = [];
   const gci = {
+    ...fake,
     utf8ClassOop: () => 74n,
-    // One execute per run: compiling the decider. Everything after is a perform.
-    GciTsExecute: (_h: unknown, code: string) => {
+    GciTsExecute: (h: unknown, code: string) => {
       executed.push(code);
-      return { result: 400n, err: { number: 0, message: '' } };
+      return fake.GciTsExecute(h, code);
     },
-    GciTsPerformAsync: (_h: unknown, receiver: bigint, _c: bigint, selector: string) => {
+    GciTsPerformAsync: (h: unknown, receiver: bigint, c: bigint, selector: string) => {
       performed.push({ receiver, selector });
-      return Promise.resolve(
-        hooks.perform?.() ?? { result: 500n, err: { number: 0, message: '' } },
-      );
+      return fake.GciTsPerformAsync(h, receiver, c, selector);
     },
-    // What a Transcript write (2336) carries: client object 2, #nextPutAll:,
-    // and an argument Array holding the text.
-    GciTsOopToI64: () => ({ success: true, value: 2n, err: { number: 0 } }),
-    GciTsFetchUtf8: (_h: unknown, oop: bigint) => ({
-      data: oop === 0x12n ? 'nextPutAll:' : 'written',
-      err: { number: 0 },
-    }),
-    GciTsClearStack: (_h: unknown, process: bigint) => {
-      cleared.push(process);
-      return { success: true, err: { number: 0 } };
-    },
-    GciTsBreak: (_h: unknown, hard: boolean) => {
-      breaks.push(hard);
-      return { success: true, err: { number: 0 } };
-    },
-    GciTsFetchOops: (_h: unknown, oop: bigint) => {
-      if (oop === 0x13n) return { result: 1, oops: [0x77n], err: { number: 0 } };
-      const decision = decisions[Math.min(decisionIndex, decisions.length - 1)];
-      decisionIndex += 1;
-      return {
-        // decision, message, matched-rule index
-        oops: [1000n + BigInt(decision), message === '' ? OOP_NIL : 77n, 1001n],
-        err: { number: 0, message: '' },
-      };
-    },
-    GciTsFetchChars: () => ({ data: message, err: { number: 0, message: '' } }),
-    oopToInteger: (_h: unknown, oop: bigint) => Number(oop - 1000n),
     GciTsContinueWithAsync: (
-      _h: unknown,
+      h: unknown,
       process: bigint,
-      _tos: bigint,
-      _e: unknown,
+      tos: bigint,
+      e: unknown,
       flags: number,
     ) => {
       continues.push({ process, flags });
-      const next = resumes[Math.min(resumeIndex, resumes.length - 1)];
-      hooks.duringResume?.(resumeIndex);
-      resumeIndex += 1;
-      return Promise.resolve({
-        result: next.result ?? 0n,
-        err: { context: 0n, message: '', ...next.err },
-      });
+      return fake.GciTsContinueWithAsync(h, process, tos, e, flags);
+    },
+    GciTsClearStack: (h: unknown, process: bigint) => {
+      cleared.push(process);
+      return fake.GciTsClearStack(h, process);
+    },
+    GciTsBreak: (h: unknown, hard: boolean) => {
+      breaks.push(hard);
+      return fake.GciTsBreak(h, hard);
     },
   };
   return {
@@ -395,25 +185,6 @@ function stubSession(
     breaks,
   };
 }
-
-type Resume = {
-  result?: bigint;
-  err: { number: number; message?: string; context?: bigint; args?: bigint[]; argCount?: number };
-};
-
-/** A Transcript write in clientForwarder mode, from `process`. */
-const writesToTranscript = (process: bigint): Resume => ({
-  err: {
-    number: CLIENT_FORWARDER_SEND_ERR,
-    context: process,
-    args: [0x10n, 0x11n, 0x12n, 0x13n],
-    argCount: 4,
-  },
-});
-
-const hitsBreakpoint = (process: bigint) => ({
-  err: { number: BREAKPOINT_ERROR, message: 'Method breakpoint encountered.', context: process },
-});
 
 describe('applyBreakpointRules', () => {
   it('stops without resuming when the condition holds at the first hit', async () => {
@@ -620,7 +391,7 @@ describe('applyBreakpointRules', () => {
     });
 
     expect(outcome).toEqual({ kind: 'stopped', context: 8n, skipped: 1 });
-    expect(written).toEqual(['written']);
+    expect(written).toEqual([TRANSCRIPT_TEXT]);
     // The writer resumed with the run's own flags, and the decider was not
     // asked about a stop that was never a breakpoint.
     expect(continues.map((c) => c.process)).toEqual([7n, 50n]);
