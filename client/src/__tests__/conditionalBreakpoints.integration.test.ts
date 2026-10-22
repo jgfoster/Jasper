@@ -1206,6 +1206,72 @@ describe('conditional breakpoints (integration)', () => {
     expect(outcome.kind).toBe('completed');
   });
 
+  it('keeps a paused run’s arming while another run in the session stops', async () => {
+    // Run one is paused in the debugger at its trigger; the developer then runs
+    // something else in the same session that stops too. Resuming run one must
+    // still find what its trigger armed.
+    const { armStep, loopStep, methodExpr } = armThenCountFixture();
+    const specs: BreakpointRule[] = [
+      { methodExpr, stepPoint: armStep },
+      { methodExpr, stepPoint: loopStep, triggeredBy: 1 },
+    ];
+    const runOne = BigInt(
+      exec(
+        `${TEST_CLASS} new armThenCount: 20`,
+        GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED,
+      ).err.context,
+    );
+    expect((await applyBreakpointRules(session(), runOne, specs)).kind).toBe('stopped');
+    const runTwo = BigInt(
+      exec(
+        `${TEST_CLASS} new armThenCount: 3`,
+        GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED,
+      ).err.context,
+    );
+    expect((await applyBreakpointRules(session(), runTwo, specs)).kind).toBe('stopped');
+    release(runTwo);
+
+    expect(resume(runOne).err.number).toBe(6005);
+    const outcome = await applyBreakpointRules(session(), runOne, specs);
+
+    expect(outcome).toEqual({ kind: 'stopped', context: runOne, skipped: 0 });
+    expect(valueInTopFrame(runOne, 'i')).toBe('1');
+    release(runOne);
+  });
+
+  it('forgets a run once it has finished or been let go of', async () => {
+    const { armStep, loopStep, methodExpr } = armThenCountFixture();
+    const specs: BreakpointRule[] = [
+      { methodExpr, stepPoint: armStep, logMessage: logMessageExpression('armed') },
+      { methodExpr, stepPoint: loopStep, triggeredBy: 1, condition: 'false' },
+    ];
+    const start = (): bigint =>
+      BigInt(
+        exec(
+          `${TEST_CLASS} new armThenCount: 3`,
+          GCI_PERFORM_FLAG_ENABLE_DEBUG | GCI_PERFORM_FLAG_INTERPRETED,
+        ).err.context,
+      );
+    const finished = start();
+    expect((await applyBreakpointRules(session(), finished, specs)).kind).toBe('completed');
+    const letGo = start();
+    await applyBreakpointRules(session(), letGo, [{ methodExpr, stepPoint: armStep }]);
+    release(letGo);
+    const paused = start();
+
+    await applyBreakpointRules(session(), paused, [{ methodExpr, stepPoint: armStep }]);
+
+    const keys = gci.executeAndFetchString(
+      handle,
+      `((SessionTemps current at: #JasperBreakpointRuns) keys collect: [:p | p asOop]) ` +
+        `asArray printString`,
+    );
+    expect(keys).toContain(String(paused));
+    expect(keys).not.toContain(String(finished));
+    expect(keys).not.toContain(String(letGo));
+    release(paused);
+  });
+
   it('applies the rules to a debugger Resume, start to finish', async () => {
     // The whole Resume path, with the rules read from where the executor
     // registers them: a plain breakpoint stops the run, and after Resume a

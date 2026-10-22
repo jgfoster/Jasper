@@ -336,16 +336,17 @@ export function logMessageExpression(message: string): string {
 }
 
 /**
- * The key the current run's decider is parked under, in the session's
- * temporaries.
+ * The key the session's runs and their deciders are parked under, in its
+ * temporaries: an identity dictionary from each run's process to its entry.
  *
  * `SessionTemps` is per-session VM state, exactly like the breakpoints this
  * serves: it is never committed, is invisible to every other session, and goes
  * away at logout. It is also what keeps the decider alive between the
- * `perform:`s that use it — a GCI result is not otherwise pinned. One key, so a
- * session holds one run's decider however many runs it makes.
+ * `perform:`s that use it — a GCI result is not otherwise pinned. Keyed by
+ * process because a run paused in the debugger must keep its trigger arming
+ * while another run in the same session stops and is judged.
  */
-const DECIDER_KEY = 'JasperConditionalBreakpointDecider';
+const DECIDER_KEY = 'JasperBreakpointRuns';
 
 /**
  * A doit that compiles the decision logic for one run and answers the block.
@@ -380,7 +381,9 @@ const DECIDER_KEY = 'JasperConditionalBreakpointDecider';
  * judged in the same gem in execution order.
  *
  * **The flags last for the run, not for one call.** The run's process, specs
- * and flags are parked together under {@link DECIDER_KEY}. When the debugger
+ * and flags are parked together under {@link DECIDER_KEY}, one entry per run.
+ * Entries for runs that have ended are dropped by the next install rather than
+ * by each way a run can end, which the debugger has several of. When the debugger
  * resumes that same process, the decider is rebuilt from whatever the rules are
  * now — the developer may have edited one while stopped — and every breakpoint
  * that is still the same breakpoint waiting on the same trigger keeps the flag
@@ -414,7 +417,7 @@ export function deciderSource(specs: BreakpointRule[], processOop: bigint): stri
     )
     .join('\n');
 
-  return `| proc specs armed old oldSpecs entry decider homeFrameOf frameSelfOf |
+  return `| proc specs armed runs old oldSpecs entry decider homeFrameOf frameSelfOf |
 proc := Object _objectForOop: ${processOop}.
 ${FRAME_SELF_SMALLTALK}
 specs := Array new.
@@ -422,8 +425,17 @@ ${specLines}
 armed := specs collect: [:s | (s at: 5) = 0].
 "Carry the flags over from this process's previous decider: a breakpoint that is
  the same step point, waiting on the same step point, keeps its arming."
-old := SessionTemps current at: #'${DECIDER_KEY}' otherwise: nil.
-(old notNil and: [ (old at: 1) == proc ]) ifTrue: [
+runs := SessionTemps current at: #'${DECIDER_KEY}' otherwise: nil.
+runs isNil ifTrue: [
+  runs := IdentityKeyValueDictionary new.
+  SessionTemps current at: #'${DECIDER_KEY}' put: runs ].
+"A run that has ended will never be resumed: terminated, or finished, which
+ leaves a process with no top frame (its status still reads debug)."
+(runs keys select: [:k |
+  [ k _isTerminated or: [ (k _frameContentsAt: 1) isNil ] ] on: Error do: [:ex | true ] ])
+  do: [:k | runs removeKey: k ].
+old := runs at: proc otherwise: nil.
+old notNil ifTrue: [
   oldSpecs := old at: 3.
   1 to: specs size do: [:k | | s t |
     s := specs at: k.
@@ -437,7 +449,11 @@ old := SessionTemps current at: #'${DECIDER_KEY}' otherwise: nil.
             ifTrue: [ armed at: k put: ((old at: 4) at: j) ] ] ] ] ] ].
 entry := Array with: proc with: nil with: specs with: armed.
 decider := [:p | | answerArray fc frameMethod home sp spec idx rcvr fetch depth hArr dict bind sl answer |
-  entry at: 1 put: p.
+  "The run can move to another process; its entry moves with it."
+  (entry at: 1) == p ifFalse: [
+    runs removeKey: (entry at: 1) otherwise: nil.
+    entry at: 1 put: p.
+    runs at: p put: entry ].
   answerArray := nil.
   idx := 0.
   fc := p _frameContentsAt: 1.
@@ -518,7 +534,7 @@ decider := [:p | | answerArray fc frameMethod home sp spec idx rcvr fetch depth 
     answerArray at: 2 put: t encodeAsUTF8 ].
   answerArray , (Array with: idx) ].
 entry at: 2 put: decider.
-SessionTemps current at: #'${DECIDER_KEY}' put: entry.
+runs at: proc put: entry.
 decider`;
 }
 

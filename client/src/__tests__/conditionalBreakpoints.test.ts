@@ -32,9 +32,7 @@ describe('deciderSource', () => {
     // Compiled once and performed per hit: a doit is recompiled every time it
     // is executed, and this source is several KB of it.
     const source = decider([spec()]);
-    expect(source).toContain(
-      "SessionTemps current at: #'JasperConditionalBreakpointDecider' put: entry.",
-    );
+    expect(source).toContain('runs at: proc put: entry.');
     expect(source).toContain('entry := Array with: proc with: nil with: specs with: armed.');
     expect(source).toContain('decider := [:p |');
   });
@@ -43,12 +41,12 @@ describe('deciderSource', () => {
     // So a Resume of the same process can find this run's trigger arming.
     const source = decider([spec()]);
     expect(source).toContain('proc := Object _objectForOop: 9001.');
-    expect(source).toContain('entry at: 1 put: p.');
+    expect(source).toContain('runs at: p put: entry ].');
   });
 
   it("carries a trigger's arming over from the same process's previous decider", () => {
     const source = decider([spec({ stepPoint: 3 }), spec({ stepPoint: 9, triggeredBy: 1 })]);
-    expect(source).toContain('(old notNil and: [ (old at: 1) == proc ]) ifTrue: [');
+    expect(source).toContain('old := runs at: proc otherwise: nil.');
     expect(source).toContain('ifTrue: [ armed at: k put: ((old at: 4) at: j) ]');
   });
 
