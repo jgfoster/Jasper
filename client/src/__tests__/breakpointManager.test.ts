@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 vi.mock('vscode', () => import('../__mocks__/vscode.js'));
 
@@ -1623,6 +1623,98 @@ describe('BreakpointManager', () => {
         expect(manager.triggerFor(Uri.parse(METHOD_URI), 2)).toBeUndefined();
         expect(manager.appliedFor(Uri.parse(METHOD_URI))[0].triggeredBy).toBeUndefined();
         expect(manager.breakpointRulesFor(session())).toEqual([]);
+      });
+
+      describe('when VS Code reports the change before the call returns', () => {
+        // VS Code fires `onDidChangeBreakpoints` from inside `removeBreakpoints`
+        // and `addBreakpoints`. The shared mock does not, so these tests do —
+        // without that, a trigger lost between the remove and the add goes unseen.
+        const plainAdd = (bps: unknown[]): void => {
+          debug.breakpoints = [...debug.breakpoints, ...bps];
+        };
+        const plainRemove = (bps: unknown[]): void => {
+          debug.breakpoints = debug.breakpoints.filter((bp) => !bps.includes(bp));
+        };
+        const reportAtOnce = (manager: ReturnType<typeof makeManager>): void => {
+          vi.mocked(debug.addBreakpoints).mockImplementation((bps: unknown[]) => {
+            plainAdd(bps);
+            manager.applyToUri(session(), Uri.parse(METHOD_URI));
+          });
+          vi.mocked(debug.removeBreakpoints).mockImplementation((bps: unknown[]) => {
+            plainRemove(bps);
+            manager.applyToUri(session(), Uri.parse(METHOD_URI));
+          });
+        };
+
+        afterEach(() => {
+          vi.mocked(debug.addBreakpoints).mockImplementation(plainAdd);
+          vi.mocked(debug.removeBreakpoints).mockImplementation(plainRemove);
+          workspace.textDocuments = [];
+        });
+
+        it('keeps the trigger of a breakpoint that is disabled and enabled again', () => {
+          const manager = makeManager();
+          twoMethods(manager);
+          manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+          reportAtOnce(manager);
+
+          manager.setAllEnabled(false);
+          manager.setAllEnabled(true);
+
+          expect(manager.triggerFor(Uri.parse(METHOD_URI), 2)).toEqual({
+            uri: OTHER_METHOD,
+            stepPoint: 2,
+          });
+          const rules = manager.breakpointRulesFor(session());
+          const triggered = rules.find((r) => r.label === 'Array>>at:')!;
+          expect(rules[triggered.triggeredBy! - 1].label).toBe('Array>>size');
+        });
+
+        it('keeps the trigger of a breakpoint whose condition is edited', async () => {
+          const starts = buildLineStarts('foo\n^1');
+          workspace.textDocuments = [
+            {
+              uri: Uri.parse(METHOD_URI),
+              isDirty: false,
+              getText: () => 'foo\n^1',
+              positionAt: (o: number) => {
+                const line = o >= starts[2] ? 2 : 1;
+                return new Position(line - 1, o - starts[line]);
+              },
+            },
+          ];
+          const manager = makeManager();
+          twoMethods(manager);
+          manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+          reportAtOnce(manager);
+          vi.mocked(window.showInputBox).mockResolvedValue('index > 3');
+
+          await manager.editConditionAtStepPoint(Uri.parse(METHOD_URI), 2);
+
+          const edited = (debug.breakpoints as SourceBreakpoint[]).find(
+            (bp) => bp.location.uri.toString() === Uri.parse(METHOD_URI).toString(),
+          );
+          expect(edited?.condition).toBe('index > 3');
+          expect(manager.triggerFor(Uri.parse(METHOD_URI), 2)).toEqual({
+            uri: OTHER_METHOD,
+            stepPoint: 2,
+          });
+        });
+
+        it('still forgets the trigger when the breakpoint that waited is removed', () => {
+          const manager = makeManager();
+          twoMethods(manager);
+          manager.setTrigger(Uri.parse(METHOD_URI), 2, { uri: OTHER_METHOD, stepPoint: 2 });
+          reportAtOnce(manager);
+
+          debug.removeBreakpoints(
+            debug.breakpoints.filter(
+              (bp) => (bp as SourceBreakpoint).location.uri.toString() === METHOD_URI,
+            ),
+          );
+
+          expect(manager.triggerFor(Uri.parse(METHOD_URI), 2)).toBeUndefined();
+        });
       });
 
       it('keeps the trigger of a breakpoint that is still there when another goes', () => {

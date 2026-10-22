@@ -312,6 +312,13 @@ export class BreakpointManager {
   /** Method URIs `applyToUri` is partway through; see the guard at its top. */
   private applying = new Set<string>();
 
+  /**
+   * Set while `replaceEnabled` / `replaceCondition` swap a breakpoint for its
+   * copy. The remove half fires `onDidChangeBreakpoints` before the add runs,
+   * and `pruneTriggers` would otherwise read it as the breakpoint going away.
+   */
+  private replacing = false;
+
   private _onDidApply = new vscode.EventEmitter<void>();
   /** Fires after breakpoints are pushed to the gem, so views can refresh. */
   readonly onDidApply = this._onDidApply.event;
@@ -802,7 +809,7 @@ export class BreakpointManager {
       return;
     }
     if (existing.enabled === enabled) return;
-    replaceEnabled([existing], enabled);
+    this.replaceEnabled([existing], enabled);
   }
 
   /**
@@ -834,7 +841,7 @@ export class BreakpointManager {
       if (enabled) this.toggleAtStepPoint(uri, stepPoint);
       return;
     }
-    if (existing.enabled !== enabled) replaceEnabled([existing], enabled);
+    if (existing.enabled !== enabled) this.replaceEnabled([existing], enabled);
   }
 
   /** Clear the breakpoint at a named step point. */
@@ -904,7 +911,7 @@ export class BreakpointManager {
     const condition = typed.trim() === '' ? undefined : typed.trim();
     if (existing) {
       if (existing.condition === condition) return;
-      replaceCondition(existing, condition);
+      this.replaceCondition(existing, condition);
       return;
     }
 
@@ -919,6 +926,62 @@ export class BreakpointManager {
         condition,
       ),
     ]);
+  }
+
+  /**
+   * Re-add `breakpoints` with a new enabled flag. `Breakpoint.enabled` is
+   * read-only in the VS Code API, so this is the only way to flip it; condition,
+   * hit condition and log message ride along so they survive the round trip,
+   * and the trigger is kept (see `replacing`).
+   */
+  private replaceEnabled(breakpoints: vscode.SourceBreakpoint[], enabled: boolean): void {
+    const replacements = breakpoints.map(
+      (bp) =>
+        new vscode.SourceBreakpoint(
+          bp.location,
+          enabled,
+          bp.condition,
+          bp.hitCondition,
+          bp.logMessage,
+        ),
+    );
+    this.keepingTriggers(() => {
+      vscode.debug.removeBreakpoints(breakpoints);
+      vscode.debug.addBreakpoints(replacements);
+    });
+  }
+
+  /**
+   * Re-add `breakpoint` with a new condition. `Breakpoint.condition` is read-only
+   * in the VS Code API, exactly as `enabled` is, so this is the only way to change
+   * one; everything else about the breakpoint rides along untouched.
+   */
+  private replaceCondition(
+    breakpoint: vscode.SourceBreakpoint,
+    condition: string | undefined,
+  ): void {
+    this.keepingTriggers(() => {
+      vscode.debug.removeBreakpoints([breakpoint]);
+      vscode.debug.addBreakpoints([
+        new vscode.SourceBreakpoint(
+          breakpoint.location,
+          breakpoint.enabled,
+          condition,
+          breakpoint.hitCondition,
+          breakpoint.logMessage,
+        ),
+      ]);
+    });
+  }
+
+  private keepingTriggers(swap: () => void): void {
+    const outer = this.replacing;
+    this.replacing = true;
+    try {
+      swap();
+    } finally {
+      this.replacing = outer;
+    }
   }
 
   // ── Triggers ─────────────────────────────────────────────
@@ -960,6 +1023,7 @@ export class BreakpointManager {
    * it.
    */
   private pruneTriggers(uri: vscode.Uri, kept: ReadonlySet<number>): void {
+    if (this.replacing) return;
     const key = methodKey(uri.toString());
     const mine = this.triggers.get(key);
     if (!mine) return;
@@ -1348,7 +1412,7 @@ export class BreakpointManager {
    */
   setAllEnabled(enabled: boolean): void {
     const mine = gemstoneBreakpoints().filter((bp) => bp.enabled !== enabled);
-    if (mine.length > 0) replaceEnabled(mine, enabled);
+    if (mine.length > 0) this.replaceEnabled(mine, enabled);
 
     // Every live session's gem, not just the selected one. The rows just flipped
     // are one list spanning all of them, so sweeping a single gem would leave
@@ -1421,7 +1485,7 @@ export class BreakpointManager {
   setEnabledForStoneBreakpoint(bp: GemStoneBreakpoint, enabled: boolean): void {
     const owned = this.ownedBreakpoint(bp);
     if (owned) {
-      if (owned.enabled !== enabled) replaceEnabled([owned], enabled);
+      if (owned.enabled !== enabled) this.replaceEnabled([owned], enabled);
       return;
     }
     this.byOop(bp, enabled ? 'setBreakAtStepPoint:' : 'disableBreakAtStepPoint:');
@@ -1889,47 +1953,6 @@ function collapse(
     logMessage: messages.includes(undefined) ? undefined : messages[0],
     triggeredBy,
   };
-}
-
-/**
- * Re-add `breakpoints` with a new enabled flag. `Breakpoint.enabled` is
- * read-only in the VS Code API, so this is the only way to flip it; condition,
- * hit condition and log message ride along so they survive the round trip.
- */
-function replaceEnabled(breakpoints: vscode.SourceBreakpoint[], enabled: boolean): void {
-  const replacements = breakpoints.map(
-    (bp) =>
-      new vscode.SourceBreakpoint(
-        bp.location,
-        enabled,
-        bp.condition,
-        bp.hitCondition,
-        bp.logMessage,
-      ),
-  );
-  vscode.debug.removeBreakpoints(breakpoints);
-  vscode.debug.addBreakpoints(replacements);
-}
-
-/**
- * Re-add `breakpoint` with a new condition. `Breakpoint.condition` is read-only
- * in the VS Code API, exactly as `enabled` is, so this is the only way to change
- * one; everything else about the breakpoint rides along untouched.
- */
-function replaceCondition(
-  breakpoint: vscode.SourceBreakpoint,
-  condition: string | undefined,
-): void {
-  vscode.debug.removeBreakpoints([breakpoint]);
-  vscode.debug.addBreakpoints([
-    new vscode.SourceBreakpoint(
-      breakpoint.location,
-      breakpoint.enabled,
-      condition,
-      breakpoint.hitCondition,
-      breakpoint.logMessage,
-    ),
-  ]);
 }
 
 function positionOf(document: vscode.TextDocument, offset: number): vscode.Position {
