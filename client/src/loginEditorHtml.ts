@@ -206,11 +206,7 @@ export function loginEditorHtml(nonce: string): string {
 
     <label for="gs_password">GemStone Password</label>
     <input type="password" id="gs_password">
-    <div class="checkbox-row">
-      <input type="checkbox" id="password_in_keychain">
-      <label for="password_in_keychain" class="inline-label">Store passwords in OS keychain</label>
-    </div>
-    <div class="field-help">The password for the GemStone user. Leave it blank to be prompted on each login. With the box above checked, this password and the Host Password below are kept in your OS keychain; unchecked, they are saved as plain text in your VS Code settings.</div>
+    <div class="field-help">The password for the GemStone user.</div>
   </div>
 
   <div class="field-group">
@@ -220,6 +216,14 @@ export function loginEditorHtml(nonce: string): string {
     <label for="host_password">Host Password (optional)</label>
     <input type="password" id="host_password">
     <div class="field-help">The operating-system account on the Gem's host machine. Fill these in only when the remote NetLDI requires host authentication; leave them blank for a local stone or a guest-mode NetLDI. If left blank, your own OS user is used.</div>
+  </div>
+
+  <div class="field-group">
+    <div class="checkbox-row">
+      <input type="checkbox" id="password_in_keychain">
+      <label for="password_in_keychain" class="inline-label">Keep saved passwords in the OS keychain</label>
+    </div>
+    <div class="hint">For both passwords above. A password you fill in is kept in your OS keychain when this is checked, or as plain text in your VS Code settings when it isn't. A password left blank is never saved: Jasper asks for it each time you log in.</div>
   </div>
 
   <div class="field-group">

@@ -423,19 +423,22 @@ describe('LoginEditorPanel', () => {
   });
 
   describe('OS keychain option', () => {
-    it('renders a "Store passwords in OS keychain" checkbox in the HTML', async () => {
+    it('renders a "Keep saved passwords in the OS keychain" checkbox in the HTML', async () => {
       await LoginEditorPanel.show(storage, secretsArg, treeProvider);
       const panel = window.createWebviewPanel.mock.results[0].value;
       const html = panel.webview.html;
 
       expect(html).toContain('id="password_in_keychain"');
-      expect(html).toContain('Store passwords in OS keychain');
+      expect(html).toContain('Keep saved passwords in the OS keychain');
     });
 
-    it('renders a hint about leaving the password blank to be prompted', async () => {
+    // A hint rather than field help, which is hidden while an existing login is edited.
+    it('always explains what the checkbox and a blank password each do', async () => {
       await LoginEditorPanel.show(storage, secretsArg, treeProvider);
       const panel = window.createWebviewPanel.mock.results[0].value;
-      expect(panel.webview.html).toContain('Leave it blank to be prompted on each login');
+      expect(panel.webview.html).toMatch(
+        /<div class="hint">For both passwords above\.[^<]*A password left blank is never saved/,
+      );
     });
 
     it('renders the "Help me login" toggle with per-field help', async () => {
