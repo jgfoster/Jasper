@@ -9,7 +9,8 @@ import {
   TransportKind,
 } from 'vscode-languageclient/node';
 import { LoginStorage } from './loginStorage';
-import { getLoginPassword, deleteLoginPassword } from './loginCredentials';
+import { getLoginPasswords } from './loginCredentials';
+import { offerToMovePlainTextPasswords } from './plainTextPasswordOffer';
 import { runStopStone } from './stopStoneManager';
 import { LoginTreeProvider, GemStoneLoginItem, GemStoneSessionItem } from './loginTreeProvider';
 import { registerTransactionStatusBar } from './transactionStatusBar';
@@ -28,6 +29,7 @@ import {
   DEFAULT_GS_PW,
   GemStoneLogin,
   buildDataCuratorLogin,
+  duplicateOf,
   loginLabel,
   loginNetldiTarget,
   loginTargetKey,
@@ -888,7 +890,7 @@ export function activate(context: vscode.ExtensionContext) {
   client.start();
 
   // ── Login Management ─────────────────────────────────────
-  const storage = new LoginStorage();
+  const storage = new LoginStorage(context.secrets);
   const sysadminStorage = new SysadminStorage();
   // SessionManager is created early so the Logins panel can mark the connected
   // login row (and swap its inline Login action for Logout) in single-session mode.
@@ -913,6 +915,11 @@ export function activate(context: vscode.ExtensionContext) {
   // returns undefined and the rows show no MCP state at all.
   let mcpOwnership: () => McpOwnership | undefined = () => undefined;
   const treeProvider = new LoginTreeProvider(storage, sessionManager, () => mcpOwnership());
+  // The acceptance harness seeds a plain-text login into most runs, and this
+  // toast would sit over every one of them.
+  if (!process.env.GEMSTONE_SUPPRESS_PASSWORD_OFFER) {
+    void offerToMovePlainTextPasswords(storage, context.globalState);
+  }
 
   // MCP is a property of this window, so its readout goes on the Databases
   // section header — of which there is exactly one — and the detail goes in the
@@ -2188,18 +2195,22 @@ export function activate(context: vscode.ExtensionContext) {
         'Delete',
       );
       if (confirmed === 'Delete') {
-        if (item.login.password_in_keychain) {
-          await deleteLoginPassword(context.secrets, item.login);
-        }
         await storage.deleteLogin(loginLabel(item.login));
         treeProvider.refresh();
       }
     }),
 
-    vscode.commands.registerCommand('gemstone.duplicateLogin', (item: GemStoneLoginItem) => {
-      const copy = { ...item.login, label: '' };
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
-      LoginEditorPanel.show(storage, context.secrets, treeProvider, copy, sysadminStorage);
+    vscode.commands.registerCommand('gemstone.duplicateLogin', async (item: GemStoneLoginItem) => {
+      const stored = item.login.password_in_keychain
+        ? await getLoginPasswords(context.secrets, item.login, 'The copy opens without them.')
+        : undefined;
+      await LoginEditorPanel.show(
+        storage,
+        context.secrets,
+        treeProvider,
+        duplicateOf(item.login, stored),
+        sysadminStorage,
+      );
     }),
 
     vscode.commands.registerCommand('gemstone.openWalkthrough', () => {
@@ -2352,7 +2363,8 @@ export function activate(context: vscode.ExtensionContext) {
         let afterReported: (() => void) | undefined;
         await reportingLoginAttempt(item.login, () =>
           attemptLogin(item.login, {
-            keychainPassword: (login) => getLoginPassword(context.secrets, login),
+            keychainPasswords: (login) =>
+              getLoginPasswords(context.secrets, login, "You'll be asked for them."),
             getGciLibraryPath: (version) => storage.getGciLibraryPath(version),
             setGciLibraryPath: (version, gciPath) => storage.setGciLibraryPath(version, gciPath),
             removeGciLibraryPath: (version) => storage.removeGciLibraryPath(version),
@@ -4931,7 +4943,15 @@ export function activate(context: vscode.ExtensionContext) {
             if (!adminLogin) return undefined;
             if (adminLogin.gs_password) return adminLogin.gs_password;
             if (adminLogin.password_in_keychain) {
-              return (await getLoginPassword(context.secrets, adminLogin)) || undefined;
+              return (
+                (
+                  await getLoginPasswords(
+                    context.secrets,
+                    adminLogin,
+                    "You'll be asked for DataCurator's password.",
+                  )
+                ).gs_password || undefined
+              );
             }
             return undefined;
           },
