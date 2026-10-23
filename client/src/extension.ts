@@ -9,7 +9,7 @@ import {
   TransportKind,
 } from 'vscode-languageclient/node';
 import { LoginStorage } from './loginStorage';
-import { getLoginPasswords } from './loginCredentials';
+import { getLoginPasswords, refusingWrites } from './loginCredentials';
 import { offerToMovePlainTextPasswords } from './plainTextPasswordOffer';
 import { runStopStone } from './stopStoneManager';
 import { LoginTreeProvider, GemStoneLoginItem, GemStoneSessionItem } from './loginTreeProvider';
@@ -890,7 +890,11 @@ export function activate(context: vscode.ExtensionContext) {
   client.start();
 
   // ── Login Management ─────────────────────────────────────
-  const storage = new LoginStorage(context.secrets);
+  const storage = new LoginStorage(
+    process.env.GEMSTONE_TEST_KEYCHAIN_WRITE_FAILS
+      ? refusingWrites(context.secrets)
+      : context.secrets,
+  );
   const sysadminStorage = new SysadminStorage();
   // SessionManager is created early so the Logins panel can mark the connected
   // login row (and swap its inline Login action for Logout) in single-session mode.
@@ -915,7 +919,11 @@ export function activate(context: vscode.ExtensionContext) {
   // returns undefined and the rows show no MCP state at all.
   let mcpOwnership: () => McpOwnership | undefined = () => undefined;
   const treeProvider = new LoginTreeProvider(storage, sessionManager, () => mcpOwnership());
-  void offerToMovePlainTextPasswords(storage, context.globalState, () => treeProvider.refresh());
+  // The acceptance harness seeds a plain-text login into most runs, and this
+  // toast would sit over every one of them.
+  if (!process.env.GEMSTONE_SUPPRESS_PASSWORD_OFFER) {
+    void offerToMovePlainTextPasswords(storage, context.globalState);
+  }
 
   // MCP is a property of this window, so its readout goes on the Databases
   // section header — of which there is exactly one — and the detail goes in the
@@ -2196,13 +2204,15 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
 
-    vscode.commands.registerCommand('gemstone.duplicateLogin', (item: GemStoneLoginItem) => {
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
-      LoginEditorPanel.show(
+    vscode.commands.registerCommand('gemstone.duplicateLogin', async (item: GemStoneLoginItem) => {
+      const stored = item.login.password_in_keychain
+        ? await getLoginPasswords(context.secrets, item.login)
+        : undefined;
+      await LoginEditorPanel.show(
         storage,
         context.secrets,
         treeProvider,
-        duplicateOf(item.login),
+        duplicateOf(item.login, stored),
         sysadminStorage,
       );
     }),

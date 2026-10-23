@@ -85,6 +85,12 @@ const VSCODE_VERSION = '1.129.1';
  *      logins, GCI library paths, etc. Its keys win over the isolation defaults;
  *      a key set to `undefined` removes a default.
  *   - `userSettings` — the same, for the profile's user `settings.json`
+ *   - `passwordOffer` — show Jasper's startup toast that offers to move
+ *      plain-text passwords to the keychain. The harness hides it unless a spec
+ *      sets this, because most runs seed a plain-text login and the toast would
+ *      cover every trace. (Outside these tests Jasper shows it as usual.)
+ *   - `keychainWritesFail` — make Jasper's keychain refuse every save, to reach
+ *      the choice it offers then (VS Code itself almost never refuses one)
  *   - `persistentSecrets` — keep SecretStorage in a file in the profile, so it
  *      survives `session.restart()`. Linux and Windows only: macOS ignores
  *      `--password-store` and asks for the login keychain's password.
@@ -105,6 +111,8 @@ export const test = base.extend<{
   workspaceSettings: Record<string, unknown>;
   workspaceFixture: string;
   userSettings: Record<string, unknown>;
+  passwordOffer: boolean;
+  keychainWritesFail: boolean;
   persistentSecrets: boolean;
   session: VSCodeSession;
   window: Page;
@@ -114,6 +122,8 @@ export const test = base.extend<{
   // (e.g. a ready-made Rowan project). Empty = a fresh empty folder.
   workspaceFixture: ['', { option: true }],
   userSettings: [{}, { option: true }],
+  passwordOffer: [false, { option: true }],
+  keychainWritesFail: [false, { option: true }],
   persistentSecrets: [false, { option: true }],
 
   window: async ({ session }, use) => {
@@ -121,7 +131,14 @@ export const test = base.extend<{
   },
 
   session: async (
-    { workspaceSettings, workspaceFixture, userSettings, persistentSecrets },
+    {
+      workspaceSettings,
+      workspaceFixture,
+      userSettings,
+      passwordOffer,
+      keychainWritesFail,
+      persistentSecrets,
+    },
     use,
   ) => {
     const vscodeCliPath = await downloadAndUnzipVSCode(VSCODE_VERSION);
@@ -215,6 +232,8 @@ export const test = base.extend<{
     );
     // Keep Jasper's first-run walkthrough from popping over every run.
     env.GEMSTONE_SUPPRESS_WALKTHROUGH = '1';
+    if (!passwordOffer) env.GEMSTONE_SUPPRESS_PASSWORD_OFFER = '1';
+    if (keychainWritesFail) env.GEMSTONE_TEST_KEYCHAIN_WRITE_FAILS = '1';
 
     const launch = async () => {
       const app = await electron.launch({
@@ -241,11 +260,13 @@ export const test = base.extend<{
           // shared memory to a temp file and skip the (absent) GPU under Xvfb. Only
           // needed in the container, so leave the macOS path untouched.
           ...(process.platform === 'linux' ? ['--disable-dev-shm-usage', '--disable-gpu'] : []),
-          // Back VS Code's SecretStorage with RAM, never the OS keychain. This is
-          // the real isolation: --user-data-dir does NOT isolate the machine-global
-          // keychain, so without this a launched VS Code (core, or the extension's
-          // login storage) prompts for the login-keychain password — native or
-          // container. --password-store=basic is a Chromium-level backstop.
+          // Back VS Code's SecretStorage with RAM, or with the profile's basic file
+          // store when `persistentSecrets` is set; never the OS keychain.
+          // --user-data-dir does NOT isolate the machine-global keychain, so
+          // without these a launched VS Code (core, or the extension's login
+          // storage) prompts for the login-keychain password — native or
+          // container. With `persistentSecrets`, --password-store=basic alone
+          // keeps it out of the keychain.
           ...(persistentSecrets ? [] : ['--use-inmemory-secretstorage']),
           '--password-store=basic',
           workspace,
@@ -302,25 +323,31 @@ export const test = base.extend<{
       await app.close();
     };
 
-    let current = await launch();
-    launches++;
-    await use({
-      get window() {
-        return current.page;
-      },
-      userSettingsPath,
-      workspaceSettingsPath,
-      async restart() {
-        await quit(current);
-        current = await launch();
-        launches++;
-        return current.page;
-      },
-    });
-
-    await quit(current);
-    fs.rmSync(profile, { recursive: true, force: true });
-    fs.rmSync(workspace, { recursive: true, force: true });
+    // Unset between a restart's quit and its relaunch, so a relaunch that throws
+    // isn't quit a second time.
+    let current: Awaited<ReturnType<typeof launch>> | undefined;
+    try {
+      current = await launch();
+      launches++;
+      await use({
+        get window() {
+          return (current as Awaited<ReturnType<typeof launch>>).page;
+        },
+        userSettingsPath,
+        workspaceSettingsPath,
+        async restart() {
+          await quit(current as Awaited<ReturnType<typeof launch>>);
+          current = undefined;
+          current = await launch();
+          launches++;
+          return current.page;
+        },
+      });
+      if (current) await quit(current);
+    } finally {
+      fs.rmSync(profile, { recursive: true, force: true });
+      fs.rmSync(workspace, { recursive: true, force: true });
+    }
   },
 });
 

@@ -60,22 +60,25 @@ async function rowButton(window: Page, login: Login, name: string) {
 }
 
 /** The login editor's webview, once it holds `login` (or a new login's defaults). */
-async function loginForm(window: Page, stone = 'gs64stone'): Promise<Frame> {
+async function loginForm(window: Page, stone = 'gs64stone', timeout = 15_000): Promise<Frame> {
   let form: Frame | undefined;
   await expect
-    .poll(async () => {
-      const found = [];
-      for (const frame of window.frames()) {
-        if (frame.isDetached()) continue;
-        const value = await frame
-          .locator('#stone')
-          .inputValue({ timeout: 100 })
-          .catch(() => undefined);
-        if (value === stone) found.push(frame);
-      }
-      form = found.at(-1);
-      return found.length > 0;
-    })
+    .poll(
+      async () => {
+        const found = [];
+        for (const frame of window.frames()) {
+          if (frame.isDetached()) continue;
+          const value = await frame
+            .locator('#stone')
+            .inputValue({ timeout: 100 })
+            .catch(() => undefined);
+          if (value === stone) found.push(frame);
+        }
+        form = found.at(-1);
+        return found.length > 0;
+      },
+      { timeout },
+    )
     .toBe(true);
   return form as Frame;
 }
@@ -105,9 +108,15 @@ async function addLogin(session: VSCodeSession, login: Login): Promise<void> {
   await expect.poll(() => loginsIn(session.userSettingsPath).map(label)).toContain(label(login));
 }
 
+// Retried because right after a save the Logins tree redraws, and a click on
+// the row being replaced runs Edit Login with no login.
 async function openEditor(window: Page, login: Login): Promise<Frame> {
-  await (await rowButton(window, login, 'Edit Login')).click();
-  return await loginForm(window, login.stone);
+  let form: Frame | undefined;
+  await expect(async () => {
+    await (await rowButton(window, login, 'Edit Login')).click();
+    form = await loginForm(window, login.stone, 3_000);
+  }).toPass({ timeout: 30_000 });
+  return form as Frame;
 }
 
 async function expectPasswordsInEditor(window: Page, login: Login, gs: string, host: string) {
@@ -139,7 +148,11 @@ test.describe('login passwords', () => {
   );
   // `undefined` drops the login the container run would otherwise seed into the
   // workspace, which would hide the user settings' logins from Jasper.
-  test.use({ persistentSecrets: true, workspaceSettings: { 'gemstone.logins': undefined } });
+  test.use({
+    passwordOffer: true,
+    persistentSecrets: true,
+    workspaceSettings: { 'gemstone.logins': undefined },
+  });
 
   test('a new login keeps both passwords out of settings and gets them back after a restart', async ({
     session,
@@ -252,6 +265,58 @@ test.describe('login passwords', () => {
         .toEqual([expect.objectContaining(withoutPasswords)]);
       await showLogins(session.window);
       await expectPasswordsInEditor(session.window, LOGIN, 'gs-secret', 'host-secret');
+    });
+  });
+
+  test.describe('when the keychain refuses to save', () => {
+    test.use({ keychainWritesFail: true });
+
+    async function saveNewLogin(window: Page, login: Login) {
+      await showLogins(window);
+      await runCommand(window, 'GemStone: Add Login');
+      await fillAndSave(await loginForm(window), login);
+      const dialog = window.locator('.monaco-dialog-box');
+      await expect(dialog).toContainText("Couldn't save the passwords");
+      await expect(dialog).toContainText('the keychain refused the write (test)');
+      return dialog;
+    }
+
+    test('saves the passwords as plain text, with the box unchecked, when asked to', async ({
+      session,
+    }) => {
+      const dialog = await saveNewLogin(session.window, LOGIN);
+
+      await dialog.getByRole('button', { name: 'Save as plain text' }).click();
+
+      await expect
+        .poll(() => loginsIn(session.userSettingsPath))
+        .toEqual([
+          expect.objectContaining({
+            gs_password: 'gs-secret',
+            host_password: 'host-secret',
+            password_in_keychain: false,
+          }),
+        ]);
+      const form = await openEditor(session.window, LOGIN);
+      await expect(form.locator('#password_in_keychain')).not.toBeChecked();
+    });
+
+    test('saves no passwords when the dialog is closed, so logging in asks for one', async ({
+      session,
+    }) => {
+      const stock = { ...LOGIN, gs_password: 'swordfish', host_user: '', host_password: '' };
+      const dialog = await saveNewLogin(session.window, stock);
+      await expect(dialog).toContainText("GemStone's default, swordfish");
+
+      await session.window.keyboard.press('Escape');
+
+      await expect
+        .poll(() => loginsIn(session.userSettingsPath))
+        .toEqual([expect.objectContaining(withoutPasswords)]);
+      await (await rowButton(session.window, stock, 'Login')).click();
+      await expect(session.window.locator('.quick-input-widget')).toContainText(
+        'GemStone password for',
+      );
     });
   });
 

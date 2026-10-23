@@ -84,6 +84,7 @@ describe('loginCredentials', () => {
 
     it('throws when SecretStorage cannot be written', async () => {
       secrets.store.mockRejectedValueOnce(new Error('no keyring'));
+
       await expect(storeLoginPasswords(secrets, makeLogin())).rejects.toThrow('no keyring');
     });
   });
@@ -109,22 +110,28 @@ describe('loginCredentials', () => {
 
     it('returns an empty string when SecretStorage throws', async () => {
       secrets.get.mockRejectedValue(new Error('SecretStorage unavailable'));
-      expect((await getLoginPasswords(secrets, makeLogin())).gs_password).toBe('');
+
+      expect(await getLoginPasswords(secrets, makeLogin())).toEqual({
+        gs_password: '',
+        host_password: '',
+      });
     });
   });
 
   describe('deleteLoginPasswords', () => {
-    it('deletes both entries and returns true on success', async () => {
-      const ok = await deleteLoginPasswords(secrets, makeLogin());
+    it('deletes both entries', async () => {
+      await deleteLoginPasswords(secrets, makeLogin());
 
       expect(secrets.delete).toHaveBeenCalledWith(GS_KEY);
       expect(secrets.delete).toHaveBeenCalledWith(HOST_KEY);
-      expect(ok).toBe(true);
     });
 
-    it('returns false when SecretStorage throws', async () => {
+    it('still deletes the host entry when deleting the GemStone one fails', async () => {
       secrets.delete.mockRejectedValueOnce(new Error('no entry'));
-      expect(await deleteLoginPasswords(secrets, makeLogin())).toBe(false);
+
+      await expect(deleteLoginPasswords(secrets, makeLogin())).resolves.toBeUndefined();
+
+      expect(secrets.delete).toHaveBeenCalledWith(HOST_KEY);
     });
   });
 });

@@ -1,3 +1,5 @@
+import type { LoginPasswords } from './loginCredentials';
+
 /**
  * The NRS naming the gem process to start for `login` — the host, the NetLDI
  * that spawns it, and the service it runs. The NetLDI name comes from the login
@@ -166,9 +168,18 @@ export function loginNetldiTarget(config: ManagedStoneConfig): string {
   return config.netldiPort ? String(config.netldiPort) : config.ldiName;
 }
 
-/** A duplicate is a new login, so its saved passwords go to the keychain like any other's. */
-export function duplicateOf(login: GemStoneLogin): GemStoneLogin {
-  return { ...login, label: '', password_in_keychain: true };
+/**
+ * A duplicate is a new login, so its saved passwords go to the keychain like any
+ * other's. `stored` is the original's keychain passwords, carried into the copy.
+ */
+export function duplicateOf(login: GemStoneLogin, stored?: LoginPasswords): GemStoneLogin {
+  return {
+    ...login,
+    label: '',
+    password_in_keychain: true,
+    gs_password: login.gs_password || (stored?.gs_password ?? ''),
+    host_password: login.host_password || (stored?.host_password ?? ''),
+  };
 }
 
 /**

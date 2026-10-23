@@ -93,8 +93,9 @@ export class LoginEditorPanel {
     };
 
     // Saving writes back whatever the form holds, and an empty field clears
-    // its keychain entry.
-    if (existingLogin?.password_in_keychain) {
+    // its keychain entry. A login not saved yet has an empty label and no entry
+    // of its own; one left under its name by an earlier login would be stale.
+    if (existingLogin?.password_in_keychain && existingLogin.label !== '') {
       const stored = await getLoginPasswords(secrets, existingLogin);
       login = {
         ...login,

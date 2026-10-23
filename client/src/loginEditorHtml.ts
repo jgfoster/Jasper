@@ -223,7 +223,7 @@ export function loginEditorHtml(nonce: string): string {
       <input type="checkbox" id="password_in_keychain">
       <label for="password_in_keychain" class="inline-label">Keep saved passwords in the OS keychain</label>
     </div>
-    <div class="hint">For both passwords above. A password you fill in is kept in your OS keychain when this is checked, or as plain text in your VS Code settings when it isn't. A password left blank is never saved: Jasper asks for it each time you log in.</div>
+    <div class="hint">For both passwords above. A password you fill in is kept in your OS keychain when this is checked, or as plain text in your VS Code settings when it isn't. A password left blank is never saved: Jasper asks for it when you log in, if it is needed.</div>
   </div>
 
   <div class="field-group">

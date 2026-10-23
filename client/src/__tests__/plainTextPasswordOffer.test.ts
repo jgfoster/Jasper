@@ -28,7 +28,6 @@ describe('offering to move plain-text passwords to the keychain', () => {
   let secrets: ReturnType<typeof fakeSecretStorage>;
   let storage: LoginStorage;
   let state: vscode.Memento;
-  const refresh = vi.fn();
 
   beforeEach(() => {
     __resetConfig();
@@ -38,46 +37,67 @@ describe('offering to move plain-text passwords to the keychain', () => {
     state = fakeMemento();
   });
 
-  it('moves the passwords when the button is clicked', async () => {
+  it('moves the passwords, and says so, when the button is clicked', async () => {
     __setConfig('gemstone', 'logins', [makeLogin()]);
     vi.mocked(window.showInformationMessage).mockResolvedValueOnce(MOVE);
 
-    await offerToMovePlainTextPasswords(storage, state, refresh);
+    await offerToMovePlainTextPasswords(storage, state);
 
     expect(storage.getLogins()[0]).toMatchObject({ gs_password: '', password_in_keychain: true });
     expect(secrets.entries.size).toBe(1);
-    expect(refresh).toHaveBeenCalled();
+    expect(window.showInformationMessage).toHaveBeenLastCalledWith(
+      'Login passwords moved to the OS keychain.',
+    );
+  });
+
+  it('says why, and leaves the login as it was, when the keychain cannot be written', async () => {
+    const plain = makeLogin();
+    __setConfig('gemstone', 'logins', [plain]);
+    vi.mocked(window.showInformationMessage).mockResolvedValueOnce(MOVE);
+    secrets.store.mockRejectedValueOnce(new Error('no keyring'));
+
+    await offerToMovePlainTextPasswords(storage, state);
+
+    expect(storage.getLogins()).toEqual([plain]);
+    expect(window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining('no keyring'));
+    expect(window.showInformationMessage).toHaveBeenCalledTimes(1);
   });
 
   it('leaves the login alone when the toast is dismissed, and does not ask about it again', async () => {
     const plain = makeLogin();
     __setConfig('gemstone', 'logins', [plain]);
 
-    await offerToMovePlainTextPasswords(storage, state, refresh);
-    await offerToMovePlainTextPasswords(storage, state, refresh);
+    await offerToMovePlainTextPasswords(storage, state);
+    await offerToMovePlainTextPasswords(storage, state);
 
     expect(window.showInformationMessage).toHaveBeenCalledTimes(1);
     expect(storage.getLogins()).toEqual([plain]);
   });
 
-  it('asks again when another login with a plain-text password appears', async () => {
-    __setConfig('gemstone', 'logins', [makeLogin()]);
-    await offerToMovePlainTextPasswords(storage, state, refresh);
+  it('asks about a new plain-text login alone, and moves only that one', async () => {
+    const declined = makeLogin();
+    __setConfig('gemstone', 'logins', [declined]);
+    await offerToMovePlainTextPasswords(storage, state);
+    const added = makeLogin({ stone: 'other' });
+    __setConfig('gemstone', 'logins', [declined, added]);
+    vi.mocked(window.showInformationMessage).mockResolvedValueOnce(MOVE);
 
-    __setConfig('gemstone', 'logins', [makeLogin(), makeLogin({ stone: 'other' })]);
-    await offerToMovePlainTextPasswords(storage, state, refresh);
+    await offerToMovePlainTextPasswords(storage, state);
 
-    expect(window.showInformationMessage).toHaveBeenCalledTimes(2);
-    expect(window.showInformationMessage).toHaveBeenLastCalledWith(
-      '2 GemStone logins keep their passwords as plain text in your VS Code settings.',
+    expect(window.showInformationMessage).toHaveBeenCalledWith(
+      'The GemStone login "DataCurator on other (localhost)" keeps its password as plain text in your VS Code settings.',
       MOVE,
     );
+    expect(storage.getLogins()).toEqual([
+      declined,
+      { ...added, gs_password: '', password_in_keychain: true },
+    ]);
   });
 
   it('says nothing when no login keeps a password in plain text', async () => {
     __setConfig('gemstone', 'logins', [makeLogin({ gs_password: '', password_in_keychain: true })]);
 
-    await offerToMovePlainTextPasswords(storage, state, refresh);
+    await offerToMovePlainTextPasswords(storage, state);
 
     expect(window.showInformationMessage).not.toHaveBeenCalled();
   });

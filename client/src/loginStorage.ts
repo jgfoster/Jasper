@@ -1,11 +1,14 @@
 import * as vscode from 'vscode';
-import { GemStoneLogin, loginLabel } from './loginTypes';
+import { DEFAULT_GS_PW, GemStoneLogin, loginLabel } from './loginTypes';
 import {
   deleteLoginPasswords,
   getLoginPasswords,
   loginCredentialAccount,
   storeLoginPasswords,
 } from './loginCredentials';
+
+export const SAVE_AS_PLAIN_TEXT = 'Save as plain text';
+export const ASK_AT_LOGIN = "Don't save — ask at login";
 
 export function hasPlainTextPassword(login: GemStoneLogin): boolean {
   return Boolean(login.gs_password || login.host_password);
@@ -31,18 +34,19 @@ export class LoginStorage {
     const replaced = index >= 0 ? logins[index] : undefined;
 
     if (login.password_in_keychain) {
-      await this.storeInKeychain(login, 'Jasper will ask for them when you log in.');
-      login = { ...login, gs_password: '', host_password: '' };
+      const error = await this.keychainWriteError(login);
+      login = error
+        ? await this.afterKeychainFailure(login, error)
+        : { ...login, gs_password: '', host_password: '' };
     }
     // Keychain entries are keyed by user, host and stone, so a rename or an
-    // unchecked box leaves the old entry behind unless it is removed here.
-    if (
+    // unchecked box leaves the old entry behind unless it is removed.
+    const stale =
       replaced?.password_in_keychain &&
       (!login.password_in_keychain ||
         loginCredentialAccount(replaced) !== loginCredentialAccount(login))
-    ) {
-      await deleteLoginPasswords(this.secrets, replaced);
-    }
+        ? replaced
+        : undefined;
 
     if (index >= 0) {
       logins[index] = login;
@@ -51,69 +55,111 @@ export class LoginStorage {
     }
 
     await config.update('logins', logins, vscode.ConfigurationTarget.Global);
+    // Only once settings are written: if that throws, they still name the old entry.
+    if (stale) await deleteLoginPasswords(this.secrets, stale);
   }
 
   async deleteLogin(label: string): Promise<void> {
     const config = vscode.workspace.getConfiguration('gemstone');
     const all = this.getLogins();
     const doomed = all.find((l) => loginLabel(l) === label);
-    if (doomed?.password_in_keychain) {
-      await deleteLoginPasswords(this.secrets, doomed);
-    }
     const logins = all.filter((l) => loginLabel(l) !== label);
     await config.update('logins', logins, vscode.ConfigurationTarget.Global);
+    if (doomed?.password_in_keychain) await deleteLoginPasswords(this.secrets, doomed);
   }
 
   /**
-   * Rewrites whichever settings file holds the password, user or workspace.
-   * Returns false, leaving that file as it was, if the keychain can't be written.
+   * Moves the plain-text passwords of the logins named in `labels`, in whichever
+   * settings file holds them, user or workspace. Every password is stored before
+   * either file is written, so a failure leaves both files as they were.
    */
-  async movePasswordsToKeychain(): Promise<boolean> {
+  async movePasswordsToKeychain(labels: ReadonlySet<string>): Promise<boolean> {
     const config = vscode.workspace.getConfiguration('gemstone');
     const inspected = config.inspect<GemStoneLogin[]>('logins');
     const layers: [vscode.ConfigurationTarget, GemStoneLogin[] | undefined][] = [
       [vscode.ConfigurationTarget.Global, inspected?.globalValue],
       [vscode.ConfigurationTarget.Workspace, inspected?.workspaceValue],
     ];
-    for (const [target, logins] of layers) {
-      if (!logins?.some(hasPlainTextPassword)) continue;
-      const moved: GemStoneLogin[] = [];
-      for (const login of logins) {
-        if (!hasPlainTextPassword(login)) {
-          moved.push(login);
-          continue;
-        }
+    const all = layers.flatMap(([, logins]) => logins ?? []);
+    const toMove = (l: GemStoneLogin) => hasPlainTextPassword(l) && labels.has(loginLabel(l));
+
+    // One keychain entry serves the same user, host and stone in both files, so
+    // their passwords are merged first rather than the second overwriting the first.
+    const byAccount = new Map<string, GemStoneLogin>();
+    for (const login of all.filter(toMove)) {
+      const account = loginCredentialAccount(login);
+      let full = byAccount.get(account);
+      if (!full) {
         // A login already keychain-backed may have only its host password in
         // plain text; storing it must not clear the GemStone password beside it.
-        const stored = login.password_in_keychain
-          ? await getLoginPasswords(this.secrets, login)
-          : { gs_password: '', host_password: '' };
-        const full = {
-          ...login,
-          gs_password: login.gs_password || stored.gs_password,
-          host_password: login.host_password || stored.host_password,
-        };
-        if (!(await this.storeInKeychain(full, 'They are still in your settings file.'))) {
-          return false;
-        }
-        moved.push({ ...login, gs_password: '', host_password: '', password_in_keychain: true });
+        const keychainBacked = all.some(
+          (l) => l.password_in_keychain && loginCredentialAccount(l) === account,
+        );
+        full = keychainBacked
+          ? { ...login, ...(await getLoginPasswords(this.secrets, login)) }
+          : { ...login, gs_password: '', host_password: '' };
       }
+      byAccount.set(account, {
+        ...full,
+        gs_password: login.gs_password || full.gs_password,
+        host_password: login.host_password || full.host_password,
+      });
+    }
+    for (const login of byAccount.values()) {
+      const error = await this.keychainWriteError(login);
+      if (error) {
+        vscode.window.showErrorMessage(
+          `Couldn't save the passwords for "${loginLabel(login)}" in the OS keychain ` +
+            `(${error}). They are still in your settings file.`,
+        );
+        return false;
+      }
+    }
+
+    for (const [target, logins] of layers) {
+      if (!logins?.some(toMove)) continue;
+      const moved = logins.map((l) =>
+        toMove(l) ? { ...l, gs_password: '', host_password: '', password_in_keychain: true } : l,
+      );
       await config.update('logins', moved, target);
     }
     return true;
   }
 
-  private async storeInKeychain(login: GemStoneLogin, consequence: string): Promise<boolean> {
+  /** Undefined when both passwords were stored. */
+  private async keychainWriteError(login: GemStoneLogin): Promise<string | undefined> {
     try {
       await storeLoginPasswords(this.secrets, login);
-      return true;
+      return undefined;
     } catch (e) {
-      vscode.window.showErrorMessage(
-        `Couldn't save the passwords for "${loginLabel(login)}" in the OS keychain ` +
-          `(${e instanceof Error ? e.message : e}). ${consequence}`,
-      );
-      return false;
+      return e instanceof Error ? e.message : String(e);
     }
+  }
+
+  /** Lets the user choose plain text or no saved passwords; closing the dialog chooses the latter. */
+  private async afterKeychainFailure(login: GemStoneLogin, error: string): Promise<GemStoneLogin> {
+    const choice = hasPlainTextPassword(login)
+      ? await vscode.window.showWarningMessage(
+          `Couldn't save the passwords for "${loginLabel(login)}" in the OS keychain (${error}).`,
+          {
+            modal: true,
+            detail:
+              'Save them as plain text in your VS Code settings, or leave them unsaved and ' +
+              'be asked for them when you log in.' +
+              (login.gs_password === DEFAULT_GS_PW
+                ? ` The GemStone password is GemStone's default, ${DEFAULT_GS_PW}.`
+                : ''),
+          },
+          SAVE_AS_PLAIN_TEXT,
+          ASK_AT_LOGIN,
+        )
+      : undefined;
+    // The failed write may have stored one of the two, and an older entry may
+    // still be there; either would be used at login without asking.
+    await deleteLoginPasswords(this.secrets, login);
+    return choice === SAVE_AS_PLAIN_TEXT
+      ? { ...login, password_in_keychain: false }
+      : { ...login, gs_password: '', host_password: '' };
   }
 
   getGciLibraryPath(version: string): string | undefined {

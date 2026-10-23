@@ -1,9 +1,15 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, onTestFinished, vi } from 'vitest';
 
 vi.mock('vscode', () => import('../__mocks__/vscode.js'));
 
-import { __configUpdates, __resetConfig, __setConfig, window } from '../__mocks__/vscode';
-import { LoginStorage } from '../loginStorage';
+import {
+  __configUpdates,
+  __resetConfig,
+  __setConfig,
+  window,
+  workspace,
+} from '../__mocks__/vscode';
+import { ASK_AT_LOGIN, LoginStorage, SAVE_AS_PLAIN_TEXT } from '../loginStorage';
 import { fakeSecretStorage } from './support/secretStorage';
 import { GemStoneLogin, DEFAULT_LOGIN, loginLabel } from '../loginTypes';
 
@@ -138,6 +144,16 @@ describe('LoginStorage', () => {
       expect(storage.getLogins()[0]).toMatchObject({ gs_password: '', host_password: '' });
     });
 
+    it('keeps both passwords when the login is saved again under the same name', async () => {
+      const before = keychainLogin();
+      await storage.saveLogin(before);
+
+      await storage.saveLogin({ ...before, version: '3.7.5' }, loginLabel(before));
+
+      expect(secrets.entries.get(GS_KEY)).toBe(DEFAULT_LOGIN.gs_password);
+      expect(secrets.entries.get(HOST_KEY)).toBe('hostpw');
+    });
+
     it('moves the entry to the new name when the user, host or stone changes', async () => {
       const before = keychainLogin();
       await storage.saveLogin(before);
@@ -148,6 +164,28 @@ describe('LoginStorage', () => {
         'jasper-gemstone-login:DataCurator@localhost/renamed',
         'jasper-gemstone-login:DataCurator@localhost/renamed#host',
       ]);
+    });
+
+    it('keeps the old entries when the settings cannot be written', async () => {
+      const before = keychainLogin();
+      await storage.saveLogin(before);
+      const real = workspace.getConfiguration;
+      const failingWrites = vi.spyOn(workspace, 'getConfiguration');
+      onTestFinished(() => failingWrites.mockRestore());
+      failingWrites.mockImplementation((section: string) => ({
+        ...real(section),
+        update: vi.fn(async () => {
+          throw new Error('settings.json is invalid');
+        }),
+      }));
+
+      await expect(
+        storage.saveLogin(keychainLogin({ stone: 'renamed' }), loginLabel(before)),
+      ).rejects.toThrow('settings.json is invalid');
+      await expect(storage.deleteLogin(loginLabel(before))).rejects.toThrow();
+
+      expect(secrets.entries.get(GS_KEY)).toBe(DEFAULT_LOGIN.gs_password);
+      expect(secrets.entries.get(HOST_KEY)).toBe('hostpw');
     });
 
     it('deletes the entries when the box is unchecked', async () => {
@@ -168,16 +206,60 @@ describe('LoginStorage', () => {
       expect(secrets.entries.size).toBe(0);
     });
 
-    it('says so, and still keeps the passwords out of settings, when the keychain cannot be written', async () => {
-      secrets.store.mockRejectedValueOnce(new Error('no keyring'));
+    describe('when the keychain cannot be written', () => {
+      beforeEach(() => {
+        // An older entry under the same name, which must not be used at login.
+        secrets.entries.set(GS_KEY, 'old-gs');
+        secrets.entries.set(HOST_KEY, 'old-host');
+        secrets.store.mockRejectedValueOnce(new Error('no keyring'));
+      });
 
-      await storage.saveLogin(keychainLogin());
+      it('asks whether to save the passwords as plain text or not at all', async () => {
+        await storage.saveLogin(keychainLogin());
 
-      expect(window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining('no keyring'));
-      expect(storage.getLogins()[0]).toMatchObject({
-        gs_password: '',
-        host_password: '',
-        password_in_keychain: true,
+        expect(window.showWarningMessage).toHaveBeenCalledWith(
+          expect.stringContaining('no keyring'),
+          expect.objectContaining({ modal: true }),
+          SAVE_AS_PLAIN_TEXT,
+          ASK_AT_LOGIN,
+        );
+      });
+
+      it("names GemStone's default password, so a login left unsaved can still be answered", async () => {
+        await storage.saveLogin(keychainLogin());
+
+        expect(window.showWarningMessage).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            detail: expect.stringContaining(`default, ${DEFAULT_LOGIN.gs_password}.`),
+          }),
+          SAVE_AS_PLAIN_TEXT,
+          ASK_AT_LOGIN,
+        );
+      });
+
+      it('saves them as plain text, with the box unchecked, when the user chooses that', async () => {
+        vi.mocked(window.showWarningMessage).mockResolvedValueOnce(SAVE_AS_PLAIN_TEXT);
+
+        await storage.saveLogin(keychainLogin());
+
+        expect(storage.getLogins()[0]).toMatchObject({
+          gs_password: DEFAULT_LOGIN.gs_password,
+          host_password: 'hostpw',
+          password_in_keychain: false,
+        });
+        expect(secrets.entries.size).toBe(0);
+      });
+
+      it('saves no passwords, so they are asked for at login, when the dialog is closed', async () => {
+        await storage.saveLogin(keychainLogin());
+
+        expect(storage.getLogins()[0]).toMatchObject({
+          gs_password: '',
+          host_password: '',
+          password_in_keychain: true,
+        });
+        expect(secrets.entries.size).toBe(0);
       });
     });
   });
@@ -188,7 +270,7 @@ describe('LoginStorage', () => {
       const empty = makeLogin({ stone: 'other', gs_password: '' });
       __setConfig('gemstone', 'logins', [plain, empty], 'workspace');
 
-      expect(await storage.movePasswordsToKeychain()).toBe(true);
+      expect(await storage.movePasswordsToKeychain(new Set([loginLabel(plain)]))).toBe(true);
 
       expect(secrets.entries.get(GS_KEY)).toBe(DEFAULT_LOGIN.gs_password);
       expect(secrets.entries.get(HOST_KEY)).toBe('hostpw');
@@ -201,14 +283,28 @@ describe('LoginStorage', () => {
 
     it('keeps a GemStone password already in the keychain when moving the host password beside it', async () => {
       secrets.entries.set(GS_KEY, 'kc-gs');
-      __setConfig('gemstone', 'logins', [
-        makeLogin({ gs_password: '', host_password: 'hostpw', password_in_keychain: true }),
-      ]);
+      const login = makeLogin({
+        gs_password: '',
+        host_password: 'hostpw',
+        password_in_keychain: true,
+      });
+      __setConfig('gemstone', 'logins', [login]);
 
-      await storage.movePasswordsToKeychain();
+      await storage.movePasswordsToKeychain(new Set([loginLabel(login)]));
 
       expect(secrets.entries.get(GS_KEY)).toBe('kc-gs');
       expect(secrets.entries.get(HOST_KEY)).toBe('hostpw');
+    });
+
+    it('leaves a plain-text login it was not given where it is', async () => {
+      const moved = makeLogin();
+      const kept = makeLogin({ stone: 'kept', host_password: 'kept-host' });
+      __setConfig('gemstone', 'logins', [moved, kept]);
+
+      await storage.movePasswordsToKeychain(new Set([loginLabel(moved)]));
+
+      expect(storage.getLogins()[1]).toEqual(kept);
+      expect([...secrets.entries.keys()]).toEqual([GS_KEY]);
     });
 
     it('leaves the settings file alone when the keychain cannot be written', async () => {
@@ -216,7 +312,7 @@ describe('LoginStorage', () => {
       const plain = makeLogin();
       __setConfig('gemstone', 'logins', [plain]);
 
-      expect(await storage.movePasswordsToKeychain()).toBe(false);
+      expect(await storage.movePasswordsToKeychain(new Set([loginLabel(plain)]))).toBe(false);
 
       expect(storage.getLogins()).toEqual([plain]);
       expect(window.showErrorMessage).toHaveBeenCalledWith(

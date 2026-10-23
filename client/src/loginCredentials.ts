@@ -55,23 +55,32 @@ export async function getLoginPasswords(
       return '';
     }
   };
-  return {
-    gs_password: await read(keys.gs_password),
-    host_password: await read(keys.host_password),
-  };
+  const [gs_password, host_password] = await Promise.all([
+    read(keys.gs_password),
+    read(keys.host_password),
+  ]);
+  return { gs_password, host_password };
 }
 
-/** Returns false when SecretStorage throws. */
+/** Best effort: each entry is tried on its own, and a failure is ignored. */
 export async function deleteLoginPasswords(
   secrets: vscode.SecretStorage,
   login: LoginIdentity,
-): Promise<boolean> {
+): Promise<void> {
   const keys = secretKeys(login);
-  try {
-    await secrets.delete(keys.gs_password);
-    await secrets.delete(keys.host_password);
-    return true;
-  } catch {
-    return false;
-  }
+  await Promise.allSettled([secrets.delete(keys.gs_password), secrets.delete(keys.host_password)]);
+}
+
+/**
+ * `secrets` with every write refused. VS Code itself almost never refuses one
+ * (without encryption it falls back to a store of its own), so the acceptance
+ * tests use this to reach what a user sees when an OS keychain does.
+ */
+export function refusingWrites(secrets: vscode.SecretStorage): vscode.SecretStorage {
+  return {
+    get: (key) => secrets.get(key),
+    store: () => Promise.reject(new Error('the keychain refused the write (test)')),
+    delete: (key) => secrets.delete(key),
+    onDidChange: secrets.onDidChange,
+  };
 }

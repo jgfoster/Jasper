@@ -14,7 +14,7 @@ import { bundledWindowsClientVersions, bundledGciArchSupported } from '../bundle
 import { LoginStorage } from '../loginStorage';
 import { LoginTreeProvider } from '../loginTreeProvider';
 import { SysadminStorage } from '../sysadminStorage';
-import { DEFAULT_LOGIN, GemStoneLogin, loginLabel } from '../loginTypes';
+import { DEFAULT_LOGIN, GemStoneLogin, duplicateOf, loginLabel } from '../loginTypes';
 import { fakeSecretStorage } from './support/secretStorage';
 
 function makeLogin(overrides: Partial<GemStoneLogin> = {}): GemStoneLogin {
@@ -474,6 +474,37 @@ describe('LoginEditorPanel', () => {
       });
     });
 
+    it("opens a Duplicate with the original's passwords, not a stale entry under its name", async () => {
+      secrets.entries.set('jasper-gemstone-login:DataCurator@localhost/gs64stone', 'stale');
+      const original = makeLogin({ gs_password: '', password_in_keychain: true });
+
+      await LoginEditorPanel.show(
+        storage,
+        secretsArg,
+        treeProvider,
+        duplicateOf(original, { gs_password: 'original-gs', host_password: 'original-host' }),
+      );
+
+      const panel = window.createWebviewPanel.mock.results[0].value;
+      const loadCall = panel.webview.postMessage.mock.calls.find(
+        (c: unknown[]) => (c[0] as { command?: string })?.command === 'loadData',
+      );
+      expect((loadCall?.[0] as { data: GemStoneLogin }).data).toMatchObject({
+        gs_password: 'original-gs',
+        host_password: 'original-host',
+        password_in_keychain: true,
+      });
+    });
+
+    it('does not fill a login not saved yet from a keychain entry under its name', async () => {
+      secrets.entries.set('jasper-gemstone-login:DataCurator@localhost/gs64stone', 'stale');
+      const unsaved = makeLogin({ label: '', gs_password: '', password_in_keychain: true });
+
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider, unsaved);
+
+      expect(secrets.get).not.toHaveBeenCalled();
+    });
+
     it('starts a new login with the keychain box checked', async () => {
       await LoginEditorPanel.show(storage, secretsArg, treeProvider);
 
@@ -788,23 +819,28 @@ describe('LoginEditorPanel', () => {
         password_in_keychain: true,
       });
       __setConfig('gemstone', 'logins', [{ ...existing, label: loginLabel(existing) }]);
-      secrets.entries.set('jasper-gemstone-login:DataCurator@localhost/gs64stone', 'kc');
+      secrets.entries.set('jasper-gemstone-login:DataCurator@localhost/gs64stone', 'kc-gs');
+      secrets.entries.set('jasper-gemstone-login:DataCurator@localhost/gs64stone#host', 'kc-host');
 
       await LoginEditorPanel.show(storage, secretsArg, treeProvider, {
         ...existing,
         label: loginLabel(existing),
       });
       const panel = window.createWebviewPanel.mock.results[0].value;
+      const loaded = panel.webview.postMessage.mock.calls.find(
+        (c: unknown[]) => (c[0] as { command?: string })?.command === 'loadData',
+      )?.[0] as { data: GemStoneLogin };
       const handler = panel.webview.onDidReceiveMessage.mock.calls[0][0];
       await handler({
         command: 'save',
-        data: { ...existing, gs_password: 'plain-now', password_in_keychain: false },
+        data: { ...loaded.data, password_in_keychain: false },
         originalLabel: loginLabel(existing),
       });
 
       expect(secrets.entries.size).toBe(0);
-      expect(storage.getLogins()).toHaveLength(1);
-      expect(storage.getLogins()[0].gs_password).toBe('plain-now');
+      expect(storage.getLogins()).toEqual([
+        expect.objectContaining({ gs_password: 'kc-gs', host_password: 'kc-host' }),
+      ]);
     });
 
     it('does not touch SecretStorage when saving a plain-password login', async () => {
