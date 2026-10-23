@@ -707,10 +707,7 @@ export class SessionManager {
     // reader.
     this._selectedId = null;
     this.selectionOrder = [];
-    // The GCI libraries stay loaded. A call can still be running on a koffi
-    // worker thread, or have returned with its callback still queued, and either
-    // crashes the extension host once the library is gone. Unloading frees
-    // nothing anyway: VS Code exits the extension host right after deactivate.
+    // The GCI libraries stay loaded; GciLibrary's `lib` field says why.
     this._onDidChangeSelection.dispose();
     this._onDidRemoveSession.dispose();
     this._onDidAddSession.dispose();

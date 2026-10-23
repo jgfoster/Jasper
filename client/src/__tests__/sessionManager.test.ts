@@ -60,7 +60,6 @@ const gciTsFetchSize = vi.fn((..._args: unknown[]) => ({
   err: { number: pingErrNumber, message: pingErrNumber ? 'boom' : '' },
 }));
 const gciLogout = vi.fn((..._args: unknown[]) => ({ sessionFreed: true }));
-const gciClose = vi.fn();
 // login() aborts once after setup to drop the session-method-policy's spurious
 // write; capture those calls so tests can assert on them.
 const gciTsBegin = vi.fn((..._args: unknown[]) => ({
@@ -137,9 +136,6 @@ vi.mock('../gciLibrary', () => ({
     }
     GciTsNbLoginFinished(...args: unknown[]) {
       return gciTsNbLoginFinished(...(args as []));
-    }
-    close() {
-      gciClose();
     }
   },
 }));
@@ -811,16 +807,6 @@ describe('SessionManager', () => {
   // promotes a surviving session), so pin the property itself — a later
   // "deselect", or a crash-cleanup path that drops a session without re-electing
   // one, would put a QuickPick back in the middle of a Commit.
-  describe('shutting down', () => {
-    it('leaves the GCI library loaded', () => {
-      manager.login({ ...DEFAULT_LOGIN, label: 'Test' }, '/mock/lib');
-
-      manager.dispose();
-
-      expect(gciClose).not.toHaveBeenCalled();
-    });
-  });
-
   describe('a window with sessions always has a current one', () => {
     const invariantHolds = () =>
       manager.getSessions().length === 0 || manager.getSelectedSession() !== undefined;
