@@ -77,25 +77,53 @@ const VSCODE_VERSION = '1.129.1';
  *     resolve to empty throwaway paths (no MCP write to your real config)
  *   - `gemstone.rootPath` at an empty temp dir, so the Versions and Databases
  *     panels never surface your real GemStone installs
- *   - secrets kept in an in-profile file store, never the macOS login keychain
+ *   - secrets kept in memory, never the OS keychain (see `persistentSecrets`)
  *
  * Fixtures:
  *   - `workspaceSettings` — seeds the workspace's `.vscode/settings.json` before
  *      launch (override with `test.use({ workspaceSettings })`) to declare
- *      logins, GCI library paths, etc. Its keys win over the isolation defaults.
+ *      logins, GCI library paths, etc. Its keys win over the isolation defaults;
+ *      a key set to `undefined` removes a default.
+ *   - `userSettings` — the same, for the profile's user `settings.json`
+ *   - `persistentSecrets` — keep SecretStorage in a file in the profile, so it
+ *      survives `session.restart()`. Linux and Windows only: macOS ignores
+ *      `--password-store` and asks for the login keychain's password.
+ *   - `session` — the window plus the settings files around it, and a restart
  *   - `window` — the workbench page, ready to drive (`.monaco-workbench` present)
  */
+export interface VSCodeSession {
+  /** The workbench page; a restart replaces it. */
+  readonly window: Page;
+  /** The profile's user settings, where Jasper saves logins. */
+  userSettingsPath: string;
+  workspaceSettingsPath: string;
+  /** Quit VS Code and launch it again on the same profile and workspace. */
+  restart(): Promise<Page>;
+}
+
 export const test = base.extend<{
   workspaceSettings: Record<string, unknown>;
   workspaceFixture: string;
+  userSettings: Record<string, unknown>;
+  persistentSecrets: boolean;
+  session: VSCodeSession;
   window: Page;
 }>({
   workspaceSettings: [{}, { option: true }],
   // Name of a directory under acceptance/fixtures/ to open as the workspace
   // (e.g. a ready-made Rowan project). Empty = a fresh empty folder.
   workspaceFixture: ['', { option: true }],
+  userSettings: [{}, { option: true }],
+  persistentSecrets: [false, { option: true }],
 
-  window: async ({ workspaceSettings, workspaceFixture }, use) => {
+  window: async ({ session }, use) => {
+    await use(session.window);
+  },
+
+  session: async (
+    { workspaceSettings, workspaceFixture, userSettings, persistentSecrets },
+    use,
+  ) => {
     const vscodeCliPath = await downloadAndUnzipVSCode(VSCODE_VERSION);
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'jasper-acceptance-'));
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'jasper-workspace-'));
@@ -158,14 +186,16 @@ export const test = base.extend<{
     // the profile's user settings rather than the workspace's.
     const userSettingsDir = path.join(profile, 'user-data', 'User');
     fs.mkdirSync(userSettingsDir, { recursive: true });
+    const userSettingsPath = path.join(userSettingsDir, 'settings.json');
     fs.writeFileSync(
-      path.join(userSettingsDir, 'settings.json'),
-      JSON.stringify({ 'window.dialogStyle': 'custom' }, null, 2),
+      userSettingsPath,
+      JSON.stringify({ 'window.dialogStyle': 'custom', ...userSettings }, null, 2),
     );
 
     const dotVscode = path.join(workspace, '.vscode');
     fs.mkdirSync(dotVscode, { recursive: true });
-    fs.writeFileSync(path.join(dotVscode, 'settings.json'), JSON.stringify(settings, null, 2));
+    const workspaceSettingsPath = path.join(dotVscode, 'settings.json');
+    fs.writeFileSync(workspaceSettingsPath, JSON.stringify(settings, null, 2));
 
     // Clean env: drop ELECTRON_RUN_AS_NODE (it makes VS Code's Electron boot as
     // plain Node and reject every CLI flag), and point HOME at the throwaway
@@ -186,86 +216,109 @@ export const test = base.extend<{
     // Keep Jasper's first-run walkthrough from popping over every run.
     env.GEMSTONE_SUPPRESS_WALKTHROUGH = '1';
 
-    const app = await electron.launch({
-      executablePath: electronBinary(vscodeCliPath),
-      env,
-      args: [
-        `--extensionDevelopmentPath=${repoRoot}`,
-        `--user-data-dir=${path.join(profile, 'user-data')}`,
-        `--extensions-dir=${path.join(profile, 'extensions')}`,
-        '--disable-workspace-trust',
-        '--skip-welcome',
-        '--skip-release-notes',
-        '--disable-updates',
-        // Disable the bundled Copilot extensions so the Chat/Agent bar and inline
-        // suggestions stay out of the trace (their settings aren't honored). The
-        // selection "sparkle" in an editor is separate — specs close the editor.
-        '--disable-extension',
-        'GitHub.copilot',
-        '--disable-extension',
-        'GitHub.copilot-chat',
-        '--no-sandbox',
-        // In a headless Linux container Chromium's default /dev/shm is too small,
-        // so it segfaults on launch (SIGSEGV) with the run appearing flaky. Route
-        // shared memory to a temp file and skip the (absent) GPU under Xvfb. Only
-        // needed in the container, so leave the macOS path untouched.
-        ...(process.platform === 'linux' ? ['--disable-dev-shm-usage', '--disable-gpu'] : []),
-        // Back VS Code's SecretStorage with RAM, never the OS keychain. This is
-        // the real isolation: --user-data-dir does NOT isolate the machine-global
-        // keychain, so without this a launched VS Code (core, or the extension's
-        // login storage) prompts for the login-keychain password — native or
-        // container. --password-store=basic is a Chromium-level backstop.
-        '--use-inmemory-secretstorage',
-        '--password-store=basic',
-        workspace,
-      ],
+    const launch = async () => {
+      const app = await electron.launch({
+        executablePath: electronBinary(vscodeCliPath),
+        env,
+        args: [
+          `--extensionDevelopmentPath=${repoRoot}`,
+          `--user-data-dir=${path.join(profile, 'user-data')}`,
+          `--extensions-dir=${path.join(profile, 'extensions')}`,
+          '--disable-workspace-trust',
+          '--skip-welcome',
+          '--skip-release-notes',
+          '--disable-updates',
+          // Disable the bundled Copilot extensions so the Chat/Agent bar and inline
+          // suggestions stay out of the trace (their settings aren't honored). The
+          // selection "sparkle" in an editor is separate — specs close the editor.
+          '--disable-extension',
+          'GitHub.copilot',
+          '--disable-extension',
+          'GitHub.copilot-chat',
+          '--no-sandbox',
+          // In a headless Linux container Chromium's default /dev/shm is too small,
+          // so it segfaults on launch (SIGSEGV) with the run appearing flaky. Route
+          // shared memory to a temp file and skip the (absent) GPU under Xvfb. Only
+          // needed in the container, so leave the macOS path untouched.
+          ...(process.platform === 'linux' ? ['--disable-dev-shm-usage', '--disable-gpu'] : []),
+          // Back VS Code's SecretStorage with RAM, never the OS keychain. This is
+          // the real isolation: --user-data-dir does NOT isolate the machine-global
+          // keychain, so without this a launched VS Code (core, or the extension's
+          // login storage) prompts for the login-keychain password — native or
+          // container. --password-store=basic is a Chromium-level backstop.
+          ...(persistentSecrets ? [] : ['--use-inmemory-secretstorage']),
+          '--password-store=basic',
+          workspace,
+        ],
+      });
+
+      if (process.platform === 'darwin') {
+        // Make it an accessory app (no Dock icon, never the active app) so its
+        // window can't steal focus.
+        await app.evaluate(({ app }) => {
+          app.setActivationPolicy?.('accessory');
+          app.dock?.hide?.();
+        });
+      }
+
+      const page = await app.firstWindow();
+
+      await page.waitForSelector('.monaco-workbench', { timeout: 60_000 });
+
+      await page.addStyleTag({ content: INTERACTION_HIGHLIGHT });
+
+      // VS Code opens the Chat/Agent secondary side bar by default; close it so the
+      // trace shows only the extension. Ctrl/Cmd+Alt+B toggles it — no command-title
+      // guessing, no palette left hanging open. Best-effort: never fail over chrome.
+      try {
+        const auxBar = page.locator('.part.auxiliarybar');
+        if (await auxBar.isVisible()) {
+          await page.keyboard.press(
+            process.platform === 'darwin' ? 'Meta+Alt+KeyB' : 'Control+Alt+KeyB',
+          );
+          await auxBar.waitFor({ state: 'hidden', timeout: 5_000 });
+        }
+      } catch {
+        /* chrome cleanup is cosmetic */
+      }
+
+      // Trace manually so the flip-through report survives regardless of the
+      // launch path (leaving the runner's auto-trace off avoids double-starting).
+      const context = page.context();
+      // Screenshots power the trace filmstrip; DOM snapshots are off because VS
+      // Code (canvas + webviews) reconstructs as garbage in the viewer's snapshot
+      // pane. The report's attached step screenshots are the clean artifact.
+      await context.tracing.start({ screenshots: true, snapshots: false });
+      return { app, page };
+    };
+
+    let launches = 0;
+    const quit = async ({ app, page }: Awaited<ReturnType<typeof launch>>) => {
+      const tracePath = test
+        .info()
+        .outputPath(launches > 1 ? `trace-${launches}.zip` : 'trace.zip');
+      await page.context().tracing.stop({ path: tracePath });
+      await test.info().attach('trace', { path: tracePath, contentType: 'application/zip' });
+      await app.close();
+    };
+
+    let current = await launch();
+    launches++;
+    await use({
+      get window() {
+        return current.page;
+      },
+      userSettingsPath,
+      workspaceSettingsPath,
+      async restart() {
+        await quit(current);
+        current = await launch();
+        launches++;
+        return current.page;
+      },
     });
 
-    if (process.platform === 'darwin') {
-      // Make it an accessory app (no Dock icon, never the active app) so its
-      // window can't steal focus.
-      await app.evaluate(({ app }) => {
-        app.setActivationPolicy?.('accessory');
-        app.dock?.hide?.();
-      });
-    }
-
-    const page = await app.firstWindow();
-
-    await page.waitForSelector('.monaco-workbench', { timeout: 60_000 });
-
-    await page.addStyleTag({ content: INTERACTION_HIGHLIGHT });
-
-    // VS Code opens the Chat/Agent secondary side bar by default; close it so the
-    // trace shows only the extension. Ctrl/Cmd+Alt+B toggles it — no command-title
-    // guessing, no palette left hanging open. Best-effort: never fail over chrome.
-    try {
-      const auxBar = page.locator('.part.auxiliarybar');
-      if (await auxBar.isVisible()) {
-        await page.keyboard.press(
-          process.platform === 'darwin' ? 'Meta+Alt+KeyB' : 'Control+Alt+KeyB',
-        );
-        await auxBar.waitFor({ state: 'hidden', timeout: 5_000 });
-      }
-    } catch {
-      /* chrome cleanup is cosmetic */
-    }
-
-    // Trace manually so the flip-through report survives regardless of the
-    // launch path (leaving the runner's auto-trace off avoids double-starting).
-    const context = page.context();
-    // Screenshots power the trace filmstrip; DOM snapshots are off because VS
-    // Code (canvas + webviews) reconstructs as garbage in the viewer's snapshot
-    // pane. The report's attached step screenshots are the clean artifact.
-    await context.tracing.start({ screenshots: true, snapshots: false });
-
-    await use(page);
-
-    const tracePath = test.info().outputPath('trace.zip');
-    await context.tracing.stop({ path: tracePath });
-    await test.info().attach('trace', { path: tracePath, contentType: 'application/zip' });
-
-    await app.close();
+    await quit(current);
     fs.rmSync(profile, { recursive: true, force: true });
     fs.rmSync(workspace, { recursive: true, force: true });
   },
