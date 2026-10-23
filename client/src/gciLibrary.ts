@@ -2221,10 +2221,10 @@ export class GciLibrary {
 
   /**
    * Logs out `session`. Failures are logged via `console.warn` rather than
-   * thrown. Every caller is a teardown path that drops the session whatever
-   * the outcome (`SessionManager.logout` and `dispose`, transient logins, test
-   * teardown), so a throw would only be swallowed there, taking the error
-   * message with it, or, in a test, obscure the real failure above it.
+   * thrown. Every caller is a teardown path, so a throw would only be
+   * swallowed there, taking the error message with it, or, in a test, obscure
+   * the real failure above it. What a refusal means is the caller's to decide,
+   * through the answered `sessionFreed`.
    *
    * Clears the session's cached Utf8 class oop only once the session is freed;
    * a refused logout leaves the session, and so its cache, alive.
