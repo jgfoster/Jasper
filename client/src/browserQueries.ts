@@ -375,7 +375,7 @@ export function executeFetchString(session: ActiveSession, code: string): string
 // freeze the whole extension host for the duration; this one starts the
 // execution with GciTsNbExecute and polls via the shared nb runner, which keeps
 // VS Code responsive and, past ~2s, shows a cancellable progress notification
-// (soft break on first Cancel, hard break on second — see nbRunner). The result
+// (one Cancel stops it — see nbRunner). The result
 // must be a String, fetched verbatim (no printString quoting) for parity with
 // executeFetchString.
 export async function executeFetchStringNb(
@@ -384,8 +384,8 @@ export async function executeFetchStringNb(
   code: string,
   progressTitle?: string,
   suppressNotification = false,
-  // Handed a `cancel` fn once polling starts — soft break on the first call, hard
-  // on the second. Lets a caller drive the break from its own UI (the Testing
+  // Handed a `cancel` fn once polling starts, which stops the call the way the
+  // toast's Cancel does. Lets a caller drive the break from its own UI (the Testing
   // view's stop button, an Explorer row's ■) rather than only the ~2s toast.
   // See NbRunOptions.onStart for its second argument.
   onStart?: NbRunOptions['onStart'],

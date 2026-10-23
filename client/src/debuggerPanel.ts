@@ -1569,9 +1569,9 @@ export class DebuggerPanel {
    */
   private nbBusy = false;
   /**
-   * Cancel handle for the in-flight non-blocking op (#9 cancel). Set from the nb
-   * runner's `onStart` while a cancellable op runs; calling it requests a soft
-   * break, then a hard break on a second call. Drives the in-panel Cancel button
+   * Cancel handle for the in-flight non-blocking op. Set from the nb runner's
+   * `onStart` while a cancellable op runs; calling it stops the op, soft break
+   * first and the runner's own hard break after. Drives the in-panel Cancel button
    * (which the webview shows only while the busy spinner is up). Undefined when
    * nothing cancellable is running.
    */
@@ -2833,7 +2833,9 @@ export class DebuggerPanel {
         // The user interrupted this eval. Show a clean header (with which break it
         // was — soft = stop at a safe point, hard = forced) plus the raw gem error
         // for context, in the eval-result area below the bar (no top-banner error).
-        const kind = this.cancelClicks === 1 ? 'soft break' : 'hard break';
+        // Only a hard break rejects with NbCancelledError, and the runner may send
+        // one itself after a single click.
+        const kind = e instanceof NbCancelledError ? 'hard break' : 'soft break';
         value = `Evaluation Cancelled (${kind})${raw ? ` — ${raw}` : ''}`;
       } else {
         value = `Error: ${raw}`;
@@ -2885,7 +2887,7 @@ export class DebuggerPanel {
     this.panel.webview.postMessage({ command: 'cancellable', on });
   }
 
-  /** Webview Cancel button → request a break of the active nb op (soft, then hard). */
+  /** Webview Cancel button → stop the active nb op (see activeNbCancel). */
   private cancelActiveOp(): void {
     if (!this.activeNbCancel) return;
     this.cancelClicks += 1;

@@ -2956,8 +2956,8 @@ export function activate(context: vscode.ExtensionContext) {
       },
     ),
 
-    // The ■ that replaces a row's ▶ while its test is running. Soft break first,
-    // hard break if pressed again — the same escalation the progress toast offers.
+    // The ■ that replaces a row's ▶ while its test is running. Stops the run the
+    // way the progress toast's Cancel does.
     vscode.commands.registerCommand('gemstone.explorer.stopTest', () => {
       if (!sunitTestController.cancelActiveRun()) {
         void vscode.window.showInformationMessage('No GemStone test run to stop.');

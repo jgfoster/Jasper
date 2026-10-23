@@ -204,6 +204,7 @@ import { OOP_NIL } from '../gciConstants';
 import { fakeActiveSession } from './fakeActiveSession';
 import { honourRulesAfterResume, resumeNeedsRules } from '../conditionalBreakpoints';
 import { buildMethodUri, parseUri } from '../gemstoneFileSystemProvider';
+import { NbCancelledError } from '../nbRunner';
 
 const GS_PROCESS = 0x123n;
 const ERROR_MSG = 'a UndefinedObject does not understand #foo';
@@ -3614,7 +3615,7 @@ describe('DebuggerPanel', () => {
       expect(res.isError).toBe(true);
     });
 
-    it('labels a two-click eval cancel "(hard break)"', async () => {
+    it('labels an eval cancel that ended in a hard break "(hard break)", even after one click', async () => {
       let rejectEval: (e: Error) => void = () => {};
       vi.mocked(debug.evaluateInFrameNb).mockImplementationOnce((...args: unknown[]) => {
         const opts = args[4] as { onStart?: (c: () => void) => void };
@@ -3627,9 +3628,8 @@ describe('DebuggerPanel', () => {
       sendMessage(panel, { command: 'evalInFrame', level: 3, expr: '[true] whileTrue' });
       await tick();
 
-      sendMessage(panel, { command: 'cancelOp' }); // soft
-      sendMessage(panel, { command: 'cancelOp' }); // hard
-      rejectEval(new Error('forced'));
+      sendMessage(panel, { command: 'cancelOp' }); // one click; the runner forces the stop itself
+      rejectEval(new NbCancelledError());
       await tick();
 
       expect(lastPosted(panel, 'evalResult').value).toContain('hard break');

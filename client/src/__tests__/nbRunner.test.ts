@@ -12,6 +12,8 @@ import {
   NbSessionBusyError,
   ensureSessionFree,
   MIN_HARD_BREAK_GAP_MS,
+  HARD_BREAK_AFTER_MS,
+  EARLIEST_HARD_BREAK_MS,
   LATE_COLLECT_INTERVAL_MS,
   LATE_COLLECT_LIMIT_MS,
   whenSessionFree,
@@ -303,6 +305,118 @@ describe('runNbCall — cancellation', () => {
       await expect(p).rejects.toBeInstanceOf(NbCancelledError);
 
       await vi.advanceTimersByTimeAsync(3000); // let the drain finish
+      vi.clearAllTimers();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('runNbCall — one press is enough', () => {
+  /** A call that never answers on its own, with its canceller. */
+  function stoppableCall() {
+    const { session, gci, handle } = makeSession([{ result: 0 }]);
+    let cancel: (() => void) | undefined;
+    const p = runNbCall(
+      session,
+      () => ({ success: true, err: noErr as never }),
+      () => 'unused',
+      {
+        suppressNotification: true,
+        onStart: (c) => {
+          cancel = c;
+        },
+      },
+    );
+    // Rejects inside a timer tick; see the cancellation tests above.
+    p.catch(() => {});
+    return { p, cancel: () => cancel!(), gci, handle };
+  }
+
+  it('sends the hard break by itself if the call is still going after the soft one', async () => {
+    vi.useFakeTimers();
+    try {
+      const { p, cancel, gci, handle } = stoppableCall();
+      await vi.advanceTimersByTimeAsync(EARLIEST_HARD_BREAK_MS);
+
+      cancel();
+      expect(gci.GciTsBreak).toHaveBeenCalledWith(handle, false);
+
+      await vi.advanceTimersByTimeAsync(HARD_BREAK_AFTER_MS - 50);
+      expect(gci.GciTsBreak).not.toHaveBeenCalledWith(handle, true);
+
+      await vi.advanceTimersByTimeAsync(100);
+      expect(gci.GciTsBreak).toHaveBeenCalledWith(handle, true);
+      await expect(p).rejects.toBeInstanceOf(NbCancelledError);
+
+      await vi.advanceTimersByTimeAsync(3000); // let the drain finish
+      vi.clearAllTimers();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits until the call's early window is over before the hard break", async () => {
+    // A break sent in a call's first ~2s does not land until ~2s in, so a press at
+    // the very start must not count its 1.5s from the press.
+    vi.useFakeTimers();
+    try {
+      const { p, cancel, gci, handle } = stoppableCall();
+      cancel();
+
+      await vi.advanceTimersByTimeAsync(EARLIEST_HARD_BREAK_MS - 50);
+      expect(gci.GciTsBreak).not.toHaveBeenCalledWith(handle, true);
+
+      await vi.advanceTimersByTimeAsync(100);
+      expect(gci.GciTsBreak).toHaveBeenCalledWith(handle, true);
+      await expect(p).rejects.toBeInstanceOf(NbCancelledError);
+
+      await vi.advanceTimersByTimeAsync(3000);
+      vi.clearAllTimers();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('sends no hard break once the soft break has ended the call', async () => {
+    vi.useFakeTimers();
+    try {
+      const { session, gci, handle } = makeSession([{ result: 0 }, { result: 0 }, { result: 1 }]);
+      let cancel: (() => void) | undefined;
+      const p = runNbCall(
+        session,
+        () => ({ success: true, err: noErr as never }),
+        () => 'answered the break',
+        {
+          suppressNotification: true,
+          onStart: (c) => {
+            cancel = c;
+          },
+        },
+      );
+      cancel!();
+      await vi.advanceTimersByTimeAsync(EARLIEST_HARD_BREAK_MS + HARD_BREAK_AFTER_MS);
+      await expect(p).resolves.toBe('answered the break');
+      expect(gci.GciTsBreak).toHaveBeenCalledTimes(1);
+      expect(gci.GciTsBreak).toHaveBeenCalledWith(handle, false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('sends one hard break when a second press beats the automatic one', async () => {
+    vi.useFakeTimers();
+    try {
+      const { p, cancel, gci, handle } = stoppableCall();
+      await vi.advanceTimersByTimeAsync(EARLIEST_HARD_BREAK_MS);
+      cancel();
+      await vi.advanceTimersByTimeAsync(PAST_HARD_BREAK_GAP_MS);
+      cancel();
+      expect(gci.GciTsBreak).toHaveBeenCalledWith(handle, true);
+      await expect(p).rejects.toBeInstanceOf(NbCancelledError);
+
+      await vi.advanceTimersByTimeAsync(HARD_BREAK_AFTER_MS + 3000);
+      expect(gci.GciTsBreak).toHaveBeenCalledTimes(2); // the soft one, and one hard
       vi.clearAllTimers();
     } finally {
       vi.useRealTimers();

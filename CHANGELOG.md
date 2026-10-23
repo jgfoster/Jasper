@@ -34,6 +34,8 @@ All notable changes to the **GemStone Smalltalk** extension will be documented i
 
 ### Changed
 
+- **One press of Cancel stops a run.** The progress notification's Cancel and the GemStone Debugger's in-panel Cancel asked the gem to stop and could not force it: the notification closes on the first press, and the debugger needed a second. Now Jasper forces the stop itself 1.5 seconds later if the run is still going, as the Testing view's stop already did. A test's `tearDown` now runs to the end after any stop, however long it takes; a stop from the Testing view used to cut a slow one short and leave the test's changes in the session.
+
 - **The Breakpoints view says which session its breakpoints are in.** A GemStone breakpoint is per-gem state, and that view reads one gem — the selected session's — so a row was a breakpoint in a stone the view never named, and switching the selected session silently swapped the whole list for another one. The rows now sit under a heading naming the session the way **Logins & Sessions** does, with the count beside it. It still reads only the selected session: showing every logged-in gem at once would be a different view, and a slower one.
 
 - **The breakpoint warning names only what is really ignored.** It began by naming conditions, hit counts and log messages together; conditions and log messages are both honoured now, so it names the one that is not, and says where a logpoint's output goes.

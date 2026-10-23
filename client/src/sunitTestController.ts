@@ -341,9 +341,9 @@ export class SunitTestController implements vscode.Disposable {
   }
 
   /**
-   * Breaks the run currently executing in the stone — soft on the first call,
-   * hard on a second, the same escalation the progress notification's Cancel
-   * does. Set while a run is in flight and cleared when it settles.
+   * Stops the run currently executing in the stone, the way the progress
+   * notification's Cancel does. Set while a run is in flight and cleared when it
+   * settles.
    */
   private activeCancel: (() => void) | undefined;
   /** How many runs are in flight, so the row ■ stays while any of them is. */

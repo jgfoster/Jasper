@@ -90,11 +90,12 @@ export interface NbRunOptions {
    */
   suppressNotification?: boolean;
   /**
-   * Called once when polling begins, handed a `cancel` fn. Invoking it requests
-   * a break — soft on the first call, hard on the second — exactly the escalation
-   * the progress notification's Cancel does. Lets a caller drive cancellation
-   * from its own UI (e.g. the debugger's in-panel Cancel button) instead of only
-   * the notification toast. The fn is a no-op once the call has settled.
+   * Called once when polling begins, handed a `cancel` fn. Invoking it stops the
+   * call exactly as the progress notification's Cancel does: a soft break, then a
+   * hard break of the runner's own if the call is still going (see
+   * {@link HARD_BREAK_AFTER_MS}). Lets a caller drive cancellation from its own UI
+   * (e.g. the debugger's in-panel Cancel button) instead of only the notification
+   * toast. The fn is a no-op once the call has settled.
    *
    * Also handed `stopRequested`, which answers whether a stop has been asked for
    * on this call by anyone, the notification's Cancel included: a caller whose
@@ -137,6 +138,21 @@ export interface NbRunOptions {
  * to be remembered if this one ever changes.
  */
 export const MIN_HARD_BREAK_GAP_MS = 300;
+
+/**
+ * How long a soft break gets before the runner sends a hard break of its own, so
+ * one press of any stop control is enough. A gem answers a soft break within
+ * ~20ms unless the code it runs resumes the Break.
+ *
+ * Never earlier than {@link EARLIEST_HARD_BREAK_MS} into the call either: a break
+ * sent in a call's first ~2s does not land until ~2s in (measured on 3.6.2 and
+ * 3.7.5), so measuring only from the soft break would send the hard one before
+ * the soft one had a chance.
+ *
+ * Exported so the tests step by them instead of repeating them.
+ */
+export const HARD_BREAK_AFTER_MS = 1500;
+export const EARLIEST_HARD_BREAK_MS = 2500;
 
 /**
  * How long the next call waits for a hard-broken call's result to be collected,
@@ -532,16 +548,16 @@ function clearStoppedProcess(session: ActiveSession, context: unknown): void {
  *
  * If the call outlives `PROGRESS_THRESHOLD_MS` — measured from the start of the
  * call, not from the start of `onReady`, and in real time rather than in poll
- * intervals — a cancellable progress notification appears: the first cancel sends a soft break and updates the
- * notification so the user can see it registered; a second sends a hard break
- * and rejects with `NbCancelledError`. A second cancel that lands within
- * `MIN_HARD_BREAK_GAP_MS` of the soft break isn't obeyed immediately — the hard
- * break is deferred until that gap has elapsed, because sending both back-to-back
- * crashes the client. If the gem services the soft break while the hard one is
- * still deferred, the call settles first and the hard break is dropped: the run
- * then reports whatever the gem answered (a `Break` error, typically) instead of
- * rejecting. How fast the gem gets to a soft break varies by an order of
- * magnitude, so both endings are normal and a caller cannot pick which it gets.
+ * intervals — a cancellable progress notification appears. One cancel, from it or
+ * from `onStart`'s canceller, is enough: it sends a soft break, and if the call
+ * is still going after {@link HARD_BREAK_AFTER_MS} the runner sends a hard break
+ * and rejects with `NbCancelledError`. A second cancel sends the hard break
+ * sooner, though never within `MIN_HARD_BREAK_GAP_MS` of the soft break, because
+ * sending both back-to-back crashes the client. If the gem services the soft
+ * break first, the hard break is dropped: the run then reports whatever the gem
+ * answered (a `Break` error, typically) instead of rejecting. How fast the gem
+ * gets to a soft break varies, so both endings are normal and a caller cannot
+ * pick which it gets.
  */
 export function pollNbToCompletion<T>(
   session: ActiveSession,
@@ -556,6 +572,8 @@ export function pollNbToCompletion<T>(
     let softBreakSent = false;
     let softBreakAt = 0;
     let hardBreakScheduled = false;
+    let escalationTimer: ReturnType<typeof setTimeout> | null = null;
+    const startedAt = performance.now();
     let progressResolve: (() => void) | null = null;
     const abandoned = new AbortController();
     // onReady's work, once it has begun: from then on the non-blocking result
@@ -578,6 +596,10 @@ export function pollNbToCompletion<T>(
         clearTimeout(progressTimer);
         progressTimer = null;
       }
+      if (escalationTimer) {
+        clearTimeout(escalationTimer);
+        escalationTimer = null;
+      }
       finishProgress();
       fn();
     };
@@ -596,9 +618,9 @@ export function pollNbToCompletion<T>(
     // ~2s notification is showing (an external cancel can fire before then).
     let progressReport: ((value: { message?: string }) => void) | null = null;
 
-    // Soft-then-hard break, shared by the notification's Cancel and any external
-    // canceller handed out via opts.onStart. First call asks the gem to stop at a
-    // safe point; a second interrupts now and gives up on the call.
+    // Shared by the notification's Cancel and any external canceller handed out via
+    // opts.onStart. The first call asks the gem to stop at a safe point and
+    // schedules the hard break; a second sends the hard break sooner.
     const sendHardBreak = settleOnThrow(() => {
       if (settled) return;
       // Before the break, not after: a worker thread answers it within a
@@ -650,8 +672,25 @@ export function pollNbToCompletion<T>(
         // the exact native fault MIN_HARD_BREAK_GAP_MS exists to prevent.
         softBreakAt = performance.now();
         progressReport?.({ message: 'Soft break sent — waiting for the gem to stop…' });
+        const escalateAfter = Math.max(
+          HARD_BREAK_AFTER_MS,
+          EARLIEST_HARD_BREAK_MS - (softBreakAt - startedAt),
+        );
+        escalationTimer = setTimeout(() => {
+          escalationTimer = null;
+          if (settled || hardBreakScheduled) return;
+          logInfo(
+            `[Session ${session.id}] Still running ${Math.round(escalateAfter)}ms after the ` +
+              'soft break; sending a hard break.',
+          );
+          sendHardBreak();
+        }, escalateAfter);
       } else {
         if (hardBreakScheduled) return;
+        if (escalationTimer) {
+          clearTimeout(escalationTimer);
+          escalationTimer = null;
+        }
         const waited = performance.now() - softBreakAt;
         if (waited >= MIN_HARD_BREAK_GAP_MS) {
           sendHardBreak();
