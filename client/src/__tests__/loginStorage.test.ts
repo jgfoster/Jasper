@@ -6,16 +6,20 @@ import {
   __configUpdates,
   __resetConfig,
   __setConfig,
+  __setConfigLayers,
+  ConfigurationTarget,
   window,
   workspace,
 } from '../__mocks__/vscode';
 import { ASK_AT_LOGIN, LoginStorage, SAVE_AS_PLAIN_TEXT } from '../loginStorage';
 import { fakeSecretStorage } from './support/secretStorage';
-import { GemStoneLogin, DEFAULT_LOGIN, loginLabel } from '../loginTypes';
+import { GemStoneLogin, DEFAULT_LOGIN, buildDataCuratorLogin, loginLabel } from '../loginTypes';
 
 // Plain text by default: most tests here are about the list, not the keychain.
+// Labelled, as `saveLogin` stores every login.
 function makeLogin(overrides: Partial<GemStoneLogin> = {}): GemStoneLogin {
-  return { ...DEFAULT_LOGIN, password_in_keychain: false, ...overrides };
+  const login = { ...DEFAULT_LOGIN, password_in_keychain: false, ...overrides };
+  return { ...login, label: loginLabel(login) };
 }
 
 const GS_KEY = 'jasper-gemstone-login:DataCurator@localhost/gs64stone';
@@ -35,6 +39,12 @@ describe('LoginStorage', () => {
   describe('getLogins', () => {
     it('returns empty array when no logins configured', () => {
       expect(storage.getLogins()).toEqual([]);
+    });
+
+    it('gives a login stored without a label, as Quick Setup used to save one, its label', () => {
+      __setConfig('gemstone', 'logins', [{ ...makeLogin(), label: '' }]);
+
+      expect(storage.getLogins()[0].label).toBe(loginLabel(makeLogin()));
     });
 
     it('returns configured logins', () => {
@@ -71,6 +81,18 @@ describe('LoginStorage', () => {
       const result = storage.getLogins();
       expect(result).toHaveLength(1);
       expect(result[0].gs_password).toBe('newpass');
+    });
+
+    it('gives a login saved without a label, as the Databases panel makes one, its label', async () => {
+      const created = buildDataCuratorLogin({
+        version: '3.7.5',
+        stoneName: 'devStone',
+        ldiName: 'devLdi',
+      });
+
+      await storage.saveLogin(created);
+
+      expect(storage.getLogins()[0].label).toBe(loginLabel(created));
     });
 
     it('supports renaming via originalLabel', async () => {
@@ -274,7 +296,10 @@ describe('LoginStorage', () => {
 
       expect(secrets.entries.get(GS_KEY)).toBe(DEFAULT_LOGIN.gs_password);
       expect(secrets.entries.get(HOST_KEY)).toBe('hostpw');
-      expect(__configUpdates.at(-1)).toMatchObject({ key: 'logins', target: 2 });
+      expect(__configUpdates.at(-1)).toMatchObject({
+        key: 'logins',
+        target: ConfigurationTarget.Workspace,
+      });
       expect(storage.getLogins()).toEqual([
         { ...plain, gs_password: '', host_password: '', password_in_keychain: true },
         empty,
@@ -294,6 +319,51 @@ describe('LoginStorage', () => {
 
       expect(secrets.entries.get(GS_KEY)).toBe('kc-gs');
       expect(secrets.entries.get(HOST_KEY)).toBe('hostpw');
+    });
+
+    it('leaves everything as it was when the GemStone password beside it cannot be read', async () => {
+      secrets.entries.set(GS_KEY, 'kc-gs');
+      secrets.get.mockRejectedValue(new Error('keyring locked'));
+      const login = makeLogin({
+        gs_password: '',
+        host_password: 'hostpw',
+        password_in_keychain: true,
+      });
+      __setConfig('gemstone', 'logins', [login]);
+
+      expect(await storage.movePasswordsToKeychain(new Set([loginLabel(login)]))).toBe(false);
+
+      expect(secrets.entries.get(GS_KEY)).toBe('kc-gs');
+      expect(secrets.entries.has(HOST_KEY)).toBe(false);
+      expect(storage.getLogins()).toEqual([login]);
+      expect(window.showErrorMessage).toHaveBeenCalledWith(
+        expect.stringContaining('keyring locked'),
+      );
+    });
+
+    it('moves only the login in effect, leaving a copy the workspace hides as it is', async () => {
+      const hidden = makeLogin({ gs_password: 'old-pw' });
+      const inUse = makeLogin({ gs_password: 'new-pw' });
+      __setConfigLayers('gemstone', 'logins', { global: [hidden], workspace: [inUse] });
+
+      await storage.movePasswordsToKeychain(new Set([loginLabel(inUse)]));
+
+      expect(secrets.entries.get(GS_KEY)).toBe('new-pw');
+      expect(workspace.getConfiguration('gemstone').inspect('logins')).toMatchObject({
+        globalValue: [hidden],
+        workspaceValue: [{ ...inUse, gs_password: '', password_in_keychain: true }],
+      });
+    });
+
+    it('never lets a hidden plain-text copy overwrite the password the login in use keeps', async () => {
+      secrets.entries.set(GS_KEY, 'current-pw');
+      const hidden = makeLogin({ gs_password: 'old-pw' });
+      const inUse = makeLogin({ gs_password: '', password_in_keychain: true });
+      __setConfigLayers('gemstone', 'logins', { global: [hidden], workspace: [inUse] });
+
+      await storage.movePasswordsToKeychain(new Set([loginLabel(hidden)]));
+
+      expect(secrets.entries.get(GS_KEY)).toBe('current-pw');
     });
 
     it('leaves a plain-text login it was not given where it is', async () => {

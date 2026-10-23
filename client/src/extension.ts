@@ -2202,7 +2202,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('gemstone.duplicateLogin', async (item: GemStoneLoginItem) => {
       const stored = item.login.password_in_keychain
-        ? await getLoginPasswords(context.secrets, item.login)
+        ? await getLoginPasswords(context.secrets, item.login, 'The copy opens without them.')
         : undefined;
       await LoginEditorPanel.show(
         storage,
@@ -2363,7 +2363,8 @@ export function activate(context: vscode.ExtensionContext) {
         let afterReported: (() => void) | undefined;
         await reportingLoginAttempt(item.login, () =>
           attemptLogin(item.login, {
-            keychainPasswords: (login) => getLoginPasswords(context.secrets, login),
+            keychainPasswords: (login) =>
+              getLoginPasswords(context.secrets, login, "You'll be asked for them."),
             getGciLibraryPath: (version) => storage.getGciLibraryPath(version),
             setGciLibraryPath: (version, gciPath) => storage.setGciLibraryPath(version, gciPath),
             removeGciLibraryPath: (version) => storage.removeGciLibraryPath(version),
@@ -4943,7 +4944,13 @@ export function activate(context: vscode.ExtensionContext) {
             if (adminLogin.gs_password) return adminLogin.gs_password;
             if (adminLogin.password_in_keychain) {
               return (
-                (await getLoginPasswords(context.secrets, adminLogin)).gs_password || undefined
+                (
+                  await getLoginPasswords(
+                    context.secrets,
+                    adminLogin,
+                    "You'll be asked for DataCurator's password.",
+                  )
+                ).gs_password || undefined
               );
             }
             return undefined;

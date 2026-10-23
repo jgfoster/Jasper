@@ -5,7 +5,7 @@ import { LoginStorage } from './loginStorage';
 import { LoginTreeProvider } from './loginTreeProvider';
 import { SysadminStorage } from './sysadminStorage';
 import { bundledWindowsClientVersions, bundledGciArchSupported } from './bundledGci';
-import { getLoginPasswords } from './loginCredentials';
+import { readLoginPasswords } from './loginCredentials';
 import { loginEditorHtml } from './loginEditorHtml';
 
 /**
@@ -95,23 +95,38 @@ export class LoginEditorPanel {
     // Saving writes back whatever the form holds, and an empty field clears
     // its keychain entry. A login not saved yet has an empty label and no entry
     // of its own; one left under its name by an earlier login would be stale.
+    // So a keychain that can't be read opens the login read-only: its blank
+    // fields, saved, would erase the passwords it still holds.
+    let keychainUnreadable = false;
     if (existingLogin?.password_in_keychain && existingLogin.label !== '') {
-      const stored = await getLoginPasswords(secrets, existingLogin);
-      login = {
-        ...login,
-        gs_password: login.gs_password || stored.gs_password,
-        host_password: login.host_password || stored.host_password,
-      };
+      try {
+        const stored = await readLoginPasswords(secrets, existingLogin);
+        login = {
+          ...login,
+          gs_password: login.gs_password || stored.gs_password,
+          host_password: login.host_password || stored.host_password,
+        };
+      } catch (e) {
+        // A login with an active session stays read-only for that reason alone,
+        // with no Edit anyway to lift it.
+        keychainUnreadable = !readOnly;
+        vscode.window.showErrorMessage(
+          `Couldn't read the passwords for "${loginLabel(existingLogin)}" from the OS keychain ` +
+            `(${e instanceof Error ? e.message : String(e)}).`,
+        );
+      }
     }
+    const viewOnly = readOnly || keychainUnreadable;
 
     if (LoginEditorPanel.currentPanel) {
       LoginEditorPanel.currentPanel.panel.reveal(column);
       LoginEditorPanel.currentPanel.versions = versions;
       LoginEditorPanel.currentPanel.sysadminStorage = sysadminStorage;
-      LoginEditorPanel.currentPanel.readOnly = readOnly;
+      LoginEditorPanel.currentPanel.readOnly = viewOnly;
+      LoginEditorPanel.currentPanel.keychainUnreadable = keychainUnreadable;
       LoginEditorPanel.currentPanel.panel.title = LoginEditorPanel.titleFor(
         existingLogin,
-        readOnly,
+        viewOnly,
       );
       LoginEditorPanel.currentPanel.update(login);
       return;
@@ -119,7 +134,7 @@ export class LoginEditorPanel {
 
     const panel = vscode.window.createWebviewPanel(
       'gemstoneLoginEditor',
-      LoginEditorPanel.titleFor(existingLogin, readOnly),
+      LoginEditorPanel.titleFor(existingLogin, viewOnly),
       column,
       {
         enableScripts: true,
@@ -134,8 +149,9 @@ export class LoginEditorPanel {
       treeProvider,
       login,
       versions,
-      readOnly,
+      viewOnly,
       sysadminStorage,
+      keychainUnreadable,
     );
   }
 
@@ -147,6 +163,7 @@ export class LoginEditorPanel {
     private versions: string[],
     private readOnly: boolean,
     private sysadminStorage: SysadminStorage | undefined,
+    private keychainUnreadable = false,
   ) {
     this.panel = panel;
     this.update(login);
@@ -169,6 +186,13 @@ export class LoginEditorPanel {
             break;
           case 'requestData':
             this.panel.webview.postMessage(this.loadDataMessage());
+            break;
+          case 'editAnyway':
+            if (!this.keychainUnreadable) break;
+            this.keychainUnreadable = false;
+            this.readOnly = false;
+            this.panel.title = LoginEditorPanel.titleFor(this.login, false);
+            this.update(this.login);
             break;
           case 'checkVersion':
             this.panel.webview.postMessage({
@@ -274,6 +298,7 @@ export class LoginEditorPanel {
       data: this.login,
       ...this.versionChoices(),
       readOnly: this.readOnly,
+      keychainUnreadable: this.keychainUnreadable,
     };
   }
 

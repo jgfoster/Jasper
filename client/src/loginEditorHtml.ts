@@ -172,7 +172,15 @@ export function loginEditorHtml(nonce: string): string {
   </div>
 
   <div id="readOnlyBanner" class="banner">
-    This login has an active session, so its configuration is read-only. Log out to edit it.
+    <span id="activeSessionNote">
+      This login has an active session, so its configuration is read-only. Log out to edit it.
+    </span>
+    <span id="keychainUnreadableNote">
+      The OS keychain couldn't be read, so this login is read-only: saving it now would erase the
+      passwords kept there. Close it and open it again to retry, or edit it anyway and type the
+      passwords again.
+      <button id="editAnywayBtn" class="secondary" type="button">Edit anyway</button>
+    </span>
   </div>
 
   <div class="field-group">

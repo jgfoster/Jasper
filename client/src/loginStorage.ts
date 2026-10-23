@@ -2,8 +2,9 @@ import * as vscode from 'vscode';
 import { DEFAULT_GS_PW, GemStoneLogin, loginLabel } from './loginTypes';
 import {
   deleteLoginPasswords,
-  getLoginPasswords,
+  LoginPasswords,
   loginCredentialAccount,
+  readLoginPasswords,
   storeLoginPasswords,
 } from './loginCredentials';
 
@@ -14,12 +15,19 @@ export function hasPlainTextPassword(login: GemStoneLogin): boolean {
   return Boolean(login.gs_password || login.host_password);
 }
 
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 export class LoginStorage {
   constructor(private readonly secrets: vscode.SecretStorage) {}
 
+  /** Each with its label, which Quick Setup and the Databases panel used to save empty. */
   getLogins(): GemStoneLogin[] {
     const config = vscode.workspace.getConfiguration('gemstone');
-    return config.get<GemStoneLogin[]>('logins', []);
+    return config
+      .get<GemStoneLogin[]>('logins', [])
+      .map((login) => ({ ...login, label: loginLabel(login) }));
   }
 
   /**
@@ -29,6 +37,8 @@ export class LoginStorage {
   async saveLogin(login: GemStoneLogin, originalLabel?: string): Promise<void> {
     const config = vscode.workspace.getConfiguration('gemstone');
     const logins = [...this.getLogins()];
+    // The editor reads an empty label as a login not saved yet.
+    login = { ...login, label: loginLabel(login) };
     const matchLabel = originalLabel ?? loginLabel(login);
     const index = logins.findIndex((l) => loginLabel(l) === matchLabel);
     const replaced = index >= 0 ? logins[index] : undefined;
@@ -69,44 +79,47 @@ export class LoginStorage {
   }
 
   /**
-   * Moves the plain-text passwords of the logins named in `labels`, in whichever
-   * settings file holds them, user or workspace. Every password is stored before
-   * either file is written, so a failure leaves both files as they were.
+   * Moves the plain-text passwords of the logins named in `labels`, among the
+   * logins in effect: the workspace's when it has its own, else the user's. A
+   * copy in the other file is left alone, so a stale one can't overwrite the
+   * password the login in use keeps in the keychain. Every password is stored
+   * before the file is written, so a keychain failure leaves it as it was.
    */
   async movePasswordsToKeychain(labels: ReadonlySet<string>): Promise<boolean> {
     const config = vscode.workspace.getConfiguration('gemstone');
     const inspected = config.inspect<GemStoneLogin[]>('logins');
-    const layers: [vscode.ConfigurationTarget, GemStoneLogin[] | undefined][] = [
-      [vscode.ConfigurationTarget.Global, inspected?.globalValue],
-      [vscode.ConfigurationTarget.Workspace, inspected?.workspaceValue],
-    ];
-    const all = layers.flatMap(([, logins]) => logins ?? []);
+    const [target, logins] =
+      inspected?.workspaceValue !== undefined
+        ? [vscode.ConfigurationTarget.Workspace, inspected.workspaceValue]
+        : [vscode.ConfigurationTarget.Global, inspected?.globalValue ?? []];
+    const everywhere = [...(inspected?.globalValue ?? []), ...(inspected?.workspaceValue ?? [])];
     const toMove = (l: GemStoneLogin) => hasPlainTextPassword(l) && labels.has(loginLabel(l));
 
-    // One keychain entry serves the same user, host and stone in both files, so
-    // their passwords are merged first rather than the second overwriting the first.
-    const byAccount = new Map<string, GemStoneLogin>();
-    for (const login of all.filter(toMove)) {
-      const account = loginCredentialAccount(login);
-      let full = byAccount.get(account);
-      if (!full) {
-        // A login already keychain-backed may have only its host password in
-        // plain text; storing it must not clear the GemStone password beside it.
-        const keychainBacked = all.some(
-          (l) => l.password_in_keychain && loginCredentialAccount(l) === account,
-        );
-        full = keychainBacked
-          ? { ...login, ...(await getLoginPasswords(this.secrets, login)) }
-          : { ...login, gs_password: '', host_password: '' };
+    for (const login of logins.filter(toMove)) {
+      // A login already keychain-backed, in either file, may have only its host
+      // password in plain text; storing it must not clear the GemStone password
+      // beside it, nor go ahead when that password can't be read.
+      const keychainBacked = everywhere.some(
+        (l) =>
+          l.password_in_keychain && loginCredentialAccount(l) === loginCredentialAccount(login),
+      );
+      let stored: LoginPasswords = { gs_password: '', host_password: '' };
+      if (keychainBacked) {
+        try {
+          stored = await readLoginPasswords(this.secrets, login);
+        } catch (e) {
+          vscode.window.showErrorMessage(
+            `Couldn't read the passwords for "${loginLabel(login)}" from the OS keychain ` +
+              `(${errorText(e)}). They are still in your settings file.`,
+          );
+          return false;
+        }
       }
-      byAccount.set(account, {
-        ...full,
-        gs_password: login.gs_password || full.gs_password,
-        host_password: login.host_password || full.host_password,
+      const error = await this.keychainWriteError({
+        ...login,
+        gs_password: login.gs_password || stored.gs_password,
+        host_password: login.host_password || stored.host_password,
       });
-    }
-    for (const login of byAccount.values()) {
-      const error = await this.keychainWriteError(login);
       if (error) {
         vscode.window.showErrorMessage(
           `Couldn't save the passwords for "${loginLabel(login)}" in the OS keychain ` +
@@ -116,13 +129,11 @@ export class LoginStorage {
       }
     }
 
-    for (const [target, logins] of layers) {
-      if (!logins?.some(toMove)) continue;
-      const moved = logins.map((l) =>
-        toMove(l) ? { ...l, gs_password: '', host_password: '', password_in_keychain: true } : l,
-      );
-      await config.update('logins', moved, target);
-    }
+    if (!logins.some(toMove)) return true;
+    const moved = logins.map((l) =>
+      toMove(l) ? { ...l, gs_password: '', host_password: '', password_in_keychain: true } : l,
+    );
+    await config.update('logins', moved, target);
     return true;
   }
 
@@ -132,7 +143,7 @@ export class LoginStorage {
       await storeLoginPasswords(this.secrets, login);
       return undefined;
     } catch (e) {
-      return e instanceof Error ? e.message : String(e);
+      return errorText(e);
     }
   }
 

@@ -7,7 +7,7 @@
  */
 
 import * as vscode from 'vscode';
-import { GemStoneLogin } from './loginTypes';
+import { GemStoneLogin, loginLabel } from './loginTypes';
 
 export const KEYCHAIN_SERVICE = 'jasper-gemstone-login';
 
@@ -42,24 +42,41 @@ export async function storeLoginPasswords(
   }
 }
 
-/** A password missing or unreadable comes back ''. */
-export async function getLoginPasswords(
+/**
+ * A password missing comes back ''; throws when SecretStorage can't be read.
+ * For a caller that writes the passwords back, where '' would delete the entry.
+ */
+export async function readLoginPasswords(
   secrets: vscode.SecretStorage,
   login: LoginIdentity,
 ): Promise<LoginPasswords> {
   const keys = secretKeys(login);
-  const read = async (key: string) => {
-    try {
-      return (await secrets.get(key)) ?? '';
-    } catch {
-      return '';
-    }
-  };
   const [gs_password, host_password] = await Promise.all([
-    read(keys.gs_password),
-    read(keys.host_password),
+    secrets.get(keys.gs_password),
+    secrets.get(keys.host_password),
   ]);
-  return { gs_password, host_password };
+  return { gs_password: gs_password ?? '', host_password: host_password ?? '' };
+}
+
+/**
+ * For a caller that asks for a password it doesn't have: a password missing
+ * comes back '', and so do both when SecretStorage can't be read, after telling
+ * the user so and what happens instead (`ifUnreadable`).
+ */
+export async function getLoginPasswords(
+  secrets: vscode.SecretStorage,
+  login: LoginIdentity,
+  ifUnreadable: string,
+): Promise<LoginPasswords> {
+  try {
+    return await readLoginPasswords(secrets, login);
+  } catch (e) {
+    void vscode.window.showWarningMessage(
+      `Couldn't read the passwords for "${loginLabel(login)}" from the OS keychain ` +
+        `(${e instanceof Error ? e.message : String(e)}). ${ifUnreadable}`,
+    );
+    return { gs_password: '', host_password: '' };
+  }
 }
 
 /** Best effort: each entry is tried on its own, and a failure is ignored. */

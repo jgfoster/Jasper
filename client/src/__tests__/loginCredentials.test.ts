@@ -1,10 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+vi.mock('vscode', () => import('../__mocks__/vscode.js'));
+
+import { window } from '../__mocks__/vscode';
+
 import {
   KEYCHAIN_SERVICE,
   loginCredentialAccount,
   storeLoginPasswords,
   getLoginPasswords,
+  readLoginPasswords,
   deleteLoginPasswords,
 } from '../loginCredentials';
 import { GemStoneLogin } from '../loginTypes';
@@ -95,26 +100,46 @@ describe('loginCredentials', () => {
         k === GS_KEY ? 'stored-pw' : k === HOST_KEY ? 'stored-host' : undefined,
       );
 
-      expect(await getLoginPasswords(secrets, makeLogin())).toEqual({
+      expect(await getLoginPasswords(secrets, makeLogin(), 'Then what.')).toEqual({
         gs_password: 'stored-pw',
         host_password: 'stored-host',
       });
     });
 
     it('returns an empty string for a password that is not stored', async () => {
-      expect(await getLoginPasswords(secrets, makeLogin())).toEqual({
+      expect(await getLoginPasswords(secrets, makeLogin(), 'Then what.')).toEqual({
         gs_password: '',
         host_password: '',
       });
     });
 
-    it('returns an empty string when SecretStorage throws', async () => {
+    it('says so, and what happens instead, when SecretStorage throws', async () => {
       secrets.get.mockRejectedValue(new Error('SecretStorage unavailable'));
 
-      expect(await getLoginPasswords(secrets, makeLogin())).toEqual({
+      expect(await getLoginPasswords(secrets, makeLogin(), 'Then what.')).toEqual({
         gs_password: '',
         host_password: '',
       });
+      expect(window.showWarningMessage).toHaveBeenCalledWith(
+        expect.stringMatching(/SecretStorage unavailable.*Then what\.$/),
+      );
+    });
+  });
+
+  describe('readLoginPasswords', () => {
+    it('returns an empty string for a password that is not stored', async () => {
+      expect(await readLoginPasswords(secrets, makeLogin())).toEqual({
+        gs_password: '',
+        host_password: '',
+      });
+    });
+
+    it('throws when SecretStorage throws, rather than reading as no password', async () => {
+      secrets.get.mockRejectedValue(new Error('SecretStorage unavailable'));
+
+      await expect(readLoginPasswords(secrets, makeLogin())).rejects.toThrow(
+        'SecretStorage unavailable',
+      );
     });
   });
 

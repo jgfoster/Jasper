@@ -3,14 +3,16 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 vi.mock('vscode', () => import('../__mocks__/vscode.js'));
 
 import type * as vscode from 'vscode';
-import { __resetConfig, __setConfig, window } from '../__mocks__/vscode';
+import { __resetConfig, __setConfig, __setConfigLayers, window } from '../__mocks__/vscode';
 import { LoginStorage } from '../loginStorage';
-import { DEFAULT_LOGIN, GemStoneLogin } from '../loginTypes';
+import { DEFAULT_LOGIN, GemStoneLogin, loginLabel } from '../loginTypes';
 import { MOVE, offerToMovePlainTextPasswords } from '../plainTextPasswordOffer';
 import { fakeSecretStorage } from './support/secretStorage';
 
+// Labelled, as `getLogins` reads every login.
 function makeLogin(overrides: Partial<GemStoneLogin> = {}): GemStoneLogin {
-  return { ...DEFAULT_LOGIN, password_in_keychain: false, ...overrides };
+  const login = { ...DEFAULT_LOGIN, password_in_keychain: false, ...overrides };
+  return { ...login, label: loginLabel(login) };
 }
 
 function fakeMemento(): vscode.Memento {
@@ -92,6 +94,20 @@ describe('offering to move plain-text passwords to the keychain', () => {
       declined,
       { ...added, gs_password: '', password_in_keychain: true },
     ]);
+  });
+
+  it('asks only about the logins in effect, not a user-settings copy the workspace hides', async () => {
+    const hidden = makeLogin({ gs_password: 'old-pw' });
+    const inUse = makeLogin({ gs_password: '', password_in_keychain: true });
+    secrets.entries.set('jasper-gemstone-login:DataCurator@localhost/gs64stone', 'current-pw');
+    __setConfigLayers('gemstone', 'logins', { global: [hidden], workspace: [inUse] });
+
+    await offerToMovePlainTextPasswords(storage, state);
+
+    expect(window.showInformationMessage).not.toHaveBeenCalled();
+    expect(secrets.entries.get('jasper-gemstone-login:DataCurator@localhost/gs64stone')).toBe(
+      'current-pw',
+    );
   });
 
   it('says nothing when no login keeps a password in plain text', async () => {

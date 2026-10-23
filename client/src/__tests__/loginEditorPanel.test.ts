@@ -14,7 +14,13 @@ import { bundledWindowsClientVersions, bundledGciArchSupported } from '../bundle
 import { LoginStorage } from '../loginStorage';
 import { LoginTreeProvider } from '../loginTreeProvider';
 import { SysadminStorage } from '../sysadminStorage';
-import { DEFAULT_LOGIN, GemStoneLogin, duplicateOf, loginLabel } from '../loginTypes';
+import {
+  DEFAULT_LOGIN,
+  GemStoneLogin,
+  buildDataCuratorLogin,
+  duplicateOf,
+  loginLabel,
+} from '../loginTypes';
 import { fakeSecretStorage } from './support/secretStorage';
 
 function makeLogin(overrides: Partial<GemStoneLogin> = {}): GemStoneLogin {
@@ -153,6 +159,7 @@ describe('LoginEditorPanel', () => {
         versions: [],
         notDownloaded: [],
         readOnly: false,
+        keychainUnreadable: false,
       });
     });
 
@@ -166,6 +173,7 @@ describe('LoginEditorPanel', () => {
         versions: [],
         notDownloaded: [],
         readOnly: false,
+        keychainUnreadable: false,
       });
     });
   });
@@ -503,6 +511,105 @@ describe('LoginEditorPanel', () => {
       await LoginEditorPanel.show(storage, secretsArg, treeProvider, unsaved);
 
       expect(secrets.get).not.toHaveBeenCalled();
+    });
+
+    it('fills the passwords of a login the Databases panel created, so a Save keeps them', async () => {
+      await storage.saveLogin(
+        buildDataCuratorLogin({ version: '3.7.5', stoneName: 'gs64stone', ldiName: 'gs64ldi' }),
+      );
+
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider, storage.getLogins()[0]);
+
+      const panel = window.createWebviewPanel.mock.results[0].value;
+      const loadCall = panel.webview.postMessage.mock.calls.find(
+        (c: unknown[]) => (c[0] as { command?: string })?.command === 'loadData',
+      );
+      expect((loadCall?.[0] as { data: GemStoneLogin }).data.gs_password).toBe(
+        DEFAULT_LOGIN.gs_password,
+      );
+    });
+
+    it('fills the passwords of a login already stored without a label, and saves its edit', async () => {
+      secrets.entries.set('jasper-gemstone-login:DataCurator@localhost/gs64stone', 'kc-secret');
+      __setConfig('gemstone', 'logins', [
+        makeLogin({ label: '', gs_password: '', password_in_keychain: true }),
+      ]);
+
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider, storage.getLogins()[0]);
+      const panel = window.createWebviewPanel.mock.results[0].value;
+      const loadCall = panel.webview.postMessage.mock.calls.find(
+        (c: unknown[]) => (c[0] as { command?: string })?.command === 'loadData',
+      );
+      const data = (loadCall?.[0] as { data: GemStoneLogin }).data;
+      await panel.webview.onDidReceiveMessage.mock.calls[0][0]({
+        command: 'save',
+        data: { ...data, version: '3.7.5' },
+        originalLabel: data.label,
+      });
+
+      expect(data.gs_password).toBe('kc-secret');
+      expect(window.showErrorMessage).not.toHaveBeenCalled();
+      expect(storage.getLogins()).toEqual([expect.objectContaining({ version: '3.7.5' })]);
+      expect(secrets.entries.get('jasper-gemstone-login:DataCurator@localhost/gs64stone')).toBe(
+        'kc-secret',
+      );
+    });
+
+    it('opens read-only, and keeps the entries, when the keychain cannot be read', async () => {
+      secrets.entries.set('jasper-gemstone-login:DataCurator@localhost/gs64stone', 'kc-secret');
+      secrets.get.mockRejectedValue(new Error('keyring locked'));
+      const login = makeLogin({ gs_password: '', password_in_keychain: true });
+
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider, login);
+      const panel = window.createWebviewPanel.mock.results[0].value;
+      await panel.webview.onDidReceiveMessage.mock.calls[0][0]({
+        command: 'save',
+        data: login,
+        originalLabel: loginLabel(login),
+      });
+
+      expect(panel.webview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'loadData', readOnly: true, keychainUnreadable: true }),
+      );
+      expect(window.showErrorMessage).toHaveBeenCalledWith(
+        expect.stringContaining('keyring locked'),
+      );
+      expect(secrets.entries.get('jasper-gemstone-login:DataCurator@localhost/gs64stone')).toBe(
+        'kc-secret',
+      );
+    });
+
+    it('lets the user edit anyway, with the passwords to type again, when the keychain cannot be read', async () => {
+      secrets.get.mockRejectedValue(new Error('keyring locked'));
+      const login = makeLogin({ gs_password: '', password_in_keychain: true });
+
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider, login);
+      const panel = window.createWebviewPanel.mock.results[0].value;
+      panel.webview.postMessage.mockClear();
+      await panel.webview.onDidReceiveMessage.mock.calls[0][0]({ command: 'editAnyway' });
+
+      expect(panel.webview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: 'loadData',
+          readOnly: false,
+          keychainUnreadable: false,
+        }),
+      );
+      expect(panel.title).toBe(`Edit: ${loginLabel(login)}`);
+    });
+
+    it('keeps a login with an active session read-only when the keychain cannot be read', async () => {
+      secrets.get.mockRejectedValue(new Error('keyring locked'));
+      const login = makeLogin({ gs_password: '', password_in_keychain: true });
+
+      await LoginEditorPanel.show(storage, secretsArg, treeProvider, login, undefined, true);
+      const panel = window.createWebviewPanel.mock.results[0].value;
+      panel.webview.postMessage.mockClear();
+      await panel.webview.onDidReceiveMessage.mock.calls[0][0]({ command: 'editAnyway' });
+
+      expect(panel.webview.postMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'loadData', readOnly: false }),
+      );
     });
 
     it('starts a new login with the keychain box checked', async () => {
