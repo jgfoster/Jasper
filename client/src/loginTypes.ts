@@ -166,6 +166,11 @@ export function loginNetldiTarget(config: ManagedStoneConfig): string {
   return config.netldiPort ? String(config.netldiPort) : config.ldiName;
 }
 
+/** A duplicate is a new login, so its saved passwords go to the keychain like any other's. */
+export function duplicateOf(login: GemStoneLogin): GemStoneLogin {
+  return { ...login, label: '', password_in_keychain: true };
+}
+
 /**
  * A DataCurator login for a Jasper-created stone. The stone is built from the
  * pristine extent, so DataCurator's password is GemStone's stock default —

@@ -4,6 +4,7 @@ import {
   GemStoneLogin,
   buildDataCuratorLogin,
   dataCuratorLoginToCreate,
+  duplicateOf,
   gemNrsFor,
   loginLabel,
   loginNetldiTarget,
@@ -158,6 +159,14 @@ describe('shouldSyncClasses', () => {
 
   it('is false only when explicitly disabled', () => {
     expect(shouldSyncClasses({ sync_classes: false })).toBe(false);
+  });
+});
+
+describe('duplicateOf', () => {
+  it('starts keychain-backed even when the original keeps its passwords in plain text', () => {
+    const original = makeLogin({ label: 'x', gs_password: 'pw', password_in_keychain: false });
+
+    expect(duplicateOf(original)).toEqual({ ...original, label: '', password_in_keychain: true });
   });
 });
 

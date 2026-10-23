@@ -153,10 +153,10 @@ The **Logins & Sessions** view stores connection configurations for your GemSton
 
 **Where passwords are kept.** Each of a login's two passwords, GemStone and host, is either filled in or left blank, and the **Keep saved passwords in the OS keychain** box below them decides where a filled-in one goes:
 
-|                                               | Password filled in                                       | Password left blank            |
-| --------------------------------------------- | -------------------------------------------------------- | ------------------------------ |
-| **Box checked** (the default for a new login) | kept in your operating system's password store           | asked for each time you log in |
-| **Box unchecked**                             | saved as plain text in your VS Code user `settings.json` | asked for each time you log in |
+|                                                             | Password filled in                                       | Password left blank            |
+| ----------------------------------------------------------- | -------------------------------------------------------- | ------------------------------ |
+| **Box checked** (the default for a new or duplicated login) | kept in your operating system's password store           | asked for each time you log in |
+| **Box unchecked**                                           | saved as plain text in your VS Code user `settings.json` | asked for each time you log in |
 
 So, for example, you can keep the host password in the keychain and be asked for the GemStone password every time. The password store is reached through VS Code: Keychain on macOS, Windows' built-in credential encryption, and GNOME Keyring or KWallet on Linux. Plain text in `settings.json` also ends up in anything that copies it — backups, a dotfiles repo, Settings Sync. When Jasper finds a login whose password is in plain text, it offers once to move it to the keychain. On Linux with no keyring running, VS Code falls back to a weaker store of its own and says so; install GNOME Keyring or KWallet to avoid that.
 

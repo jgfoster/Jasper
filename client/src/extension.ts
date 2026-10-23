@@ -29,6 +29,7 @@ import {
   DEFAULT_GS_PW,
   GemStoneLogin,
   buildDataCuratorLogin,
+  duplicateOf,
   loginLabel,
   loginNetldiTarget,
   loginTargetKey,
@@ -2196,9 +2197,14 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand('gemstone.duplicateLogin', (item: GemStoneLoginItem) => {
-      const copy = { ...item.login, label: '' };
       // eslint-disable-next-line @typescript-eslint/no-floating-promises -- FIXME: unhandled floating promise; needs investigation to decide await vs. void vs. .catch before this rule is enabled repo-wide
-      LoginEditorPanel.show(storage, context.secrets, treeProvider, copy, sysadminStorage);
+      LoginEditorPanel.show(
+        storage,
+        context.secrets,
+        treeProvider,
+        duplicateOf(item.login),
+        sysadminStorage,
+      );
     }),
 
     vscode.commands.registerCommand('gemstone.openWalkthrough', () => {
