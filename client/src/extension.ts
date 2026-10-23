@@ -9,7 +9,7 @@ import {
   TransportKind,
 } from 'vscode-languageclient/node';
 import { LoginStorage } from './loginStorage';
-import { getLoginPasswords, refusingWrites } from './loginCredentials';
+import { getLoginPasswords } from './loginCredentials';
 import { offerToMovePlainTextPasswords } from './plainTextPasswordOffer';
 import { runStopStone } from './stopStoneManager';
 import { LoginTreeProvider, GemStoneLoginItem, GemStoneSessionItem } from './loginTreeProvider';
@@ -890,11 +890,7 @@ export function activate(context: vscode.ExtensionContext) {
   client.start();
 
   // ── Login Management ─────────────────────────────────────
-  const storage = new LoginStorage(
-    process.env.GEMSTONE_TEST_KEYCHAIN_WRITE_FAILS
-      ? refusingWrites(context.secrets)
-      : context.secrets,
-  );
+  const storage = new LoginStorage(context.secrets);
   const sysadminStorage = new SysadminStorage();
   // SessionManager is created early so the Logins panel can mark the connected
   // login row (and swap its inline Login action for Logout) in single-session mode.

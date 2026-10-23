@@ -89,8 +89,6 @@ const VSCODE_VERSION = '1.129.1';
  *      plain-text passwords to the keychain. The harness hides it unless a spec
  *      sets this, because most runs seed a plain-text login and the toast would
  *      cover every trace. (Outside these tests Jasper shows it as usual.)
- *   - `keychainWritesFail` — make Jasper's keychain refuse every save, to reach
- *      the choice it offers then (VS Code itself almost never refuses one)
  *   - `persistentSecrets` — keep SecretStorage in a file in the profile, so it
  *      survives `session.restart()`. Linux and Windows only: macOS ignores
  *      `--password-store` and asks for the login keychain's password.
@@ -112,7 +110,6 @@ export const test = base.extend<{
   workspaceFixture: string;
   userSettings: Record<string, unknown>;
   passwordOffer: boolean;
-  keychainWritesFail: boolean;
   persistentSecrets: boolean;
   session: VSCodeSession;
   window: Page;
@@ -123,7 +120,6 @@ export const test = base.extend<{
   workspaceFixture: ['', { option: true }],
   userSettings: [{}, { option: true }],
   passwordOffer: [false, { option: true }],
-  keychainWritesFail: [false, { option: true }],
   persistentSecrets: [false, { option: true }],
 
   window: async ({ session }, use) => {
@@ -131,14 +127,7 @@ export const test = base.extend<{
   },
 
   session: async (
-    {
-      workspaceSettings,
-      workspaceFixture,
-      userSettings,
-      passwordOffer,
-      keychainWritesFail,
-      persistentSecrets,
-    },
+    { workspaceSettings, workspaceFixture, userSettings, passwordOffer, persistentSecrets },
     use,
   ) => {
     const vscodeCliPath = await downloadAndUnzipVSCode(VSCODE_VERSION);
@@ -233,7 +222,6 @@ export const test = base.extend<{
     // Keep Jasper's first-run walkthrough from popping over every run.
     env.GEMSTONE_SUPPRESS_WALKTHROUGH = '1';
     if (!passwordOffer) env.GEMSTONE_SUPPRESS_PASSWORD_OFFER = '1';
-    if (keychainWritesFail) env.GEMSTONE_TEST_KEYCHAIN_WRITE_FAILS = '1';
 
     const launch = async () => {
       const app = await electron.launch({

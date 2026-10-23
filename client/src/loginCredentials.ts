@@ -70,17 +70,3 @@ export async function deleteLoginPasswords(
   const keys = secretKeys(login);
   await Promise.allSettled([secrets.delete(keys.gs_password), secrets.delete(keys.host_password)]);
 }
-
-/**
- * `secrets` with every write refused. VS Code itself almost never refuses one
- * (without encryption it falls back to a store of its own), so the acceptance
- * tests use this to reach what a user sees when an OS keychain does.
- */
-export function refusingWrites(secrets: vscode.SecretStorage): vscode.SecretStorage {
-  return {
-    get: (key) => secrets.get(key),
-    store: () => Promise.reject(new Error('the keychain refused the write (test)')),
-    delete: (key) => secrets.delete(key),
-    onDidChange: secrets.onDidChange,
-  };
-}

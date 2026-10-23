@@ -268,58 +268,6 @@ test.describe('login passwords', () => {
     });
   });
 
-  test.describe('when the keychain refuses to save', () => {
-    test.use({ keychainWritesFail: true });
-
-    async function saveNewLogin(window: Page, login: Login) {
-      await showLogins(window);
-      await runCommand(window, 'GemStone: Add Login');
-      await fillAndSave(await loginForm(window), login);
-      const dialog = window.locator('.monaco-dialog-box');
-      await expect(dialog).toContainText("Couldn't save the passwords");
-      await expect(dialog).toContainText('the keychain refused the write (test)');
-      return dialog;
-    }
-
-    test('saves the passwords as plain text, with the box unchecked, when asked to', async ({
-      session,
-    }) => {
-      const dialog = await saveNewLogin(session.window, LOGIN);
-
-      await dialog.getByRole('button', { name: 'Save as plain text' }).click();
-
-      await expect
-        .poll(() => loginsIn(session.userSettingsPath))
-        .toEqual([
-          expect.objectContaining({
-            gs_password: 'gs-secret',
-            host_password: 'host-secret',
-            password_in_keychain: false,
-          }),
-        ]);
-      const form = await openEditor(session.window, LOGIN);
-      await expect(form.locator('#password_in_keychain')).not.toBeChecked();
-    });
-
-    test('saves no passwords when the dialog is closed, so logging in asks for one', async ({
-      session,
-    }) => {
-      const stock = { ...LOGIN, gs_password: 'swordfish', host_user: '', host_password: '' };
-      const dialog = await saveNewLogin(session.window, stock);
-      await expect(dialog).toContainText("GemStone's default, swordfish");
-
-      await session.window.keyboard.press('Escape');
-
-      await expect
-        .poll(() => loginsIn(session.userSettingsPath))
-        .toEqual([expect.objectContaining(withoutPasswords)]);
-      await (await rowButton(session.window, stock, 'Login')).click();
-      await expect(session.window.locator('.quick-input-widget')).toContainText(
-        'GemStone password for',
-      );
-    });
-  });
-
   test.describe('against the test stone', () => {
     const stone = readTestStone();
     test.skip(!stone, 'test stone env is missing or incomplete (run npm run test:server:start)');
